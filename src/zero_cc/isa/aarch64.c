@@ -1,4 +1,5 @@
 #include "zero_cc/isa/isa_backend.h"
+#include "zero_cc/isa/tramp_stub.h"
 #include "zero_cc/ir/machine_emitter.h"
 #include "zero_cc/ir/asm_emitter.h"
 #include "zero_cc/isa/aarch64_asm.c"  /* Include assembly emission functions */
@@ -782,8 +783,9 @@ static size_t aarch64_emit_lea_label(ZeroCCCompiler *c, int dst_reg) {
  * temps; x9/x10 are scratch, x16-x18 reserved) and x8 - not allocatable,
  * but the linker's _start stub parks the exit_group number there across
  * main, so it must survive the syscall too. Same caller-saved-fix idiom as
- * the OP_CALL lowering. Each emit_push_reg is a 16-byte stp pair, so the
- * 16-byte SP alignment the kernel requires at entry is preserved. */
+ * the OP_CALL lowering. 13 x 8-byte saves = 104 bytes, so one extra
+ * 8-byte pad push keeps SP 16-byte aligned the way the kernel requires at
+ * `svc #0` entry (popped first after the call, LIFO). */
 static void aarch64_emit_syscall(ZeroCCCompiler *c, int arg_count, const int *arg_temps) {
     static const int linux_syscall_regs[7] = {8, 0, 1, 2, 3, 4, 5}; /* x8, x0-x5 */
     static const int clobbered_live_regs[] = {1, 2, 3, 4, 5, 6, 7, 8, 11, 12, 13, 14, 15};
@@ -793,6 +795,7 @@ static void aarch64_emit_syscall(ZeroCCCompiler *c, int arg_count, const int *ar
     for (size_t r = 0; r < sizeof(clobbered_live_regs) / sizeof(clobbered_live_regs[0]); r++) {
         if (BE(c)->emit_push_reg) BE(c)->emit_push_reg(c, clobbered_live_regs[r]);
     }
+    if (BE(c)->emit_push_reg) BE(c)->emit_push_reg(c, 16 /* x16 */); /* 16B alignment pad */
     int src_regs[8] = {0};
     /* Pass 1: resolve every source (spill reloads into scratch_reg2), push
      * the ones that still need a move. */
@@ -818,7 +821,8 @@ static void aarch64_emit_syscall(ZeroCCCompiler *c, int arg_count, const int *ar
         if (BE(c)->emit_pop_reg) BE(c)->emit_pop_reg(c, linux_syscall_regs[a]);
     }
     arm64_emit_u32(c, 0xD4000001); /* svc #0 */
-    /* Restore the saved registers (reverse order - LIFO). */
+    /* Restore the saved registers (reverse order - LIFO; pad first). */
+    if (BE(c)->emit_pop_reg) BE(c)->emit_pop_reg(c, 16 /* x16 */);
     for (size_t r = sizeof(clobbered_live_regs) / sizeof(clobbered_live_regs[0]); r-- > 0; ) {
         if (BE(c)->emit_pop_reg) BE(c)->emit_pop_reg(c, clobbered_live_regs[r]);
     }
@@ -1121,18 +1125,16 @@ static void aarch64_emit_stack_adjust(ZeroCCCompiler *c, int32_t delta) {
 }
 
 static void aarch64_emit_push_reg(ZeroCCCompiler *c, int reg) {
-    /* stp reg, x16, [sp, #-16]! */
-    /* Use x16 (IP0 - caller-saved scratch) as second register */
-    /* Base: 0xA9BF07E0 for stp x0, x1, [sp, #-16]! */
-    /* Clear Rt (bits 4:0) and Rt2 (bits 14:10), set to reg and 16 */
-    arm64_emit_u32(c, (0xA9BF07E0 & ~((0x1F << 10) | 0x1F)) | (16 << 10) | (reg & 0x1F));
+    /* str reg, [sp, #-8]!  (exactly 8 bytes - the OP_CALL lowering's
+     * stack-arg cleanup and extra_sp tracking both assume 8-byte
+     * pushes; the old 16-byte `stp reg, x16` pair left garbage words
+     * interleaved in the caller-arg area of every >8-arg call). */
+    arm64_emit_u32(c, 0xF81F8FE0u | (uint32_t)(reg & 0x1F));
 }
 
 static void aarch64_emit_pop_reg(ZeroCCCompiler *c, int reg) {
-    /* ldp reg, x16, [sp], #16 */
-    /* Base: 0xA8C17FE0 for ldp x0, x1, [sp], #16 */
-    /* Clear Rt (bits 4:0) and Rt2 (bits 14:10), set to reg and 16 */
-    arm64_emit_u32(c, (0xA8C17FE0 & ~((0x1F << 10) | 0x1F)) | (16 << 10) | (reg & 0x1F));
+    /* ldr reg, [sp], #8 */
+    arm64_emit_u32(c, 0xF84087E0u | (uint32_t)(reg & 0x1F));
 }
 
 static void aarch64_emit_label(ZeroCCCompiler *c, const char *name) {
@@ -1271,6 +1273,321 @@ static void aarch64_emit_mod(ZeroCCCompiler *c, int dst, int src1, int src2) {
     /* dst = src1 - (tmp * src2) (msub dst, tmp, src2, src1)
      * msub: 0x9B008000 | (Rm << 16) | (Ra << 10) | (Rn << 5) | Rd */
     arm64_emit_u32(c, 0x9B008000 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 10) | ((tmp & 0x1F) << 5) | (dst & 0x1F));
+}
+
+/* =====================================================================
+ * Phase 3b (cross-ISA): trampoline stub for a capturing nested function.
+ *
+ * `fp = f2; fp(x)` cannot call the mangled nested function directly: its
+ * ABI has the hidden capture parameters. The stub (emitted right after
+ * the nested fn in the same text image) takes the USER arguments, loads
+ * the captures from the static ctx object, re-places everything in the
+ * nested fn's argument slots and `bl`s the real function. The real fn's
+ * `ret` lands on the epilogue below, returning to the ORIGINAL caller.
+ *
+ * AAPCS64 streams: GPR units take consecutive x0..x7 slots, FP units
+ * d0..d7 (complex = 2). >16B struct/union = one GPR unit (hidden
+ * pointer - zerocc's convention, matches the prologue). A >16B by-value
+ * STRUCT capture is copied from ctx into the stub's frame and its
+ * address is passed. A >16B struct RETURN adds nothing: the sret
+ * pointer travels in x8 (Indirect Result Location Register) and is
+ * never touched by the stub.
+ *
+ * Frame layout (x29 = entry_sp - 16, stp x29,x30,[sp,#-16]!):
+ *   [x29+16]            LR (saved by the prologue, NOT pushed - bl links
+ *                       into x30 and leaves SP untouched, like jal)
+ *   [x29+16+8m]         entry stack unit m (the caller's call stack;
+ *                       stack arg 0 sits at [entry_sp])
+ *   [x29-8-8g]          entry GPR arg saves (x0..x7)
+ *   [x29-80-16f]        entry FP arg saves (d0..d7)
+ *   [x29-208-8s]        entry stack unit saves
+ *   [x29-208-8m-32c-8w] >16B by-value capture copies (word w of c)
+ * Scratch: x9 = ctx base, x10/x11 = GPR temps, d9/d10 = FP temps.
+ * ===================================================================== */
+
+/* ldr dst, [x29, #-off] - 8B or FP (wide = d register), off <= 2048.
+ * LDUR/STUR: base | imm9[20:12] | Rn[9:5] | Rt - covers -256..255
+ * directly; deeper offsets go through a `sub x10` base. (The bases
+ * 0xF84/0xF80/0xFC4/0xFC0 are the LDUR/STUR family - NOT the LDR/STR
+ * unsigned-offset 0xF94/0xF90/0xFD4/0xFC0...0xF8C family, which is
+ * 12-bit 8x-scaled.) */
+static void tramp64_ldr_neg(ZeroCCCompiler *c, int dst, uint32_t off, bool fp) {
+    if (off <= 256) {
+        arm64_emit_u32(c, (fp ? 0xFC400000u : 0xF8400000u) |
+                          (((0x200u - off) & 0x1FFu) << 12) | (29u << 5) | (uint32_t)(dst & 0x1F));
+    } else {
+        arm64_emit_u32(c, 0xD1000000u | ((off & 0xFFFu) << 10) | (29u << 5) | 10u); /* sub x10, x29, #off */
+        arm64_emit_u32(c, (fp ? 0xFD400000u : 0xF9400000u) | (10u << 5) | (uint32_t)(dst & 0x1F));
+    }
+}
+
+/* str src, [x29, #-off] - 8B or FP (wide = d register), off <= 2048 */
+static void tramp64_str_neg(ZeroCCCompiler *c, int src, uint32_t off, bool fp) {
+    if (off <= 256) {
+        arm64_emit_u32(c, (fp ? 0xFC000000u : 0xF8000000u) |
+                          (((0x200u - off) & 0x1FFu) << 12) | (29u << 5) | (uint32_t)(src & 0x1F));
+    } else {
+        arm64_emit_u32(c, 0xD1000000u | ((off & 0xFFFu) << 10) | (29u << 5) | 10u); /* sub x10, x29, #off */
+        arm64_emit_u32(c, (fp ? 0xFD000000u : 0xF9000000u) | (10u << 5) | (uint32_t)(src & 0x1F));  /* str src, [x10] */
+    }
+}
+
+void zero_cc_aarch64_emit_tramp_stub(ZeroCCCompiler *c, const ZeroCCFunction *nf) {
+    size_t C = nf->nested_captured_count;
+    size_t U = nf->param_count - C;
+
+    /* ---- build the final unit list: captures + user params ---- */
+    ZeroCCTrampUnit u[ZERO_CC_TRAMP_MAX_UNITS];
+
+    /* ---- pass 1: entry geometry of the USER call's units ----
+     * The user call marshals the user params exactly like zerocc's own
+     * CALL lowering: GPR/FP streams in declaration order up to the 8-
+     * register cap, overflow units into ONE shared stack stream in
+     * declaration order (the real fn's prologue reads them at
+     * [frame + 16 + 8*stack_idx]). The stub sees the user args at
+     * entry: regs x0..x7 / d0..d7, stack unit k at [x29+16+8k] (bl
+     * links into x30 and leaves SP untouched, so stack arg 0 = [sp]).
+     * NOTE: register slot and shared-stack index are SEPARATE namespaces
+     * - a single table cannot encode both (an overflow unit's shared idx
+     * 0..7 would collide with entry register slots 0..7). */
+    bool ue_isfp[ZERO_CC_TRAMP_MAX_UNITS];
+    int  ue_reg[ZERO_CC_TRAMP_MAX_UNITS];   /* reg slot 0..7, or -1 */
+    int  ue_stk[ZERO_CC_TRAMP_MAX_UNITS];   /* shared stack idx, or -1 */
+    int ue_n = 0, e_gpr = 0, e_fp = 0, e_shared = 0;
+    for (size_t ui = 0; ui < U && ue_n < ZERO_CC_TRAMP_MAX_UNITS; ui++) {
+        const ZeroCCType *t = &nf->param_types[C + ui];
+        int slots = zero_cc_tramp_unit_slots(t);
+        bool isfp = zero_cc_tramp_unit_is_fp(t);
+        for (int w = 0; w < slots; w++) {
+            int sidx = isfp ? e_fp : e_gpr;
+            ue_isfp[ue_n] = isfp;
+            if (sidx < 8) { ue_reg[ue_n] = sidx; ue_stk[ue_n] = -1; }
+            else          { ue_reg[ue_n] = -1;  ue_stk[ue_n] = e_shared++; }
+            ue_n++;
+        }
+        if (isfp) e_fp += slots; else e_gpr += slots;
+    }
+    int entry_stack_n = e_shared;
+
+    /* ---- pass 2: build the final unit list (captures + user params)
+     * into the real nested fn's argument slots. Captures come FIRST
+     * (they are the mangled fn's first params), then the user params. */
+    int n = 0, gpr_run = 0, fp_run = 0, decl_stack_run = 0;
+    int copy_words = 0;
+
+    for (size_t ci = 0; ci < C; ci++) {
+        if (nf->nested_capture_byref[ci]) {
+            if (n >= ZERO_CC_TRAMP_MAX_UNITS) return;
+            u[n].is_fp = false;
+            u[n].fin_slot = gpr_run < 8 ? gpr_run++ : -1;
+            u[n].fin_stack = u[n].fin_slot < 0 ? decl_stack_run++ : -1;
+            u[n].src = 0;
+            u[n].src_off = (int)(32 * ci);
+            n++;
+            continue;
+        }
+        const ZeroCCType *t = &nf->nested_capture_types[ci];
+        int slots = zero_cc_tramp_unit_slots(t);
+        bool isfp = zero_cc_tramp_unit_is_fp(t);
+        bool big_struct = (t->tag == TYPE_STRUCT || t->tag == TYPE_UNION) &&
+                          !zero_cc_type_is_vector(t) && t->size > 16;
+        int words = (int)((t->size + 7) / 8);
+        for (int w = 0; w < slots; w++) {
+            if (n >= ZERO_CC_TRAMP_MAX_UNITS) return;
+            u[n].is_fp = isfp;
+            u[n].fin_slot = isfp ? (fp_run < 8 ? fp_run++ : -1)
+                                 : (gpr_run < 8 ? gpr_run++ : -1);
+            u[n].fin_stack = u[n].fin_slot < 0 ? decl_stack_run++ : -1;
+            if (big_struct) {
+                /* one unit total: the ADDRESS of the ctx value copied
+                 * into the stub frame (see the prologue copies). */
+                if (w == 0) {
+                    u[n].src = 5;
+                    u[n].src_off = 208 + 8 * entry_stack_n + 32 * (int)ci;
+                    copy_words += words;
+                }
+                /* slots for a big struct is always 1, so w>0 is dead */
+            } else {
+                u[n].src = 0;
+                u[n].src_off = (int)(32 * ci) + 8 * w;
+            }
+            n++;
+        }
+    }
+    int entry_gpr_off = 8;    /* first entry GPR save: [x29-8] */
+    int entry_fp_off = 80;    /* first entry FP save: [x29-80] */
+    int entry_st_off = 208;   /* first entry stack save: [x29-208] */
+
+    int j = 0;                /* index into the ue_* entry tables */
+    for (size_t ui = 0; ui < U; ui++) {
+        const ZeroCCType *t = &nf->param_types[C + ui];
+        int slots = zero_cc_tramp_unit_slots(t);
+        bool isfp = zero_cc_tramp_unit_is_fp(t);
+        for (int w = 0; w < slots; w++) {
+            if (n >= ZERO_CC_TRAMP_MAX_UNITS) return;
+            u[n].is_fp = isfp;
+            u[n].fin_slot = isfp ? (fp_run < 8 ? fp_run++ : -1)
+                                 : (gpr_run < 8 ? gpr_run++ : -1);
+            u[n].fin_stack = u[n].fin_slot < 0 ? decl_stack_run++ : -1;
+            if (ue_isfp[j]) {
+                if (ue_reg[j] >= 0) {
+                    u[n].src = 2;                       /* entry FP save */
+                    u[n].src_off = entry_fp_off + 16 * ue_reg[j];
+                } else {
+                    u[n].src = 3;                       /* shared entry stack */
+                    u[n].src_off = entry_st_off + 8 * ue_stk[j];
+                }
+            } else if (ue_reg[j] >= 0) {
+                u[n].src = 1;                           /* entry GPR save */
+                u[n].src_off = entry_gpr_off + 8 * ue_reg[j];
+            } else {
+                u[n].src = 3;                           /* shared entry stack */
+                u[n].src_off = entry_st_off + 8 * ue_stk[j];
+            }
+            n++;
+            j++;
+        }
+    }
+    int fin_stack_n = decl_stack_run;
+
+    size_t D = 208 + 8 * (size_t)entry_stack_n + 8 * (size_t)copy_words;
+    if (decl_stack_run & 1) D += 8; /* pre-push alignment pad (CALL model) */
+    D = (D + 15) & ~(size_t)15;
+
+    /* ---- prologue ---- */
+    arm64_emit_u32(c, 0xA9BF7BFDu);  /* stp x29, x30, [sp, #-16]! */
+    arm64_emit_u32(c, 0x910003FDu);  /* mov x29, sp */
+    arm64_emit_u32(c, 0xD10003FFu | ((D & 0xFFFu) << 10));  /* sub sp, sp, #D */
+
+    /* save entry GPR arg regs x0..x7 */
+    for (int g = 0; g < 8; g++)
+        tramp64_str_neg(c, g, entry_gpr_off + 8 * g, false);
+    /* save entry FP arg regs d0..d7 */
+    for (int f = 0; f < 8; f++)
+        tramp64_str_neg(c, f, entry_fp_off + 16 * f, true);
+    /* save entry stack units: [x29+16+8m] -> [x29-208-8m] (via x10) */
+    for (int s = 0; s < entry_stack_n; s++) {
+        arm64_emit_u32(c, 0xF9400000u | ((((16u + 8u * (uint32_t)s) / 8u) << 10) | (29u << 5)) | 10u); /* ldr x10, [x29, #16+8s] */
+        tramp64_str_neg(c, 10, entry_st_off + 8 * s, false);
+    }
+
+    /* ctx base in x9: adrp+add with the data reloc (same shape as
+     * OP_MOV_GLOBAL - the ELF writer adds the companion hi21). */
+    arm64_emit_u32(c, 0x90000000u | 9u);          /* adrp x9, 0 */
+    arm64_emit_u32(c, 0x91000000u | (9u << 5) | 9u); /* add x9, x9, #0 */
+    if (c->reloc_count < ZERO_CC_MAX_RELOCS) {
+        ZeroCCReloc *r = &c->relocs[c->reloc_count++];
+        r->text_patch_offset = me_get_offset(c) - 4;
+        snprintf(r->target_symbol, sizeof(r->target_symbol), "%s", nf->tramp_ctx_name);
+        r->is_call = false;
+    } else {
+        zero_cc_reloc_overflow_note(c);
+    }
+
+    /* copy >16B by-value struct captures from ctx into the frame
+     * (storage for capture ci sits at [x29 - (208 + 8m + 32ci + 8w)] -
+     * same expression the pointer unit's src_off uses). */
+    for (size_t ci = 0; ci < C; ci++) {
+        if (nf->nested_capture_byref[ci]) continue;
+        const ZeroCCType *t = &nf->nested_capture_types[ci];
+        bool big_struct = (t->tag == TYPE_STRUCT || t->tag == TYPE_UNION) &&
+                          !zero_cc_type_is_vector(t) && t->size > 16;
+        if (!big_struct) continue;
+        int words = (int)((t->size + 7) / 8);
+        for (int w = 0; w < words; w++) {
+            arm64_emit_u32(c, 0xF9400000u | ((((32u * (uint32_t)ci) + 8u * (uint32_t)w) / 8u) << 10) | (9u << 5) | 11u); /* ldr x11, [x9, #32ci+8w] */
+            tramp64_str_neg(c, 11, entry_st_off + 8 * entry_stack_n + 32 * (int)ci + 8 * w, false);
+        }
+    }
+
+    /* ---- place final REGISTER units ---- */
+    for (int i = 0; i < n; i++) {
+        ZeroCCTrampUnit *a = &u[i];
+        if (a->fin_slot < 0) continue;
+        if (a->is_fp) {
+            switch (a->src) {
+            case 0:  /* ctx: ldr d_dst, [x9, #off] */
+                arm64_emit_u32(c, 0xFD400000u | (((uint32_t)a->src_off / 8u) << 10) | (9u << 5) | (uint32_t)(a->fin_slot & 0x1F));
+                break;
+            case 2:  /* entry FP save */
+                tramp64_ldr_neg(c, a->fin_slot, (uint32_t)a->src_off, true);
+                break;
+            case 3:  /* entry stack save (FP stack unit) */
+                tramp64_ldr_neg(c, a->fin_slot, (uint32_t)a->src_off, true);
+                break;
+            default: break;
+            }
+        } else {
+            switch (a->src) {
+            case 0:  /* ctx: ldr x_dst, [x9, #off] */
+                arm64_emit_u32(c, 0xF9400000u | (((uint32_t)a->src_off / 8u) << 10) | (9u << 5) | (uint32_t)(a->fin_slot & 0x1F));
+                break;
+            case 1:  /* entry GPR save */
+            case 3:  /* entry stack save */
+                tramp64_ldr_neg(c, a->fin_slot, (uint32_t)a->src_off, false);
+                break;
+            case 5:  /* address of the big-capture frame storage */
+                arm64_emit_u32(c, 0xD1000000u | (((uint32_t)a->src_off & 0xFFFu) << 10) | (29u << 5) | 10u); /* sub x10, x29, #off */
+                arm64_emit_u32(c, 0xAA0003E0u | (10u << 16) | (uint32_t)(a->fin_slot & 0x1F));  /* mov x_dst, x10 */
+                break;
+            default: break;
+            }
+        }
+    }
+
+    /* ---- final STACK units: push in DESCENDING index order so unit 0
+     * ends up at the lowest address (= [sp] just before the bl, which
+     * is [sp+8] at the callee - the shared stream's slot 0) ---- */
+    for (int idx = fin_stack_n - 1; idx >= 0; idx--) {
+        for (int i = 0; i < n; i++) {
+            ZeroCCTrampUnit *a = &u[i];
+            if (a->fin_stack != idx) continue;
+            if (a->is_fp) {
+                switch (a->src) {
+                case 0:
+                    arm64_emit_u32(c, 0xFD400000u | (((uint32_t)a->src_off / 8u) << 10) | (9u << 5) | 9u); /* ldr d9, [x9, #off] */
+                    break;
+                case 2:
+                case 3:
+                    tramp64_ldr_neg(c, 9, (uint32_t)a->src_off, true);
+                    break;
+                default: break;
+                }
+                arm64_emit_u32(c, 0xFC1F8FE0u | 9u); /* str d9, [sp, #-8]! */
+            } else {
+                switch (a->src) {
+                case 0:
+                    arm64_emit_u32(c, 0xF9400000u | (((uint32_t)a->src_off / 8u) << 10) | (9u << 5) | 10u); /* ldr x10, [x9, #off] */
+                    break;
+                case 1:
+                case 3:
+                    tramp64_ldr_neg(c, 10, (uint32_t)a->src_off, false);
+                    break;
+                case 5:
+                    arm64_emit_u32(c, 0xD1000000u | (((uint32_t)a->src_off & 0xFFFu) << 10) | (29u << 5) | 10u); /* sub x10, x29, #off */
+                    break;
+                default: break;
+                }
+                arm64_emit_u32(c, 0xF81F8FE0u | 10u); /* str x10, [sp, #-8]! */
+            }
+        }
+    }
+
+    /* 16-byte stack alignment at the bl: handled by the pre-push pad in
+     * the prologue (same model as zerocc's OP_CALL lowering: pad 8 when
+     * fin_stack_n is ODD, BEFORE the pushes - a post-push pad would shift
+     * the stack units away from [entry_sp], where the real fn's prologue
+     * reads the shared stream). bl leaves SP untouched. */
+
+    /* bl the real nested function - same text image, exact imm26
+     * (AArch64 bl is PC-relative with PC = the bl's own address). */
+    size_t call_pos = me_get_offset(c);
+    arm64_emit_u32(c, 0x94000000u | (uint32_t)(((int64_t)(nf->text_offset - call_pos) >> 2) & 0x3FFFFFFu));
+
+    /* the target's `ret` lands here: return to the original caller */
+    arm64_emit_u32(c, 0x910003BFu);  /* mov sp, x29 */
+    arm64_emit_u32(c, 0xA8C17BFDu);  /* ldp x29, x30, [sp], #16 */
+    arm64_emit_u32(c, 0xD65F03C0u);  /* ret */
 }
 
 /* ARM64 backend instance */

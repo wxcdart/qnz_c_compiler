@@ -1776,12 +1776,18 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                  * with a relative `call` (both live in this text image, so
                  * the offset is known at emission time - no relocation
                  * needed) and reads its captures from the static ctx object
-                 * via a movabs + absolute data reloc (R_X86_64_64 in the
-                 * AOT .o, the JIT link patch otherwise). x86-64 only. */
-                if (nf->tramp_stub_fn_idx >= 0 && c->isa == ISA_X86_64) {
+                 * (x86-64: movabs + absolute data reloc; AArch64: adrp+add
+                 * pair reloc; RISC-V64: auipc+addi pair reloc).
+                 * Machine-code paths only (JIT + raw AOT). */
+                if (nf->tramp_stub_fn_idx >= 0) {
                     ZeroCCFunction *sf = &c->functions[nf->tramp_stub_fn_idx];
                     sf->text_offset = c->text_section.length;
-                    zero_cc_x86_emit_tramp_stub(c, nf);
+                    if (c->isa == ISA_X86_64)
+                        zero_cc_x86_emit_tramp_stub(c, nf);
+                    else if (c->isa == ISA_AARCH64)
+                        zero_cc_aarch64_emit_tramp_stub(c, nf);
+                    else if (c->isa == ISA_RISCV64)
+                        zero_cc_riscv_emit_tramp_stub(c, nf);
                 }
             }
         } else {

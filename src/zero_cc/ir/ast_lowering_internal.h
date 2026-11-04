@@ -410,7 +410,8 @@ static inline int zc_lower_fn_value(ZeroCCCompiler *c, const ZeroCCFunction *fn)
         ir_emit_mov_global(c, (uint16_t)t, zero_cc_fn_emit_symbol(fn));
         return t;
     }
-    if (c->isa != ISA_X86_64 || fn->tramp_stub_fn_idx < 0) {
+    if ((c->isa != ISA_X86_64 && c->isa != ISA_AARCH64 && c->isa != ISA_RISCV64) ||
+        fn->tramp_stub_fn_idx < 0) {
         diag_report_error_at_token(c,
             "cannot take the address of nested function '%s' "
             "(capturing nested functions need trampoline support on this target)",
@@ -444,18 +445,17 @@ static inline int zc_lower_fn_value(ZeroCCCompiler *c, const ZeroCCFunction *fn)
             dst = d2;
         }
         if (fn->nested_capture_byref[ci]) {
-            int w = c->next_temp_id++;
-            /* Multi-level nesting: the name may resolve to a by-reference
-             * capture pointer param of the enclosing nested function -
-             * then the storage we need is the pointer VALUE itself
-             * (keeps the deeper function's indirection at one level).
-             * VLA params have no frame slot to take the address of. */
-            bool sym_is_capture_ptr = sym->is_capture_mirror;
-            if (sym->is_vla || sym_is_capture_ptr) {
-                zc_sym_load(c, sym, 0, w);      /* the pointer value */
-            } else {
-                w = zc_sym_addr(c, sym, 0);      /* address of the storage */
-            }
+            /* The ctx word must be the STORAGE ADDRESS the deeper
+             * function's hidden pointer param should point at. For a
+             * plain local that is &local; for a by-ref capture MIRROR
+             * (multi-level nesting) the mirror's frame slot holds the
+             * enclosing pointer itself, so zc_sym_addr returns that
+             * pointer value - NOT the pointee (zc_sym_load would
+             * dereference it, storing x instead of &x and making the
+             * deeper function dereference an int as a pointer).
+             * VLA params are never by-ref captures (scalar_small
+             * excludes them), so no special case is needed. */
+            int w = zc_sym_addr(c, sym, 0);
             ir_emit_store_64(c, (uint16_t)w, (uint16_t)dst);
         } else {
             size_t sz = pt->size ? pt->size : 8;

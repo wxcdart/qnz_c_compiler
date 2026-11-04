@@ -2010,11 +2010,15 @@ static int tramp_unit_slots(const ZeroCCType *t) {
     return tramp_unit_gpr_slots(t);
 }
 
-/* mov xmm, [rbp|rm + disp] with F2 (movdqa/movdqu), 16B or 8B source */
+/* Load xmm from [base + disp]: 16B via movdqu (F3 0F 6F /r, no alignment
+ * requirement) or 8B via movsd (F2 0F 10 /r). NOTE: F2 0F 6E/6F is NOT a
+ * valid 16-byte XMM load - that was a latent Sprint-93 bug (corrupted
+ * final FP placement for nested functions with FP user args). */
 static void tramp_mov_xmm_mem(ZeroCCCompiler *c, int xmm, int base, int32_t off, bool wide16) {
     x86_rex(c, 1, (xmm >> 3) & 1, 0, (base >> 3) & 1);
-    me_emit_u8(c, 0xF2);
-    me_emit_u8(c, wide16 ? 0x6E : 0x6F);
+    me_emit_u8(c, wide16 ? 0xF3 : 0xF2);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, wide16 ? 0x6F : 0x10);
     if (off >= -128 && off <= 127 && off != 0 || (off == 0 && (base & 7) == X86_RBP)) {
         x86_modrm(c, 1, xmm & 7, base & 7);
         me_emit_u8(c, (uint8_t)(int8_t)off);
@@ -2118,7 +2122,9 @@ void zero_cc_x86_emit_tramp_stub(ZeroCCCompiler *c, const ZeroCCFunction *nf) {
     }
     int fin_stack_n = decl_stack_run;
 
+    int fin_stack_n_pre = decl_stack_run; /* for the pre-push alignment pad */
     int frame = 192 + 8 * entry_stack_n;
+    if (fin_stack_n_pre & 1) frame += 8;  /* pad BEFORE the pushes (CALL model) */
     if (frame & 15) frame += 16 - (frame & 15);
 
     /* ---- prologue ---- */
@@ -2135,13 +2141,22 @@ void zero_cc_x86_emit_tramp_stub(ZeroCCCompiler *c, const ZeroCCFunction *nf) {
     /* save entry GPR arg regs -> [rbp-8..-48] */
     static const int gpr_arg_reg[6] = {7, 6, 2, 1, 8, 9};
     for (int s = 0; s < 6; s++) x86_rm(c, 0x89, gpr_arg_reg[s], X86_RBP, -8 * (s + 1));
-    /* save entry XMM arg regs -> [rbp-64-16x] (movaps m128, xmm) */
+    /* save entry XMM arg regs -> [rbp-64-16x]. 0F 29 /r is the STORE form
+     * (movaps m128, xmm); 0F 28 /r would LOAD (frame garbage -> xmm0-7),
+     * which is what the Sprint-93 code accidentally emitted. x>=5 needs
+     * disp32: -64-16*5 = -144 overflows disp8. */
     for (int x = 0; x < 8; x++) {
+        int32_t off = -64 - 16 * x;
         x86_rex(c, 1, x >> 3, 0, 0);
-        me_emit_u8(c, 0x0F);             /* movaps m128, xmm = 0F 28 /r */
-        me_emit_u8(c, 0x28);
-        x86_modrm(c, 1, x & 7, X86_RBP);
-        me_emit_u8(c, (uint8_t)(int8_t)(-64 - 16 * x));
+        me_emit_u8(c, 0x0F);
+        me_emit_u8(c, 0x29);
+        if (off >= -128 && off <= 127) {
+            x86_modrm(c, 1, x & 7, X86_RBP);
+            me_emit_u8(c, (uint8_t)(int8_t)off);
+        } else {
+            x86_modrm(c, 2, x & 7, X86_RBP);
+            me_emit_u32(c, (uint32_t)off);
+        }
     }
     /* save entry stack units: [rbp+16+8m] -> [rbp-192-8m] (via r11).
      * rbp = entry_rsp - 8 (push rbp ran first), so the return address is
@@ -2194,13 +2209,10 @@ void zero_cc_x86_emit_tramp_stub(ZeroCCCompiler *c, const ZeroCCFunction *nf) {
             else               tramp_push_mem(c, X86_RBP, u[i].src_off);
         }
     }
-    /* 16-byte stack alignment at the call: rsp must be 8 mod 16. The
-     * pushes took rsp from 0-mod-16 (prologue) by 8*fin_stack_n, and the
-     * call itself adds 8 - so pad when fin_stack_n is EVEN (and > 0). */
-    if ((fin_stack_n & 1) == 0 && fin_stack_n > 0) {
-        me_emit_u8(c, 0x48); me_emit_u8(c, 0x83); me_emit_u8(c, 0xEC);
-        me_emit_u8(c, 8);
-    }
+    /* 16-byte stack alignment at the call: handled by the pre-push pad
+     * in the prologue (same model as zerocc's OP_CALL lowering: pad 8
+     * when fin_stack_n is ODD, BEFORE the pushes - a post-push pad would
+     * shift the stack units away from [entry_sp]). */
 
     /* call the real nested function (same image: exact rel32, no reloc) */
     me_emit_u8(c, 0xE8);

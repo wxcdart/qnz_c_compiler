@@ -376,9 +376,13 @@ static inline int backend_get_fp_arg_reg(const ZeroCCISABackend *be, int idx) {
 void x86_init_asm_emission(ZeroCCISABackend *be);
 
 /* Phase 3b: emit the raw trampoline stub for a capturing nested function
- * (x86-64 only; called from the nested-compile loop in compile.h right
- * after the nested fn's body is emitted). */
+ * (called from the nested-compile loop in compile.h right after the
+ * nested fn's body is emitted). MC paths only (JIT + raw AOT); the -S
+ * path cannot represent the raw stub bytes and leaves the symbol
+ * undefined (same pre-existing limitation on all three ISAs). */
 void zero_cc_x86_emit_tramp_stub(ZeroCCCompiler *c, const ZeroCCFunction *nf);
+void zero_cc_aarch64_emit_tramp_stub(ZeroCCCompiler *c, const ZeroCCFunction *nf);
+void zero_cc_riscv_emit_tramp_stub(ZeroCCCompiler *c, const ZeroCCFunction *nf);
 void aarch64_init_asm_emission(ZeroCCISABackend *be);
 void riscv64_init_asm_emission(ZeroCCISABackend *be);
 

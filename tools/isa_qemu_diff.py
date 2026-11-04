@@ -150,6 +150,25 @@ def main():
         print(f"\n=== {isa}  (zerocc target={cfg['target']}, "
               f"ref={cfg['ref']} [static musl], run={cfg['qemu']}, RAW binary path) ===")
         for t in tests:
+            # Per-ISA opt-out: a test may carry a directive
+            #   /* isa-skip: riscv32 */
+            # for features the reference supports but a given target ISA
+            # intentionally does not yet (e.g. nested-function trampolines
+            # are MC-path and x86-64/AArch64/RV64 only; RV32 rejects them
+            # cleanly). Counted as skipped, not as a build-fail.
+            skip_isa = False
+            try:
+                head = t.read_text(errors="replace").splitlines()[:5]
+                for line in head:
+                    if "isa-skip" in line:
+                        for tok in line.split("//")[-1].split("/*")[-1].split("*/")[0].split(","):
+                            if tok.strip() == isa:
+                                skip_isa = True
+            except OSError:
+                pass
+            if skip_isa:
+                print(f"  skip(isa)  {t.name:<18}")
+                continue
             total += 1
             exe_zc = work / f"{t.stem}_{isa}_zc"
             exe_rf = work / f"{t.stem}_{isa}_ref"

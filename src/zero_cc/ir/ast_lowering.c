@@ -419,7 +419,12 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
             sym->stack_offset = 0;
             sym->is_promoted = true;
             sym->promoted_vreg = c->next_temp_id++;
-            bool is_fp = (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE);
+            /* Phase 3b: a by-ref capture's ABI param is a POINTER (GPR),
+             * but sym->type is retyped to the pointee for body lowering -
+             * a double capture would misclassify as an FP arg here. */
+            bool cap_byref = (p < fn->nested_captured_count && fn->nested_capture_byref &&
+                              fn->nested_capture_byref[p]);
+            bool is_fp = !cap_byref && (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE);
             int arg_idx = is_fp ? fp_idx++ : int_idx++;
             ir_emit_param_load(c, sym->promoted_vreg, arg_idx, is_fp);
             if (!is_fp) {
@@ -466,7 +471,13 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         for (size_t p = 0; p < fn->param_count && p < (size_t)c->local_count; p++) {
             ZeroCCSym *sym = &c->locals[p];
             if (!sym->is_param) continue;
-            bool is_fp = (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE);
+            /* Phase 3b: a by-ref capture's ABI param is a POINTER (GPR),
+             * but sym->type is retyped to the pointee for body lowering -
+             * a double/float capture would misclassify as an FP arg and
+             * the stub's GPR-pointer placement would not match. */
+            bool cap_byref = (p < fn->nested_captured_count && fn->nested_capture_byref &&
+                              fn->nested_capture_byref[p]);
+            bool is_fp = !cap_byref && (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE);
             bool is_multi_chunk_struct = (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION ||
                                           (sym->type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&sym->type))) && sym->type.size > 8;
 

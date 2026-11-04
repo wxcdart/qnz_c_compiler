@@ -9,6 +9,7 @@
 #include <stdio.h>
 
 #include "zero_cc/types/types.h"
+#include "zero_cc/isa/tramp_stub.h"
 #include "zero_cc/types/global_vars.h"
 #include "zero_cc/parser/parser.h"
 #include "zero_cc/jit/type_info.h"
@@ -1157,7 +1158,7 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
                              * captures have no static-stub representation. */
                             nf->tramp_stub_fn_idx = -1;
                             if (nf->nested_captured_count > 0 && !nf->is_variadic &&
-                                c->isa == ISA_X86_64 &&
+                                (c->isa == ISA_X86_64 || c->isa == ISA_AARCH64 || c->isa == ISA_RISCV64) &&
                                 c->function_count < ZERO_CC_MAX_FUNCTIONS) {
                                 bool stub_ok = true;
                                 for (size_t ci = 0; ci < nf->nested_captured_count; ci++) {
@@ -1166,6 +1167,8 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
                                         if (csz == 0 || csz > 32) { stub_ok = false; break; }
                                     }
                                 }
+                                if (stub_ok && zero_cc_tramp_total_units(nf) > ZERO_CC_TRAMP_MAX_UNITS)
+                                    stub_ok = false;
                                 if (stub_ok) {
                                     size_t nf_idx = c->function_count - 1;
                                     snprintf(nf->tramp_stub_name, sizeof(nf->tramp_stub_name),
