@@ -49,6 +49,35 @@ static void aarch64_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
 
     size_t aligned_sz = (stack_size + 15) & ~((size_t)15);
 
+    if (c->lowering.frame_align > 16) {
+        /* C11 _Alignas(N) realign mode: lower SP to align_down(E-16, N)
+         * through x16 (SP cannot take a logical-op destination). Slots
+         * are [SP' - k] via frame_delta = frame; epilogue = FP-mode leave.
+         * CSR slots are SP-anchored at frame-offset(sp). */
+        size_t N = (size_t)c->lowering.frame_align;
+        fprintf(out, "\tstp\tx29, x30, [sp, #-16]!\n");
+        fprintf(out, "\tmov\tx29, sp\n");
+        fprintf(out, "\tmov\tx16, sp\n");
+        fprintf(out, "\tand\tx16, x16, #-%zu\n", N);
+        fprintf(out, "\tsub\tx16, x29, x16\n");
+        fprintf(out, "\tsub\tsp, sp, x16\n");
+        fprintf(out, "\tsub\tsp, sp, #%zu\n", (size_t)c->lowering.frame_delta);
+
+        const int *callee_saved = BE(c)->conv->callee_saved_gpr;
+        int count = BE(c)->conv->callee_saved_gpr_count;
+        uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
+        for (int i = 0; i < count; i++) {
+            int reg = callee_saved[i];
+            if (reg == 29 || reg == 30) continue; /* x29, x30 saved by stp */
+            if (!((mask >> reg) & 1u)) continue;
+            const char *reg_name = BE(c)->get_hw_reg_name(reg);
+            int offset = BE(c)->conv->callee_save_slot_offsets[i];
+            fprintf(out, "\tstr\t%s, [sp, #%d]\n", reg_name,
+                    (int)c->lowering.frame_delta - offset);
+        }
+        return;
+    }
+
     if (c->lowering.omit_frame_pointer) {
         /* Option 4: no frame pointer. Save only the return address (16 bytes
          * to keep SP 16-byte aligned); slots are addressed from SP with a
@@ -103,9 +132,10 @@ static void aarch64_emit_epilogue_asm(ZeroCCCompiler *c) {
         return;
     }
 
-    if (c->lowering.omit_frame_pointer) {
+    if (c->lowering.omit_frame_pointer && c->lowering.frame_align <= 16) {
         /* Option 4: restore CSRs from [sp, #aligned_sz-offset], raise SP by
-         * the frame, restore x30, ret. */
+         * the frame, restore x30, ret. (_Alignas realign mode falls through
+         * to the FP-mode leave: x29 holds the pre-realign base.) */
         size_t aligned_sz = (size_t)c->lowering.frame_delta;
         const int *callee_saved = BE(c)->conv->callee_saved_gpr;
         int count = BE(c)->conv->callee_saved_gpr_count;
@@ -127,7 +157,8 @@ static void aarch64_emit_epilogue_asm(ZeroCCCompiler *c) {
         return;
     }
 
-    /* Restore callee-saved registers (only allocated ones) */
+    /* Restore callee-saved registers (only allocated ones);
+     * _Alignas realign mode: SP-anchored [sp, #frame-offset]. */
     const int *callee_saved = BE(c)->conv->callee_saved_gpr;
     int count = BE(c)->conv->callee_saved_gpr_count;
     uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
@@ -138,7 +169,12 @@ static void aarch64_emit_epilogue_asm(ZeroCCCompiler *c) {
         if (!((mask >> reg) & 1u)) continue;
         const char *reg_name = BE(c)->get_hw_reg_name(reg);
         int offset = BE(c)->conv->callee_save_slot_offsets[i];
-        fprintf(out, "\tldr\t%s, [x29, #-%d]\n", reg_name, offset);
+        if (c->lowering.frame_align > 16) {
+            fprintf(out, "\tldr\t%s, [sp, #%d]\n", reg_name,
+                    (int)c->lowering.frame_delta - offset);
+        } else {
+            fprintf(out, "\tldr\t%s, [x29, #-%d]\n", reg_name, offset);
+        }
     }
 
     fprintf(out, "\tmov\tsp, x29\n");

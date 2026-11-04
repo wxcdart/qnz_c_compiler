@@ -47,6 +47,55 @@ static void riscv_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
     size_t aligned_sz = (stack_size + 15) & ~((size_t)15);
     size_t total_alloc = aligned_sz + 16; /* 16 bytes for ra and s0 above s0 */
 
+    if (c->lowering.frame_align > 16) {
+        /* C11 _Alignas(N) realign mode: save ra/s0, s0 = pre-realign base,
+         * andi sp to N, allocate the N-rounded frame below SP'. CSR slots
+         * are SP-anchored at frame-offset(sp). Epilogue = FP-mode leave. */
+        const char *st_op = (c->isa == ISA_RISCV32) ? "sw" : "sd";
+        size_t N = (size_t)c->lowering.frame_align;
+        size_t frame = (size_t)c->lowering.frame_delta;
+        fprintf(out, "\taddi\tsp, sp, -16\n");
+        fprintf(out, "\t%s\tra, %d(sp)\n", st_op, (c->isa == ISA_RISCV32) ? 4 : 8);
+        fprintf(out, "\t%s\ts0, 0(sp)\n", st_op);
+        fprintf(out, "\taddi\ts0, sp, 0\n");
+        if (N < 4096) {
+            fprintf(out, "\tandi\tsp, sp, -%zu\n", N);
+        } else {
+            /* N == 4096: ~(N-1) needs bits above the 12-bit andi immediate.
+             * Use a register mask (t0 is free at function entry). */
+            fprintf(out, "\tli\tt0, -%zu\n", N);
+            fprintf(out, "\tand\tsp, sp, t0\n");
+        }
+        if (frame <= 2047) {
+            fprintf(out, "\taddi\tsp, sp, -%zu\n", frame);
+        } else {
+            /* addi's 12-bit immediate caps the frame at 2047 */
+            fprintf(out, "\tli\tt0, %zu\n", frame);
+            fprintf(out, "\tsub\tsp, sp, t0\n");
+        }
+
+        const int *callee_saved = BE(c)->conv->callee_saved_gpr;
+        int count = BE(c)->conv->callee_saved_gpr_count;
+        uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
+
+        for (int i = 0; i < count; i++) {
+            int reg = callee_saved[i];
+            if (reg == 8) continue; /* s0 already saved above */
+            if (!((mask >> reg) & 1u)) continue;
+            const char *reg_name = BE(c)->get_hw_reg_name(reg);
+            int offset = BE(c)->conv->callee_save_slot_offsets[i];
+            int disp = (int)(frame - (size_t)offset);
+            if (disp >= -2048 && disp <= 2047) {
+                fprintf(out, "\t%s\t%s, %d(sp)\n", st_op, reg_name, disp);
+            } else {
+                fprintf(out, "\tli\tt0, %d\n", disp);
+                fprintf(out, "\tadd\tt0, sp, t0\n");
+                fprintf(out, "\t%s\t%s, 0(t0)\n", st_op, reg_name);
+            }
+        }
+        return;
+    }
+
     if (c->lowering.omit_frame_pointer) {
         /* Option 4: no frame pointer (s0). The decision in ast_lowering.c
          * guarantees total_alloc <= 2047. The s0 slot is left unused, so
@@ -104,7 +153,7 @@ static void riscv_emit_epilogue_asm(ZeroCCCompiler *c) {
         return;
     }
 
-    if (c->lowering.omit_frame_pointer) {
+    if (c->lowering.omit_frame_pointer && c->lowering.frame_align <= 16) {
         /* Option 4: no s0. aligned_sz = frame_delta. */
         size_t aligned_sz = (size_t)c->lowering.frame_delta;
         const char *l = (c->isa == ISA_RISCV32) ? "lw" : "ld";
@@ -129,7 +178,8 @@ static void riscv_emit_epilogue_asm(ZeroCCCompiler *c) {
         return;
     }
 
-    /* Restore callee-saved registers s1..s11 (only allocated ones) */
+    /* Restore callee-saved registers s1..s11 (only allocated ones);
+     * _Alignas realign mode: SP-anchored at frame-offset(sp). */
     const int *callee_saved = BE(c)->conv->callee_saved_gpr;
     int count = BE(c)->conv->callee_saved_gpr_count;
     uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
@@ -140,7 +190,17 @@ static void riscv_emit_epilogue_asm(ZeroCCCompiler *c) {
         if (!((mask >> reg) & 1u)) continue;
         const char *reg_name = BE(c)->get_hw_reg_name(reg);
         int offset = BE(c)->conv->callee_save_slot_offsets[i];
-        if (c->isa == ISA_RISCV32) {
+        const char *ld_op2 = (c->isa == ISA_RISCV32) ? "lw" : "ld";
+        if (c->lowering.frame_align > 16) {
+            int disp = (int)c->lowering.frame_delta - offset;
+            if (disp >= -2048 && disp <= 2047) {
+                fprintf(out, "\t%s\t%s, %d(sp)\n", ld_op2, reg_name, disp);
+            } else {
+                fprintf(out, "\tli\tt0, %d\n", disp);
+                fprintf(out, "\tadd\tt0, sp, t0\n");
+                fprintf(out, "\t%s\t%s, 0(t0)\n", ld_op2, reg_name);
+            }
+        } else if (c->isa == ISA_RISCV32) {
             fprintf(out, "\tlw\t%s, -%d(s0)\n", reg_name, offset);
         } else {
             fprintf(out, "\tld\t%s, -%d(s0)\n", reg_name, offset);
@@ -173,7 +233,16 @@ static void riscv_emit_load_asm(ZeroCCCompiler *c, int dst, int base, int32_t of
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
     const char *base_name = BE(c)->get_hw_reg_name(base);
     const char *op = (c->isa == ISA_RISCV32) ? "lw" : "ld";
-    fprintf(out, "\t%s\t%s, %d(%s)\n", op, dst_name, offset, base_name);
+    if (offset >= -2048 && offset <= 2047) {
+        fprintf(out, "\t%s\t%s, %d(%s)\n", op, dst_name, offset, base_name);
+    } else {
+        /* S/I-type immediates are 12-bit; large frames need a register base */
+        int scratch = (dst != 5) ? 5 : 6; /* t0 (or t1 if dst is t0) */
+        const char *sc_name = BE(c)->get_hw_reg_name(scratch);
+        fprintf(out, "\tli\t%s, %d\n", sc_name, (int)offset);
+        fprintf(out, "\tadd\t%s, %s, %s\n", sc_name, base_name, sc_name);
+        fprintf(out, "\t%s\t%s, 0(%s)\n", op, dst_name, sc_name);
+    }
 }
 
 /* STORE: sd/sw src, offset(base) */
@@ -181,7 +250,16 @@ static void riscv_emit_store_asm(ZeroCCCompiler *c, int src, int base, int32_t o
     const char *src_name = BE(c)->get_hw_reg_name(src);
     const char *base_name = BE(c)->get_hw_reg_name(base);
     const char *op = (c->isa == ISA_RISCV32) ? "sw" : "sd";
-    fprintf(out, "\t%s\t%s, %d(%s)\n", op, src_name, offset, base_name);
+    if (offset >= -2048 && offset <= 2047) {
+        fprintf(out, "\t%s\t%s, %d(%s)\n", op, src_name, offset, base_name);
+    } else {
+        /* S/I-type immediates are 12-bit; large frames need a register base */
+        int scratch = (src != 5) ? 5 : 6; /* t0 (or t1 if src is t0) */
+        const char *sc_name = BE(c)->get_hw_reg_name(scratch);
+        fprintf(out, "\tli\t%s, %d\n", sc_name, (int)offset);
+        fprintf(out, "\tadd\t%s, %s, %s\n", sc_name, base_name, sc_name);
+        fprintf(out, "\t%s\t%s, 0(%s)\n", op, src_name, sc_name);
+    }
 }
 
 /* ADD: add dst, src1, src2 */
@@ -279,6 +357,14 @@ static void riscv_emit_extend_asm(ZeroCCCompiler *c, int dst, int src, int width
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
     const char *src_name = BE(c)->get_hw_reg_name(src);
     int shamt = (width == 1) ? 56 : (width == 2) ? 48 : 32;
+    if (c->isa == ISA_RISCV32 && width == 4) {
+        /* 32-bit values already fill a RV32 register: extension is a no-op
+         * (slli x, x, 32 is illegal on RV32 - shamt field is 5 bits). */
+        return;
+    }
+    if (c->isa == ISA_RISCV32) {
+        shamt = (width == 1) ? 31 : 30;
+    }
     if (sign) {
         fprintf(out, "\tslli\t%s, %s, %d\n", dst_name, src_name, shamt);
         fprintf(out, "\tsrai\t%s, %s, %d\n", dst_name, dst_name, shamt);
@@ -388,7 +474,13 @@ static void riscv_emit_not_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) {
 static void riscv_emit_lea_asm(ZeroCCCompiler *c, int dst, int base, int32_t offset, FILE *out) {
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
     const char *base_name = BE(c)->get_hw_reg_name(base);
-    fprintf(out, "\taddi\t%s, %s, %d\n", dst_name, base_name, offset);
+    if (offset >= -2048 && offset <= 2047) {
+        fprintf(out, "\taddi\t%s, %s, %d\n", dst_name, base_name, offset);
+    } else {
+        /* addi's 12-bit immediate caps offsets at +/-2047 */
+        fprintf(out, "\tli\tt0, %d\n", offset);
+        fprintf(out, "\tadd\t%s, %s, t0\n", dst_name, base_name);
+    }
 }
 
 /* DEREF: ld/lw dst, 0(src) */
@@ -404,7 +496,15 @@ static void riscv_emit_param_save_int_asm(ZeroCCCompiler *c, int reg_idx, int32_
     if (reg_idx < 0 || reg_idx >= 8) return;
     const char *base_name = BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c));
     const char *s = (c->isa == ISA_RISCV32) ? "sw" : "sd";
-    fprintf(out, "\t%s\ta%d, %d(%s)\n", s, reg_idx, (int)zero_cc_frame_disp(c, -offset), base_name);
+    int32_t disp = zero_cc_frame_disp(c, -offset);
+    if (disp >= -2048 && disp <= 2047) {
+        fprintf(out, "\t%s\ta%d, %d(%s)\n", s, reg_idx, (int)disp, base_name);
+    } else {
+        /* S-type immediate is 12-bit; large frames need a register base */
+        fprintf(out, "\tli\tt0, %d\n", (int)disp);
+        fprintf(out, "\tadd\tt0, %s, t0\n", base_name);
+        fprintf(out, "\t%s\ta%d, 0(t0)\n", s, reg_idx);
+    }
 }
 
 /* PARAM_SAVE_FP: save incoming FP parameter fa0..fa7 to -offset(s0) (or SP+delta) */
@@ -415,10 +515,22 @@ static void riscv_emit_param_save_fp_asm(ZeroCCCompiler *c, int reg_idx, int32_t
         int s = BE(c)->fp_scratch_reg1;
         const char *s_name = (s >= 0 && s < 32) ? BE(c)->regs->fp_regs[s] : "ft7";
         fprintf(out, "\tfcvt.s.d\t%s, fa%d\n", s_name, reg_idx);
-        fprintf(out, "\tfsw\t%s, %d(%s)\n", s_name, (int)disp, base_name);
+        if (disp >= -2048 && disp <= 2047) {
+            fprintf(out, "\tfsw\t%s, %d(%s)\n", s_name, (int)disp, base_name);
+        } else {
+            fprintf(out, "\tli\tt0, %d\n", (int)disp);
+            fprintf(out, "\tadd\tt0, %s, t0\n", base_name);
+            fprintf(out, "\tfsw\t%s, 0(t0)\n", s_name);
+        }
     } else {
         const char *s = (c->isa == ISA_RISCV32) ? "fsw" : "fsd";
-        fprintf(out, "\t%s\tfa%d, %d(%s)\n", s, reg_idx, (int)disp, base_name);
+        if (disp >= -2048 && disp <= 2047) {
+            fprintf(out, "\t%s\tfa%d, %d(%s)\n", s, reg_idx, (int)disp, base_name);
+        } else {
+            fprintf(out, "\tli\tt0, %d\n", (int)disp);
+            fprintf(out, "\tadd\tt0, %s, t0\n", base_name);
+            fprintf(out, "\t%s\tfa%d, 0(t0)\n", s, reg_idx);
+        }
     }
 }
 

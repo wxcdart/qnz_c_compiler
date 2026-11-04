@@ -69,9 +69,10 @@ typedef struct {
                                           (frame_align > 16) it equals the N-rounded frame
                                           size: the frame is anchored to the realigned SP'. */
     int32_t frame_align;               /* C11 _Alignas(N>16) local: prologue realigns SP to N
-                                          (`and $-N, %rsp`) and the N-rounded frame is anchored
-                                          to it; 0/16 = ordinary 16-rounded frame. x86-64 only
-                                          (other ISAs cap locals at 16). */
+                                          and the N-rounded frame is anchored to it (x86-64:
+                                          and $-N, rsp; aarch64: mask through x16; riscv:
+                                          andi). 0/16 = ordinary 16-rounded frame. N is a
+                                          power of two <= 4096. */
     int static_local_rt_off;           /* Frame slot (positive, fp-relative) that
                                           protects VREG_0 across the epilogue
                                           static-local mirror-out; 0 = unused */

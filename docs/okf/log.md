@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-03T22:40:25Z
+timestamp: 2026-11-04T00:56:36Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -783,3 +783,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-03 — Updated `frontend-and-types.md`
 - Sprint 95: _Alignas(N>16) locals via GCC-style runtime SP realign prologue (frame_align mode, and $-N,%rsp, leave epilogue); cap-with-warning only for ineligible fns / other ISAs
+
+## 2026-11-04 — Updated `isa-backends.md`
+- Sprint 96: cross-ISA _Alignas(N>16) realign (AArch64 + RISC-V 64/32), encoding pitfalls (64-bit AND masks, SP-as-Rm, RV64 funct7, RV32 large displacements, binutils sym+offset bug)

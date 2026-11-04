@@ -1,5 +1,24 @@
 # ZeroCC Changelog
 
+## [Sprint 96] - 2026-11-03 - Cross-ISA `_Alignas(N>16)` Locals: AArch64 + RISC-V Runtime SP Realign (all 4 ISAs, 56/56 QEMU, 3,266 PASS held)
+
+Ported Sprint 95's GCC-style runtime SP realign for local `_Alignas(N>16)` from x86-64 to **AArch64 and RISC-V (64 & 32)** — local automatic objects now get their full declared alignment (power of two, ≤ 4096) on all four target ISAs, in both the raw-binary (MC) and `-S` (ASM) paths. The cross-ISA battery gains `test/isa_qemu/14_align.c` (N = 32/64/struct-64/4096) and is now **56/56 ok** across x86-64, aarch64, riscv64, riscv32.
+
+- **AArch64 realign prologue/epilogue** (MC + ASM): `stp x29,x30,[sp,#-16]!; mov x29,sp; mov x16,sp; and x16,x16,#-N; sub x16,x29,x16; sub sp,sp,x16; sub sp,sp,#frame`; epilogue = plain FP-mode leave. SP cannot be a logical-op destination, so the mask goes through x16 (IP0).
+- **RISC-V realign prologue/epilogue** (MC + ASM, RV64 and RV32): `addi sp,sp,-16; sd/sw ra; sd/sw s0,0(sp); mv s0,sp; andi sp,sp,-N; sub sp,sp,#frame`; epilogue = plain leave. RV32 got its own N-mode branch (it had none) with ra at +4 to match the rv32 leave.
+- **Encoding bugs found & fixed while porting** (each verified under QEMU before the fix):
+  - **AArch64 32-bit AND masks**: `aarch64.c` hardcoded 32-bit logical-immediate encodings for the realign mask (`and x16, x16, #0xffffffe0`, SF=1) — zero-extended into x16, destroying SP's upper 32 bits (QEMU matches real hardware). All 8 mask encodings corrected to the 64-bit `#-N` form (SF=0), e.g. N=32 → `0x927BEA10`.
+  - **AArch64 `aarch64_emit_lea` large offsets**: the >4095 fallback emitted `mov dst, #imm; add dst, dst, base` — but **SP is not a legal Rm of ADD (register)** (register 31 there encodes XZR), so `add dst, dst, sp` silently became `add dst, dst, xzr` and the SP vanished (a `_Alignas(4096)` local at frame offset 4096 stored to address 0x1000 → segfault). Now: scaled-immediate form (`#imm, LSL #12`) for multiples of 4096, two-immediate split for SP bases, mov+add only for non-SP bases. `emit_load`/`emit_store`'s large-offset fallback had the same class of bug (a pre-set Rm bit made it `add x16, sp, x18`) — fixed.
+  - **RISC-V N=4096 `andi` mask**: `(~(N-1)) & 0xFFF == 0` → `andi sp, sp, 0` would zero SP; MC and ASM fall back to `li t0, -N; and sp, sp, t0` (t0 is free at entry).
+  - **RV64 R-type funct7 traps**: `sub` is f7 `0x20` (f7 1 is `mul`); `and` is f3 7 / f7 0. A wrong f7 in the new prologue produced SIGILL (illegal insn) / MUL under QEMU.
+  - **RV32 load/store truncation**: the rv32 vtable's load/store truncated displacements to 12 bits silently (an 8KB frame's local at offset 4096 read from offset 0). The rv32 vtable now uses the ISA-aware large-offset-capable helpers; the ASM-path load/store, param saves and CSR restore likewise fall back to a scratch-register base for |disp| > 2047.
+  - **RV32 illegal 32-bit shifts**: the ASM-path SEXT/ZEXT emitted `slli/srai x, x, 32` (RV64 no-op idiom) — illegal on RV32 (5-bit shamt); width-4 is now a no-op and width 1/2 use shamt 31/30.
+  - **binutils 2.41 RISC-V `sym+offset` bug**: `lla dst, .Lrodata+off` (and `%pcrel_hi(sym+off)`/`%pcrel_lo(1b)`) compute the wrong address — the LO12 reloc references a phantom `.L0` and the result is off by one (reproduced standalone; the linked binary's `printf` format pointer pointed 1 byte into the string, and musl then trapped in the libgcc `__extenddftf2` ebreak stub). The RISC-V `-S` rodata pointer loads now emit `lla t0, .Lrodata` + `addi/add` (plain label — verified correct). AArch64 `adrp` with `+off` is unaffected.
+- **Environment note**: the riscv32 musl reference itself traps (rc=-5) on `14_align.c` — musl's printf path touches the rv32 libgcc shim's `__extenddftf2` ebreak stub. zerocc now matches the reference exactly (same output, same rc), so the harness classifies it ok.
+- **Verification**: 14_align.c on all 4 ISAs (raw + `-S` where toolchains allow); `make test` 159/159, `make test-opt` 120/120, `make test-driver` 37/37, `make test-isa-qemu` 56/56, `diag_battery` OK, `style_check` 0 errors, `vtable_check` PASS, c-torture gate OK vs baseline (PASS 3,266, 0 bad).
+
+# ZeroCC Changelog
+
 ## [Sprint 95] - 2026-11-03 - C11 `_Alignas(N>16)` Locals via Runtime SP Realign (GCC-matching, 3,266 PASS held)
 
 Follow-up to Sprint 94's "local `_Alignas(N>16)` capped at 16 + warning": implemented the GCC mechanism itself so local automatic objects get their full declared alignment on x86-64 (no c-torture class changes; PASS 3,266 held, 0 bad):

@@ -881,47 +881,55 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     /* Both JIT and assembly need 16-byte alignment for proper call alignment */
     /* After push rbp (8 bytes), RSP is 0 mod 16. After sub rsp, frame_size, RSP should be 0 mod 16. */
     /* So frame_size must be 0 mod 16 (16-byte aligned). */
-    /* C11 6.7.5: local alignment N > 16 needs the GCC-style runtime SP
-     * realign. rbp (E-8) is only 16-aligned and its mod-N residue varies
-     * per call site, so an N-aligned slot in an N-rounded frame is not
-     * actually N-aligned (probes vs GCC). When the max local alignment is
-     * N > 16, the prologue realigns SP to N (`and $-N, %rsp`) and the
-     * N-rounded frame is anchored to the realigned base (SP'): every slot
-     * stays delta-based with frame_delta = frame, so slot k lands at
-     * [SP + frame - k] = [SP' - k], and `leave` restores entry state
-     * exactly (rbp = E-8 is kept as the anchor). Eligible: x86-64, N a
-     * power of two <= 4096, no VLA / variadic / frame-address (they
-     * assume the plain frame geometry); otherwise the local is capped at
-     * 16 with a warning (never over-claimed). */
+    /* C11 6.7.5: local alignment N > 16 needs a runtime SP realign (the
+     * frame base is only 16-aligned and its mod-N residue varies per call
+     * site, so an N-aligned slot in an N-rounded frame is not actually
+     * N-aligned). The frame is rounded to N and anchored to a realigned
+     * base SP'; every slot stays delta-based with frame_delta = frame,
+     * so slot k lands at [SP + frame - k] = [SP' - k]. The realign is
+     * emitted per-ISA in the prologue:
+     *   x86-64   : push rbp; mov rbp, rsp; and $-N, rsp; sub $frame, rsp
+     *              (epilogue: leave - rbp = entry-SP-8 restored exactly)
+     *   aarch64  : stp x29,x30,[sp,#-16]!; mov x29, sp; then
+     *              mov x16, sp; and x16, x16, #mask; sub x16, x29, x16;
+     *              sub sp, sp, x16; sub sp, sp, #frame
+     *              (SP cannot be the destination of a logical op - the
+     *              mask goes through x16 = IP0; epilogue: mov sp, x29;
+     *              ldp x29, x30, [sp], #16 - the plain FP-mode leave)
+     *   riscv    : addi sp, sp, -16; sd/w ra, 8(sp); sd/w s0, 0(sp);
+     *              mv s0, sp; andi sp, sp, mask; sub sp, sp, frame
+     *              (andi's 12-bit immediate caps N at 4096; epilogue:
+     *              the plain FP-mode leave restores sp from the s0 value)
+     * Eligible: power-of-two N <= 4096, no VLA / variadic / frame-address
+     * (they assume the plain frame geometry); otherwise the local is
+     * capped at 16 with a warning (never over-claimed). */
     size_t max_local_align = 0;
     for (size_t i = 0; i < c->local_count; i++) {
         if ((size_t)c->locals[i].type.align > max_local_align)
             max_local_align = (size_t)c->locals[i].type.align;
     }
     bool align_realign = false;
-    if (max_local_align > 16) {
-        if (c->isa == ISA_X86_64 &&
-            (max_local_align & (max_local_align - 1)) == 0 &&
-            max_local_align <= 4096) {
-            bool vla_local = false;
-            for (size_t i = 0; i < c->local_count; i++) {
-                if (c->locals[i].is_vla) { vla_local = true; break; }
-            }
-            bool va_fn = (lowering_fn != NULL) && lowering_fn->is_variadic;
-            if (!vla_local && !va_fn && !c->lowering.has_frame_address) {
-                align_realign = true;
-            } else {
-                diag_report_warning_at_token(c,
-                    "local _Alignas(%zu) cannot be guaranteed in this function "
-                    "(VLA/variadic/frame-address); using alignment 16",
-                    (unsigned long)max_local_align);
-            }
+    if (max_local_align > 16 &&
+        (max_local_align & (max_local_align - 1)) == 0 &&
+        max_local_align <= 4096) {
+        bool vla_local = false;
+        for (size_t i = 0; i < c->local_count; i++) {
+            if (c->locals[i].is_vla) { vla_local = true; break; }
+        }
+        bool va_fn = (lowering_fn != NULL) && lowering_fn->is_variadic;
+        if (!vla_local && !va_fn && !c->lowering.has_frame_address) {
+            align_realign = true;
         } else {
             diag_report_warning_at_token(c,
-                "local _Alignas(%zu) above 16 is not supported on this target; "
-                "using alignment 16",
+                "local _Alignas(%zu) cannot be guaranteed in this function "
+                "(VLA/variadic/frame-address); using alignment 16",
                 (unsigned long)max_local_align);
         }
+    } else if (max_local_align > 16) {
+        diag_report_warning_at_token(c,
+            "local _Alignas(%zu) above 4096 or not a power of two; "
+            "using alignment 16",
+            (unsigned long)max_local_align);
     }
     size_t total_frame_size = (size_t)((c->current_stack_frame + 15) & ~15);
     if (align_realign) {

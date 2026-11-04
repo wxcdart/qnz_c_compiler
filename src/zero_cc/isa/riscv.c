@@ -118,7 +118,39 @@ static inline void riscv_emit_u32(ZeroCCCompiler *c, uint32_t insn) {
 
 static void riscv64_emit_prologue(ZeroCCCompiler *c, size_t stack_size, uint32_t callee_save_mask) {
     if (c->lowering.is_frameless) return;
-    (void)callee_save_mask;  /* callee-save stores are emitted by emit_prologue_mc() */
+    (void)callee_save_mask;
+
+    if (c->lowering.frame_align > 16) {
+        /* C11 _Alignas(N) realign mode: save the ra/s0 pair (16 bytes),
+         * point s0 at the pre-realign base, realign SP to N, then allocate
+         * the N-rounded frame below SP'. `andi`'s 12-bit immediate caps N
+         * at 4096 (checked in ast_lowering.c). Slots are [SP' - k] via
+         * frame_delta = frame; the epilogue is the plain FP-mode leave
+         * (sp restored from the s0 value). */
+        int f3 = (c->isa == ISA_RISCV32) ? 2 : 3;  /* sw (32-bit) vs sd (64-bit) */
+        size_t frame = (size_t)c->lowering.frame_delta;
+        riscv_emit_u32(c, rv64_I(RV64_SP, RV64_SP, 0, -16, 0x13));         /* addi sp, sp, -16 */
+        riscv_emit_u32(c, rv64_S(RV64_SP, RV64_RA, f3, 8, 0x23));          /* sd/w ra, 8(sp) */
+        riscv_emit_u32(c, rv64_S(RV64_SP, RV64_S0, f3, 0, 0x23));          /* sd/w s0, 0(sp) */
+        riscv_emit_u32(c, rv64_I(RV64_S0, RV64_SP, 0, 0, 0x13));           /* mv s0, sp */
+        int mask = (~((int32_t)c->lowering.frame_align - 1)) & 0xFFF;      /* ~(N-1) */
+        if (mask != 0) {
+            riscv_emit_u32(c, rv64_I(RV64_SP, RV64_SP, 7, mask, 0x13));   /* andi sp, sp, mask */
+        } else {
+            /* N == 4096: ~(N-1) needs bits above the 12-bit andi immediate
+             * (andi sp,sp,0 would zero SP). Use a register mask instead. */
+            riscv64_emit_mov_imm(c, RV64_T0, (int64_t)~((int64_t)c->lowering.frame_align - 1)); /* li t0, ~(N-1) */
+            riscv_emit_u32(c, rv64_R(RV64_SP, RV64_SP, RV64_T0, 7, 0));      /* and sp, sp, t0 (f7=0) */
+        }
+        if (frame <= 2047) {
+            riscv_emit_u32(c, rv64_I(RV64_SP, RV64_SP, 0, (int16_t)(-(int32_t)frame), 0x13));  /* addi sp, sp, -frame */
+        } else {
+            riscv64_emit_mov_imm(c, RV64_T0, (int64_t)frame);              /* li t0, frame */
+            riscv_emit_u32(c, rv64_R(RV64_SP, RV64_SP, RV64_T0, 0, 0x20));  /* sub sp, sp, t0 (f7=0x20) */
+        }
+        return;
+    }
+
     size_t aligned = (stack_size + 15) & ~(size_t)15;
     size_t total = aligned + 16;
 
@@ -136,7 +168,7 @@ static void riscv64_emit_prologue(ZeroCCCompiler *c, size_t stack_size, uint32_t
     int big = (total > 2047);
     if (big) {
         riscv64_emit_mov_imm(c, RV64_T0, (int64_t)total);  /* li t0, total */
-        riscv_emit_u32(c, rv64_R(RV64_SP, RV64_SP, RV64_T0, 0, 0x20));  /* sub sp, sp, t0 */
+        riscv_emit_u32(c, rv64_R(RV64_SP, RV64_SP, RV64_T0, 0, 0x20));  /* sub sp, sp, t0 (f7=0x20) */
         if (aligned > 2047) {
             riscv64_emit_mov_imm(c, 6 /* t1 */, (int64_t)aligned);
             riscv_emit_u32(c, rv64_R(6 /* t1 */, RV64_SP, 6 /* t1 */, 0, 0));  /* add t1, sp, t1 */
@@ -162,7 +194,7 @@ static void riscv64_emit_epilogue(ZeroCCCompiler *c) {
 
 static void riscv64_emit_leave(ZeroCCCompiler *c) {
     if (c->lowering.is_frameless) return;
-    if (c->lowering.omit_frame_pointer) {
+    if (c->lowering.omit_frame_pointer && c->lowering.frame_align <= 16) {
         /* Option 4: no s0. aligned = frame_delta (decision in
          * ast_lowering.c guarantees aligned+16 <= 2047). */
         int aligned = (int)c->lowering.frame_delta;
@@ -1452,12 +1484,39 @@ ZeroCCISABackend riscv64_backend = {  /* writable: ASM emit pointers are filled 
 static void riscv32_emit_prologue(ZeroCCCompiler *c, size_t stack_size, uint32_t callee_save_mask) {
     if (c->lowering.is_frameless) return;
     (void)callee_save_mask;
+
+    if (c->lowering.frame_align > 16) {
+        /* C11 _Alignas(N) realign mode (32-bit variant): save the ra/s0 pair,
+         * realign SP to N, then allocate the frame below SP'. */
+        size_t frame = (size_t)c->lowering.frame_delta;
+        riscv_emit_u32(c, rv64_I(RV64_SP, RV64_SP, 0, -16, 0x13));         /* addi sp, sp, -16 */
+        riscv_emit_u32(c, rv64_S(RV64_SP, RV64_RA, 2, 4, 0x23));           /* sw ra, 4(sp) - rv32 leave expects ra at +4 */
+        riscv_emit_u32(c, rv64_S(RV64_SP, RV64_S0, 2, 0, 0x23));           /* sw s0, 0(sp) */
+        riscv_emit_u32(c, rv64_I(RV64_S0, RV64_SP, 0, 0, 0x13));           /* mv s0, sp */
+        int mask = (~((int32_t)c->lowering.frame_align - 1)) & 0xFFF;      /* ~(N-1) */
+        if (mask != 0) {
+            riscv_emit_u32(c, rv64_I(RV64_SP, RV64_SP, 7, mask, 0x13));   /* andi sp, sp, mask */
+        } else {
+            /* N == 4096: 12-bit andi immediate is 0 (would zero SP). Use a
+             * register mask instead. */
+            riscv64_emit_mov_imm(c, RV64_T0, (int64_t)~((int64_t)c->lowering.frame_align - 1));
+            riscv_emit_u32(c, rv64_R(RV64_SP, RV64_SP, RV64_T0, 7, 0));    /* and sp, sp, t0 */
+        }
+        if (frame <= 2047) {
+            riscv_emit_u32(c, rv64_I(RV64_SP, RV64_SP, 0, (int16_t)(-(int32_t)frame), 0x13));
+        } else {
+            riscv64_emit_mov_imm(c, RV64_T0, (int64_t)frame);
+            riscv_emit_u32(c, rv64_R(RV64_SP, RV64_SP, RV64_T0, 0, 0x20)); /* sub sp, sp, t0 */
+        }
+        return;
+    }
+
     size_t aligned = (stack_size + 15) & ~(size_t)15;
     size_t total = aligned + 16;
     int big = (total > 2047);
     if (big) {
         riscv64_emit_mov_imm(c, RV64_T0, (int64_t)total);
-        riscv_emit_u32(c, rv64_R(RV64_SP, RV64_SP, RV64_T0, 0, 0x20)); /* sub sp, sp, t0 */
+        riscv_emit_u32(c, rv64_R(RV64_SP, RV64_SP, RV64_T0, 0, 0x20));  /* sub sp, sp, t0 (f7=0x20) */
         if (aligned > 2047) {
             riscv64_emit_mov_imm(c, 6 /* t1 */, (int64_t)aligned);
             riscv_emit_u32(c, rv64_R(6 /* t1 */, RV64_SP, 6 /* t1 */, 0, 0)); /* add t1, sp, t1 */
@@ -1486,14 +1545,6 @@ static void riscv32_emit_leave(ZeroCCCompiler *c) {
 static void riscv32_emit_epilogue(ZeroCCCompiler *c) {
     riscv32_emit_leave(c);
     riscv_emit_u32(c, 0x00008067); /* ret: jalr zero, 0(ra) */
-}
-
-static void riscv32_emit_load(ZeroCCCompiler *c, int dst_reg, int base_reg, int32_t offset) {
-    riscv_emit_u32(c, rv64_I(RV_REG(dst_reg), RV_REG(base_reg), 2, (int16_t)offset, 0x03));
-}
-
-static void riscv32_emit_store(ZeroCCCompiler *c, int src_reg, int base_reg, int32_t offset) {
-    riscv_emit_u32(c, rv64_S(RV_REG(base_reg), RV_REG(src_reg), 2, (int16_t)offset, 0x23));
 }
 
 static void riscv32_emit_push_reg(ZeroCCCompiler *c, int reg) {
@@ -1555,8 +1606,11 @@ ZeroCCISABackend riscv32_backend = {  /* writable: ASM emit pointers are filled 
     .get_int_reg = riscv_get_int_reg,
     .get_fp_reg = riscv_get_fp_reg,
 
-    .emit_load = riscv32_emit_load,
-    .emit_store = riscv32_emit_store,
+    /* The rv64-named versions are ISA-aware (f3 = lw/sw for RV32) and
+     * handle offsets beyond the 12-bit immediate range via a scratch
+     * register - required for _Alignas(N) frames > 4096. */
+    .emit_load = riscv64_emit_load,
+    .emit_store = riscv64_emit_store,
     .emit_vload = riscv64_emit_vload,
     .emit_vstore = riscv64_emit_vstore,
     .emit_vloadss = riscv64_emit_vloadss,

@@ -508,7 +508,32 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
                 fprintf(out, "\tadrp\t%s, .Lrodata+%zu\n", dst_name, rodata_offset);
                 fprintf(out, "\tadd\t%s, %s, :lo12:.Lrodata+%zu\n", dst_name, dst_name, rodata_offset);
             } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
-                fprintf(out, "\tlla\t%s, .Lrodata+%zu\n", dst_name, rodata_offset);
+                /* NOTE: `lla dst, .Lrodata+off` (and %pcrel_hi(sym+off)) are
+                 * broken in binutils 2.41 for symbol+offset references on
+                 * RISC-V (LO12 reloc references a phantom .L0, address comes
+                 * out off by one). Use a plain-label load + immediate add. */
+                if (rodata_offset == 0) {
+                    fprintf(out, "\tlla\t%s, .Lrodata\n", dst_name);
+                } else if (phys_dst != 5 /* t0 */) {
+                    if (rodata_offset <= 2047) {
+                        fprintf(out, "\tlla\tt0, .Lrodata\n");
+                        fprintf(out, "\taddi\t%s, t0, %zu\n", dst_name, rodata_offset);
+                    } else {
+                        fprintf(out, "\tlla\tt0, .Lrodata\n");
+                        fprintf(out, "\tli\tt1, %zu\n", rodata_offset);
+                        fprintf(out, "\tadd\t%s, t0, t1\n", dst_name);
+                    }
+                } else {
+                    /* dst is t0: use t1 as the base holder */
+                    if (rodata_offset <= 2047) {
+                        fprintf(out, "\tlla\tt1, .Lrodata\n");
+                        fprintf(out, "\taddi\tt0, t1, %zu\n", rodata_offset);
+                    } else {
+                        fprintf(out, "\tlla\tt1, .Lrodata\n");
+                        fprintf(out, "\tli\tt2, %zu\n", rodata_offset);
+                        fprintf(out, "\tadd\tt0, t1, t2\n");
+                    }
+                }
             } else {
                 fprintf(out, "\tleaq\t.Lrodata+%zu(%%rip),%%%s\n", rodata_offset, dst_name);
             }
@@ -1042,9 +1067,19 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
                 fprintf(out, "\tadrp\tx9, .Lrodata+%zu\n", rodata_offset);
                 fprintf(out, "\tldr\td%s, [x9, :lo12:.Lrodata+%zu]\n", dst_name + 1, rodata_offset);
             } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
-                /* 8-byte double in rodata - fld, not flw */
+                /* 8-byte double in rodata - fld, not flw.
+                 * Plain-label load (binutils 2.41 mangles sym+offset on RV). */
                 const char *fp_name = (phys_dst >= 0 && phys_dst < 32) ? BE(c)->regs->fp_regs[phys_dst] : "fa0";
-                fprintf(out, "\tlla\tt0, .Lrodata+%zu\n", rodata_offset);
+                if (rodata_offset == 0) {
+                    fprintf(out, "\tlla\tt0, .Lrodata\n");
+                } else if (rodata_offset <= 2047) {
+                    fprintf(out, "\tlla\tt0, .Lrodata\n");
+                    fprintf(out, "\taddi\tt0, t0, %zu\n", rodata_offset);
+                } else {
+                    fprintf(out, "\tlla\tt0, .Lrodata\n");
+                    fprintf(out, "\tli\tt1, %zu\n", rodata_offset);
+                    fprintf(out, "\tadd\tt0, t0, t1\n");
+                }
                 fprintf(out, "\tfld\t%s, 0(t0)\n", fp_name);
             } else {
                 /* rodata holds 8-byte double bit patterns (64-bit double FP

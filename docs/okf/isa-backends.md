@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-11-03T05:52:02Z
+timestamp: 2026-11-04T00:56:36Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -100,6 +100,17 @@ ZeroCC manages function stack frames and register preservation symmetrically acr
      - x86-64: prologue `sub rsp, X` (X = `frame_delta + 8`); `frame_delta = X - 8` (i.e. `alloc_frame_size` normally, `-8` for the red-zone leaf case with X = 0). Epilogue `add rsp, X` (emitted by both `emit_epilogue` and `emit_leave`, the latter being the real final-epilogue hook — an FP-less epilogue that only `ret`s leaks the frame and corrupts the caller's stack).
      - AArch64: prologue `str x30, [sp, #-16]!` + `sub sp, sp, #aligned`; `frame_delta = aligned`. Epilogue restores CSRs, `add sp, sp, #aligned`, `ldr x30, [sp], #16`. For `aligned > 4095` the epilogue uses `add x16, sp, x16; mov sp, x16` because SP is not a valid Rd of ADD (extended) (Rd = 31 encodes XZR).
      - RISC-V (64 & 32): prologue `addi sp, sp, -(aligned+16)` + `sd/sw ra, (aligned+8)(sp)`; `frame_delta = aligned`. Epilogue `ld/lw ra`, `addi sp, sp, aligned+16`. The FP is kept (fallback) when `aligned + 16 > 2047` to stay inside the `addi` immediate range.
+   - **C11 `_Alignas(N>16)` realign mode** (Sprint 95 x86-64, Sprint 96 all ISAs): when the max local alignment N > 16 (power of two, ≤ 4096; no VLA/variadic/frame-address), the frame is rounded to N and SP itself is realigned at entry so slots are actually N-aligned. `LoweringState.frame_align` holds N; all four backends emit the realign prefix and use the omit-FP slot geometry (`frame_delta = frame`, base = SP):
+     - x86-64: `push rbp; mov rbp, rsp; and $-N, %rsp; sub $frame, %rsp`; epilogue = plain `leave` (rbp kept at entry-SP-8).
+     - AArch64: `stp x29,x30,[sp,#-16]!; mov x29,sp; mov x16,sp; and x16,x16,#-N; sub x16,x29,x16; sub sp,sp,x16; sub sp,sp,#frame` (SP cannot be the destination of a logical op → mask through x16/IP0); epilogue = plain FP-mode `mov sp,x29; ldp x29,x30,[sp],#16`.
+     - RISC-V (64 & 32): `addi sp,sp,-16; sd/sw ra,8(sp)/4(sp); sd/sw s0,0(sp); mv s0,sp; andi sp,sp,-N (N<4096) or li t0,-N; and sp,sp,t0 (N=4096); sub sp,sp,#frame` (register-sub for frame > 2047); epilogue = plain leave (`addi sp,s0,0; lw/ld ra; lw/ld s0; addi sp,sp,16`). **RV32 note**: the ra save slot is at +4 (not +8) to match `riscv32_emit_leave`.
+     - **AArch64 AND-mask encodings**: the realign mask MUST be the 64-bit logical-immediate form (`and x16, x16, #-N`, SF=0, e.g. N=32 → `0x927BEA10`). The 32-bit literal form (`#0xffffffe0`, SF=1) zero-extends into x16 and destroys SP's upper half — QEMU matches real hardware. The `aarch64.c` table carries a comment about this pitfall.
+     - **RISC-V N=4096**: `(~(N-1)) & 0xFFF == 0` would emit `andi sp, sp, 0` (zeroes SP) — both MC (`riscv.c`) and ASM (`riscv_asm.c`) fall back to `li t0, -N; and sp, sp, t0` (t0 is free at function entry).
+     - **RISC-V RV64 funct7 traps** (hit while porting): `sub` = f7 `0x20` (0b0100000), NOT f7 1 (that is `mul`); `and` = f3 7, f7 0. The `rv64_R(rd, rs1, rs2, f3, f7)` helper takes f7 last — passing the opcode `0x33` there silently produces an illegal instruction (SIGILL under QEMU).
+   - **Large SP-relative displacements** (frames > 4KB, e.g. `_Alignas(4096)` locals):
+     - AArch64 `aarch64_emit_lea` (MC) must keep large offsets in the ADD/SUB *immediate* form — SP is **not** a legal Rm of ADD (register) (register 31 there is XZR, so `add dst, dst, sp` silently becomes `add dst, dst, xzr` and the SP vanishes). Offsets > 4095 use the scaled-immediate form (`#imm, LSL #12`, bit 22), or a two-instruction immediate split; only non-SP bases may use mov+register-add. `emit_load`/`emit_store`'s large-offset fallback had the same latent bug (a pre-set Rm bit in the constant made it `add x16, sp, x18`) — fixed.
+     - RISC-V S/I-type immediates are 12-bit (±2047): `riscv64_emit_load/store` (both RV64 and RV32 — the RV32 vtable now uses the ISA-aware RV64-named helpers) and the ASM-path load/store/param-save/CSR-restore all fall back to a scratch-register base (`li t0, off; add t0, base, t0; st/ld, 0(t0)`) when the displacement exceeds the immediate range.
+     - **binutils 2.41 RISC-V `sym+offset` bug**: `lla dst, .Lrodata+off` (and `%pcrel_hi(sym+off)`/`%pcrel_lo(1b)`) compute the wrong address (LO12 reloc references a phantom `.L0`; verified off-by-one against a plain-label control). The `-S` RISC-V rodata pointer loads (`asm_emitter.c` OP_LEA_RIP / OP_FMOV_IMM) therefore emit `lla t0, .Lrodata` + `addi/add` with the offset instead of a symbol+offset reference. AArch64 `adrp x9, .Lrodata+off` is unaffected (verified).
    - **Scope**: the frame-pointer register (`%rbp` / `x29` / `s0`) is currently only *not set up*; it is not yet handed to the register allocator as a general-purpose register, so the win is prologue/epilogue cost, not register pressure.
    - Verified by the QEMU raw-emitter battery (44/44) and the extended `prologue_epilogue_verifier.py` (see below).
 7. **Verification Tools**:

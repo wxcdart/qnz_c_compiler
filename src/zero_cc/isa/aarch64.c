@@ -3,6 +3,7 @@
 #include "zero_cc/ir/asm_emitter.h"
 #include "zero_cc/isa/aarch64_asm.c"  /* Include assembly emission functions */
 #include <stdint.h>
+#include <stdlib.h>
 
 /* ARM64 register info */
 static const ISARegInfo aarch64_regs = {
@@ -78,6 +79,46 @@ static void aarch64_emit_prologue(ZeroCCCompiler *c, size_t stack_size, uint32_t
     /* Ensure 16-byte alignment as required by AArch64 ABI */
     stack_size = (stack_size + 15) & ~15;
 
+    if (c->lowering.frame_align > 16) {
+        /* C11 _Alignas(N) realign mode: lower SP to the N-aligned base
+         * SP' = align_down(E-16, N). SP cannot be the destination of a
+         * logical op, so the mask is applied in x16 (IP0, free at entry)
+         * and the gap subtracted. All encodings verified against GAS.
+         * Slots are [SP' - k] via frame_delta = frame; the epilogue is
+         * the plain FP-mode leave (x29 holds the pre-realign base). */
+        uint32_t N = (uint32_t)c->lowering.frame_align;
+        uint32_t mask_insn;
+        /* Encodings of `and x16, x16, #-(N)`. CRITICAL: the immediate must be
+         * the 64-bit mask form (GAS `#-N`, e.g. 0xFFFFFFFFFFFFFFE0). A 32-bit
+         * literal (`#0xffffffe0`) encodes a pattern that fits in 32 bits and
+         * is executed with zero-extension into x16, destroying SP's upper
+         * half (qemu-aarch64 matches real hardware here). */
+        switch (N) {
+            case 32:   mask_insn = 0x927BEA10u; break;  /* and x16, x16, #-32   */
+            case 64:   mask_insn = 0x927AE610u; break;  /* and x16, x16, #-64   */
+            case 128:  mask_insn = 0x9279E210u; break;  /* and x16, x16, #-128  */
+            case 256:  mask_insn = 0x9278DE10u; break;  /* and x16, x16, #-256  */
+            case 512:  mask_insn = 0x9277DA10u; break;  /* and x16, x16, #-512  */
+            case 1024: mask_insn = 0x9276D610u; break;  /* and x16, x16, #-1024 */
+            case 2048: mask_insn = 0x9275D210u; break;  /* and x16, x16, #-2048 */
+            default:   mask_insn = 0x9274CE10u; break;  /* and x16, x16, #-4096 */
+        }
+        arm64_emit_u32(c, 0xA9BF7BFDu);  /* stp x29, x30, [sp, #-16]! */
+        arm64_emit_u32(c, 0x910003FDu);  /* mov x29, sp */
+        arm64_emit_u32(c, 0x910003F0u);  /* mov x16, sp (add x16, sp, #0) */
+        arm64_emit_u32(c, mask_insn);     /* and x16, x16, #~(N-1) */
+        arm64_emit_u32(c, 0xCB1003B0u);  /* sub x16, x29, x16 */
+        arm64_emit_u32(c, 0xCB3063FFu);  /* sub sp, sp, x16 */
+        size_t frame = (size_t)c->lowering.frame_delta;
+        if (frame > 4095) {
+            aarch64_emit_mov_imm(c, 17, frame);  /* x17: x16 is consumed above */
+            arm64_emit_u32(c, 0xCB3163FFu);      /* sub sp, sp, x17 */
+        } else {
+            arm64_emit_u32(c, 0xD10003FF | (((uint32_t)frame & 0xFFF) << 10));  /* sub sp, sp, #frame */
+        }
+        return;
+    }
+
     if (c->lowering.omit_frame_pointer) {
         /* Option 4: no frame pointer. Only the return address is saved
          * (16 bytes to keep SP 16-byte aligned); slots are addressed from
@@ -102,6 +143,7 @@ static void aarch64_emit_prologue(ZeroCCCompiler *c, size_t stack_size, uint32_t
      */
     arm64_emit_u32(c, 0xA9BF7BFD);  /* stp x29, x30, [sp, #-16]! */
     arm64_emit_u32(c, 0x910003FD);  /* mov x29, sp */
+
     if (stack_size > 0) {
         if (stack_size <= 4095) {
             uint32_t imm12 = (uint32_t)stack_size & 0xFFF;
@@ -117,8 +159,11 @@ static void aarch64_emit_fp_teardown(ZeroCCCompiler *c); /* fwd (Option 4 teardo
 
 static void aarch64_emit_epilogue(ZeroCCCompiler *c) {
     if (!c->lowering.is_frameless) {
-        if (c->lowering.omit_frame_pointer) {
-            /* Option 4: raise SP by the frame, restore x30, ret. */
+        if (c->lowering.omit_frame_pointer && c->lowering.frame_align <= 16) {
+            /* Option 4: raise SP by the frame, restore x30, ret.
+             * (_Alignas realign mode keeps the FP-mode leave below: x29
+             * holds the pre-realign base, so `mov sp, x29; ldp` restores
+             * entry state exactly regardless of the realign amount.) */
             aarch64_emit_fp_teardown(c);
         } else {
             /* 1. mov sp, x29
@@ -150,13 +195,12 @@ static void aarch64_emit_fp_teardown(ZeroCCCompiler *c) {
 
 static void aarch64_emit_leave(ZeroCCCompiler *c) {
     if (c->lowering.is_frameless) return;
-    if (c->lowering.omit_frame_pointer) {
+    if (c->lowering.omit_frame_pointer && c->lowering.frame_align <= 16) {
         aarch64_emit_fp_teardown(c);
         return;
     }
     /* 1. mov sp, x29
-     * 2. ldp x29, x30, [sp], #16
-     */
+     * 2. ldp x29, x30, [sp], #16 */
     arm64_emit_u32(c, 0x910003BF);  /* mov sp, x29 */
     arm64_emit_u32(c, 0xA8C17BFD);  /* ldp x29, x30, [sp], #16 */
 }
@@ -601,7 +645,8 @@ static void aarch64_emit_load(ZeroCCCompiler *c, int dst_reg, int base_reg, int3
     } else {
         aarch64_emit_mov_imm(c, 16, offset);
         if ((base_reg & 0x1F) == 31) {
-            arm64_emit_u32(c, 0x8B206000u | (16u << 16) | (31u << 5) | 16u);
+            /* add x16, sp, x16 - SP is legal as Rn here (not Rm) */
+            arm64_emit_u32(c, 0x8B000000u | (16u << 16) | (31u << 5) | 16u);
         } else {
             arm64_emit_u32(c, 0x8B000000u | (16u << 16) | (((uint32_t)base_reg & 0x1Fu) << 5) | 16u);
         }
@@ -624,7 +669,8 @@ static void aarch64_emit_store(ZeroCCCompiler *c, int src_reg, int base_reg, int
     } else {
         aarch64_emit_mov_imm(c, 16, offset);
         if ((base_reg & 0x1F) == 31) {
-            arm64_emit_u32(c, 0x8B206000u | (16u << 16) | (31u << 5) | 16u);
+            /* add x16, sp, x16 - SP is legal as Rn here (not Rm) */
+            arm64_emit_u32(c, 0x8B000000u | (16u << 16) | (31u << 5) | 16u);
         } else {
             arm64_emit_u32(c, 0x8B000000u | (16u << 16) | (((uint32_t)base_reg & 0x1Fu) << 5) | 16u);
         }
@@ -836,7 +882,7 @@ static void aarch64_emit_load_fp(ZeroCCCompiler *c, int dst_reg, int base_reg, i
     } else {
         aarch64_emit_mov_imm(c, 16, offset);
         if ((base_reg & 0x1F) == 31) {
-            arm64_emit_u32(c, 0x8B206000u | (16u << 16) | (31u << 5) | 16u);
+            arm64_emit_u32(c, 0x8B000000u | (16u << 16) | (31u << 5) | 16u);  /* add x16, sp, x16 */
         } else {
             arm64_emit_u32(c, 0x8B000000u | (16u << 16) | (((uint32_t)base_reg & 0x1Fu) << 5) | 16u);
         }
@@ -859,7 +905,7 @@ static void aarch64_emit_store_fp(ZeroCCCompiler *c, int src_reg, int base_reg, 
     } else {
         aarch64_emit_mov_imm(c, 16, offset);
         if ((base_reg & 0x1F) == 31) {
-            arm64_emit_u32(c, 0x8B206000u | (16u << 16) | (31u << 5) | 16u);
+            arm64_emit_u32(c, 0x8B000000u | (16u << 16) | (31u << 5) | 16u);  /* add x16, sp, x16 */
         } else {
             arm64_emit_u32(c, 0x8B000000u | (16u << 16) | (((uint32_t)base_reg & 0x1Fu) << 5) | 16u);
         }
@@ -890,7 +936,7 @@ static void aarch64_emit_load_single_fp(ZeroCCCompiler *c, int dst_reg, int base
     } else {
         aarch64_emit_mov_imm(c, 16, offset);
         if ((base_reg & 0x1F) == 31) {
-            arm64_emit_u32(c, 0x8B206000u | (16u << 16) | (31u << 5) | 16u);
+            arm64_emit_u32(c, 0x8B000000u | (16u << 16) | (31u << 5) | 16u);  /* add x16, sp, x16 */
         } else {
             arm64_emit_u32(c, 0x8B000000u | (16u << 16) | (((uint32_t)base_reg & 0x1Fu) << 5) | 16u);
         }
@@ -911,7 +957,7 @@ static void aarch64_emit_store_single_fp(ZeroCCCompiler *c, int src_reg, int bas
     } else {
         aarch64_emit_mov_imm(c, 16, offset);
         if ((base_reg & 0x1F) == 31) {
-            arm64_emit_u32(c, 0x8B206000u | (16u << 16) | (31u << 5) | 16u);
+            arm64_emit_u32(c, 0x8B000000u | (16u << 16) | (31u << 5) | 16u);  /* add x16, sp, x16 */
         } else {
             arm64_emit_u32(c, 0x8B000000u | (16u << 16) | (((uint32_t)base_reg & 0x1Fu) << 5) | 16u);
         }
@@ -1165,17 +1211,46 @@ static void aarch64_emit_idiv(ZeroCCCompiler *c, int src) {
 
 static void aarch64_emit_lea(ZeroCCCompiler *c, int dst, int base, int32_t offset) {
     /* lea dst, [base + offset]
-     * ADD (immediate): 12-bit unscaled offset, 0 to 4095
-     * SUB (immediate): 12-bit unscaled offset, 0 to 4095
-     */
+     * ADD/SUB (immediate): 12-bit unscaled offset, 0 to 4095, or
+     * 12-bit x 4096 (sh bit, covers up to 4095*4096 = 16 MiB).
+     * CRITICAL: SP cannot be the Rm of an ADD (register) - encoding
+     * register 31 there is xzr, so `add dst, dst, sp` silently becomes
+     * `add dst, dst, xzr`. Large offsets must therefore stay in the
+     * immediate form, never mov+add-reg. */
     if (offset >= 0 && offset <= 4095) {
         /* add dst, base, #offset */
         arm64_emit_u32(c, 0x91000000 | (((uint32_t)offset & 0xFFF) << 10) | ((base & 0x1F) << 5) | (dst & 0x1F));
     } else if (offset >= -4096 && offset < 0) {
         /* sub dst, base, #-offset */
         arm64_emit_u32(c, 0xD1000000 | (((uint32_t)(-offset) & 0xFFF) << 10) | ((base & 0x1F) << 5) | (dst & 0x1F));
+    } else if (offset > 4095 && offset % 4096 == 0 && offset <= 4095 * 4096) {
+        /* add dst, base, #offset/4096, LSL #12 */
+        uint32_t imm12 = (uint32_t)(offset / 4096) & 0xFFF;
+        arm64_emit_u32(c, 0x91000000 | (1u << 22) | (imm12 << 10) | ((base & 0x1F) << 5) | (dst & 0x1F));
+    } else if (offset < -4096 && offset % 4096 == 0 && -offset <= 4095 * 4096) {
+        /* sub dst, base, #-offset/4096, LSL #12 */
+        uint32_t imm12 = (uint32_t)(-offset / 4096) & 0xFFF;
+        arm64_emit_u32(c, 0xD1000000 | (1u << 22) | (imm12 << 10) | ((base & 0x1F) << 5) | (dst & 0x1F));
+    } else if (base == c->isa_backend->sp_reg) {
+        /* SP base with an arbitrary large offset: add the low 12 bits,
+         * then the remainder (multiple of 4096, via LSL #12) in a
+         * second immediate add (dst is a GPR here, so this is legal). */
+        int32_t lo = offset % 4096;          /* -4095..4095 */
+        int32_t hi = offset - lo;            /* multiple of 4096 */
+        if (lo >= 0) {
+            arm64_emit_u32(c, 0x91000000 | ((uint32_t)lo << 10) | ((base & 0x1F) << 5) | (dst & 0x1F));
+        } else {
+            arm64_emit_u32(c, 0xD1000000 | ((uint32_t)(-lo) << 10) | ((base & 0x1F) << 5) | (dst & 0x1F));
+        }
+        uint32_t imm12 = (uint32_t)(abs(hi) / 4096) & 0xFFF;
+        if (hi >= 0) {
+            arm64_emit_u32(c, 0x91000000 | (1u << 22) | (imm12 << 10) | ((dst & 0x1F) << 5) | (dst & 0x1F));
+        } else {
+            arm64_emit_u32(c, 0xD1000000 | (1u << 22) | (imm12 << 10) | ((dst & 0x1F) << 5) | (dst & 0x1F));
+        }
     } else {
-        /* Large offset: load immediate then add */
+        /* Non-SP base (e.g. x29) with a large offset: load immediate then
+         * register-add (SP is the only register illegal as Rm here). */
         aarch64_emit_mov_imm(c, dst, offset);
         arm64_emit_u32(c, 0x8B000000 | ((base & 0x1F) << 16) | ((dst & 0x1F) << 5) | (dst & 0x1F));
     }
