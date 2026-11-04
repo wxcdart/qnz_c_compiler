@@ -567,6 +567,25 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             return;
         }
 
+        case OP_NONLOCAL_GOTO: {
+            /* Sprint 99: asm labels are deterministic (.L<func>_<ir>) in the
+             * single .s output, so the jump is a plain branch to the
+             * ancestor's label after restoring its (FP, SP). */
+            char tlbl[64];
+            snprintf(tlbl, sizeof(tlbl), ".L%zu_%u",
+                     (size_t)instr->imm64, (unsigned)instr->label_idx);
+            const char *r1 = BE(c)->get_hw_reg_name(phys_src1);
+            const char *r2 = BE(c)->get_hw_reg_name(phys_src2);
+            if (c->isa == ISA_AARCH64) {
+                fprintf(out, "\tmov\tx29, %s\n\tmov\tsp, %s\n\tb\t%s\n", r1, r2, tlbl);
+            } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
+                fprintf(out, "\tmv\ts0, %s\n\tmv\tsp, %s\n\tj\t%s\n", r1, r2, tlbl);
+            } else {
+                fprintf(out, "\tmov\t%%%s, %%rbp\n\tmov\t%%%s, %%rsp\n\tjmp\t%s\n", r1, r2, tlbl);
+            }
+            return;
+        }
+
         case OP_SETJMP: {
             int s2 = BE(c)->scratch_reg2;
             int ret_reg = BE(c)->get_int_reg ? BE(c)->get_int_reg(VREG_0) : 0;

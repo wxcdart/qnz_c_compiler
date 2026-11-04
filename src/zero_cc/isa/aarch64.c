@@ -1414,6 +1414,19 @@ void zero_cc_aarch64_emit_tramp_stub(ZeroCCCompiler *c, const ZeroCCFunction *nf
             n++;
         }
     }
+    /* Sprint 99: nonlocal goto pairs, between captures and user params
+     * (ctx words at 32*C + 16*i (rbp) and +8 (rsp)). */
+    for (int pi = 0; pi < nf->goto_pair_count; pi++) {
+        for (int w = 0; w < 2; w++) {
+            if (n >= ZERO_CC_TRAMP_MAX_UNITS) return;
+            u[n].is_fp = false;
+            u[n].fin_slot = gpr_run < 8 ? gpr_run++ : -1;
+            u[n].fin_stack = u[n].fin_slot < 0 ? decl_stack_run++ : -1;
+            u[n].src = 0;
+            u[n].src_off = (int)(32 * C + 16 * pi) + 8 * w;
+            n++;
+        }
+    }
     int entry_gpr_off = 8;    /* first entry GPR save: [x29-8] */
     int entry_fp_off = 80;    /* first entry FP save: [x29-80] */
     int entry_st_off = 208;   /* first entry stack save: [x29-208] */

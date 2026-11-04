@@ -1120,6 +1120,59 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                 }
             }
 
+            /* Sprint 99: nonlocal goto pairs, after the captures and
+             * before the user args (the callee's hidden (rbp, rsp) params
+             * per ancestor scope, outermost first). For pair i: if i is
+             * below this function's own depth, forward this function's
+             * own pair slot i; the last pair (i == this depth) is THIS
+             * function's frame: (LEA 0, SP snapshot slot). */
+            if (!is_indirect_call && callee_fn && callee_fn->is_nested &&
+                callee_fn->goto_pair_count > 0) {
+                ZeroCCFunction *cur_fn2 = &c->functions[c->lowering.current_func_idx];
+                int my_depth = 0;
+                for (size_t ai = cur_fn2->nested_enclosing_fn_idx;
+                     ai != (size_t)-1; ai = c->functions[ai].nested_enclosing_fn_idx) {
+                    my_depth++;
+                }
+                for (int pi = 0; pi < callee_fn->goto_pair_count &&
+                                 all_arg_count < IR_CALL_MAX_ARGS; pi++) {
+                    int rbp_t = c->next_temp_id++;
+                    int rsp_t = c->next_temp_id++;
+                    if (pi < my_depth) {
+                        char nm[48];
+                        snprintf(nm, sizeof(nm), "__nlgbp_%d", pi);
+                        ZeroCCSym *s1 = zero_cc_find_local(c, nm);
+                        snprintf(nm, sizeof(nm), "__nlbsp_%d", pi);
+                        ZeroCCSym *s2 = zero_cc_find_local(c, nm);
+                        if (!s1 || !s2) break;
+                        zc_sym_load(c, s1, 0, rbp_t);
+                        zc_sym_load(c, s2, 0, rsp_t);
+                    } else {
+                        ir_emit_lea(c, rbp_t, BE(c)->fp_reg, 0);
+                        if (c->lowering.sp_snap_off > 0) {
+                            ir_emit_load(c, rsp_t, BE(c)->fp_reg,
+                                         c->lowering.sp_snap_off);
+                        } else {
+                            /* no snapshot reserved (shouldn't happen): the
+                             * prologue sub amount is 16-rounded frame +
+                             * the ISA push distance - approximate with
+                             * LEA -frame (wrong under OFP, but this path
+                             * is unreachable when the reservation ran). */
+                            ir_emit_lea(c, rsp_t, BE(c)->fp_reg,
+                                        (int)c->current_stack_frame);
+                        }
+                    }
+                    all_arg_temps[all_arg_count] = rbp_t;
+                    all_arg_is_fp[all_arg_count] = 0;
+                    all_arg_stack_pos[all_arg_count] = 255;
+                    all_arg_count++;
+                    all_arg_temps[all_arg_count] = rsp_t;
+                    all_arg_is_fp[all_arg_count] = 0;
+                    all_arg_stack_pos[all_arg_count] = 255;
+                    all_arg_count++;
+                }
+            }
+
             for (int a = 0; a < int_arg_idx && all_arg_count < IR_CALL_MAX_ARGS; a++) {
                 int reload_temp = c->next_temp_id++;
                 ir_emit_load(c, reload_temp, BE(c)->fp_reg, -int_spill_offsets[a]);

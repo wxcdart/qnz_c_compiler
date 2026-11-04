@@ -1346,6 +1346,96 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
                                 }
                             }
 
+                            /* Sprint 99: nonlocal goto - the body may
+                             * `goto X;` where X labels an ANCESTOR
+                             * function. Such a jump restores the target
+                             * scope's (rbp, rsp), so the nested fn needs
+                             * one hidden (rbp, rsp) PAIR param per
+                             * ancestor scope (outermost first, after the
+                             * captures, before the user params).
+                             * A conservative token scan decides the need:
+                             * any `goto IDENT` whose name is not a label
+                             * defined in this body (IDENT ':' pair). The
+                             * scan can only add pairs, never miss them -
+                             * a real local label is always an IDENT ':'
+                             * pair, so a false positive (extra pair) is
+                             * harmless while a false negative would jump
+                             * with the wrong frame. */
+                            {
+                                size_t be = body_start + 1;
+                                int bd = 1;
+                                while (be < c->token_count && bd > 0) {
+                                    if (c->tokens[be].type == TK_LBRACE) bd++;
+                                    else if (c->tokens[be].type == TK_RBRACE) bd--;
+                                    be++;
+                                }
+                                char gl[32][64]; int gl_n = 0;
+                                char ll[32][64]; int ll_n = 0;
+                                for (size_t qi = body_start; qi + 1 < be && qi < c->token_count; qi++) {
+                                    if (c->tokens[qi].type == TK_GOTO &&
+                                        c->tokens[qi + 1].type == TK_IDENT &&
+                                        gl_n < 32) {
+                                        snprintf(gl[gl_n], 64, "%s", c->tokens[qi + 1].str_val);
+                                        gl_n++;
+                                    }
+                                    if (c->tokens[qi].type == TK_IDENT &&
+                                        c->tokens[qi + 1].type == TK_COLON &&
+                                        ll_n < 32) {
+                                        snprintf(ll[ll_n], 64, "%s", c->tokens[qi].str_val);
+                                        ll_n++;
+                                    }
+                                }
+                                int depth = 0;
+                                for (size_t ai = nf->nested_enclosing_fn_idx;
+                                     ai != (size_t)-1;
+                                     ai = c->functions[ai].nested_enclosing_fn_idx) {
+                                    depth++;
+                                }
+                                bool needs = false;
+                                for (int gi = 0; gi < gl_n && !needs; gi++) {
+                                    bool local = false;
+                                    for (int li2 = 0; li2 < ll_n; li2++) {
+                                        if (strcmp(ll[li2], gl[gi]) == 0) local = true;
+                                    }
+                                    if (!local) needs = true;
+                                }
+                                if (needs && depth > 0 &&
+                                    nf->param_count + 2 * (size_t)depth <= ZERO_CC_MAX_PARAMS) {
+                                    Arena *farena = zero_cc_get_fn_arena(c);
+                                    size_t new_total = nf->param_count + 2 * (size_t)depth;
+                                    const char **nn = (const char **)arena_alloc(farena,
+                                        new_total * sizeof(const char *));
+                                    ZeroCCType *nt = (ZeroCCType *)arena_alloc(farena,
+                                        new_total * sizeof(ZeroCCType));
+                                    if (nf->param_names)
+                                        memcpy(nn, nf->param_names, nf->param_count * sizeof(const char *));
+                                    if (nf->param_types)
+                                        memcpy(nt, nf->param_types, nf->param_count * sizeof(ZeroCCType));
+                                    char pname[48];
+                                    for (int pi = 0; pi < depth; pi++) {
+                                        ZeroCCType it = zero_cc_type_int64();
+                                        snprintf(pname, sizeof(pname), "__nlgbp_%d", pi);
+                                        nn[nf->param_count + 2 * pi] = zero_cc_intern_string(c, pname);
+                                        nt[nf->param_count + 2 * pi] = it;
+                                        snprintf(pname, sizeof(pname), "__nlbsp_%d", pi);
+                                        nn[nf->param_count + 2 * pi + 1] = zero_cc_intern_string(c, pname);
+                                        nt[nf->param_count + 2 * pi + 1] = it;
+                                    }
+                                    if (nf->param_dim_exprs) {
+                                        ASTRef *nd = (ASTRef *)arena_alloc(farena,
+                                            new_total * sizeof(ASTRef));
+                                        memcpy(nd, nf->param_dim_exprs, nf->param_count * sizeof(ASTRef));
+                                        memset(nd + nf->param_count, 0,
+                                               2 * (size_t)depth * sizeof(ASTRef));
+                                        nf->param_dim_exprs = nd;
+                                    }
+                                    nf->param_names = nn;
+                                    nf->param_types = nt;
+                                    nf->param_count = new_total;
+                                    nf->goto_pair_count = depth;
+                                }
+                            }
+
                             /* Phase 3b: a capturing nested function can only
                              * be used through an indirect call via a
                              * trampoline (its ABI has the hidden capture
@@ -1358,9 +1448,13 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
                              * reject address-taking of capturing nested fns
                              * with a diagnostic instead of miscompiling.
                              * Variadic captures and >32-byte by-value
-                             * captures have no static-stub representation. */
+                             * captures have no static-stub representation.
+                             * Sprint 99: nested functions with nonlocal-goto
+                             * pairs also need the stub (the pair words
+                             * travel in the ctx) even without captures. */
                             nf->tramp_stub_fn_idx = -1;
-                            if (nf->nested_captured_count > 0 && !nf->is_variadic &&
+                            if ((nf->nested_captured_count > 0 || nf->goto_pair_count > 0) &&
+                                !nf->is_variadic &&
                                 (c->isa == ISA_X86_64 || c->isa == ISA_AARCH64 || c->isa == ISA_RISCV64) &&
                                 c->function_count < ZERO_CC_MAX_FUNCTIONS) {
                                 bool stub_ok = true;
@@ -1378,7 +1472,10 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
                                              "__zf%u_%s_tramp", (unsigned)nf_idx, nf->name);
                                     snprintf(nf->tramp_ctx_name, sizeof(nf->tramp_ctx_name),
                                              "__zf%u_%s_ctx", (unsigned)nf_idx, nf->name);
-                                    nf->tramp_ctx_size = 32 * nf->nested_captured_count;
+                                    /* Sprint 99: pair words (16 bytes each) follow the
+                                     * captures in the ctx. */
+                                    nf->tramp_ctx_size = 32 * nf->nested_captured_count +
+                                                          16 * (size_t)nf->goto_pair_count;
                                     /* ctx: zero-initialized static object;
                                      * only the compiler reads/writes it. */
                                     ZeroCCType ctx_t;
@@ -1417,14 +1514,19 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
                                     sf->return_type = nf->return_type;
                                     sf->returns_struct = nf->returns_struct;
                                     sf->ret_struct_sz = nf->ret_struct_sz;
-                                    size_t uc = nf->param_count - nf->nested_captured_count;
+                                    size_t uc = nf->param_count - nf->nested_captured_count -
+                                                 2 * (size_t)nf->goto_pair_count;
                                     sf->param_count = uc;
                                     if (uc > 0 && nf->param_names && nf->param_types) {
                                         Arena *farena = zero_cc_get_fn_arena(c);
                                         sf->param_names = (const char **)arena_alloc(farena, uc * sizeof(const char *));
                                         sf->param_types = (ZeroCCType *)arena_alloc(farena, uc * sizeof(ZeroCCType));
-                                        memcpy(sf->param_names, nf->param_names + nf->nested_captured_count, uc * sizeof(const char *));
-                                        memcpy(sf->param_types, nf->param_types + nf->nested_captured_count, uc * sizeof(ZeroCCType));
+                                        const char *up = nf->param_names + nf->nested_captured_count +
+                                                          2 * nf->goto_pair_count;
+                                        const ZeroCCType *ut = nf->param_types + nf->nested_captured_count +
+                                                               2 * nf->goto_pair_count;
+                                        memcpy(sf->param_names, up, uc * sizeof(const char *));
+                                        memcpy(sf->param_types, ut, uc * sizeof(ZeroCCType));
                                     }
                                     nf->tramp_stub_fn_idx = (int)(c->function_count - 1);
                                 }

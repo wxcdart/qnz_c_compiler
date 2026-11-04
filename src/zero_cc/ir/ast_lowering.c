@@ -408,6 +408,15 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         }
     }
 
+    /* Sprint 99: nonlocal goto pairs must stay in frame slots - the
+     * goto lowering and multi-level forwarding reload them by name at
+     * the jump/call sites, where a promoted vreg would be dead (clobbered
+     * by intervening calls). */
+    if (can_promote_params && lowering_fn && lowering_fn->is_nested &&
+        lowering_fn->goto_pair_count > 0) {
+        can_promote_params = false;
+    }
+
     if (can_promote_params) {
         c->current_stack_frame = 0;
         ZeroCCFunction *fn = lowering_fn;
@@ -949,6 +958,27 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         c->lowering.frame_align = (int32_t)N;
     }
 
+    /* Sprint 99: nonlocal goto - if a nested function with goto pairs is
+     * defined in THIS function, call sites (direct call or address-taking)
+     * must pass this function's body-time SP as the pair's rsp half. The
+     * exact value depends on the prologue mode (OFP / red-zone / realign),
+     * so the prologue stores SP into a reserved frame slot right after
+     * frame setup and the call site loads that slot. */
+    c->lowering.sp_snap_off = 0;
+    if (lowering_fn && c->function_count > 0) {
+        size_t cur_idx = c->lowering.current_func_idx;
+        for (size_t fi = 0; fi < c->function_count; fi++) {
+            const ZeroCCFunction *nf2 = &c->functions[fi];
+            if (nf2->is_nested && nf2->goto_pair_count > 0 &&
+                nf2->nested_enclosing_fn_idx == cur_idx) {
+                c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                c->current_stack_frame += 8;
+                c->lowering.sp_snap_off = (int32_t)c->current_stack_frame;
+                break;
+            }
+        }
+    }
+
     /* Determine if function is a leaf (no calls, no VLAs) */
     bool is_leaf = true;
     size_t ir_count = ir_get_count(c);
@@ -1033,6 +1063,24 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                     } else {
                         c->lowering.frame_delta = 0;
                     }
+                }
+            }
+        }
+    }
+
+    /* Sprint 99: persist this function's user label name -> IR label
+     * mapping into the fn record, so a later-compiled nested function can
+     * emit OP_NONLOCAL_GOTO to one of them (the label_patcher state is
+     * per-lowering and would be clobbered by the next function). Runs for
+     * both the MC and -S emission paths. */
+    {
+        ZeroCCFunction *rec = &c->functions[c->lowering.current_func_idx];
+        for (int li = 0; li < rec->nl_label_count; li++) {
+            for (int ul = 0; ul < c->label_patcher.user_label_count; ul++) {
+                if (strcmp(c->label_patcher.user_labels[ul].name,
+                           rec->nl_labels[li]) == 0) {
+                    rec->nl_label_ir[li] = c->label_patcher.user_labels[ul].ir_label;
+                    break;
                 }
             }
         }

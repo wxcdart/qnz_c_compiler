@@ -152,6 +152,20 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
         }
         return;
     }
+    /* Sprint 99: GNU `__label__ x;` - initialize the slot with the address
+     * of the label named x (exactly &&x), so computed gotos through x
+     * work. No initializer expression follows the declaration. */
+    if (node->left == AST_NULL && node->s.str) {
+        ZeroCCSym *lsym = lowering_local_sym(c, node, node->s.str);
+        if (lsym && lsym->is_label_value) {
+            uint16_t lbl = get_or_create_user_ir_label(c, node->s.str);
+            int addr_temp = c->next_temp_id++;
+            ir_emit_lea_label(c, (uint16_t)addr_temp, lbl);
+            ir_emit_store(c, addr_temp, BE(c)->fp_reg, -lsym->stack_offset);
+            c->last_expr_is_float = 0;
+            return;
+        }
+    }
     if (node->left != AST_NULL) {
         /* C11 6.7.9: a string literal initializing a local char array.
          * Zero-fill the whole slot, then store the literal's bytes (all
@@ -1437,6 +1451,48 @@ void lower_stmt_goto(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
         return;
     }
     if (!node->s.str) return;
+
+    /* Sprint 99: nonlocal goto - the label is not in THIS function but in
+     * an ANCESTOR (a __label__ variable of this function names a label of
+     * the same name, so the name check covers it). Restore the target
+     * scope's (rbp, rsp) from the hidden pair params, then jump. */
+    ZeroCCFunction *cur = &c->functions[c->lowering.current_func_idx];
+    if (cur->is_nested && cur->goto_pair_count > 0) {
+        const char *nm = node->s.str;
+        /* Local label wins (innermost scope): check this function's own
+         * registered labels first. */
+        bool own = false;
+        for (int li = 0; li < cur->nl_label_count; li++) {
+            if (cur->nl_labels[li] && strcmp(cur->nl_labels[li], nm) == 0) own = true;
+        }
+        if (!own) {
+            int depth = 0; /* 0 = outermost ancestor */
+            for (size_t ai = cur->nested_enclosing_fn_idx;
+                 ai != (size_t)-1; ai = c->functions[ai].nested_enclosing_fn_idx) {
+                ZeroCCFunction *af = &c->functions[ai];
+                for (int li = 0; li < af->nl_label_count; li++) {
+                    if (!af->nl_labels[li] || strcmp(af->nl_labels[li], nm) != 0) continue;
+                    char rn[48], sn[48];
+                    snprintf(rn, sizeof(rn), "__nlgbp_%d", depth);
+                    snprintf(sn, sizeof(sn), "__nlbsp_%d", depth);
+                    ZeroCCSym *rb = zero_cc_find_local(c, rn);
+                    ZeroCCSym *rs = zero_cc_find_local(c, sn);
+                    if (rb && rs) {
+                        int t1 = c->next_temp_id++;
+                        zc_sym_load(c, rb, 0, t1);
+                        int t2 = c->next_temp_id++;
+                        zc_sym_load(c, rs, 0, t2);
+                        ir_emit_nonlocal_goto(c, t1, t2, (int)ai,
+                                              af->nl_label_ir[li]);
+                        return;
+                    }
+                    break;
+                }
+                depth++;
+            }
+        }
+    }
+
     uint16_t lbl = get_or_create_user_ir_label(c, node->s.str);
     ir_emit_jmp(c, lbl);
 }

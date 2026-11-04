@@ -73,6 +73,12 @@ typedef struct {
                                           and $-N, rsp; aarch64: mask through x16; riscv:
                                           andi). 0/16 = ordinary 16-rounded frame. N is a
                                           power of two <= 4096. */
+    int32_t sp_snap_off;               /* Sprint 99: frame slot holding a snapshot of the
+                                          body-time SP, taken in the prologue. Call sites of
+                                          nested functions with nonlocal-goto pairs load it to
+                                          pass the enclosing scope's final SP (mode-agnostic:
+                                          OFP / red-zone / realign all just read the stored
+                                          value). 0 = unused. */
     int static_local_rt_off;           /* Frame slot (positive, fp-relative) that
                                           protects VREG_0 across the epilogue
                                           static-local mirror-out; 0 = unused */

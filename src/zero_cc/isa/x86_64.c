@@ -2087,6 +2087,20 @@ void zero_cc_x86_emit_tramp_stub(ZeroCCCompiler *c, const ZeroCCFunction *nf) {
             n++;
         }
     }
+    /* Sprint 99: nonlocal goto pairs, between captures and user params:
+     * pair i holds (rbp, rsp) of the i-th ancestor scope; ctx words at
+     * 32*C + 16*i (rbp) and +8 (rsp). */
+    for (int pi = 0; pi < nf->goto_pair_count; pi++) {
+        for (int w = 0; w < 2; w++) {
+            if (n >= TRAMP_MAX_UNITS) return;
+            u[n].is_fp = false;
+            u[n].fin_slot = gpr_run < 6 ? gpr_run++ : -1;
+            u[n].fin_stack = u[n].fin_slot < 0 ? decl_stack_run++ : -1;
+            u[n].src = 0;
+            u[n].src_off = (int)(32 * C + 16 * pi) + 8 * w;
+            n++;
+        }
+    }
     /* user params: values come from the entry layout (register saves or
      * entry stack saves). Entry slots: gpr unit k -> k + sret_shift;
      * xmm unit k -> k; past the cap -> entry stack units in declaration

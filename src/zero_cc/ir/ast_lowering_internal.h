@@ -405,7 +405,11 @@ static inline void ir_emit_global_addr(ZeroCCCompiler *c, uint16_t temp, const Z
  * objects, matching the big-struct pointer convention), then load the
  * stub's address. Returns the temp, or -1 on a diagnostic. */
 static inline int zc_lower_fn_value(ZeroCCCompiler *c, const ZeroCCFunction *fn) {
-    if (!fn->is_nested || fn->nested_captured_count == 0) {
+    /* Sprint 99: a nested function with nonlocal-goto pairs also needs
+     * the trampoline + ctx (the pair words travel in the ctx even when
+     * there are no captures). */
+    if (!fn->is_nested ||
+        (fn->nested_captured_count == 0 && fn->goto_pair_count == 0)) {
         int t = c->next_temp_id++;
         ir_emit_mov_global(c, (uint16_t)t, zero_cc_fn_emit_symbol(fn));
         return t;
@@ -477,6 +481,53 @@ static inline int zc_lower_fn_value(ZeroCCCompiler *c, const ZeroCCFunction *fn)
                         ir_emit_store_64(c, (uint16_t)v, (uint16_t)dst);
                     }
                 }
+            }
+        }
+    }
+    /* Sprint 99: pair words after the captures (ctx offset 32*C + 16*i:
+     * rbp at +0, rsp at +8). Same source rules as the direct-call site:
+     * forward this function's own pair slots for the deeper ancestors,
+     * and (LEA 0, SP snapshot) for this function's own frame. */
+    if (fn->goto_pair_count > 0) {
+        ZeroCCFunction *cur_fn3 = &c->functions[c->lowering.current_func_idx];
+        int my_depth = 0;
+        for (size_t ai = cur_fn3->nested_enclosing_fn_idx;
+             ai != (size_t)-1; ai = c->functions[ai].nested_enclosing_fn_idx) {
+            my_depth++;
+        }
+        for (int pi = 0; pi < fn->goto_pair_count; pi++) {
+            int base_off = (int)(32 * fn->nested_captured_count + 16 * pi);
+            for (int w = 0; w < 2; w++) {
+                int dst = c->next_temp_id++;
+                ir_emit_mov_imm(c, (uint16_t)dst, (int64_t)(base_off + 8 * w));
+                int dst2 = c->next_temp_id++;
+                ir_emit_add(c, (uint16_t)dst2, (uint16_t)ctx, (uint16_t)dst);
+                int val = c->next_temp_id++;
+                if (pi < my_depth) {
+                    char nm[48];
+                    snprintf(nm, sizeof(nm), w == 0 ? "__nlgbp_%d" : "__nlbsp_%d", pi);
+                    ZeroCCSym *ps = zero_cc_find_local(c, nm);
+                    if (ps) {
+                        zc_sym_load(c, ps, 0, val);
+                    } else {
+                        diag_report_error_at_token(c,
+                            "internal: nonlocal goto pair slot missing in '%s'",
+                            cur_fn3->name);
+                        return -1;
+                    }
+                } else {
+                    if (w == 0) {
+                        ir_emit_lea(c, val, BE(c)->fp_reg, 0);
+                    } else {
+                        if (c->lowering.sp_snap_off > 0) {
+                            ir_emit_load(c, val, BE(c)->fp_reg, c->lowering.sp_snap_off);
+                        } else {
+                            ir_emit_lea(c, val, BE(c)->fp_reg,
+                                        (int)c->current_stack_frame);
+                        }
+                    }
+                }
+                ir_emit_store_64(c, (uint16_t)val, (uint16_t)dst2);
             }
         }
     }

@@ -1236,7 +1236,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             }
             size_t gparam_count = f->param_count;
             const ZeroCCType *gparam_types = f->param_types;
-            if (f->is_nested && f->nested_captured_count > 0) {
+            if (f->is_nested && (f->nested_captured_count > 0 || f->goto_pair_count > 0)) {
                 /* GNU nested functions are BLOCK-SCOPED and their
                  * source-level signature excludes the hidden capture
                  * params (nf->param_count includes them). Register the
@@ -1244,9 +1244,13 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                  * calling it (body re-parsed against the global scope)
                  * must not get "argument count mismatch: prototype
                  * declares 4 parameter(s), 2 argument(s) given"
-                 * (c-torture execute/nestfunc-3.c). */
-                gparam_count = f->param_count - f->nested_captured_count;
-                gparam_types = f->param_types + f->nested_captured_count;
+                 * (c-torture execute/nestfunc-3.c).
+                 * Sprint 99: the hidden nonlocal-goto pair params are
+                 * excluded the same way. */
+                gparam_count = f->param_count - f->nested_captured_count -
+                               2 * (size_t)f->goto_pair_count;
+                gparam_types = f->param_types + f->nested_captured_count +
+                               2 * f->goto_pair_count;
             }
             TypeInfo **params = NULL;
             if (gparam_count > 0) {

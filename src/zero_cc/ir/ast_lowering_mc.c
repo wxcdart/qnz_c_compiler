@@ -8,6 +8,12 @@ void emit_prologue_mc(ZeroCCCompiler *c, size_t frame_size) {
     if (BE(c)->emit_prologue) {
         BE(c)->emit_prologue(c, frame_size, 0);
     }
+    /* Sprint 99: snapshot the body-time SP (after frame setup, before any
+     * VLA adjustment) for nonlocal-goto pair marshalling. */
+    if (c->lowering.sp_snap_off > 0 && BE(c)->emit_store) {
+        BE(c)->emit_store(c, BE(c)->sp_reg, zero_cc_frame_base_reg(c),
+                          zero_cc_frame_disp(c, -c->lowering.sp_snap_off));
+    }
     /* Save used callee-saved GPRs in the prologue before function body executes */
     uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
     if (mask && BE(c)->conv && BE(c)->conv->callee_saved_gpr && BE(c)->emit_store) {
