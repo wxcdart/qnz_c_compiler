@@ -4,7 +4,7 @@ title: GCC c-torture Conformance Gate
 description: Differential conformance gate against the vendored GCC gcc.c-torture corpus (~3,940 tests), sweeping execute tests across -O0..-O3 in JIT and AOT and compile tests at -O0/-O2 with a ratcheting baseline.
 resource: workflows/c-torture-gate
 tags: [testing, verification, conformance, c-torture, gcc, differential, baseline]
-timestamp: 2026-11-04T21:23:18Z
+timestamp: 2026-11-04T21:28:20Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -53,7 +53,7 @@ Recorded in [`test/torture/baseline.json`](../../test/torture/baseline.json) acr
 | **`TIMEOUT`** | **0** | `execute/memclr.c` (2048 functions; JIT `-O1+` at the 5 s budget edge) passed on the idle re-record — it can still flip to TIMEOUT under load; treat a lone `memclr.c` TIMEOUT as load noise, not a regression |
 | **`REF-BUG`** | **3** | GCC reference binary itself crashes (differential comparison impossible; not a ZeroCC failure). Includes `execute/vfprintf-chk-1.c`. |
 | **`NO-REF`** | **184** | Host `gcc -O1 -w` rejected the file (32-bit/target-specific tests without explicit `dg-require-effective-target`) |
-| **`SKIP-TARGET:*`** | **12** | Explicit DejaGnu target/extension skips (`int128`: 7, `named_sections`: 3, `unwrapped`: 2, `arm`: 1; `untyped_assembly` was fully unskipped in Sprint 103, the `trampolines` holdout in Sprint 100 and the last `asm_named_reg` skip in Sprint 102) |
+| **`SKIP-TARGET:*`** | **13** | Explicit DejaGnu target/extension skips (`int128`: 7, `named_sections`: 3, `unwrapped`: 2, `arm`: 1; `untyped_assembly` was fully unskipped in Sprint 103, the `trampolines` holdout in Sprint 100 and the last `asm_named_reg` skip in Sprint 102) |
 | **`SKIP-REFSEM`** | **16** | Special FP flags (`-ffast-math`, `-mfpmath=`, `-fsignaling-nans`) |
 | **`EXPECTED-REJECT`** | **4** | Has `dg-error` directive and was rejected |
 | **`SKIP-BOGUS` / `SKIP-PTR` / `SKIP-UB`** | **3** | 1 `dg-bogus`, 1 `%p` stdout test, 1 uninitialized heap read (`execute/941014-2.c`) |

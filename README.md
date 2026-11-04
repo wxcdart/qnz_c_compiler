@@ -230,17 +230,17 @@ Current status (verified against `make test` and friends):
 
 | Suite | Status | Count |
 |-------|--------|-------|
-| **Main regression suite** (`make test`: unit, semantic, ABI, JIT, AOT, LICM) | ✅ Pass | 160+/160+ |
-| **Optimizer sweep** (`make test-opt`, `-O0..-O3` × JIT + AOT via zerocc) | ✅ Pass | 120/120 |
+| **Main regression suite** (`make test`: unit, semantic, ABI, JIT, AOT, LICM) | ✅ Pass | 167/167 |
+| **Optimizer sweep** (`make test-opt`, `-O0..-O3` × JIT + AOT via zerocc) | ✅ Pass | 129/129 |
 | **Multi-file driver** (`make test-driver`, multi-TU JIT/AOT + per-input `-c`/`-S`) | ✅ Pass | 37/37 |
 | **Own linker** (`make test-linker`, `--zerocc-link` + gcc differential) | ✅ Pass | 21/21 |
-| **Cross-ISA raw-emitter QEMU gate** (`make test-isa-qemu`, vs static-musl reference) | ✅ Pass | 44/44 (11/11 × x86-64, aarch64, riscv64, riscv32) |
-| **GCC c-torture conformance gate** (`make test-torture`, ratcheted baseline) | ✅ Pass | 3,266 PASS / 3,940 corpus (MISCOMPILE 0, REJECT 0, TIMEOUT 0) |
+| **Cross-ISA raw-emitter QEMU gate** (`make test-isa-qemu`, vs static-musl reference) | ✅ Pass | 59/59 (all 4 ISAs) |
+| **GCC c-torture conformance gate** (`make test-torture`, ratcheted baseline) | ✅ Pass | 3,670 PASS / 3,940 corpus (MISCOMPILE 0, REJECT 0, TIMEOUT 0) |
 | **`sret` ABI verifier** (`tools/sret_verifier.py --verify-all`) | ✅ Pass | 6/6 |
 | **C11 verification suite** (`tools/c11/test_c11.py`) | ✅ Pass | 11/11 |
-| **VLA verification suite** (`tools/vla/test_vla.py`) | ✅ Pass | 11/11 |
+| **VLA verification suite** (`tools/vla/test_vla.py`) | ✅ Pass | 9/9 JIT runtime (11 cases) |
 | **Diagnostics battery** (`tools/diag_battery.py`, vs gcc) | ✅ Pass | 16 cases, 8/8 error categories |
-| **C style checker** (`tools/style_check.py`) | ✅ Pass | 158 files, 0 errors |
+| **C style checker** (`tools/style_check.py`) | ✅ Pass | 159 files, 0 errors |
 
 ## Compiler Diagnostics
 
@@ -280,7 +280,6 @@ Diagnostics aim for gcc/clang-style quality:
 ```bash
 make           # Build zerocc, zero_rt.a (all ISAs), and all tests
 make test      # Run the full regression suite
-make test-opt  # Optimizer sweep at -O0..-O3, JIT + AOT, via zerocc itself
 make test-opt  # Optimizer sweep at -O0..-O3, JIT + AOT, via zerocc itself
 make test-driver   # Multi-TU driver tests (tools/driver_tests.py)
 make test-linker   # Own-linker differential tests (tools/linker_tests.py)
