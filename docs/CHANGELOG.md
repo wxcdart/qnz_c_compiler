@@ -1,5 +1,25 @@
 # ZeroCC Changelog
 
+## [Sprint 97] - 2026-11-04 - Nested-Function Trampoline Stubs on AArch64 + RISC-V64 (32/32 targeted, 59/59 QEMU, 3,270 PASS)
+
+Ported Phase 3b's real trampoline stubs (indirect calls through nested function pointers, `f = inner; f(x)`) from x86-64 to **AArch64 and RISC-V64**, using the shared unit model in the new `src/zero_cc/isa/tramp_stub.h` (one argument-stream/entry-geometry computation, three ISA emitters). RISC-V32 intentionally stays rejected (documented).
+
+- **Stub design (all ISAs)**: the stub takes user-facing args only, loads captures from the static ctx object, re-places the full ABI stream (GPR/FP register units + overflow onto the shared caller stack, sret pointer where applicable), 16-byte-aligns with a **pre-push pad** (odd unit count adds 8 to the frame BEFORE pushes, matching the OP_CALL model - a post-push pad shifts units off `[entry_sp]`), and `call`s the real nested function whose `ret` lands on the stub's epilogue, returning to the original caller. Entry geometry uses **separate namespaces** for register slot (0..7) vs shared-stack unit index (`ue_reg[]`/`ue_stk[]`) - a single index table collides the two.
+- **Encoding bugs found & fixed** (each verified under QEMU before the fix):
+  - **AArch64 LDUR/STUR family confusion**: the stub originally mixed the imm9 immediate-offset family (STUR `0xF80`/`0xFC0`, LDUR `0xF84`/`0xFC4`, wrap = 512) with the 12-bit 8x-scaled LDR/STR family (`0xF94`/`0xF90`/`0xFD4`/`0xFD0`) - the latter silently reads/writes the wrong register (e.g. an LDUR built from the LDR base decodes as a read of Rt+32). Large offsets now go through `sub x10, x29, #off` + plain `[x10]`.
+  - **PC-relative call +4 error (AArch64 `bl` & RISC-V `jal`)**: both PC-relative schemes measure from the instruction's own address; the ported code added a x86-style +4 and jumped to the wrong function (AArch64: wrong `bl` target; RISC-V: `jal` into the middle of the caller).
+  - **AArch64 >8-arg calls**: the generic MC call path pushed/overflowed 16-byte `stp/ldp` pairs for odd unit counts - the AArch64 >8-argument call segfault pre-dating this sprint is now fixed (8-byte `str/ldr`, first unit at `[x29+16]`, `bl` does not push LR).
+  - **x86 entry-save opcodes**: the XMM save loop used `0F 28` (LOAD) instead of `0F 29` (STORE), and the reload used the invalid `F2 0F 6E` - now `movaps mem,xmm` store form, `movdqu`/`movsd` reloads, disp32 REX form for offsets beyond disp8.
+  - **RISC-V stub had no frame allocation**: entry saves wrote into the caller's live stack; now `addi sp,sp,-D` after `mv s0,sp` (with `li`/`sub` for D > 2047).
+  - **RISC-V direct calls to nested functions**: `riscv64_emit_call` early-patched `jal` with `fn->text_offset - pos`, but nested functions are emitted after their enclosing function, so the offset was 0 - the call jumped to text offset 0 (the enclosing function) and infinite-recursed into a stack overflow. Nested targets now take the `R_RISCV_JAL` relocation path (resolved by the system linker at final offsets), matching the AArch64/x86 relocation model.
+  - **By-reference capture ABI class**: a by-ref capture's ABI param is a POINTER (GPR), but the symbol is retyped to the pointee for body lowering - the prologue param save/load loops misclassified a double capture as an FP arg; both loops now consult `nested_capture_byref` before the type-based class.
+- **Multi-level nesting** (capture-of-capture through mirror params): the ctx write now stores the mirror's pointer value (`zc_sym_addr`) instead of dereferencing it - 2- and 3-level nesting verified on all three ISAs.
+- **Cross-ISA regression coverage**: new `test/isa_qemu/15_nested_tramp.c` (int+double captures, 9 int + 2 double user args, two-level nesting) runs on x86-64/AArch64/RV64 against the static-musl GCC reference; the harness gained a `/* isa-skip: <isa> */` per-ISA opt-out directive (RV32). `make test-isa-qemu` is now **59/59**.
+- **Verification**: 8-test trampoline battery x (JIT + 3 AOT targets) = 32/32, plus direct-call and >8-arg probes on all 3 ISAs; `make test` 159/159, `make test-opt` 120/120, `make test-driver` 37/37, `make test-isa-qemu` 59/59, `diag_battery` OK, `style_check` 0 errors, `vtable_check` PASS, full c-torture gate OK with baseline ratcheted to **PASS 3,270** (0 bad; the four previously NO-REF `memcpy-a*` heavy tests now build+pass deterministically).
+
+# ZeroCC Changelog
+
+
 ## [Sprint 96] - 2026-11-03 - Cross-ISA `_Alignas(N>16)` Locals: AArch64 + RISC-V Runtime SP Realign (all 4 ISAs, 56/56 QEMU, 3,266 PASS held)
 
 Ported Sprint 95's GCC-style runtime SP realign for local `_Alignas(N>16)` from x86-64 to **AArch64 and RISC-V (64 & 32)** — local automatic objects now get their full declared alignment (power of two, ≤ 4096) on all four target ISAs, in both the raw-binary (MC) and `-S` (ASM) paths. The cross-ISA battery gains `test/isa_qemu/14_align.c` (N = 32/64/struct-64/4096) and is now **56/56 ok** across x86-64, aarch64, riscv64, riscv32.

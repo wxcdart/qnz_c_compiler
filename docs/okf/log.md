@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-04T00:56:36Z
+timestamp: 2026-11-04T04:25:40Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -786,3 +786,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-04 — Updated `isa-backends.md`
 - Sprint 96: cross-ISA _Alignas(N>16) realign (AArch64 + RISC-V 64/32), encoding pitfalls (64-bit AND masks, SP-as-Rm, RV64 funct7, RV32 large displacements, binutils sym+offset bug)
+
+## 2026-11-04 — Updated `isa-backends.md`
+- Sprint 97: trampoline stubs ported to AArch64 + RISC-V64; per-ISA encoding invariants (LDUR/STUR families, PC-relative bl/jal, pre-push pad, separate entry namespaces, RISC-V nested-call relocation) and the >8-arg MC call fix
