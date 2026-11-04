@@ -4,7 +4,7 @@ title: GCC c-torture Conformance Gate
 description: Differential conformance gate against the vendored GCC gcc.c-torture corpus (~3,940 tests), sweeping execute tests across -O0..-O3 in JIT and AOT and compile tests at -O0/-O2 with a ratcheting baseline.
 resource: workflows/c-torture-gate
 tags: [testing, verification, conformance, c-torture, gcc, differential, baseline]
-timestamp: 2026-11-04T18:23:13Z
+timestamp: 2026-11-04T19:23:35Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -24,7 +24,7 @@ The vendored corpus contains **3,940** active test files across two trees (exclu
 
 ### Pre-Skip Directives (`parse_directives`)
 Because `gcc.c-torture` mixes standard C89/C99/C11 tests with GCC-internal target extensions, `tools/torture_run.py` scans DejaGnu (`dg-*`) directives in the first 60 lines of each file and pre-skips:
-- **`SKIP-TARGET:<feature>`**: `dg-require-effective-target` for GNU/target extensions outside ZeroCC's target contract (`untyped_assembly`, `int128`, `named_sections`, `unwrapped`, `arm`, `freestanding`, `alloca`, `bitint`, `dfp`, `fixed_point`, `tls_native`, `vector`, `vxworks_kernel`). Note: `return_address` was removed in Sprint 86, `label_values` was unskipped in Sprint 87 (computed gotos + label difference relocations), `indirect_jumps` was unskipped in Sprint 88, `nested_capture_writeback` was removed in Sprint 92 (runtime VLA param dimensions + runtime VLA `sizeof`), `trampolines` was removed as a blanket target in Sprint 93 (real trampoline stubs + pointer-routed capture landed), **`nonlocal_goto` was unskipped in Sprint 99** (named nonlocal goto across nested-function scopes; computed goto to ancestor frames matches GCC's own rejection), and **the last `trampolines` holdout `compile/nested-1.c` was unskipped in Sprint 100** (its blocker was the local VLA-member struct `struct s { int a; char b[argc]; }` passed by value to the nested function - now supported; the targeted `TRAMPOLINES_BLOCKED` set in `tools/torture_run.py` is empty). `execute/pr51447.c` is `SKIP-TARGET:asm_named_reg` (its remaining blocker is `register void *ptr asm ("rbx")`).
+- **`SKIP-TARGET:<feature>`**: `dg-require-effective-target` for GNU/target extensions outside ZeroCC's target contract (`untyped_assembly`, `int128`, `named_sections`, `unwrapped`, `arm`, `freestanding`, `alloca`, `bitint`, `dfp`, `fixed_point`, `tls_native`, `vector`, `vxworks_kernel`). Note: `return_address` was removed in Sprint 86, `label_values` was unskipped in Sprint 87 (computed gotos + label difference relocations), `indirect_jumps` was unskipped in Sprint 88, `nested_capture_writeback` was removed in Sprint 92 (runtime VLA param dimensions + runtime VLA `sizeof`), `trampolines` was removed as a blanket target in Sprint 93 (real trampoline stubs + pointer-routed capture landed), **`nonlocal_goto` was unskipped in Sprint 99** (named nonlocal goto across nested-function scopes; computed goto to ancestor frames matches GCC's own rejection), and **the last `trampolines` holdout `compile/nested-1.c` was unskipped in Sprint 100** (its blocker was the local VLA-member struct `struct s { int a; char b[argc]; }` passed by value to the nested function - now supported; the targeted `TRAMPOLINES_BLOCKED` set in `tools/torture_run.py` is empty). The last `asm_named_reg` skip (`execute/pr51447.c`) was removed in Sprint 102 (GNU asm labels `register void *ptr asm ("rbx")` are accepted; the object keeps normal storage).
 - **`SKIP-BOGUS`**: negative diagnostic tests (`dg-bogus`).
 - **`SKIP-REFSEM`**: tests requiring reference-changing floating-point semantics (`-mfpmath=`, `-ffast-math`, `-frounding-math`, `-fsignaling-nans`, `-fexcess-precision=`).
 - **`SKIP-PTR`**: tests printing raw `%p` pointer addresses (ASLR-nondeterministic across runs).
@@ -40,20 +40,20 @@ An early `gcc -std=c11 -Wpedantic` pre-filter was rejected because GCC's pedanti
 
 ---
 
-## 2. Classification Buckets & Baseline (Sprint 100: GNU variably-modified struct members)
+## 2. Classification Buckets & Baseline (Sprint 102: GNU asm labels + scalar_storage_order)
 
 Recorded in [`test/torture/baseline.json`](../../test/torture/baseline.json) across all **3,940** tests:
 
 | Bucket | Count | Meaning |
 | :--- | ---: | :--- |
-| **`PASS`** | **3,615** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` — all-time high (Sprint 101: +29 C89 tests via implicit-`int` and related gnu89 leniencies — e.g. `compile/callind` (K&R `(**foo)()`), `compile/pr72802` (file-scope implicit-int variables), `execute/920415-1` (nested `void *x()` + `&&l`), `compile/920415-1`) |
+| **`PASS`** | **3,626** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` — all-time high (Sprint 102: +11 — GNU asm labels `asm ("name")` for locals/globals/K&R params, `scalar_storage_order("big-endian")` bit-fields, GCC-compatible mixed-base-type bit-field packing, and `__FUNCTION__`) |
 | **`REJECT`** | **0** | ZeroCC rejected a test that GCC accepts (must stay 0) |
 | **`MISCOMPILE`** | **0** | ZeroCC compiled+ran but produced wrong `(rc, stdout)` vs the GCC reference (must stay 0) |
-| **`SKIP-C89`** | **61** | ZeroCC rejected or skipped a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects (down from 90: Sprint 101's implicit-`int`/gnu89 leniencies unblocked 29; the remaining set includes sibling-scope struct tag collisions that reject cleanly, e.g. `execute/20070919-1`, `execute/20040423-1`, and named-register-variable declarations like `register int v asm("rax")`) |
+| **`SKIP-C89`** | **51** | ZeroCC rejected or skipped a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects (down from 61: Sprint 102's asm-label/`__FUNCTION__`/file-scope-`;` leniencies unblocked 10; the remaining set includes sibling-scope struct tag collisions that reject cleanly, e.g. `execute/20070919-1`, `execute/20040423-1`) |
 | **`TIMEOUT`** | **0** | `execute/memclr.c` (2048 functions; JIT `-O1+` at the 5 s budget edge) passed on the idle re-record — it can still flip to TIMEOUT under load; treat a lone `memclr.c` TIMEOUT as load noise, not a regression |
 | **`REF-BUG`** | **3** | GCC reference binary itself crashes (differential comparison impossible; not a ZeroCC failure). Includes `execute/vfprintf-chk-1.c`. |
 | **`NO-REF`** | **184** | Host `gcc -O1 -w` rejected the file (32-bit/target-specific tests without explicit `dg-require-effective-target`) |
-| **`SKIP-TARGET:*`** | **53** | Explicit DejaGnu target/extension skips (`untyped_assembly`: 40, `int128`: 7, `named_sections`: 3, `unwrapped`: 2, `arm`: 1, `asm_named_reg`: 1 (`pr51447.c`); the `trampolines` holdout was fully resolved in Sprint 100) |
+| **`SKIP-TARGET:*`** | **52** | Explicit DejaGnu target/extension skips (`untyped_assembly`: 40, `int128`: 7, `named_sections`: 3, `unwrapped`: 2, `arm`: 1; the `trampolines` holdout was fully resolved in Sprint 100 and the last `asm_named_reg` skip `pr51447.c` was removed in Sprint 102) |
 | **`SKIP-REFSEM`** | **16** | Special FP flags (`-ffast-math`, `-mfpmath=`, `-fsignaling-nans`) |
 | **`EXPECTED-REJECT`** | **4** | Has `dg-error` directive and was rejected |
 | **`SKIP-BOGUS` / `SKIP-PTR` / `SKIP-UB`** | **3** | 1 `dg-bogus`, 1 `%p` stdout test, 1 uninitialized heap read (`execute/941014-2.c`) |
@@ -278,11 +278,18 @@ Bringing up `tools/torture_run.py` exposed and fixed five compiler bugs (reducin
     - **Diagnostics and prototypes**: void-typed variable definitions (`compile/pr100241-1.c`), anonymous funcptr prototypes (`compile/pr29241.c`), float cast to int in globals (`compile/pr30433.c`), wide-char in macro bodies (`execute/970214-2.c`).
     - **Result**: REJECT **31 → 15** (all 15 remaining are documented architectural limits or stress tests); MISCOMPILE **0 → 0**; PASS **2,993**. `make test` 156/156, `make test-opt` 117 ok, style 0 errors, diag battery OK. Baseline re-recorded (`--update-baseline`).
 
+- **Sprint 102 — GNU asm Labels, `scalar_storage_order`, Mixed-Base Bit-Field Packing & `__FUNCTION__`** (see [`docs/CHANGELOG.md`](../CHANGELOG.md) for the full entry):
+    - **GNU asm label** (`asm ("name")` / `__asm__ ("a" "b")` after a complete declarator — locals, file-scope globals, K&R params, statics): accepted and recorded (`ZeroCCDeclarator.asm_name` / `ZeroCCSym.asm_name`); the object keeps normal storage (c-torture `asmgoto-5`, `mangle-1`, `pr100278`, `pr51447` — the last `SKIP-TARGET:asm_named_reg` skip removed). File-scope `register` is accepted-and-ignored (`pr51447`).
+    - **`scalar_storage_order("big-endian")`** (`execute/20230630-2/4`): the preprocessor emits a bare `__zc_sso_be__` marker (little-endian is the LE default and erases via the empty `__attribute__` replacement — the first attempt double-freed the macro-argument array, caught by `pr86659-2`'s `free(): double free` abort); the struct layout remaps bit offsets to MSB-assignment per allocation unit and flags members (`sso_be`/`sso_unit`); load/store/initialization byte-swap the allocation unit via `zc_emit_unit_bswap` (value domain ↔ storage domain), with the SSO flag riding on the member-access stamp (bits 17–21) and derived from the member layout in the brace-initialization path (bit 31 of the init stamp is `ZC_INIT_ABS_TAG` — a first attempt aliased the SSO bit onto it and silently byte-swapped **every** bit-field initializer: 21 `MISCOMPILE`s, gate-caught).
+    - **GCC-compatible mixed-base-type bit-field packing** (`parser/decl_struct.c`): a narrower base type now packs into the remaining bits of a wider current allocation unit (`short i:12; char c1:1` shares one 16-bit unit, sizeof 2 — matching GCC; the packed member's size is the unit size so load/store/leaf-resolution operate on the whole unit). Pre-existing layout divergence fixed, not SSO-specific.
+    - **`__FUNCTION__`** alias of `__func__` (semantic `NODE_IDENT` + lowering) and **const-expr pointer casts** (`(char *) X00000` in brace initializers, `parser/const_eval.h`) + **file-scope empty `;`** (attribute macros carrying their own `;`).
+    - **Result**: PASS **3,615 → 3,626** (+11: the 8 targeted asm/SSO/`__FUNCTION__`/file-scope-`;` tests + `compile/20041119-1`, `compile/20190827-1`, `execute/20001011-1`); SKIP-C89 **61 → 51**; `SKIP-TARGET:asm_named_reg` **1 → 0**; no PASS→bad. `make test` 165/165, `make test-opt` 126 ok, `make test-driver` 37/37, `make test-isa-qemu` 59/59, diag battery baseline OK. Baseline re-recorded (`--update-baseline`).
+
 ---
 
 ## 5. Chunked Burn-Down Plan (Remaining 1,160 Actionable Tests)
 
-> **Status (Sprint 101): the entire plan is complete.** Every Tier 1 chunk (M1/M2/M3: 0 TIMEOUT, 0 MISCOMPILE) and every Tier 2 chunk (R1–R4: 0 REJECT) has been burned down; the corpus is at **PASS 3,615, REJECT 0, MISCOMPILE 0, TIMEOUT 0**. The table below is retained as the historical plan of record (Sprint 57).
+> **Status (Sprint 102): the entire plan remains complete.** Every Tier 1 chunk (M1/M2/M3: 0 TIMEOUT, 0 MISCOMPILE) and every Tier 2 chunk (R1–R4: 0 REJECT) has been burned down; the corpus is at **PASS 3,626, REJECT 0, MISCOMPILE 0, TIMEOUT 0**. The table below is retained as the historical plan of record (Sprint 57).
 
 Clustering [`test/torture/baseline.json`](../../test/torture/baseline.json) (`148 MISCOMPILE` + `0 TIMEOUT` + `714 REJECT`) by failing configuration and diagnostic message breaks the remaining work into bounded sprint chunks, ordered **correctness before syntax**:
 

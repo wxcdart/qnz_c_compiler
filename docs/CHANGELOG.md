@@ -1,3 +1,31 @@
+## [Sprint 102] - 2026-11-04 - GNU asm Labels, `scalar_storage_order(big-endian)`, Mixed-Base Bit-Field Packing & `__FUNCTION__` (3,626 PASS, baseline ratcheted)
+
+The GNU asm-label cluster, the `scalar_storage_order("big-endian")` SSO bit-fields, and the last C89 file-scope tail leniencies move to `PASS`. **c-torture: PASS 3,615 -> 3,626 (+11, 0 bad), SKIP-C89 61 -> 51, `SKIP-TARGET:asm_named_reg` 1 -> 0, baseline ratcheted.**
+
+### Parser & preprocessor
+
+- **GNU asm label** (`asm ("name")` / `__asm__ ("a" "b")` after a complete declarator — locals, file-scope globals, K&R parameters, statics): accepted and recorded (`zero_cc_parse_asm_label()` in `parser/zero_cc_declarator_stack.h` concatenates the string-literal run inside the paren group into `ZeroCCDeclarator.asm_name`, plumbed to `ZeroCCSym.asm_name` in `parser/decl_local.h` and `jit/compile_unit.c`). The object keeps normal storage — the label is a symbol/register specifier accepted for compatibility (c-torture `compile/asmgoto-5`, `compile/mangle-1`, `compile/pr100278`, `execute/pr51447` — the last `SKIP-TARGET:asm_named_reg` skip removed from `tools/torture_run.py`). File-scope `register` is accepted-and-ignored (`pr51447`: `register void *ptr asm ("rbx");`).
+- **`scalar_storage_order("big-endian")` marker** (`core/preprocessor.c`): the attribute rewrites to a bare `__zc_sso_be__` identifier (no parens/argument); `little-endian` is the LE default and erases via the empty `__attribute__` replacement. (First attempt freed the macro-argument array in the erase branch — a double free that aborted `execute/pr86659-2.c` with `free(): double free detected in tcache 2` in JIT mode; the erase is now a plain `continue` and the outer expansion owns the args.)
+- **SSO bit-field remap** (`parser/definitions.h`): after the struct body, when `__zc_sso_be__` follows, each allocation unit's bit-fields are reassigned from the **MSB** (value domain, from the unit LSB): `mm->bit_offset = unit_bits - used - w`, with `sso_be`/`sso_unit` (unit size in bytes) flagged on each member (`types/type_system.h`, propagated through `semantic/type.h` `StructField` and `jit/type_info.h`).
+- **GCC-compatible mixed-base-type bit-field packing** (`parser/decl_struct.c`, all three member-layout sites): a narrower base type now packs into the remaining bits of a wider current allocation unit — `struct S { short i:12; char c1:1; };` shares one 16-bit unit (sizeof 2, matching GCC) instead of giving the `char` field its own 1-byte unit; the packed member's recorded size is the **unit** size so bit-field load/store and leaf resolution (`zc_struct_resolve_scalar_leaf_bf`) operate on the whole unit. Pre-existing layout divergence, fixed as a prerequisite for SSO correctness.
+- **Const-expr pointer casts** (`parser/const_eval.h`): after the cast type name in `(Type) expr`, a trailing `TK_STAR` run is consumed as pointer levels — `(char *) X00000` inside a brace initializer (`compile/limits-externdecl.c`); unknown identifiers yield `0` and stay in sync.
+- **File-scope empty `;`** (`jit/compile_unit.c`): any bare `;` at file scope is skipped (attribute macros carrying their own `;` leave `} name ; ;`; `compile/20041119-1`, `compile/20190827-1`, `execute/20230630-*`).
+
+### Semantics
+
+- **`__FUNCTION__`**: alias of `__func__` (typed `char *`, lowered to the function-name string) in `semantic/expr.c`, `semantic/visitor.c`, and `ir/ast_lowering_expr.c`; excluded from gnu89 implicit function declarations (`execute/20001011-1`).
+- **SSO member-access stamp**: the bit-field member stamp in `semantic/expr.c` gains bit 17 (`sso_be`) and bits 18–21 (`sso_unit`) alongside `bit_offset`/`bit_width`/`is_signed`.
+
+### Lowering
+
+- **`zc_emit_unit_bswap()`** (`ir/ast_lowering_internal.h`): byte-swaps the low `unit` (2/4/8) bytes of a 64-bit temp, preserving the bytes above the unit — an involution used to convert between the value domain and the big-endian storage domain. Bit 31 of the init stamp is `ZC_INIT_ABS_TAG`, so the **local** brace-initialization path derives the SSO flag from the target struct's member layout at the stored offset (`ir/ast_lowering_expr.c`) rather than from the stamp; the **global/static** data path writes the unit bytes reversed directly (`parser/init_common.h`). Bit-field **load** (`ir/ast_lowering_expr.c`), **store** (`ir/ast_lowering_assign.c`), and both initialization paths apply the swap. *(A first attempt stored the SSO flag in the init stamp's bit 31 — aliasing `ZC_INIT_ABS_TAG` — and silently byte-swapped every bit-field initializer: 21 `MISCOMPILE`s (all `PASS -> MISCOMPILE` rc=-6), caught by the gate.)*
+
+### Tests & verification
+
+- `make test` **165/165**, `make test-opt` **126 ok**, `make test-driver` 37/37, `make test-isa-qemu` 59/59, `diag_battery` baseline OK, `style_check` 0 errors, `vtable_check` PASS, OKF lint/index clean.
+- AOT verified both raw (`-O1 -o`) and `ZC_TEXT_AOT=1`; SSO verified at `-O0..-O3` in both JIT and AOT.
+- c-torture full gate: **PASS 3,626** (was 3,615: +11 — `compile/asmgoto-5`, `compile/mangle-1`, `compile/pr100278`, `compile/limits-externdecl`, `compile/split-path-3`, `execute/pr51447`, `execute/20230630-2`, `execute/20230630-4`, `compile/20041119-1`, `compile/20190827-1`, `execute/20001011-1`), SKIP-C89 61 -> 51, 0 bad. **Baseline ratcheted** (`test/torture/baseline.json`).
+
 ## [Sprint 101] - 2026-11-04 - C89 Implicit-`int` & gnu89 Tail Leniencies (3,615 PASS, baseline ratcheted)
 
 The implicit-`int` `SKIP-C89` cluster (and related C89/GNU leniencies) moves to `PASS`. **c-torture: PASS 3,586 -> 3,615 (+29, 0 bad), SKIP-C89 90 -> 61, baseline ratcheted.**

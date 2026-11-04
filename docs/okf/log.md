@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-04T18:23:13Z
+timestamp: 2026-11-04T19:23:35Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -852,3 +852,12 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-04 — Updated `index.md`
 - Sprint 101 gate state (PASS 3,615, SKIP-C89 61)
+
+## 2026-11-04 — Updated `c-torture-gate.md`
+- Sprint 102: asm labels, SSO big-endian, mixed-base bit-field packing (PASS 3,626, SKIP-C89 51)
+
+## 2026-11-04 — Updated `frontend-and-types.md`
+- Sprint 102: GNU asm labels, scalar_storage_order, __FUNCTION__ documented
+
+## 2026-11-04 — Updated `index.md`
+- Sprint 102 gate state (PASS 3,626, SKIP-C89 51)
