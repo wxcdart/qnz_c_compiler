@@ -67,6 +67,36 @@ static inline void zero_cc_stmt_typedef_struct(ZeroCCCompiler *c) {
                     }
                 }
             }
+            /* GNU `__attribute__((scalar_storage_order("big-endian")))`
+             * (preprocessor marker __zc_sso_be__): bit-fields are assigned
+             * from the MSB of each allocation unit and the unit's bytes
+             * are stored big-endian (c-torture execute/20230630-2/4).
+             * Remap the bit offsets (value-domain, from the unit LSB) and
+             * flag the members; load/store/initialization byte-swap the
+             * unit accordingly. */
+            if (c->tokens[c->token_pos].type == TK_IDENT &&
+                strcmp(c->tokens[c->token_pos].str_val, "__zc_sso_be__") == 0) {
+                c->token_pos++;
+                size_t si = 0;
+                while (si < st.member_count) {
+                    ZeroCCStructMember *sm = &st.members[si];
+                    if (!sm->is_bitfield) { si++; continue; }
+                    size_t unit_off = sm->offset;
+                    int unit_bits = (int)(sm->size * 8);
+                    int used = 0;
+                    while (si < st.member_count) {
+                        ZeroCCStructMember *mm = &st.members[si];
+                        if (!mm->is_bitfield || mm->offset != unit_off) break;
+                        int w = mm->bit_width;
+                        if (w > 0 && used > 0 && used + w > unit_bits) break;
+                        mm->bit_offset = (uint8_t)(unit_bits - used - w);
+                        mm->sso_be = true;
+                        mm->sso_unit = (uint8_t)sm->size;
+                        used += w;
+                        si++;
+                    }
+                }
+            }
             if (st_name[0] != '\0') {
                 snprintf(st.struct_name, sizeof(st.struct_name), "%s", st_name);
                 zero_cc_register_struct(c, st_name, st);

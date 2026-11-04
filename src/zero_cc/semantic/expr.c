@@ -144,9 +144,11 @@ TypeInfo *expr_handle_identifier(SemContext *ctx, ZeroCCASTNode *node) {
 
     Symbol *sym = scope_lookup(ctx->current_scope, name);
     if (!sym) {
-        if (strcmp(name, "__func__") == 0 || strcmp(name, "__PRETTY_FUNCTION__") == 0) {
-            /* __func__ / __PRETTY_FUNCTION__ are implicitly declared as
-             * static const char[] (pointer to the function-name string). */
+        if (strcmp(name, "__func__") == 0 || strcmp(name, "__PRETTY_FUNCTION__") == 0 ||
+            strcmp(name, "__FUNCTION__") == 0) {
+            /* __func__ / __PRETTY_FUNCTION__ / __FUNCTION__ are implicitly
+             * declared as static const char[] (pointer to the function-
+             * name string). */
             TypeInfo *res = type_pointer_to(ctx->perm_arena, type_char(ctx->perm_arena));
             expr_node_set_type(ctx, node, res);
             return res;
@@ -695,7 +697,9 @@ TypeInfo *expr_handle_member(SemContext *ctx, ZeroCCASTNode *node) {
                 node->flags |= NODE_MEMBER_IS_BITFIELD;
                 node->aux.step = ((uint32_t)fld->bit_offset) |
                                  (((uint32_t)fld->bit_width) << 8) |
-                                 (((uint32_t)(fld->is_signed ? 1 : 0)) << 16);
+                                 (((uint32_t)(fld->is_signed ? 1 : 0)) << 16) |
+                                 (((uint32_t)(fld->sso_be ? 1 : 0)) << 17) |
+                                 (((uint32_t)(fld->sso_unit & 0xF)) << 18);
                 /* C11 6.3.1.1p2: integer promotions apply to bit-fields:
                  * if int can represent all values, promote to int;
                  * otherwise if unsigned int can represent all values, promote to unsigned int. */

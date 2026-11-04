@@ -1484,10 +1484,13 @@ static inline void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType 
             bool is_bf = tgt.is_bitfield;
             uint8_t boff = tgt.bit_offset;
             uint8_t bw = tgt.bit_width;
+            bool bf_sso = false; /* bit-field unit stored big-endian (SSO) */
             if (!tgt.is_scalar) {
                 size_t loff = 0, lsz = 0;
+                uint8_t lsso_unit = 0;
                 zc_object_resolve_scalar_leaf_bf(&tgt.val_type, tgt.local_leaf, &loff, &lsz,
-                                                 &is_bf, &boff, &bw, NULL);
+                                                 &is_bf, &boff, &bw, NULL,
+                                                 &bf_sso, &lsso_unit);
                 off += loff;
                 w = lsz ? lsz : 4;
                 wfull = w;
@@ -1547,8 +1550,13 @@ static inline void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType 
                         uint64_t vmask = (bw >= 64) ? ~0ULL : ((1ULL << bw) - 1);
                         uint64_t fmask = (bw >= 64) ? ~0ULL : (vmask << boff);
                         cur = (cur & ~fmask) | ((((uint64_t)iv) & vmask) << boff);
-                        for (size_t i = 0; i < w && i < 8 && eo + i < buf_cap; i++) {
-                            buf[eo + i] = (uint8_t)(cur >> (8 * i));
+                        /* scalar_storage_order("big-endian"): the unit's
+                         * bytes are stored big-endian - write byte i of
+                         * the value-domain word to unit position w-1-i. */
+                        size_t uw = (w < 8) ? w : 8;
+                        for (size_t i = 0; i < uw && eo + i < buf_cap; i++) {
+                            size_t j = bf_sso ? (uw - 1 - i) : i;
+                            buf[eo + i] = (uint8_t)((cur >> (8 * j)) & 0xFF);
                         }
                     } else {
                         for (size_t i = 0; i < w && i < 8 && eo + i < buf_cap; i++) {

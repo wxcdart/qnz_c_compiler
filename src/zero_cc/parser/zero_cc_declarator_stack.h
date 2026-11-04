@@ -68,6 +68,12 @@ typedef struct ZeroCCDeclarator {
     size_t name_tok_pos;
     size_t name_level;
     bool is_abstract;
+    /* GNU asm label: `int x asm ("y");` / `register int v asm ("rax");`
+     * - the concatenated string, empty when absent.  The name is a symbol
+     * specifier (or register specifier); ZeroCC accepts it and records it,
+     * but stores the object normally (c-torture asmgoto-5 / mangle-1 /
+     * pr100278 / pr51447). */
+    char asm_name[64];
 } ZeroCCDeclarator;
 
 /* Forward declarations */
@@ -80,6 +86,54 @@ static inline void zero_cc_declarator_init(ZeroCCDeclarator *d) {
     if (!d) return;
     memset(d, 0, sizeof(*d));
     d->num_levels = 1;
+}
+
+/* GNU asm label following a complete declarator:
+ *   `asm ( "name" )` / `__asm__ ( "a" "b" )` - a run of string literals
+ * inside one balanced paren group (the symbol/register name).  Consumes
+ * the tokens and concatenates the strings into out.  Returns false (and
+ * leaves the stream untouched) when the shape does not match. */
+static inline bool zero_cc_parse_asm_label(ZeroCCCompiler *c, char *out, size_t outsz) {
+    if (!c || !out || outsz == 0) return false;
+    if (c->token_pos >= c->token_count || c->tokens[c->token_pos].type != TK_IDENT) {
+        return false;
+    }
+    const char *an = c->tokens[c->token_pos].str_val;
+    if (!an || (strcmp(an, "asm") != 0 && strcmp(an, "__asm__") != 0 &&
+                strcmp(an, "__asm") != 0)) {
+        return false;
+    }
+    if (c->token_pos + 1 >= c->token_count ||
+        c->tokens[c->token_pos + 1].type != TK_LPAREN) {
+        return false;
+    }
+    size_t p = c->token_pos + 2;
+    int depth = 1;
+    size_t o = 0;
+    out[0] = '\0';
+    while (p < c->token_count && depth > 0) {
+        ZeroCCTokType pt = c->tokens[p].type;
+        if (pt == TK_LPAREN) {
+            depth++;
+        } else if (pt == TK_RPAREN) {
+            depth--;
+            if (depth == 0) { p++; break; }
+        } else if (pt == TK_STRING && depth == 1) {
+            const char *s = c->tokens[p].str_val;
+            if (s) {
+                for (const char *ch = s; *ch && o + 1 < outsz; ch++) {
+                    out[o++] = *ch;
+                }
+            }
+        } else if (pt != TK_STRING) {
+            return false; /* not a plain string-literal group */
+        }
+        p++;
+    }
+    if (depth != 0) return false;
+    out[o] = '\0';
+    c->token_pos = p;
+    return true;
 }
 
 /* Parse parameter list of a function suffix: (type param, ...) */
@@ -692,6 +746,9 @@ static inline bool zero_cc_parse_declarator(
         return false;
     }
     zero_cc_declarator_flatten(d);
+    /* GNU asm label: `int x asm ("y");` - legal after the complete
+     * declarator (name + any pointer/array/function suffixes). */
+    (void)zero_cc_parse_asm_label(c, d->asm_name, sizeof(d->asm_name));
     return true;
 }
 

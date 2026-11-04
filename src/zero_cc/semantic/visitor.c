@@ -222,6 +222,7 @@ bool sem_implicit_fn_decl(SemContext *ctx, uint32_t line, uint32_t col, const ch
         strcmp(name, "__real__") == 0 || strcmp(name, "__real") == 0 ||
         strcmp(name, "__imag__") == 0 || strcmp(name, "__imag") == 0 ||
         strcmp(name, "__func__") == 0 || strcmp(name, "__PRETTY_FUNCTION__") == 0 ||
+        strcmp(name, "__FUNCTION__") == 0 ||
         strcmp(name, "alloca") == 0) {
         return false;
     }
@@ -305,9 +306,11 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
                 if (sym) {
                     res = sym->type;
                 } else if (strcmp(ident_name, "__func__") == 0 ||
-                           strcmp(ident_name, "__PRETTY_FUNCTION__") == 0) {
-                    /* __func__ / __PRETTY_FUNCTION__ are implicitly declared
-                     * as char[] (pointer to the function-name string) */
+                           strcmp(ident_name, "__PRETTY_FUNCTION__") == 0 ||
+                           strcmp(ident_name, "__FUNCTION__") == 0) {
+                    /* __func__ / __PRETTY_FUNCTION__ / __FUNCTION__ are
+                     * implicitly declared as char[] (pointer to the
+                     * function-name string) */
                     res = type_pointer_to(ctx->perm_arena, type_char(ctx->perm_arena));
                 } else if (strncmp(ident_name, "__builtin_", 10) == 0 ||
                            strncmp(ident_name, "__sync_", 7) == 0 ||

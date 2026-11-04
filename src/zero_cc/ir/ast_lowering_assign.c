@@ -152,6 +152,8 @@ static int assign_member_bitfield(ZeroCCCompiler *c,
     uint8_t bit_offset = (uint8_t)(left_node->aux.step & 0xFF);
     uint8_t bit_width = (uint8_t)((left_node->aux.step >> 8) & 0xFF);
     bool is_signed = ((left_node->aux.step >> 16) & 1) != 0;
+    bool sso_be = ((left_node->aux.step >> 17) & 1) != 0;
+    int sso_unit = (int)((left_node->aux.step >> 18) & 0xF);
     uint64_t val_mask = (bit_width >= 64) ? ~0ULL : ((1ULL << bit_width) - 1);
     TypeInfo *ti = ast_node_get_typeinfo(c, left_node);
     size_t m_size = ti ? type_size(ti) : 4;
@@ -161,6 +163,12 @@ static int assign_member_bitfield(ZeroCCCompiler *c,
     int curr_temp = c->next_temp_id++;
     if (is_64) ir_emit_deref(c, curr_temp, addr_temp);
     else ir_emit_load_32(c, curr_temp, addr_temp);
+
+    /* scalar_storage_order("big-endian"): convert the stored unit bytes
+     * into the value domain before any bit manipulation. */
+    if (sso_be) {
+        curr_temp = zc_emit_unit_bswap(c, curr_temp, sso_unit);
+    }
 
     bool is_compound = (assign_node->aux.op != TK_ASSIGN && assign_node->aux.op != '=');
     if (is_compound) {
@@ -243,9 +251,13 @@ static int assign_member_bitfield(ZeroCCCompiler *c,
         masked_val = shifted_val;
     }
 
-    /* 5. Combine and store */
+    /* 5. Combine and store (back to the storage domain for SSO-BE
+     * units before the write). */
     int combined_temp = c->next_temp_id++;
     ir_emit_or(c, combined_temp, cleared_temp, masked_val);
+    if (sso_be) {
+        combined_temp = zc_emit_unit_bswap(c, combined_temp, sso_unit);
+    }
     if (is_64) ir_emit_store_64(c, combined_temp, addr_temp);
     else ir_emit_store_32(c, combined_temp, addr_temp);
 

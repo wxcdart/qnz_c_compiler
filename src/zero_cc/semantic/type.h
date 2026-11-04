@@ -94,6 +94,12 @@ struct TypeInfo {
                 uint8_t     bit_width;
                 bool        is_signed;
                 bool        is_flexible; /* Flexible array member */
+                /* GNU scalar_storage_order("big-endian"): the bit-field's
+                 * allocation unit is stored big-endian; sso_unit is the
+                 * unit size in bytes (load/store/initialization must
+                 * byte-swap within it). */
+                bool        sso_be;
+                uint8_t     sso_unit;
             } *fields;
             size_t      field_count;
         } record;

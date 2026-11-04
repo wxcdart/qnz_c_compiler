@@ -842,10 +842,11 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
         case NODE_IDENT: {
             const char *name = node->s.str;
 
-            /* Special case: __func__ / __PRETTY_FUNCTION__ return a
-             * pointer to the function name string. */
+            /* Special case: __func__ / __PRETTY_FUNCTION__ / __FUNCTION__
+             * return a pointer to the function name string. */
             if (strcmp(name, "__func__") == 0 ||
-                strcmp(name, "__PRETTY_FUNCTION__") == 0) {
+                strcmp(name, "__PRETTY_FUNCTION__") == 0 ||
+                strcmp(name, "__FUNCTION__") == 0) {
                 const char *fn_name = "";
                 ZeroCCFunction *cur_fn = zero_cc_get_current_fn(c);
                 if (cur_fn) {
@@ -1251,6 +1252,18 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     if (ZC_INIT_IS_BF(elem_node->desig_idx)) {
                         uint8_t boff = ZC_INIT_BF_BOFF(elem_node->desig_idx);
                         uint8_t bw = ZC_INIT_BF_BW(elem_node->desig_idx);
+                        /* scalar_storage_order("big-endian"): derive from the
+                         * target struct's member layout (no free stamp bit). */
+                        bool bf_sso = false;
+                        if (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) {
+                            for (size_t bmi = 0; bmi < sym->type.member_count; bmi++) {
+                                const ZeroCCStructMember *bmf = &sym->type.members[bmi];
+                                if (bmf->is_bitfield && bmf->offset == abs_off && bmf->sso_be) {
+                                    bf_sso = true;
+                                    break;
+                                }
+                            }
+                        }
                         uint64_t vmask = (bw >= 64) ? ~0ULL : ((1ULL << bw) - 1);
                         uint64_t fmask = (bw >= 64) ? ~0ULL : (vmask << boff);
                         int addr_temp = c->next_temp_id++;
@@ -1260,6 +1273,9 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         else if (abs_sz == 2) ir_emit_load_16(c, cur_temp, addr_temp);
                         else if (abs_sz == 4) ir_emit_load_32(c, cur_temp, addr_temp);
                         else ir_emit_deref(c, cur_temp, addr_temp);
+                        if (bf_sso) {
+                            cur_temp = zc_emit_unit_bswap(c, cur_temp, (int)abs_sz);
+                        }
                         int cmask_temp = c->next_temp_id++;
                         ir_emit_mov_imm(c, cmask_temp, (int64_t)(~fmask));
                         int cleared_temp = c->next_temp_id++;
@@ -1277,6 +1293,9 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         }
                         int new_temp = c->next_temp_id++;
                         ir_emit_or(c, new_temp, cleared_temp, mval_temp);
+                        if (bf_sso) {
+                            new_temp = zc_emit_unit_bswap(c, new_temp, (int)abs_sz);
+                        }
                         int saddr_temp = c->next_temp_id++;
                         ir_emit_lea(c, saddr_temp, TEMP_NONE, abs_store_off);
                         if (abs_sz == 1) ir_emit_store_byte(c, new_temp, saddr_temp);
@@ -2128,6 +2147,15 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 uint8_t bit_offset = (uint8_t)(node->aux.step & 0xFF);
                 uint8_t bit_width = (uint8_t)((node->aux.step >> 8) & 0xFF);
                 bool is_signed = ((node->aux.step >> 16) & 1) != 0;
+                bool sso_be = ((node->aux.step >> 17) & 1) != 0;
+                int sso_unit = (int)((node->aux.step >> 18) & 0xF);
+
+                /* scalar_storage_order("big-endian"): the stored unit
+                 * bytes are big-endian - byte-swap the loaded unit into
+                 * the value domain before the bit shift/mask. */
+                if (sso_be) {
+                    val_temp = zc_emit_unit_bswap(c, val_temp, sso_unit);
+                }
 
                 if (bit_offset > 0) {
                     int shift_temp = c->next_temp_id++;

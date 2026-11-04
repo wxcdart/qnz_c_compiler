@@ -526,8 +526,8 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                         in_bitfield = false;
                     }
                     current_offset = (current_offset + effective_align - 1) & ~(effective_align - 1);
-                } else if (in_bitfield && bitfield_storage_size == base_size &&
-                           (bitfield_bit_offset + bit_width <= base_size * 8)) {
+                } else if (in_bitfield && base_size <= bitfield_storage_size &&
+                           (bitfield_bit_offset + bit_width <= bitfield_storage_size * 8)) {
                     size_t m_offset = bitfield_storage_offset;
                     uint8_t m_bit_off = (uint8_t)bitfield_bit_offset;
                     bitfield_bit_offset += bit_width;
@@ -535,7 +535,11 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                         ZeroCCStructMember *m = &st.members[st.member_count++];
                         snprintf(m->name, sizeof(m->name), "%s", mname);
                         m->offset = m_offset;
-                        m->size = base_size;
+                        /* A narrower base type packs into the remaining bits of
+                         * the wider allocation unit (GCC layout): the member's
+                         * size is the UNIT size so bit-field load/store and
+                         * leaf resolution operate on the whole unit. */
+                        m->size = bitfield_storage_size;
                         m->align = effective_align;
                         m->is_flexible = false;
                         m->is_bitfield = true;
@@ -1154,9 +1158,11 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                         }
                         current_offset = (current_offset + effective_align - 1) & ~(effective_align - 1);
                     } else {
-                        if (in_bitfield && bitfield_storage_size == base_size &&
-                            (bitfield_bit_offset + bit_width <= base_size * 8)) {
-                            /* Fits in current storage unit */
+                        if (in_bitfield && base_size <= bitfield_storage_size &&
+                            (bitfield_bit_offset + bit_width <= bitfield_storage_size * 8)) {
+                            /* Fits in current storage unit (a narrower base
+                             * type packs into the wider unit - GCC layout); the
+                             * member size is the unit size. */
                             size_t m_offset = bitfield_storage_offset;
                             uint8_t m_bit_off = (uint8_t)bitfield_bit_offset;
                             bitfield_bit_offset += bit_width;
@@ -1164,7 +1170,7 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                                 ZeroCCStructMember *m = &st.members[st.member_count++];
                                 snprintf(m->name, sizeof(m->name), "%s", mname);
                                 m->offset = m_offset;
-                                m->size = base_size;
+                                m->size = bitfield_storage_size;
                                 m->align = effective_align;
                                 m->is_flexible = false;
                                 m->is_bitfield = true;
@@ -1556,8 +1562,8 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                             in_bitfield = false;
                         }
                         current_offset = (current_offset + c_effective_align - 1) & ~(c_effective_align - 1);
-                    } else if (in_bitfield && bitfield_storage_size == c_base_size &&
-                               (bitfield_bit_offset + c_bit_width <= c_base_size * 8)) {
+                    } else if (in_bitfield && c_base_size <= bitfield_storage_size &&
+                               (bitfield_bit_offset + c_bit_width <= bitfield_storage_size * 8)) {
                         size_t m_offset = bitfield_storage_offset;
                         uint8_t m_bit_off = (uint8_t)bitfield_bit_offset;
                         bitfield_bit_offset += c_bit_width;
@@ -1565,7 +1571,7 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                             ZeroCCStructMember *m = &st.members[st.member_count++];
                             snprintf(m->name, sizeof(m->name), "%s", c_mname);
                             m->offset = m_offset;
-                            m->size = c_base_size;
+                            m->size = bitfield_storage_size;
                             m->align = c_effective_align;
                             m->is_flexible = false;
                             m->is_bitfield = true;

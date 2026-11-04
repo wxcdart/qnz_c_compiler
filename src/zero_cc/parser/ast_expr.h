@@ -227,6 +227,7 @@ static ASTRef parse_brace_init_list_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena
                     bool is_bf = tgt.is_bitfield;
                     uint8_t boff = tgt.bit_offset;
                     uint8_t bw = tgt.bit_width;
+                    bool lsso = false; /* bit-field unit stored big-endian (SSO) */
                     bool is_struct_val = false;
                     if (!tgt.is_scalar && (tgt.val_type.tag == TYPE_STRUCT || tgt.val_type.tag == TYPE_UNION)) {
                         ZeroCCASTNode *en = zero_cc_ast_get(arena, elem);
@@ -248,8 +249,10 @@ static ASTRef parse_brace_init_list_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena
                         sz = tgt.val_type.size;
                     } else if (!tgt.is_scalar) {
                         size_t loff = 0, lsz = 0;
+                        uint8_t lsso_unit = 0;
                         zc_object_resolve_scalar_leaf_bf(&tgt.val_type, tgt.local_leaf,
-                                                         &loff, &lsz, &is_bf, &boff, &bw, NULL);
+                                                         &loff, &lsz, &is_bf, &boff, &bw, NULL,
+                                                         &lsso, &lsso_unit);
                         off += loff;
                         sz = lsz ? lsz : 4;
                         adv = 1;

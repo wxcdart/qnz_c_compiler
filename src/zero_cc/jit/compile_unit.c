@@ -396,8 +396,11 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
          * precede any file-scope declaration (e.g. `[[nodiscard]] int f(void);`).
          * Known and unknown attributes alike are accepted and ignored. */
         skip_c23_attributes(c);
-        if (c->tokens[c->token_pos].type == TK_SEMI &&
-            c->token_pos > 0 && c->tokens[c->token_pos - 1].type == TK_RBRACE) {
+        /* Empty declaration at file scope (`;`) - legal C (C99 6.7) and a
+         * common byproduct of attribute macros that carry their own `;`
+         * (c-torture execute/20230630-2/4: `__attribute__((...));` after a
+         * struct declarator leaves `} name ; ;`). */
+        if (c->tokens[c->token_pos].type == TK_SEMI) {
             c->token_pos++;
             continue;
         }
@@ -649,6 +652,7 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
             c->tokens[c->token_pos].type == TK_ALIGNAS ||
             c->tokens[c->token_pos].type == TK_STATIC ||
             c->tokens[c->token_pos].type == TK_INLINE ||
+            c->tokens[c->token_pos].type == TK_REGISTER ||
             c->tokens[c->token_pos].type == TK_CONST ||
             c->tokens[c->token_pos].type == TK_VOLATILE ||
             c->tokens[c->token_pos].type == TK_EXTERN ||
@@ -665,12 +669,15 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
             c->tokens[c->token_pos].type == TK_IDENT)) {
             /* Save position before parsing - needed to back up for function definitions */
             size_t global_start = c->token_pos;
-            /* Check for static / inline keywords */
+            /* Check for static / inline / register keywords
+             * (`register` at file scope is accepted and ignored -
+             * c-torture execute/pr51447: `register void *ptr asm ("rbx");`) */
             bool is_static = false;
             bool is_thread_local = false;
             bool gq_const = false, gq_volatile = false;
             while (c->token_pos < c->token_count && (c->tokens[c->token_pos].type == TK_STATIC ||
                    c->tokens[c->token_pos].type == TK_INLINE ||
+                   c->tokens[c->token_pos].type == TK_REGISTER ||
                    c->tokens[c->token_pos].type == TK_CONST ||
                    c->tokens[c->token_pos].type == TK_VOLATILE ||
                    c->tokens[c->token_pos].type == TK_EXTERN ||
@@ -1228,6 +1235,13 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                     }
                                 }
                             }
+                        }
+                        /* GNU asm label: `int X2 asm ("x" "." "0") = 4;` -
+                         * symbol-name specifier after the declarator.
+                         * Accepted and ignored (storage keeps the C name). */
+                        {
+                            char gasm[64] = {0};
+                            (void)zero_cc_parse_asm_label(c, gasm, sizeof(gasm));
                         }
                         if (array_unsized &&
                             c->token_pos + 1 < c->token_count &&

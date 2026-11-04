@@ -255,6 +255,11 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
                     type_add_field_ext(perm, ti, fname, t.members[i].offset, mti,
                                        true, t.members[i].bit_offset, t.members[i].bit_width,
                                        t.members[i].is_signed, t.members[i].is_flexible);
+                    if (t.members[i].sso_be &&
+                        ti->details.record.field_count > 0) {
+                        ti->details.record.fields[ti->details.record.field_count - 1].sso_be = true;
+                        ti->details.record.fields[ti->details.record.field_count - 1].sso_unit = t.members[i].sso_unit;
+                    }
                 } else {
                     type_add_field_ext(perm, ti, fname, t.members[i].offset, mti,
                                        false, 0, 0, false, t.members[i].is_flexible);

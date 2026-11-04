@@ -169,11 +169,8 @@ def skip_reason(path, d):
     # __builtin_setjmp/longjmp work via inline OP_SETJMP/OP_LONGJMP across all
     # target ISAs in both JIT and AOT modes, and nonlocal goto (a nested
     # function goto'ing an enclosing-scope label) is implemented (Sprint 99).
-    # pr51447's remaining blocker is the named-register declaration
-    # `register void *ptr asm ("rbx")` (GNU asm label), which zerocc does
-    # not support.
-    if rel.as_posix() == "execute/pr51447.c":
-        return "SKIP-TARGET:asm_named_reg"
+    # The GNU asm label (`register void *ptr asm ("rbx")`) is accepted since
+    # Sprint 101 (the object keeps normal storage; pr51447 passes).
     for s in SKIP_OPTION_SUBSTR:
         if s in d["options"]:
             return "SKIP-REFSEM"

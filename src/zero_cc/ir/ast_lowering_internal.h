@@ -626,4 +626,54 @@ int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
 int lower_expr_cast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node);
 uint16_t get_or_create_user_ir_label(ZeroCCCompiler *c, const char *name);
 
+/* GNU `__attribute__((scalar_storage_order("big-endian")))`: the
+ * bit-field allocation unit's BYTES are stored in big-endian order.
+ * Byte-swap the low `unit` bytes (unit = 2, 4 or 8) of the 64-bit value
+ * in `val_temp`; the high bytes pass through unchanged.  The result is
+ * a new temp. */
+static inline int zc_emit_unit_bswap(ZeroCCCompiler *c, int val_temp, int unit) {
+    if (unit < 2) unit = 2;
+    if (unit > 8) unit = 8;
+    int eight = c->next_temp_id++;
+    ir_emit_mov_imm(c, eight, 8);
+    /* Extract the unit's bytes into temps b[i] = (W >> 8*i) & 0xFF. */
+    int b[8];
+    int sh = val_temp;
+    for (int i = 0; i < unit; i++) {
+        if (i > 0) {
+            int s = c->next_temp_id++;
+            ir_emit_shr(c, s, sh, eight);
+            sh = s;
+        }
+        int m = c->next_temp_id++;
+        ir_emit_mov_imm(c, m, 0xFF);
+        int t = c->next_temp_id++;
+        ir_emit_and(c, t, sh, m);
+        b[i] = t;
+    }
+    /* Reassemble: byte i of the value word goes to position unit-1-i,
+     * i.e. V = b[0] << 8*(unit-1) | b[1] << 8*(unit-2) | ... | b[unit-1]. */
+    int acc = b[0];
+    for (int i = 1; i < unit; i++) {
+        int s = c->next_temp_id++;
+        ir_emit_shl(c, s, acc, eight);
+        int o = c->next_temp_id++;
+        ir_emit_or(c, o, s, b[i]);
+        acc = o;
+    }
+    if (unit == 8) {
+        return acc;
+    }
+    /* Keep the bytes above the unit untouched. */
+    uint64_t keep_mask = 0;
+    for (int i = unit; i < 8; i++) keep_mask |= 0xFFULL << (8 * i);
+    int km = c->next_temp_id++;
+    ir_emit_mov_imm(c, km, (int64_t)keep_mask);
+    int kept = c->next_temp_id++;
+    ir_emit_and(c, kept, val_temp, km);
+    int r = c->next_temp_id++;
+    ir_emit_or(c, r, kept, acc);
+    return r;
+}
+
 #endif /* ZERO_CC_PARSER_AST_LOWERING_INTERNAL_H */

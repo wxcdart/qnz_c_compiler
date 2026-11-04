@@ -1161,13 +1161,26 @@ static inline ZCConstVal parse_primary(ZeroCCCompiler *c, size_t *pos)
                 return g_is_f ? zc_cv_float(g_d) : zc_cv_int(g_i);
             }
         }
-        return zc_cv_int(0); /* unknown identifier in constant expression */
+        /* Unknown identifier (e.g. an extern with no initializer value):
+         * consume it and yield 0 so the caller's stream stays in sync
+         * (c-torture compile/limits-externdecl: `(char *) X00000` inside a
+         * brace initializer). */
+        (*pos)++;
+        return zc_cv_int(0);
     }
     if (t == TK_LPAREN) {
         (*pos)++;
         if (zero_cc_tok_is_type_start(c, *pos)) {
             ZeroCCType cast_ty = zero_cc_parse_type_name_at_pos(c, pos);
-            if (c->tokens[*pos].type == TK_RPAREN) (*pos)++;
+            /* Pointer cast: `(char *) expr` - consume the star run so the
+             * `)` closes the cast (c-torture compile/limits-externdecl).
+             * Without this the `*` was re-read as an indirection operator
+             * and the brace-initializer element desynced. */
+            while (*pos < c->token_count && c->tokens[*pos].type == TK_STAR) {
+                cast_ty = zero_cc_type_ptr(&cast_ty);
+                (*pos)++;
+            }
+            if (*pos < c->token_count && c->tokens[*pos].type == TK_RPAREN) (*pos)++;
             ZCConstVal val = parse_unary(c, pos);
             return zc_cv_cast(val, cast_ty);
         }

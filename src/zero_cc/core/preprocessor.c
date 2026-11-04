@@ -1665,7 +1665,7 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                              * of several attributes). */
                             const char *ex = NULL;
                             size_t el = 0;
-                            int ex_marker = 0; /* 1 = vector_size, 2 = aligned, 3 = alias, 4 = mode */
+                            int ex_marker = 0; /* 1 = vector_size, 2 = aligned, 3 = alias, 4 = mode, 5 = scalar_storage_order */
                             int depth = 0;
                             for (const char *q = it; q < it + il; q++) {
                                 if (*q == '(') {
@@ -1686,7 +1686,8 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                                                      (namelen == 9 && strncmp(nam, "__alias__", 9) == 0);
                                         bool is_md = (namelen == 4 && strncmp(nam, "mode", 4) == 0) ||
                                                      (namelen == 8 && strncmp(nam, "__mode__", 8) == 0);
-                                        if (is_vs || is_al || is_as || is_md) {
+                                        bool is_sso = (namelen == 20 && strncmp(nam, "scalar_storage_order", 20) == 0);
+                                        if (is_vs || is_al || is_as || is_md || is_sso) {
                                             /* find the matching ')' */
                                             int nest = 0;
                                             const char *close = NULL;
@@ -1697,7 +1698,7 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                                             if (close) {
                                                 ex = q + 1;
                                                 el = (size_t)(close - ex);
-                                                ex_marker = is_vs ? 1 : (is_al ? 2 : (is_as ? 3 : 4));
+                                                ex_marker = is_vs ? 1 : (is_al ? 2 : (is_as ? 3 : (is_md ? 4 : 5)));
                                             }
                                             break;
                                         }
@@ -1735,6 +1736,15 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                             if (el > sizeof(expr_text) - 1) el = sizeof(expr_text) - 1;
                             memcpy(expr_text, ex, el);
                             expr_text[el] = '\0';
+                            /* scalar_storage_order("little-endian") is the
+                             * default on LE hosts - skip the element; the
+                             * whole __attribute__ erases via its empty
+                             * replacement.  Only "big-endian" needs the
+                             * parser marker.  (Do NOT free args here: the
+                             * outer expansion frees them - double free.) */
+                            if (ex_marker == 5) {
+                                if (strstr(expr_text, "big-endian") == NULL) continue;
+                            }
                             /* Expand macros inside the size expression
                              * (e.g. __vector_size__(sizeof(__INTPTR_TYPE__))). */
                             ZeroCCBuffer expr_buf;
@@ -1743,9 +1753,14 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                             size_t el2 = expr_buf.length;
                             char *et2 = expr_buf.data;
                             char marker[600];
-                            const char *mk = (ex_marker == 1) ? "__zc_vector_size__" : (ex_marker == 2 ? "__zc_aligned__" : (ex_marker == 3 ? "__zc_alias__" : "__zc_mode__"));
+                            const char *mk = (ex_marker == 1) ? "__zc_vector_size__" : (ex_marker == 2 ? "__zc_aligned__" : (ex_marker == 3 ? "__zc_alias__" : (ex_marker == 4 ? "__zc_mode__" : "__zc_sso_be__")));
                             if (el2 > sizeof(marker) - 22) { el2 = sizeof(marker) - 22; }
-                            snprintf(marker, sizeof(marker), "%s(%.*s)", mk, (int)el2, et2);
+                            if (ex_marker == 5) {
+                                /* No argument: bare marker identifier. */
+                                snprintf(marker, sizeof(marker), "%s", mk);
+                            } else {
+                                snprintf(marker, sizeof(marker), "%s(%.*s)", mk, (int)el2, et2);
+                            }
                             zero_cc_buf_free(&expr_buf);
                             zero_cc_buf_puts(out, marker);
                             vec_marker_done = true;

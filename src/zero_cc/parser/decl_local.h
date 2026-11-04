@@ -1726,6 +1726,9 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
                                     "out of memory allocating local variable '%s'", md.name);
                                 *out_ref = AST_NULL; return true;
                             }
+                            if (md.asm_name[0]) {
+                                snprintf(msym->asm_name, sizeof(msym->asm_name), "%s", md.asm_name);
+                            }
                             if (is_static_local) zero_cc_static_local_register(c, msym);
                             ASTRef mref = zero_cc_ast_alloc_node(arena, NODE_DECL);
                             ZeroCCASTNode *mn = zero_cc_ast_get(arena, mref);
@@ -1854,6 +1857,9 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
                 if (!sym) {
                     diag_report_error_at_token(c, "out of memory allocating local variable '%s'", vname);
                     *out_ref = AST_NULL; return true;
+                }
+                if (decl.asm_name[0]) {
+                    snprintf(sym->asm_name, sizeof(sym->asm_name), "%s", decl.asm_name);
                 }
                 /* C11 6.7.5: `_Alignas(N)` on a declaration sets the
                  * object's alignment without changing its size (the frame
@@ -2091,6 +2097,9 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
                     if (!next_sym) {
                         diag_report_error_at_token(c, "out of memory allocating local variable '%s'", next_vname);
                         *out_ref = AST_NULL; return true;
+                    }
+                    if (next_decl.asm_name[0]) {
+                        snprintf(next_sym->asm_name, sizeof(next_sym->asm_name), "%s", next_decl.asm_name);
                     }
                     if (c11_align_spec > 0 && c11_align_spec > next_sym->type.align) {
                         next_sym->type.align = (int)c11_align_spec; /* C11 _Alignas (align only) */

@@ -61,6 +61,13 @@ typedef struct ZeroCCStructMember {
     bool is_vla;
     size_t vla_dim;          /* arena ASTRef of the dimension expr (0 = none) */
     size_t vla_elem_size;    /* element size times the constant dims */
+    /* GNU `__attribute__((scalar_storage_order("big-endian")))`:
+     * bit-fields in this struct's allocation units are assigned from the
+     * MSB and the unit's bytes are stored big-endian.  bit_offset is
+     * remapped (value-domain, from the unit LSB) and sso_unit is the unit
+     * size in bytes for the storage byte-swap. */
+    bool sso_be;
+    uint8_t sso_unit;
 } ZeroCCStructMember;
 
 typedef struct ZeroCCType {
@@ -231,6 +238,10 @@ typedef struct {
      * __label__ variable jumps to the label named x (which may be in an
      * ANCESTOR function - nonlocal goto). */
     bool is_label_value;
+    /* GNU asm label: `register int b asm ("eax");` / `static int x asm ("y");`
+     * - the declared symbol/register name.  Recorded for diagnostics and
+     * future register pinning; storage is the normal frame/data object. */
+    char asm_name[64];
 } ZeroCCSym;
 
 /* Maximum parameters supported in a parsed function prototype/definition.

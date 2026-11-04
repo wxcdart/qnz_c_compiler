@@ -434,8 +434,11 @@ static inline bool zero_cc_type_equal(const ZeroCCType *a, const ZeroCCType *b) 
 static inline bool zc_struct_resolve_scalar_leaf_bf(const ZeroCCType *st, size_t target_idx, size_t *cur_idx,
                                                      size_t base_off, size_t *out_off, size_t *out_sz,
                                                      bool *out_is_bf, uint8_t *out_boff, uint8_t *out_bw,
-                                                     const char **out_flex_name, bool *out_is_float) {
+                                                     const char **out_flex_name, bool *out_is_float,
+                                                     bool *out_sso, uint8_t *out_sso_unit) {
     if (out_is_float) *out_is_float = false;
+    if (out_sso) *out_sso = false;
+    if (out_sso_unit) *out_sso_unit = 0;
     if (!st || !st->members) return false;
     for (size_t i = 0; i < st->member_count; i++) {
         const ZeroCCStructMember *m = &st->members[i];
@@ -459,7 +462,8 @@ static inline bool zc_struct_resolve_scalar_leaf_bf(const ZeroCCType *st, size_t
             *cur_idx += count;
         } else if ((m->tag == TYPE_STRUCT || m->tag == TYPE_UNION) && m->base && m->base->member_count > 0) {
             if (zc_struct_resolve_scalar_leaf_bf(m->base, target_idx, cur_idx, base_off + m->offset,
-                                                  out_off, out_sz, out_is_bf, out_boff, out_bw, out_flex_name, out_is_float)) {
+                                                  out_off, out_sz, out_is_bf, out_boff, out_bw, out_flex_name, out_is_float,
+                                                  out_sso, out_sso_unit)) {
                 return true;
             }
             if (out_flex_name && *out_flex_name) return false;
@@ -483,6 +487,8 @@ static inline bool zc_struct_resolve_scalar_leaf_bf(const ZeroCCType *st, size_t
                 if (out_boff) *out_boff = m->bit_offset;
                 if (out_bw) *out_bw = m->bit_width;
                 if (out_is_float) *out_is_float = (m->tag == TYPE_FLOAT || m->tag == TYPE_DOUBLE);
+                if (out_sso) *out_sso = m->sso_be;
+                if (out_sso_unit) *out_sso_unit = m->sso_unit;
                 return true;
             }
             (*cur_idx)++;
@@ -495,7 +501,7 @@ static inline bool zc_struct_resolve_scalar_leaf(const ZeroCCType *st, size_t ta
                                                   size_t base_off, size_t *out_off, size_t *out_sz,
                                                   const char **out_flex_name, bool *out_is_float) {
     return zc_struct_resolve_scalar_leaf_bf(st, target_idx, cur_idx, base_off, out_off, out_sz,
-                                             NULL, NULL, NULL, out_flex_name, out_is_float);
+                                             NULL, NULL, NULL, out_flex_name, out_is_float, NULL, NULL);
 }
 
 static inline size_t zc_object_count_scalar_leaves(const ZeroCCType *t) {
@@ -535,11 +541,14 @@ static inline size_t zc_object_count_scalar_leaves(const ZeroCCType *t) {
 static inline bool zc_object_resolve_scalar_leaf_bf(const ZeroCCType *t, size_t target_idx,
                                                      size_t *out_off, size_t *out_sz,
                                                      bool *out_is_bf, uint8_t *out_boff, uint8_t *out_bw,
-                                                     bool *out_is_float) {
+                                                     bool *out_is_float,
+                                                     bool *out_sso, uint8_t *out_sso_unit) {
     if (out_is_bf) *out_is_bf = false;
     if (out_boff) *out_boff = 0;
     if (out_bw) *out_bw = 0;
     if (out_is_float) *out_is_float = false;
+    if (out_sso) *out_sso = false;
+    if (out_sso_unit) *out_sso_unit = 0;
     if (!t) return false;
     if (t->tag == TYPE_USER_0 && zero_cc_type_is_vector(t)) {
         /* GNU vector: lane i lives at i * elem_size */
@@ -561,11 +570,11 @@ static inline bool zc_object_resolve_scalar_leaf_bf(const ZeroCCType *t, size_t 
             size_t wi = target_idx % per;
             size_t sub_off, sub_sz;
             if (el->tag == TYPE_ARRAY) {
-                if (!zc_object_resolve_scalar_leaf_bf(el, wi, &sub_off, &sub_sz, out_is_bf, out_boff, out_bw, out_is_float)) return false;
+                if (!zc_object_resolve_scalar_leaf_bf(el, wi, &sub_off, &sub_sz, out_is_bf, out_boff, out_bw, out_is_float, out_sso, out_sso_unit)) return false;
             } else {
                 size_t ci = 0;
                 const char *flex = NULL;
-                if (!zc_struct_resolve_scalar_leaf_bf(el, wi, &ci, 0, &sub_off, &sub_sz, out_is_bf, out_boff, out_bw, &flex, out_is_float))
+                if (!zc_struct_resolve_scalar_leaf_bf(el, wi, &ci, 0, &sub_off, &sub_sz, out_is_bf, out_boff, out_bw, &flex, out_is_float, out_sso, out_sso_unit))
                     return false;
             }
             *out_off = ei * el->size + sub_off;
@@ -582,7 +591,7 @@ static inline bool zc_object_resolve_scalar_leaf_bf(const ZeroCCType *t, size_t 
     if (t->tag == TYPE_STRUCT || t->tag == TYPE_UNION) {
         size_t ci = 0;
         const char *flex = NULL;
-        return zc_struct_resolve_scalar_leaf_bf(t, target_idx, &ci, 0, out_off, out_sz, out_is_bf, out_boff, out_bw, &flex, out_is_float);
+        return zc_struct_resolve_scalar_leaf_bf(t, target_idx, &ci, 0, out_off, out_sz, out_is_bf, out_boff, out_bw, &flex, out_is_float, out_sso, out_sso_unit);
     }
     if (target_idx == 0) {
         *out_off = 0;
@@ -595,14 +604,17 @@ static inline bool zc_object_resolve_scalar_leaf_bf(const ZeroCCType *t, size_t 
 
 static inline bool zc_object_resolve_scalar_leaf(const ZeroCCType *t, size_t target_idx,
                                                   size_t *out_off, size_t *out_sz, bool *out_is_float) {
-    return zc_object_resolve_scalar_leaf_bf(t, target_idx, out_off, out_sz, NULL, NULL, NULL, out_is_float);
+    return zc_object_resolve_scalar_leaf_bf(t, target_idx, out_off, out_sz, NULL, NULL, NULL, out_is_float, NULL, NULL);
 }
 
 /* Stamp encoding for NODE_FLAG_INIT_ABS initializer elements:
  * desig_idx = (absolute byte offset within the aggregate) << 3 | size code,
  * size code = log2(element size) (1->0, 2->1, 4->2, 8->3).
  * When ZC_INIT_BF_TAG (bit 30) is set, bits 18..23 hold bit_offset and
- * bits 24..29 hold bit_width, while bits 3..17 hold the byte offset. */
+ * bits 24..29 hold bit_width, while bits 3..17 hold the byte offset.
+ * (Bit 31 is ZC_INIT_ABS_TAG - free bits are exhausted, so the
+ * scalar_storage_order("big-endian") flag is derived from the target
+ * struct's member layout at the stored offset, not from the stamp.) */
 #define ZC_INIT_BF_TAG              (1u << 30)
 #define ZC_INIT_ABS_SIZE_CODE(sz)   (((sz) >= 8) ? 3u : (((sz) >= 4) ? 2u : (((sz) >= 2) ? 1u : 0u)))
 #define ZC_INIT_ABS_STAMP(off, sz)  ((uint32_t)(ZC_INIT_ABS_TAG | (((off) << 3) | ZC_INIT_ABS_SIZE_CODE((sz)))))
