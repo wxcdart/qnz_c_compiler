@@ -4,7 +4,7 @@ title: GCC c-torture Conformance Gate
 description: Differential conformance gate against the vendored GCC gcc.c-torture corpus (~3,940 tests), sweeping execute tests across -O0..-O3 in JIT and AOT and compile tests at -O0/-O2 with a ratcheting baseline.
 resource: workflows/c-torture-gate
 tags: [testing, verification, conformance, c-torture, gcc, differential, baseline]
-timestamp: 2026-11-04T20:09:19Z
+timestamp: 2026-11-04T20:55:46Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -46,10 +46,10 @@ Recorded in [`test/torture/baseline.json`](../../test/torture/baseline.json) acr
 
 | Bucket | Count | Meaning |
 | :--- | ---: | :--- |
-| **`PASS`** | **3,665** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` — all-time high (Sprint 103: +39 — the entire `SKIP-TARGET:untyped_assembly` bucket unskipped: 39 of its 40 tests were already accepted by the Sprint 98–102 C89/gnu89 leniencies and `execute/pr47237.c` needed the new `__builtin_apply`/`__builtin_apply_args` support) |
+| **`PASS`** | **3,667** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` — all-time high (Sprint 104: +2 — standalone `_Complex` now means `_Complex double` in every declaration position, unblocking `compile/pr99787-1.c` and `execute/20070614-1.c`; Sprint 103: +39 — the entire `SKIP-TARGET:untyped_assembly` bucket unskipped) |
 | **`REJECT`** | **0** | ZeroCC rejected a test that GCC accepts (must stay 0) |
 | **`MISCOMPILE`** | **0** | ZeroCC compiled+ran but produced wrong `(rc, stdout)` vs the GCC reference (must stay 0) |
-| **`SKIP-C89`** | **52** | ZeroCC rejected or skipped a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects (down from 61 at Sprint 101: Sprint 102 unblocked 10; Sprint 103's unskip moved 1 in — `compile/pr43635.c`, which compiles only under GCC's `-fpermissive` error downgrade; the remaining set includes sibling-scope struct tag collisions that reject cleanly, e.g. `execute/20070919-1`, `execute/20040423-1`) |
+| **`SKIP-C89`** | **50** | ZeroCC rejected or skipped a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects (down from 61 at Sprint 101: Sprint 102 unblocked 10, Sprint 104's standalone-`_Complex` fix unblocked 2; Sprint 103's unskip moved 1 in — `compile/pr43635.c`, which compiles only under GCC's `-fpermissive` error downgrade; the remaining set includes `execute/complex-5.c` (complex constant initializers), `compile/pr42196-*` (complex-**integer** types), GIMPLE pseudo-code `compile/pr115143-*`, and sibling-scope struct tag collisions, e.g. `execute/20070919-1`, `execute/20040423-1`) |
 | **`TIMEOUT`** | **0** | `execute/memclr.c` (2048 functions; JIT `-O1+` at the 5 s budget edge) passed on the idle re-record — it can still flip to TIMEOUT under load; treat a lone `memclr.c` TIMEOUT as load noise, not a regression |
 | **`REF-BUG`** | **3** | GCC reference binary itself crashes (differential comparison impossible; not a ZeroCC failure). Includes `execute/vfprintf-chk-1.c`. |
 | **`NO-REF`** | **184** | Host `gcc -O1 -w` rejected the file (32-bit/target-specific tests without explicit `dg-require-effective-target`) |
@@ -292,11 +292,17 @@ Bringing up `tools/torture_run.py` exposed and fixed five compiler bugs (reducin
     - **GCC's own `__builtin_apply` is broken on x86-64** for non-void results (garbage int/FP values — the legacy builtin only works for the void-return shape pr47237 uses), so the new regression test `test/jit/builtin_apply.c` is zerocc-only: excluded from the host-gcc `make test` glob, swept by `make test-opt` (126 → 127).
     - **Result**: PASS **3,626 → 3,665** (+39); SKIP-C89 **51 → 52** (`compile/pr43635.c`, which needs GCC's `-fpermissive` error downgrade, lands there); `SKIP-TARGET:untyped_assembly` **40 → 0**; no PASS→bad. `make test` 165/165, `make test-opt` 127 ok, `make test-driver` 37/37, `make test-isa-qemu` 59/59, diag battery baseline OK. Baseline re-recorded (`--update-baseline`).
 
+- **Sprint 104 — standalone `_Complex` = `_Complex double`** (see [`docs/CHANGELOG.md`](../CHANGELOG.md) for the full entry):
+    - **Latent miscompile fixed**: a bare `_Complex` (GNU: means `_Complex double`; strict ISO C99 requires the real type named) was parsed by recursing to an "inner" type, so `_Complex x;` swallowed the declarator as a defaulted-int inner type — complex-of-int (sizeof 4/8, not 16) and `__real__`/`__imag__` rejected it as non-complex. Every declaration position now defaults a standalone `_Complex` to complex-double: file-scope/local declarators, function **return** type, and function **parameters**.
+    - **Discriminator**: `zero_cc_token_is_complex_inner_base()` (`types/registry.h`) — the token after `_Complex` is an explicit inner base only if it is a basic keyword, struct/union/enum, or a known typedef; a pointer star or plain identifier is the declarator.
+    - **K&R shape-scan guard**: `_Complex` is not a K&R bare parameter name — without this, `void f(_Complex z) { }` was read as a two-name K&R list and `z` registered as `int` (the single-param case the prototype path missed).
+    - **Result**: PASS **3,665 → 3,667** (+2: `compile/pr99787-1.c`, `execute/20070614-1.c`); SKIP-C89 **52 → 50**; no PASS→bad. `execute/complex-5.c` stays SKIP-C89 (needs complex **constant initializers** — `1.0 + 14.0 * (1.0fi)` in a global init — a separate feature). `make test` 166/166, `make test-opt` 128 ok, `make test-driver` 37/37, `make test-isa-qemu` 59/59, diag battery baseline OK. Baseline re-recorded (`--update-baseline`).
+
 ---
 
 ## 5. Chunked Burn-Down Plan (Remaining 1,160 Actionable Tests)
 
-> **Status (Sprint 103): the entire plan remains complete.** Every Tier 1 chunk (M1/M2/M3: 0 TIMEOUT, 0 MISCOMPILE) and every Tier 2 chunk (R1–R4: 0 REJECT) has been burned down; the corpus is at **PASS 3,665, REJECT 0, MISCOMPILE 0, TIMEOUT 0**. The table below is retained as the historical plan of record (Sprint 57).
+> **Status (Sprint 104): the entire plan remains complete.** Every Tier 1 chunk (M1/M2/M3: 0 TIMEOUT, 0 MISCOMPILE) and every Tier 2 chunk (R1–R4: 0 REJECT) has been burned down; the corpus is at **PASS 3,667, REJECT 0, MISCOMPILE 0, TIMEOUT 0**. The table below is retained as the historical plan of record (Sprint 57).
 
 Clustering [`test/torture/baseline.json`](../../test/torture/baseline.json) (`148 MISCOMPILE` + `0 TIMEOUT` + `714 REJECT`) by failing configuration and diagnostic message breaks the remaining work into bounded sprint chunks, ordered **correctness before syntax**:
 

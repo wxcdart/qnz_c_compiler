@@ -1,3 +1,24 @@
+## [Sprint 104] - 2026-11-05 - Standalone `_Complex` = `_Complex double` (latent-miscompile fix, 3,667 PASS, baseline ratcheted)
+
+A bare `_Complex` (GNU: means `_Complex double`) was a **latent miscompile**: ZeroCC recursed to parse an "inner" type after the prefix, so `_Complex x;` swallowed the declarator as a defaulted-int inner type - complex-of-int (sizeof 4/8, not 16), and `__real__`/`__imag__` rejected it as non-complex. **c-torture: PASS 3,665 -> 3,667 (+2, 0 bad), SKIP-C89 52 -> 50, baseline ratcheted.**
+
+### Parser & types
+
+- **`zero_cc_token_is_complex_inner_base()`** (`types/registry.h`): after a leading `_Complex`/`__complex__`, the next token is an explicit inner real type only if it is itself a type specifier (a basic keyword, struct/union/enum, or a known typedef). A pointer star or plain identifier is the declarator, meaning `_Complex` stands alone = `_Complex double`.
+- **Standalone `_Complex` defaults to complex-double** in every declaration position:
+  - file-scope + local declarators: `parser/type_parser.h` (both `zero_cc_parse_type_name` and the `_at_pos` variant) and `parser/decl_local.h` (which keeps the star-walk/pointer-strip logic for the explicit-base case and leaves a possibly-`*`-led declarator for the standalone case).
+  - function **return** type: `jit/compile.h`.
+  - function **parameters**: `jit/compile.h` `zero_cc_parse_fn_param_block` - a standalone `_Complex z` leaves `z` for the declarator (previously consumed as a defaulted-int base type) and defaults the base to `double`.
+- **K&R (old-style) param shape-scan guard** (`jit/compile.h`): `_Complex`/`__complex__` is a type specifier, not a K&R bare parameter name, so its presence marks a prototype. Without this, `void f(_Complex z) { }` (the single-param case) was mis-read as a two-name K&R list and `z` registered as `int` - the one shape the prototype fix missed.
+- `execute/complex-5.c` remains SKIP-C89: it needs **complex constant initializers** (`float __complex__ x = 1.0 + 14.0 * (1.0fi);` in a global init) - complex arithmetic in the constant evaluator, a separate feature.
+
+### Tests & verification
+
+- **`test/jit/complex_standalone.c`** (new): standalone `_Complex` global/local/param/return, explicit-base `_Complex float`, `__real__`/`__imag__`, complex return. Runs under host gcc (gnu mode accepts standalone `_Complex`) and zerocc -O0..-O3; expected exit 0. `make test` 165 -> 166, `make test-opt` 127 -> 128.
+- K&R regressions verified (real old-style fns, `typedef + name` param, c-torture 921123-2 shape).
+- `make test` **166/166**, `make test-opt` **128 ok**, `make test-driver` 37/37, `make test-isa-qemu` 59/59, `diag_battery` baseline OK, `style_check` 0 errors, `vtable_check` PASS, OKF lint/index clean.
+- c-torture full gate: **PASS 3,667** (was 3,665: +2 — `compile/pr99787-1.c`, `execute/20070614-1.c`), SKIP-C89 52 -> 50, 0 bad. **Baseline ratcheted** (`test/torture/baseline.json`).
+
 ## [Sprint 103] - 2026-11-05 - `__builtin_apply` / `__builtin_apply_args`: `SKIP-TARGET:untyped_assembly` fully unskipped (3,665 PASS, baseline ratcheted)
 
 The entire 40-test `SKIP-TARGET:untyped_assembly` bucket moves to `PASS` (39) / honest `SKIP-C89` (1). The bucket was a misnomer: in GCC's DejaGnu `untyped_assembly` marks the x86 C89/gnu89 execution mode — **none of the 40 tests contains an `asm` statement**. 38 were already accepted by the Sprint 98–102 C89/gnu89 leniencies; `execute/pr47237.c` needed real `__builtin_apply` support. **c-torture: PASS 3,626 -> 3,665 (+39, 0 bad), SKIP-C89 51 -> 52, `SKIP-TARGET:untyped_assembly` 40 -> 0, baseline ratcheted.**
