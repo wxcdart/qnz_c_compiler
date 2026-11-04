@@ -1,6 +1,6 @@
 {
  "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
- "generated": "2026-11-04T21:00:20Z",
+ "generated": "2026-11-04T21:21:46Z",
  "tests": {
   "compile/103818.c": {
    "class": "PASS",
@@ -6227,20 +6227,20 @@
    "note": ""
   },
   "compile/attr-complex-method-2.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                            ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/attr-complex-method.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                            ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/attr-retain-1.c": {
    "class": "NO-REF",
@@ -28240,18 +28240,18 @@
    "note": ""
   },
   "execute/complex-5.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                                         ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/complex-6.c": {
    "class": "PASS",
@@ -41369,10 +41369,10 @@
  "totals": {
   "EXPECTED-REJECT": 4,
   "NO-REF": 184,
-  "PASS": 3667,
+  "PASS": 3670,
   "REF-BUG": 3,
   "SKIP-BOGUS": 1,
-  "SKIP-C89": 50,
+  "SKIP-C89": 47,
   "SKIP-PTR": 1,
   "SKIP-REFSEM": 16,
   "SKIP-TARGET:arm": 1,

@@ -441,19 +441,18 @@ static int zero_cc_scan_number(ZeroCCLexer *lx, ZeroCCToken *tok) {
             s++; offset++; col++;
         }
 
-        /* Suffixes: f/F (float), l/L (long double); a leading i/I marks a
-         * C99 6.2.5 imaginary literal (value is the IMAGINARY part): bit3.
-         * `1.0iF` -> 0 + 1.0i (float complex). */
+        /* Suffixes (C99 6.14.2.2 / GCC): i/I (imaginary, bit3) may combine
+         * with f/F (float, bit0) or l/L (long double, bit1) in EITHER order
+         * - GCC accepts `1.0iF`, `1.0fi`, `1.0li`, etc.  A leading or
+         * trailing i/I marks an imaginary literal (value is the IMAGINARY
+         * part).  Consume up to two suffix characters. */
         uint8_t suf = 0;
-        if (*s == 'i' || *s == 'I') {
-            suf = 8; /* complex (imaginary literal) */
-            s++; offset++; col++;
-        }
-        if (*s == 'f' || *s == 'F') {
-            suf |= 1; /* float */
-            s++; offset++; col++;
-        } else if (*s == 'l' || *s == 'L') {
-            suf |= 2; /* long double */
+        for (int ss = 0; ss < 2; ss++) {
+            char ch = *s;
+            if (ch == 'i' || ch == 'I') suf |= 8;   /* imaginary */
+            else if (ch == 'f' || ch == 'F') suf |= 1; /* float */
+            else if (ch == 'l' || ch == 'L') suf |= 2; /* long double */
+            else break;
             s++; offset++; col++;
         }
         tok->int_suffix = suf;
