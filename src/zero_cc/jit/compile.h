@@ -71,6 +71,14 @@ static bool zero_cc_parse_fn_param_block(ZeroCCCompiler *c, SemContext *ctx,
                 kr_shape = false;
                 break;
             }
+            /* `_Complex`/`__complex__` is a type specifier, not a K&R
+             * parameter name - its presence means a prototype, not an
+             * old-style name list.  `void f(_Complex z) { }` must not be
+             * read as a two-name K&R list (registering `z` as int). */
+            if (zero_cc_tok_is_complex_spec(c->tokens[q].str_val)) {
+                kr_shape = false;
+                break;
+            }
             bare_count++;
         }
         else { kr_shape = false; break; }
@@ -230,7 +238,15 @@ if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
         ZeroCCType *pfound = is_typeof_param ? NULL : zero_cc_find_typedef(c, ptname);
         if (!pfound && !is_typeof_param) pfound = zero_cc_find_struct(c, ptname);
         if (!pfound && !is_typeof_param) pfound = zero_cc_find_enum(c, ptname);
-        if (!is_typeof_param) c->token_pos++;
+        /* Standalone `_Complex` parameter (`_Complex z`): the identifier after
+         * `_Complex` is the declarator NAME, not a typedef base - the real
+         * type is `_Complex double` (GNU; strict C99 requires the real type).
+         * Leave the name for the declarator below and default the base to
+         * double instead of consuming it as a defaulted-int type. */
+        bool p_cx_standalone = (p_is_complex && !is_typeof_param &&
+                                ptt == TK_IDENT && !pfound);
+        if (!is_typeof_param && !p_cx_standalone) c->token_pos++;
+        if (p_cx_standalone) ptt = TK_DOUBLE_KW;
         /* Type-specifier run (C11 6.7.5): keywords may appear in any
          * order and `long long` is two tokens — consume the whole
          * run so e.g. `unsigned long long int *v` does not leave the
@@ -775,23 +791,30 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         zero_cc_tok_is_complex_spec(c->tokens[c->token_pos].str_val)) {
         /* C99 6.7.2.3: `_Complex` / `__complex__` return type prefix. */
         c->token_pos++;
-        ZeroCCType cx_inner = zero_cc_parse_type_name_at_pos(c, &c->token_pos);
-        /* `_Complex double *f(void)` returns a POINTER TO complex: the
-         * type-name parser's pointer-suffix consumption must be rewound
-         * so the declarator below owns the stars (the base specifier's
-         * last token is a type keyword, so the walk stops at its end). */
-        while (c->token_pos > 0 &&
-               (c->tokens[c->token_pos - 1].type == TK_STAR ||
-                c->tokens[c->token_pos - 1].type == TK_CONST ||
-                c->tokens[c->token_pos - 1].type == TK_VOLATILE ||
-                c->tokens[c->token_pos - 1].type == TK_RESTRICT)) {
-            c->token_pos--;
-        }
-        /* The parser returned the suffix-included type (e.g. ptr to
-         * double); the complex element is the scalar base only - the
-         * declarator below re-applies the pointer. */
-        while (cx_inner.tag == TYPE_PTR && cx_inner.base) {
-            cx_inner = *cx_inner.base;
+        ZeroCCType cx_inner;
+        if (zero_cc_token_is_complex_inner_base(c, c->token_pos)) {
+            cx_inner = zero_cc_parse_type_name_at_pos(c, &c->token_pos);
+            /* `_Complex double *f(void)` returns a POINTER TO complex: the
+             * type-name parser's pointer-suffix consumption must be rewound
+             * so the declarator below owns the stars (the base specifier's
+             * last token is a type keyword, so the walk stops at its end). */
+            while (c->token_pos > 0 &&
+                   (c->tokens[c->token_pos - 1].type == TK_STAR ||
+                    c->tokens[c->token_pos - 1].type == TK_CONST ||
+                    c->tokens[c->token_pos - 1].type == TK_VOLATILE ||
+                    c->tokens[c->token_pos - 1].type == TK_RESTRICT)) {
+                c->token_pos--;
+            }
+            /* The parser returned the suffix-included type (e.g. ptr to
+             * double); the complex element is the scalar base only - the
+             * declarator below re-applies the pointer. */
+            while (cx_inner.tag == TYPE_PTR && cx_inner.base) {
+                cx_inner = *cx_inner.base;
+            }
+        } else {
+            /* Standalone `_Complex` return type means `_Complex double`
+             * (GNU); the next token is the function declarator. */
+            cx_inner = zero_cc_type_double();
         }
         fn_ret_type = zero_cc_type_complex(&cx_inner);
     } else if (c->tokens[c->token_pos].type == TK_TYPEOF || c->tokens[c->token_pos].type == TK_TYPEOF_UNQUAL) {

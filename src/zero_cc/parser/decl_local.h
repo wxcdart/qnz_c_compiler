@@ -811,26 +811,34 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
                                         : c->tokens[c->token_pos].str_val));
         if (prefix_complex) {
             c->token_pos++;
-            ZeroCCType cx_inner = zero_cc_parse_type_name_at_pos(c, &c->token_pos);
-            /* The type-name parser also consumes pointer suffixes
-             * (`double *` in `_Complex double *c`), but for a local
-             * declaration the declarator stack below must own those
-             * stars: `_Complex double *c` is a POINTER TO complex, not
-             * a complex of pointers.  Walk the position back over the
-             * consumed [star (qualifiers|attrs)]* suffix - the base
-             * specifier's last token is always a type keyword, so the
-             * walk stops exactly at its end. */
-            while (c->token_pos > 0 &&
-                   (c->tokens[c->token_pos - 1].type == TK_STAR ||
-                    c->tokens[c->token_pos - 1].type == TK_CONST ||
-                    c->tokens[c->token_pos - 1].type == TK_VOLATILE ||
-                    c->tokens[c->token_pos - 1].type == TK_RESTRICT)) {
-                c->token_pos--;
-            }
-            /* The parser returned the suffix-included type (e.g. ptr to
-             * double); the complex element is the scalar base only. */
-            while (cx_inner.tag == TYPE_PTR && cx_inner.base) {
-                cx_inner = *cx_inner.base;
+            ZeroCCType cx_inner;
+            if (zero_cc_token_is_complex_inner_base(c, c->token_pos)) {
+                cx_inner = zero_cc_parse_type_name_at_pos(c, &c->token_pos);
+                /* The type-name parser also consumes pointer suffixes
+                 * (`double *` in `_Complex double *c`), but for a local
+                 * declaration the declarator stack below must own those
+                 * stars: `_Complex double *c` is a POINTER TO complex, not
+                 * a complex of pointers.  Walk the position back over the
+                 * consumed [star (qualifiers|attrs)]* suffix - the base
+                 * specifier's last token is always a type keyword, so the
+                 * walk stops exactly at its end. */
+                while (c->token_pos > 0 &&
+                       (c->tokens[c->token_pos - 1].type == TK_STAR ||
+                        c->tokens[c->token_pos - 1].type == TK_CONST ||
+                        c->tokens[c->token_pos - 1].type == TK_VOLATILE ||
+                        c->tokens[c->token_pos - 1].type == TK_RESTRICT)) {
+                    c->token_pos--;
+                }
+                /* The parser returned the suffix-included type (e.g. ptr to
+                 * double); the complex element is the scalar base only. */
+                while (cx_inner.tag == TYPE_PTR && cx_inner.base) {
+                    cx_inner = *cx_inner.base;
+                }
+            } else {
+                /* Standalone `_Complex` (no inner base) means `_Complex
+                 * double` (GNU); the declarator - possibly `*`-led, as in
+                 * `_Complex *c` - is left for the declarator stack. */
+                cx_inner = zero_cc_type_double();
             }
             typeof_base_type_early = zero_cc_type_complex(&cx_inner);
         } else if (!implicit_int_local) {

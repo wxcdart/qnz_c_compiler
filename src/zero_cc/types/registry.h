@@ -110,6 +110,26 @@ static inline ZeroCCType* zero_cc_find_typedef(ZeroCCCompiler *c, const char *al
     return NULL;
 }
 
+/* C99 6.7.2.3 / GNU: after a leading `_Complex` / `__complex__` specifier,
+ * the next token is an explicit inner real type only if it is itself a type
+ * specifier (a basic keyword, struct/union/enum, or a known typedef).  A
+ * pointer star or a plain identifier is the declarator, meaning `_Complex`
+ * stands alone and denotes `_Complex double` (GNU extension; strict ISO C99
+ * requires the real type to be named).  Used so a plain `_Complex x;` does
+ * not swallow `x` as the (defaulted-int) inner type. */
+static inline bool zero_cc_token_is_complex_inner_base(ZeroCCCompiler *c, size_t pos) {
+    if (!c || pos >= c->token_count) return false;
+    ZeroCCTokType t = c->tokens[pos].type;
+    if (t == TK_INT || t == TK_CHAR || t == TK_SHORT || t == TK_LONG ||
+        t == TK_FLOAT_KW || t == TK_DOUBLE_KW || t == TK_SIGNED ||
+        t == TK_UNSIGNED || t == TK_BOOL_KW || t == TK_VOID ||
+        t == TK_ENUM || t == TK_STRUCT || t == TK_UNION)
+        return true;
+    if (t == TK_IDENT && zero_cc_find_typedef(c, c->tokens[pos].str_val))
+        return true;
+    return false;
+}
+
 /* Enum Type Registry */
 static inline void zero_cc_register_enum(ZeroCCCompiler *c, const char *name, ZeroCCType type) {
     for (size_t i = 0; i < c->enum_count; i++) {

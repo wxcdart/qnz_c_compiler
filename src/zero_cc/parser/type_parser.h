@@ -652,7 +652,11 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
         /* C99 6.7.2.3: `_Complex double` / `double _Complex`. */
         if (zero_cc_tok_is_complex_spec(name)) {
             (*pos)++;
-            ZeroCCType inner = zero_cc_parse_type_name_at_pos(c, pos);
+            /* Standalone `_Complex` (no inner base) means `_Complex double`;
+             * otherwise parse the explicit inner real type. */
+            ZeroCCType inner = zero_cc_token_is_complex_inner_base(c, *pos)
+                ? zero_cc_parse_type_name_at_pos(c, pos)
+                : zero_cc_type_double();
             return zero_cc_type_complex(&inner);
         }
         ZeroCCType *tdef = zero_cc_find_typedef(c, name);
@@ -974,7 +978,11 @@ static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c) {
          * after the base specifier below. */
         if (zero_cc_tok_is_complex_spec(name)) {
             c->token_pos++;
-            ZeroCCType inner = zero_cc_parse_type_name(c);
+            /* Standalone `_Complex` (no inner base) means `_Complex double`;
+             * otherwise parse the explicit inner real type. */
+            ZeroCCType inner = zero_cc_token_is_complex_inner_base(c, c->token_pos)
+                ? zero_cc_parse_type_name(c)
+                : zero_cc_type_double();
             return zero_cc_type_complex(&inner);
         }
         ZeroCCType *tdef = zero_cc_find_typedef(c, name);
