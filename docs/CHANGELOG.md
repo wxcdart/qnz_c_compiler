@@ -1,3 +1,35 @@
+## [Sprint 101] - 2026-11-04 - C89 Implicit-`int` & gnu89 Tail Leniencies (3,615 PASS, baseline ratcheted)
+
+The implicit-`int` `SKIP-C89` cluster (and related C89/GNU leniencies) moves to `PASS`. **c-torture: PASS 3,586 -> 3,615 (+29, 0 bad), SKIP-C89 90 -> 61, baseline ratcheted.**
+
+### Parser
+
+- **Implicit-`int` function names** (C89 6.4.4.1): `f (int a, int b)` — the identifier of `IDENT (params)` is the function name with a defaulted `int` return, even when `IDENT` is a known struct/union/enum tag or typedef alias (separate namespaces); the `IDENT (*` shape keeps the function-pointer-declarator reading. Implemented in both the file-scope entry probe (`jit/compile_unit.c` `bare_fn_ident`) and the return-type parser (`jit/compile.h`), with a `return type of 'f' defaults to 'int'` warning.
+- **Implicit-`int` variable declarations**: file scope (`a, b, c;`, `static a[];`, `*t29;`, `two52 = 4.5, w6 = -1.6;`) and block scope (`x;`, `register length;`) — an unknown identifier followed by `;`/`,`/`=`/array-declarator is a *name* with a defaulted `int` base; the identifier is left unconsumed for the declarator parser. A name already declared as a global, extern object (function table `is_object` entries), or function makes `name = expr;` an *assignment* — the guard probes `find_global_var`, `zero_cc_find_local`, and the function table (without it `extern double ratio; … ratio = ratio * v;` mis-parses as a shadowing declaration and the driver `float2` test regressed).
+- **Implicit-`int` typedefs**: `typedef a;` / `typedef f, g;` — the unknown identifier is the *alias* of an `int` typedef (`parser/definitions.h` leaves it unconsumed for the alias reader).
+- **K&R `(**foo)()`**: inner stars in the function-pointer group are counted — `int (**foo)();` is pointer-to-pointer-to-function (`zero_cc_parse_kr_decl` `d_inner_stars`; c-torture `compile/callind`).
+- **Parenthesized function-pointer parameter names**: `void (* const (funcp)(time_t))` — after the stars/qualifiers a second `(` opens the name group; the first non-qualifier identifier is the name and the outer group's `)` is consumed after the parameter suffix (`jit/compile.h` `fp_wrapped_name`; c-torture `compile/20101216-1`).
+- **Mixed local function/variable declarator lists**: `float fx (), inita (), initc (), a, b, c;` — function declarators register prototypes, variable declarators become locals, chained on one `NODE_DECL` list (`parser/decl_local.h`).
+- **Nested pointer-returning functions**: `zero_cc_declarator_is_function` accepts pointer prefixes when the innermost suffix is the function chunk (`void *x()` nested definitions — c-torture `920415-1`); a function-pointer declarator still has its function chunk at the outer level and stays a variable.
+
+### Semantics
+
+- **Pointer↔integer conversion** (C89/GNU; gcc `-Wint-conversion` warns): assignment/initialization/return of a pointer into a non-floating integer is compatible — `type_compatible_assign` accepts it and the lowering's sign/zero-extend truncates to the LHS width. `char*`↔`unsigned char*` pointers are mutually compatible; a string literal initializes a `char*`/`unsigned char*` variable as well as a char array (C99 6.4.5). `struct`→int assignments/returns still reject (diagnostic battery cases `04_int_from_string` / `10_return_type` switched to struct variants).
+- **Return-statement leniencies**: `return expr;` in a `void` function is C99 6.8.6.4p2-legal (value discarded, expression still analyzed); bare `return;` in a non-void function is a gnu89 *warning* (lowering returns `0` for scalar returns) — matching GCC's `-Wreturn-type`. `test/semantic/stmt_test.c` updated (void-return case now expects no error; struct→int return added as the incompatible case).
+- **Leading-underscore implicit function declarations**: `_Jv_ratio`, `__kernel_sin` etc. get gnu89 implicit-declaration warnings instead of undeclared-identifier errors — but compiler-builtin names stay excluded from `sem_implicit_fn_decl` (`__builtin_*`/`__sync_*`/`__atomic_*`/`__zerocc_*`, `__real__`/`__real`/`__imag__`/`__imag`, `__func__`/`__PRETTY_FUNCTION__`, `__alignof__`/`_Alignof`, `alloca`) because the `NODE_IDENT` handler types them specially and an implicit `int name(...)` symbol would shadow that typing (shadowing `__builtin_conjf`/`__builtin_strcpy`/`__real__` miscompiled 11 formerly-passing tests).
+- **`__PRETTY_FUNCTION__`**: alias of `__func__` (typed `char *`, lowered to the function-name string) in `semantic/expr.c`, `semantic/visitor.c`, `ir/ast_lowering_expr.c`.
+
+### Lowering
+
+- **Static local `&&label` initializer**: `static void *debug = &&firstdebug;` patches the static slot to the label offset via a kind-5 data reloc against the enclosing function (`parser/decl_local.h` `zero_cc_static_local_patch_init`).
+
+### Tests & verification
+
+- `test/semantic/stmt_test.c` updated for the intentional return-statement relaxations (pointer→int return OK, struct→int return error, `return expr;` in void OK).
+- `test/diag/04_int_from_string.c` / `test/diag/10_return_type.c` re-pointed at struct→int (the pointer variants are now legal gnu89); `14_multi_error_3` baseline re-recorded (bare `return;` in non-void: error → gnu89 warning, matching GCC).
+- `make test` **165/165**, `make test-opt` **126 ok**, `make test-driver` 37/37, `make test-isa-qemu` 59/59, `diag_battery` baseline OK, `style_check` 0 errors, `vtable_check` PASS, OKF lint/index clean.
+- c-torture full gate: **PASS 3,615** (was 3,586: +29 — `compile/callind`, `compile/pr72802`, `compile/920415-1`, `execute/920415-1`, `compile/920501-{8,23}`, `compile/941014-{1,4}`, `execute/920429-1`, `execute/920728-1`, `execute/930603-1`, `execute/stkalign`, `compile/20020418-1`, `compile/20020927-1`, `compile/20080704-1`, `compile/20080910-1`, `compile/20101216-1`, `compile/20180605-1`, `compile/920701-1`, `compile/920817-1`, `compile/991213-2`, `compile/ext`, `compile/ifreg`, `compile/layout`, `compile/pr33855`, `compile/pr43066`, `compile/pr45535`, `compile/pr81360`, `compile/pr90275`), SKIP-C89 90 -> 61, 0 bad. **Baseline ratcheted** (`test/torture/baseline.json`).
+
 ## [Sprint 100] - 2026-11-04 - GNU Variably-Modified Struct/Union Members (3,586 PASS, baseline ratcheted)
 
 Local/block-scope structs with runtime-sized array members (GNU extension; c-torture `compile/nested-1.c`, `execute/20020412-1`, `execute/20041218-2` and 9 more) now compile and run. **c-torture: PASS 3,575 -> 3,586 (0 bad), baseline ratcheted.**

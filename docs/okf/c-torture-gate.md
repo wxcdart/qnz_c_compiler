@@ -4,7 +4,7 @@ title: GCC c-torture Conformance Gate
 description: Differential conformance gate against the vendored GCC gcc.c-torture corpus (~3,940 tests), sweeping execute tests across -O0..-O3 in JIT and AOT and compile tests at -O0/-O2 with a ratcheting baseline.
 resource: workflows/c-torture-gate
 tags: [testing, verification, conformance, c-torture, gcc, differential, baseline]
-timestamp: 2026-11-04T16:35:33Z
+timestamp: 2026-11-04T18:23:13Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -46,10 +46,10 @@ Recorded in [`test/torture/baseline.json`](../../test/torture/baseline.json) acr
 
 | Bucket | Count | Meaning |
 | :--- | ---: | :--- |
-| **`PASS`** | **3,586** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` — all-time high (Sprint 100: +`compile/nested-1` — by-value VLA-member struct through the nested-function trampoline — plus the restored `execute/20020412-1` and unblocked `execute/20040308-1`, `execute/20041218-2`, `execute/align-nest`, `compile/20010605-1`, `compile/20030224-1`, `compile/20050801-2`, `compile/920501-16`) |
-| **`REJECT`** | **0** | **Zero REJECTs in the entire corpus** (`[clean -std=c11]`) |
-| **`SKIP-C89`** | **90** | ZeroCC rejected or skipped a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects (down from 100: Sprint 100's VLA struct member support unblocked 10; the remaining set includes sibling-scope struct tag collisions that reject cleanly, e.g. `execute/20070919-1`, `execute/20040423-1`) |
-| **`MISCOMPILE`** | **0** | **Zero MISCOMPILEs in the entire corpus** (strictly held). |
+| **`PASS`** | **3,615** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` — all-time high (Sprint 101: +29 C89 tests via implicit-`int` and related gnu89 leniencies — e.g. `compile/callind` (K&R `(**foo)()`), `compile/pr72802` (file-scope implicit-int variables), `execute/920415-1` (nested `void *x()` + `&&l`), `compile/920415-1`) |
+| **`REJECT`** | **0** | ZeroCC rejected a test that GCC accepts (must stay 0) |
+| **`MISCOMPILE`** | **0** | ZeroCC compiled+ran but produced wrong `(rc, stdout)` vs the GCC reference (must stay 0) |
+| **`SKIP-C89`** | **61** | ZeroCC rejected or skipped a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects (down from 90: Sprint 101's implicit-`int`/gnu89 leniencies unblocked 29; the remaining set includes sibling-scope struct tag collisions that reject cleanly, e.g. `execute/20070919-1`, `execute/20040423-1`, and named-register-variable declarations like `register int v asm("rax")`) |
 | **`TIMEOUT`** | **0** | `execute/memclr.c` (2048 functions; JIT `-O1+` at the 5 s budget edge) passed on the idle re-record — it can still flip to TIMEOUT under load; treat a lone `memclr.c` TIMEOUT as load noise, not a regression |
 | **`REF-BUG`** | **3** | GCC reference binary itself crashes (differential comparison impossible; not a ZeroCC failure). Includes `execute/vfprintf-chk-1.c`. |
 | **`NO-REF`** | **184** | Host `gcc -O1 -w` rejected the file (32-bit/target-specific tests without explicit `dg-require-effective-target`) |
@@ -282,7 +282,7 @@ Bringing up `tools/torture_run.py` exposed and fixed five compiler bugs (reducin
 
 ## 5. Chunked Burn-Down Plan (Remaining 1,160 Actionable Tests)
 
-> **Status (Sprint 100): the entire plan is complete.** Every Tier 1 chunk (M1/M2/M3: 0 TIMEOUT, 0 MISCOMPILE) and every Tier 2 chunk (R1–R4: 0 REJECT) has been burned down; the corpus is at **PASS 3,586, REJECT 0, MISCOMPILE 0, TIMEOUT 0**. The table below is retained as the historical plan of record (Sprint 57).
+> **Status (Sprint 101): the entire plan is complete.** Every Tier 1 chunk (M1/M2/M3: 0 TIMEOUT, 0 MISCOMPILE) and every Tier 2 chunk (R1–R4: 0 REJECT) has been burned down; the corpus is at **PASS 3,615, REJECT 0, MISCOMPILE 0, TIMEOUT 0**. The table below is retained as the historical plan of record (Sprint 57).
 
 Clustering [`test/torture/baseline.json`](../../test/torture/baseline.json) (`148 MISCOMPILE` + `0 TIMEOUT` + `714 REJECT`) by failing configuration and diagnostic message breaks the remaining work into bounded sprint chunks, ordered **correctness before syntax**:
 
