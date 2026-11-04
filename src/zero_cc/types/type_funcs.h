@@ -201,13 +201,15 @@ static inline ZeroCCType zero_cc_type_complex(const ZeroCCType *elem) {
 }
 
 /* True when the type is, or contains (through array/pointer chains), a
- * VLA array. Runtime `sizeof` on such types loads the per-declaration
- * runtime size slot (NODE_VLA_SLOT) instead of using the static size. */
+ * VLA array or a struct/union with VLA members. Runtime `sizeof` on such
+ * types loads the per-declaration runtime size slot (NODE_VLA_SLOT)
+ * instead of using the static size. */
 static inline int zc_type_chain_has_vla(ZeroCCType ty) {
     while (ty.tag == TYPE_ARRAY && ty.base) {
         if (ty.is_vla) return 1;
         ty = *ty.base;
     }
+    if ((ty.tag == TYPE_STRUCT || ty.tag == TYPE_UNION) && ty.is_vla_struct) return 1;
     return 0;
 }
 

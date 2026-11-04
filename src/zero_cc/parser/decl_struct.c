@@ -11,6 +11,8 @@
 #include "zero_cc/parser/const_eval.h"
 #include "zero_cc/parser/decl_enum.h"
 #include "zero_cc/parser/type_parser.h"
+#include "zero_cc/parser/ast_expr.h"
+#include "zero_cc/parser/vla_struct.h"
 
 void zero_cc_sync_globals_with_struct(ZeroCCCompiler *c, const char *name, const ZeroCCType *complete) {
     if (!c || !name || name[0] == '\0' || !complete) return;
@@ -372,6 +374,12 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
             int ndims = 0;
             bool is_flexible = false;
             bool is_array = false;
+            /* GNU variably-modified member (`char b[argc];`): the dimension
+             * is a runtime expression parsed into the TU arena. At most one
+             * runtime dimension per member (c-torture nested-1.c). */
+            bool member_vla = false;
+            size_t member_vla_expr = 0;
+            int member_vla_count = 0;
             /* Multi-dimensional arrays: T a[d1][d2]... (C99 6.7.2.1).
              * Dimensions are constant expressions (6.7.2.1p3). */
             while (c->tokens[c->token_pos].type == TK_LBRACKET) {
@@ -381,9 +389,24 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                 if (c->tokens[c->token_pos].type == TK_RBRACKET) {
                     is_flexible = true;
                     dim = 0;
-                } else {
+                } else if (zc_typedef_dim_is_const(c, c->token_pos)) {
                     int64_t cd = zero_cc_eval_const_expr(c);
                     if (cd >= 0) { dim = (size_t)cd; if (cd == 0) is_flexible = true; }
+                } else if (is_union) {
+                    diag_report_error_at_token(c,
+                        "union member with variably-modified type is not supported");
+                    member_vla_count = 2; /* suppress later handling */
+                    c->token_pos++;
+                    dim = 1;
+                } else {
+                    member_vla = true;
+                    member_vla_count++;
+                    if (member_vla_count == 1)
+                        member_vla_expr = parse_expr_ast_internal(c, (ZeroCCASTArena *)c->tu_ast_arena);
+                    else
+                        diag_report_error_at_token(c,
+                            "multiple variable dimensions in a struct member are not supported");
+                    dim = 2; /* GCC placeholder for the static layout */
                 }
                 if (c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
                 if (is_flexible) break;
@@ -557,11 +580,16 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                     ZeroCCStructMember *m = &st.members[st.member_count++];
                     snprintf(m->name, sizeof(m->name), "%s", mname);
                     m->offset = current_offset;
-                    m->size = is_flexible ? 0 : (base_size * elem_count);
+                    m->size = is_flexible ? 0 : (member_vla ? 0 : (base_size * elem_count));
                     m->align = effective_align;
                     m->is_flexible = is_flexible;
                     m->is_bitfield = false;
                     m->is_func_ptr = dcl_is_fnptr;
+                    if (member_vla) {
+                        m->is_vla = true;
+                        m->vla_dim = member_vla_expr;
+                        m->vla_elem_size = base_size * (elem_count / 2);
+                    }
                     m->tag = is_ptr ? TYPE_PTR : (is_enum ? TYPE_ENUM : (inner_is_union ? TYPE_UNION : TYPE_STRUCT));
                     /* Leading qualifier on a struct/union/enum member attaches
                      * to the base type: `const struct S *p` = pointer to
@@ -621,7 +649,10 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                         zero_cc_member_wrap_ptr_levels(m, ptr_depth - 1);
                     }
                     if (!is_flexible) {
-                        current_offset += m->size;
+                        /* A VLA member occupies its 2-element placeholder in
+                         * the static layout (GCC); the runtime size is
+                         * re-computed from the real dimension. */
+                        current_offset += m->size + (member_vla ? 2 * m->vla_elem_size : 0);
                     }
                 }
             }
@@ -952,6 +983,12 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
             int ndims = 0;
             bool is_flexible = false;
             bool is_array = false;
+            /* GNU variably-modified member (`char b[argc];`): the dimension
+             * is a runtime expression parsed into the TU arena. At most one
+             * runtime dimension per member. */
+            bool member_vla = false;
+            size_t member_vla_expr = 0;
+            int member_vla_count = 0;
             /* Multi-dimensional arrays: T a[d1][d2]... (C99 6.7.2.1).
              * Dimensions are constant expressions (6.7.2.1p3):
              * `char buf[72*1024*1024];` is evaluated, not a bare NUM. */
@@ -963,9 +1000,24 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                     /* Flexible array member: empty brackets [] (C99 6.7.2.1p18) */
                     is_flexible = true;
                     dim = 0;
-                } else {
+                } else if (zc_typedef_dim_is_const(c, c->token_pos)) {
                     int64_t cd = zero_cc_eval_const_expr(c);
                     if (cd >= 0) { dim = (size_t)cd; if (cd == 0) is_flexible = true; }
+                } else if (is_union) {
+                    diag_report_error_at_token(c,
+                        "union member with variably-modified type is not supported");
+                    member_vla_count = 2; /* suppress later handling */
+                    c->token_pos++;
+                    dim = 1;
+                } else {
+                    member_vla = true;
+                    member_vla_count++;
+                    if (member_vla_count == 1)
+                        member_vla_expr = parse_expr_ast_internal(c, (ZeroCCASTArena *)c->tu_ast_arena);
+                    else
+                        diag_report_error_at_token(c,
+                            "multiple variable dimensions in a struct member are not supported");
+                    dim = 2; /* GCC placeholder for the static layout */
                 }
                 if (c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
                 if (is_flexible) break;
@@ -1173,12 +1225,17 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                         ZeroCCStructMember *m = &st.members[st.member_count++];
                         snprintf(m->name, sizeof(m->name), "%s", mname);
                         m->offset = current_offset;
-                        m->size = is_flexible ? 0 : (base_size * elem_count);
+                        m->size = is_flexible ? 0 : (member_vla ? 0 : (base_size * elem_count));
                         m->align = effective_align;
                         m->is_flexible = is_flexible;
                         m->is_bitfield = false;
                         m->bit_offset = 0;
                         m->bit_width = 0;
+                        if (member_vla) {
+                            m->is_vla = true;
+                            m->vla_dim = member_vla_expr;
+                            m->vla_elem_size = base_size * (elem_count / 2);
+                        }
                         m->is_signed = !is_unsigned;
                         m->is_const = is_ptr ? member_ptr_is_const : member_is_const;
                         m->is_volatile = is_ptr ? member_ptr_is_volatile : member_is_volatile;
@@ -1281,7 +1338,7 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                             m->base = zero_cc_type_alloc_base(&elem_t);
                         }
                         if (!is_flexible) {
-                            current_offset += m->size;
+                            current_offset += m->size + (member_vla ? 2 * m->vla_elem_size : 0);
                         }
                     }
                 }
@@ -1321,6 +1378,10 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                 int c_ndims = 0;
                 bool c_is_flexible = false;
                 bool c_is_array = false;
+                /* GNU variably-modified member (see the paths above). */
+                bool c_member_vla = false;
+                size_t c_member_vla_expr = 0;
+                int c_member_vla_count = 0;
                 /* Multi-dimensional arrays: T a[d1][d2]... (C99 6.7.2.1).
                  * Dimensions are constant expressions (C99 6.7.2.1p3):
                  * `char buf[72*1024*1024];` - evaluated, not just a NUM. */
@@ -1331,9 +1392,24 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                     if (c->tokens[c->token_pos].type == TK_RBRACKET) {
                         c_is_flexible = true;
                         dim = 0;
-                    } else {
+                    } else if (zc_typedef_dim_is_const(c, c->token_pos)) {
                         int64_t cd = zero_cc_eval_const_expr(c);
                         if (cd >= 0) { dim = (size_t)cd; if (cd == 0) c_is_flexible = true; }
+                    } else if (is_union) {
+                        diag_report_error_at_token(c,
+                            "union member with variably-modified type is not supported");
+                        c_member_vla_count = 2; /* suppress later handling */
+                        c->token_pos++;
+                        dim = 1;
+                    } else {
+                        c_member_vla = true;
+                        c_member_vla_count++;
+                        if (c_member_vla_count == 1)
+                            c_member_vla_expr = parse_expr_ast_internal(c, (ZeroCCASTArena *)c->tu_ast_arena);
+                        else
+                            diag_report_error_at_token(c,
+                                "multiple variable dimensions in a struct member are not supported");
+                        dim = 2; /* GCC placeholder for the static layout */
                     }
                     if (c->tokens[c->token_pos].type == TK_RBRACKET) c->token_pos++;
                     if (c_is_flexible) break;
@@ -1529,12 +1605,17 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                         ZeroCCStructMember *m = &st.members[st.member_count++];
                         snprintf(m->name, sizeof(m->name), "%s", c_mname);
                         m->offset = current_offset;
-                        m->size = c_is_flexible ? 0 : (c_base_size * c_elem_count);
+                        m->size = c_is_flexible ? 0 : (c_member_vla ? 0 : (c_base_size * c_elem_count));
                         m->align = c_effective_align;
                         m->is_flexible = c_is_flexible;
                         m->is_bitfield = false;
                         m->bit_offset = 0;
                         m->bit_width = 0;
+                        if (c_member_vla) {
+                            m->is_vla = true;
+                            m->vla_dim = c_member_vla_expr;
+                            m->vla_elem_size = c_base_size * (c_elem_count / 2);
+                        }
                         m->is_signed = !is_unsigned;
                         m->is_const = c_is_ptr ? c_member_ptr_is_const : member_is_const;
                         m->is_volatile = c_is_ptr ? c_member_ptr_is_volatile : member_is_volatile;
@@ -1634,7 +1715,7 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                             m->base = vt.base;
                         }
                         if (!c_is_flexible) {
-                            current_offset += m->size;
+                            current_offset += m->size + (c_member_vla ? 2 * m->vla_elem_size : 0);
                         }
                     }
                 }
@@ -1654,6 +1735,15 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
         st.size = (max_size + st.align - 1) & ~(st.align - 1);
     } else {
         st.size = (current_offset + st.align - 1) & ~(st.align - 1);
+    }
+    /* GNU variably-modified struct: mark it so the TypeInfo conversion,
+     * sizeof, allocation, and the by-value (ptr, size) parameter ABI can
+     * find the VLA members. */
+    if (!is_union) {
+        st.is_vla_struct = false;
+        for (size_t mi = 0; mi < st.member_count; mi++) {
+            if (st.members[mi].is_vla) { st.is_vla_struct = true; break; }
+        }
     }
     /* Apply #pragma pack to final struct alignment */
     if (c->default_pack > 0 && st.align > (size_t)c->default_pack) {

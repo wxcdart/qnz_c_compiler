@@ -12,6 +12,7 @@
  */
 
 #include "zero_cc/ir/ast_lowering_internal.h"
+#include "zero_cc/parser/vla_struct.h"
 #include "zero_cc/ir/asm_emitter.h"
 #include "zero_cc/opt/opt_pass.h"
 #include <stdio.h>
@@ -417,6 +418,39 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         can_promote_params = false;
     }
 
+    /* C99 6.7.6.2: reserve a runtime size slot for each VLA parameter
+     * (the dim value evaluated at entry below) - runtime `sizeof` on a
+     * VLA param type (e.g. `sizeof(a[0])` for `char a[2][N]`) loads it
+     * via NODE_VLA_SLOT. Must run before the body lowers so the frame
+     * still grows - and BEFORE the param-save loop: a VLA struct
+     * parameter's size word arrives as an ABI argument stored into this
+     * slot during the save. */
+    if (lowering_fn && lowering_fn->param_count > 0) {
+        for (size_t p = 0; p < lowering_fn->param_count && p < c->local_count; p++) {
+            if (!c->locals[p].is_param || c->locals[p].vla_slot_off) continue;
+            ZeroCCType t = c->locals[p].type;
+            while (t.tag == TYPE_PTR && t.base) t = *t.base;
+            if (zc_type_chain_has_vla(t)) {
+                c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                c->current_stack_frame += 8;
+                c->locals[p].vla_slot_off = (int32_t)c->current_stack_frame;
+            }
+        }
+    }
+
+    /* VLA struct parameters must stay in frame slots: the slot holds the
+     * object pointer (member access loads it) and the size word lives in
+     * a separate VLA slot - a single promoted vreg cannot model both. */
+    if (can_promote_params && lowering_fn) {
+        for (size_t p = 0; p < lowering_fn->param_count && p < (size_t)c->local_count; p++) {
+            ZeroCCSym *ps = &c->locals[p];
+            if (ps->is_param && zc_type_is_vla_struct_obj(&ps->type)) {
+                can_promote_params = false;
+                break;
+            }
+        }
+    }
+
     if (can_promote_params) {
         c->current_stack_frame = 0;
         ZeroCCFunction *fn = lowering_fn;
@@ -490,7 +524,27 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
             bool is_multi_chunk_struct = (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION ||
                                           (sym->type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&sym->type))) && sym->type.size > 8;
 
-            if (is_multi_chunk_struct && sym->type.size > 16 &&
+            if (!cap_byref && (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) &&
+                zc_type_is_vla_struct_obj(&sym->type)) {
+                /* VLA struct parameter (GNU): two consecutive GPR units -
+                 * the object pointer (stored in the sym slot; member
+                 * access loads it through sym->is_vla_struct) and the
+                 * total runtime size (stored in the reserved VLA slot for
+                 * runtime sizeof). */
+                for (int unit = 0; unit < 2; unit++) {
+                    int32_t dst = (unit == 0) ? sym->stack_offset
+                                               : (sym->vla_slot_off > 0 ? sym->vla_slot_off : sym->stack_offset);
+                    if (int_idx < BE(c)->conv->int_arg_reg_count) {
+                        ir_emit_param_save_int(c, int_idx, dst);
+                        int_idx++;
+                    } else {
+                        int32_t caller_off = 16 + 8 * stack_idx;
+                        ir_emit_load(c, VREG_0, BE(c)->fp_reg, caller_off);
+                        ir_emit_store(c, VREG_0, BE(c)->fp_reg, -dst);
+                        stack_idx++;
+                    }
+                }
+            } else if (is_multi_chunk_struct && sym->type.size > 16 &&
                 !(sym->type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&sym->type))) {
                 /* SysV ABI: a >16B struct/union parameter arrives as a hidden
                  * pointer in ONE argument slot. Save the pointer into the
@@ -657,24 +711,6 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
      * it as well. */
     if (lowering_fn && !lowering_fn->is_nested && zero_cc_any_byref_capture(c, lowering_fn)) {
         c->lowering.has_capture_mirror = true;
-    }
-
-    /* C99 6.7.6.2: reserve a runtime size slot for each VLA parameter
-     * (the dim value evaluated at entry below) - runtime `sizeof` on a
-     * VLA param type (e.g. `sizeof(a[0])` for `char a[2][N]`) loads it
-     * via NODE_VLA_SLOT. Must run before the body lowers so the frame
-     * still grows. */
-    if (lowering_fn && lowering_fn->param_count > 0) {
-        for (size_t p = 0; p < lowering_fn->param_count && p < c->local_count; p++) {
-            if (!c->locals[p].is_param || c->locals[p].vla_slot_off) continue;
-            ZeroCCType t = c->locals[p].type;
-            while (t.tag == TYPE_PTR && t.base) t = *t.base;
-            if (zc_type_chain_has_vla(t)) {
-                c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
-                c->current_stack_frame += 8;
-                c->locals[p].vla_slot_off = (int32_t)c->current_stack_frame;
-            }
-        }
     }
 
     /* C99 6.7.6.2: evaluate VLA parameter dimension expressions in

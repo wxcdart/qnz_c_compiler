@@ -583,41 +583,6 @@ static inline void zero_cc_stmt_typedef_struct(ZeroCCCompiler *c) {
     if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
 }
 
-/* Probe whether the array dimension starting at c->token_pos (up to the
- * matching ']') is a constant expression.  Used to split plain array
- * typedefs from VLA typedefs: an identifier that is not an enum constant
- * / const global / true / false / NULL, or a call-like `ident (`, makes
- * the dimension runtime.  A false "VLA" verdict on a constant is harmless
- * (the size expression evaluates to the same value at runtime); a false
- * "constant" verdict is not (the value would be 0). */
-static inline bool zc_typedef_dim_is_const(ZeroCCCompiler *c, size_t start) {
-    size_t p = start;
-    int pd = 0;
-    while (p < c->token_count) {
-        ZeroCCTokType t = c->tokens[p].type;
-        if (t == TK_LPAREN) {
-            pd++;
-        } else if (t == TK_RPAREN) {
-            if (pd == 0) break;
-            pd--;
-        } else if (t == TK_RBRACKET && pd == 0) {
-            break;
-        } else if (t == TK_IDENT) {
-            const char *nm = c->tokens[p].str_val;
-            bool known = (strcmp(nm, "true") == 0 || strcmp(nm, "false") == 0 ||
-                          strcmp(nm, "NULL") == 0 || strcmp(nm, "nullptr") == 0 ||
-                          strcmp(nm, "__alignof__") == 0 ||
-                          zero_cc_find_enum_const(c, nm) != NULL ||
-                          zc_const_global_scalar(c, nm, NULL, NULL, NULL));
-            bool call_like = (p + 1 < c->token_count &&
-                              c->tokens[p + 1].type == TK_LPAREN);
-            if (!known || call_like) return false;
-        }
-        p++;
-    }
-    return true;
-}
-
 /* Scalar Typedef */
 static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
     c->token_pos++; /* consume TK_TYPEDEF */

@@ -13,6 +13,7 @@
 #include "zero_cc/parser/parser.h"
 #include "zero_cc/parser/const_eval.h"
 #include "zero_cc/parser/init_common.h"
+#include "zero_cc/parser/vla_struct.h"
 #include "zero_cc/jit/type_info.h"
 
 /* Forward declaration for statement parsing */
@@ -1011,6 +1012,18 @@ static ASTRef parse_unary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
                 sn->right = es_ref;
                 sn->aux.op = (uint32_t)TK_STAR;
                 return sr;
+            }
+
+            /* GNU variably-modified struct operand (`sizeof struct s`): the
+             * static size is a placeholder layout - emit the runtime
+             * re-layout with the real dimension(s). */
+            if (ty.is_vla_struct) {
+                const ZeroCCType *svs = &ty;
+                const char *svs_tag = ty.struct_name;
+                ZeroCCType *reg = ty.struct_name[0] ? zero_cc_find_struct(c, ty.struct_name) : NULL;
+                if (reg) { svs = reg; svs_tag = reg->struct_name; }
+                ASTRef sr = zc_vla_struct_size_ast(arena, (ZeroCCASTArena *)c->tu_ast_arena, svs, svs_tag);
+                if (sr != AST_NULL) return sr;
             }
 
             ASTRef ref = zero_cc_ast_alloc_node(arena, NODE_INT);

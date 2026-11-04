@@ -110,6 +110,19 @@ typedef struct {
     /* Hybrid VLA enforcement state */
     VLAState vla;                      /* VLA tracking and enforcement */
 
+    /* GNU variably-modified struct definitions: the member dimension
+     * expressions are evaluated when the definition executes (GCC
+     * semantics - later changes to the dimension variables do not affect
+     * the object's size). Each entry maps a struct tag to 8-byte frame
+     * slots holding the captured dimensions (one per VLA member, in
+     * member order); NODE_VLA_DIM_SLOT loads from these slots. */
+    struct ZeroCCVlaStructCapture {
+        char tag[64];
+        int32_t slots[8];
+        int count;
+    } vla_struct_captures[8];
+    int vla_struct_capture_count;
+
     /* Alias group tracking for restrict pointers (temp -> alias_group ID) */
     uint8_t temp_alias_group[256];
 

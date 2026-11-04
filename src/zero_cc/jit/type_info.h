@@ -166,6 +166,7 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
             }
             ti->details.record.size = t.size;
             ti->details.record.align = t.align;
+            ti->details.record.is_vla_struct = t.is_vla_struct;
             ti->modifiers |= t_mods;
             if ((t.members != NULL || t.struct_name[0] != '\0') && zc_t2ti_memo_cnt < 256) {
                 ZCT2TIMemo *me = &zc_t2ti_memo[zc_t2ti_memo_cnt++];
@@ -362,6 +363,7 @@ static inline ZeroCCType typeinfo_to_zero_cc_type(const TypeInfo *ti) {
             t.tag = (ti->kind == TYPE_KIND_UNION) ? TYPE_UNION : TYPE_STRUCT;
             t.size = ti->details.record.size;
             t.align = ti->details.record.align ? ti->details.record.align : 1;
+            t.is_vla_struct = ti->details.record.is_vla_struct;
             if (ti->details.record.tag) {
                 snprintf(t.struct_name, sizeof(t.struct_name), "%s", ti->details.record.tag);
             }

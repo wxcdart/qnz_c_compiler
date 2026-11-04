@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "zero_cc/ir/ast_lowering_internal.h"
+#include "zero_cc/parser/vla_struct.h"
 #include "zero_cc/isa/isa_backend.h"
 #include "zero_cc/semantic/diagnostics.h"
 
@@ -257,6 +258,48 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
         /* Check if this is a compound assignment (+=, -=, etc.) */
         bool is_compound = (node->aux.op != TK_ASSIGN && node->aux.op != '=');
         ZeroCCASTNode *left_node = zero_cc_ast_get(arena, node->left);
+
+        /* GNU variably-modified struct/union target: the object is
+         * runtime-sized (the static layout size is a 2-element
+         * placeholder), so the value copy must use the runtime size.
+         * Lower as a runtime-sized memcpy; the assignment's value is the
+         * source address (struct values are address-form). */
+        if (!is_compound && left_node && node->right != AST_NULL) {
+            ZeroCCSym *lhs_sym_v = (left_node->tag == NODE_IDENT)
+                ? zero_cc_find_local(c, left_node->s.str) : NULL;
+            TypeInfo *lhs_ti_v = ast_node_get_typeinfo(c, left_node);
+            const ZeroCCType *vla_v = NULL;
+            if (lhs_sym_v) {
+                vla_v = zc_find_vla_struct(&lhs_sym_v->type);
+            } else if (lhs_ti_v && (lhs_ti_v->kind == TYPE_KIND_STRUCT || lhs_ti_v->kind == TYPE_KIND_UNION) &&
+                       lhs_ti_v->details.record.is_vla_struct && lhs_ti_v->details.record.tag) {
+                ZeroCCType *reg = zero_cc_find_struct(c, lhs_ti_v->details.record.tag);
+                if (reg) vla_v = zc_find_vla_struct(reg);
+            }
+            if (vla_v && !vla_v->members && vla_v->struct_name[0]) {
+                ZeroCCType *reg = zero_cc_find_struct(c, vla_v->struct_name);
+                if (reg) vla_v = reg;
+            }
+            if (vla_v) {
+                int dst_v = zero_cc_lower_lvalue_addr(c, arena, node->left);
+                int src_v = zero_cc_lower_lvalue_addr(c, arena, node->right);
+                if (src_v == TEMP_NONE) src_v = lower_expr(c, arena, node->right);
+                if (dst_v == TEMP_NONE) {
+                    diag_report_error_at_token(c, "cannot take address of assignment target for variable-length struct copy");
+                    return TEMP_NONE;
+                }
+                int n_v = TEMP_NONE;
+                ASTRef sz_v = zc_vla_struct_size_ast(arena, (ZeroCCASTArena *)c->tu_ast_arena, vla_v, vla_v->struct_name);
+                if (sz_v != AST_NULL) n_v = lower_expr(c, arena, sz_v);
+                if (n_v == TEMP_NONE) {
+                    n_v = c->next_temp_id++;
+                    ir_emit_mov_imm(c, n_v, (int32_t)vla_v->size);
+                }
+                zero_cc_emit_vla_struct_copy(c, dst_v, src_v, n_v);
+                c->last_expr_is_float = 0;
+                return src_v;
+            }
+        }
 
         /* C99 complex compound assignment (x += y, x -= y, x *= y,
          * x /= y): desugar to x = x OP y via a synthetic complex
@@ -1186,6 +1229,12 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                     lower_extend_narrow(c, right_temp, gm_ti);
                     return right_temp;
                 }
+                /* GNU VLA struct local/param: the frame slot holds the
+                 * runtime-allocated object POINTER (OP_VLA_ALLOC), so member
+                 * stores must go through the pointer path (pointer-relative
+                 * addressing) - a frame-relative store would clobber the
+                 * saved pointer with member data. */
+                if (sym->is_vla_struct) base_is_ptr = true;
                 if (base_is_ptr) {
                     /* p->member = val: store through the pointer */
                     int ptr_temp = c->next_temp_id++;

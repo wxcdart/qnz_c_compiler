@@ -794,6 +794,11 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
         ZeroCCType anon_struct_type;
         memset(&anon_struct_type, 0, sizeof(anon_struct_type));
         bool has_anon_struct = false;
+        /* The declaration defines a block-scope struct/union with VLA
+         * members: the lowering must capture the member dimensions at
+         * definition time (NODE_DECL_VLA_STRUCT_DEF). */
+        bool defines_vla_struct = false;
+        char defines_vla_struct_tag[128] = {0};
         if (type_tok == TK_TYPEOF || type_tok == TK_TYPEOF_UNQUAL) {
             has_typeof_base = true;
             bool unqual = (type_tok == TK_TYPEOF_UNQUAL);
@@ -896,6 +901,10 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
             zero_cc_register_struct(c, tag, st);
             has_anon_struct = true;
             anon_struct_type = st;
+            if (st.is_vla_struct) {
+                defines_vla_struct = true;
+                snprintf(defines_vla_struct_tag, sizeof(defines_vla_struct_tag), "%s", tag);
+            }
         }
         /* Check _Atomic(T) or _Atomic T */
         if (type_tok == TK_ATOMIC) {
@@ -1783,6 +1792,11 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
                     dn->flags |= NODE_DECL_IS_VLA;
                     dn->right = vla_dim_expr; /* outermost runtime dimension expr */
                 }
+                if (defines_vla_struct) {
+                    /* This declaration DEFINES the VLA struct: the lowering
+                     * captures the member dimensions at definition time. */
+                    dn->flags |= NODE_DECL_VLA_STRUCT_DEF;
+                }
 
                 /* Attach type to AST node for semantic analysis */
                 decl_node_set_type(ctx, dn, decl_ti);
@@ -2066,6 +2080,20 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
         } else {
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) {
                 c->token_pos++;
+            }
+            /* Struct definition with no declarator
+             * (`struct s { char b[n]; } __attribute__((packed));`):
+             * emit a synthetic definition node so the lowering captures
+             * the VLA member dimensions at definition time (GCC
+             * semantics). */
+            if (defines_vla_struct) {
+                ASTRef def_ref = zero_cc_ast_alloc_node(arena, NODE_DECL);
+                ZeroCCASTNode *dfn = zero_cc_ast_get(arena, def_ref);
+                dfn->flags |= NODE_DECL_VLA_STRUCT_DEF;
+                dfn->s.str = zero_cc_intern_string(c, defines_vla_struct_tag);
+                dfn->s_len = strlen(dfn->s.str);
+                *out_ref = def_ref;
+                return true;
             }
             *out_ref = AST_NULL; return true;
         }

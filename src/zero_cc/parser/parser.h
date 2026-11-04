@@ -72,11 +72,21 @@ typedef enum {
 #define NODE_DECL_FUNC_PROTO  (1u << 0)  /* function prototype (no body, has param list) */
 #define NODE_FLAG_FUNC_PROTO  NODE_DECL_FUNC_PROTO /* alias for backwards-compat */
 #define NODE_DECL_IS_VLA      (1u << 1)  /* variable length array declaration */
+#define NODE_DECL_VLA_STRUCT_DEF (1u << 2) /* this declaration DEFINES a block-scope
+                                             * struct/union with VLA members - the
+                                             * lowering captures the member dimensions
+                                             * at definition time (GCC semantics) */
     NODE_TYPEDEF_DECL,/* struct/enum/scalar typedef */
     NODE_STATIC_ASSERT/* left = cond */,
     NODE_COMMA,       /* left = lhs, right = rhs (comma operator) */
     NODE_VLA_SLOT,    /* runtime VLA size: int_val = c->locals index of the
                        * VLA param/local; lowers to LOAD [fp - vla_slot_off] */
+    NODE_VLA_DIM_SLOT,/* GNU VLA struct member dimension: s.str = struct tag,
+                       * desig_idx = index among the VLA members (member
+                       * order), left = the original dim expr (TU arena,
+                       * fallback).
+                       * Lowers to a load of the definition-time capture
+                       * slot (c->lowering.vla_struct_captures). */
 } ZeroCCASTTag;
 
 /* Cache-friendly, 32-bit thin-pointer AST node (32 bytes total) */

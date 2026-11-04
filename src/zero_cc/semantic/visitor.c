@@ -746,6 +746,14 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
             break;
         }
         case NODE_DECL: {
+            /* Synthetic block-scope VLA struct definition (no declarator:
+             * `struct s { char b[n]; } __attribute__((packed));`) - no
+             * variable to declare; the lowering captures the member
+             * dimensions at this point. A real variable declaration of a
+             * VLA struct keeps its type annotation and falls through. */
+            if ((node->flags & NODE_DECL_VLA_STRUCT_DEF) && !decl_node_type(ctx, node)) {
+                break;
+            }
             /* Check if this is a function definition: has body (right != AST_NULL) and not a VLA */
             if (!(node->flags & NODE_DECL_IS_VLA) && node->right != AST_NULL) {
                 /* Function definition */

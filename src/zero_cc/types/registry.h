@@ -2,11 +2,46 @@
 #define ZERO_CC_TYPES_REGISTRY_H
 
 #include <stdio.h>
+#include <string.h>
+#include "zero_cc/semantic/diagnostics.h"
 
 /* Struct Registry */
 static inline void zero_cc_register_struct(ZeroCCCompiler *c, const char *name, ZeroCCType type) {
     for (size_t i = 0; i < c->struct_count; i++) {
         if (strcmp(c->structs[i].name, name) == 0) {
+            ZeroCCType *prev = &c->structs[i].type;
+            /* Block-scope tag redefinition (C11 6.7.2.1 / GCC extension):
+             * identical redefinitions and incomplete->complete transitions
+             * are fine. A DIFFERENT layout under the same tag in sibling
+             * scopes cannot be represented by the global registry (both
+             * definitions would alias one entry, corrupting offsets and
+             * sizes) - reject cleanly instead of miscompiling. */
+            bool prev_incomplete = (prev->member_count == 0);
+            bool type_incomplete = (type.member_count == 0);
+            bool same_layout = (prev->size == type.size &&
+                                prev->member_count == type.member_count &&
+                                prev->align == type.align &&
+                                prev->is_vla_struct == type.is_vla_struct);
+            if (same_layout && prev->members && type.members &&
+                prev->member_count == type.member_count && prev->member_count > 0) {
+                for (size_t mi = 0; mi < type.member_count; mi++) {
+                    if (strcmp(prev->members[mi].name, type.members[mi].name) != 0 ||
+                        prev->members[mi].offset != type.members[mi].offset) {
+                        same_layout = false;
+                        break;
+                    }
+                }
+            }
+            if (!prev_incomplete && type_incomplete) {
+                /* Complete definition followed by a bare forward
+                 * declaration (struct S;) - keep the complete entry. */
+                return;
+            }
+            if (!same_layout && !prev_incomplete) {
+                diag_report_error_at_token(c,
+                    "redefinition of '%s %s' with a different layout is not supported",
+                    type.tag == TYPE_UNION ? "union" : "struct", name);
+            }
             c->structs[i].type = type;
             return;
         }

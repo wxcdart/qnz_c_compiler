@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "zero_cc/ir/ast_lowering_internal.h"
+#include "zero_cc/parser/vla_struct.h"
 #include "zero_cc/isa/isa_backend.h"
 #include "zero_cc/semantic/diagnostics.h"
 
@@ -707,6 +708,59 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                                     int_spill_offsets[int_arg_idx] = slot1;
                                     int_arg_idx++;
                                 }
+                            }
+                        }
+                        arg = arg_node ? arg_node->next : AST_NULL;
+                        continue;
+                    }
+                }
+                /* GNU variably-modified struct argument: two consecutive
+                 * GPR units - the object address, then the total runtime
+                 * size (the callee stores the size in the parameter's VLA
+                 * slot for runtime sizeof). Must run before the struct
+                 * chunk / hidden-pointer branches, which key off the
+                 * STATIC (placeholder) size. */
+                {
+                    const ZeroCCType *arg_vla = NULL;
+                    if (arg_node && arg_node->tag == NODE_IDENT) {
+                        ZeroCCSym *as = zero_cc_find_local(c, arg_node->s.str);
+                        if (as) arg_vla = zc_find_vla_struct(&as->type);
+                        else {
+                            ZeroCCGlobalVar *agv = find_global_var(c, arg_node->s.str);
+                            if (agv) arg_vla = zc_find_vla_struct(&agv->type);
+                        }
+                    } else if (arg_node) {
+                        TypeInfo *ati = ast_node_get_typeinfo(c, arg_node);
+                        if (ati && (ati->kind == TYPE_KIND_STRUCT || ati->kind == TYPE_KIND_UNION) &&
+                            ati->details.record.is_vla_struct && ati->details.record.tag) {
+                            ZeroCCType *reg = zero_cc_find_struct(c, ati->details.record.tag);
+                            if (reg) arg_vla = zc_find_vla_struct(reg);
+                        }
+                    }
+                    if (arg_vla) {
+                        if (!arg_vla->members && arg_vla->struct_name[0]) {
+                            ZeroCCType *reg = zero_cc_find_struct(c, arg_vla->struct_name);
+                            if (reg) arg_vla = reg;
+                        }
+                        int obj_addr = zero_cc_lower_lvalue_addr(c, arena, arg);
+                        if (obj_addr == TEMP_NONE) obj_addr = temp;
+                        ASTRef sz_ast = zc_vla_struct_size_ast(arena, (ZeroCCASTArena *)c->tu_ast_arena, arg_vla, arg_vla->struct_name);
+                        int size_t2 = (sz_ast != AST_NULL) ? lower_expr(c, arena, sz_ast) : TEMP_NONE;
+                        if (size_t2 == TEMP_NONE) {
+                            size_t2 = c->next_temp_id++;
+                            ir_emit_mov_imm(c, size_t2, (int32_t)arg_vla->size);
+                        }
+                        for (int unit = 0; unit < 2; unit++) {
+                            int val = (unit == 0) ? obj_addr : size_t2;
+                            int_spill_stack_pos[int_arg_idx] = (gp_stream < gp_regs_avail) ? 255 : (uint8_t)(stack_arg_count++);
+                            gp_stream++;
+                            c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                            c->current_stack_frame += 8;
+                            int32_t slot = c->current_stack_frame;
+                            ir_emit_store(c, val, BE(c)->fp_reg, -slot);
+                            if (int_arg_idx < IR_CALL_MAX_ARGS) {
+                                int_spill_offsets[int_arg_idx] = slot;
+                                int_arg_idx++;
                             }
                         }
                         arg = arg_node ? arg_node->next : AST_NULL;

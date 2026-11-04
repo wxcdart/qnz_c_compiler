@@ -84,6 +84,19 @@ static inline int zc_sym_uses_data_section(const ZeroCCSym *sym) {
  * storage address. */
 static inline int zc_sym_addr(ZeroCCCompiler *c, const ZeroCCSym *sym, int32_t extra) {
     int a = c->next_temp_id++;
+    if (sym->is_vla_struct) {
+        /* The slot holds the object pointer (runtime-allocated storage),
+         * not an inline copy - load it. */
+        ir_emit_load(c, a, BE(c)->fp_reg, -sym->stack_offset);
+        if (extra != 0) {
+            int o = c->next_temp_id++;
+            ir_emit_mov_imm(c, (uint16_t)o, (int64_t)extra);
+            int na = c->next_temp_id++;
+            ir_emit_add(c, (uint16_t)na, (uint16_t)a, (uint16_t)o);
+            a = na;
+        }
+        return a;
+    }
     if (sym->is_capture_mirror) {
         if (sym->is_promoted) ir_emit_mov_reg(c, a, (uint16_t)sym->promoted_vreg);
         else ir_emit_load(c, a, BE(c)->fp_reg, -sym->stack_offset);
@@ -599,6 +612,7 @@ int zero_cc_lower_lvalue_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef r
 void zero_cc_emit_struct_copy_to_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena,
                                       int dst_addr, size_t struct_sz,
                                       ASTRef rhs_ref, int rhs_temp);
+void zero_cc_emit_vla_struct_copy(ZeroCCCompiler *c, int dst_addr, int src_addr, int size_temp);
 
 bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
                         ZeroCCASTNode *node, const char *name,

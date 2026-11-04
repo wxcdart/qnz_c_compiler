@@ -1,6 +1,7 @@
 /* AST Lowering - Expression Lowering (AST to IR) */
 
 #include "zero_cc/ir/ast_lowering_internal.h"
+#include "zero_cc/parser/vla_struct.h"
 #include "zero_cc/isa/isa_backend.h"
 
 /* C99 6.3.1.5 integer -> floating conversion, u64-aware (see header). */
@@ -202,6 +203,19 @@ int zero_cc_lower_lvalue_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef r
         if (!base_is_ptr && base_node && base_node->tag == NODE_IDENT) {
             ZeroCCSym *sym = zero_cc_find_local(c, base_node->s.str);
             if (sym && !sym->is_extern) {
+                if (sym->is_vla_struct) {
+                    /* VLA struct local/param: the slot holds the object
+                     * pointer - load it, then add the member offset. */
+                    ir_emit_load(c, addr_temp, BE(c)->fp_reg, -sym->stack_offset);
+                    if (member_offset != 0) {
+                        int off_temp = c->next_temp_id++;
+                        ir_emit_mov_imm(c, off_temp, member_offset);
+                        int sum_temp = c->next_temp_id++;
+                        ir_emit_add(c, sum_temp, addr_temp, off_temp);
+                        return sum_temp;
+                    }
+                    return addr_temp;
+                }
                 if (zc_sym_uses_data_section(sym)) {
                     /* Sprint 72: address-taken static member address goes to
                      * the data-section object + member offset. */
@@ -288,6 +302,19 @@ int zero_cc_lower_lvalue_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef r
                 elem_ti->kind != TYPE_KIND_VOID && type_size(elem_ti) > 0)
                 mirror_esz = type_size(elem_ti);
         }
+        /* VLA struct element: runtime element stride (see the lower_expr
+         * NODE_INDEX path). */
+        const ZeroCCType *vla_et = NULL;
+        if (!mirror_form && elem_ti &&
+            (elem_ti->kind == TYPE_KIND_STRUCT || elem_ti->kind == TYPE_KIND_UNION) &&
+            elem_ti->details.record.is_vla_struct && elem_ti->details.record.tag) {
+            ZeroCCType *reg = zero_cc_find_struct(c, elem_ti->details.record.tag);
+            if (reg) vla_et = zc_find_vla_struct(reg);
+        }
+        if (vla_et && !vla_et->members && vla_et->struct_name[0]) {
+            ZeroCCType *reg = zero_cc_find_struct(c, vla_et->struct_name);
+            if (reg) vla_et = reg;
+        }
         ZeroCCSym *vla_2d_sym = NULL;
         {
             ZeroCCASTNode *ln = zero_cc_ast_get(arena, operand->left);
@@ -325,6 +352,13 @@ int zero_cc_lower_lvalue_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef r
             }
             scaled_index = c->next_temp_id++;
             ir_emit_mul(c, scaled_index, index_temp, stride_temp);
+        } else if (vla_et) {
+            int sz_temp = c->next_temp_id++;
+            ASTRef esz = zc_vla_struct_size_ast(arena, (ZeroCCASTArena *)c->tu_ast_arena, vla_et, vla_et->struct_name);
+            if (esz != AST_NULL) sz_temp = lower_expr(c, arena, esz);
+            else ir_emit_mov_imm(c, sz_temp, (int32_t)elem_size);
+            scaled_index = c->next_temp_id++;
+            ir_emit_mul(c, scaled_index, index_temp, sz_temp);
         } else if (elem_size == 1) {
             scaled_index = index_temp;
         } else if (elem_size == 2 || elem_size == 4 || elem_size == 8) {
@@ -545,6 +579,23 @@ void zero_cc_emit_struct_copy_to_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena,
     }
 }
 
+/* GNU variably-modified struct/union object: the static layout size is a
+ * 2-element placeholder, so a value copy must use the RUNTIME size. Lower
+ * as a libc memcpy(dst, src, size) - the same external-call machinery as
+ * user calls (AOT PLT reloc; JIT dlsym), which avoids emitting an IR loop
+ * with a redefined counter temp. */
+void zero_cc_emit_vla_struct_copy(ZeroCCCompiler *c, int dst_addr, int src_addr, int size_temp) {
+    if (!zero_cc_find_function(c, "memcpy") && c->function_count < ZERO_CC_MAX_FUNCTIONS) {
+        ZeroCCFunction *fn = &c->functions[c->function_count++];
+        memset(fn, 0, sizeof(*fn));
+        snprintf(fn->name, sizeof(fn->name), "%s", "memcpy");
+        fn->is_prototype = true;
+    }
+    int arg_temps[3] = { dst_addr, src_addr, size_temp };
+    ir_emit_call(c, "memcpy");
+    ir_call_args_record(c, ir_get_count(c) - 1, 3, arg_temps, NULL, NULL);
+}
+
 /* Conservative AST probe (Sprint 40): does this expression evaluate to a
  * float/double under the double-width scalar FP model?  Used by the
  * ternary operator to pick the result temp's register class BEFORE the
@@ -665,6 +716,36 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 ir_emit_load(c, temp, BE(c)->fp_reg, -c->locals[li].vla_slot_off);
             } else {
                 ir_emit_mov_imm(c, temp, 0);  /* defensive: no slot reserved */
+            }
+            c->last_expr_is_float = 0;
+            return temp;
+        }
+
+        case NODE_VLA_DIM_SLOT: {
+            /* GNU VLA struct member dimension: load the value captured
+             * when the struct definition executed (GCC semantics). */
+            int32_t slot = 0;
+            for (int ci = 0; ci < c->lowering.vla_struct_capture_count; ci++) {
+                const struct ZeroCCVlaStructCapture *cap = &c->lowering.vla_struct_captures[ci];
+                if (cap->count > 0 && cap->count <= 8 && node->s.str &&
+                    node->desig_idx < (uint32_t)cap->count &&
+                    strcmp(cap->tag, node->s.str) == 0) {
+                    slot = cap->slots[node->desig_idx];
+                    break;
+                }
+            }
+            int temp = c->next_temp_id++;
+            if (slot > 0) {
+                ir_emit_load(c, temp, BE(c)->fp_reg, -slot);
+            } else if (node->left != AST_NULL) {
+                /* No capture in this function (e.g. the struct was
+                 * defined in an enclosing function and the size is used
+                 * from a nested one) - evaluate the original dim expr. */
+                ASTRef dim = zero_cc_ast_clone((ZeroCCASTArena *)c->tu_ast_arena, node->left, arena);
+                if (dim != AST_NULL) return lower_expr(c, arena, dim);
+                ir_emit_mov_imm(c, temp, 0);
+            } else {
+                ir_emit_mov_imm(c, temp, 0);
             }
             c->last_expr_is_float = 0;
             return temp;
@@ -1506,6 +1587,20 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     elem_ti->kind != TYPE_KIND_VOID && type_size(elem_ti) > 0)
                     mirror_esz = type_size(elem_ti);
             }
+            /* GNU variably-modified struct element: the element stride is
+             * the RUNTIME object size (the static size is only a 2-element
+             * placeholder), so scale the index by a computed size. */
+            const ZeroCCType *vla_et = NULL;
+            if (!mirror_form && elem_ti &&
+                (elem_ti->kind == TYPE_KIND_STRUCT || elem_ti->kind == TYPE_KIND_UNION) &&
+                elem_ti->details.record.is_vla_struct && elem_ti->details.record.tag) {
+                ZeroCCType *reg = zero_cc_find_struct(c, elem_ti->details.record.tag);
+                if (reg) vla_et = zc_find_vla_struct(reg);
+            }
+            if (vla_et && !vla_et->members && vla_et->struct_name[0]) {
+                ZeroCCType *reg = zero_cc_find_struct(c, vla_et->struct_name);
+                if (reg) vla_et = reg;
+            }
 
             ZeroCCSym *vla_2d_sym = NULL;
             {
@@ -1543,6 +1638,13 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 }
                 scaled_index = c->next_temp_id++;
                 ir_emit_mul(c, scaled_index, index_temp, stride_temp);
+            } else if (vla_et) {
+                int sz_temp = c->next_temp_id++;
+                ASTRef esz = zc_vla_struct_size_ast(arena, (ZeroCCASTArena *)c->tu_ast_arena, vla_et, vla_et->struct_name);
+                if (esz != AST_NULL) sz_temp = lower_expr(c, arena, esz);
+                else ir_emit_mov_imm(c, sz_temp, (int32_t)elem_size);
+                scaled_index = c->next_temp_id++;
+                ir_emit_mul(c, scaled_index, index_temp, sz_temp);
             } else if (elem_size == 1) {
                 scaled_index = index_temp;
             } else if (elem_size == 2 || elem_size == 4 || elem_size == 8) {
@@ -1803,6 +1905,33 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         ir_emit_mov_imm(c, off_temp, member_offset);
                         addr_temp = c->next_temp_id++;
                         ir_emit_add(c, addr_temp, ptr_temp, off_temp);
+                    }
+                    if (member_is_array || member_is_struct) {
+                        ir_emit_mov_reg(c, val_temp, addr_temp);
+                        c->last_expr_is_float = 0;
+                        return val_temp;
+                    } else if (member_is_float) {
+                        if (member_sz == 4) ir_emit_vloadss(c, (uint16_t)val_temp, (uint16_t)addr_temp);
+                        else ir_emit_vloadsd(c, (uint16_t)val_temp, (uint16_t)addr_temp);
+                        c->last_expr_is_float = 1;
+                        return val_temp;
+                    } else {
+                        ir_emit_deref(c, val_temp, addr_temp);
+                    }
+                } else if (sym && sym->is_vla_struct) {
+                    /* GNU VLA struct local/param: the frame slot holds the
+                     * runtime-allocated object POINTER (OP_VLA_ALLOC), so
+                     * member access must load the pointer and use
+                     * pointer-relative addressing (LEAing the slot would
+                     * clobber the saved pointer with member data). */
+                    int base_addr = c->next_temp_id++;
+                    ir_emit_load(c, base_addr, BE(c)->fp_reg, -sym->stack_offset);
+                    int addr_temp = base_addr;
+                    if (member_offset != 0) {
+                        int off_temp = c->next_temp_id++;
+                        ir_emit_mov_imm(c, off_temp, member_offset);
+                        addr_temp = c->next_temp_id++;
+                        ir_emit_add(c, addr_temp, base_addr, off_temp);
                     }
                     if (member_is_array || member_is_struct) {
                         ir_emit_mov_reg(c, val_temp, addr_temp);

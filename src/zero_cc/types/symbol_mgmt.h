@@ -124,11 +124,16 @@ static inline ZeroCCSym* zero_cc_add_local(ZeroCCCompiler *c, const char *name, 
     /* VLA local (any dimension of the array chain is VLA - e.g.
      * `int a[2][N]` has the flag on the inner chunk only): reserve
      * 24 bytes so the saved-SP slot (offset-8) and stride slot
-     * (offset-16) never collide with the previous local. */
+     * (offset-16) never collide with the previous local.  A struct/
+     * union with VLA members (GNU) needs the same shape: the slot
+     * holds the runtime-allocated object pointer. */
     {
         int vla_chain = 0;
         for (const ZeroCCType *tt = &type; tt && !vla_chain; tt = tt->base) {
+            if (tt->tag == TYPE_PTR) break;
             if (tt->tag == TYPE_ARRAY && tt->is_vla) vla_chain = 1;
+            else if ((tt->tag == TYPE_STRUCT || tt->tag == TYPE_UNION) && tt->is_vla_struct) vla_chain = 1;
+            else if (tt->tag != TYPE_ARRAY) break;
         }
         type.is_vla = vla_chain; /* normalize: flag the outer type too */
     }
@@ -139,6 +144,16 @@ static inline ZeroCCSym* zero_cc_add_local(ZeroCCCompiler *c, const char *name, 
     sym->is_param = false;
     sym->param_reg_idx = -1;
     sym->is_vla = type.is_vla;
+    {
+        const ZeroCCType *tt = &type;
+        sym->is_vla_struct = 0;
+        for (; tt; tt = tt->base) {
+            if (tt->tag == TYPE_PTR) break;
+            if (tt->tag == TYPE_ARRAY) { if (!tt->base) break; continue; }
+            if ((tt->tag == TYPE_STRUCT || tt->tag == TYPE_UNION) && tt->is_vla_struct) sym->is_vla_struct = 1;
+            break;
+        }
+    }
     sym->is_atomic = type.is_atomic;
     sym->is_const = type.is_const;
     sym->is_volatile = type.is_volatile;

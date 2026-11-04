@@ -79,6 +79,11 @@ struct TypeInfo {
             const char *tag;
             size_t      size;
             size_t      align;
+            /* True when the record has a VLA member (GNU extension);
+             * `size` is then the static placeholder layout and runtime
+             * sizeof / allocation re-lay it out with the real dimension
+             * (see zero_cc_type_to_typeinfo / zc_vla_struct_size_ast). */
+            bool        is_vla_struct;
             // For structs/unions: field info (optional, for member access)
             struct StructField {
                 const char *name;

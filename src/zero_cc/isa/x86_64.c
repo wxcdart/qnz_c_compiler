@@ -1998,6 +1998,8 @@ typedef struct {
 } ZeroCCTrampUnit;
 
 static int tramp_unit_gpr_slots(const ZeroCCType *t) {
+    if ((t->tag == TYPE_STRUCT || t->tag == TYPE_UNION) && t->is_vla_struct)
+        return 2; /* (hidden pointer, total size) GPR pair */
     if (t->size > 32) return 1; /* hidden pointer convention */
     size_t s = t->size ? t->size : 8;
     return (int)((s + 7) / 8);

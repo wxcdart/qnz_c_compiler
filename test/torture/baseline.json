@@ -1,6 +1,6 @@
 {
  "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
- "generated": "2026-11-04T07:21:40Z",
+ "generated": "2026-11-04T14:54:12Z",
  "tests": {
   "compile/103818.c": {
    "class": "PASS",
@@ -728,12 +728,12 @@
    "note": ""
   },
   "compile/20010605-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                      ^; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20010605-2.c": {
    "class": "PASS",
@@ -1525,12 +1525,12 @@
    "note": ""
   },
   "compile/20030224-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "         ^; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20030305-1.c": {
    "class": "EXPECTED-REJECT",
@@ -2601,12 +2601,12 @@
    "note": ""
   },
   "compile/20050801-2.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                ^; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20051207-1.c": {
    "class": "PASS",
@@ -3810,12 +3810,12 @@
    "note": ""
   },
   "compile/920428-4.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "<stdin>: error: '__anon_struct_0' has no member named 'i'; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/920428-5.c": {
    "class": "PASS",
@@ -3890,12 +3890,12 @@
    "note": ""
   },
   "compile/920501-16.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                 ^; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/920501-17.c": {
    "class": "PASS",
@@ -7788,8 +7788,11 @@
    "note": ""
   },
   "compile/nested-1.c": {
-   "class": "SKIP-TARGET:trampolines",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/nested-2.c": {
@@ -10762,12 +10765,12 @@
    "note": ""
   },
   "compile/pr39394.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                                   ^; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr39423-1.c": {
    "class": "PASS",
@@ -11418,12 +11421,12 @@
    "note": ""
   },
   "compile/pr42956.c": {
-   "class": "PASS",
+   "class": "SKIP-C89",
    "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
+    "O0-aot": "REJECT",
+    "O2-aot": "REJECT"
    },
-   "note": ""
+   "note": " | cfgs: O0-aot,O2-aot"
   },
   "compile/pr42998.c": {
    "class": "PASS",
@@ -13888,12 +13891,12 @@
    "note": ""
   },
   "compile/pr82564.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                ^; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr82816.c": {
    "class": "PASS",
@@ -18163,18 +18166,18 @@
    "note": ""
   },
   "execute/20020412-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                        ^; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20020413-1.c": {
    "class": "PASS",
@@ -19605,18 +19608,18 @@
    "note": ""
   },
   "execute/20040308-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                ^; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20040309-1.c": {
    "class": "PASS",
@@ -19798,7 +19801,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                  ^; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "         ^; Compile error: redefinition of 'struct c' with a different layout is not supported | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20040520-1.c": {
    "class": "PASS",
@@ -20235,18 +20238,18 @@
    "note": ""
   },
   "execute/20041218-2.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                          ^; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20050104-1.c": {
    "class": "PASS",
@@ -21077,7 +21080,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                          ^; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                               ^; Compile error: redefinition of 'struct S' with a different layout is not supported | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20071011-1.c": {
    "class": "PASS",
@@ -26593,18 +26596,18 @@
    "note": ""
   },
   "execute/align-nest.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                ^; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/alloca-1.c": {
    "class": "PASS",
@@ -34121,7 +34124,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                                               ^; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                                  ^; Compile error: expected ';' after return statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr42006.c": {
    "class": "PASS",
@@ -38233,7 +38236,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                   ^; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                          ^; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr82387.c": {
    "class": "PASS",
@@ -41195,17 +41198,16 @@
  "totals": {
   "EXPECTED-REJECT": 4,
   "NO-REF": 184,
-  "PASS": 3575,
+  "PASS": 3586,
   "REF-BUG": 3,
   "SKIP-BOGUS": 1,
-  "SKIP-C89": 100,
+  "SKIP-C89": 90,
   "SKIP-PTR": 1,
   "SKIP-REFSEM": 16,
   "SKIP-TARGET:arm": 1,
   "SKIP-TARGET:asm_named_reg": 1,
   "SKIP-TARGET:int128": 7,
   "SKIP-TARGET:named_sections": 3,
-  "SKIP-TARGET:trampolines": 1,
   "SKIP-TARGET:untyped_assembly": 40,
   "SKIP-TARGET:unwrapped": 2,
   "SKIP-UB": 1

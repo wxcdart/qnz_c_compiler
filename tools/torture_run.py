@@ -100,13 +100,12 @@ SKIP_OPTION_SUBSTR = ("-mfpmath=", "-ffast-math", "-finstrument-functions", "-fs
 
 # Trampoline stubs + pointer-routed closure capture are implemented
 # (Sprint 93), nonlocal goto / __label__ values across nested-function
-# scopes and K&R (old-style) definitions (Sprints 98-99), and gnu89
-# implicit function declarations (Sprint 99). The one remaining test in
-# this list is still blocked by an UNRELATED missing feature:
-#   VLA struct    - local struct with a VLA member
-TRAMPOLINES_BLOCKED = {
-    "compile/nested-1.c": "local struct with VLA member (char b[argc])",
-}
+# scopes and K&R (old-style) definitions (Sprints 98-99), gnu89 implicit
+# function declarations (Sprint 99), and GNU variably-modified struct
+# members (Sprint 100 - the last blocker for compile/nested-1.c, whose
+# nested function takes a by-value `struct { int a; char b[argc]; }`).
+# All 11 former `dg-require-effective-target trampolines` tests now run.
+TRAMPOLINES_BLOCKED = set()
 
 RE_DG_DO = re.compile(r"\{\s*dg-do\s+([a-z-]+)")
 RE_DG_REQ = re.compile(r"\{\s*dg-require-effective-target\s+([^}]*?)\s*\}")

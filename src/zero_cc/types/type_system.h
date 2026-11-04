@@ -52,6 +52,15 @@ typedef struct ZeroCCStructMember {
     bool is_long_double; /* C99 6.2.5: long double member (16B, value in low 8B) */
     bool is_func_ptr;  /* Member is `T (*name)(args)` - base holds the RETURN
                         * type; the TypeInfo field must be pointer→function. */
+    /* GNU variably-modified struct member (`char b[argc];` inside a
+     * block-scope struct): the array dimension is a runtime expression.
+     * Compile-time layout uses a 2-element placeholder (GCC's rule) so
+     * later members get stable static offsets; the RUNTIME object size
+     * re-lays the struct out with the real dimension (see
+     * zc_vla_struct_size_ast in parser/vla_struct.h). */
+    bool is_vla;
+    size_t vla_dim;          /* arena ASTRef of the dimension expr (0 = none) */
+    size_t vla_elem_size;    /* element size times the constant dims */
 } ZeroCCStructMember;
 
 typedef struct ZeroCCType {
@@ -74,6 +83,13 @@ typedef struct ZeroCCType {
     bool is_volatile;
     bool is_restrict;
     bool is_vla;
+    /* True for a struct/union that contains one or more VLA members
+     * (GNU extension). `size` is the STATIC placeholder layout (VLA
+     * members contribute 2 elements); the runtime object size is
+     * dim-dependent (zc_vla_struct_size_ast). Locals are allocated via
+     * OP_VLA_ALLOC, by-value parameters travel as (hidden pointer,
+     * total size) GPR pairs. */
+    bool is_vla_struct;
     bool is_func_ptr;
     /* C99 long double: 16-byte object (x86-64 SysV) but lowered with the
      * 64-bit double value model. */
@@ -159,6 +175,12 @@ typedef struct {
     bool is_param;
     int param_reg_idx;
     bool is_vla;
+    /* True when the object is a struct/union with VLA members (local or
+     * by-value parameter): the frame slot holds the OBJECT POINTER (the
+     * storage is runtime-allocated below RSP, or lives in the caller's
+     * frame for parameters), not an inline copy - address materialization
+     * loads the pointer instead of LEA-ing the slot. */
+    bool is_vla_struct;
     bool is_atomic;
     bool is_const;
     bool is_volatile;

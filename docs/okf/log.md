@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-04T07:27:35Z
+timestamp: 2026-11-04T14:55:01Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -804,3 +804,15 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-04 — Updated `abi-sysv-x86_64.md`
 - Sprint 99: effective param signature for indirect calls, no-prototype complex arg rule, mirror-form subscript, VLA param row stride
+
+## 2026-11-04 — Updated `c-torture-gate.md`
+- Sprint 100: VLA struct members unblocked nested-1 (last trampolines holdout) + 9 more; PASS 3586, baseline ratcheted
+
+## 2026-11-04 — Updated `frontend-and-types.md`
+- Sprint 100: GNU variably-modified struct/union members (type system, definition-time capture, tag-collision diagnostics)
+
+## 2026-11-04 — Updated `abi-sysv-x86_64.md`
+- Sprint 100: VLA struct by-value ABI (2 GPR units: pointer + runtime size)
+
+## 2026-11-04 — Updated `architecture-pipeline.md`
+- Sprint 100: all 11 trampolines-cluster c-torture tests now run (nested-1 PASS)

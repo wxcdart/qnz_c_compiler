@@ -41,6 +41,8 @@ static inline bool zero_cc_tramp_unit_is_fp(const ZeroCCType *t) {
 /* Number of 8-byte ABI units this type occupies in the argument stream. */
 static inline int zero_cc_tramp_unit_slots(const ZeroCCType *t) {
     if (zero_cc_tramp_unit_is_fp(t)) return t->is_complex ? 2 : 1;
+    if ((t->tag == TYPE_STRUCT || t->tag == TYPE_UNION) && t->is_vla_struct)
+        return 2; /* (hidden pointer, total size) GPR pair */
     if ((t->tag == TYPE_STRUCT || t->tag == TYPE_UNION) &&
         !(t->tag == TYPE_USER_0 && zero_cc_type_is_vector(t)) &&
         t->size > 16)

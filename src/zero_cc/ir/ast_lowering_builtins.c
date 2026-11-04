@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "zero_cc/ir/ast_lowering_internal.h"
+#include "zero_cc/parser/vla_struct.h"
 #include "zero_cc/isa/isa_backend.h"
 #include "zero_cc/semantic/diagnostics.h"
 
@@ -648,6 +649,72 @@ int lower_expr_va_arg(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
          * overflow pointer (+32). Values are read through the stream
          * pointer (frame-independent dereference). */
         TypeInfo *t_t = ast_node_get_typeinfo(c, node);
+
+        /* GNU variably-modified struct: passed as two consecutive GP
+         * units - the object pointer, then the total runtime size.
+         * Read both (with the stream-exhaustion overflow path) and
+         * return the pointer; the enclosing assignment copies the
+         * runtime number of bytes (zero_cc_emit_vla_struct_copy). */
+        if (t_t && (t_t->kind == TYPE_KIND_STRUCT || t_t->kind == TYPE_KIND_UNION) &&
+            t_t->details.record.is_vla_struct && t_t->details.record.tag) {
+            ZeroCCType *reg_v = zero_cc_find_struct(c, t_t->details.record.tag);
+            if (reg_v && zc_find_vla_struct(reg_v)) {
+                int ap_addr = zero_cc_lower_lvalue_addr(c, arena, node->left);
+                int result_v = c->next_temp_id++;
+                if (ap_addr != TEMP_NONE) {
+                    for (int unit = 0; unit < 2; unit++) {
+                        int off_pf = c->next_temp_id++;
+                        ir_emit_mov_imm(c, off_pf, 0);
+                        int addr_ptr_field = c->next_temp_id++;
+                        ir_emit_add(c, addr_ptr_field, ap_addr, off_pf);
+                        int off_ef = c->next_temp_id++;
+                        ir_emit_mov_imm(c, off_ef, 8);
+                        int addr_end_field = c->next_temp_id++;
+                        ir_emit_add(c, addr_end_field, ap_addr, off_ef);
+                        int off_ovf = c->next_temp_id++;
+                        ir_emit_mov_imm(c, off_ovf, 32);
+                        int addr_ovf_field = c->next_temp_id++;
+                        ir_emit_add(c, addr_ovf_field, ap_addr, off_ovf);
+                        int hp = c->next_temp_id++;
+                        ir_emit_deref(c, hp, addr_ptr_field);
+                        int he = c->next_temp_id++;
+                        ir_emit_deref(c, he, addr_end_field);
+                        int hd = c->next_temp_id++;
+                        ir_emit_sub(c, hd, hp, he);
+                        uint16_t ov_lbl = c->ir_next_label++;
+                        uint16_t ok_lbl = c->ir_next_label++;
+                        ir_emit_je(c, (uint16_t)hd, ov_lbl);
+                        int val = (unit == 0) ? result_v : c->next_temp_id++;
+                        ir_emit_deref(c, val, hp);
+                        int hn8 = c->next_temp_id++;
+                        ir_emit_mov_imm(c, hn8, -8);
+                        int hp2 = c->next_temp_id++;
+                        ir_emit_add(c, hp2, hp, hn8);
+                        ir_emit_store_64(c, hp2, addr_ptr_field);
+                        ir_emit_jmp(c, ok_lbl);
+                        ir_emit_label(c, ov_lbl);
+                        int ho = c->next_temp_id++;
+                        ir_emit_deref(c, ho, addr_ovf_field);
+                        if (unit == 0) {
+                            ir_emit_deref(c, result_v, ho);
+                        } else {
+                            int sv = c->next_temp_id++;
+                            ir_emit_deref(c, sv, ho);
+                            (void)sv;
+                        }
+                        int ho8 = c->next_temp_id++;
+                        ir_emit_mov_imm(c, ho8, 8);
+                        int ho2 = c->next_temp_id++;
+                        ir_emit_add(c, ho2, ho, ho8);
+                        ir_emit_store_64(c, ho2, addr_ovf_field);
+                        ir_emit_label(c, ok_lbl);
+                    }
+                }
+                c->last_expr_is_float = 0;
+                return result_v;
+            }
+        }
+
         bool is_fp = t_t && (t_t->kind == TYPE_KIND_FLOAT || t_t->kind == TYPE_KIND_DOUBLE);
         bool use_fp_stream = is_fp && !(c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32);
 

@@ -1189,6 +1189,80 @@ static inline int64_t zero_cc_eval_const_expr(ZeroCCCompiler *c)
     return result.i;
 }
 
+/* Probe whether the array dimension starting at token index `start` (up
+ * to the matching ']') is a constant expression.  Used to split plain
+ * arrays/typedefs from VLA forms: an identifier that is not an enum
+ * constant / const global / true / false / NULL makes the dimension
+ * runtime - except the constant-constructing operators (sizeof,
+ * __alignof__, offsetof, ...), whose operands (types or expressions)
+ * are constant by definition and are skipped.  A false "VLA" verdict on
+ * a constant is harmless for typedefs (the size expression evaluates to
+ * the same value at runtime) but changes layout for struct members, so
+ * keep the sizeof/alignof/offsetof special-casing. */
+static inline bool zc_typedef_dim_is_const(ZeroCCCompiler *c, size_t start) {
+    size_t p = start;
+    int pd = 0;
+    while (p < c->token_count) {
+        ZeroCCTokType t = c->tokens[p].type;
+        if (t == TK_LPAREN) {
+            pd++;
+        } else if (t == TK_RPAREN) {
+            if (pd == 0) break;
+            pd--;
+        } else if (t == TK_RBRACKET && pd == 0) {
+            break;
+        } else if (t == TK_SIZEOF) {
+            /* sizeof operand is constant by definition - skip a balanced
+             * paren group or a bare type name. */
+            p++;
+            if (p < c->token_count && c->tokens[p].type == TK_LPAREN) {
+                int d2 = 0;
+                do {
+                    if (c->tokens[p].type == TK_LPAREN) d2++;
+                    else if (c->tokens[p].type == TK_RPAREN) d2--;
+                    p++;
+                } while (p < c->token_count && d2 > 0);
+                continue;
+            }
+            if (p < c->token_count && c->tokens[p].type == TK_IDENT) p++;
+            continue;
+        } else if (t == TK_IDENT) {
+            const char *nm = c->tokens[p].str_val;
+            /* Constant-constructing operator: skip its operand (balanced
+             * parens, or a bare type name) - the result is a constant. */
+            bool is_cst_op = (strcmp(nm, "sizeof") == 0 ||
+                              strcmp(nm, "__alignof__") == 0 ||
+                              strcmp(nm, "__alignof") == 0 ||
+                              strcmp(nm, "offsetof") == 0 ||
+                              strcmp(nm, "__builtin_offsetof") == 0);
+            if (is_cst_op) {
+                p++;
+                if (p < c->token_count && c->tokens[p].type == TK_LPAREN) {
+                    int d2 = 0;
+                    do {
+                        if (c->tokens[p].type == TK_LPAREN) d2++;
+                        else if (c->tokens[p].type == TK_RPAREN) d2--;
+                        p++;
+                    } while (p < c->token_count && d2 > 0);
+                    continue;
+                }
+                if (p < c->token_count && c->tokens[p].type == TK_IDENT) { p++; continue; }
+                continue;
+            }
+            bool known = (strcmp(nm, "true") == 0 || strcmp(nm, "false") == 0 ||
+                          strcmp(nm, "NULL") == 0 || strcmp(nm, "nullptr") == 0 ||
+                          strcmp(nm, "__alignof__") == 0 ||
+                          zero_cc_find_enum_const(c, nm) != NULL ||
+                          zc_const_global_scalar(c, nm, NULL, NULL, NULL));
+            bool call_like = (p + 1 < c->token_count &&
+                              c->tokens[p + 1].type == TK_LPAREN);
+            if (!known || call_like) return false;
+        }
+        p++;
+    }
+    return true;
+}
+
 #include "zero_cc/parser/type_parser.h"
 
 #endif /* ZERO_CC_PARSER_CONST_EVAL_H */

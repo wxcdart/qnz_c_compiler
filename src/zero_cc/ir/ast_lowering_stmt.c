@@ -13,6 +13,7 @@
 
 #include "zero_cc/types/types.h"
 #include "zero_cc/parser/parser.h"
+#include "zero_cc/parser/vla_struct.h"
 #include "zero_cc/ir/ir_emitter.h"
 #include "zero_cc/ir/ir_emit_ops.h"
 #include "zero_cc/ir/machine_emitter.h"
@@ -64,6 +65,61 @@ void lower_stmt_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
 
 void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
     if (!node) return;
+    /* GNU variably-modified struct definition: capture the member
+     * dimensions NOW - GCC evaluates the dimension expressions when the
+     * definition executes, and every later use (runtime sizeof, object
+     * allocation, by-value argument size word) reads the captured value
+     * (c-torture execute/20041218-2: `n++; sizeof(struct s)` uses the
+     * pre-increment dimension). Runs before any size computation in this
+     * declaration (VLA local alloc, array-of-VLA-struct alloc). */
+    if ((node->flags & NODE_DECL_VLA_STRUCT_DEF)) {
+        /* Resolve the defined struct's tag: the declaration's type
+         * (through a constant-array chain for `struct s {...} arr[N];`),
+         * falling back to s.str (synthetic definition node). */
+        const char *def_tag = node->s.str;
+        TypeInfo *def_ti = ast_node_get_typeinfo(c, node);
+        if (def_ti) {
+            if (def_ti->kind == TYPE_KIND_STRUCT || def_ti->kind == TYPE_KIND_UNION) {
+                if (def_ti->details.record.tag) def_tag = def_ti->details.record.tag;
+            } else if (type_is_array(def_ti) && def_ti->details.array.base &&
+                       (def_ti->details.array.base->kind == TYPE_KIND_STRUCT ||
+                        def_ti->details.array.base->kind == TYPE_KIND_UNION)) {
+                if (def_ti->details.array.base->details.record.tag)
+                    def_tag = def_ti->details.array.base->details.record.tag;
+            }
+        }
+        if (!def_tag[0]) return;
+        ZeroCCType *dreg = zero_cc_find_struct(c, def_tag);
+        if (dreg && dreg->is_vla_struct && dreg->members &&
+            c->lowering.vla_struct_capture_count < 8) {
+            int ndim = 0;
+            for (size_t mi = 0; mi < dreg->member_count; mi++)
+                if (dreg->members[mi].is_vla && dreg->members[mi].vla_dim) ndim++;
+            if (ndim > 0) {
+                struct ZeroCCVlaStructCapture *cap =
+                    &c->lowering.vla_struct_captures[c->lowering.vla_struct_capture_count];
+                snprintf(cap->tag, sizeof(cap->tag), "%s", def_tag);
+                cap->count = 0;
+                for (size_t mi = 0; mi < dreg->member_count; mi++) {
+                    ZeroCCStructMember *m = &dreg->members[mi];
+                    if (!m->is_vla || !m->vla_dim) continue;
+                    c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                    c->current_stack_frame += 8;
+                    cap->slots[cap->count] = (int32_t)c->current_stack_frame;
+                    cap->count++;
+                    ASTRef dim = zero_cc_ast_clone((ZeroCCASTArena *)c->tu_ast_arena,
+                                                   (ASTRef)m->vla_dim, arena);
+                    int dv = (dim != AST_NULL) ? lower_expr(c, arena, dim) : TEMP_NONE;
+                    if (dv == TEMP_NONE) {
+                        dv = c->next_temp_id++;
+                        ir_emit_mov_imm(c, dv, (int32_t)m->vla_elem_size);
+                    }
+                    ir_emit_store(c, dv, BE(c)->fp_reg, -cap->slots[cap->count - 1]);
+                }
+                if (cap->count > 0) c->lowering.vla_struct_capture_count++;
+            }
+        }
+    }
     if (node->flags & NODE_DECL_IS_VLA) {
         c->lowering.vla.has_runtime_vla = true;
         c->lowering.vla.vla_count++;
@@ -90,7 +146,19 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
 
             /* 2. Multiply count by element/row size (handling runtime inner VLA dims) */
             int size_temp;
-            if (sym->type.base && sym->type.base->tag == TYPE_ARRAY && sym->type.base->is_vla) {
+            if (zc_find_vla_struct(&sym->type) != NULL) {
+                /* Array of a struct with VLA members: the element size is
+                 * runtime (re-laid out with the real dimension). */
+                const ZeroCCType *es = zc_find_vla_struct(&sym->type);
+                if (es && !es->members && es->struct_name[0]) {
+                    ZeroCCType *reg = zero_cc_find_struct(c, es->struct_name);
+                    if (reg) es = reg;
+                }
+                ASTRef sz_ast = zc_vla_struct_size_ast(arena, (ZeroCCASTArena *)c->tu_ast_arena, es, es->struct_name);
+                int elem_temp = (sz_ast != AST_NULL) ? lower_expr(c, arena, sz_ast) : count_temp;
+                size_temp = c->next_temp_id++;
+                ir_emit_mul(c, size_temp, count_temp, elem_temp);
+            } else if (sym->type.base && sym->type.base->tag == TYPE_ARRAY && sym->type.base->is_vla) {
                 const ZeroCCType *leaf = sym->type.base;
                 while (leaf && leaf->tag == TYPE_ARRAY && leaf->is_vla) {
                     leaf = leaf->base;
@@ -162,6 +230,84 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
             int addr_temp = c->next_temp_id++;
             ir_emit_lea_label(c, (uint16_t)addr_temp, lbl);
             ir_emit_store(c, addr_temp, BE(c)->fp_reg, -lsym->stack_offset);
+            c->last_expr_is_float = 0;
+            return;
+        }
+    }
+    /* GNU: a local of struct/union type with VLA members (no array VLA
+     * dimension on the object itself - that is the NODE_DECL_IS_VLA path
+     * above): runtime-sized object, allocated like a VLA local. */
+    {
+        ZeroCCSym *vls = lowering_local_sym(c, node, node->s.str);
+        if (vls && zc_type_is_vla_struct_obj(&vls->type)) {
+            if (node->left != AST_NULL) {
+                diag_report_error_at_token(c,
+                    "variable-sized object may not be initialized except with an empty initializer");
+                return;
+            }
+            c->lowering.vla.has_runtime_vla = true;
+            c->lowering.vla.vla_count++;
+
+            /* Invalidate saved-SP watermarks of any lexically-later VLAs.
+             * (Same pattern as the NODE_DECL_IS_VLA block above.) */
+            size_t self_idx = (size_t)(vls - c->locals);
+            int zero_sp = TEMP_NONE;
+            for (size_t li = self_idx + 1; li < c->local_count; li++) {
+                if (c->locals[li].is_vla && c->locals[li].stack_offset >= 16) {
+                    if (zero_sp == TEMP_NONE) {
+                        zero_sp = c->next_temp_id++;
+                        ir_emit_mov_imm(c, zero_sp, 0);
+                    }
+                    ir_emit_store(c, zero_sp, BE(c)->fp_reg, -(c->locals[li].stack_offset - 8));
+                }
+            }
+
+            /* Runtime size slot (C99 6.7.6.2 / sizeof at runtime). */
+            c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+            c->current_stack_frame += 8;
+            vls->vla_slot_off = (int32_t)c->current_stack_frame;
+
+            const ZeroCCType *vs = zc_find_vla_struct(&vls->type);
+            if (vs && !vs->members && vs->struct_name[0]) {
+                ZeroCCType *reg = zero_cc_find_struct(c, vs->struct_name);
+                if (reg) vs = reg; /* TypeInfo round-trip drops the member table */
+            }
+            ASTRef sz_ast = zc_vla_struct_size_ast(arena, (ZeroCCASTArena *)c->tu_ast_arena, vs, vs->struct_name);
+            int size_temp = (sz_ast != AST_NULL) ? lower_expr(c, arena, sz_ast) : -1;
+            if (size_temp < 0) {
+                size_temp = c->next_temp_id++;
+                ir_emit_mov_imm(c, size_temp, (int32_t)vs->size);
+            }
+            /* Constant array of VLA structs: multiply by the element count. */
+            if (vls->type.tag == TYPE_ARRAY && vls->type.base && vls->type.base->size > 0) {
+                size_t cnt = vls->type.size / vls->type.base->size;
+                if (cnt > 1) {
+                    int k = c->next_temp_id++;
+                    ir_emit_mov_imm(c, k, (int32_t)cnt);
+                    int t2 = c->next_temp_id++;
+                    ir_emit_mul(c, t2, size_temp, k);
+                    size_temp = t2;
+                }
+            }
+
+            ir_emit_store(c, size_temp, BE(c)->fp_reg, -vls->vla_slot_off);
+
+            /* Align size to 16 bytes: (size + 15) & ~15 */
+            int add15 = c->next_temp_id++;
+            ir_emit_mov_imm(c, add15, 15);
+            int size_p15 = c->next_temp_id++;
+            ir_emit_add(c, size_p15, size_temp, add15);
+            int mask16 = c->next_temp_id++;
+            ir_emit_mov_imm(c, mask16, -16);
+            int aligned_size = c->next_temp_id++;
+            ir_emit_and(c, aligned_size, size_p15, mask16);
+
+            int vla_ptr = c->next_temp_id++;
+            ir_emit(c, (Instr){.op = OP_VLA_ALLOC, .temp_dest = (uint16_t)vla_ptr,
+                               .temp_src1 = (uint16_t)aligned_size, .temp_src2 = TEMP_NONE,
+                               .imm = -(vls->stack_offset - 8), .label_idx = 0});
+
+            ir_emit_store(c, vla_ptr, BE(c)->fp_reg, -vls->stack_offset);
             c->last_expr_is_float = 0;
             return;
         }
