@@ -197,6 +197,32 @@ TypeInfo *sem_analyze_ref(SemContext *ctx, ASTRef ref) {
     return sem_analyze_node(ctx, n);
 }
 
+bool sem_implicit_fn_decl(SemContext *ctx, uint32_t line, uint32_t col, const char *name) {
+    if (!ctx || !ctx->diags || !ctx->current_scope || !name || !*name) return false;
+    /* Reserved names (builtins, intrinsics) keep the undeclared error -
+     * their special handling lives in the identifier pass. */
+    if (name[0] == '_') return false;
+    if (scope_lookup(ctx->current_scope, name)) return false;
+    /* Did-you-mean against the visible scope BEFORE inserting the implicit
+     * symbol (otherwise the name matches itself at distance 0). */
+    const char *names[1024];
+    size_t n = scope_chain_names(ctx->current_scope, names, 1024);
+    const char *sugg = diag_best_match(name, strlen(name), names, n);
+    TypeInfo *fn_t = type_function(ctx->perm_arena, type_int(ctx->perm_arena), NULL, 0, false);
+    Symbol *imp = scope_put_symbol(ctx->current_scope, name, SYMBOL_FUNC, fn_t);
+    if (!imp) return false;
+    imp->node = NULL;
+    if (sugg) {
+        diag_report_warning(ctx->diags, line, col, NULL,
+                            "implicit declaration of function '%s' (gnu89); did you mean '%s'?",
+                            name, sugg);
+    } else {
+        diag_report_warning(ctx->diags, line, col, NULL,
+                            "implicit declaration of function '%s' (gnu89)", name);
+    }
+    return true;
+}
+
 void sem_walk_node(SemContext *ctx, ZeroCCASTNode *node) {
     (void)sem_analyze_node(ctx, node);
 }
@@ -472,7 +498,7 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
         }
         case NODE_INDEX: {
             TypeInfo *arr_t = sem_analyze_ref(ctx, node->left);
-            (void)sem_analyze_ref(ctx, node->right);
+            TypeInfo *idx_t = sem_analyze_ref(ctx, node->right);
             if (arr_t) {
                 if (type_is_pointer(arr_t)) {
                     res = arr_t->details.pointer.base;
@@ -483,9 +509,33 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
                     res = arr_t->details.array.base;
                 }
             }
+            if (!res && idx_t) {
+                /* Mirror form `int[(ptr)]` (C a[b] == *(a+b) == b[a]):
+                 * the pointer operand is the index, so the element type
+                 * comes from ITS pointee (c-torture pr22061-1:
+                 * `N[(char *) x]` - without this the node is left
+                 * untyped and lowering scales the pointer by the int
+                 * base's sizeof, producing a wild address). */
+                if (type_is_pointer(idx_t)) {
+                    res = idx_t->details.pointer.base;
+                } else if (type_is_array(idx_t)) {
+                    res = idx_t->details.array.base;
+                }
+            }
             break;
         }
         case NODE_CALL: {
+            /* gnu89 implicit function declaration (see sem_implicit_fn_decl):
+             * a call through an undeclared identifier gets an implicit
+             * `int name(...)` declaration at the call site. Must run
+             * before the callee is analyzed or the identifier handler
+             * rejects it as undeclared. */
+            {
+                ZeroCCASTNode *cn = sem_get_node(ctx, node->left);
+                if (cn && cn->tag == NODE_IDENT && cn->s.str) {
+                    (void)sem_implicit_fn_decl(ctx, cn->line, cn->col, cn->s.str);
+                }
+            }
             TypeInfo *fn_t = sem_analyze_ref(ctx, node->left);
             size_t arg_count = 0;
             TypeInfo *first_arg_t = NULL;

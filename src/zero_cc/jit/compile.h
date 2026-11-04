@@ -426,6 +426,55 @@ if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
                 }
             }
             /* fall through to the comma/stuck-token handling below */
+        } else if (c->token_pos + 1 < c->token_count &&
+                   c->tokens[c->token_pos].type == TK_LPAREN &&
+                   c->tokens[c->token_pos + 1].type == TK_LPAREN) {
+            /* Function-pointer parameter wrapped in an extra paren layer:
+             * `ret_type ((*name) (params...))` (K&R idiom, c-torture
+             * execute/921215-1: `void p(void ((*f) (void ())))`). The
+             * single-level `(*name)(...)` branch above cannot see the `*`
+             * (it is nested one paren deeper), so scan the balanced paren
+             * group for the star and name. */
+            int depth = 0;
+            size_t close = c->token_count;
+            size_t scan_name_pos = c->token_count;
+            int stars = 0;
+            const char *fp_name = "";
+            for (size_t scan = c->token_pos; scan < c->token_count; scan++) {
+                if (c->tokens[scan].type == TK_LPAREN) depth++;
+                else if (c->tokens[scan].type == TK_RPAREN) {
+                    depth--;
+                    if (depth == 0) { close = scan; break; }
+                } else if (c->tokens[scan].type == TK_STAR) stars++;
+                else if (c->tokens[scan].type == TK_IDENT && fp_name[0] == '\0') {
+                    const char *s = c->tokens[scan].str_val;
+                    if (strcmp(s, "const") != 0 && strcmp(s, "volatile") != 0 &&
+                        strcmp(s, "restrict") != 0 && strcmp(s, "_Atomic") != 0) {
+                        fp_name = s;
+                        scan_name_pos = scan;
+                    }
+                }
+            }
+            if (stars > 0 && fp_name[0] != '\0' && close < c->token_count) {
+                /* A `(` after the name inside the group is a function
+                 * suffix: `((*f) (void ()))` -> pointer to function;
+                 * `((*g))` -> a plain (double-parenthesized) pointer. */
+                bool is_fn_suffix = false;
+                for (size_t a2 = scan_name_pos + 1; a2 < close; a2++) {
+                    if (c->tokens[a2].type == TK_LPAREN) { is_fn_suffix = true; break; }
+                }
+                zero_cc_ensure_param_cap(ctx, param_types, param_names, param_cap, *param_count + 1);
+                (*param_names)[*param_count] = zero_cc_intern_string(c, fp_name);
+                ZeroCCType fpt = zero_cc_type_ptr(&pt);
+                fpt.is_func_ptr = is_fn_suffix;
+                (*param_types)[*param_count] = fpt;
+                if (fp_name[0] != '\0' && *param_count < ZERO_CC_MAX_PARAMS) {
+                    zero_cc_add_local(c, (*param_names)[*param_count], fpt);
+                }
+                (*param_count)++;
+                fn_ptr_param_done = true;
+                c->token_pos = close + 1;
+            }
         }
         /* `(void)` is an empty parameter list (C99 6.7.6.3p2): it
          * makes the declaration a prototype but adds no parameter. */
@@ -1120,6 +1169,10 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         if (c->function_count >= ZERO_CC_MAX_FUNCTIONS) return;
         ZeroCCFunction *fn = &c->functions[c->function_count++];
         memset(fn, 0, sizeof(*fn));
+        /* Sprint 99: top-level functions terminate the nested-enclosing
+         * chain; the zero-init default (0) would make ancestor walks
+         * (following nested_enclosing_fn_idx) loop on index 0 forever. */
+        fn->nested_enclosing_fn_idx = (size_t)-1;
         snprintf(fn->name, sizeof(fn->name), "%s", fn_name);
         /* Record text_offset BEFORE emitting any prologue bytes for this function */
         fn->text_offset = c->text_section.length;
@@ -1294,7 +1347,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         TypeInfo *fn_ret_ti = zero_cc_type_to_typeinfo(perm, fn_ret_type);
         ctx->current_fn_ret_type = fn_ret_ti;
 
-        size_t err_count_before = ctx->diags ? ctx->diags->count : 0;
+        size_t err_count_before = ctx->diags ? diag_error_count(ctx->diags) : 0;
         /* Pre-collect user labels so goto targets validate in one pass
          * (a label may textually follow its goto). */
         sem_collect_labels(ctx, body);
@@ -1308,7 +1361,11 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             }
         }
         (void)sem_analyze_ref(ctx, body);
-        bool sem_ok = (!ctx->diags || ctx->diags->count == err_count_before);
+        /* Only ERRORS fail the semantic pass: warnings (e.g. the gnu89
+         * implicit-function-declaration warning) are advisory and must not
+         * abort lowering of the function. */
+        bool sem_ok = (!ctx->diags ||
+                       diag_error_count(ctx->diags) == err_count_before);
 
         if (sem_ok) {
             /* Reset register allocator for this function */
@@ -1551,6 +1608,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                         for (int li = 0; li < af->nl_label_count && al < 64; li++) {
                             ctx->ancestor_labels[al++] = af->nl_labels[li];
                         }
+                        if (!af->is_nested) break;
                         ai = af->nested_enclosing_fn_idx;
                     }
                     ctx->ancestor_label_count = al;

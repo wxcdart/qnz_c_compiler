@@ -393,7 +393,28 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
 
         /* Control Flow */
         case OP_LABEL:
-            if (BE(c)->emit_label_asm) {
+            /* Sprint 99: a nonlocal-goto landing point in a frame-pointer-
+             * omitted function re-establishes the entry-time FP register;
+             * the label must point AT the restore (record first, emit
+             * second). MC counterpart in ast_lowering_mc.c. */
+            bool nl_landing = false;
+            if (c->lowering.omit_frame_pointer && c->lowering.fp_snap_off > 0 &&
+                BE(c)->emit_load_asm) {
+                const ZeroCCFunction *lf = &c->functions[func_idx];
+                for (int li = 0; li < lf->nl_label_count; li++) {
+                    if (lf->nl_label_ir[li] == (uint16_t)instr->label_idx) {
+                        nl_landing = true;
+                        break;
+                    }
+                }
+            }
+            if (nl_landing && BE(c)->emit_label_asm) {
+                char lbl_buf[64];
+                snprintf(lbl_buf, sizeof(lbl_buf), ".L%zu_%u", func_idx, (unsigned)instr->label_idx);
+                BE(c)->emit_label_asm(c, lbl_buf, out);
+                BE(c)->emit_load_asm(c, BE(c)->fp_reg, zero_cc_frame_base_reg(c),
+                                     zero_cc_frame_disp(c, -c->lowering.fp_snap_off), out);
+            } else if (BE(c)->emit_label_asm) {
                 char lbl_buf[64];
                 snprintf(lbl_buf, sizeof(lbl_buf), ".L%zu_%u", func_idx, (unsigned)instr->label_idx);
                 BE(c)->emit_label_asm(c, lbl_buf, out);

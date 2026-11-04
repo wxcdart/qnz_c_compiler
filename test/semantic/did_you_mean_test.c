@@ -80,10 +80,14 @@ int main(void) {
         "int counter = 3;\nint main(void) { return countr; }\n",
         WANT_ERROR, "did you mean 'counter'");
 
-    /* 2. Typo of a function name (functions are scope symbols too) */
+    /* 2. Typo of a function name in a CALL: gnu89 implicit declaration
+     * accepts it with a warning (matching GCC's
+     * -Wimplicit-function-declaration, which also carries the
+     * did-you-mean); a non-call typo of a function name still errors.
+     * Use a non-call context here to keep the error assertion. */
     fails += run_case(
         "int add(int a, int b) { return a + b; }\n"
-        "int main(void) { return addd(1, 2); }\n",
+        "int main(void) { int (*p)() = addd; return 0; }\n",
         WANT_ERROR, "did you mean 'add'");
 
     /* 3. Unknown struct member, close field exists */

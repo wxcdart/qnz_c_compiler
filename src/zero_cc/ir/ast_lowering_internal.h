@@ -492,8 +492,10 @@ static inline int zc_lower_fn_value(ZeroCCCompiler *c, const ZeroCCFunction *fn)
         ZeroCCFunction *cur_fn3 = &c->functions[c->lowering.current_func_idx];
         int my_depth = 0;
         for (size_t ai = cur_fn3->nested_enclosing_fn_idx;
-             ai != (size_t)-1; ai = c->functions[ai].nested_enclosing_fn_idx) {
+             ai != (size_t)-1; ) {
             my_depth++;
+            if (!c->functions[ai].is_nested) break;
+            ai = c->functions[ai].nested_enclosing_fn_idx;
         }
         for (int pi = 0; pi < fn->goto_pair_count; pi++) {
             int base_off = (int)(32 * fn->nested_captured_count + 16 * pi);
@@ -520,10 +522,12 @@ static inline int zc_lower_fn_value(ZeroCCCompiler *c, const ZeroCCFunction *fn)
                         ir_emit_lea(c, val, BE(c)->fp_reg, 0);
                     } else {
                         if (c->lowering.sp_snap_off > 0) {
-                            ir_emit_load(c, val, BE(c)->fp_reg, c->lowering.sp_snap_off);
+                            /* additive displacement; slot at -sp_snap_off */
+                            ir_emit_load(c, val, BE(c)->fp_reg,
+                                         -(int)c->lowering.sp_snap_off);
                         } else {
                             ir_emit_lea(c, val, BE(c)->fp_reg,
-                                        (int)c->current_stack_frame);
+                                        -(int)c->current_stack_frame);
                         }
                     }
                 }

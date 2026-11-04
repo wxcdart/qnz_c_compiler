@@ -1319,6 +1319,20 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
             ident[il] = '\0';
             const char *ident_at = p - il; /* source position of the ident */
 
+            /* C99 6.4.2.1: an alphanumeric run immediately preceded by a
+             * digit or underscore is the suffix of a PP-number, not an
+             * identifier (the `F` in `0.0F`, the hex digit in `0x1F`, the
+             * `u` in `1u`).  A PP-number is one preprocessing token, so
+             * macro expansion must not apply to its letters - `#define F
+             * 140` must not rewrite `0.0F` into `0.0140` (which would
+             * silently re-scale every float literal, c-torture
+             * execute/cmpsf-1: `#define F 140` + `float args[] = {0.0F}`). */
+            if (ident_at > src &&
+                (isdigit((unsigned char)ident_at[-1]) || ident_at[-1] == '_')) {
+                zero_cc_buf_puts(out, ident);
+                continue;
+            }
+
             /* Wide/UTF string literal prefixes: `L'X'`, `L"s"`, `u"s"`,
              * `U"s"`, `u8"s"` are single lexical units - the prefix is NOT
              * an identifier, so a `#define L 264` must not rewrite `L'X'`

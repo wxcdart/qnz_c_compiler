@@ -79,6 +79,14 @@ typedef struct {
                                           pass the enclosing scope's final SP (mode-agnostic:
                                           OFP / red-zone / realign all just read the stored
                                           value). 0 = unused. */
+    int32_t fp_snap_off;               /* Sprint 99: frame slot holding a snapshot of the
+                                          entry-time frame pointer (rbp/x29/s0), taken in the
+                                          prologue while it still holds the caller's value
+                                          (OFP prologues never touch it). A frame-pointer-
+                                          omitted function that is a nonlocal-goto target
+                                          re-establishes this value at each landing point, so
+                                          the ABI-visible FP register is preserved across the
+                                          foreign jump. 0 = unused. */
     int static_local_rt_off;           /* Frame slot (positive, fp-relative) that
                                           protects VREG_0 across the epilogue
                                           static-local mirror-out; 0 = unused */

@@ -422,6 +422,14 @@ TypeInfo *expr_handle_call(SemContext *ctx, ZeroCCASTNode *node) {
         return NULL;
     }
 
+    /* gnu89 implicit function declaration (see sem_implicit_fn_decl):
+     * a call through an undeclared identifier gets an implicit
+     * `int name(...)` declaration at the call site, with a warning -
+     * matching GCC's default (-Wimplicit-function-declaration). */
+    if (callee->tag == NODE_IDENT && callee->s.str) {
+        (void)sem_implicit_fn_decl(ctx, callee->line, callee->col, callee->s.str);
+    }
+
     TypeInfo *callee_t = expr_handle_expression(ctx, callee);
     if (!callee_t) {
         return NULL;

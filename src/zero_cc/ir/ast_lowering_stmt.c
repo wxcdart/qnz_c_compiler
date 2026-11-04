@@ -1447,6 +1447,10 @@ void lower_stmt_goto(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
     if (node->left != AST_NULL) {
         /* Computed goto: goto *expr; */
         int target_temp = lower_expr(c, arena, node->left);
+        /* Computed goto in a nested function with nonlocal-goto pairs:
+         * only targets in THIS function's frame are supported (plain
+         * indirect jump, no frame restore) - matching GCC, which does not
+         * support computed gotos to ancestor frames. */
         ir_emit_jmp_ind(c, target_temp);
         return;
     }
@@ -1466,15 +1470,27 @@ void lower_stmt_goto(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
             if (cur->nl_labels[li] && strcmp(cur->nl_labels[li], nm) == 0) own = true;
         }
         if (!own) {
-            int depth = 0; /* 0 = outermost ancestor */
+            /* Walk the ancestor chain: chain[0] = direct parent (innermost
+             * ancestor), chain[chain_n-1] = outermost. Pair index i (0 =
+             * outermost) therefore belongs to chain position
+             * chain_n - 1 - i. */
+            size_t chain[64];
+            int chain_n = 0;
             for (size_t ai = cur->nested_enclosing_fn_idx;
-                 ai != (size_t)-1; ai = c->functions[ai].nested_enclosing_fn_idx) {
+                 ai != (size_t)-1 && chain_n < 64; ) {
+                chain[chain_n++] = ai;
+                if (!c->functions[ai].is_nested) break;
+                ai = c->functions[ai].nested_enclosing_fn_idx;
+            }
+            for (int ci = 0; ci < chain_n; ci++) {
+                size_t ai = chain[ci];
                 ZeroCCFunction *af = &c->functions[ai];
                 for (int li = 0; li < af->nl_label_count; li++) {
                     if (!af->nl_labels[li] || strcmp(af->nl_labels[li], nm) != 0) continue;
+                    int pair = chain_n - 1 - ci;
                     char rn[48], sn[48];
-                    snprintf(rn, sizeof(rn), "__nlgbp_%d", depth);
-                    snprintf(sn, sizeof(sn), "__nlbsp_%d", depth);
+                    snprintf(rn, sizeof(rn), "__nlgbp_%d", pair);
+                    snprintf(sn, sizeof(sn), "__nlbsp_%d", pair);
                     ZeroCCSym *rb = zero_cc_find_local(c, rn);
                     ZeroCCSym *rs = zero_cc_find_local(c, sn);
                     if (rb && rs) {
@@ -1488,7 +1504,6 @@ void lower_stmt_goto(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                     }
                     break;
                 }
-                depth++;
             }
         }
     }

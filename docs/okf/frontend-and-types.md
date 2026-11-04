@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-11-04T05:04:22Z
+timestamp: 2026-11-04T07:27:35Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -344,7 +344,13 @@ Function **definitions** inside a block (the GNU nested-function/trampoline exte
   - **Nested** (`parser/decl_local.h`): the same shape is probed before `zero_cc_parse_declarator` runs (the declarator would parse each bare identifier as an unnamed *type* and eat the first declaration keyword as a bogus param name); on a match the function chunk is rebuilt from the probed names, the stream is **rewound to just past the parameter-list `)`** (tokens are the whole file — scan from the name token), and the declaration block is consumed with `zero_cc_parse_kr_decl` (moved to `parser/zero_cc_declarator_stack.h` so both parser TUs see it).
   - **Gate effect**: 76 `SKIP-C89` → `PASS` (gnu89 tests with old-style definitions), baseline ratcheted to **PASS 3,346**; regression test `test/aot/kr_oldstyle.c` (swept at `-O0..-O3`).
 
-- **Remaining gap**: nonlocal goto (nested function `goto` jumping to an enclosing label: `execute/20050122-1.c`, `execute/nestfunc-5.c`, `execute/nestfunc-6.c`, `execute/pr24135.c`), VLA struct members (`execute/nested-1.c`), and gnu89 implicit decls (`execute/930506-2.c`) remain `SKIP-TARGET:trampolines` (11 tests). The K&R portion of that cluster (`execute/920428-2.c`, `execute/920501-7.c`, `execute/921017-1.c`, `execute/921215-1.c`, `execute/comp-goto-2.c`) now parses; they stay skipped only for the nonlocal goto / `__label__` feature.
+- **Sprint 99 additions**:
+  - **Nonlocal goto (named)**: a nested function may `goto` a `__label__` in an ancestor (hidden `(fp, sp-snapshot)` pair params, `OP_NONLOCAL_GOTO`; see `architecture-pipeline.md`). Computed goto to ancestor frames matches GCC's rejection.
+  - **gnu89 implicit function declarations**: a call through an identifier with no visible declaration gets an implicit `int name(...)` declaration at the call site with a GCC-matching warning (did-you-mean included); reserved leading-`_` names keep the undeclared-identifier error. `sem_implicit_fn_decl()` in `semantic/visitor.c` centralizes it (both `semantic/expr.c` and the visitor `NODE_CALL` call it before the callee is analyzed); `sem_ok` counts errors only (`diag_error_count`), and JIT undefined externals fail cleanly (`Compile error: undefined reference to 'name'`) instead of leaving a zeroed call target.
+  - **Extra-paren function-pointer parameters**: `ret f(type ((*name)(params)))` parses in both the nested and top-level parameter parsers — a `(` after the name position inside the paren group marks the function suffix; `((*g))` without a trailing `(params)` stays a plain pointer.
+  - **Function-pointer prototype parameters**: a function/function-pointer `ZeroCCType` carries its declared prototype (`fn_params` / `fn_param_count` / `fn_has_prototype` / `fn_is_variadic`, compiler-lifetime heap; `fn_params == NULL` = no prototype — callers must not convert arguments against declared types). `zero_cc_type_to_typeinfo` rebuilds the pointee signature from it. **Indirect call lowering derives its effective parameter types from the callee expression's TypeInfo pointee** (direct calls keep using `ZeroCCFunction::param_types`) — without this `int (*f)(double, int) = g; f(33, 11);` passed `33` in a GPR instead of a double in XMM0 (c-torture `execute/930702-1`).
+  - **Preprocessor pp-number atomicity**: C numeric literals are single preprocessing tokens; the text scanner never macro-expands an alphanumeric run immediately preceded by a digit/underscore (the `F` in `0.0F`, the hex digit in `0x1F`, the `u` in `1u`) — `#define F 140` must not rewrite `0.0F` into `0.0140` (which silently re-scaled every float literal, c-torture `execute/cmpsf-1`).
+- **Remaining gap**: VLA struct members (`compile/nested-1.c`) remain `SKIP-TARGET:trampolines` (the last of the former 11-test cluster; nonlocal goto, K&R, extra-paren fnptr params and gnu89 implicit decls all landed in Sprints 98-99). `execute/pr51447.c` is `SKIP-TARGET:asm_named_reg` (remaining blocker `register void *ptr asm ("rbx")`).
 
 ## GNU `__attribute__((__vector_size__(N)))` Vector Types
 

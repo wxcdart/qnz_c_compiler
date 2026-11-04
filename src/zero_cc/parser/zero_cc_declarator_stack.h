@@ -267,6 +267,49 @@ static inline void zero_cc_parse_param_list(
                 }
             }
             param_ptr_depth = 1;
+        } else if (c->token_pos + 1 < c->token_count &&
+                   c->tokens[c->token_pos].type == TK_LPAREN &&
+                   c->tokens[c->token_pos + 1].type == TK_LPAREN) {
+            /* Function-pointer declarator wrapped in an extra paren layer:
+             * `((*f) (void ()))` (K&R idiom, c-torture execute/921215-1:
+             * `void p(void ((*f) (void ())))`). The single-level `(*f)(...)`
+             * branch above cannot see the `*` (it is nested one paren
+             * deeper), so scan the balanced paren group for the star and
+             * name, then consume the group plus the trailing (params). */
+            int depth = 0;
+            size_t close = c->token_count;
+            size_t scan_name_pos = c->token_count;
+            int stars = 0;
+            const char *scan_name = NULL;
+            for (size_t scan = c->token_pos; scan < c->token_count; scan++) {
+                if (c->tokens[scan].type == TK_LPAREN) depth++;
+                else if (c->tokens[scan].type == TK_RPAREN) {
+                    depth--;
+                    if (depth == 0) { close = scan; break; }
+                } else if (c->tokens[scan].type == TK_STAR) stars++;
+                else if (c->tokens[scan].type == TK_IDENT && scan_name == NULL) {
+                    const char *s = c->tokens[scan].str_val;
+                    if (strcmp(s, "const") != 0 && strcmp(s, "volatile") != 0 &&
+                        strcmp(s, "restrict") != 0 && strcmp(s, "_Atomic") != 0) {
+                        scan_name = s;
+                        scan_name_pos = scan;
+                    }
+                }
+            }
+            if (stars > 0 && scan_name && close < c->token_count) {
+                /* A `(` after the name inside the group is a function
+                 * suffix: `((*f) (void ()))` -> pointer to function;
+                 * `((*g))` -> a plain (double-parenthesized) pointer. */
+                for (size_t a2 = scan_name_pos + 1; a2 < close; a2++) {
+                    if (c->tokens[a2].type == TK_LPAREN) {
+                        is_param_func_ptr = true;
+                        break;
+                    }
+                }
+                pname = scan_name;
+                param_ptr_depth = stars;
+                c->token_pos = close + 1;
+            }
         } else {
             while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STAR) {
                 param_ptr_depth++;
@@ -811,6 +854,27 @@ static inline ZeroCCType zero_cc_chunk_apply(const ZeroCCDeclaratorChunk *chunk,
          * — a function returning a function pointer: the outer suffix
          * marks is_func and the inner pointer chunk converts it. */
         target.is_func = true;
+        /* Record the declared prototype on the function type so a
+         * wrapping pointer keeps it in its `base` and the ZeroCCType ->
+         * TypeInfo conversion can rebuild the pointee's parameter list.
+         * Without this, `int (*f)(double, int)` degrades to
+         * pointer->function(int, ...): indirect calls through f marshal
+         * arguments against no signature (c-torture execute/930702-1:
+         * `f(33, 11)` passed 33 in EDI instead of XMM0). */
+        target.fn_has_prototype = chunk->has_prototype;
+        target.fn_is_variadic = chunk->is_variadic;
+        if (chunk->has_prototype && chunk->param_count > 0 &&
+            target.fn_params == NULL) {
+            ZeroCCType *params = (ZeroCCType *)malloc(chunk->param_count * sizeof(ZeroCCType));
+            if (params) {
+                for (size_t p = 0; p < chunk->param_count; p++) {
+                    params[p] = chunk->param_tis[p] ?
+                        typeinfo_to_zero_cc_type(chunk->param_tis[p]) : zero_cc_type_int();
+                }
+                target.fn_params = params;
+                target.fn_param_count = chunk->param_count;
+            }
+        }
         return target;
     }
     return target;

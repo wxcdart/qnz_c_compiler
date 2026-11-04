@@ -1348,19 +1348,22 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
 
                             /* Sprint 99: nonlocal goto - the body may
                              * `goto X;` where X labels an ANCESTOR
-                             * function. Such a jump restores the target
-                             * scope's (rbp, rsp), so the nested fn needs
-                             * one hidden (rbp, rsp) PAIR param per
-                             * ancestor scope (outermost first, after the
-                             * captures, before the user params).
-                             * A conservative token scan decides the need:
-                             * any `goto IDENT` whose name is not a label
-                             * defined in this body (IDENT ':' pair). The
-                             * scan can only add pairs, never miss them -
-                             * a real local label is always an IDENT ':'
-                             * pair, so a false positive (extra pair) is
-                             * harmless while a false negative would jump
-                             * with the wrong frame. */
+                             * function, or `goto *expr;` where the label
+                             * value points into an ancestor frame. Such a
+                             * jump restores the target scope's (rbp, rsp),
+                             * so the nested fn needs one hidden (rbp, rsp)
+                             * PAIR param per ancestor scope (outermost
+                             * first, after the captures, before the user
+                             * params). A conservative token scan decides
+                             * the need: any `goto IDENT` whose name is not
+                             * a label defined in this body (IDENT ':'
+                             * pair), or any computed `goto *` (the target
+                             * is only known at runtime and may be in an
+                             * ancestor). The scan can only add pairs, never
+                             * miss them - a real local label is always an
+                             * IDENT ':' pair, so a false positive (extra
+                             * pair) is harmless while a false negative
+                             * would jump with the wrong frame. */
                             {
                                 size_t be = body_start + 1;
                                 int bd = 1;
@@ -1372,11 +1375,12 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
                                 char gl[32][64]; int gl_n = 0;
                                 char ll[32][64]; int ll_n = 0;
                                 for (size_t qi = body_start; qi + 1 < be && qi < c->token_count; qi++) {
-                                    if (c->tokens[qi].type == TK_GOTO &&
-                                        c->tokens[qi + 1].type == TK_IDENT &&
-                                        gl_n < 32) {
-                                        snprintf(gl[gl_n], 64, "%s", c->tokens[qi + 1].str_val);
-                                        gl_n++;
+                                    if (c->tokens[qi].type == TK_GOTO) {
+                                        if (c->tokens[qi + 1].type == TK_IDENT &&
+                                                   gl_n < 32) {
+                                            snprintf(gl[gl_n], 64, "%s", c->tokens[qi + 1].str_val);
+                                            gl_n++;
+                                        }
                                     }
                                     if (c->tokens[qi].type == TK_IDENT &&
                                         c->tokens[qi + 1].type == TK_COLON &&
@@ -1387,9 +1391,10 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
                                 }
                                 int depth = 0;
                                 for (size_t ai = nf->nested_enclosing_fn_idx;
-                                     ai != (size_t)-1;
-                                     ai = c->functions[ai].nested_enclosing_fn_idx) {
+                                     ai != (size_t)-1; ) {
                                     depth++;
+                                    if (!c->functions[ai].is_nested) break;
+                                    ai = c->functions[ai].nested_enclosing_fn_idx;
                                 }
                                 bool needs = false;
                                 for (int gi = 0; gi < gl_n && !needs; gi++) {
@@ -1411,22 +1416,39 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
                                         memcpy(nn, nf->param_names, nf->param_count * sizeof(const char *));
                                     if (nf->param_types)
                                         memcpy(nt, nf->param_types, nf->param_count * sizeof(ZeroCCType));
+                                    /* The ABI order is [captures, pairs,
+                                     * user params]: splice the pair params
+                                     * right after the captures (the leading
+                                     * nested_captured_count entries) so the
+                                     * user params keep their trailing slots. */
+                                    size_t cap = nf->nested_captured_count;
+                                    if (cap > nf->param_count) cap = nf->param_count;
+                                    size_t user_n = nf->param_count - cap;
+                                    if (user_n > 0) {
+                                        memmove(nn + cap + 2 * (size_t)depth, nn + cap,
+                                                user_n * sizeof(const char *));
+                                        memmove(nt + cap + 2 * (size_t)depth, nt + cap,
+                                                user_n * sizeof(ZeroCCType));
+                                    }
                                     char pname[48];
                                     for (int pi = 0; pi < depth; pi++) {
                                         ZeroCCType it = zero_cc_type_int64();
                                         snprintf(pname, sizeof(pname), "__nlgbp_%d", pi);
-                                        nn[nf->param_count + 2 * pi] = zero_cc_intern_string(c, pname);
-                                        nt[nf->param_count + 2 * pi] = it;
+                                        nn[cap + 2 * pi] = zero_cc_intern_string(c, pname);
+                                        nt[cap + 2 * pi] = it;
                                         snprintf(pname, sizeof(pname), "__nlbsp_%d", pi);
-                                        nn[nf->param_count + 2 * pi + 1] = zero_cc_intern_string(c, pname);
-                                        nt[nf->param_count + 2 * pi + 1] = it;
+                                        nn[cap + 2 * pi + 1] = zero_cc_intern_string(c, pname);
+                                        nt[cap + 2 * pi + 1] = it;
                                     }
                                     if (nf->param_dim_exprs) {
                                         ASTRef *nd = (ASTRef *)arena_alloc(farena,
                                             new_total * sizeof(ASTRef));
-                                        memcpy(nd, nf->param_dim_exprs, nf->param_count * sizeof(ASTRef));
-                                        memset(nd + nf->param_count, 0,
-                                               2 * (size_t)depth * sizeof(ASTRef));
+                                        memcpy(nd, nf->param_dim_exprs, cap * sizeof(ASTRef));
+                                        if (user_n > 0)
+                                            memcpy(nd + cap + 2 * (size_t)depth,
+                                                   nf->param_dim_exprs + cap,
+                                                   user_n * sizeof(ASTRef));
+                                        memset(nd + cap, 0, 2 * (size_t)depth * sizeof(ASTRef));
                                         nf->param_dim_exprs = nd;
                                     }
                                     nf->param_names = nn;

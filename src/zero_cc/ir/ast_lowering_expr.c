@@ -272,6 +272,22 @@ int zero_cc_lower_lvalue_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef r
             }
         }
         if (elem_size == 0) elem_size = 4;
+        /* Mirror-form subscript `int[(ptr)]` (C a[b] == *(a+b) == b[a]):
+         * the POINTER is the index operand, so the integer base is an
+         * ELEMENT OFFSET scaled by the pointee size and added to the
+         * pointer value:  N[(int*)y] == *(y + N*4) == y[N].  Scaling the
+         * index instead would scale the pointer (wild dereference -
+         * c-torture pr22061-1 `N[(char*)x]` only worked by luck because
+         * the char element size is 1; `N[(int*)y]` needs this). */
+        bool mirror_form = false;
+        size_t mirror_esz = 1;
+        {
+            TypeInfo *idx_ti = ast_node_get_typeinfo(c, zero_cc_ast_get(arena, operand->right));
+            mirror_form = (idx_ti != NULL && idx_ti->kind == TYPE_KIND_POINTER);
+            if (mirror_form && elem_ti &&
+                elem_ti->kind != TYPE_KIND_VOID && type_size(elem_ti) > 0)
+                mirror_esz = type_size(elem_ti);
+        }
         ZeroCCSym *vla_2d_sym = NULL;
         {
             ZeroCCASTNode *ln = zero_cc_ast_get(arena, operand->left);
@@ -283,9 +299,30 @@ int zero_cc_lower_lvalue_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef r
             }
         }
         int scaled_index;
-        if (vla_2d_sym) {
+        if (mirror_form) {
+            scaled_index = TEMP_NONE; /* addr = index + scaled BASE below */
+        } else if (vla_2d_sym) {
             int stride_temp = c->next_temp_id++;
-            ir_emit_load(c, stride_temp, BE(c)->fp_reg, -(vla_2d_sym->stack_offset - 16));
+            if (vla_2d_sym->is_param && vla_2d_sym->vla_slot_off > 0) {
+                /* VLA PARAMETER: the entry code stores the raw innermost
+                 * dim value in vla_slot_off (C99 6.7.6.2); the row stride
+                 * is dim * leaf element size.  Reading the local-VLA
+                 * -stack_offset+16 slot instead picks up uninitialised
+                 * stack (c-torture pr22061-1: `char a[2][N]`). */
+                ir_emit_load(c, stride_temp, BE(c)->fp_reg, -vla_2d_sym->vla_slot_off);
+                const ZeroCCType *leaf = vla_2d_sym->type.base;
+                while (leaf && leaf->tag == TYPE_ARRAY) leaf = leaf->base;
+                size_t leaf_sz = (leaf && leaf->size > 0) ? leaf->size : 1;
+                if (leaf_sz != 1) {
+                    int ls_temp = c->next_temp_id++;
+                    ir_emit_mov_imm(c, ls_temp, (int32_t)leaf_sz);
+                    int s2 = c->next_temp_id++;
+                    ir_emit_mul(c, s2, stride_temp, ls_temp);
+                    stride_temp = s2;
+                }
+            } else {
+                ir_emit_load(c, stride_temp, BE(c)->fp_reg, -(vla_2d_sym->stack_offset - 16));
+            }
             scaled_index = c->next_temp_id++;
             ir_emit_mul(c, scaled_index, index_temp, stride_temp);
         } else if (elem_size == 1) {
@@ -303,7 +340,26 @@ int zero_cc_lower_lvalue_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef r
             ir_emit_mul(c, scaled_index, index_temp, sz_temp);
         }
         int addr_temp = c->next_temp_id++;
-        ir_emit_add(c, addr_temp, array_temp, scaled_index);
+        if (mirror_form) {
+            int base_scaled = array_temp;
+            if (mirror_esz != 1) {
+                if (mirror_esz == 2 || mirror_esz == 4 || mirror_esz == 8) {
+                    int shift = (mirror_esz == 2) ? 1 : ((mirror_esz == 4) ? 2 : 3);
+                    int sh_temp = c->next_temp_id++;
+                    ir_emit_mov_imm(c, sh_temp, shift);
+                    base_scaled = c->next_temp_id++;
+                    ir_emit_shl(c, base_scaled, array_temp, sh_temp);
+                } else {
+                    int sz_temp = c->next_temp_id++;
+                    ir_emit_mov_imm(c, sz_temp, (int32_t)mirror_esz);
+                    base_scaled = c->next_temp_id++;
+                    ir_emit_mul(c, base_scaled, array_temp, sz_temp);
+                }
+            }
+            ir_emit_add(c, addr_temp, index_temp, base_scaled);
+        } else {
+            ir_emit_add(c, addr_temp, array_temp, scaled_index);
+        }
         return addr_temp;
     } else if (operand->tag == NODE_UNOP && (operand->aux.op == '*' || operand->aux.op == TK_STAR)) {
         return lower_expr(c, arena, operand->left);
@@ -1437,6 +1493,19 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 }
             }
             if (elem_size == 0) elem_size = 4;
+            /* Mirror-form subscript `int[(ptr)]` (C a[b] == *(a+b) ==
+             * b[a]): the pointer is the index operand - the integer base
+             * is an element offset scaled by the pointee size (see the
+             * lvalue-addr path for the pr22061-1 explanation). */
+            bool mirror_form = false;
+            size_t mirror_esz = 1;
+            {
+                TypeInfo *idx_ti = ast_node_get_typeinfo(c, zero_cc_ast_get(arena, node->right));
+                mirror_form = (idx_ti != NULL && idx_ti->kind == TYPE_KIND_POINTER);
+                if (mirror_form && elem_ti &&
+                    elem_ti->kind != TYPE_KIND_VOID && type_size(elem_ti) > 0)
+                    mirror_esz = type_size(elem_ti);
+            }
 
             ZeroCCSym *vla_2d_sym = NULL;
             {
@@ -1450,9 +1519,28 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             }
 
             int scaled_index;
-            if (vla_2d_sym) {
+            if (mirror_form) {
+                scaled_index = TEMP_NONE; /* addr = index + scaled BASE below */
+            } else if (vla_2d_sym) {
                 int stride_temp = c->next_temp_id++;
-                ir_emit_load(c, stride_temp, BE(c)->fp_reg, -(vla_2d_sym->stack_offset - 16));
+                if (vla_2d_sym->is_param && vla_2d_sym->vla_slot_off > 0) {
+                    /* VLA PARAMETER: entry stores the raw innermost dim in
+                     * vla_slot_off; row stride = dim * leaf element size
+                     * (c-torture pr22061-1: `char a[2][N]`). */
+                    ir_emit_load(c, stride_temp, BE(c)->fp_reg, -vla_2d_sym->vla_slot_off);
+                    const ZeroCCType *leaf = vla_2d_sym->type.base;
+                    while (leaf && leaf->tag == TYPE_ARRAY) leaf = leaf->base;
+                    size_t leaf_sz = (leaf && leaf->size > 0) ? leaf->size : 1;
+                    if (leaf_sz != 1) {
+                        int ls_temp = c->next_temp_id++;
+                        ir_emit_mov_imm(c, ls_temp, (int32_t)leaf_sz);
+                        int s2 = c->next_temp_id++;
+                        ir_emit_mul(c, s2, stride_temp, ls_temp);
+                        stride_temp = s2;
+                    }
+                } else {
+                    ir_emit_load(c, stride_temp, BE(c)->fp_reg, -(vla_2d_sym->stack_offset - 16));
+                }
                 scaled_index = c->next_temp_id++;
                 ir_emit_mul(c, scaled_index, index_temp, stride_temp);
             } else if (elem_size == 1) {
@@ -1471,7 +1559,26 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             }
 
             int addr_temp = c->next_temp_id++;
-            ir_emit_add(c, addr_temp, array_temp, scaled_index);  /* addr = base + scaled_index */
+            if (mirror_form) {
+                int base_scaled = array_temp;
+                if (mirror_esz != 1) {
+                    if (mirror_esz == 2 || mirror_esz == 4 || mirror_esz == 8) {
+                        int shift = (mirror_esz == 2) ? 1 : ((mirror_esz == 4) ? 2 : 3);
+                        int sh_temp = c->next_temp_id++;
+                        ir_emit_mov_imm(c, sh_temp, shift);
+                        base_scaled = c->next_temp_id++;
+                        ir_emit_shl(c, base_scaled, array_temp, sh_temp);
+                    } else {
+                        int sz_temp = c->next_temp_id++;
+                        ir_emit_mov_imm(c, sz_temp, (int32_t)mirror_esz);
+                        base_scaled = c->next_temp_id++;
+                        ir_emit_mul(c, base_scaled, array_temp, sz_temp);
+                    }
+                }
+                ir_emit_add(c, addr_temp, index_temp, base_scaled);
+            } else {
+                ir_emit_add(c, addr_temp, array_temp, scaled_index);  /* addr = base + scaled_index */
+            }
 
             if (elem_ti && (type_is_array(elem_ti) || elem_ti->kind == TYPE_KIND_STRUCT || elem_ti->kind == TYPE_KIND_UNION || elem_ti->kind == TYPE_KIND_COMPLEX || type_is_vector(elem_ti))) {
                 /* Array element is an array (e.g. a[i] in a[i][j]) or a struct/union/complex (e.g. p[i][j] in p[i][j].x).

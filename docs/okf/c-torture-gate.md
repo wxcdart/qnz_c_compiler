@@ -4,7 +4,7 @@ title: GCC c-torture Conformance Gate
 description: Differential conformance gate against the vendored GCC gcc.c-torture corpus (~3,940 tests), sweeping execute tests across -O0..-O3 in JIT and AOT and compile tests at -O0/-O2 with a ratcheting baseline.
 resource: workflows/c-torture-gate
 tags: [testing, verification, conformance, c-torture, gcc, differential, baseline]
-timestamp: 2026-11-03T21:09:34Z
+timestamp: 2026-11-04T07:27:35Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -24,7 +24,7 @@ The vendored corpus contains **3,940** active test files across two trees (exclu
 
 ### Pre-Skip Directives (`parse_directives`)
 Because `gcc.c-torture` mixes standard C89/C99/C11 tests with GCC-internal target extensions, `tools/torture_run.py` scans DejaGnu (`dg-*`) directives in the first 60 lines of each file and pre-skips:
-- **`SKIP-TARGET:<feature>`**: `dg-require-effective-target` for GNU/target extensions outside ZeroCC's target contract (`untyped_assembly`, `int128`, `named_sections`, `nonlocal_goto`, `unwrapped`, `arm`, `freestanding`, `alloca`, `bitint`, `dfp`, `fixed_point`, `tls_native`, `vector`, `vxworks_kernel`). Note: `return_address` was removed in Sprint 86, `label_values` was unskipped in Sprint 87 (computed gotos + label difference relocations), `indirect_jumps` was unskipped in Sprint 88, `nested_capture_writeback` was removed in Sprint 92 (runtime VLA param dimensions + runtime VLA `sizeof`), and `trampolines` was removed as a blanket target in Sprint 93 (real trampoline stubs + pointer-routed capture landed). **`trampolines`** (11 tests): the global `dg-require-effective-target trampolines` skip was replaced by a targeted `TRAMPOLINES_BLOCKED` set in `tools/torture_run.py` — the 11 remaining tests are blocked by *unrelated* features (nonlocal goto ×4, K&R definitions ×5, VLA struct member, gnu89 implicit decl) and keep the `SKIP-TARGET:trampolines` class.
+- **`SKIP-TARGET:<feature>`**: `dg-require-effective-target` for GNU/target extensions outside ZeroCC's target contract (`untyped_assembly`, `int128`, `named_sections`, `unwrapped`, `arm`, `freestanding`, `alloca`, `bitint`, `dfp`, `fixed_point`, `tls_native`, `vector`, `vxworks_kernel`). Note: `return_address` was removed in Sprint 86, `label_values` was unskipped in Sprint 87 (computed gotos + label difference relocations), `indirect_jumps` was unskipped in Sprint 88, `nested_capture_writeback` was removed in Sprint 92 (runtime VLA param dimensions + runtime VLA `sizeof`), `trampolines` was removed as a blanket target in Sprint 93 (real trampoline stubs + pointer-routed capture landed), and **`nonlocal_goto` was unskipped in Sprint 99** (named nonlocal goto across nested-function scopes; computed goto to ancestor frames matches GCC's own rejection). **`trampolines`** (11 tests at Sprint 93): the global `dg-require-effective-target trampolines` skip was replaced by a targeted `TRAMPOLINES_BLOCKED` set in `tools/torture_run.py`; Sprint 98/99 resolved 10 of the 11 (K&R definitions, gnu89 implicit decl, nonlocal goto) — the set now holds only `compile/nested-1.c` (local struct with VLA member `char b[argc]`). `execute/pr51447.c` is `SKIP-TARGET:asm_named_reg` (its remaining blocker is `register void *ptr asm ("rbx")`).
 - **`SKIP-BOGUS`**: negative diagnostic tests (`dg-bogus`).
 - **`SKIP-REFSEM`**: tests requiring reference-changing floating-point semantics (`-mfpmath=`, `-ffast-math`, `-frounding-math`, `-fsignaling-nans`, `-fexcess-precision=`).
 - **`SKIP-PTR`**: tests printing raw `%p` pointer addresses (ASLR-nondeterministic across runs).
@@ -40,20 +40,20 @@ An early `gcc -std=c11 -Wpedantic` pre-filter was rejected because GCC's pedanti
 
 ---
 
-## 2. Classification Buckets & Baseline (nested-functions Phase 3a-2)
+## 2. Classification Buckets & Baseline (Sprint 99: nonlocal goto + implicit decls + codegen fixes)
 
 Recorded in [`test/torture/baseline.json`](../../test/torture/baseline.json) across all **3,940** tests:
 
 | Bucket | Count | Meaning |
 | :--- | ---: | :--- |
-| **`PASS`** | **3,266** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` — all-time high (+9 vs Sprint 92: 8 `trampolines` tests via real trampoline stubs + pointer-routed capture, plus `compile/20050119-1.c` SKIP-C89→PASS) |
+| **`PASS`** | **3,575** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` — all-time high (+229 vs Sprint 93: 76 K&R definitions via Sprint 98, plus nonlocal goto, gnu89 implicit decls, extra-paren fnptr params, and 4 unblocked-codegen fixes: fn-ptr prototype ABI `930702-1`, preprocessor pp-number suffixes `cmpsf-1`, mirror-form subscripts + VLA param strides `pr22061-1`, no-prototype complex args `20010605-2`) |
 | **`REJECT`** | **0** | **Zero REJECTs in the entire corpus** (`[clean -std=c11]`) |
-| **`SKIP-C89`** | **393** | ZeroCC rejected or skipped a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects |
+| **`SKIP-C89`** | **100** | ZeroCC rejected or skipped a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects (down from 317 after Sprint 98's K&R support) |
 | **`MISCOMPILE`** | **0** | **Zero MISCOMPILEs in the entire corpus** (strictly held). |
 | **`TIMEOUT`** | **0** | `execute/memclr.c` (2048 functions; JIT `-O1+` at the 5 s budget edge) passed on the idle re-record — it can still flip to TIMEOUT under load; treat a lone `memclr.c` TIMEOUT as load noise, not a regression |
 | **`REF-BUG`** | **3** | GCC reference binary itself crashes (differential comparison impossible; not a ZeroCC failure). Includes `execute/vfprintf-chk-1.c`. |
-| **`NO-REF`** | **188** | Host `gcc -O1 -w` rejected the file (32-bit/target-specific tests without explicit `dg-require-effective-target`) |
-| **`SKIP-TARGET:*`** | **67** | Explicit DejaGnu target/extension skips (`untyped_assembly`: 40, `trampolines`: 11, `int128`: 7, `named_sections`: 3, `nonlocal_goto`: 3, `unwrapped`: 2, `arm`: 1). `trampolines` (11) is now targeted in `TRAMPOLINES_BLOCKED` (`tools/torture_run.py`): every remaining test is blocked by an unrelated feature (nonlocal goto, K&R, VLA struct member, gnu89 implicit decl) — the trampoline mechanism itself (stubs + context + pointer-routed capture) is complete for x86-64 |
+| **`NO-REF`** | **184** | Host `gcc -O1 -w` rejected the file (32-bit/target-specific tests without explicit `dg-require-effective-target`) |
+| **`SKIP-TARGET:*`** | **54** | Explicit DejaGnu target/extension skips (`untyped_assembly`: 40, `int128`: 7, `named_sections`: 3, `unwrapped`: 2, `arm`: 1, `asm_named_reg`: 1 (`pr51447.c`), `trampolines`: 1 (`nested-1.c` VLA struct member)) |
 | **`SKIP-REFSEM`** | **16** | Special FP flags (`-ffast-math`, `-mfpmath=`, `-fsignaling-nans`) |
 | **`EXPECTED-REJECT`** | **4** | Has `dg-error` directive and was rejected |
 | **`SKIP-BOGUS` / `SKIP-PTR` / `SKIP-UB`** | **3** | 1 `dg-bogus`, 1 `%p` stdout test, 1 uninitialized heap read (`execute/941014-2.c`) |

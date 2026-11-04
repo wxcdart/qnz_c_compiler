@@ -4,6 +4,8 @@ int add(int a, int b) { return a + b; }
 int helper(void) { return 41; }
 int main(void) {
     int x = add(1);        /* fault 1: too few arguments to add */
-    int y = helpler();     /* fault 2: undeclared 'helpler' (~'helper') */
+    int y = helpler;       /* fault 2: undeclared 'helpler' (~'helper');
+                                 a non-call use - a call would be the gnu89
+                                 implicit declaration (warning, not error) */
     return x + y + 5 return; /* fault 3: missing ';' before return */
 }

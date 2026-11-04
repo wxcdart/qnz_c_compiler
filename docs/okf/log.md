@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-04T05:04:22Z
+timestamp: 2026-11-04T07:27:35Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -792,3 +792,15 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-04 — Updated `frontend-and-types.md`
 - Sprint 98: K&R (old-style) definitions - top-level no-decl-list int default + type-name guard, GCC-matching diagnostics (redefinition / no-such-parameter / storage class), nested K&R with token-rewind chunk rebuild, zero_cc_parse_kr_decl moved to zero_cc_declarator_stack.h, 76 SKIP-C89 -> PASS
+
+## 2026-11-04 — Updated `c-torture-gate.md`
+- Sprint 99: nonlocal_goto unskipped; baseline ratcheted to PASS 3,575 (0 bad); SKIP-C89 100; TRAMPOLINES_BLOCKED down to 1 (nested-1 VLA struct member)
+
+## 2026-11-04 — Updated `architecture-pipeline.md`
+- Sprint 99: named nonlocal goto across nested scopes (OP_NONLOCAL_GOTO, hidden fp/sp pair params); computed goto to ancestors rejected like GCC; trampolines cluster down to nested-1
+
+## 2026-11-04 — Updated `frontend-and-types.md`
+- Sprint 99: fn-ptr prototype params (fn_params), gnu89 implicit decls, extra-paren fnptr params, pp-number atomicity in preprocessor
+
+## 2026-11-04 — Updated `abi-sysv-x86_64.md`
+- Sprint 99: effective param signature for indirect calls, no-prototype complex arg rule, mirror-form subscript, VLA param row stride

@@ -83,7 +83,7 @@ KEEP = False  # --keep: retain work artifacts instead of unlinking
 UNSUPPORTED_TARGETS = {
     # GNU C extensions
     "untyped_assembly",
-    "nonlocal_goto", "named_sections", "unwrapped",
+    "named_sections", "unwrapped",
     "int128", "cilk",
     # other languages
     "c++", "cxx", "c2a", "go", "fortran", "ada", "objc", "java", "openmp",
@@ -99,26 +99,13 @@ UNSUPPORTED_TARGETS = {
 SKIP_OPTION_SUBSTR = ("-mfpmath=", "-ffast-math", "-finstrument-functions", "-fsignaling-nans")
 
 # Trampoline stubs + pointer-routed closure capture are implemented
-# (Sprint 93), so "trampolines" is no longer a blanket-unsupported target.
-# These specific tests are still blocked by UNRELATED missing features -
-# keep them skipped under the old class so the baseline comparison is
-# unaffected:
-#   nonlocal goto - a nested function goto'ing an enclosing-scope label
-#   K&R params    - pre-ANSI function definitions/params
+# (Sprint 93), nonlocal goto / __label__ values across nested-function
+# scopes and K&R (old-style) definitions (Sprints 98-99), and gnu89
+# implicit function declarations (Sprint 99). The one remaining test in
+# this list is still blocked by an UNRELATED missing feature:
 #   VLA struct    - local struct with a VLA member
-#   implicit decl - gnu89 call of a function never declared
 TRAMPOLINES_BLOCKED = {
-    "compile/20050122-2.c": "nested h goto's enclosing label (nonlocal goto)",
-    "compile/930506-2.c": "bar() called but never declared (gnu89 implicit decl)",
     "compile/nested-1.c": "local struct with VLA member (char b[argc])",
-    "execute/920428-2.c": "K&R function definition",
-    "execute/920501-7.c": "K&R function definition",
-    "execute/921017-1.c": "K&R function definition",
-    "execute/921215-1.c": "K&R + fn-fptr param declarator void ((*f)(void ()))",
-    "execute/comp-goto-2.c": "K&R + recursive trampoline + &&label",
-    "execute/nestfunc-5.c": "nested goto's enclosing label (nonlocal goto)",
-    "execute/nestfunc-6.c": "nested goto's enclosing label (nonlocal goto)",
-    "execute/pr24135.c": "nested goto's enclosing label (nonlocal goto)",
 }
 
 RE_DG_DO = re.compile(r"\{\s*dg-do\s+([a-z-]+)")
@@ -179,13 +166,15 @@ def skip_reason(path, d):
             return "SKIP-TARGET:%s" % t
     if rel.as_posix() in TRAMPOLINES_BLOCKED:
         return "SKIP-TARGET:trampolines"
-    # indirect_jumps is now supported (computed goto + &&label tables), and
+    # indirect_jumps is now supported (computed goto + &&label tables),
     # __builtin_setjmp/longjmp work via inline OP_SETJMP/OP_LONGJMP across all
-    # target ISAs in both JIT and AOT modes. The only remaining blocker in the
-    # category is nonlocal goto (pr51447: a nested function
-    # goto's to an outer-scope label).
+    # target ISAs in both JIT and AOT modes, and nonlocal goto (a nested
+    # function goto'ing an enclosing-scope label) is implemented (Sprint 99).
+    # pr51447's remaining blocker is the named-register declaration
+    # `register void *ptr asm ("rbx")` (GNU asm label), which zerocc does
+    # not support.
     if rel.as_posix() == "execute/pr51447.c":
-        return "SKIP-TARGET:nonlocal_goto"
+        return "SKIP-TARGET:asm_named_reg"
     for s in SKIP_OPTION_SUBSTR:
         if s in d["options"]:
             return "SKIP-REFSEM"

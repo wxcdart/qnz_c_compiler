@@ -89,6 +89,18 @@ typedef struct ZeroCCType {
      * chunk then converts it. */
     bool is_func;
 
+    /* Declared prototype of a function (type) / function pointer (type
+     * held in the pointer's `base`): the pointee's parameter types, so
+     * the ZeroCCType -> TypeInfo conversion can rebuild the full
+     * signature.  `fn_params == NULL` means "no prototype" (`()`, K&R,
+     * implicit declaration): callers must not convert arguments against
+     * declared parameter types.  Heap-allocated (malloc; lifetime of the
+     * compiler process, like the type pool). */
+    const struct ZeroCCType *fn_params;
+    size_t fn_param_count;
+    bool fn_has_prototype;
+    bool fn_is_variadic;
+
     size_t member_count;
 } ZeroCCType;
 

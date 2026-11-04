@@ -449,6 +449,37 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
              * AArch64). Args beyond the register slots go to the call
              * stack in argument order - stack_pos records that position
              * (255 = register arg). */
+            /* Effective parameter types driving the int<->FP conversions
+             * below. For a direct callee that is its ZeroCCType params;
+             * for an INDIRECT call it must be the pointee's declared
+             * signature - the ABI follows the function pointer's
+             * parameter types, not the argument expression's current value
+             * class. Without this, `int (*f)(double, int); f(33, 11);`
+             * passes 33 in EDI instead of converting it to a double in
+             * XMM0 (c-torture execute/930702-1). */
+            ZeroCCType eff_params[IR_CALL_MAX_ARGS];
+            int eff_param_count = 0;
+            if (callee_fn && callee_fn->param_types && callee_fn->param_count > 0) {
+                eff_param_count = callee_fn->param_count < IR_CALL_MAX_ARGS ?
+                                  (int)callee_fn->param_count : IR_CALL_MAX_ARGS;
+                for (int i = 0; i < eff_param_count; i++)
+                    eff_params[i] = callee_fn->param_types[i];
+            } else {
+                TypeInfo *cal_ti = ast_node_get_typeinfo(c, zero_cc_ast_get(arena, node->left));
+                TypeInfo *pointee_fn = NULL;
+                if (cal_ti && cal_ti->kind == TYPE_KIND_POINTER &&
+                    cal_ti->details.pointer.base &&
+                    cal_ti->details.pointer.base->kind == TYPE_KIND_FUNCTION)
+                    pointee_fn = cal_ti->details.pointer.base;
+                else if (cal_ti && cal_ti->kind == TYPE_KIND_FUNCTION)
+                    pointee_fn = cal_ti;
+                if (pointee_fn) {
+                    for (size_t i = 0; i < pointee_fn->details.function.param_cnt &&
+                         i < IR_CALL_MAX_ARGS; i++)
+                        eff_params[eff_param_count++] =
+                            typeinfo_to_zero_cc_type(pointee_fn->details.function.params[i]);
+                }
+            }
             int gp_regs_avail = BE(c)->conv->int_arg_reg_count;
             int fp_regs_avail = BE(c)->conv->fp_arg_reg_count;
             int gp_stream = 0, fp_stream = 0, stack_arg_count = 0;
@@ -468,8 +499,8 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                     continue;
                 }
                 int temp = lower_expr(c, arena, arg);
-                if (callee_fn && param_idx < (int)callee_fn->param_count) {
-                    const ZeroCCType *pt = &callee_fn->param_types[param_idx];
+                if (eff_param_count > 0 && param_idx < eff_param_count) {
+                    const ZeroCCType *pt = &eff_params[param_idx];
                     bool param_is_fp = (pt->tag == TYPE_FLOAT || pt->tag == TYPE_DOUBLE);
                     if (pt->is_complex) {
                         /* complex argument: temp is the object's address;
@@ -508,7 +539,15 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                             if (ag && zero_cc_type_is_complex(&ag->type)) arg_is_cx = true;
                         }
                     }
-                    if (callee_fn && !param_is_cx && arg_is_cx) {
+                    /* Real-part extraction (C99 6.3.1.7) applies only when
+                     * the declaration actually names a non-complex parameter
+                     * at this position - a no-prototype / old-style decl
+                     * (`void f();`) says nothing about the parameter, and
+                     * default argument promotions keep _Complex T complex,
+                     * so the complex value must be marshalled as complex
+                     * (c-torture execute/20010605-2). */
+                    bool param_declared = callee_fn && (param_idx - 1) < (int)callee_fn->param_count;
+                    if (param_declared && !param_is_cx && arg_is_cx) {
                         /* C99 6.3.1.7: complex to scalar conversion extracts the real part */
                         bool el_is_fp = cx_ati->details.array.base && type_is_floating(cx_ati->details.array.base);
                         size_t el_sz = cx_ati->details.array.base ? type_size(cx_ati->details.array.base) : 8;
@@ -1131,8 +1170,10 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                 ZeroCCFunction *cur_fn2 = &c->functions[c->lowering.current_func_idx];
                 int my_depth = 0;
                 for (size_t ai = cur_fn2->nested_enclosing_fn_idx;
-                     ai != (size_t)-1; ai = c->functions[ai].nested_enclosing_fn_idx) {
+                     ai != (size_t)-1; ) {
                     my_depth++;
+                    if (!c->functions[ai].is_nested) break;
+                    ai = c->functions[ai].nested_enclosing_fn_idx;
                 }
                 for (int pi = 0; pi < callee_fn->goto_pair_count &&
                                  all_arg_count < IR_CALL_MAX_ARGS; pi++) {
@@ -1150,8 +1191,10 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                     } else {
                         ir_emit_lea(c, rbp_t, BE(c)->fp_reg, 0);
                         if (c->lowering.sp_snap_off > 0) {
+                            /* ir_emit_load takes an ADDITIVE displacement; the
+                             * slot sits at frame offset -sp_snap_off. */
                             ir_emit_load(c, rsp_t, BE(c)->fp_reg,
-                                         c->lowering.sp_snap_off);
+                                         -(int)c->lowering.sp_snap_off);
                         } else {
                             /* no snapshot reserved (shouldn't happen): the
                              * prologue sub amount is 16-rounded frame +
@@ -1159,7 +1202,7 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                              * LEA -frame (wrong under OFP, but this path
                              * is unreachable when the reservation ran). */
                             ir_emit_lea(c, rsp_t, BE(c)->fp_reg,
-                                        (int)c->current_stack_frame);
+                                        -(int)c->current_stack_frame);
                         }
                     }
                     all_arg_temps[all_arg_count] = rbp_t;

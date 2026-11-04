@@ -94,7 +94,26 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
                 ti = type_pointer_to(perm, type_void(perm));
             } else if (t.is_func_ptr) {
                 TypeInfo *ret_ti = zero_cc_type_to_typeinfo(perm, *t.base);
-                TypeInfo *fn_ti = type_function(perm, ret_ti, NULL, 0, true);
+                /* Rebuild the pointee's declared parameter list when the
+                 * function-pointer type carries it (parsed prototype);
+                 * otherwise keep the old no-prototype (variadic) shape. */
+                TypeInfo **fn_params = NULL;
+                size_t fn_pcount = 0;
+                bool fn_variadic = true;
+                if (t.base->fn_params && t.base->fn_param_count > 0) {
+                    fn_pcount = t.base->fn_param_count;
+                    fn_params = (TypeInfo **)malloc(fn_pcount * sizeof(TypeInfo *));
+                    if (fn_params) {
+                        for (size_t i = 0; i < fn_pcount; i++)
+                            fn_params[i] = zero_cc_type_to_typeinfo(perm, t.base->fn_params[i]);
+                        fn_variadic = t.base->fn_is_variadic;
+                    } else {
+                        fn_params = NULL;
+                        fn_pcount = 0;
+                    }
+                }
+                TypeInfo *fn_ti = type_function(perm, ret_ti, fn_params, fn_pcount, fn_variadic);
+                if (fn_params) free(fn_params);
                 ti = type_pointer_to(perm, fn_ti);
             } else {
                 TypeInfo *base = zero_cc_type_to_typeinfo(perm, *t.base);

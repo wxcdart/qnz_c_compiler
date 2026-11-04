@@ -728,6 +728,33 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         c->lowering.static_local_rt2_off = (int)c->current_stack_frame;
     }
 
+    /* Sprint 99: nonlocal goto - if a nested function with goto pairs is
+     * defined in THIS function, call sites (direct call or address-taking)
+     * must pass this function's body-time SP as the pair's rsp half. The
+     * exact value depends on the prologue mode (OFP / red-zone / realign),
+     * so the prologue stores SP into a reserved frame slot right after
+     * frame setup and the call site loads that slot. MUST run before
+     * lower_node - the call sites read the offset while lowering the body.
+     * current_stack_frame is final here (params + locals + VLA/variadic
+     * extensions all happened earlier). */
+    c->lowering.sp_snap_off = 0;
+    c->lowering.fp_snap_off = 0;
+    if (lowering_fn && c->function_count > 0) {
+        size_t cur_idx = c->lowering.current_func_idx;
+        for (size_t fi = 0; fi < c->function_count; fi++) {
+            const ZeroCCFunction *nf2 = &c->functions[fi];
+            if (nf2->is_nested && nf2->goto_pair_count > 0 &&
+                nf2->nested_enclosing_fn_idx == cur_idx) {
+                c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                c->current_stack_frame += 8;
+                c->lowering.sp_snap_off = (int32_t)c->current_stack_frame;
+                c->current_stack_frame += 8;
+                c->lowering.fp_snap_off = (int32_t)c->current_stack_frame;
+                break;
+            }
+        }
+    }
+
     /* Sprint 37: static locals - data section -> stack slot, once per call,
      * before any body statement can read the (mirrored) slot.  Sprint 72:
      * skip the mirror for address-taken statics - their slot is never used
@@ -956,27 +983,6 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         size_t N = max_local_align;
         total_frame_size = (c->current_stack_frame + N - 1) & ~(N - 1);
         c->lowering.frame_align = (int32_t)N;
-    }
-
-    /* Sprint 99: nonlocal goto - if a nested function with goto pairs is
-     * defined in THIS function, call sites (direct call or address-taking)
-     * must pass this function's body-time SP as the pair's rsp half. The
-     * exact value depends on the prologue mode (OFP / red-zone / realign),
-     * so the prologue stores SP into a reserved frame slot right after
-     * frame setup and the call site loads that slot. */
-    c->lowering.sp_snap_off = 0;
-    if (lowering_fn && c->function_count > 0) {
-        size_t cur_idx = c->lowering.current_func_idx;
-        for (size_t fi = 0; fi < c->function_count; fi++) {
-            const ZeroCCFunction *nf2 = &c->functions[fi];
-            if (nf2->is_nested && nf2->goto_pair_count > 0 &&
-                nf2->nested_enclosing_fn_idx == cur_idx) {
-                c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
-                c->current_stack_frame += 8;
-                c->lowering.sp_snap_off = (int32_t)c->current_stack_frame;
-                break;
-            }
-        }
     }
 
     /* Determine if function is a leaf (no calls, no VLAs) */

@@ -75,6 +75,11 @@ static void aarch64_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
             fprintf(out, "\tstr\t%s, [sp, #%d]\n", reg_name,
                     (int)c->lowering.frame_delta - offset);
         }
+        /* Sprint 99: SP snapshot for nonlocal-goto pair marshalling. */
+        if (c->lowering.sp_snap_off > 0) {
+            fprintf(out, "\tstr\tsp, [sp, #%d]\n",
+                    (int)c->lowering.frame_delta - c->lowering.sp_snap_off);
+        }
         return;
     }
 
@@ -99,6 +104,16 @@ static void aarch64_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
             int offset = BE(c)->conv->callee_save_slot_offsets[i];
             aarch64_emit_store_asm(c, reg, BE(c)->sp_reg, zero_cc_frame_disp(c, -offset), out);
         }
+        /* Sprint 99: SP snapshot + entry-x29 snapshot (x29 is untouched in
+         * OFP mode, so it still holds the caller's value). */
+        if (c->lowering.sp_snap_off > 0) {
+            aarch64_emit_store_asm(c, BE(c)->sp_reg, BE(c)->sp_reg,
+                                   zero_cc_frame_disp(c, -c->lowering.sp_snap_off), out);
+            if (c->lowering.fp_snap_off > 0) {
+                aarch64_emit_store_asm(c, BE(c)->fp_reg, BE(c)->sp_reg,
+                                       zero_cc_frame_disp(c, -c->lowering.fp_snap_off), out);
+            }
+        }
         return;
     }
 
@@ -121,6 +136,10 @@ static void aarch64_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
         const char *reg_name = BE(c)->get_hw_reg_name(reg);
         int offset = BE(c)->conv->callee_save_slot_offsets[i];
         fprintf(out, "\tstr\t%s, [x29, #-%d]\n", reg_name, offset);
+    }
+    /* Sprint 99: SP snapshot for nonlocal-goto pair marshalling. */
+    if (c->lowering.sp_snap_off > 0) {
+        fprintf(out, "\tstr\tsp, [x29, #-%d]\n", (int)c->lowering.sp_snap_off);
     }
 }
 

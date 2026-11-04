@@ -1,3 +1,42 @@
+## [Sprint 99] - 2026-11-04 - Nonlocal `goto` Across Nested-Function Scopes, gnu89 Implicit Declarations, Fn-Ptr Prototype ABI + 4 Codegen Correctness Fixes (3,575 PASS, baseline ratcheted)
+
+Two c-torture feature unlocks plus four pre-existing correctness bugs the unblocking exposed. **c-torture: PASS 3,346 -> 3,575 (0 bad), baseline ratcheted.**
+
+### Nonlocal goto (named) across nested-function scopes
+
+A nested function may now `goto` a `__label__` in an ancestor function (C99/GNU; c-torture `execute/nestfunc-5/6.c`, `execute/pr24135.c`, `execute/comp-goto-2.c`, `compile/20050122-2.c`).
+
+- The nested function receives one hidden `(fp, sp-snapshot)` parameter pair per ancestor scope (outermost first), spliced into the ABI stream **after capture parameters and before user parameters** (`__nlgbp_i` / `__nlbsp_i`); a named `goto lbl` in an ancestor lowers to `OP_NONLOCAL_GOTO` which restores the pair then jumps to the ancestor label.
+- Landing-point FP-register snapshot/restore (the OFP clobber class) and record-label-offset-**before**-restore ordering (the landing must see pre-restore code state).
+- **Computed goto to ancestor frames is intentionally NOT supported** - matches GCC (which rejects it). An earlier `OP_NONLOCAL_GOTO_IND` attempt was reverted: its frame-window scan compared code addresses (`.text` labels) against stack addresses (SP snapshots) - different address spaces, fundamentally broken. Computed goto inside a nested function stays a plain indirect jump over local labels.
+- AOT `.o` output emits local label symbols for nonlocal targets; `-S` supports the opcode; RISC-V32 stays rejected with a diagnostic.
+- `pr51447.c` reclassified `SKIP-TARGET:asm_named_reg` (remaining blocker is `register void *ptr asm ("rbx")`, unrelated).
+
+### gnu89 implicit function declarations
+
+A call through an identifier with no visible declaration now gets an implicit `int name(...)` declaration at the call site with a GCC-matching warning (`-Wimplicit-function-declaration` text, did-you-mean included when a close name exists). `sem_implicit_fn_decl()` centralizes it in `semantic/visitor.c` (called from both `semantic/expr.c` and the visitor `NODE_CALL`); reserved leading-`_` names keep the error; `sem_ok` now counts errors only (`diag_error_count`), and JIT undefined externals fail cleanly (`Compile error: undefined reference to 'name'`) instead of leaving a zeroed call target.
+
+### Extra-paren function-pointer parameters
+
+`ret f(type ((*name)(params)))` now parses in both the nested (`zero_cc_declarator_stack.h`) and top-level (`jit/compile.h`) parameter parsers - a `(` after the name position inside the paren group marks the function suffix; `((*g))` without a trailing `(params)` stays a plain pointer.
+
+### Function-pointer prototype parameters + indirect-call effective signature
+
+`ZeroCCType` for functions/function pointers now carries the declared prototype (`fn_params` / `fn_param_count` / `fn_has_prototype` / `fn_is_variadic`, compiler-lifetime heap like the type pool; `NULL` = no prototype, callers must not convert against it). The `ZeroCCType -> TypeInfo` conversion rebuilds the pointee signature, and **indirect call lowering derives its effective parameter types from the callee expression's pointee** (direct calls keep using `ZeroCCFunction::param_types`). Without this, `int (*f)(double, int) = g; f(33, 11);` passed `33` in a GPR instead of a double in XMM0 (c-torture `execute/930702-1`).
+
+### Four codegen correctness fixes (each found by the unblocked tests)
+
+1. **Preprocessor pp-number atomicity** (`execute/cmpsf-1`): a macro matching a numeric suffix (`#define F 140`) was expanded *inside* `0.0F`, turning every float literal into `0.0140...` (corrupted `.data`). The text scanner now treats an alphanumeric run immediately preceded by a digit/underscore as part of the pp-number (C99 6.4.2.1: `0.0F`, `0x1F`, `1u`, `1_F`) and never macro-expands it.
+2. **Mirror-form subscript `int[(ptr)]`** (`execute/pr22061-1`): `N[(char*)x]` / `N[(int*)y]` (C `a[b] == *(a+b) == b[a]`, pointer as the index). The semantic visitor now annotates the element type from the pointer operand's pointee (it only looked at the base side), and the lowering scales the **integer base** by the pointee size and adds it to the pointer (`*(y + N*4)`), not the pointer itself.
+3. **VLA parameter row stride** (`execute/pr22061-1`): for `char a[2][N]` / `int a[2][N]` parameters the runtime row stride was read from the VLA-*local* slot convention (`-stack_offset+16`, uninitialised for parameters). The indexing paths now take VLA **parameters** (`is_param`) from the entry-time `vla_slot_off` (raw innermost dim) and multiply by the leaf element size; VLA locals keep the existing slot. (First cut of this fix keyed on `vla_slot_off` alone and regressed `execute/20221006-1` - VLA *locals* also have the slot; the `is_param` gate caught it.)
+4. **Complex args through no-prototype calls** (`execute/20010605-2`): with `void foo ();` + `foo(x)` (`x` `_Complex double`), the caller applied the complex->scalar real-part extraction (C99 6.3.1.7) because the declared param "isn't complex" - but a no-prototype declaration names no parameter, and default argument promotions keep `_Complex T` complex. Real-part extraction now requires the declaration to actually name a non-complex parameter at that position; otherwise the complex value is marshalled as complex (two consecutive FP slots).
+
+### Tests & verification
+
+- New regression tests (swept by `make test` / `make test-opt` at `-O0..-O3`, JIT + AOT): `test/jit/noproto_complex_call.c`, `test/jit/fptr_arg_conv.c`, `test/jit/vla_param_stride.c` (VLA param stride + both mirror forms), `test/jit/cpp_num_suffix.c`.
+- `make test` **163/163**, `make test-opt` **125 ok**, `make test-driver` 37/37, `make test-isa-qemu` 59/59, `diag_battery` baseline OK (re-recorded for the implicit-decl warning), `style_check` 0 errors, `vtable_check` PASS.
+- c-torture full gate: **PASS 3,575** (was 3,346), NO-REF 184, SKIP-C89 100, remaining SKIP-TARGET: untyped_assembly 40, int128 7, named_sections 3, unwrapped 2, arm 1, asm_named_reg 1 (pr51447), trampolines 1 (`compile/nested-1.c` - VLA struct member, out of scope), REF-BUG 3, 0 MISCOMPILE / 0 REJECT / 0 bad. **Baseline ratcheted** (`test/torture/baseline.json`).
+
 # ZeroCC Changelog
 
 ## [Sprint 98] - 2026-11-04 - K&R (Old-Style) Function Definitions, Top-Level + Nested (76 SKIP-C89 -> PASS, 3,346 PASS)

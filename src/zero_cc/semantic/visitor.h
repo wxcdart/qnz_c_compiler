@@ -112,6 +112,17 @@ void sem_walk_node(SemContext *ctx, ZeroCCASTNode *node);
  */
 TypeInfo *sem_analyze_ref(SemContext *ctx, ASTRef ref);
 
+/**
+ * gnu89 implicit function declaration: a call through an identifier with no
+ * visible declaration gets an implicit `int name(...)` (old-style, no
+ * prototype) declaration in the current scope, with a warning (GCC's default
+ * -Wimplicit-function-declaration, with a did-you-mean suggestion when a
+ * close name exists). Reserved `__`-prefixed names (builtins/intrinsics) are
+ * NOT implicitly declared - they keep the undeclared-identifier error.
+ * Returns true if a declaration was created.
+ */
+bool sem_implicit_fn_decl(SemContext *ctx, uint32_t line, uint32_t col, const char *name);
+
 #ifdef __cplusplus
 }
 #endif

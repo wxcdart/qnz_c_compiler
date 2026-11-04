@@ -11,8 +11,18 @@ void emit_prologue_mc(ZeroCCCompiler *c, size_t frame_size) {
     /* Sprint 99: snapshot the body-time SP (after frame setup, before any
      * VLA adjustment) for nonlocal-goto pair marshalling. */
     if (c->lowering.sp_snap_off > 0 && BE(c)->emit_store) {
-        BE(c)->emit_store(c, BE(c)->sp_reg, zero_cc_frame_base_reg(c),
-                          zero_cc_frame_disp(c, -c->lowering.sp_snap_off));
+        int32_t sd = zero_cc_frame_disp(c, -c->lowering.sp_snap_off);
+        BE(c)->emit_store(c, BE(c)->sp_reg, zero_cc_frame_base_reg(c), sd);
+        /* Frame-pointer-omitted functions never touch the FP register,
+         * so here it still holds the caller's (entry-time) value. Keep it:
+         * a nonlocal-goto landing point must re-establish that value after
+         * the foreign jump overwrites the register with the target anchor,
+         * otherwise the caller's frame pointer is clobbered when this
+         * function returns (the OFP epilogue has no `leave`). */
+        if (c->lowering.fp_snap_off > 0 && c->lowering.omit_frame_pointer) {
+            int32_t fd = zero_cc_frame_disp(c, -c->lowering.fp_snap_off);
+            BE(c)->emit_store(c, BE(c)->fp_reg, zero_cc_frame_base_reg(c), fd);
+        }
     }
     /* Save used callee-saved GPRs in the prologue before function body executes */
     uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
@@ -1154,8 +1164,31 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
             case OP_LABEL:
                 if (instr->label_idx < label_count) {
                     size_t label_idx = instr->label_idx;
+                    /* Sprint 99: a nonlocal-goto landing point in a
+                     * frame-pointer-omitted function must re-establish the
+                     * entry-time FP register (the jump restored the target
+                     * anchor, but the OFP epilogue never puts the caller's
+                     * value back). The label must point AT the restore
+                     * instruction, so record the offset first, then emit.
+                     * Local jumps landing here are unaffected: in OFP mode
+                     * the FP register already holds the entry value. */
+                    bool nl_landing = false;
+                    if (c->lowering.omit_frame_pointer && c->lowering.fp_snap_off > 0 &&
+                        BE(c)->emit_load) {
+                        const ZeroCCFunction *lf = &c->functions[c->lowering.current_func_idx];
+                        for (int li = 0; li < lf->nl_label_count; li++) {
+                            if (lf->nl_label_ir[li] == (uint16_t)label_idx) {
+                                nl_landing = true;
+                                break;
+                            }
+                        }
+                    }
                     label_defined[label_idx] = true;
                     label_offsets[label_idx] = BE(c)->get_code_offset(c);
+                    if (nl_landing) {
+                        BE(c)->emit_load(c, BE(c)->fp_reg, zero_cc_frame_base_reg(c),
+                                         zero_cc_frame_disp(c, -c->lowering.fp_snap_off));
+                    }
                     for (size_t j = 0; j < label_patch_counts[label_idx]; j++) {
                         BE(c)->patch_jmp(c, label_patches[label_idx][j], label_offsets[label_idx]);
                     }

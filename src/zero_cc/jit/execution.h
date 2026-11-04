@@ -67,6 +67,15 @@ static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
                 void *host_fn = zero_cc_resolve_symbol(c->relocs[i].target_symbol);
                 if (host_fn) {
                     memcpy(c->text_section.data + c->relocs[i].text_patch_offset, &host_fn, 8);
+                } else {
+                    /* Undefined external (JIT): the AOT linker reports
+                     * "undefined reference" for this; surface the same
+                     * failure as a clean compile error instead of leaving
+                     * a zeroed call target that segfaults at runtime. */
+                    fprintf(stderr, "Compile error: undefined reference to '%s'\n",
+                            c->relocs[i].target_symbol);
+                    zero_mmap_free(mem, total_sz);
+                    return -1;
                 }
             }
         } else if (c->relocs[i].is_call) {
@@ -81,6 +90,13 @@ static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
                     intptr_t delta = (intptr_t)host_fn - (intptr_t)call_site;
                     int32_t rel = (int32_t)delta;
                     memcpy(c->text_section.data + c->relocs[i].text_patch_offset, &rel, 4);
+                } else {
+                    /* Undefined external (JIT): clean compile error instead
+                     * of a zeroed rel32 that jumps to address 0. */
+                    fprintf(stderr, "Compile error: undefined reference to '%s'\n",
+                            c->relocs[i].target_symbol);
+                    zero_mmap_free(mem, total_sz);
+                    return -1;
                 }
             }
         } else if (strncmp(c->relocs[i].target_symbol, "__data_", 7) == 0) {

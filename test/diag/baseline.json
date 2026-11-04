@@ -128,11 +128,9 @@
       ]
     },
     "12_undeclared_call": {
-      "expect_rc_zero": false,
-      "zerocc_error_count": 1,
-      "zerocc_categories": [
-        "undeclared-ident"
-      ],
+      "expect_rc_zero": true,
+      "zerocc_error_count": 0,
+      "zerocc_categories": [],
       "gcc_error_count": 0,
       "gcc_categories": []
     },
@@ -155,10 +153,11 @@
         "expected-punctuator",
         "undeclared-ident"
       ],
-      "gcc_error_count": 2,
+      "gcc_error_count": 3,
       "gcc_categories": [
         "arg-count",
-        "expected-punctuator"
+        "expected-punctuator",
+        "undeclared-ident"
       ]
     },
     "15_multi_error_5": {

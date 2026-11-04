@@ -82,6 +82,17 @@ static void x86_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
             fprintf(out, "\tmovq\t%%%s, %d(%%%s)\n", reg_name,
                     (int)zero_cc_frame_disp(c, -offset), base_name);
         }
+
+        /* Sprint 99: SP snapshot (pair marshalling) + entry-rbp snapshot
+         * (rbp is still the caller's value in OFP mode). */
+        if (c->lowering.sp_snap_off > 0) {
+            fprintf(out, "\tmovq\t%%rsp, %d(%%%s)\n",
+                    (int)zero_cc_frame_disp(c, -c->lowering.sp_snap_off), base_name);
+            if (c->lowering.fp_snap_off > 0) {
+                fprintf(out, "\tmovq\t%%rbp, %d(%%%s)\n",
+                        (int)zero_cc_frame_disp(c, -c->lowering.fp_snap_off), base_name);
+            }
+        }
         return;
     }
 
@@ -112,6 +123,12 @@ static void x86_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
         const char *reg_name = BE(c)->get_hw_reg_name(reg);
         int offset = BE(c)->conv->callee_save_slot_offsets[i];
         fprintf(out, "\tmovq\t%%%s, -%d(%%rbp)\n", reg_name, offset);
+    }
+
+    /* Sprint 99: SP snapshot for nonlocal-goto pair marshalling (FP mode:
+     * raw rbp-relative offsets). */
+    if (c->lowering.sp_snap_off > 0) {
+        fprintf(out, "\tmovq\t%%rsp, -%d(%%rbp)\n", (int)c->lowering.sp_snap_off);
     }
 }
 

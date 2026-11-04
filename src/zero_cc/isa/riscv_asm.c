@@ -93,6 +93,11 @@ static void riscv_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
                 fprintf(out, "\t%s\t%s, 0(t0)\n", st_op, reg_name);
             }
         }
+        /* Sprint 99: SP snapshot for nonlocal-goto pair marshalling. */
+        if (c->lowering.sp_snap_off > 0) {
+            fprintf(out, "\t%s\tsp, %d(sp)\n", st_op,
+                    (int)(frame - (size_t)c->lowering.sp_snap_off));
+        }
         return;
     }
 
@@ -116,6 +121,16 @@ static void riscv_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
             int offset = BE(c)->conv->callee_save_slot_offsets[i];
             fprintf(out, "\t%s\t%s, %d(sp)\n", s, reg_name,
                     (int)(aligned_sz - (size_t)offset));
+        }
+        /* Sprint 99: SP snapshot + entry-s0 snapshot (s0 is untouched in
+         * OFP mode, so it still holds the caller's value). */
+        if (c->lowering.sp_snap_off > 0) {
+            fprintf(out, "\t%s\tsp, %d(sp)\n", s,
+                    (int)(aligned_sz - (size_t)c->lowering.sp_snap_off));
+            if (c->lowering.fp_snap_off > 0) {
+                fprintf(out, "\t%s\ts0, %d(sp)\n", s,
+                        (int)(aligned_sz - (size_t)c->lowering.fp_snap_off));
+            }
         }
         return;
     }
@@ -141,6 +156,14 @@ static void riscv_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
             fprintf(out, "\tsw\t%s, -%d(s0)\n", reg_name, offset);
         } else {
             fprintf(out, "\tsd\t%s, -%d(s0)\n", reg_name, offset);
+        }
+    }
+    /* Sprint 99: SP snapshot for nonlocal-goto pair marshalling. */
+    if (c->lowering.sp_snap_off > 0) {
+        if (c->isa == ISA_RISCV32) {
+            fprintf(out, "\tsw\tsp, -%d(s0)\n", (int)c->lowering.sp_snap_off);
+        } else {
+            fprintf(out, "\tsd\tsp, -%d(s0)\n", (int)c->lowering.sp_snap_off);
         }
     }
 }

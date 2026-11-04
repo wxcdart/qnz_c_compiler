@@ -368,6 +368,10 @@ void ir_dump(const ZeroCCCompiler *c, FILE *f) {
                             break;
             case OP_LONGJMP: fprintf(f, "LONGJMP [r%u], r%u", instr->temp_src1, instr->temp_src2);
                              break;
+            case OP_NONLOCAL_GOTO: fprintf(f, "NONLOCAL_GOTO r%u, r%u -> fn%d:L%u",
+                              instr->temp_src1, instr->temp_src2,
+                              (int)instr->imm64, instr->label_idx);
+                             break;
             case OP_PROLOGUE: fprintf(f, "PROLOGUE %lld", (long long)instr->imm64);
                               break;
             case OP_EPILOGUE: fprintf(f, "EPILOGUE");
