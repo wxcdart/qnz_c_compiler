@@ -342,6 +342,13 @@ typedef struct ZeroCCFunction {
     char *nl_labels[32];
     uint16_t nl_label_ir[32];
     int nl_label_count;
+    /* GNU __attribute__((section("name"))): named ELF section for AOT -c
+     * function code (Sprint 108).  Empty = default .text.  The code stays in
+     * text_section (JIT-safe); at -c emission a copy is emitted in the named
+     * PROGBITS|EXECINSTR section and the symbol is placed there at
+     * named_text_sec_off.  The .text copy is left in place (dead). */
+    char section[64];
+    size_t named_text_sec_off;
 } ZeroCCFunction;
 
 /* Relocation Record */

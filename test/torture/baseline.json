@@ -1,6 +1,6 @@
 {
  "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
- "generated": "2026-11-04T22:16:36Z",
+ "generated": "2026-11-04T22:38:39Z",
  "tests": {
   "compile/103818.c": {
    "class": "PASS",
@@ -15012,8 +15012,11 @@
    "note": ""
   },
   "compile/section.c": {
-   "class": "SKIP-TARGET:named_sections",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/selfrec.c": {
@@ -41393,7 +41396,7 @@
  "totals": {
   "EXPECTED-REJECT": 4,
   "NO-REF": 184,
-  "PASS": 3674,
+  "PASS": 3675,
   "REF-BUG": 3,
   "SKIP-BOGUS": 1,
   "SKIP-C89": 47,
@@ -41401,7 +41404,6 @@
   "SKIP-REFSEM": 16,
   "SKIP-TARGET:arm": 1,
   "SKIP-TARGET:int128": 7,
-  "SKIP-TARGET:named_sections": 1,
   "SKIP-UB": 1
  }
 }

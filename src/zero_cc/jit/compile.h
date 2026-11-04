@@ -1247,6 +1247,15 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         snprintf(fn->name, sizeof(fn->name), "%s", fn_name);
         /* Record text_offset BEFORE emitting any prologue bytes for this function */
         fn->text_offset = c->text_section.length;
+        /* Sprint 108: GNU __attribute__((section("name"))) on a function.  The
+         * file-scope loop already stripped the __zc_section__("name") marker and
+         * recorded the name in c->pending_section.  Record it here so the AOT -c
+         * emitter places the function's code in the named section.  (The code is
+         * still emitted into text_section so JIT execution is unaffected.) */
+        fn->section[0] = '\0';
+        if (c->pending_section[0]) {
+            snprintf(fn->section, sizeof(fn->section), "%s", c->pending_section);
+        }
         fn->param_count = param_count;
         fn->return_type = fn_ret_type;
         fn->returns_struct = (fn_ret_type.tag == TYPE_STRUCT || fn_ret_type.tag == TYPE_UNION ||

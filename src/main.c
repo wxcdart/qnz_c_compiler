@@ -728,6 +728,88 @@ static int compile_object_single(CompileOptions *opts, const char *input,
         }
     }
 
+    /* ---- Named text sections: GNU __attribute__((section("name"))) on functions ----
+     * A function's code is emitted into text_section as usual (JIT-safe).  At -c
+     * emission, each function with a section is copied out of text_section into a
+     * dedicated PROGBITS|EXECINSTR section and its symbol is emitted there (below).
+     * The .text copy is left in place (dead, and no symbol points to it).  A
+     * function's extent in text_section is [text_offset, next-function-text_offset)
+     * (or to the end of the section for the last one); a contiguous copy preserves
+     * the function's internal relative offsets. */
+    {
+        size_t fcn = comp->function_count;
+        enum { MAX_NTS = 16 };
+        char nts_names[MAX_NTS][64];
+        size_t nts_size[MAX_NTS];
+        int nts_count = 0;
+        for (int k = 0; k < MAX_NTS; k++) { nts_size[k] = 0; }
+
+        size_t *extent_end = (size_t *)calloc(fcn ? fcn : 1, sizeof(size_t));
+        size_t *order = (size_t *)calloc(fcn ? fcn : 1, sizeof(size_t));
+        size_t nreal = 0;
+        for (size_t i = 0; i < fcn; i++) {
+            ZeroCCFunction *f = &comp->functions[i];
+            if (f->name[0] && !f->is_prototype && !f->is_external && !f->is_object) {
+                order[nreal++] = i;
+            }
+        }
+        /* insertion sort by text_offset (n is small) */
+        for (size_t i = 1; i < nreal; i++) {
+            size_t key = order[i]; size_t j = i;
+            while (j > 0 && comp->functions[order[j - 1]].text_offset > comp->functions[key].text_offset) {
+                order[j] = order[j - 1]; j--;
+            }
+            order[j] = key;
+        }
+        for (size_t i = 0; i < nreal; i++) {
+            size_t fi = order[i];
+            size_t end = (i + 1 < nreal) ? comp->functions[order[i + 1]].text_offset
+                                         : comp->text_section.length;
+            extent_end[fi] = end;
+        }
+
+        /* lay out sectioned functions in named sections (in text_offset order) */
+        for (size_t i = 0; i < nreal; i++) {
+            size_t fi = order[i];
+            ZeroCCFunction *f = &comp->functions[fi];
+            if (!f->section[0]) continue;
+            int si = -1;
+            for (int k = 0; k < nts_count; k++)
+                if (strcmp(nts_names[k], f->section) == 0) { si = k; break; }
+            if (si < 0) {
+                if (nts_count >= MAX_NTS) { f->section[0] = '\0'; continue; } /* degrade to .text */
+                si = nts_count++;
+                strncpy(nts_names[si], f->section, 63);
+                nts_names[si][63] = '\0';
+                nts_size[si] = 0;
+            }
+            f->named_text_sec_off = nts_size[si];
+            nts_size[si] += extent_end[fi] - f->text_offset;
+        }
+
+        /* emit the named text sections (copy the code bytes out of text_section) */
+        for (int k = 0; k < nts_count; k++) {
+            size_t total = nts_size[k];
+            if (total == 0) continue;
+            uint8_t *buf = (uint8_t *)calloc(total, 1);
+            if (!buf) continue;
+            for (size_t i = 0; i < nreal; i++) {
+                size_t fi = order[i];
+                ZeroCCFunction *f = &comp->functions[fi];
+                if (strcmp(f->section, nts_names[k]) != 0) continue;
+                size_t sz = extent_end[fi] - f->text_offset;
+                if (f->text_offset + sz <= comp->text_section.length)
+                    memcpy(buf + f->named_text_sec_off,
+                           comp->text_section.data + f->text_offset, sz);
+            }
+            elf_writer_add_section(&elf_ctx, nts_names[k], buf, total,
+                                   ELF_SHT_PROGBITS, ELF_SHF_ALLOC | ELF_SHF_EXECINSTR, 16);
+            free(buf); /* copied into the writer */
+        }
+        free(extent_end);
+        free(order);
+    }
+
     /* Resolve real section indices: empty sections are not emitted, so the
      * positions of later sections shift (a no-.text object has .data at 1). */
     uint16_t text_idx = elf_writer_section_index(&elf_ctx, ".text");
@@ -806,12 +888,24 @@ static int compile_object_single(CompileOptions *opts, const char *input,
 
             /* Estimate function size (simplified - in reality would need more analysis) */
             size_t fn_size = 0;  /* Could be computed from next function's offset */
+            int binding = fn->is_static ? ELF_STB_LOCAL : ELF_STB_GLOBAL;
+            int sym_type = fn->is_external ? ELF_STT_NOTYPE : ELF_STT_FUNC;
+            if (fn->section[0]) {
+                /* Sprint 108: function in a named section - symbol lives in the
+                 * named text section at its placed offset.  If the section was not
+                 * emitted (zero size), fall through to .text where the code is. */
+                uint16_t nti = elf_writer_section_index(&elf_ctx, fn->section);
+                if (nti != 0) {
+                    elf_writer_add_symbol(&elf_ctx, fn_sym,
+                                          binding, sym_type,
+                                          nti, fn->named_text_sec_off, fn_size);
+                    continue;
+                }
+            }
             int section_idx = SHN_UNDEF;  // Default to undefined
             if (!fn->is_prototype && !fn->is_external) {
                 section_idx = text_idx;  // Compiled functions go in .text
             }
-            int binding = fn->is_static ? ELF_STB_LOCAL : ELF_STB_GLOBAL;
-            int sym_type = fn->is_external ? ELF_STT_NOTYPE : ELF_STT_FUNC;
             elf_writer_add_symbol(&elf_ctx, fn_sym,
                                   binding, sym_type,
                                   section_idx,

@@ -399,10 +399,10 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
         /* GNU __attribute__((section("name"))): the preprocessor rewrites it to
          * `__zc_section__("name")`.  Consume the marker here (before dispatch) so
          * the declaration parses normally, and record the section name so
-         * add_global_var places the object in the named section for AOT -c object
-         * output.  Only object placement is supported; function-section routing
-         * (compile/section.c) is not (blocklisted). */
-        c->pending_object_section[0] = '\0';
+         * add_global_var places the object (or the function registration,
+         * Sprint 108, places the function) in the named section for AOT -c
+         * output.  Both object and function section routing are supported. */
+        c->pending_section[0] = '\0';
         {
             size_t dstart = c->token_pos;
             int paren = 0, brace = 0;
@@ -427,9 +427,9 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                         c->tokens[p + 2].type == TK_STRING &&
                         c->tokens[p + 3].type == TK_RPAREN) {
                         const char *sv = c->tokens[p + 2].allocated_str ? c->tokens[p + 2].allocated_str : c->tokens[p + 2].str_val;
-                        if (!c->pending_object_section[0]) {
-                            strncpy(c->pending_object_section, sv, sizeof(c->pending_object_section) - 1);
-                            c->pending_object_section[sizeof(c->pending_object_section) - 1] = '\0';
+                        if (!c->pending_section[0]) {
+                            strncpy(c->pending_section, sv, sizeof(c->pending_section) - 1);
+                            c->pending_section[sizeof(c->pending_section) - 1] = '\0';
                         }
                         size_t after = p + 4;
                         memmove(&c->tokens[p], &c->tokens[after], (c->token_count - after) * sizeof(c->tokens[0]));
