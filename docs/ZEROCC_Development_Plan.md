@@ -53,13 +53,13 @@ ZeroCC is a multi-ISA C99/C11/C23 compiler targeting x86-64, AArch64, and RISC-V
   - **Toolchain**: T0 Makefile depfiles (`-MMD`/`-MF`/`-MT`), T1 multi-file driver (multi-TU JIT merge, per-input `-c`/`-S`, `-E` mode, compatibility flags; `make test-driver` **37/37**) and T2 own static linker (ELF64 + `ar` readers, ET_EXEC output, `--zerocc-link` across **x86-64, AArch64, and RISC-V64**; `make test-linker` **21/21**) — OKF: `multi-tu.md`, `own-linker.md`.
 - **zero_rt (Phase 0 & Phase 1, Linux x86-64, AArch64, RISC-V64)**: ZeroCC-owned freestanding runtime compiled by zerocc itself across all three 64-bit architectures (`build/lib/zero_rt.a`, `build/lib/zero_rt_aarch64.a`, `build/lib/zero_rt_riscv64.a`) with 100% test battery parity (brk heap, strings, atexit/exit with `zeroc_main_wrapper`, unbuffered stdio with vendored Ryū float formatting); auto-linked by `--zerocc-link`. OKF: `zero-rt.md`.
 
-### 📊 Test & Verification Coverage (verified 2026-11-04 at HEAD)
-- **Main Regression Suite (`make test`)**: **160+/160+** passing — host-gcc compiled test binaries exercising the compiler's internal APIs (lexer/parser/IR). Per `AGENTS.md`, optimizer/codegen changes must be verified directly with `./build/bin/zerocc` (`--run` and `-o`) at the affected `-O` levels.
+### 📊 Test & Verification Coverage (verified 2026-11-05 at HEAD)
+- **Main Regression Suite (`make test`)**: **168+/168+** passing — host-gcc compiled test binaries exercising the compiler's internal APIs (lexer/parser/IR). Per `AGENTS.md`, optimizer/codegen changes must be verified directly with `./build/bin/zerocc` (`--run` and `-o`) at the affected `-O` levels.
 - **Direct-zerocc verifiers**: `tools/mem2reg_verifier.py` (12/12), `tools/sret_verifier.py` (6/6), `tools/c11/test_c11.py` (11/11), `tools/vla/test_vla.py` (11/11), `tools/licm_verifier.py`, `tools/licm_test_suite.py` (5/5), `tools/cfg_verifier.py` (CFG cross-check), `tools/extension_verifier.py` (14/14 GNU extensions), `tools/literal_verifier.py`, `tools/prologue_epilogue_verifier.py` (all 4 ISAs), `tools/opt_sweep.py` / `make test-opt` (definitive optimizer gate: `-O0..-O3`, JIT + AOT, zerocc itself).
 - **Cross-ISA Raw-Emitter QEMU Gate (`make test-isa-qemu`)**: **44/44 passing (100%)** across all 4 target ISAs differential-tested against static-musl under QEMU.
 - **Multi-TU Driver Gate (`make test-driver`)**: **37/37**.
 - **Own-Linker Gate (`make test-linker`)**: **21/21** (x86-64, AArch64, RISC-V64 under QEMU).
-- **GCC `c-torture` Conformance Gate (`make test-torture` / `python3 tools/torture_run.py`)**: differential-tests ZeroCC against `gcc -O1` across the 3,940-file `gcc.c-torture` corpus (`execute/` at `-O0..-O3` × `{JIT, AOT}`, `compile/` at `-O0/-O2`), ratcheting `test/torture/baseline.json` (**`PASS: 3,266`**, **`REJECT: 0`**, **`MISCOMPILE: 0`**, **`TIMEOUT: 0`**, `SKIP-TARGET: 11` trampoline-related). Achieved via Sprints 57-96: zero MISCOMPILE, zero REJECT, zero TIMEOUT.
+- **GCC `c-torture` Conformance Gate (`make test-torture` / `python3 tools/torture_run.py`)**: differential-tests ZeroCC against `gcc -O1` across the 3,940-file `gcc.c-torture` corpus (`execute/` at `-O0..-O3` × `{JIT, AOT}`, `compile/` at `-O0/-O2`), ratcheting `test/torture/baseline.json` (**`PASS: 3,346`**, **`REJECT: 0`**, **`MISCOMPILE: 0`**, **`TIMEOUT: 0`**, `SKIP-TARGET: 11` trampoline-related). Achieved via Sprints 57-98: zero MISCOMPILE, zero REJECT, zero TIMEOUT.
 - **OKF v0.2 Knowledge Graph (`python3 tools/okf.py lint`)**: **18 files valid** (17 concept pages + `log.md`), links & graph reachability verified (18/18 reachable).
 - **C Style Checker (`python3 tools/style_check.py`)**: **0 errors** baseline.
 - **Diagnostics Battery (`python3 tools/diag_battery.py`)**: differential diagnostics vs gcc on `test/diag/*.c` corpus; ratcheting `test/diag/baseline.json`.
@@ -135,24 +135,26 @@ For detailed architectural invariants, consult the OKF Knowledge Graph in [`docs
 
 ## Next Steps (Future Roadmap)
 
-### ⚡ Current Priorities (as of 2026-11-04, verified at HEAD)
+### ⚡ Current Priorities (as of 2026-11-05, verified at HEAD)
 
 1. **Memory-Error Sanitizer (`-fsanitize=address`) — next optimization/verification sprint.**
    - Prerequisite: mature `zero_rt` with ZeroCC-owned allocators (malloc/free).
    - Scope: 16 TB virtual shadow memory mapping (`0x00007fff8000`–`0x10007fff8000`), allocator poisoning, global and stack frame redzones, 3–5 instruction shadow-byte checks on every load/store. Instrumented in lowering (`ast_lowering_expr.c`/`ast_lowering_stmt.c`).
    - Lighter-weight alternatives to consider first: `-fsanitize-trap=undefined` (trap-based UBSan with no runtime), `-ftrapv` (signed overflow via `jo`/overflow branches), `-fstack-protector` (canary word before saved FP/RA).
 
-2. **RISC-V 32-bit (`rv32`) own linker & `zero_rt` runtime** — ELF32 static executable output (`EM_RISCV`, `ELFCLASS32`) and RV32 freestanding runtime (`zero_rt_riscv32.a`). Word-sized `sw`/`lw` for 4-byte slots (`BE(c)->isa == ISA_RISCV32`).
+2. **Nonlocal goto (`goto` to an enclosing scope)** — Sprint 99 landed Sprint 99: hidden `(rbp, rsp)` pair parameters per ancestor scope (`__nlgbp_*` / `__nlbsp_*` pairs in the ctx), `__label__` support (`zc_sym_load`/`zc_sym_store`/`zc_sym_addr` for label values), nonlocal `goto` restores the target scope's `(rbp, rsp)` from the pair params then jumps via `ir_emit_nonlocal_goto`. Trampoline stubs now also forward the pair words between captures and user params. Multi-level nesting supported; pair words travel through intermediate nested functions' ctx. Verified by `make test-torture` (0 bad) and `make test-opt` (120/120 OK).
 
-3. **Loop unrolling** — next CFG-enabled optimization after the sanitizer work. Dominators and natural loops are available on-demand via the CFG layer (`opt/cfg.{h,c}`).
+3. **RISC-V 32-bit (`rv32`) own linker & `zero_rt` runtime** — ELF32 static executable output (`EM_RISCV`, `ELFCLASS32`) and RV32 freestanding runtime (`zero_rt_riscv32.a`). Word-sized `sw`/`lw` for 4-byte slots (`BE(c)->isa == ISA_RISCV32`).
 
-4. **zero_rt Linker Phases 2–3: Windows PE/COFF + Win64 ABI (`T3-Win`) and macOS Mach-O (`T4-Mac`)** — PE/COFF object/executable writer, Win64 ABI vtable (shadow space, arg regs rcx/rdx/r8/r9, no red zone), kernel32 OS boundary wrappers; Mach-O object/executable writer, Mach syscall numbers.
+4. **Loop unrolling** — next CFG-enabled optimization after the sanitizer work. Dominators and natural loops are available on-demand via the CFG layer (`opt/cfg.{h,c}`).
 
-5. **DWARF debug information (`-g`)** — debug line tables (`.debug_line`) and basic symbol info (`.debug_str`, `.debug_info`).
+5. **zero_rt Linker Phases 2–3: Windows PE/COFF + Win64 ABI (`T3-Win`) and macOS Mach-O (`T4-Mac`)** — PE/COFF object/executable writer, Win64 ABI vtable (shadow space, arg regs rcx/rdx/r8/r9, no red zone), kernel32 OS boundary wrappers; Mach-O object/executable writer, Mach syscall numbers.
 
-6. **Full SSA form** — rewrite the flat, non-SSA linear `Instr` array into SSA with dominators and out-of-SSA (coalescing). Only if CFG-based passes (LICM, mem2reg, vectorizer) demonstrably hit a wall. Requires: dominator tree (Cooper–Harvey–Kennedy), SSA construction, phi-node lowering.
+6. **DWARF debug information (`-g`)** — debug line tables (`.debug_line`) and basic symbol info (`.debug_str`, `.debug_info`).
 
-7. **IR cleanup** — move call arguments into the instruction stream (remove the `instr_index`-keyed `IRCallArgs` side table), move physical registers out of the temp namespace (decouple `TEMP_NONE` sentinel from the ID space), add type tags to `Instr`.
+7. **Full SSA form** — rewrite the flat, non-SSA linear `Instr` array into SSA with dominators and out-of-SSA (coalescing). Only if CFG-based passes (LICM, mem2reg, vectorizer) demonstrably hit a wall. Requires: dominator tree (Cooper–Harvey–Kennedy), SSA construction, phi-node lowering.
+
+8. **IR cleanup** — move call arguments into the instruction stream (remove the `instr_index`-keyed `IRCallArgs` side table), move physical registers out of the temp namespace (decouple `TEMP_NONE` sentinel from the ID space), add type tags to `Instr`.
 
 ---
 
@@ -167,4 +169,6 @@ These items from earlier roadmap sections are all complete:
   - `src/zero_cc/opt/` (IR optimization passes & profiling)
 - **Unified Type System Bridge (`ZeroCCType` ↔ `TypeInfo`) ✅**: Unified base-type resolution (`zero_cc_resolve_base_type`), bidirectional type conversion (`zero_cc_type_to_typeinfo`, `typeinfo_to_zero_cc_type`), single-source array/pointer declarator construction in `ast_stmt.h`, and canonical AST node type accessors (`ast_node_get_typeinfo`, `ast_node_set_typeinfo`) in `src/zero_cc/jit/type_info.h`.
 - **Register Allocator Spill/Reload in AOT Assembly (`asm_emitter.c`) ✅**: Mirrored `ast_lowering_mc.c`'s scratch-register (`%r10`/`%r11`, `x9`/`x10`, `t0`/`t1`) spill reload/store handling in `asm_emitter.c` and `isa/*_asm.c`; enforced strict callee-saved-only allocation (or stack spill) for `spans_call` intervals in `regalloc.h`.
+- **Trampoline stubs on AArch64 & RISC-V64 (Sprint 97) ✅**: Each capturing nested function emits a stub with the user-facing signature (`zero_cc_aarch64_emit_tramp_stub` / `zero_cc_riscv_emit_tramp_stub`) that rebuilds the full ABI argument stream from user args + context object (`__zf<N>_<name>_ctx`) and `call`s the real nested function. Stub entry layout mirrors the function prologue (callee-saved GPR/FP/stack save areas), and ctx words are populated from `32*C + 16*i` offsets.
+- **K&R (old-style) function definitions (Sprint 98) ✅**: Declarator parser recognizes `int f(a) int a; { ... }` as a K&R definition at both file scope and block scope; K&R aux locals declared in the parameter block are added before body lowering (`zero_cc_add_local` + `is_param=true`); body lowering resolves K&R param names via `zero_cc_find_local` (by parameter index).
 
