@@ -320,9 +320,25 @@ ZeroCC implements widely-used GNU/Clang language extensions verified differentia
   - Lowering in `src/zero_cc/ir/ast_lowering_expr.c` executes all leading statements and evaluates the last expression statement into the result virtual register.
   - Supports loops, nested statement expressions, and complex macros (e.g. `max(a, b)` with `__typeof__`).
 
-## GNU Nested Functions — Clean Rejection (C99 6.9p15)
+## GNU Nested Functions / Trampolines (C99 6.9p15)
 
-Function **definitions** inside a block (the GNU nested-function/trampoline extension, e.g. `int f(void) { int g(void) { return 1; } return g(); }`) are **rejected** with `error: nested function definition of '<name>' is not supported (GNU extension)`, emitted in the statement parser's function-definition path (`src/zero_cc/parser/ast_stmt.h`) and followed by a brace-depth-counted skip of the body so the enclosing function keeps parsing. The extension was previously *silently accepted* — AOT emitted `call` to a symbol that was never defined (link failure) and JIT aliased the register file without closure capture (crashes: c-torture `execute/nestfunc-7.c`, `execute/pr103405.c`). Local function **prototypes** remain legal C (declarations are allowed in blocks; C99 6.9p15 forbids only definitions). `gcc -std=c11 -pedantic-errors` rejects nested definitions too, so the c-torture gate triages these tests as `SKIP-C89`.
+Function **definitions** inside a block (the GNU nested-function/trampoline extension, e.g. `int f(void) { int g(void) { return 1; } return g(); }`) are **accepted** in JIT mode on x86-64, replacing the previous clean rejection.
+
+- **Phase 2 — Closure capture by-value (Sprint 90)**: every enclosing local in scope at the nested definition is passed as a hidden leading parameter to the nested function (nested signature = captured_0..N, user_params). The caller loads the current values of captured variables at the call site. Non-capturing nested functions (no captured locals) compile and run correctly at all `-O` levels in both JIT and AOT. Capturing nested functions pass correctly in JIT mode.
+
+- **Phase 3a — By-reference capture (Sprint 91)**: scalar captures are passed as pointers (`T*`). The hidden param is `T*` (the call site passes `zc_sym_addr` of the enclosing slot); the param symbol is marked `ZeroCCSym.is_capture_mirror` and retyped to the pointee type. Every body access routes through `zc_sym_load`/`zc_sym_store`/`zc_sym_addr`, which for a mirror loads the slot's pointer value and dereferences it (stores use the pointee width). mem2reg stays off for both the nested function and any enclosing function with by-ref captures (captured locals must keep stable frame slots); param promotion is disabled when a by-ref capture param exists.
+
+- **Phase 3a-2 — Runtime VLA parameter dimensions (Sprint 92)**: non-constant param dims (`int f(char a[2][++N])`) are recorded; dim expressions evaluated at entry; the innermost dim value is stored in a runtime size slot; `sizeof(expr)` on a VLA local/param emits a load of that slot.
+
+- **Phase 3b — Real trampolines (Sprint 93)**: each capturing nested function gets a static **context object** (`__zf<N>_<name>_ctx`, 32 bytes/capture) populated at address-taking time, and a **stub function** with the user-facing signature that rebuilds the full ABI argument stream from user args + context and calls the real function. x86 stub: `movaps`/`push`/`lea`/`movabs` encodings; entry stack args at `[rbp+16+8m]`.
+
+- **Symbol collision**: nested functions are block-scoped and may share source names across enclosing functions; each is emitted under a unique mangled symbol (`__zf<idx>_<name>`). Call sites resolve via the **enclosing chain** (innermost level wins); every name-resolution site (AOT `.o` writer in `main.c`, JIT call patcher in `execution.h`, x86-64/RISC-V JIT call emitters) maps mangled names back via `zero_cc_find_function_by_symbol`.
+
+- **Multi-level nesting**: the deferred nested-compile loop must not truncate `function_count` below the count after a nested re-parse, or functions registered inside another nested body are discarded. A nested function capturing another nested function's by-ref pointer parameter renames that param to `__zc_cap<N>_<i>` at registration.
+
+- **Global-scope invariant**: nested functions are registered with their **user-parameter** prototype only (never `param_count`, which includes hidden captures).
+
+- **Remaining gap**: nonlocal goto (nested function `goto` jumping to an enclosing label: `execute/20050122-1.c`, `execute/nestfunc-5.c`, `execute/nestfunc-6.c`, `execute/pr24135.c`), K&R definitions (`execute/920428-2.c`, `execute/920501-7.c`, `execute/921017-1.c`, `execute/921215-1.c`, `execute/comp-goto-2.c`), VLA struct members (`execute/nested-1.c`), and gnu89 implicit decls (`execute/930506-2.c`) remain `SKIP-TARGET:trampolines` (11 tests).
 
 ## GNU `__attribute__((__vector_size__(N)))` Vector Types
 

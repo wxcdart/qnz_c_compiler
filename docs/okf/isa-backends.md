@@ -280,6 +280,24 @@ To systematically eliminate raw-emitter and cross-target crashes, three dedicate
 - **RISC-V 64 & 32 (`riscv64_emit_syscall`, `riscv_emit_syscall_asm`)**: Linux RISC-V ABI (`a7 = nr`, `a0..a5 = a1..a6`, `ecall`, result in `a0` / `VREG_0`). Uses word-sized `sw`/`lw` (`4`-byte slots) on `ISA_RISCV32` and `sd`/`ld` (`8`-byte slots) on `ISA_RISCV64`.
 - **Differential Verification (`test/isa_qemu/13_syscall.c`)**: Exercises `SYS_getpid`, `SYS_write`, and `SYS_brk` across all 4 ISAs under `make test-isa-qemu` (**52/52 passing**: 13/13 per ISA in both raw and `-S` assembly modes).
 
+## Trampoline Stubs (Sprint 93, Phase 3b)
+
+Real computed-goto trampolines for indirect calls through nested function pointers (`f = inner; f(x)`):
+
+- Each capturing nested function gets a static **context object** (`__zf<N>_<name>_ctx`, 32 bytes per capture slot) populated at address-taking time (`zc_lower_fn_value` in `ast_lowering_expr.c`):
+  - **By-value capture**: copies the captured value's words into the context object.
+  - **By-reference capture**: stores the pointer value (the enclosing slot's address).
+  - **Multi-level capture**: stores the pointer value of the intermediate capture.
+  - **>32 bytes**: stores the address of the context object itself.
+
+- **Stub function** with the user-facing signature (no hidden context param): emitted right after the real nested function in the same text image (`x86_64_emit_tramp_stub` in `src/zero_cc/isa/x86_64.c`, declared in `src/zero_cc/isa/tramp_stub.h`). The stub:
+  1. Rebuilds the full ABI argument stream (8-byte units per class: GPR slots `{rdi,rsi,rdx,rcx,r8,r9}`, XMM slots, >16B struct sret pointer first).
+  2. Loads context object values into the appropriate argument registers (hidden capture params first, then user args).
+  3. Ensures 16-byte stack alignment.
+  4. `call`s the real nested function; the real function's `ret` lands on the stub's `leave; ret`.
+
+- **x86 stub-encoding invariants**: `movaps m128,xmm` = `0F 28 /r`; `movabs r10` = `4D BA`; `push r/m64` = `FF /6` (not `54 /r`); entry stack args at `[rbp+16+8m]`.
+
 ## Related Concepts
 - Return to [Root Index](./index.md)
 - See [System V AMD64 ABI & Struct Calling Conventions](./abi-sysv-x86_64.md)
