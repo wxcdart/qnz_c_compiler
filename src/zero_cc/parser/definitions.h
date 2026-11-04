@@ -728,6 +728,14 @@ static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c, ZeroCCASTArena
              * instead of falling through to an integer type. */
             ttype = zero_cc_type_va_list();
             c->token_pos++;
+        } else if (tname &&
+                   (strcmp(tname, "__int128") == 0 || strcmp(tname, "__int128_t") == 0 ||
+                    strcmp(tname, "__uint128_t") == 0)) {
+            /* GNU 128-bit base type. `__uint128_t` is always unsigned;
+             * `__int128`/`__int128_t` follow the `unsigned`/`signed` specifier. */
+            bool u = (strcmp(tname, "__uint128_t") == 0) || is_unsigned;
+            ttype = u ? zero_cc_type_uint128() : zero_cc_type_int128();
+            c->token_pos++;
         } else {
             ZeroCCType *found = zero_cc_find_typedef(c, tname);
             if (found) {

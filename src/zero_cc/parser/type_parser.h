@@ -505,10 +505,21 @@ static inline ZeroCCType zero_cc_type_find_member(ZeroCCCompiler *c, ZeroCCType 
  * from the SET of specifiers seen (order-insensitive), instead of the
  * previous one-token-per-branch handling that left trailing specifiers
  * unconsumed ("expected identifier in declaration" on `short int a;`). */
+/* GNU 128-bit base type names (tokenized as identifiers). Returns 0 if the
+ * name is not one of them, 1 for the signed forms (`__int128` / `__int128_t`),
+ * 2 for the always-unsigned `__uint128_t`. */
+static inline int zc_name_int128_kind(const char *name) {
+    if (!name) return 0;
+    if (strcmp(name, "__int128") == 0 || strcmp(name, "__int128_t") == 0) return 1;
+    if (strcmp(name, "__uint128_t") == 0) return 2;
+    return 0;
+}
+
 static inline ZeroCCType zc_parse_basic_type_spec(ZeroCCCompiler *c, size_t *pos) {
     int has_char = 0, has_short = 0, has_long = 0;
     int has_float = 0, has_double = 0;
     int n_unsigned = 0, n_signed = 0;
+    int has_int128 = 0, int128_kind = 0;
     for (;;) {
         ZeroCCTokType u = (*pos < c->token_count) ? c->tokens[*pos].type : TK_EOF;
         if (u == TK_INT) { /* int - carries no extra information */ }
@@ -519,6 +530,12 @@ static inline ZeroCCType zc_parse_basic_type_spec(ZeroCCCompiler *c, size_t *pos
         else if (u == TK_DOUBLE_KW) has_double = 1;
         else if (u == TK_UNSIGNED) n_unsigned++;
         else if (u == TK_SIGNED) n_signed++;
+        else if (u == TK_IDENT) {
+            /* GNU 128-bit base type (`__int128` / `__uint128_t` / `__int128_t`). */
+            int k = zc_name_int128_kind(c->tokens[*pos].str_val);
+            if (k) { has_int128 = 1; int128_kind = k; }
+            else break;
+        }
         /* Type qualifiers interleave with specifiers in any order
          * (C99 6.7.1): `unsigned long long const`, `volatile unsigned
          * int`, ... - they carry no effect on the scalar type here. */
@@ -527,6 +544,12 @@ static inline ZeroCCType zc_parse_basic_type_spec(ZeroCCCompiler *c, size_t *pos
         (*pos)++;
     }
     bool is_unsigned = (n_unsigned > 0) && (n_signed == 0);
+    if (has_int128) {
+        /* `__uint128_t` is always unsigned; `__int128`/`__int128_t` follow
+         * the `unsigned`/`signed` specifier. */
+        bool u = (int128_kind == 2) || is_unsigned;
+        return u ? zero_cc_type_uint128() : zero_cc_type_int128();
+    }
     if (has_double || has_float) {
         if (has_double) return has_long ? zero_cc_type_long_double() : zero_cc_type_double();
         return has_long ? zero_cc_type_long_double() : zero_cc_type_float();
@@ -666,7 +689,11 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
             ty = *tdef;
             (*pos)++;
         } else {
-            ty = zero_cc_type_int();
+            /* GNU 128-bit base type (`__int128` / `__uint128_t` / `__int128_t`). */
+            int i128k = zc_name_int128_kind(name);
+            ty = (i128k == 2) ? zero_cc_type_uint128()
+               : (i128k == 1) ? zero_cc_type_int128()
+               : zero_cc_type_int();
             (*pos)++;
         }
     } else if (t == TK_INT || t == TK_CHAR || t == TK_SHORT || t == TK_LONG ||

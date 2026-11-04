@@ -59,6 +59,15 @@ TypeInfo *type_ulong(Arena *perm) {
     return make_basic(perm, TYPE_KIND_LONG, TYPE_MOD_UNSIGNED);
 }
 
+/* GNU __int128 / unsigned __int128 (16-byte integer). */
+TypeInfo *type_int128(Arena *perm) {
+    return make_basic(perm, TYPE_KIND_INT128, TYPE_MOD_NONE);
+}
+
+TypeInfo *type_uint128(Arena *perm) {
+    return make_basic(perm, TYPE_KIND_INT128, TYPE_MOD_UNSIGNED);
+}
+
 /* C99 6.4.4.1p6: the type of an integer constant.
  * Suffix (bit0 = u, bit1 = l, bit2 = ll) fixes the type even when the value
  * fits in a narrower type (1ULL is long long, not int).  Unsuffixed: the
@@ -160,6 +169,7 @@ bool type_is_integer(const TypeInfo *t) {
         case TYPE_KIND_SHORT:
         case TYPE_KIND_INT:
         case TYPE_KIND_LONG:
+        case TYPE_KIND_INT128:
         case TYPE_KIND_ENUM:
             return true;
         default:
@@ -217,6 +227,7 @@ bool type_equal(const TypeInfo *a, const TypeInfo *b) {
         case TYPE_KIND_SHORT:
         case TYPE_KIND_INT:
         case TYPE_KIND_LONG:
+        case TYPE_KIND_INT128:
         case TYPE_KIND_FLOAT:
         case TYPE_KIND_DOUBLE:
             return true;
@@ -272,6 +283,8 @@ size_t type_size(const TypeInfo *t) {
             return 4;
         case TYPE_KIND_LONG:
             return 8;
+        case TYPE_KIND_INT128:
+            return 16;
         case TYPE_KIND_FLOAT:
             return 4;
         case TYPE_KIND_DOUBLE:
@@ -312,6 +325,8 @@ size_t type_align(const TypeInfo *t) {
             return 4;
         case TYPE_KIND_LONG:
             return 8;
+        case TYPE_KIND_INT128:
+            return 16;
         case TYPE_KIND_FLOAT:
             return 4;
         case TYPE_KIND_DOUBLE:

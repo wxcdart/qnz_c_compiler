@@ -17,6 +17,8 @@ typedef enum {
     TYPE_UINT32,
     TYPE_INT64,
     TYPE_UINT64,
+    TYPE_INT128,    /* GNU __int128: 16-byte signed integer */
+    TYPE_UINT128,   /* GNU unsigned __int128 / __uint128_t */
     TYPE_FLOAT,
     TYPE_DOUBLE,
     TYPE_NULLPTR,

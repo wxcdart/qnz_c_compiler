@@ -1,3 +1,18 @@
+## [Sprint 109] - 2026-11-05 - `__int128` type foundation (Phase 1 of multi-sprint int128)
+
+**Phase 1 of the `__int128` feature: the type system.** GNU's 128-bit integer types (`__int128`, `__int128_t`, `__uint128_t`, `unsigned __int128`) are now a real **16-byte scalar with 16-byte alignment** instead of being silently typed as a 4-byte `int`. This fixes a latent miscompile: `sizeof(__int128)` was **4** (GCC says **16**).
+
+- **`ZeroTypeTag`** (`types/type_system.h`): new `TYPE_INT128` / `TYPE_UINT128`. Constructors `zero_cc_type_int128()` / `zero_cc_type_uint128()` (`types/type_funcs.h`), wired into `is_integer` / `is_signed` / `is_unsigned` / `equal`.
+- **`TypeKind`** (`semantic/type.h`): new `TYPE_KIND_INT128`; `type_int128()` / `type_uint128()` constructors; `type_size`/`type_align` return 16; `type_is_integer` / `type_equal` updated. Conversions both directions in `jit/type_info.h`.
+- **Parser** recognizes the three base-type names in every resolution path: `zc_parse_basic_type_spec` (type_parser.h, the `unsigned __int128` path), the bare-identifier branch of `zero_cc_parse_type_name_at_pos`, the main declaration parser (`parser/definitions.h`), and `zero_cc_tok_is_type_start` (`parser/const_eval.h`, so `sizeof(__int128)` / `_Alignof` treat it as a type).
+- **Safety:** zerocc does **not** define `__SIZEOF_INT128__`, so the 12 c-torture tests that use `__int128` behind `#ifdef __SIZEOF_INT128__` still take their `long long` fallback and are unaffected. The 7 `SKIP-TARGET:int128` tests (which use `__int128` directly) remain skipped until 128-bit arithmetic/codegen lands.
+
+**Verification (all green, no gate change — counts unchanged):** `make test` 170/170, `make test-opt` 132 ok, `make test-driver` 37/37, `make test-isa-qemu` 59/59, c-torture PASS **3,675** / 0 bad, diag/style/vtable/okf clean. New regression test `test/jit/int128_type.c` (sizeof/_Alignof = 16, run under zerocc JIT+AOT and gcc).
+
+*128-bit arithmetic, software division, two-register ABI, codegen, 124-bit bitfields, 128-bit vectors, and `__builtin_mul_overflow` are the remaining phases.*
+
+---
+
 ## [Sprint 108] - 2026-11-05 - `__attribute__((section))` on functions (3,675 PASS, baseline ratcheted)
 
 Function-section routing: `__attribute__((section("name")))` / `__section__("name")` on a **function** now places its code in a named ELF section for AOT `-c` output. The last `SKIP-TARGET:named_sections` test (`compile/section.c`, a function in `.init.text`) now PASSes, **eliminating the `named_sections` bucket entirely**. **c-torture: PASS 3,674 -> 3,675 (+1, 0 bad), SKIP-TARGET:named_sections 1 -> 0, baseline ratcheted.**

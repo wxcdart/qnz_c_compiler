@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-04T22:39:57Z
+timestamp: 2026-11-04T23:04:20Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -918,3 +918,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-04 — Updated `isa-backends.md`
 - Sprint 108: named function sections in AOT -c ELF emission
+
+## 2026-11-04 — Updated `frontend-and-types.md`
+- Sprint 109 Phase 1: __int128/__uint128_t 16-byte type foundation (TYPE_INT128/UINT128, TYPE_KIND_INT128); sizeof/_Alignof now 16; __SIZEOF_INT128__ left undefined

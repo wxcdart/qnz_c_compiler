@@ -52,6 +52,19 @@ static inline ZeroCCType zero_cc_type_uint64(void) {
     t.tag = TYPE_UINT64; t.size = 8; t.align = 8;
     return t;
 }
+/* GNU __int128 / unsigned __int128: 16-byte integer, 16-byte alignment
+ * (matches GCC on x86-64). The value model lowers it through two 64-bit
+ * halves; see the int128 codegen (isa/x86_64.c). */
+static inline ZeroCCType zero_cc_type_int128(void) {
+    ZeroCCType t; memset(&t, 0, sizeof(t));
+    t.tag = TYPE_INT128; t.size = 16; t.align = 16;
+    return t;
+}
+static inline ZeroCCType zero_cc_type_uint128(void) {
+    ZeroCCType t; memset(&t, 0, sizeof(t));
+    t.tag = TYPE_UINT128; t.size = 16; t.align = 16;
+    return t;
+}
 static inline ZeroCCType zero_cc_type_float(void) {
     ZeroCCType t; memset(&t, 0, sizeof(t));
     t.tag = TYPE_FLOAT; t.size = 4; t.align = 4;
@@ -265,6 +278,8 @@ static inline bool zero_cc_type_is_integer(const ZeroCCType *t) {
         case TYPE_UINT32:
         case TYPE_INT64:
         case TYPE_UINT64:
+        case TYPE_INT128:
+        case TYPE_UINT128:
         case TYPE_ENUM:
             return true;
         default:
@@ -319,6 +334,7 @@ static inline bool zero_cc_type_is_unsigned(const ZeroCCType *t) {
         case TYPE_UINT16:
         case TYPE_UINT32:
         case TYPE_UINT64:
+        case TYPE_UINT128:
             return true;
         default:
             return false;
@@ -332,6 +348,7 @@ static inline bool zero_cc_type_is_signed(const ZeroCCType *t) {
         case TYPE_INT16:
         case TYPE_INT32:
         case TYPE_INT64:
+        case TYPE_INT128:
             return true;
         default:
             return false;
@@ -389,6 +406,8 @@ static inline bool zero_cc_type_equal(const ZeroCCType *a, const ZeroCCType *b) 
         case TYPE_UINT32:
         case TYPE_INT64:
         case TYPE_UINT64:
+        case TYPE_INT128:
+        case TYPE_UINT128:
         case TYPE_FLOAT:
         case TYPE_DOUBLE:
         case TYPE_NULLPTR:

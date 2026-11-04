@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-11-04T22:39:56Z
+timestamp: 2026-11-04T23:04:20Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -470,6 +470,13 @@ In `src/zero_cc/types/type_system.h`, `ZeroCCFunction` stores parameter metadata
 
 - **`__INT*_TYPE__`/`__UINT*_TYPE__` macros** (`core/preprocessor.h`): GCC's LP64 type-mapping set — `__INT8/16/32/64_TYPE__` (`signed char`/`short`/`int`/`long int`), `__UINT8/16/32/64_TYPE__`, `__INT_LEAST*`/`__UINT_LEAST*`, `__INT_FAST*`/`__UINT_FAST*` (FAST = `long int`/`long unsigned int` on LP64), `__INTMAX_TYPE__`/`__UINTMAX_TYPE__`, `__INTPTR_TYPE__`/`__UINTPTR_TYPE__`. Without them `typedef __INT_LEAST8_TYPE__ int8_t;` resolved the identifier as `int` (undeclared-macro → default-int fallback path), silently widening every `int8_t` in the test (`execute/pr42833.c`).
 - **Local inline struct/union definitions** (`parser/ast_stmt.h`): `struct S { ... } v;` and anonymous `union { ... } u;` inside a function body are parsed **before** base-type resolution (the body's `TK_LBRACE` is consumed inline, the tag registered, and the declarator continues normally). Anonymous local aggregates get generated tags `__anon_struct_N` / `__anon_union_N` (new `ZeroCCCompiler.anon_struct_seq` counter) so their members are addressable by the usual member layout.
+
+## GNU `__int128` / `__uint128_t` Type Foundation (Sprint 109, Phase 1)
+
+- **16-byte scalar type** (`types/type_system.h` `TYPE_INT128`/`TYPE_UINT128`, `semantic/type.h` `TYPE_KIND_INT128`): `__int128` / `__int128_t` / `__uint128_t` / `unsigned __int128` are now a real **16-byte, 16-aligned** integer (GCC `sizeof`/`_Alignof` = 16/16). Before this, `__int128` was silently typed as a 4-byte `int` (`sizeof` = 4), a latent miscompile.
+- **Every type-resolution path** recognizes the three base-type names: `zc_parse_basic_type_spec` (the `unsigned __int128` window), the bare-identifier branch of `zero_cc_parse_type_name_at_pos`, the main declaration parser (`parser/definitions.h`), and `zero_cc_tok_is_type_start` (`parser/const_eval.h`, so `sizeof(__int128)`/`_Alignof` treat it as a type). `__uint128_t` is always unsigned; `__int128`/`__int128_t` follow the `unsigned`/`signed` specifier.
+- **`__SIZEOF_INT128__` is deliberately NOT defined**, so the 12 c-torture tests that guard `__int128` behind `#ifdef __SIZEOF_INT128__` keep their `long long` fallback (unaffected); only the 7 direct-use `SKIP-TARGET:int128` tests see the new type.
+- **Remaining phases** (128-bit arithmetic, software division, two-register ABI, codegen, 124-bit bitfields, 128-bit vectors, `__builtin_mul_overflow`) are not yet implemented — the 7 `int128` c-torture tests stay skipped until they land.
 
 ## Flexible-Array-Member Initializers (C99 6.7.2.1, Sprint 64)
 

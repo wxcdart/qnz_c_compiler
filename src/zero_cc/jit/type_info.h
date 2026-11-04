@@ -85,6 +85,8 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
         case TYPE_UINT32: ti = type_uint(perm); break;
         case TYPE_INT64: ti = type_long(perm); break;
         case TYPE_UINT64: ti = type_ulong(perm); break;
+        case TYPE_INT128: ti = type_int128(perm); break;
+        case TYPE_UINT128: ti = type_uint128(perm); break;
         case TYPE_FLOAT: ti = type_float(perm); break;
         case TYPE_DOUBLE: ti = type_double(perm); if (t.is_long_double) ti->is_long_double = true; break;
         case TYPE_NULLPTR: ti = type_pointer_to(perm, type_void(perm)); break;
@@ -318,6 +320,7 @@ static inline ZeroCCType typeinfo_to_zero_cc_type(const TypeInfo *ti) {
         case TYPE_KIND_SHORT:   t = is_u ? zero_cc_type_uint16() : zero_cc_type_int16(); break;
         case TYPE_KIND_INT:     t = is_u ? zero_cc_type_uint32() : zero_cc_type_int(); break;
         case TYPE_KIND_LONG:    t = is_u ? zero_cc_type_uint64() : zero_cc_type_int64(); break;
+        case TYPE_KIND_INT128: t = is_u ? zero_cc_type_uint128() : zero_cc_type_int128(); break;
         case TYPE_KIND_FLOAT:   t = zero_cc_type_float(); break;
         case TYPE_KIND_DOUBLE:  t = ti->is_long_double ? zero_cc_type_long_double() : zero_cc_type_double(); break;
         case TYPE_KIND_ENUM:    t = zero_cc_type_enum(ti->details.record.tag); break;

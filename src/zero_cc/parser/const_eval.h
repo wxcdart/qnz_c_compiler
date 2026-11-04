@@ -381,7 +381,10 @@ static inline bool zero_cc_tok_is_type_start(ZeroCCCompiler *c, size_t pos) {
     if (t == TK_IDENT) {
         const char *name = c->tokens[pos].str_val;
         return zero_cc_find_typedef(c, name) != NULL ||
-               zero_cc_tok_is_complex_spec(name);
+               zero_cc_tok_is_complex_spec(name) ||
+               strcmp(name, "__int128") == 0 ||
+               strcmp(name, "__int128_t") == 0 ||
+               strcmp(name, "__uint128_t") == 0;
     }
     return false;
 }

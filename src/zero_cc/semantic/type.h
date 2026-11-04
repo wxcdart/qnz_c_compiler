@@ -18,6 +18,7 @@ typedef enum TypeKind {
     TYPE_KIND_SHORT,
     TYPE_KIND_INT,
     TYPE_KIND_LONG,
+    TYPE_KIND_INT128,  /* GNU __int128 / unsigned __int128: 16 bytes */
     TYPE_KIND_FLOAT,
     TYPE_KIND_DOUBLE,
     TYPE_KIND_POINTER,
@@ -129,6 +130,8 @@ TypeInfo *type_uchar(Arena *perm);
 TypeInfo *type_ushort(Arena *perm);
 TypeInfo *type_uint(Arena *perm);
 TypeInfo *type_ulong(Arena *perm);
+TypeInfo *type_int128(Arena *perm);
+TypeInfo *type_uint128(Arena *perm);
 
 static inline TypeInfo *type_complex(Arena *perm, TypeInfo *elem) {
     TypeInfo *t = type_new(perm);
