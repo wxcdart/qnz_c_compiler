@@ -32,6 +32,8 @@ typedef enum RegClass {
     REG_CLASS_GPR,    /* General-purpose registers: RAX, RCX, RDX, RBX, RSI, RDI, R8-R15 */
     REG_CLASS_XMM,    /* XMM registers for SSE: XMM0-XMM7 */
     REG_CLASS_VEC,    /* Vector registers (XMM/NEON/RVV): xmm0-xmm15/v0-v31 */
+    REG_CLASS_GPR128, /* GNU __int128: a pair of GPRs (lo = assigned_reg, hi =
+                        * assigned_reg_hi). 128-bit integer value model. */
     REG_CLASS_COUNT
 } RegClass;
 
@@ -87,7 +89,9 @@ typedef struct LiveInterval {
     size_t start;             /* Start position (instruction index) */
     size_t end;               /* End position (instruction index) */
     RegClass reg_class;       /* Required register class */
-    int assigned_reg;         /* Assigned register index (-1 if spilled) */
+    int assigned_reg;         /* Assigned register index (-1 if spilled). For
+                               * REG_CLASS_GPR128 this is the LOW half. */
+    int assigned_reg_hi;      /* HIGH half for REG_CLASS_GPR128 (-1 otherwise) */
     int spill_slot;           /* Spill slot index (-1 if not spilled) */
     bool is_spilled;          /* Whether this interval is spilled */
     bool spans_call;          /* Whether this interval spans a function call */
@@ -232,6 +236,7 @@ static int regalloc_add_interval(RegAllocator *ra, int temp_id, size_t start, si
     interval->end = end;
     interval->reg_class = reg_class;
     interval->assigned_reg = -1;
+    interval->assigned_reg_hi = -1;
     interval->spill_slot = -1;
     interval->is_spilled = false;
     interval->spans_call = false;
@@ -309,6 +314,11 @@ static void expire_old_intervals(RegAllocator *ra, size_t current_pos) {
                 if (!still_in_use) {
                     if (active->reg_class == REG_CLASS_GPR) {
                         ra->gpr_free[active->assigned_reg] = true;
+                    } else if (active->reg_class == REG_CLASS_GPR128) {
+                        ra->gpr_free[active->assigned_reg] = true;
+                        if (active->assigned_reg_hi >= 0) {
+                            ra->gpr_free[active->assigned_reg_hi] = true;
+                        }
                     } else if (active->reg_class == REG_CLASS_XMM) {
                         ra->xmm_free[active->assigned_reg] = true;
                         if (ra->target_isa != ISA_RISCV64 && ra->target_isa != ISA_RISCV32 &&
@@ -480,6 +490,42 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
                 }
             }
         }
+    } else if (interval->reg_class == REG_CLASS_GPR128) {
+        /* 128-bit integer: allocate a PAIR of GPRs (lo returned, hi stored on
+         * the interval). x86-64 for now; other ISAs spill the value (no test
+         * on them uses __int128). */
+        if (ra->target_isa == ISA_X86_64) {
+            static const int cs_pool[] = {3, 12, 13, 14, 15};
+            static const int gp_pool[] = {7, 6, 2, 8, 9, 0, 3, 12, 13, 14, 15};
+            const int *pool = interval->spans_call ? cs_pool : gp_pool;
+            size_t npool = interval->spans_call ? 5
+                        : sizeof(gp_pool) / sizeof(gp_pool[0]);
+            static const uint32_t x86_cs_mask =
+                (1u << 3) | (1u << 12) | (1u << 13) | (1u << 14) | (1u << 15);
+            int lo = -1, hi = -1;
+            for (size_t i = 0; i < npool && lo < 0; i++) {
+                int r = pool[i];
+                if (ra->gpr_free[r] && !regalloc_reg_conflicts_fixed(ra, r, interval)) {
+                    lo = r; ra->gpr_free[lo] = false;
+                    if ((x86_cs_mask >> lo) & 1u) ra->used_callee_saved_gpr_mask |= (1u << lo);
+                }
+            }
+            for (size_t i = 0; i < npool && hi < 0; i++) {
+                int r = pool[i];
+                if (r != lo && ra->gpr_free[r] &&
+                    !regalloc_reg_conflicts_fixed(ra, r, interval)) {
+                    hi = r; ra->gpr_free[hi] = false;
+                    if ((x86_cs_mask >> hi) & 1u) ra->used_callee_saved_gpr_mask |= (1u << hi);
+                }
+            }
+            if (lo >= 0 && hi >= 0) {
+                interval->assigned_reg_hi = hi;
+                return lo;
+            }
+            if (lo >= 0) ra->gpr_free[lo] = true;  /* release lo if no hi */
+            return -1; /* spill */
+        }
+        return -1; /* other ISAs: spill the 128-bit value */
     } else if (interval->reg_class == REG_CLASS_XMM) {
         /* All FP registers are caller-saved on every supported ABI: an FP
          * interval that spans a call cannot live in a register - force the
@@ -528,6 +574,11 @@ static void spill_interval(RegAllocator *ra, LiveInterval *interval) {
         /* Align to 16 bytes (4 x 32-bit floats or 2 x 64-bit doubles) */
         interval->spill_slot = ra->next_vec_spill_slot;
         ra->next_vec_spill_slot += 16;  /* Each vector spill slot is 16 bytes */
+    } else if (interval->reg_class == REG_CLASS_GPR128) {
+        /* 128-bit integer: reserve TWO 8-byte GPR slots (16 bytes). The
+         * backend loads/stores the (lo,hi) pair at offset (slot+1)*8. */
+        interval->spill_slot = ra->next_spill_slot;
+        ra->next_spill_slot += 2;
     } else {
         interval->spill_slot = ra->next_spill_slot++;
     }
@@ -924,6 +975,25 @@ static int regalloc_get_reg_for_temp(RegAllocator *ra, int temp_id) {
         return def_ret_reg;
     }
     return def_ret_reg;  /* Not found - use default */
+}
+
+/* Get the HIGH-half physical register for a REG_CLASS_GPR128 temp (the low
+ * half is what regalloc_get_reg_for_temp returns). Returns -1 for non-128-bit
+ * temps or spilled 128-bit temps (the caller must handle the spilled case). */
+static int regalloc_get_reg_hi_for_temp(RegAllocator *ra, int temp_id) __attribute__((unused));
+static int regalloc_get_reg_hi_for_temp(RegAllocator *ra, int temp_id) {
+    if (!ra || temp_id == TEMP_NONE) return -1;
+    if (temp_id >= 0 && temp_id < 65536) {
+        int32_t idx = ra->temp_to_interval[temp_id];
+        if (idx >= 0 && (size_t)idx < ra->interval_count) {
+            LiveInterval *iv = &ra->intervals[idx];
+            if (iv->reg_class == REG_CLASS_GPR128 && !iv->is_spilled &&
+                iv->assigned_reg >= 0 && iv->assigned_reg_hi >= 0) {
+                return iv->assigned_reg_hi;
+            }
+        }
+    }
+    return -1;
 }
 
 /* Check if a temporary is spilled, returning its spill slot (or -1 if not spilled) */
