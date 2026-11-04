@@ -1,3 +1,26 @@
+## [Sprint 103] - 2026-11-05 - `__builtin_apply` / `__builtin_apply_args`: `SKIP-TARGET:untyped_assembly` fully unskipped (3,665 PASS, baseline ratcheted)
+
+The entire 40-test `SKIP-TARGET:untyped_assembly` bucket moves to `PASS` (39) / honest `SKIP-C89` (1). The bucket was a misnomer: in GCC's DejaGnu `untyped_assembly` marks the x86 C89/gnu89 execution mode — **none of the 40 tests contains an `asm` statement**. 38 were already accepted by the Sprint 98–102 C89/gnu89 leniencies; `execute/pr47237.c` needed real `__builtin_apply` support. **c-torture: PASS 3,626 -> 3,665 (+39, 0 bad), SKIP-C89 51 -> 52, `SKIP-TARGET:untyped_assembly` 40 -> 0, baseline ratcheted.**
+
+### Lowering
+
+- **`__builtin_apply_args()`** (`ir/ast_lowering_builtins.c`): grows the current function's frame by 8 bytes per parameter, stores each parameter into its slot at its own type width (narrow ints 32-bit; long/pointer/double 64-bit; float 32-bit — FP params are the 64-bit bit pattern) and returns the block base address.
+- **`__builtin_apply(fn, block, n)`**: the `n`-byte hint is ignored (the slot layout is ABI-fixed). The callee signature comes from the **`ZeroCCFunction` table** for an identifier callee, else the pointee's `TypeInfo`. *(First attempt read the semantic `TypeInfo`, which carries no prototype for a known function — `param_cnt == 0` — so the call went out with **no** arguments and the callee read stale registers; it only "passed" at -O0/-O1 by lucky register residue and aborted at -O2/-O3.)* Arguments are reloaded from the 8-byte slots (slot `p` at `-(block_off - 8*p)`) and marshalled through the standard indirect-call machinery — int/FP register + stack placement, indirect-callee spill, post-call return materialization. An unrecoverable pointee (`__builtin_apply ((void*)g, xx, 200)`, `compile/930623-1.c`) falls back to a K&R-style indirect call with no argument metadata instead of rejecting.
+- **Inlining guard** (`jit/compile.h`): a function calling `__builtin_apply_args` is **never inlined** — the snapshot must capture the callee's own parameters; an inlined body reads the caller's parameter table (`execute/pr47237.c` broke only at -O2/-O3, where `bar` inlines into the parameterless `main`). Implemented as `zero_cc_ast_has_call(body, "__builtin_apply_args")` in the existing `inline_ok` probe.
+- **Test-only note**: host GCC's own `__builtin_apply` miscompiles non-void results on x86-64 (garbage int/FP values; only the void-return shape works — all `execute/pr47237.c` uses), so the regression test is zerocc-only.
+
+### Gate & tests
+
+- `tools/torture_run.py`: `untyped_assembly` removed from `UNSUPPORTED_TARGETS` (comment records why).
+- **`test/jit/builtin_apply.c`** (new, zerocc-only): whole-block + prefix int apply, exact 64-bit FP round-trip through the 8-byte slot (both 32-bit halves checked), result flow. Excluded from the host-gcc `make test` glob (`Makefile` `TEST_SRCS`), swept by `make test-opt` (126 -> 127).
+- The one non-PASS landfall: `compile/pr43635.c` -> `SKIP-C89` — it needs GCC's `-fpermissive` error downgrade (its `extern void d(void)` assigned into a fn-ptr-to-fn-ptr initializer is a hard error under `gcc -std=c99 -pedantic-errors`, so the honest rejection stands).
+
+### Verification
+
+- `make test` **165/165**, `make test-opt` **127 ok**, `make test-driver` 37/37, `make test-isa-qemu` 59/59, `diag_battery` baseline OK, `style_check` 0 errors, `vtable_check` PASS, OKF lint/index clean.
+- AOT verified both raw and `ZC_TEXT_AOT=1` at -O0..-O3; the apply regression test passes -O0..-O3 JIT + AOT.
+- c-torture full gate: **PASS 3,665** (was 3,626: +39), SKIP-C89 51 -> 52, 0 bad. **Baseline ratcheted** (`test/torture/baseline.json`).
+
 ## [Sprint 102] - 2026-11-04 - GNU asm Labels, `scalar_storage_order(big-endian)`, Mixed-Base Bit-Field Packing & `__FUNCTION__` (3,626 PASS, baseline ratcheted)
 
 The GNU asm-label cluster, the `scalar_storage_order("big-endian")` SSO bit-fields, and the last C89 file-scope tail leniencies move to `PASS`. **c-torture: PASS 3,615 -> 3,626 (+11, 0 bad), SKIP-C89 61 -> 51, `SKIP-TARGET:asm_named_reg` 1 -> 0, baseline ratcheted.**

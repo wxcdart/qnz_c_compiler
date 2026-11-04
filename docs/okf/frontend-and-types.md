@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-11-04T19:23:35Z
+timestamp: 2026-11-04T20:09:19Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -377,7 +377,13 @@ Function **definitions** inside a block (the GNU nested-function/trampoline exte
   - **Const-expr pointer casts** (`parser/const_eval.h`): `(char *) X00000` inside a brace initializer — after the cast type name, a trailing `TK_STAR` run is consumed as pointer levels; unknown identifiers yield `0` and stay in sync.
   - **File-scope empty `;`**: any bare `;` at file scope is skipped (attribute macros that carry their own `;` leave `} name ; ;`).
   - **Gate effect**: PASS 3,615 → **3,626**, SKIP-C89 61 → 51, `SKIP-TARGET:asm_named_reg` 1 → 0 (11 tests: `compile/asmgoto-5`, `compile/mangle-1`, `compile/pr100278`, `compile/limits-externdecl`, `compile/split-path-3`, `execute/pr51447`, `execute/20230630-2`, `execute/20230630-4`, `compile/20041119-1`, `compile/20190827-1`, `execute/20001011-1`).
-- **Remaining gap**: none of the former `trampolines`/`asm_named_reg` skips remain (`execute/pr51447.c` and `compile/nested-1.c` now run; Sprint 100/102).
+- **Sprint 103 additions — `__builtin_apply` / `__builtin_apply_args` (unskips the entire `SKIP-TARGET:untyped_assembly` bucket)**:
+  - **`__builtin_apply_args()`** (`ir/ast_lowering_builtins.c`): grows the frame by 8 bytes × the current function's parameter count, stores each parameter into its 8-byte slot at its own type width (narrow ints 32-bit, long/pointer/double 64-bit, float 32-bit) and returns the block base address.
+  - **`__builtin_apply(fn, block, n)`**: the `n`-byte hint is ignored (the slot layout is ABI-fixed). The callee signature comes from the **`ZeroCCFunction` table** for an identifier callee (the semantic `TypeInfo` of a known function often carries no prototype — reading it silently yields `param_cnt == 0` and the call goes out with no arguments, passing stale-register garbage), else from the pointee's `TypeInfo`. Arguments are reloaded from the 8-byte slots and marshalled through the standard indirect-call machinery (int/FP register + stack placement, indirect-callee spill, return materialization). An unrecoverable pointee (e.g. `__builtin_apply ((void*)g, xx, 200)`, `compile/930623-1.c`) falls back to a K&R-style indirect call with no argument metadata instead of rejecting.
+  - **Inlining interaction**: a function calling `__builtin_apply_args` is **never inlined** — the snapshot must capture the callee's own parameters; an inlined body would read the caller's parameter table (pr47237 broke only at -O2/-O3, where `bar` inlines into the parameterless `main`). Guard: `zero_cc_ast_has_call(body, "__builtin_apply_args")` in the `inline_ok` probe (`jit/compile.h`).
+  - **Note**: host GCC's own `__builtin_apply` miscompiles non-void results on x86-64 (garbage int/FP values; the void-return shape works — that is all `execute/pr47237.c` uses), so the regression test `test/jit/builtin_apply.c` is zerocc-only: excluded from the host-gcc `make test` glob (`Makefile` `TEST_SRCS`), swept by `make test-opt` (126 → 127).
+  - **Gate effect**: PASS 3,626 → **3,665**, SKIP-C89 51 → 52 (`compile/pr43635.c` needs GCC's `-fpermissive` error downgrade), `SKIP-TARGET:untyped_assembly` 40 → 0. In GCC's DejaGnu the `untyped_assembly` target marks the x86 C89/gnu89 mode — none of the 40 tests contains an `asm` statement; 38 were already accepted by the Sprint 98–102 C89/gnu89 leniencies, `execute/pr47237.c` needed the builtin, and `compile/930623-1.c` the unprototyped fallback.
+- **Remaining gap**: none of the former `trampolines`/`asm_named_reg`/`untyped_assembly` skips remain (`execute/pr51447.c` and `compile/nested-1.c` now run; Sprint 100/102; the `untyped_assembly` bucket fully unskipped in Sprint 103).
 
 ## GNU `__attribute__((__vector_size__(N)))` Vector Types
 
