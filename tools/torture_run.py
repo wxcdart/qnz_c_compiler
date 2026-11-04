@@ -80,9 +80,13 @@ KEEP = False  # --keep: retain work artifacts instead of unlinking
 
 # dg-require-effective-target tokens zerocc cannot satisfy (GNU extensions /
 # other architectures / features we deliberately do not implement).
+# NOTE: `untyped_assembly` was removed in Sprint 102 - in GCC's DejaGnu it
+# marks the x86 C89/gnu89 mode, not actual `__asm__` statements: none of the
+# 40 former tests contain an asm statement, they need the C89/gnu89
+# leniencies (implicit int, K&R, gnu89 implicit decls) already implemented
+# in Sprints 98-102, plus __builtin_apply/__builtin_apply_args (Sprint 102).
 UNSUPPORTED_TARGETS = {
     # GNU C extensions
-    "untyped_assembly",
     "named_sections", "unwrapped",
     "int128", "cilk",
     # other languages

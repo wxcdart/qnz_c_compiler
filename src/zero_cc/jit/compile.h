@@ -1480,7 +1480,13 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
                 }
                 if (inline_ok) {
                     if (zero_cc_ast_has_local_decl(&arena, body) ||
-                        zero_cc_ast_has_label_goto(&arena, body))
+                        zero_cc_ast_has_label_goto(&arena, body) ||
+                        /* __builtin_apply_args snapshots the CURRENT
+                         * function's parameters - an inlined body would
+                         * capture the caller's table (or none) instead of
+                         * the callee's, so such functions keep their own
+                         * frame and are never inlined. */
+                        zero_cc_ast_has_call(&arena, body, "__builtin_apply_args"))
                         inline_ok = false;
                 }
                 if (inline_ok && fn->param_count > 0) {

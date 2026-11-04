@@ -1,6 +1,6 @@
 {
  "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
- "generated": "2026-11-04T19:22:06Z",
+ "generated": "2026-11-04T20:08:21Z",
  "tests": {
   "compile/103818.c": {
    "class": "PASS",
@@ -723,8 +723,11 @@
    "note": ""
   },
   "compile/20010525-1.c": {
-   "class": "SKIP-TARGET:untyped_assembly",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/20010605-1.c": {
@@ -1376,8 +1379,11 @@
    "note": ""
   },
   "compile/20021015-2.c": {
-   "class": "SKIP-TARGET:untyped_assembly",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/20021103-1.c": {
@@ -1866,18 +1872,27 @@
    "note": ""
   },
   "compile/20031023-1.c": {
-   "class": "SKIP-TARGET:untyped_assembly",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/20031023-2.c": {
-   "class": "SKIP-TARGET:untyped_assembly",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/20031023-3.c": {
-   "class": "SKIP-TARGET:untyped_assembly",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/20031023-4.c": {
@@ -3265,8 +3280,11 @@
    "note": ""
   },
   "compile/20091215-1.c": {
-   "class": "SKIP-TARGET:untyped_assembly",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/20100609-1.c": {
@@ -3669,8 +3687,11 @@
    "note": ""
   },
   "compile/386.c": {
-   "class": "SKIP-TARGET:untyped_assembly",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/86.c": {
@@ -4308,8 +4329,11 @@
    "note": ""
   },
   "compile/920917-1.c": {
-   "class": "SKIP-TARGET:untyped_assembly",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/920928-1.c": {
@@ -4577,8 +4601,11 @@
    "note": ""
   },
   "compile/930120-1.c": {
-   "class": "SKIP-TARGET:untyped_assembly",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/930126-1.c": {
@@ -4630,8 +4657,11 @@
    "note": ""
   },
   "compile/930411-1.c": {
-   "class": "SKIP-TARGET:untyped_assembly",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/930421-1.c": {
@@ -4739,8 +4769,11 @@
    "note": ""
   },
   "compile/930529-1.c": {
-   "class": "SKIP-TARGET:untyped_assembly",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/930530-1.c": {
@@ -4800,8 +4833,11 @@
    "note": ""
   },
   "compile/930623-1.c": {
-   "class": "SKIP-TARGET:untyped_assembly",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/930702-1.c": {
@@ -5013,8 +5049,11 @@
    "note": ""
   },
   "compile/950329-1.c": {
-   "class": "SKIP-TARGET:untyped_assembly",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/950512-1.c": {
@@ -6525,13 +6564,19 @@
    "note": ""
   },
   "compile/calls-void.c": {
-   "class": "SKIP-TARGET:untyped_assembly",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/calls.c": {
-   "class": "SKIP-TARGET:untyped_assembly",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/cc.c": {
@@ -6583,8 +6628,11 @@
    "note": ""
   },
   "compile/cmpsi386.c": {
-   "class": "SKIP-TARGET:untyped_assembly",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/cmul.c": {
@@ -6700,8 +6748,11 @@
    "note": ""
   },
   "compile/consec.c": {
-   "class": "SKIP-TARGET:untyped_assembly",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/const-high-part.c": {
@@ -6729,8 +6780,11 @@
    "note": ""
   },
   "compile/conv_tst.c": {
-   "class": "SKIP-TARGET:untyped_assembly",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/cp.c": {
@@ -6939,8 +6993,11 @@
    "note": ""
   },
   "compile/ex.c": {
-   "class": "SKIP-TARGET:untyped_assembly",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/ext.c": {
@@ -7892,8 +7949,11 @@
    "note": ""
   },
   "compile/pass.c": {
-   "class": "SKIP-TARGET:untyped_assembly",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/pc44485.c": {
@@ -10342,8 +10402,11 @@
    "note": ""
   },
   "compile/pr37258.c": {
-   "class": "SKIP-TARGET:untyped_assembly",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/pr37285.c": {
@@ -10363,8 +10426,11 @@
    "note": ""
   },
   "compile/pr37327.c": {
-   "class": "SKIP-TARGET:untyped_assembly",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/pr37341.c": {
@@ -10616,8 +10682,11 @@
    "note": ""
   },
   "compile/pr38360.c": {
-   "class": "SKIP-TARGET:untyped_assembly",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/pr38428.c": {
@@ -11525,9 +11594,12 @@
    "note": ""
   },
   "compile/pr43635.c": {
-   "class": "SKIP-TARGET:untyped_assembly",
-   "configs": {},
-   "note": ""
+   "class": "SKIP-C89",
+   "configs": {
+    "O0-aot": "REJECT",
+    "O2-aot": "REJECT"
+   },
+   "note": "                ^; Compile error: incompatible initializer type for variable 'x' | cfgs: O0-aot,O2-aot"
   },
   "compile/pr43636.c": {
    "class": "PASS",
@@ -11983,13 +12055,19 @@
    "note": ""
   },
   "compile/pr47428.c": {
-   "class": "SKIP-TARGET:untyped_assembly",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/pr47967.c": {
-   "class": "SKIP-TARGET:untyped_assembly",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/pr48136.c": {
@@ -12102,8 +12180,11 @@
    "note": ""
   },
   "compile/pr49145.c": {
-   "class": "SKIP-TARGET:untyped_assembly",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/pr49163.c": {
@@ -12115,8 +12196,11 @@
    "note": ""
   },
   "compile/pr49206.c": {
-   "class": "SKIP-TARGET:untyped_assembly",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/pr49220.c": {
@@ -12248,8 +12332,11 @@
    "note": ""
   },
   "compile/pr51694.c": {
-   "class": "SKIP-TARGET:untyped_assembly",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/pr51761.c": {
@@ -12474,8 +12561,11 @@
    "note": ""
   },
   "compile/pr53411.c": {
-   "class": "SKIP-TARGET:untyped_assembly",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/pr53418-1.c": {
@@ -14892,8 +14982,11 @@
    "note": ""
   },
   "compile/scal.c": {
-   "class": "SKIP-TARGET:untyped_assembly",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/scc.c": {
@@ -15238,8 +15331,11 @@
    "note": ""
   },
   "compile/stack-check-1.c": {
-   "class": "SKIP-TARGET:untyped_assembly",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/statement-expression-1.c": {
@@ -15555,8 +15651,11 @@
    "note": ""
   },
   "compile/uuarg.c": {
-   "class": "SKIP-TARGET:untyped_assembly",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/v.c": {
@@ -16938,8 +17037,17 @@
    "note": ""
   },
   "execute/20001101.c": {
-   "class": "SKIP-TARGET:untyped_assembly",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/20001108-1.c": {
@@ -20630,8 +20738,17 @@
    "note": ""
   },
   "execute/20051012-1.c": {
-   "class": "SKIP-TARGET:untyped_assembly",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/20051021-1.c": {
@@ -22642,8 +22759,17 @@
    "note": ""
   },
   "execute/920501-1.c": {
-   "class": "SKIP-TARGET:untyped_assembly",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/920501-2.c": {
@@ -23347,8 +23473,17 @@
    "note": ""
   },
   "execute/921202-1.c": {
-   "class": "SKIP-TARGET:untyped_assembly",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/921202-2.c": {
@@ -23408,8 +23543,17 @@
    "note": ""
   },
   "execute/921208-2.c": {
-   "class": "SKIP-TARGET:untyped_assembly",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/921215-1.c": {
@@ -27872,8 +28016,17 @@
    "note": "collect2: error: ld returned 1 exit status"
   },
   "execute/call-trap-1.c": {
-   "class": "SKIP-TARGET:untyped_assembly",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/cbrt.c": {
@@ -34757,8 +34910,17 @@
    "note": ""
   },
   "execute/pr47237.c": {
-   "class": "SKIP-TARGET:untyped_assembly",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/pr47299.c": {
@@ -41207,16 +41369,15 @@
  "totals": {
   "EXPECTED-REJECT": 4,
   "NO-REF": 184,
-  "PASS": 3626,
+  "PASS": 3665,
   "REF-BUG": 3,
   "SKIP-BOGUS": 1,
-  "SKIP-C89": 51,
+  "SKIP-C89": 52,
   "SKIP-PTR": 1,
   "SKIP-REFSEM": 16,
   "SKIP-TARGET:arm": 1,
   "SKIP-TARGET:int128": 7,
   "SKIP-TARGET:named_sections": 3,
-  "SKIP-TARGET:untyped_assembly": 40,
   "SKIP-TARGET:unwrapped": 2,
   "SKIP-UB": 1
  }

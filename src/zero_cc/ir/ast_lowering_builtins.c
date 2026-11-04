@@ -968,6 +968,219 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
             return true;
         }
 
+        /* __builtin_apply_args() / __builtin_apply(fn, args, nbytes) - GNU
+         * function application with an explicit argument block
+         * (c-torture execute/pr47237).
+         *
+         * `__builtin_apply_args()` returns a pointer to a fresh frame block
+         * with the CURRENT function's arguments copied in, one 8-byte slot
+         * per parameter (the ABI register width; only the parameter's type
+         * width is written, so narrow args are not padded with garbage).
+         *
+         * `__builtin_apply(fn, p, n)` calls the function pointer `fn`,
+         * taking its arguments from successive 8-byte slots of `p` using
+         * the pointee's declared parameter types (the `n` byte hint is the
+         * caller's block size and is ignored - the signature is the truth).
+         * Struct/union/complex/array parameters cannot be represented in
+         * the 8-byte slot model and are a clean REJECT (no sret handling
+         * either). */
+        if (callee_is_ident && callee->s.str &&
+            strcmp(callee->s.str, "__builtin_apply_args") == 0) {
+            ZeroCCFunction *cur_fn = zero_cc_get_current_fn(c);
+            int nparams = (cur_fn && cur_fn->param_types && cur_fn->param_count > 0)
+                           ? (int)cur_fn->param_count : 0;
+            if (nparams > 16) nparams = 16;
+            int block_sz = (nparams * 8) < 16 ? 16 : (nparams * 8);
+            c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+            c->current_stack_frame += block_sz;
+            int32_t block_off = c->current_stack_frame;
+            int base = c->next_temp_id++;
+            ir_emit_lea(c, base, BE(c)->fp_reg, -block_off);
+            for (int p = 0; p < nparams && p < (int)c->local_count; p++) {
+                ZeroCCSym *psym = &c->locals[p];
+                if (!psym->is_param) continue;
+                const ZeroCCType *pt = (cur_fn && cur_fn->param_types) ? &cur_fn->param_types[p] : NULL;
+                int w = (pt && pt->size >= 5) ? 8 : 4; /* int/float -> 4, long/ptr/double -> 8 */
+                int slot_addr = c->next_temp_id++;
+                ir_emit_lea(c, slot_addr, BE(c)->fp_reg, -(block_off - 8 * p));
+                int val = c->next_temp_id++;
+                zc_sym_load(c, psym, 0, val);
+                if (w == 8) ir_emit_store_64(c, (uint16_t)val, (uint16_t)slot_addr);
+                else ir_emit_store_32(c, (uint16_t)val, (uint16_t)slot_addr);
+            }
+            c->last_expr_is_float = 0;
+            *out_temp = base;
+            return true;
+        }
+        if (callee_is_ident && callee->s.str &&
+            strcmp(callee->s.str, "__builtin_apply") == 0) {
+            ASTRef arg0 = node->right;
+            ZeroCCASTNode *a0n = zero_cc_ast_get(arena, arg0);
+            ASTRef arg1 = (a0n && a0n->next != AST_NULL) ? a0n->next : AST_NULL;
+            int fn_temp = lower_expr(c, arena, arg0);
+            c->last_expr_is_float = 0;
+            int p_temp = (arg1 != AST_NULL) ? lower_expr(c, arena, arg1) : -1;
+            c->last_expr_is_float = 0;
+            /* Third arg (nbytes) - lowered for side effects, value unused. */
+            ZeroCCASTNode *a1n = (arg1 != AST_NULL) ? zero_cc_ast_get(arena, arg1) : NULL;
+            ASTRef arg2 = (a1n && a1n->next != AST_NULL) ? a1n->next : AST_NULL;
+            if (arg2 != AST_NULL) { lower_expr(c, arena, arg2); c->last_expr_is_float = 0; }
+            if (p_temp < 0) {
+                diag_report_error_at_token(c, "__builtin_apply requires (fn, args, nbytes)");
+                *out_temp = VREG_0;
+                return true;
+            }
+            /* The pointee's declared signature drives the argument layout.
+             * For an identifier callee the ZeroCCFunction table is the
+             * authoritative parameter list (the semantic TypeInfo often
+             * carries no prototype), mirroring the direct-call path. */
+            int npp = 0;
+            ZeroCCType apply_pparams[IR_CALL_MAX_ARGS];
+            ZeroCCType apply_ret = zero_cc_type_int();
+            ZeroCCFunction *apply_callee_fn = NULL;
+            if (a0n && a0n->tag == NODE_IDENT && a0n->s.str) {
+                apply_callee_fn = zero_cc_find_function(c, a0n->s.str);
+            }
+            if (apply_callee_fn) {
+                if (apply_callee_fn->param_types && apply_callee_fn->param_count > 0) {
+                    npp = (int)apply_callee_fn->param_count;
+                    if (npp > IR_CALL_MAX_ARGS - 2) npp = IR_CALL_MAX_ARGS - 2;
+                    for (int j = 0; j < npp; j++) apply_pparams[j] = apply_callee_fn->param_types[j];
+                }
+                apply_ret = apply_callee_fn->return_type;
+            } else {
+                TypeInfo *cal_ti = ast_node_get_typeinfo(c, a0n);
+                TypeInfo *pointee = NULL;
+                if (cal_ti && cal_ti->kind == TYPE_KIND_POINTER &&
+                    cal_ti->details.pointer.base &&
+                    cal_ti->details.pointer.base->kind == TYPE_KIND_FUNCTION)
+                    pointee = cal_ti->details.pointer.base;
+                else if (cal_ti && cal_ti->kind == TYPE_KIND_FUNCTION)
+                    pointee = cal_ti;
+                if (pointee) {
+                    npp = (int)pointee->details.function.param_cnt;
+                    if (npp > IR_CALL_MAX_ARGS - 2) npp = IR_CALL_MAX_ARGS - 2;
+                    for (int j = 0; j < npp; j++)
+                        apply_pparams[j] = typeinfo_to_zero_cc_type(pointee->details.function.params[j]);
+                    if (pointee->details.function.ret)
+                        apply_ret = typeinfo_to_zero_cc_type(pointee->details.function.ret);
+                }
+                /* else: no recoverable pointee signature (e.g. the function
+                 * pointer was cast through void *).  Fall back to a
+                 * K&R-style indirect call with no argument metadata -
+                 * the same shape the compiler already emits for calls
+                 * through unprototyped pointers. */
+            }
+            /* Reject the shapes the 8-byte slot model cannot represent. */
+            for (int j = 0; j < npp; j++) {
+                const ZeroCCType *pt = &apply_pparams[j];
+                if (pt->tag == TYPE_STRUCT || pt->tag == TYPE_UNION ||
+                    pt->tag == TYPE_ARRAY || pt->is_complex) {
+                    diag_report_error_at_token(c, "__builtin_apply with struct/complex parameters unsupported");
+                    *out_temp = VREG_0;
+                    return true;
+                }
+            }
+            if ((apply_ret.tag == TYPE_STRUCT || apply_ret.tag == TYPE_UNION) && apply_ret.size > 16) {
+                diag_report_error_at_token(c, "__builtin_apply of an sret-returning function unsupported");
+                *out_temp = VREG_0;
+                return true;
+            }
+            int gp_regs_avail = BE(c)->conv ? BE(c)->conv->int_arg_reg_count : 8;
+            int fp_regs_avail = BE(c)->conv ? BE(c)->conv->fp_arg_reg_count : 8;
+            int gp_stream = 0, fp_stream = 0, stack_arg_count = 0;
+            int int_arg_idx = 0, fp_arg_idx = 0;
+            int32_t fp_spill_offsets[IR_CALL_MAX_ARGS];
+            int all_arg_temps[IR_CALL_MAX_ARGS];
+            int all_arg_is_fp[IR_CALL_MAX_ARGS];   /* int[] - see ir_call_args_record */
+            int all_arg_stack_pos[IR_CALL_MAX_ARGS];
+            int all_arg_count = 0;
+            for (int j = 0; j < npp; j++) {
+                ZeroCCType pt = apply_pparams[j];
+                int slot_addr = c->next_temp_id++;
+                if (j == 0) slot_addr = p_temp;
+                else {
+                    int off_t = c->next_temp_id++;
+                    ir_emit_mov_imm(c, off_t, 8 * j);
+                    int add_t = c->next_temp_id++;
+                    ir_emit_add(c, add_t, p_temp, off_t);
+                    slot_addr = add_t;
+                }
+                bool param_is_fp = (pt.tag == TYPE_FLOAT || pt.tag == TYPE_DOUBLE);
+                int val = c->next_temp_id++;
+                if (param_is_fp) {
+                    /* FP argument: load the bit pattern, spill it to a frame
+                     * slot the MC emitter reads into the FP arg register
+                     * (same mechanism as the direct-call path). */
+                    if (pt.tag == TYPE_FLOAT) ir_emit_load_32(c, (uint16_t)val, (uint16_t)slot_addr);
+                    else ir_emit_deref(c, val, slot_addr);
+                    c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                    c->current_stack_frame += 8;
+                    fp_spill_offsets[fp_arg_idx] = c->current_stack_frame;
+                    ir_emit_store(c, val, BE(c)->fp_reg, -fp_spill_offsets[fp_arg_idx]);
+                    uint8_t sp = (fp_stream < fp_regs_avail) ? 255 : (uint8_t)(stack_arg_count++);
+                    all_arg_temps[all_arg_count] = val;
+                    all_arg_is_fp[all_arg_count] = 1;
+                    all_arg_stack_pos[all_arg_count] = sp;
+                    all_arg_count++;
+                    fp_stream++;
+                    fp_arg_idx++;
+                } else {
+                    size_t w = pt.size;
+                    if (w <= 4) ir_emit_load_32(c, (uint16_t)val, (uint16_t)slot_addr);
+                    else ir_emit_deref(c, val, slot_addr);
+                    uint8_t sp = (gp_stream < gp_regs_avail) ? 255 : (uint8_t)(stack_arg_count++);
+                    all_arg_temps[all_arg_count] = val;
+                    all_arg_is_fp[all_arg_count] = 0;
+                    all_arg_stack_pos[all_arg_count] = sp;
+                    all_arg_count++;
+                    gp_stream++;
+                    int_arg_idx++;
+                }
+            }
+            /* Spill the callee pointer (indirect-call convention). */
+            c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+            c->current_stack_frame += 8;
+            int32_t callee_spill_off = c->current_stack_frame;
+            ir_emit_store(c, fn_temp, BE(c)->fp_reg, -callee_spill_off);
+            int callee_reload = c->next_temp_id++;
+            ir_emit_load(c, callee_reload, BE(c)->fp_reg, -callee_spill_off);
+            all_arg_temps[all_arg_count] = callee_reload;
+            all_arg_is_fp[all_arg_count] = 2;
+            all_arg_stack_pos[all_arg_count] = 255;
+            all_arg_count++;
+            int total_int_args = int_arg_idx;
+            ir_emit_call(c, NULL);
+            if (ir_get_count(c) > 0) {
+                Instr *last_instr = (Instr*)&ir_get_buffer(c)[ir_get_count(c) - 1];
+                last_instr->temp_dest = (uint16_t)total_int_args;
+                if (total_int_args > 0) last_instr->temp_src1 = (uint16_t)all_arg_temps[0];
+                if (total_int_args > 1) last_instr->temp_src2 = (uint16_t)all_arg_temps[1];
+                ir_call_args_record(c, ir_get_count(c) - 1, all_arg_count,
+                                    all_arg_temps, all_arg_is_fp, all_arg_stack_pos);
+                last_instr->label_idx = (uint16_t)(fp_arg_idx < fp_regs_avail ? fp_arg_idx : fp_regs_avail);
+            }
+            if (c->lowering.ir_ctx.call_count < 64) {
+                int cidx = c->lowering.ir_ctx.call_count++;
+                c->lowering.ir_ctx.call_fp_spill_counts[cidx] = fp_arg_idx;
+                for (int f = 0; f < fp_arg_idx && f < 16; f++) {
+                    c->lowering.ir_ctx.call_fp_spills[cidx][f] = fp_spill_offsets[f];
+                }
+            }
+            /* Result: mirror the direct-call path's materialization. */
+            ZeroCCType call_ret = apply_ret;
+            if (call_ret.tag == TYPE_FLOAT || call_ret.tag == TYPE_DOUBLE) {
+                c->last_expr_is_float = 1;
+                int fp_res = c->next_temp_id++;
+                ir_emit_fmov(c, (uint16_t)fp_res, (uint16_t)VREG_F0);
+                *out_temp = fp_res;
+                return true;
+            }
+            c->last_expr_is_float = 0;
+            *out_temp = VREG_0;
+            return true;
+        }
+
         /* __builtin_setjmp(buf) / __builtin_longjmp(buf, val) - non-local
          * jumps lowered inline via OP_SETJMP / OP_LONGJMP across all target
          * ISAs (x86-64, AArch64, RISC-V64, RISC-V32) in both JIT and AOT.
