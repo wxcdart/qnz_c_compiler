@@ -4,7 +4,7 @@ title: GCC c-torture Conformance Gate
 description: Differential conformance gate against the vendored GCC gcc.c-torture corpus (~3,940 tests), sweeping execute tests across -O0..-O3 in JIT and AOT and compile tests at -O0/-O2 with a ratcheting baseline.
 resource: workflows/c-torture-gate
 tags: [testing, verification, conformance, c-torture, gcc, differential, baseline]
-timestamp: 2026-11-04T21:28:20Z
+timestamp: 2026-11-04T21:47:58Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -46,14 +46,14 @@ Recorded in [`test/torture/baseline.json`](../../test/torture/baseline.json) acr
 
 | Bucket | Count | Meaning |
 | :--- | ---: | :--- |
-| **`PASS`** | **3,670** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` — all-time high (Sprint 105: +3 — floating-literal suffix order, `1.0fi`/`1.0Fi` now lex like GCC, unblocking `execute/complex-5.c` and `compile/attr-complex-method{,-2}.c`; Sprint 104: +2 — standalone `_Complex` = `_Complex double`; Sprint 103: +39 — the entire `SKIP-TARGET:untyped_assembly` bucket unskipped) |
+| **`PASS`** | **3,672** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` — all-time high (Sprint 106: +2 — `freopen` declared in the stdio.h virtual header, unblocking the `SKIP-TARGET:unwrapped` file-I/O tests; Sprint 105: +3 — floating-literal suffix order, `1.0fi`/`1.0Fi` now lex like GCC, unblocking `execute/complex-5.c` and `compile/attr-complex-method{,-2}.c`; Sprint 104: +2 — standalone `_Complex` = `_Complex double`; Sprint 103: +39 — the entire `SKIP-TARGET:untyped_assembly` bucket unskipped) |
 | **`REJECT`** | **0** | ZeroCC rejected a test that GCC accepts (must stay 0) |
 | **`MISCOMPILE`** | **0** | ZeroCC compiled+ran but produced wrong `(rc, stdout)` vs the GCC reference (must stay 0) |
 | **`SKIP-C89`** | **47** | ZeroCC rejected or skipped a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects (down from 61 at Sprint 101: Sprint 102 unblocked 10, Sprint 104's standalone-`_Complex` fix unblocked 2, Sprint 105's float-suffix-order fix unblocked 3; Sprint 103's unskip moved 1 in — `compile/pr43635.c`, which compiles only under GCC's `-fpermissive` error downgrade; the remaining set includes `compile/pr42196-*` (complex-**integer** types), GIMPLE pseudo-code `compile/pr115143-*`, and sibling-scope struct tag collisions, e.g. `execute/20070919-1`, `execute/20040423-1`) |
 | **`TIMEOUT`** | **0** | `execute/memclr.c` (2048 functions; JIT `-O1+` at the 5 s budget edge) passed on the idle re-record — it can still flip to TIMEOUT under load; treat a lone `memclr.c` TIMEOUT as load noise, not a regression |
 | **`REF-BUG`** | **3** | GCC reference binary itself crashes (differential comparison impossible; not a ZeroCC failure). Includes `execute/vfprintf-chk-1.c`. |
 | **`NO-REF`** | **184** | Host `gcc -O1 -w` rejected the file (32-bit/target-specific tests without explicit `dg-require-effective-target`) |
-| **`SKIP-TARGET:*`** | **13** | Explicit DejaGnu target/extension skips (`int128`: 7, `named_sections`: 3, `unwrapped`: 2, `arm`: 1; `untyped_assembly` was fully unskipped in Sprint 103, the `trampolines` holdout in Sprint 100 and the last `asm_named_reg` skip in Sprint 102) |
+| **`SKIP-TARGET:*`** | **11** | Explicit DejaGnu target/extension skips (`int128`: 7, `named_sections`: 3, `arm`: 1; `untyped_assembly` was fully unskipped in Sprint 103, `unwrapped` in Sprint 106 (the `freopen` declaration), the `trampolines` holdout in Sprint 100 and the last `asm_named_reg` skip in Sprint 102) |
 | **`SKIP-REFSEM`** | **16** | Special FP flags (`-ffast-math`, `-mfpmath=`, `-fsignaling-nans`) |
 | **`EXPECTED-REJECT`** | **4** | Has `dg-error` directive and was rejected |
 | **`SKIP-BOGUS` / `SKIP-PTR` / `SKIP-UB`** | **3** | 1 `dg-bogus`, 1 `%p` stdout test, 1 uninitialized heap read (`execute/941014-2.c`) |
@@ -292,6 +292,11 @@ Bringing up `tools/torture_run.py` exposed and fixed five compiler bugs (reducin
     - **GCC's own `__builtin_apply` is broken on x86-64** for non-void results (garbage int/FP values — the legacy builtin only works for the void-return shape pr47237 uses), so the new regression test `test/jit/builtin_apply.c` is zerocc-only: excluded from the host-gcc `make test` glob, swept by `make test-opt` (126 → 127).
     - **Result**: PASS **3,626 → 3,665** (+39); SKIP-C89 **51 → 52** (`compile/pr43635.c`, which needs GCC's `-fpermissive` error downgrade, lands there); `SKIP-TARGET:untyped_assembly` **40 → 0**; no PASS→bad. `make test` 165/165, `make test-opt` 127 ok, `make test-driver` 37/37, `make test-isa-qemu` 59/59, diag battery baseline OK. Baseline re-recorded (`--update-baseline`).
 
+- **Sprint 106 — `freopen` declaration: the `SKIP-TARGET:unwrapped` file-I/O tests unblocked** (see [`docs/CHANGELOG.md`](../CHANGELOG.md) for the full entry):
+    - **The two `unwrapped` tests** (`execute/printf-2.c`, `execute/user-printf.c`) use a real `main` + real file I/O (`freopen`/`fopen`/`fscanf`/`remove`) against the **host libc** (the gate runs execute tests via JIT dlsym or AOT system-linker — never `zero_rt`). They segfaulted in **both** JIT and AOT at every `-O` level.
+    - **Root cause (bisected)**: the stdio.h virtual header did not declare `freopen`, so it got an implicit-`int` declaration (gnu89). `FILE *f = freopen(…)` then truncated the 64-bit `FILE *` return to 32 bits at the call site — a garbage pointer that segfaults on first use. Declaring `freopen` (with the standard `FILE *` return) fixes it; `feof`/`ferror`/`clearerr`/`ungetc` were added too for stdio completeness.
+    - **Result**: PASS **3,670 → 3,672** (+2: `execute/printf-2.c`, `execute/user-printf.c`); `SKIP-TARGET:unwrapped` **2 → 0**; SKIP-C89 unchanged (47); no PASS→bad. New regression test `test/jit/freopen_stdio.c` (freopen write → fopen/fscanf read → remove round-trip; runs under host gcc `make test` since it uses only the standard libc surface, and `make test-opt`). `make test` 167 → 168, `make test-opt` 129 → 130, all other gates green. Baseline re-recorded (`--update-baseline`).
+
 - **Sprint 105 — floating-literal suffix order (`1.0fi` ≡ `1.0iF`)** (see [`docs/CHANGELOG.md`](../CHANGELOG.md) for the full entry):
     - **The lexer consumed float suffixes only in `i`-before-`f` order.** C99 6.14.2.2 / GCC accept the imaginary suffix `i`/`I` combined with the float suffix `f`/`F` (or long-double `l`/`L`) in **either** order — GCC accepts `1.0iF`, `1.0fi`, `1.0Fi`, `1.0li`, etc. ZeroCC's parser read an optional leading `i` then one `f`/`l`, so `1.0fi` (f-then-i) left the trailing `i` dangling: the literal mis-lexed (a 16-byte `_Complex` seen as 4-byte complex-int) and parenthesized complex **constant** initializers like `1.0 + 14.0 * (1.0fi)` (complex-5.c) failed to parse.
     - **Fix** (`lexer/scan.h`): consume up to two suffix characters in any order (check `*s` each iteration). The value is the IMAGINARY part; the float bit selects the 4-byte vs 8-byte half. A first-cut loop had an index-desync (condition read `s[ss]` while `s` was incremented in the body, so only the first suffix char was consumed — it regressed `1.0iF`); the regression suite caught it and the loop now checks the current char each iteration.
@@ -307,7 +312,7 @@ Bringing up `tools/torture_run.py` exposed and fixed five compiler bugs (reducin
 
 ## 5. Chunked Burn-Down Plan (Remaining 1,160 Actionable Tests)
 
-> **Status (Sprint 105): the entire plan remains complete.** Every Tier 1 chunk (M1/M2/M3: 0 TIMEOUT, 0 MISCOMPILE) and every Tier 2 chunk (R1–R4: 0 REJECT) has been burned down; the corpus is at **PASS 3,670, REJECT 0, MISCOMPILE 0, TIMEOUT 0**. The table below is retained as the historical plan of record (Sprint 57).
+> **Status (Sprint 106): the entire plan remains complete.** Every Tier 1 chunk (M1/M2/M3: 0 TIMEOUT, 0 MISCOMPILE) and every Tier 2 chunk (R1–R4: 0 REJECT) has been burned down; the corpus is at **PASS 3,672, REJECT 0, MISCOMPILE 0, TIMEOUT 0**. The table below is retained as the historical plan of record (Sprint 57).
 
 Clustering [`test/torture/baseline.json`](../../test/torture/baseline.json) (`148 MISCOMPILE` + `0 TIMEOUT` + `714 REJECT`) by failing configuration and diagnostic message breaks the remaining work into bounded sprint chunks, ordered **correctness before syntax**:
 

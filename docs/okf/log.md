@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-04T21:28:20Z
+timestamp: 2026-11-04T21:47:58Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -891,3 +891,12 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-04 — Updated `c-torture-gate.md`
 - Docs refresh: corrected SKIP-TARGET bucket total 12 -> 13 (int128 7 + named_sections 3 + unwrapped 2 + arm 1) to match the ratcheted baseline; aligned README + development plan with Sprint 105 gate state (PASS 3,670, SKIP-C89 47)
+
+## 2026-11-04 — Updated `c-torture-gate.md`
+- Sprint 106: freopen declared in stdio.h virtual header; SKIP-TARGET:unwrapped unblocked (PASS 3,672, SKIP-TARGET 11)
+
+## 2026-11-04 — Updated `frontend-and-types.md`
+- Sprint 106: freopen/stdio virtual header documented
+
+## 2026-11-04 — Updated `index.md`
+- Sprint 106 gate state (PASS 3,672)

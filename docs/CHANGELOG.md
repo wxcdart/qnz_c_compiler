@@ -1,3 +1,21 @@
+## [Sprint 106] - 2026-11-05 - `freopen` declared in the stdio.h virtual header (3,672 PASS, baseline ratcheted)
+
+The two `SKIP-TARGET:unwrapped` tests (`execute/printf-2.c`, `execute/user-printf.c`) use a real `main` + real file I/O (`freopen`/`fopen`/`fscanf`/`remove`) against the **host libc** (the gate runs execute tests via JIT dlsym or the AOT system linker — never `zero_rt`). They segfaulted in **both** JIT and AOT at every `-O` level. **c-torture: PASS 3,670 -> 3,672 (+2, 0 bad), SKIP-TARGET:unwrapped 2 -> 0, baseline ratcheted.**
+
+### Frontend
+
+- **`freopen` (and `feof`/`ferror`/`clearerr`/`ungetc`) added to the built-in `<stdio.h>` virtual header** (`core/virtual_headers.h`).
+  - **Root cause (bisected)**: the header did not declare `freopen`, so it got an implicit-`int` declaration (gnu89). `FILE *f = freopen(…)` then truncated the 64-bit `FILE *` return to 32 bits at the call site — a garbage pointer that segfaults on first use. A minimal `freopen("/dev/null",…)` test masked it (low addresses), but a `tmpnam` file path exposed it; declaring `freopen` with its real `FILE *` return fixes both tests at every `-O` level in JIT and AOT.
+  - `unwrapped` removed from `tools/torture_run.py` `UNSUPPORTED_TARGETS`.
+
+### Tests & verification
+
+- **`test/jit/freopen_stdio.c`** (new): freopen write -> fopen/fscanf read -> remove round-trip. Runs under host gcc (`make test`) and zerocc -O0..-O3 (`make test-opt`); expected exit 0. `make test` 167 -> 168, `make test-opt` 129 -> 130.
+- `make test` **168/168**, `make test-opt` **130 ok**, `make test-driver` 37/37, `make test-isa-qemu` 59/59, `diag_battery` baseline OK, `style_check` 0 errors, `vtable_check` PASS, OKF lint/index clean.
+- c-torture full gate: **PASS 3,672** (was 3,670: +2 — `execute/printf-2.c`, `execute/user-printf.c`), SKIP-TARGET:unwrapped 2 -> 0, 0 bad. **Baseline ratcheted** (`test/torture/baseline.json`).
+
+---
+
 ## [Sprint 105] - 2026-11-05 - Floating-literal suffix order `1.0fi` ≡ `1.0iF` (3,670 PASS, baseline ratcheted)
 
 GCC accepts a floating imaginary literal's suffixes in **either order** — the imaginary `i`/`I` may precede *or* follow the float `f`/`F` (or long-double `l`/`L`): `1.0iF`, `1.0fi`, `1.0Fi`, `1.0li`, ... (C99 6.14.2.2). ZeroCC's float-suffix parser consumed them only in `i`-before-`f` order, so `1.0fi` (f-then-i) left the trailing `i` dangling: the literal mis-lexed (a 16-byte `_Complex` read as a 4-byte complex-int) and parenthesized complex **constant** initializers like `1.0 + 14.0 * (1.0fi)` (complex-5.c) failed to parse. **c-torture: PASS 3,667 -> 3,670 (+3, 0 bad), SKIP-C89 50 -> 47, baseline ratcheted.**
