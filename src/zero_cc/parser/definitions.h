@@ -705,7 +705,16 @@ static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c, ZeroCCASTArena
                 c->token_pos++;
             } else if (!is_unsigned && !is_signed) {
                 ttype = zero_cc_type_int();
-                c->token_pos++;
+                /* C89 implicit-int typedef: `typedef a;` / `typedef f, g;`
+                 * - the identifier is the ALIAS of an int typedef, not a
+                 * type name (the declaration ends right after it).  Leave
+                 * the token unconsumed so the alias reader below picks it
+                 * up; otherwise consume it as a defaulted type name. */
+                if (!(c->token_pos + 1 < c->token_count &&
+                      (c->tokens[c->token_pos + 1].type == TK_SEMI ||
+                       c->tokens[c->token_pos + 1].type == TK_COMMA))) {
+                    c->token_pos++;
+                }
             } else {
                 ttype = is_unsigned ? zero_cc_type_uint32() : zero_cc_type_int();
             }

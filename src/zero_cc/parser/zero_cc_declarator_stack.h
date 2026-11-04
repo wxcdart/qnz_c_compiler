@@ -705,8 +705,21 @@ static inline bool zero_cc_declarator_is_function(const ZeroCCDeclarator *d) {
     if (!d || d->name == NULL) return false;
     size_t nl = d->name_level;
     if (nl < d->num_levels && d->levels[nl].suffix_count > 0) {
-        return d->levels[nl].suffixes[0].kind == ZERO_CC_DECL_CHUNK_FUNCTION &&
-               d->levels[nl].prefix_count == 0;
+        if (d->levels[nl].suffixes[0].kind != ZERO_CC_DECL_CHUNK_FUNCTION) {
+            return false;
+        }
+        /* Pointer prefixes are allowed when the function chunk is the
+         * innermost suffix: `void *x()` / `int *f(void)` - a function
+         * returning a pointer (GNU nested functions, c-torture
+         * 920415-1).  A function POINTER declarator (`(*f)(void)`) has
+         * its function chunk at the OUTER level, so the name level
+         * itself has no function suffix there. */
+        for (size_t pi = 0; pi < d->levels[nl].prefix_count; pi++) {
+            if (d->levels[nl].prefixes[pi].kind != ZERO_CC_DECL_CHUNK_POINTER) {
+                return false;
+            }
+        }
+        return true;
     }
     return false;
 }
@@ -1084,11 +1097,18 @@ static int zero_cc_parse_kr_decl(ZeroCCCompiler *c, const char **out_names, Zero
          * function whose return type is the base + this declarator's
          * star run. */
         bool d_func_ptr = false;
+        int d_inner_stars = 0;
         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN &&
             c->token_pos + 1 < c->token_count &&
             c->tokens[c->token_pos + 1].type == TK_STAR) {
             c->token_pos++; /* ( */
-            c->token_pos++; /* * */
+            /* All stars inside the group: `(*f)()`, `(**f)()` (pointer to
+             * pointer to function - c-torture compile/callind). */
+            while (c->token_pos < c->token_count &&
+                   c->tokens[c->token_pos].type == TK_STAR) {
+                d_inner_stars++;
+                c->token_pos++;
+            }
             d_func_ptr = true;
             /* Qualifier between `*` and the name: `(*const f)(...)` / `(*const f)()`
              * (const function-pointer parameter, c-torture 20040909-1). */
@@ -1130,10 +1150,15 @@ static int zero_cc_parse_kr_decl(ZeroCCCompiler *c, const char **out_names, Zero
         dt.is_volatile = d_volatile;
         for (int dp = 0; dp < d_ptr; dp++) dt = zero_cc_type_ptr(&dt);
         if (d_func_ptr) {
-            /* `ret * (*name) ()` - pointer to function returning `ret *` */
+            /* `ret * (*name) ()` - pointer to function returning `ret *`.
+             * Extra stars in the group (`(**name) ()`) wrap the function
+             * pointer in more pointer levels. */
             ZeroCCType fpt = zero_cc_type_ptr(&dt);
             fpt.is_func_ptr = true;
             dt = fpt;
+            for (int isp = 1; isp < d_inner_stars; isp++) {
+                dt = zero_cc_type_ptr(&dt);
+            }
         } else if (is_array && dt.tag != TYPE_PTR && !dt.is_func_ptr) {
             dt = zero_cc_type_ptr(&dt);
         } else if (dt.tag == TYPE_ARRAY) {

@@ -891,9 +891,16 @@ static inline void ir_emit_nonlocal_goto(ZeroCCCompiler *c, int rbp_temp, int rs
         .imm64 = (int64_t)target_fn_idx, .label_idx = target_label});
 }
 
-/* Address of label (temp_dest = address of label_idx) */
+/* Address of label (temp_dest = address of label_idx). owner_fn_idx = 0
+ * means the label lives in the CURRENT function; a non-zero owner is the
+ * function index of an ANCESTOR owning the label (cross-scope `&&label`
+ * in a nested function - the MC layer resolves it through the persistent
+ * user_label_offsets table, exactly like OP_NONLOCAL_GOTO). */
+static inline void ir_emit_lea_label_owner(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t label_idx, int owner_fn_idx) {
+    ir_emit(c, (Instr){.op = OP_LEA_LABEL, .temp_dest = temp_dest, .temp_src1 = TEMP_NONE, .temp_src2 = TEMP_NONE, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = (int64_t)owner_fn_idx, .label_idx = label_idx});
+}
 static inline void ir_emit_lea_label(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t label_idx) {
-    ir_emit(c, (Instr){.op = OP_LEA_LABEL, .temp_dest = temp_dest, .temp_src1 = TEMP_NONE, .temp_src2 = TEMP_NONE, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = label_idx});
+    ir_emit_lea_label_owner(c, temp_dest, label_idx, 0);
 }
 
 /* Non-local jump setup: save [FP, PC(resume), SP] into buf (temp_src1);

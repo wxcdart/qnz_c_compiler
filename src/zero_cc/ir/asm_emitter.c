@@ -563,7 +563,13 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
 
         case OP_LEA_LABEL: {
             char lbl_buf[64];
-            snprintf(lbl_buf, sizeof(lbl_buf), ".L%zu_%u", func_idx, (unsigned)instr->label_idx);
+            /* imm64 != 0: cross-scope `&&label` - the label symbol belongs
+             * to the ANCESTOR function (1-based owner fn index, so 0 keeps
+             * meaning the current function); the asm labels are
+             * .L<func>_<ir> in the single .s output, so reference the
+             * owner's label directly. */
+            size_t owner = (instr->imm64 != 0) ? (size_t)(instr->imm64 - 1) : (size_t)func_idx;
+            snprintf(lbl_buf, sizeof(lbl_buf), ".L%zu_%u", owner, (unsigned)instr->label_idx);
             const char *dst_name = BE(c)->get_hw_reg_name(phys_dst);
             if (c->isa == ISA_AARCH64) {
                 fprintf(out, "\tadrp\t%s, %s\n", dst_name, lbl_buf);

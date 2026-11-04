@@ -340,6 +340,15 @@ bool type_compatible_assign(const TypeInfo *dst, const TypeInfo *src) {
         return type_is_arithmetic(effective_src) || type_is_pointer(effective_src);
     }
 
+    /* C89/GNU pointer-to-integer conversion (gcc -Wint-conversion warns):
+     * `int x = p;` truncates the pointer to the integer's width.  The
+     * lowering already sign/zero-extends the RHS to the LHS width
+     * (lower_assign_conv_zt), so the value is well-defined. */
+    if (type_is_arithmetic(dst) && !type_is_floating(dst) &&
+        type_is_pointer(effective_src)) {
+        return true;
+    }
+
     /* Pointer assignment rules */
     if (type_is_pointer(dst)) {
         /* Right operand is a pointer */
@@ -359,6 +368,13 @@ bool type_compatible_assign(const TypeInfo *dst, const TypeInfo *src) {
 
             /* One operand is a pointer to void (void* or const void* etc.) */
             if ((dst_base && type_is_void(dst_base)) || (src_base && type_is_void(src_base))) {
+                return true;
+            }
+
+            /* C99 6.4.5: a string literal may be stored in char or
+             * unsigned char, so char* and unsigned char* pointers are
+             * mutually compatible in assignment/initialization. */
+            if (dst_base->kind == TYPE_KIND_CHAR && src_base->kind == TYPE_KIND_CHAR) {
                 return true;
             }
 

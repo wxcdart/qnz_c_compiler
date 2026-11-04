@@ -144,8 +144,9 @@ TypeInfo *expr_handle_identifier(SemContext *ctx, ZeroCCASTNode *node) {
 
     Symbol *sym = scope_lookup(ctx->current_scope, name);
     if (!sym) {
-        if (strcmp(name, "__func__") == 0) {
-            /* __func__ is implicitly declared as static const char[] */
+        if (strcmp(name, "__func__") == 0 || strcmp(name, "__PRETTY_FUNCTION__") == 0) {
+            /* __func__ / __PRETTY_FUNCTION__ are implicitly declared as
+             * static const char[] (pointer to the function-name string). */
             TypeInfo *res = type_pointer_to(ctx->perm_arena, type_char(ctx->perm_arena));
             expr_node_set_type(ctx, node, res);
             return res;

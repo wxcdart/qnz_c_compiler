@@ -392,7 +392,40 @@ if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
                 c->token_pos++;
             }
             const char *fp_name = "";
-            if (c->tokens[c->token_pos].type == TK_IDENT) {
+            bool fp_wrapped_name = false;
+            if (c->tokens[c->token_pos].type == TK_LPAREN) {
+                /* Parenthesized name: `(* const (funcp)(time_t))` - the
+                 * declarator name is wrapped in its own paren group. */
+                size_t wp = c->token_pos;
+                int wd = 0;
+                bool wp_ok = true;
+                const char *wp_name = "";
+                while (wp < c->token_count) {
+                    if (c->tokens[wp].type == TK_LPAREN) wd++;
+                    else if (c->tokens[wp].type == TK_RPAREN) {
+                        wd--;
+                        if (wd == 0) break;
+                    } else if (c->tokens[wp].type == TK_IDENT && wp_name[0] == '\0' &&
+                               strcmp(c->tokens[wp].str_val, "const") != 0 &&
+                               strcmp(c->tokens[wp].str_val, "volatile") != 0 &&
+                               strcmp(c->tokens[wp].str_val, "restrict") != 0) {
+                        wp_name = c->tokens[wp].str_val;
+                    } else if (c->tokens[wp].type != TK_CONST &&
+                               c->tokens[wp].type != TK_VOLATILE &&
+                               c->tokens[wp].type != TK_RESTRICT) {
+                        wp_ok = false;
+                        break;
+                    }
+                    wp++;
+                }
+                if (wp_ok && wp_name[0] != '\0') {
+                    fp_name = wp_name;
+                    fp_wrapped_name = true;
+                    c->token_pos = wp + 1; /* past the group's ')' */
+                }
+            }
+            if (fp_name[0] == '\0' && c->token_pos < c->token_count &&
+                c->tokens[c->token_pos].type == TK_IDENT) {
                 fp_name = c->tokens[c->token_pos].str_val;
                 c->token_pos++; /* name */
             }
@@ -424,6 +457,13 @@ if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
                     else if (c->tokens[c->token_pos].type == TK_RPAREN) pdepth--;
                     c->token_pos++;
                 }
+            }
+            /* Wrapped-name form: the outer `(* ... )` group closes AFTER
+             * the parameter suffix (`(* (funcp)(time_t))`), so consume its
+             * ')' here (the plain form consumed it right after the name). */
+            if (fp_wrapped_name && c->token_pos < c->token_count &&
+                c->tokens[c->token_pos].type == TK_RPAREN) {
+                c->token_pos++;
             }
             /* fall through to the comma/stuck-token handling below */
         } else if (c->token_pos + 1 < c->token_count &&
@@ -798,11 +838,19 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         ZeroCCType *tdef = zero_cc_find_typedef(c, c->tokens[c->token_pos].str_val);
         if (!tdef) tdef = zero_cc_find_struct(c, c->tokens[c->token_pos].str_val);
         if (!tdef) tdef = zero_cc_find_enum(c, c->tokens[c->token_pos].str_val);
-        if (tdef) {
+        /* C89 6.4.4.1: `IDENT (params)` - the identifier is the function
+         * name with a defaulted int return type, even when it is a known
+         * tag/typedef name (C keeps tags in a separate namespace; typedef
+         * names and function names share the ordinary one).  A function
+         * pointer declarator opens with `(*`, so that shape keeps the
+         * type-name reading (`T (*f)(...)` returns T). */
+        bool ident_is_fn_name = (c->token_pos + 2 < c->token_count &&
+            c->tokens[c->token_pos + 1].type == TK_LPAREN &&
+            c->tokens[c->token_pos + 2].type != TK_STAR);
+        if (tdef && !ident_is_fn_name) {
             fn_ret_type = *tdef;
             c->token_pos++;
-        } else if (c->token_pos + 1 < c->token_count &&
-                   c->tokens[c->token_pos + 1].type == TK_LPAREN) {
+        } else if (ident_is_fn_name) {
             /* C89-style implicit-int function definition: `main(){ ... }`.
              * The identifier is the function name, not a type; the return
              * type defaults to int. C99 6.7p6 requires an explicit type

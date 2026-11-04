@@ -629,15 +629,19 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                     c->tokens[probe].type == TK_CONST ||
                     c->tokens[probe].type == TK_VOLATILE ||
                     c->tokens[probe].type == TK_NORETURN)) probe++;
-            bare_fn_ident = (probe + 1 < c->token_count &&
+            /* C89 6.4.4.1: the identifier of `IDENT ( ...` is the function
+             * name with an int return type - even when the identifier is a
+             * struct/union/enum tag or a typedef alias (separate
+             * namespaces).  The `(` must not open a function-pointer
+             * declarator (`T (*f)(...)`) - that is a variable, handled by
+             * the declaration path. */
+            bare_fn_ident = (probe + 2 < c->token_count &&
                 c->tokens[probe].type == TK_IDENT &&
                 c->tokens[probe + 1].type == TK_LPAREN &&
+                c->tokens[probe + 2].type != TK_STAR &&
                 strcmp(c->tokens[probe].str_val, "__zc_vector_size__") != 0 &&
                 strcmp(c->tokens[probe].str_val, "__zc_aligned__") != 0 &&
-                strcmp(c->tokens[probe].str_val, "__zc_mode__") != 0 &&
-                !zero_cc_find_typedef(c, c->tokens[probe].str_val) &&
-                !zero_cc_find_struct(c, c->tokens[probe].str_val) &&
-                !zero_cc_find_enum(c, c->tokens[probe].str_val));
+                strcmp(c->tokens[probe].str_val, "__zc_mode__") != 0);
         }
 
         /* Global variable declarations */
@@ -655,6 +659,7 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
             c->tokens[c->token_pos].type == TK_SHORT || c->tokens[c->token_pos].type == TK_LONG ||
             c->tokens[c->token_pos].type == TK_STRUCT || c->tokens[c->token_pos].type == TK_UNION ||
             c->tokens[c->token_pos].type == TK_ENUM ||
+            c->tokens[c->token_pos].type == TK_STAR ||
             c->tokens[c->token_pos].type == TK_ATOMIC ||
             c->tokens[c->token_pos].type == TK_TYPEOF || c->tokens[c->token_pos].type == TK_TYPEOF_UNQUAL ||
             c->tokens[c->token_pos].type == TK_IDENT)) {
@@ -730,8 +735,55 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                 c->token_pos += 3;
                 continue;
             }
-            /* Parse type */
-            ZeroCCType gtype = zero_cc_parse_type_name(c);
+            /* C89 implicit-int VARIABLE declaration: an unknown identifier
+             * directly followed by `,` / `=` / `;` is a variable name, not
+             * a type (`a, b, c;`, `two52 = 4.5, w6 = -1.6;` - gcc
+             * -Wimplicit-int).  Default the base type to int and let the
+             * declarator loop read the name(s); the identifier is NOT
+             * consumed. */
+            ZeroCCType gtype;
+            if (c->tokens[c->token_pos].type == TK_STAR) {
+                /* `*t29;` - implicit-int pointer variable: the declarator
+                 * loop consumes the star and the name. */
+                gtype = zero_cc_type_int();
+            } else if (c->tokens[c->token_pos].type == TK_IDENT &&
+                !zero_cc_find_typedef(c, c->tokens[c->token_pos].str_val) &&
+                !zero_cc_find_struct(c, c->tokens[c->token_pos].str_val) &&
+                !zero_cc_find_enum(c, c->tokens[c->token_pos].str_val) &&
+                !find_global_var(c, c->tokens[c->token_pos].str_val)) {
+                size_t nxt = c->token_pos + 1;
+                bool impl_int_var = (nxt < c->token_count &&
+                    (c->tokens[nxt].type == TK_COMMA ||
+                     c->tokens[nxt].type == TK_ASSIGN ||
+                     c->tokens[nxt].type == TK_SEMI));
+                if (!impl_int_var && nxt < c->token_count &&
+                    c->tokens[nxt].type == TK_LBRACKET) {
+                    /* `static a[];` - array declarator after the implicit
+                     * int base; probe to the matching ']' and require the
+                     * declaration to continue (`,`) or end (`;`). */
+                    size_t d2 = nxt;
+                    int bd = 0;
+                    while (d2 < c->token_count) {
+                        if (c->tokens[d2].type == TK_LBRACKET) bd++;
+                        else if (c->tokens[d2].type == TK_RBRACKET) { bd--; if (bd == 0) break; }
+                        d2++;
+                    }
+                    if (d2 < c->token_count && c->tokens[d2].type == TK_RBRACKET &&
+                        d2 + 1 < c->token_count &&
+                        (c->tokens[d2 + 1].type == TK_SEMI ||
+                         c->tokens[d2 + 1].type == TK_COMMA ||
+                         c->tokens[d2 + 1].type == TK_ASSIGN)) {
+                        impl_int_var = true;
+                    }
+                }
+                if (impl_int_var) {
+                    gtype = zero_cc_type_int();
+                } else {
+                    gtype = zero_cc_parse_type_name(c);
+                }
+            } else {
+                gtype = zero_cc_parse_type_name(c);
+            }
             /* Trailing qualifiers after the type name: `unsigned long long
              * const data[64]`, `void volatile f();` (C99 6.7.1). */
             while (c->token_pos < c->token_count &&

@@ -101,10 +101,20 @@ static bool sem_is_label_value_var(SemContext *ctx, const char *name) {
     return s != NULL && s->is_label_value;
 }
 
-/* `&&X` visibility: a label defined in the current function, or a
- * __label__ variable of the current function. */
+/* `&&X` visibility: a label defined in the current function, a __label__
+ * variable of the current function, or a label of any ANCESTOR function
+ * (a nested function may take the address of an enclosing function's
+ * label - c-torture 920415-1: `void *x(){ return &&l; }` with `l:` in
+ * the enclosing function). */
 static bool sem_label_addr_visible(SemContext *ctx, const char *name, size_t len) {
-    return sem_find_label(ctx, name, len) || sem_is_label_value_var(ctx, name);
+    if (sem_find_label(ctx, name, len) || sem_is_label_value_var(ctx, name)) return true;
+    if (!name) return false;
+    if (len == 0) len = strlen(name);
+    for (int i = 0; i < ctx->ancestor_label_count; i++) {
+        size_t l = strlen(ctx->ancestor_labels[i]);
+        if (l == len && memcmp(ctx->ancestor_labels[i], name, len) == 0) return true;
+    }
+    return false;
 }
 
 /* `goto X` visibility: same as &&X, plus labels of any ANCESTOR
@@ -199,10 +209,22 @@ TypeInfo *sem_analyze_ref(SemContext *ctx, ASTRef ref) {
 
 bool sem_implicit_fn_decl(SemContext *ctx, uint32_t line, uint32_t col, const char *name) {
     if (!ctx || !ctx->diags || !ctx->current_scope || !name || !*name) return false;
-    /* Reserved names (builtins, intrinsics) keep the undeclared error -
-     * their special handling lives in the identifier pass. */
-    if (name[0] == '_') return false;
     if (scope_lookup(ctx->current_scope, name)) return false;
+    /* Names the NODE_IDENT handler resolves as compiler builtins must not
+     * be shadowed by an implicit `int name(...)` declaration (the implicit
+     * symbol wins scope lookup and the special typing is lost - e.g. the
+     * GNU complex extractors `__real__`/`__imag__` or `__builtin_conjf`). */
+    if (strncmp(name, "__builtin_", 10) == 0 || strncmp(name, "__sync_", 7) == 0 ||
+        strncmp(name, "__atomic_", 9) == 0 || strncmp(name, "__zerocc_", 9) == 0) {
+        return false;
+    }
+    if (strcmp(name, "__alignof__") == 0 || strcmp(name, "_Alignof") == 0 ||
+        strcmp(name, "__real__") == 0 || strcmp(name, "__real") == 0 ||
+        strcmp(name, "__imag__") == 0 || strcmp(name, "__imag") == 0 ||
+        strcmp(name, "__func__") == 0 || strcmp(name, "__PRETTY_FUNCTION__") == 0 ||
+        strcmp(name, "alloca") == 0) {
+        return false;
+    }
     /* Did-you-mean against the visible scope BEFORE inserting the implicit
      * symbol (otherwise the name matches itself at distance 0). */
     const char *names[1024];
@@ -282,8 +304,10 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
                 Symbol *sym = scope_lookup(ctx->current_scope, ident_name);
                 if (sym) {
                     res = sym->type;
-                } else if (strcmp(ident_name, "__func__") == 0) {
-                    /* __func__ is implicitly declared as char[] (pointer to function name) */
+                } else if (strcmp(ident_name, "__func__") == 0 ||
+                           strcmp(ident_name, "__PRETTY_FUNCTION__") == 0) {
+                    /* __func__ / __PRETTY_FUNCTION__ are implicitly declared
+                     * as char[] (pointer to the function-name string) */
                     res = type_pointer_to(ctx->perm_arena, type_char(ctx->perm_arena));
                 } else if (strncmp(ident_name, "__builtin_", 10) == 0 ||
                            strncmp(ident_name, "__sync_", 7) == 0 ||

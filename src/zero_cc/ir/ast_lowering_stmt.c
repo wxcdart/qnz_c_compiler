@@ -1297,6 +1297,20 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
         if (c->last_expr_is_float && final_float_temp != VREG_F0) {
             ir_emit_fmov(c, (uint8_t)VREG_F0, (uint16_t)final_float_temp);
         }
+    } else {
+        /* Bare `return;`. In a void function this is the normal shape. In a
+         * non-void function it is the C89 gnu89 leniency accepted with a
+         * warning (see stmt_handle_return) - return 0 for scalar types so
+         * the value is deterministic (c-torture 920415-1). */
+        ZeroCCFunction *br_fn = zero_cc_get_current_fn(c);
+        if (br_fn && br_fn->return_type.tag != TYPE_VOID &&
+            br_fn->return_type.tag != TYPE_STRUCT &&
+            br_fn->return_type.tag != TYPE_UNION &&
+            br_fn->return_type.tag != TYPE_USER_0 &&
+            !zero_cc_type_is_complex(&br_fn->return_type)) {
+            ir_emit_mov_imm(c, VREG_0, 0);
+        }
+        c->last_expr_is_float = 0;
     }
     ir_emit_jmp(c, c->lowering.epilogue_label);
 }

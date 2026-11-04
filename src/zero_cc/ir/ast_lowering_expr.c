@@ -842,8 +842,10 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
         case NODE_IDENT: {
             const char *name = node->s.str;
 
-            /* Special case: __func__ returns pointer to function name string */
-            if (strcmp(name, "__func__") == 0) {
+            /* Special case: __func__ / __PRETTY_FUNCTION__ return a
+             * pointer to the function name string. */
+            if (strcmp(name, "__func__") == 0 ||
+                strcmp(name, "__PRETTY_FUNCTION__") == 0) {
                 const char *fn_name = "";
                 ZeroCCFunction *cur_fn = zero_cc_get_current_fn(c);
                 if (cur_fn) {
@@ -1057,9 +1059,48 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             return lower_expr(c, arena, node->right);
 
         case NODE_LABEL_ADDR: {
-            uint16_t lbl = get_or_create_user_ir_label(c, node->s.str);
+            /* Cross-scope `&&label` (nested function taking the address of
+             * an ANCESTOR function's label - c-torture 920415-1): the
+             * label's OP_LABEL is emitted in the ancestor's MC pass, so
+             * carry the owner's function index; the MC layer resolves the
+             * text offset through user_label_offsets (same table as
+             * OP_NONLOCAL_GOTO). */
+            ZeroCCFunction *cur_la = &c->functions[c->lowering.current_func_idx];
+            bool la_own = false;
+            for (int li = 0; li < cur_la->nl_label_count; li++) {
+                if (cur_la->nl_labels[li] && strcmp(cur_la->nl_labels[li], node->s.str) == 0) {
+                    la_own = true;
+                    break;
+                }
+            }
+            int la_owner_fn = 0;   /* 1-based owner fn index; 0 = current function */
+            uint16_t la_lbl = 0;
+            bool la_found_ancestor = false;
+            if (cur_la->is_nested && !la_own) {
+                size_t la_chain[64];
+                int la_n = 0;
+                for (size_t ai = cur_la->nested_enclosing_fn_idx;
+                     ai != (size_t)-1 && la_n < 64; ) {
+                    la_chain[la_n++] = ai;
+                    if (!c->functions[ai].is_nested) break;
+                    ai = c->functions[ai].nested_enclosing_fn_idx;
+                }
+                for (int ci = 0; ci < la_n && !la_found_ancestor; ci++) {
+                    ZeroCCFunction *af = &c->functions[la_chain[ci]];
+                    for (int li = 0; li < af->nl_label_count; li++) {
+                        if (!af->nl_labels[li] || strcmp(af->nl_labels[li], node->s.str) != 0) continue;
+                        la_found_ancestor = true;
+                        la_owner_fn = (int)la_chain[ci] + 1; /* 1-based: 0 = local */
+                        la_lbl = af->nl_label_ir[li];
+                        break;
+                    }
+                }
+            }
+            if (!la_found_ancestor) {
+                la_lbl = get_or_create_user_ir_label(c, node->s.str);
+            }
             int temp = c->next_temp_id++;
-            ir_emit_lea_label(c, (uint16_t)temp, lbl);
+            ir_emit_lea_label_owner(c, (uint16_t)temp, la_lbl, la_owner_fn);
             c->last_expr_is_float = 0;
             return temp;
         }

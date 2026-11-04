@@ -127,9 +127,13 @@ TypeInfo *decl_handle_var(SemContext *ctx, ZeroCCASTNode *node) {
          * semantic model, so the generic assign check would reject it. */
         bool str_lit_into_char_arr =
             (init_node && init_node->tag == NODE_STRING &&
-             var_t && var_t->kind == TYPE_KIND_ARRAY &&
-             var_t->details.array.base &&
-             var_t->details.array.base->kind == TYPE_KIND_CHAR);
+             var_t && (
+                 (var_t->kind == TYPE_KIND_ARRAY &&
+                  var_t->details.array.base &&
+                  var_t->details.array.base->kind == TYPE_KIND_CHAR) ||
+                 (var_t->kind == TYPE_KIND_POINTER &&
+                  var_t->details.pointer.base &&
+                  var_t->details.pointer.base->kind == TYPE_KIND_CHAR)));
         if (!str_lit_into_char_arr && !type_compatible_assign(var_t, init_t)) {
             if (sym) scope_remove_symbol(ctx->current_scope, name);
             decl_error(ctx, node, "incompatible initializer type for variable '%s'", name);

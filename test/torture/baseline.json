@@ -1,6 +1,6 @@
 {
  "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
- "generated": "2026-11-04T14:54:12Z",
+ "generated": "2026-11-04T18:22:21Z",
  "tests": {
   "compile/103818.c": {
    "class": "PASS",
@@ -1224,12 +1224,12 @@
    "note": ""
   },
   "compile/20020418-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "            ^; Compile error: non-void function should return a value | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20020530-1.c": {
    "class": "PASS",
@@ -1328,12 +1328,12 @@
    "note": ""
   },
   "compile/20020927-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "              ^; Compile error: non-void function should return a value | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20020930-1.c": {
    "class": "PASS",
@@ -3041,12 +3041,12 @@
    "note": ""
   },
   "compile/20080704-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                               ^; Compile error: use of undeclared identifier '_Jv_ratio' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20080721-1.c": {
    "class": "PASS",
@@ -3089,12 +3089,12 @@
    "note": ""
   },
   "compile/20080910-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                               ^; Compile error: use of undeclared identifier '_IO_getc' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20080922-1.c": {
    "class": "PASS",
@@ -3294,12 +3294,12 @@
    "note": ""
   },
   "compile/20101216-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                ^; Compile error: expected identifier in declaration | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20101217-1.c": {
    "class": "PASS",
@@ -3581,12 +3581,12 @@
    "note": ""
   },
   "compile/20180605-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "              ^; Compile error: void function should not return a value | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20180915-1.c": {
    "class": "PASS",
@@ -3778,12 +3778,12 @@
    "note": ""
   },
   "compile/920415-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "            ^; Compile error: cannot declare variable 'x' with function type | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/920428-1.c": {
    "class": "PASS",
@@ -3954,12 +3954,12 @@
    "note": ""
   },
   "compile/920501-23.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                               ^; Compile error: incompatible initializer type for variable 'x' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/920501-3.c": {
    "class": "PASS",
@@ -3994,12 +3994,12 @@
    "note": ""
   },
   "compile/920501-8.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                ^; Compile error: incompatible initializer type for variable 'x' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/920501-9.c": {
    "class": "PASS",
@@ -4124,12 +4124,12 @@
    "note": ""
   },
   "compile/920701-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                        ^; Compile error: incompatible return type in return statement | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/920702-1.c": {
    "class": "PASS",
@@ -4212,12 +4212,12 @@
    "note": ""
   },
   "compile/920817-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                                                     ^; Compile error: void function should not return a value | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/920820-1.c": {
    "class": "PASS",
@@ -4933,12 +4933,12 @@
    "note": ""
   },
   "compile/941014-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                       ^; Compile error: unexpected token 'register' in statement | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/941014-2.c": {
    "class": "PASS",
@@ -4957,12 +4957,12 @@
    "note": ""
   },
   "compile/941014-4.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "       ^; Compile error: static local 'debug' initializer must be a constant literal (complex initializers not yet supported) | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/941019-1.c": {
    "class": "PASS",
@@ -5679,12 +5679,12 @@
    "note": ""
   },
   "compile/991213-2.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/991213-3.c": {
    "class": "PASS",
@@ -6517,12 +6517,12 @@
    "note": ""
   },
   "compile/callind.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: invalid K&R parameter declaration in function 'bar' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/calls-void.c": {
    "class": "SKIP-TARGET:untyped_assembly",
@@ -6944,12 +6944,12 @@
    "note": ""
   },
   "compile/ext.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: expected identifier in declaration | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/f1.c": {
    "class": "PASS",
@@ -7160,12 +7160,12 @@
    "note": ""
   },
   "compile/ifreg.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: expected identifier in declaration | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/iftrap-1.c": {
    "class": "PASS",
@@ -7304,12 +7304,12 @@
    "note": ""
   },
   "compile/layout.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "     ^; Compile error: expected identifier in declaration | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/lbug.c": {
    "class": "PASS",
@@ -9998,12 +9998,12 @@
    "note": ""
   },
   "compile/pr33855.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                   ^; Compile error: use of undeclared identifier 'j' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr34029-2.c": {
    "class": "PASS",
@@ -11437,12 +11437,12 @@
    "note": ""
   },
   "compile/pr43066.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                             ^; Compile error: use of undeclared identifier 'va' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr43164.c": {
    "class": "PASS",
@@ -11754,12 +11754,12 @@
    "note": ""
   },
   "compile/pr45535.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                                          ^; Compile error: use of undeclared identifier '__pgd_val' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr45728.c": {
    "class": "PASS",
@@ -12676,7 +12676,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                                       ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": "                                    ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
   },
   "compile/pr55920.c": {
    "class": "PASS",
@@ -13537,12 +13537,12 @@
    "note": ""
   },
   "compile/pr72802.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "       ^; Compile error: expected identifier in declaration | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr77754-1.c": {
    "class": "PASS",
@@ -13822,12 +13822,12 @@
    "note": ""
   },
   "compile/pr81360.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "         ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr81553.c": {
    "class": "PASS",
@@ -14330,12 +14330,12 @@
    "note": "                 ^; Compile error: incompatible initializer type for variable 'd' | cfgs: O0-aot,O2-aot"
   },
   "compile/pr90275.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                ^; Compile error: expected identifier in declaration | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr90840.c": {
    "class": "PASS",
@@ -20165,7 +20165,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                                       ^; Compile error: unexpected token in brace initializer (near 'i') | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                        ^; Compile error: unexpected token in brace initializer (near 'i') | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20041210-1.c": {
    "class": "PASS",
@@ -22586,18 +22586,18 @@
    "note": ""
   },
   "execute/920415-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                                                                         ^; Compile error: cannot declare variable 'x' with function type | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/920428-1.c": {
    "class": "PASS",
@@ -22628,18 +22628,18 @@
    "note": ""
   },
   "execute/920429-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                                                          ^; Compile error: incompatible initializer type for variable 'p0' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/920501-1.c": {
    "class": "SKIP-TARGET:untyped_assembly",
@@ -22969,18 +22969,18 @@
    "note": ""
   },
   "execute/920728-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                             ^; Compile error: non-void function should return a value | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/920730-1.c": {
    "class": "PASS",
@@ -23665,18 +23665,18 @@
    "note": ""
   },
   "execute/930603-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "          ^; Compile error: use of undeclared identifier 'a' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/930603-2.c": {
    "class": "PASS",
@@ -28098,7 +28098,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                                               ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                                         ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/complex-6.c": {
    "class": "PASS",
@@ -30832,7 +30832,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "           ^; Compile error: expected identifier in declaration | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "           ^; Compile error: expected expression in argument list | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr105777.c": {
    "class": "NO-REF",
@@ -38110,7 +38110,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                     ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "            ^; Compile error: expected ';' after declaration of 'd64' (near 'DD') | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr81281.c": {
    "class": "PASS",
@@ -40056,18 +40056,18 @@
    "note": ""
   },
   "execute/stkalign.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "         ^; Compile error: incompatible types in assignment | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/strcmp-1.c": {
    "class": "PASS",
@@ -41198,10 +41198,10 @@
  "totals": {
   "EXPECTED-REJECT": 4,
   "NO-REF": 184,
-  "PASS": 3586,
+  "PASS": 3615,
   "REF-BUG": 3,
   "SKIP-BOGUS": 1,
-  "SKIP-C89": 90,
+  "SKIP-C89": 61,
   "SKIP-PTR": 1,
   "SKIP-REFSEM": 16,
   "SKIP-TARGET:arm": 1,

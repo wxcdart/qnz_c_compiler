@@ -231,11 +231,11 @@ bool stmt_handle_return(SemContext *ctx, ZeroCCASTNode *node) {
         TypeInfo *ret_t = sem_analyze_ref(ctx, node->left);
         if (ctx->current_fn_ret_type) {
             if (type_is_void(ctx->current_fn_ret_type)) {
-                /* GNU C allows `return void_expr;` inside a void function;
-                 * non-void return expressions remain an error. */
-                if (!ret_t || !type_is_void(ret_t)) {
-                    sem_node_error(ctx, node, "void function should not return a value");
-                }
+                /* C99 6.8.6.4p2: `return expr;` in a void function is legal
+                 * for ANY expr - the value is discarded (GCC accepts it in
+                 * every dialect; the lowering evaluates the expression for
+                 * side effects and skips the value). */
+                (void)ret_t;
             } else if (ret_t) {
                 if (!type_compatible_assign(ctx->current_fn_ret_type, ret_t)) {
                     sem_node_error(ctx, node, "incompatible return type in return statement");
@@ -243,9 +243,15 @@ bool stmt_handle_return(SemContext *ctx, ZeroCCASTNode *node) {
             }
         }
     } else {
-        /* No expression returned */
+        /* No expression returned. C89 3.7 allowed a bare return in
+         * non-void functions; C99 removed it, but GCC's gnu dialects still
+         * accept it with a warning (c-torture 920415-1). */
         if (ctx->current_fn_ret_type && !type_is_void(ctx->current_fn_ret_type)) {
-            sem_node_error(ctx, node, "non-void function should return a value");
+            if (ctx->diags) {
+                char wbuf[128];
+                snprintf(wbuf, sizeof(wbuf), "'return' with no value, in function returning non-void (gnu89)");
+                diag_report_warning(ctx->diags, node->line, node->col, NULL, "%s", wbuf);
+            }
         }
     }
 

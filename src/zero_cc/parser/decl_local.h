@@ -346,6 +346,7 @@ static inline bool zero_cc_static_local_patch_init(ZeroCCCompiler *c, ZeroCCSym 
         bool ok = false;
         if (c->token_pos < c->token_count &&
             (c->tokens[c->token_pos].type == TK_AMP ||
+             c->tokens[c->token_pos].type == TK_LOGAND ||
              c->tokens[c->token_pos].type == TK_IDENT ||
              c->tokens[c->token_pos].type == TK_STRING)) {
             ZeroCCDataReloc *dr = NULL;
@@ -363,7 +364,23 @@ static inline bool zero_cc_static_local_patch_init(ZeroCCCompiler *c, ZeroCCSym 
                 c->data_section.length = cap_end;
             }
             if (dr) dr->data_patch_offset = sym->static_data_offset;
-            if (c->tokens[c->token_pos].type == TK_AMP) {
+            if (c->tokens[c->token_pos].type == TK_LOGAND &&
+                c->token_pos + 1 < c->token_count &&
+                c->tokens[c->token_pos + 1].type == TK_IDENT) {
+                /* GNU label value: `static void *p = &&l;` - the slot is
+                 * patched to the label's text offset (kind-5 data reloc,
+                 * resolved after the enclosing function's IR lowering). */
+                snprintf(dr->target_extern_name, sizeof(dr->target_extern_name),
+                         "%s", c->tokens[c->token_pos + 1].str_val);
+                c->token_pos += 2;
+                if (dr) {
+                    dr->target_kind = 5;
+                    dr->target_data_offset = 0;
+                    dr->target_global_idx = (c->function_count > 0) ?
+                        (int)(c->function_count - 1) : 0;
+                }
+                ok = true;
+            } else if (c->tokens[c->token_pos].type == TK_AMP) {
                 c->token_pos++;
                 if (c->token_pos < c->token_count &&
                     c->tokens[c->token_pos].type == TK_IDENT) {
@@ -744,6 +761,40 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
         *out_ref = AST_NULL; return true;
     }
 
+    /* C89 implicit-int local declaration: `register length;` / `x;` -
+     * no type specifier; the identifier is the variable name and the
+     * base defaults to int.  Force the base to int and skip consuming
+     * the name token (the declarator parser owns it). */
+    bool implicit_int_local = false;
+    /* A name already declared (global, extern object, or function) makes
+     * `name = expr;` an ASSIGNMENT, not an implicit-int declaration -
+     * extern variables live in the function table as is_object entries,
+     * so probe it too (c-torture driver float2: `ratio = ratio * v;`
+     * with `extern double ratio;` mis-parsed as a shadowing declaration). */
+    bool name_already_declared = !!(find_global_var(c, c->tokens[c->token_pos].str_val) ||
+        zero_cc_find_local(c, c->tokens[c->token_pos].str_val));
+    if (!name_already_declared) {
+        for (size_t fi = 0; fi < c->function_count; fi++) {
+            if (strcmp(c->functions[fi].name, c->tokens[c->token_pos].str_val) == 0) {
+                name_already_declared = true;
+                break;
+            }
+        }
+    }
+    if (t == TK_IDENT &&
+        !zero_cc_find_typedef(c, c->tokens[c->token_pos].str_val) &&
+        !zero_cc_find_struct(c, c->tokens[c->token_pos].str_val) &&
+        !zero_cc_find_enum(c, c->tokens[c->token_pos].str_val) &&
+        !name_already_declared &&
+        !zero_cc_tok_is_complex_spec(c->tokens[c->token_pos].str_val)) {
+        size_t ln = c->token_pos + 1;
+        if (ln < c->token_count &&
+            (c->tokens[ln].type == TK_SEMI || c->tokens[ln].type == TK_COMMA ||
+             c->tokens[ln].type == TK_ASSIGN || c->tokens[ln].type == TK_LBRACKET)) {
+            t = TK_INT;
+            implicit_int_local = true;
+        }
+    }
     if (is_type_specifier(c, t)) {
         size_t type_start_pos = c->token_pos;
         ZeroCCTokType type_tok = t;
@@ -782,7 +833,7 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
                 cx_inner = *cx_inner.base;
             }
             typeof_base_type_early = zero_cc_type_complex(&cx_inner);
-        } else {
+        } else if (!implicit_int_local) {
             c->token_pos++;
         }
         ZeroCCType typeof_base_type;
@@ -1616,6 +1667,86 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
                                                (ret_type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&ret_type)));
                         fn->ret_struct_sz = ret_type.size;
                         fn->is_prototype = true;
+                    }
+                    /* C89 mixed declarator list: `float fx (), inita (), a, b, c;`
+                     * - function declarators and variables share one
+                     * declaration.  When more declarators follow the `)`,
+                     * parse them (functions become prototypes, variables
+                     * become locals) and chain the decl nodes. */
+                    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) {
+                        ASTRef list_head = func_ref;
+                        ASTRef list_tail = func_ref;
+                        while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) {
+                            c->token_pos++;
+                            ZeroCCDeclarator md;
+                            zero_cc_declarator_init(&md);
+                            if (!zero_cc_parse_declarator(c, arena, ctx, &md) || !md.name ||
+                                !zero_cc_declarator_validate(c, &md)) {
+                                *out_ref = AST_NULL; return true;
+                            }
+                            if (zero_cc_declarator_is_function(&md)) {
+                                ZeroCCType mret = zero_cc_declarator_apply_return(&md, base_ret);
+                                const ZeroCCDeclaratorChunk *mfc = zero_cc_declarator_get_function_chunk(&md);
+                                if (!mfc) mfc = &md.stack[0];
+                                TypeInfo *mret_ti = zero_cc_type_to_typeinfo(ctx->perm_arena, mret);
+                                TypeInfo *mfn_ti = type_function(ctx->perm_arena, mret_ti,
+                                    mfc->param_count > 0 ? (TypeInfo **)mfc->param_tis : NULL,
+                                    mfc->param_count, mfc->is_variadic);
+                                mfn_ti->details.function.is_prototype = mfc->has_prototype;
+                                ASTRef mref = zero_cc_ast_alloc_node(arena, NODE_DECL);
+                                ZeroCCASTNode *mn = zero_cc_ast_get(arena, mref);
+                                mn->line = line; mn->col = col;
+                                mn->s.str = zero_cc_intern_string(c, md.name);
+                                mn->s_len = strlen(md.name);
+                                mn->flags |= NODE_FLAG_FUNC_PROTO;
+                                mn->left = mfc->param_list;
+                                mn->right = AST_NULL;
+                                decl_node_set_type(ctx, mn, mfn_ti);
+                                if (!zero_cc_find_function(c, md.name) &&
+                                    c->function_count < ZERO_CC_MAX_FUNCTIONS) {
+                                    ZeroCCFunction *mfn = &c->functions[c->function_count++];
+                                    snprintf(mfn->name, sizeof(mfn->name), "%s", md.name);
+                                    mfn->text_offset = 0;
+                                    mfn->return_type = mret;
+                                    mfn->returns_struct = (mret.tag == TYPE_STRUCT ||
+                                                           mret.tag == TYPE_UNION);
+                                    mfn->ret_struct_sz = mret.size;
+                                    mfn->is_prototype = true;
+                                }
+                                ZeroCCASTNode *tn = zero_cc_ast_get(arena, list_tail);
+                                if (tn) tn->next = mref;
+                                list_tail = mref;
+                                continue;
+                            }
+                            ZeroCCType mtype = zero_cc_declarator_apply(&md, base_ret);
+                            TypeInfo *mti = zero_cc_type_to_typeinfo(ctx->perm_arena, mtype);
+                            ZeroCCSym *msym = zero_cc_add_local(c, md.name, mtype);
+                            if (!msym) {
+                                diag_report_error_at_token(c,
+                                    "out of memory allocating local variable '%s'", md.name);
+                                *out_ref = AST_NULL; return true;
+                            }
+                            if (is_static_local) zero_cc_static_local_register(c, msym);
+                            ASTRef mref = zero_cc_ast_alloc_node(arena, NODE_DECL);
+                            ZeroCCASTNode *mn = zero_cc_ast_get(arena, mref);
+                            mn->line = line; mn->col = col;
+                            mn->s.str = zero_cc_intern_string(c, md.name);
+                            mn->s_len = strlen(md.name);
+                            mn->aux.step = (uint32_t)((size_t)(msym - c->locals)) + 1;
+                            decl_node_set_type(ctx, mn, mti);
+                            if (c->token_pos < c->token_count &&
+                                c->tokens[c->token_pos].type == TK_ASSIGN) {
+                                c->token_pos++;
+                                mn->left = parse_assignment_ast(c, arena);
+                            }
+                            ZeroCCASTNode *tn = zero_cc_ast_get(arena, list_tail);
+                            if (tn) tn->next = mref;
+                            list_tail = mref;
+                        }
+                        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) {
+                            c->token_pos++;
+                        }
+                        *out_ref = list_head; return true;
                     }
                     *out_ref = func_ref; return true;
                 }

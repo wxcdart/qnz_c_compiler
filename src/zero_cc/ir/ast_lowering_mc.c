@@ -790,7 +790,29 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
             case OP_LEA_LABEL: {
                 if (BE(c)->emit_lea_label) {
                     size_t patch_pos = BE(c)->emit_lea_label(c, phys_dst);
-                    if (instr->label_idx < label_count) {
+                    if (instr->imm64 != 0) {
+                        /* Cross-scope `&&label`: the label's OP_LABEL was
+                         * emitted in an ANCESTOR function's pass (already
+                         * complete), so its global text offset is in the
+                         * persistent user_label_offsets table - patch
+                         * directly, exactly like OP_NONLOCAL_GOTO. The
+                         * owner is stored 1-based so 0 keeps meaning
+                         * "current function". */
+                        int owner_fn = (int)instr->imm64 - 1;
+                        bool found = false;
+                        for (size_t li = 0; li < c->user_label_offset_count; li++) {
+                            if (c->user_label_offsets[li].func_idx == (size_t)owner_fn &&
+                                c->user_label_offsets[li].ir_label == instr->label_idx) {
+                                BE(c)->patch_jmp(c, patch_pos,
+                                                  c->user_label_offsets[li].text_offset);
+                                found = true;
+                                break;
+                            }
+                        }
+                        if (!found) {
+                            diag_report_error_at_token(c, "internal: cross-scope label address not found");
+                        }
+                    } else if (instr->label_idx < label_count) {
                         size_t label_idx = instr->label_idx;
                         if (label_defined[label_idx]) {
                             BE(c)->patch_jmp(c, patch_pos, label_offsets[label_idx]);

@@ -45,7 +45,9 @@ int main(void) {
     sem_analyze_node(&ctx, ret1_node);
     assert(diags.count == err_count); /* No new errors */
 
-    /* Case 1b: Return in int function with incompatible pointer type -> error diag */
+    /* Case 1b: Return in int function with a pointer expr -> OK (C89
+     * pointer-to-integer conversion, gcc -Wint-conversion warns; the
+     * value truncates to the integer width). */
     ASTRef str_ret_expr = zero_cc_ast_alloc_node(&ast_arena, NODE_STRING);
     ZeroCCASTNode *str_ret_node = zero_cc_ast_get(&ast_arena, str_ret_expr);
     str_ret_node->s.str = "hello";
@@ -55,7 +57,26 @@ int main(void) {
     ret2_node->left = str_ret_expr;
 
     sem_analyze_node(&ctx, ret2_node);
-    assert(diags.count == err_count + 1); /* Incompatible return type */
+    assert(diags.count == err_count); /* pointer->int return is C89-legal */
+    err_count = diags.count;
+
+    /* Case 1b2: Return in int function with a non-scalar (struct) value
+     * -> error diag. */
+    TypeInfo *struct_t_ret = type_new(perm);
+    struct_t_ret->kind = TYPE_KIND_STRUCT;
+    struct_t_ret->details.record.tag = "RetStruct";
+    scope_put_symbol(ctx.current_scope, "s_ret_val", SYMBOL_VAR, struct_t_ret);
+
+    ASTRef struct_ret_ident_ref = zero_cc_ast_alloc_node(&ast_arena, NODE_IDENT);
+    ZeroCCASTNode *struct_ret_ident = zero_cc_ast_get(&ast_arena, struct_ret_ident_ref);
+    struct_ret_ident->s.str = "s_ret_val";
+
+    ASTRef ret2b_ref = zero_cc_ast_alloc_node(&ast_arena, NODE_RETURN);
+    ZeroCCASTNode *ret2b_node = zero_cc_ast_get(&ast_arena, ret2b_ref);
+    ret2b_node->left = struct_ret_ident_ref;
+
+    sem_analyze_node(&ctx, ret2b_node);
+    assert(diags.count == err_count + 1); /* struct value into int return */
     err_count = diags.count;
 
     /* Case 1c: Return in void function with value -> error diag */
@@ -66,7 +87,7 @@ int main(void) {
     ret3_node->left = int_ret_expr;
 
     sem_analyze_node(&ctx, ret3_node);
-    assert(diags.count == err_count + 1); /* void function should not return a value */
+    assert(diags.count == err_count); /* return expr in void fn is C99-legal */
     err_count = diags.count;
 
     /* Case 1d: Return in non-void function with no value -> error diag */
