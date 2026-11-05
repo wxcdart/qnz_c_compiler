@@ -51,8 +51,13 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	src/zero_cc/ir/ast_lowering_expr.o \
 	src/zero_cc/ir/ast_lowering_call.o \
 	src/zero_cc/ir/ast_lowering_builtins.o \
+	src/zero_cc/ir/ast_lowering_builtin_helpers.o \
+	src/zero_cc/ir/ast_lowering_varargs.o \
 	src/zero_cc/ir/ast_lowering_assign.o \
+	src/zero_cc/ir/ast_lowering_bitfield.o \
 	src/zero_cc/ir/ast_lowering_binop.o \
+	src/zero_cc/ir/ast_lowering_unop.o \
+	src/zero_cc/ir/ast_lowering_cast.o \
 	src/zero_cc/ir/ast_lowering_mc.o \
 	src/zero_cc/ir/asm_emitter.o \
 	src/zero_cc/opt/opt_pass.o \
@@ -68,9 +73,11 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	src/zero_cc/opt/opt_vectorize.o \
 	src/zero_cc/opt/cfg.o \
 	src/zero_cc/core/pragma_state.o \
+	src/zero_cc/isa/backend_registry.o \
 	src/zero_cc/isa/x86_64.o \
 	src/zero_cc/isa/aarch64.o \
-	src/zero_cc/isa/riscv.o \
+	src/zero_cc/isa/riscv64.o \
+	src/zero_cc/isa/riscv32.o \
 	src/zero_cc/jit/elf_writer.o \
 	src/zero_cc/jit/compile_unit.o \
 	src/zero_cc/linker/elf_reader.o \

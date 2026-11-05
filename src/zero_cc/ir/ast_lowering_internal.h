@@ -633,6 +633,68 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
 int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node);
 int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node);
 int lower_expr_cast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node);
+
+/* Cross-module binop helpers (Sprint 114: shared with ast_lowering_unop.c /
+ * ast_lowering_cast.c after the ast_lowering_binop.c split). */
+int zc_cx_fabs(ZeroCCCompiler *c, int ftemp);
+int zc_cx_fselect(ZeroCCCompiler *c, int cond, int va, int vb);
+int zero_cc_operand_int_width(ZeroCCCompiler *c, ZeroCCASTArena *arena,
+                              ASTRef operand, int *sign);
+int zc_binop_bitfield_reduce(ZeroCCCompiler *c, ZeroCCASTArena *arena,
+                             ASTRef left_ref, ASTRef right_ref, int result_temp);
+int zc_cmp64_bool(ZeroCCCompiler *c, int x, int y, int cc);
+int zc_lower_binop128(ZeroCCCompiler *c, ZeroCCASTArena *arena,
+                      ZeroCCASTNode *node, ZeroCCASTNode *cl_node,
+                      ZeroCCASTNode *cr_node, const TypeInfo *cl_ti,
+                      const TypeInfo *cr_ti);
+bool zc_node_is_int128(ZeroCCCompiler *c, const ZeroCCASTNode *node);
+
+/* Wide __int128 bitfield RMW (Sprint 114: moved to ast_lowering_bitfield.c). */
+int assign_emit_128_divmod(ZeroCCCompiler *c, int a, int b,
+                           bool is_div, bool is_unsigned);
+int assign_emit_128_var_shift(ZeroCCCompiler *c, int a, int cnt,
+                              bool is_shl, bool is_unsigned);
+int assign_member_bitfield(ZeroCCCompiler *c,
+                           ZeroCCASTNode *assign_node, ZeroCCASTNode *left_node,
+                           int addr_temp, int right_temp, bool right_is_128);
+
+/* Builtin emit helpers (Sprint 114: moved to ast_lowering_builtin_helpers.c). */
+int zc_bitop_width(ZeroCCCompiler *c, const char *name);
+bool zc_is_bitop_builtin_name(const char *name);
+int zc_eval_bitop_const(const char *name, uint64_t uval, int nbits);
+int zc_emit_ctz_nbits(ZeroCCCompiler *c, int t_in, int nbits);
+int zc_emit_clz_nbits(ZeroCCCompiler *c, int t_in, int nbits);
+int zc_emit_clrsb_nbits(ZeroCCCompiler *c, int t_in, int nbits);
+int zc_emit_popcount32(ZeroCCCompiler *c, int t_in);
+int zc_emit_popcount_nbits(ZeroCCCompiler *c, int t_in, int nbits);
+int zc_ovf_cmp_set(ZeroCCCompiler *c, int a, int b, int cc);
+int zc_ovf_cmp_set_imm(ZeroCCCompiler *c, int a, int64_t imm, int cc);
+int zc_ovf_or(ZeroCCCompiler *c, int a, int b);
+int zc_ovf_and(ZeroCCCompiler *c, int a, int b);
+int zc_ovf_not1(ZeroCCCompiler *c, int a);
+int zc_atomic_access_width(ZeroCCCompiler *c, const ZeroCCASTNode *arg0_node);
+void zc_atomic_extend_value(ZeroCCCompiler *c, int temp,
+                            const ZeroCCASTNode *node, const TypeInfo *ti);
+/* C11/GCC atomic-builtin dispatch kinds (Sprint 114: moved here from
+ * ast_lowering_builtin_helpers.c so the shared table type is complete). */
+typedef enum ZCAtomicKind {
+    ZC_AT_FETCH_ADD, ZC_AT_ADD_FETCH,
+    ZC_AT_FETCH_SUB, ZC_AT_SUB_FETCH,
+    ZC_AT_FETCH_OR,  ZC_AT_OR_FETCH,
+    ZC_AT_FETCH_AND, ZC_AT_AND_FETCH,
+    ZC_AT_FETCH_XOR, ZC_AT_XOR_FETCH,
+    ZC_AT_CAS_OLD,   ZC_AT_CAS_BOOL,   ZC_AT_CAS_BOOL_SYNC,
+    ZC_AT_EXCHANGE,  ZC_AT_STORE,
+    ZC_AT_LOAD,      ZC_AT_STORE_0,
+    ZC_AT_FENCE,     ZC_AT_TEST_AND_SET,
+    ZC_AT_CLEAR,     ZC_AT_IS_LOCK_FREE
+} ZCAtomicKind;
+
+struct ZCAtomicBuiltinEntry {
+    const char   *name;
+    ZCAtomicKind  kind;
+};
+extern const struct ZCAtomicBuiltinEntry zc_atomic_builtin_table[37];  /* defined in ast_lowering_builtin_helpers.c; count must match */
 uint16_t get_or_create_user_ir_label(ZeroCCCompiler *c, const char *name);
 
 /* GNU `__attribute__((scalar_storage_order("big-endian")))`: the

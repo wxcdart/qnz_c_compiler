@@ -1,3 +1,20 @@
+## [Sprint 114] - 2026-11-05 - Monolith split (Tier A): ISA backend registry + RISC-V 32/64 split + IR lowering module extraction
+
+Behavior-identical refactor: breaks up the largest translation units in the ISA and IR-lowering layers so no module owns more than one concern. No code semantics changed - every gate stays green at its pre-refactor count.
+
+- **ISA backend registry extracted** (`isa/backend_registry.c`, new): `zero_cc_get_backend` / `zero_cc_get_native_backend` / `zero_cc_init_backends_once` moved out of `isa/x86_64.c`, so no single ISA emitter owns the global ISA→vtable lookup (adding a target = new vtable + one case here).
+- **RISC-V 64/32 split** (`riscv.c` 2,309 → `riscv64.c` + `riscv32.c` + `riscv_common.h`):
+  - `riscv_common.h`: shared stateless encoders (`rv64_R/I/S/B/J/LUI/AUIPC/FP`), register mapping, frame-geometry macros, `riscv_emit_u32` (static inline per TU).
+  - `riscv32.c`: the only RV32-specific MC code (4-byte prologue/leave/epilogue/push/pop) + `riscv32_conv` + the RV32 vtable. Key finding: the RV32 vtable reuses **188 of 195** RV64 vtable fields (the emitters are shared and branch on `c->isa` at the 32/64-bit boundary), so `riscv32_init_backend()` now builds the RV32 table by copying the fully static-initialized RV64 table and overriding ~10 fields (called first in `zero_cc_init_backends_once`, before the asm-pointer fill-in). This keeps a single `static` definition of every shared emitter in `riscv64.c`; the one cross-TU call is `riscv64_emit_mov_imm` (large-frame immediates in the RV32 prologue), now extern. RV32-only overrides zero the GPR128 scratch pool and `emit_mul128_*` helpers.
+- **IR lowering module extraction** (per-domain `.c` files; cross-module helpers promoted to extern with declarations in `ast_lowering_internal.h`):
+  - `ast_lowering_binop.c` 3,237 → 1,805 + `ast_lowering_unop.c` (916, `lower_expr_unop`) + `ast_lowering_cast.c` (537, `lower_expr_cast`); shared helpers (`zc_lower_binop128`, `zc_node_is_int128`, `zc_cx_fabs/fselect`, `zc_cmp64_bool`, `zc_binop_bitfield_reduce`, `zero_cc_operand_int_width`) now extern.
+  - `ast_lowering_builtins.c` 2,815 → 2,076 + `ast_lowering_builtin_helpers.c` (382: bitops/ctz/clz/popcount, `__builtin_*_overflow` cmp helpers, atomic dispatch table + `ZCAtomicKind` moved to the shared header) + `ast_lowering_varargs.c` (363: `va_start`/`va_arg`).
+  - `ast_lowering_assign.c` 2,498 → 2,189 + `ast_lowering_bitfield.c` (324: wide `__int128` bitfield RMW + 128-bit div/mod/variable-shift helpers from Sprint 113).
+- **Verification**: `make test` (176/176), `make test-opt` (138 ok), `make test-isa128` (144/144), `make test-isa-qemu` (59/59, all 4 ISAs), c-torture gate (PASS 3,679, 0 bad), `diag_battery`, `style_check` (0 errors), `okf lint`.
+- **Note**: the ISA MC emitters' large apparent line counts are inflated by the `#include "..._asm.c"` single-TU pattern (e.g. `x86_64.c` is ~1,140 lines of its own code + the 1,592-line `x86_64_asm.c`); domain-splitting those was assessed and deferred since their own code is already under the 1,200-line target.
+
+---
+
 ## [Sprint 113] - 2026-11-05 - Wide `__int128` bitfields + 128-bit vector lanes (`v2ti`); `SKIP-TARGET:int128` eliminated (+8 PASS, 3,679)
 
 Eliminates the entire `SKIP-TARGET:int128` c-torture bucket by implementing wide bitfields (up to 128-bit fields in 16-byte units) and 128-bit vector lanes (`v2ti`/`v1ti` vectors):

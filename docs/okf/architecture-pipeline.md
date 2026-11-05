@@ -4,7 +4,7 @@ title: ZeroCC Compilation Pipeline & Two-Pass Architecture
 description: End-to-end compilation pipeline from C source through AST arena, semantic analysis, two-pass IR, optimization passes, and JIT/AOT code generation.
 resource: architecture/pipeline
 tags: [architecture, pipeline, ast, ir, jit, aot]
-timestamp: 2026-11-04T16:35:33Z
+timestamp: 2026-11-05T22:47:16Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -36,7 +36,7 @@ ZeroCC compiles C99/C11 source files through a unified pipeline that supports bo
    - See [Frontend, Type System & Semantic Analysis](./frontend-and-types.md).
 4. **AST-to-IR Lowering (`src/zero_cc/ir/ast_lowering*.c`)**
    - Lowers each function's AST into a linear buffer of 141-opcode `Instr` instructions (`IRArena`) plus a call-argument side table (`IRCallArgsArena`).
-   - Standalone `.o` translation units: `ast_lowering.c` (function frame & parameter saves), `ast_lowering_stmt.c` (statements & returns), `ast_lowering_expr.c` (expressions, literals, member/index access), `ast_lowering_call.c` (function calls & ABI conventions), `ast_lowering_builtins.c` (GCC/Clang builtins, varargs, constant evaluation, overflow builtins, atomic builtins), `ast_lowering_assign.c` (compound assignment, bitfield assignment, vector compound ops), `ast_lowering_binop.c` (binary operators, unary operators, casts, complex arithmetic helpers, bitfield reductions), `ast_lowering_mc.c` (JIT machine code emission), and `asm_emitter.c` (AOT GAS assembly emission), coordinated via `ast_lowering_internal.h` and `asm_emitter.h`.
+   - Standalone `.o` translation units: `ast_lowering.c` (function frame & parameter saves), `ast_lowering_stmt.c` (statements & returns), `ast_lowering_expr.c` (expressions, literals, member/index access), `ast_lowering_call.c` (function calls & ABI conventions), `ast_lowering_builtins.c` (GCC/Clang builtins dispatch, constant evaluation), `ast_lowering_builtin_helpers.c` (builtin emit helpers: bitops, overflow, atomics), `ast_lowering_varargs.c` (va_start/va_arg), `ast_lowering_assign.c` (compound assignment, vector compound ops), `ast_lowering_bitfield.c` (wide __int128 bitfield read-modify-write), `ast_lowering_binop.c` (binary operators, 128-bit & complex helpers), `ast_lowering_unop.c` (unary operators), `ast_lowering_cast.c` (casts, int↔int128 widening), `ast_lowering_mc.c` (JIT machine code emission), and `asm_emitter.c` (AOT GAS assembly emission), coordinated via `ast_lowering_internal.h` and `asm_emitter.h`. (Sprint 114 split the binop/builtins/assign monoliths into these per-domain modules.)
    - See [Two-Pass IR & Register Allocation](./ir-and-regalloc.md).
 5. **IR Optimization Passes (`src/zero_cc/opt/opt_*.c`)**
    - Runs modular optimization passes over `IRArena` via standalone `opt_pass.c` before register allocation. All passes and CFG builders (`cfg.c`, `cfg.h`) operate explicitly on `ZeroCCCompiler *c` without relying on thread-local globals (`g_compiler`).
@@ -58,9 +58,9 @@ ZeroCC compiles C99/C11 source files through a unified pipeline that supports bo
 | Parser (Decl/Stmt/Expr) | `src/zero_cc/parser/definitions.h`, `src/zero_cc/parser/decl_struct.h`, `src/zero_cc/parser/decl_struct.c`, `src/zero_cc/parser/decl_enum.h`, `src/zero_cc/parser/const_eval.h`, `src/zero_cc/parser/type_parser.h`, `src/zero_cc/parser/ast_stmt.h`, `src/zero_cc/parser/decl_local.h`, `src/zero_cc/parser/ast_expr.h` |
 | Compilation Unit & Const Ptr | `src/zero_cc/jit/compile_unit.h`, `src/zero_cc/jit/compile_unit.c`, `src/zero_cc/jit/const_ptr_eval.h` |
 | Semantic Checker | `src/zero_cc/semantic/visitor.c`, `src/zero_cc/semantic/expr.c`, `src/zero_cc/semantic/promote.c` |
-| IR, Lowering & RegAlloc | `src/zero_cc/ir/ir.h`, `src/zero_cc/ir/ast_lowering.c`, `src/zero_cc/ir/ast_lowering_stmt.c`, `src/zero_cc/ir/ast_lowering_expr.c`, `src/zero_cc/ir/ast_lowering_call.c`, `src/zero_cc/ir/ast_lowering_builtins.c`, `src/zero_cc/ir/ast_lowering_assign.c`, `src/zero_cc/ir/ast_lowering_binop.c`, `src/zero_cc/ir/regalloc.h` |
+| IR, Lowering & RegAlloc | `src/zero_cc/ir/ir.h`, `src/zero_cc/ir/ast_lowering.c`, `src/zero_cc/ir/ast_lowering_stmt.c`, `src/zero_cc/ir/ast_lowering_expr.c`, `src/zero_cc/ir/ast_lowering_call.c`, `src/zero_cc/ir/ast_lowering_builtins.c`, `src/zero_cc/ir/ast_lowering_builtin_helpers.c`, `src/zero_cc/ir/ast_lowering_varargs.c`, `src/zero_cc/ir/ast_lowering_assign.c`, `src/zero_cc/ir/ast_lowering_bitfield.c`, `src/zero_cc/ir/ast_lowering_binop.c`, `src/zero_cc/ir/ast_lowering_unop.c`, `src/zero_cc/ir/ast_lowering_cast.c`, `src/zero_cc/ir/regalloc.h` |
 | Optimizations | `src/zero_cc/opt/opt_pass.c`, `src/zero_cc/opt/opt_mem2reg.c`, `src/zero_cc/opt/opt_loop.c`, `src/zero_cc/opt/opt_vectorize.c` |
-| Codegen & Backends | `src/zero_cc/ir/ast_lowering_mc.c`, `src/zero_cc/ir/asm_emitter.c`, `src/zero_cc/isa/x86_64.c`, `src/zero_cc/isa/x86_64_asm.c` |
+| Codegen & Backends | `src/zero_cc/ir/ast_lowering_mc.c`, `src/zero_cc/ir/asm_emitter.c`, `src/zero_cc/isa/backend_registry.c`, `src/zero_cc/isa/x86_64.c`, `src/zero_cc/isa/x86_64_asm.c`, `src/zero_cc/isa/aarch64.c`, `src/zero_cc/isa/aarch64_asm.c`, `src/zero_cc/isa/riscv64.c`, `src/zero_cc/isa/riscv32.c`, `src/zero_cc/isa/riscv_common.h`, `src/zero_cc/isa/riscv_asm.c` |
 
 ## Related Concepts
 - Return to [Root Index](./index.md)

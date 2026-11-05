@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-05T20:32:08Z
+timestamp: 2026-11-05T22:47:16Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -969,3 +969,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-05 — Updated `c-torture-gate.md`
 - Sprint 113: eliminate SKIP-TARGET:int128 bucket (+8 PASS to 3679); wide bitfields + v2ti vector lanes
+
+## 2026-11-05 — Updated `isa-backends.md`
+- Sprint 114: backend registry extraction + RISC-V 64/32 split with copy-based RV32 vtable
+
+## 2026-11-05 — Updated `architecture-pipeline.md`
+- Sprint 114: IR lowering module extraction (unop/cast/builtin-helpers/varargs/bitfield)

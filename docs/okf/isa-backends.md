@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-11-05T19:19:02Z
+timestamp: 2026-11-05T22:47:16Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -15,11 +15,16 @@ status: active
 ZeroCC abstracts target-specific code generation behind `ZeroCCISABackend` (`src/zero_cc/isa/isa_backend.h`), supporting three architectures:
 - **x86-64**: `src/zero_cc/isa/x86_64.c` (JIT binary emission) & `src/zero_cc/isa/x86_64_asm.c` (AOT `.s` assembly emission)
 - **AArch64**: `src/zero_cc/isa/aarch64.c` & `src/zero_cc/isa/aarch64_asm.c`
-- **RISC-V (RV64GC)**: `src/zero_cc/isa/riscv.c` & `src/zero_cc/isa/riscv_asm.c`
+- **RISC-V (RV64GC)**: `src/zero_cc/isa/riscv64.c` & `src/zero_cc/isa/riscv_asm.c`
+- **RISC-V (RV32GC)**: `src/zero_cc/isa/riscv32.c` (reuses the RV64 emitters; see below)
+- **Shared RISC-V encoders**: `src/zero_cc/isa/riscv_common.h`
+- **Backend registry**: `src/zero_cc/isa/backend_registry.c`
 
 ## Lazy Backend Initialization
 
-Backend structs (`x86_64_backend`, `aarch64_backend`, `riscv64_backend`) are non-`const` and lazily wired with their assembly emitter callbacks via `zero_cc_init_backends_once()` inside `zero_cc_get_backend()` and `zero_cc_get_native_backend()`.
+The global ISA→vtable registry lives in `src/zero_cc/isa/backend_registry.c` (Sprint 114: extracted from `x86_64.c` so no single ISA emitter owns the lookup). Backend structs (`x86_64_backend`, `aarch64_backend`, `riscv64_backend`, `riscv32_backend`) are non-`const` and lazily wired with their assembly emitter callbacks via `zero_cc_init_backends_once()` inside `zero_cc_get_backend()` and `zero_cc_get_native_backend()`.
+
+**RV32 vtable copy-initialization (Sprint 114)**: the RV32 backend reuses the RV64 MC emitters (they branch on `c->isa` at the 32/64-bit boundary, e.g. `lw`/`sw` vs `ld`/`sd`); the only RV32-specific MC code is the 4-byte prologue/leave/epilogue/push/pop frame sequence. Because the two vtables differ in only ~10 fields, `riscv32_init_backend()` (called first inside `zero_cc_init_backends_once()`, before the asm-pointer fill-in) copies the fully static-initialized `riscv64_backend` into `riscv32_backend` and overrides `isa`/`conv`/frame functions, zeroing the RV64-only GPR128 scratch pool and `emit_mul128_*` helpers. This keeps a single definition of every shared emitter in `riscv64.c` (all `static`); the one cross-TU call is `riscv64_emit_mov_imm` (large-frame immediates in the RV32 prologue), declared extern.
 
 ### Vtable signature conformance (Sprint 41)
 

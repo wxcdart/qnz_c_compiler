@@ -2692,44 +2692,9 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_vcmpsd_asm = x86_emit_vcmpsd_asm,
     };
 
-/* Fill in ASM-emission function pointers once. The backend tables are
- * writable statics (not .rodata), so no const cast is needed; callers only
- * ever see them through const pointers. */
-static void zero_cc_init_backends_once(void) {
-    static bool done = false;
-    if (done) return;
-    x86_init_asm_emission(&x86_64_backend);
-    aarch64_init_asm_emission(&aarch64_backend);
-    riscv64_init_asm_emission(&riscv64_backend);
-    riscv64_init_asm_emission(&riscv32_backend);
-    done = true;
-}
-
-const ZeroCCISABackend *zero_cc_get_backend(ZeroCCISA isa) {
-    zero_cc_init_backends_once();
-    switch (isa) {
-        case ISA_X86_64: return &x86_64_backend;
-        case ISA_AARCH64: return &aarch64_backend;
-        case ISA_RISCV64: return &riscv64_backend;
-        case ISA_RISCV32: return &riscv32_backend;
-        default: return NULL;
-    }
-}
-
-const ZeroCCISABackend *zero_cc_get_native_backend(void) {
-    zero_cc_init_backends_once();
-#if defined(__x86_64__)
-    return &x86_64_backend;
-#elif defined(__aarch64__)
-    return &aarch64_backend;
-#elif defined(__riscv) && __riscv_xlen == 64
-    return &riscv64_backend;
-#elif defined(__riscv) && __riscv_xlen == 32
-    return &riscv32_backend;
-#else
-    return &x86_64_backend;  /* fallback */
-#endif
-}
+/* NOTE (Sprint 114): the global ISA backend registry (zero_cc_get_backend,
+ * zero_cc_get_native_backend, zero_cc_init_backends_once) now lives in
+ * backend_registry.c so no single ISA emitter owns the lookup table. */
 /* =========================================================================
  * Virtual Register (VREG) Mapping for x86-64
  * =========================================================================

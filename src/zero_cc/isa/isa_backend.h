@@ -495,5 +495,8 @@ void zero_cc_aarch64_emit_nonlocal_goto_jump(ZeroCCCompiler *c, size_t text_offs
 void zero_cc_riscv_emit_nonlocal_goto_jump(ZeroCCCompiler *c, size_t text_offset);
 void aarch64_init_asm_emission(ZeroCCISABackend *be);
 void riscv64_init_asm_emission(ZeroCCISABackend *be);
+/* Build the RV32 vtable from the RV64 table (see riscv32.c). Must be
+ * called before riscv64_init_asm_emission(&riscv32_backend). */
+void riscv32_init_backend(void);
 
 #endif /* ZERO_CC_ISA_BACKEND_H */
