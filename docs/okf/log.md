@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-05T02:21:07Z
+timestamp: 2026-11-05T03:12:35Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -936,3 +936,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-05 — Updated `perf-measurements.md`
 - Refresh perf-measurements.md: add §4 Algorithmic Scaling Fixes (enum/global/function open-addressing hashes, OPT_MAX_BASIC_BLOCKS/INSTRS guards, RegAllocator O(1) temp_to_interval[65536] & temp reuse)
+
+## 2026-11-05 — Updated `isa-backends.md`
+- Sprint 109: __int128 division/modulo via zero_rt (portable, no libgcc); documented the cross-ISA 128-bit arith as best-effort/unverified (x86-64 is the fully-verified ISA)

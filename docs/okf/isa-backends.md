@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-11-04T22:39:57Z
+timestamp: 2026-11-05T03:12:35Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -304,6 +304,10 @@ Real computed-goto trampolines for indirect calls through nested function pointe
   - **AArch64**: LDUR/STUR are the **immediate-offset family** (imm9 signed, two's-complement wrap = 512: STUR int/FP `0xF8000000`/`0xFC000000`, LDUR `0xF8400000`/`0xFC400000`), distinct from the 12-bit 8x-scaled LDR/STR unsigned-offset family (`0xF94`/`0xF90`/`0xFD4`/`0xFD0`) - pasting one family into the other silently loads the wrong register; offsets >255 use `sub x10, x29, #off` + plain `[x10]` access; `bl` is PC-relative with PC = the `bl`'s own address (no +4) and does not push LR (first stack arg at `[x29+16]`); 8-byte `str/ldr` push/pop (`stp/ldp` pairs were wrong for the stub's single-register geometry).
   - **RISC-V**: `jal` is PC-relative with PC = the `jal`'s own address (no +4); the stub must `addi sp,sp,-D` after `mv s0,sp` (without it the entry saves overwrite the caller's live stack); D > 2047 uses `li t0, D; sub sp,sp,t0`; R-type `sub` is funct7 0x20 (funct7 0x01 is `mul`) and `and` is funct3 7 / funct7 0.
   - **Direct calls to nested functions on RISC-V** (`riscv64_emit_call`): the early-patch path (baking `fn->text_offset - pos` into the `jal`) is only valid for already-emitted functions. Nested functions are emitted AFTER their enclosing function (deferred), so their `text_offset` is still 0 - early-patching bakes a jump to text offset 0 (the first function = the enclosing scope) and infinite-recurses until the stack overflows. Nested targets are routed through the `R_RISCV_JAL` relocation instead (the .o + system-linker path resolves it at final offsets); AArch64/x86 already use call relocations and are unaffected.
+
+## GNU `__int128` (128-bit integer) Support (Sprint 109)
+A 128-bit integer value is a **pair of GPRs** (`REG_CLASS_GPR128`: low in `assigned_reg`, high in `assigned_reg_hi`); each 128-bit op lowers to a `(lo,hi)` decomposition built from 64-bit primitives. **x86-64 is the fully-verified ISA** (JIT + AOT, `test-opt` at `-O0..-O3`); AArch64 and RISC-V carry best-effort `(lo,hi)` decompositions that are **not yet exercised by a test and are known to be incomplete** (AArch64 128-bit shift faults; RISC-V 128-bit multiply miscomputes) — enabling 128-bit integers on those ISAs is blocked on fixing the non-x86 shift/multiply/return-ABI/regalloc-spill path.
+- **128-bit division/modulo** has no single instruction on any target, so it is **not inlined** and **not delegated to libgcc** (musl/`zero_rt` ship no `__divti3`-style helper, and `__int128` is a freestanding compiler extension). It calls a **ZeroCC-owned portable** software routine `zero_rt/core/int128.c` (`zc_udiv128`/`zc_umod128`/`zc_sdiv128`/`zc_smod128`) that operates on **64-bit halves only** (Knuth-style multiword, C99 trunc-toward-zero, `INT128_MIN/-1` handled). The lowering passes the two operands as four 64-bit halves and recombines the `(lo,hi)` result via `MK128`; the helper is registered in the TU symbol table for the **AOT** object (JIT resolves it via `dlsym` of the zerocc binary). The routine is pure C, so its correctness is ISA-independent (verified against GCC); what must still be correct per-ISA is only the surrounding 128-bit arithmetic it is composed with.
 
 ## Related Concepts
 - Return to [Root Index](./index.md)

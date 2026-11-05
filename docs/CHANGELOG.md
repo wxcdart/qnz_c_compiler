@@ -1,3 +1,19 @@
+## [Sprint 109] - 2026-11-04 - `__int128` division/modulo via zero_rt (portable, no libgcc)
+
+128-bit `/` and `%` for `__int128` / `__uint128_t`, backed by a **ZeroCC-owned, portable** software routine (no libgcc — musl/`zero_rt` don't ship `__divti3`-style helpers, and `__int128` is a freestanding compiler extension, so the op must be inline or a compiler-runtime helper we own).
+
+- **`zero_rt/core/int128.c`** (new): `zc_udiv128` / `zc_umod128` / `zc_sdiv128` / `zc_smod128` — Knuth-style multiword division over **64-bit halves only** (no `__int128` in the algorithm), C99 truncation-toward-zero with the `INT128_MIN/-1` edge handled. Verified against GCC's `__int128` (400k random + edge cases). Pure C ⇒ identical on all four ISAs.
+- **Lowering** (`ir/ast_lowering_binop.c`): 128-bit `/` and `%` lower to a call passing the two operands as four 64-bit halves (`a_lo,a_hi,b_lo,b_hi`) in the normal integer-arg registers; the `(lo,hi)` result is recombined via `MK128`. The helper is registered in the TU symbol table so the **AOT** object emits a reloc (the **JIT** resolves it via `dlsym`).
+- **x86-64 `SEXT64_128` bug fix** (`isa/x86_64.c`): the sign-extension shift encoded `SHR` (reg field 5) instead of `SAR` (reg field 7), so a negative value's high half came out zero instead of all-ones (`-100` → hi `0`, not `-1`).
+- **128-bit binop widening** now follows the **source's** signedness (C 6.3.1.3) rather than the common type's.
+- **Makefile**: `int128.o` into the AOT `zero_rt` archives (x86-64/aarch64/riscv64), compiled by zerocc per target; a host-compiled copy is linked into zerocc and exported for the JIT dlsym path.
+
+**Verification (all green):** `make test` 173/173, `make test-opt` 135 ok, `style`/`vtable`/`okf` clean. **c-torture PASS 3,676 / 0 bad (no regressions).** `execute/pr84748` (the int128 division test) now compiles and runs clean on x86-64 JIT + AOT `--zerocc-link`.
+
+*Cross-ISA status: the division routine is portable and compiles for all four ISAs, but the surrounding `__int128` arithmetic on AArch64/RISC-V is the documented best-effort path (never exercised by a test) and is **not yet correct** — AArch64 128-bit shift faults and RISC-V 128-bit multiply miscomputes. Making division usable on those ISAs is blocked on fixing the broader non-x86 128-bit codegen (shift/multiply/return-ABI/regalloc spill), tracked separately. riscv32 has no `--zerocc-link` archive yet.*
+
+---
+
 ## [Sprint 109] - 2026-11-05 - `__int128` value model: local arithmetic on all backends (+1 PASS, 3,676)
 
 The **128-bit value model** for locals: a `__int128` / `__uint128_t` value is a **pair of GPRs** (`REG_CLASS_GPR128`, low in `assigned_reg`, high in `assigned_reg_hi`). Local load/store/init/assignment and full binary-op arithmetic now lower on the `(lo,hi)` pair.
@@ -9,7 +25,7 @@ The **128-bit value model** for locals: a `__int128` / `__uint128_t` value is a 
 
 **Verification (all green):** `make test` 171/171, `make test-opt` 134 ok (new `test/jit/int128_arith.c` runs `-O0..-O3` JIT+AOT against the gcc reference), `make test-driver` 37/37, `make test-isa-qemu` 59/59, `vtable_check`/`style_check`/`okf` clean, `diag_battery` no regressions. **c-torture: PASS 3,675 → 3,676 (+1, 0 bad), SKIP-C89 47 → 46 (baseline ratcheted).**
 
-*Remaining for the 7 `SKIP-TARGET:int128` tests: file-scope global 128-bit type (currently allocates 8 B — a separate declaration bug), 128-bit division/modulo, the two-register function arg/return ABI, 124-bit bitfields, 32-byte vectors, `__builtin_mul_overflow`, pointer↔128-bit casts, and the `-S`/text-AOT `asm_emitter` 128-bit ops.*
+*Remaining for the 7 `SKIP-TARGET:int128` tests: 128-bit division/modulo (now landed, x86-64 — see the entry above; cross-ISA 128-bit arith still needs fixing), the two-register function arg ABI, 124-bit bitfields, 32-byte vectors, `__builtin_mul_overflow`, pointer↔128-bit casts, and the `-S`/text-AOT `asm_emitter` 128-bit ops.*
 
 ---
 
