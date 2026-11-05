@@ -1402,6 +1402,56 @@ static int compile_and_link(CompileOptions *opts) {
 
     const char *output = opts->output_file ? opts->output_file : "a.out";
 
+    /* If target_arch wasn't explicitly set and we have input objects,
+     * inspect the first ELF object to determine target_isa for linking. */
+    if (!opts->target_arch && obj_count > 0) {
+        FILE *f = fopen(obj_paths[0], "rb");
+        if (f) {
+            uint8_t hdr[20];
+            if (fread(hdr, 1, 20, f) == 20 && hdr[0] == 0x7f && hdr[1] == 'E' &&
+                hdr[2] == 'L' && hdr[3] == 'F') {
+                uint16_t mach = (uint16_t)hdr[18] | ((uint16_t)hdr[19] << 8);
+                if (mach == 183) target_isa = ISA_AARCH64;
+                else if (mach == 243) target_isa = (hdr[4] == 1) ? ISA_RISCV32 : ISA_RISCV64;
+                else if (mach == 62) target_isa = ISA_X86_64;
+            }
+            fclose(f);
+        }
+    }
+
+    /* zero_rt runtime archive: build/lib/zero_rt.a, zero_rt_aarch64.a, or
+     * zero_rt_riscv64.a next to this binary, or $ZERO_RT_A / $ZERO_RT_AARCH64_A /
+     * $ZERO_RT_RISCV64_A. Auto-linked with --zerocc-link and provided as a
+     * fallback archive after -lc -lm for the host/cross linker. */
+    const char *rt_filename = "zero_rt.a";
+    const char *env_var = "ZERO_RT_A";
+    if (target_isa == ISA_AARCH64) {
+        rt_filename = "zero_rt_aarch64.a";
+        env_var = "ZERO_RT_AARCH64_A";
+    } else if (target_isa == ISA_RISCV64) {
+        rt_filename = "zero_rt_riscv64.a";
+        env_var = "ZERO_RT_RISCV64_A";
+    }
+
+    char rt_path[2048] = "";
+    const char *rt_env = getenv(env_var);
+    if (rt_env && rt_env[0]) {
+        snprintf(rt_path, sizeof rt_path, "%s", rt_env);
+    } else if (target_isa == ISA_X86_64 || target_isa == ISA_AARCH64 ||
+               target_isa == ISA_RISCV64) {
+        char self[512];
+        ssize_t n = readlink("/proc/self/exe", self, sizeof self - 1);
+        if (n > 0) {
+            self[n] = 0;
+            char *slash = strrchr(self, '/');
+            if (slash) {
+                *slash = '\0';
+                snprintf(rt_path, sizeof rt_path, "%s/../lib/%s",
+                         self, rt_filename);
+            }
+        }
+    }
+
     /* T2: ZeroCC's own linker (x86-64 + AArch64; zero_rt Phase 0 is its
      * first customer). */
     if (opts->zerocc_link) {
@@ -1426,55 +1476,6 @@ static int compile_and_link(CompileOptions *opts) {
         const char *objs_ref[ZERO_CC_MAX_INPUTS];
         for (int i = 0; i < obj_count; i++) objs_ref[i] = obj_paths[i];
 
-        /* If target_arch wasn't explicitly set and we have input objects,
-         * inspect the first ELF object to determine target_isa for linking. */
-        if (!opts->target_arch && obj_count > 0) {
-            FILE *f = fopen(obj_paths[0], "rb");
-            if (f) {
-                uint8_t hdr[20];
-                if (fread(hdr, 1, 20, f) == 20 && hdr[0] == 0x7f && hdr[1] == 'E' &&
-                    hdr[2] == 'L' && hdr[3] == 'F') {
-                    uint16_t mach = (uint16_t)hdr[18] | ((uint16_t)hdr[19] << 8);
-                    if (mach == 183) target_isa = ISA_AARCH64;
-                    else if (mach == 243) target_isa = (hdr[4] == 1) ? ISA_RISCV32 : ISA_RISCV64;
-                    else if (mach == 62) target_isa = ISA_X86_64;
-                }
-                fclose(f);
-            }
-        }
-
-        /* zero_rt auto-link: with --zerocc-link, the default runtime is the
-         * ZeroCC-owned zero_rt (build/lib/zero_rt.a, zero_rt_aarch64.a, or
-         * zero_rt_riscv64.a next to this binary, or $ZERO_RT_A / $ZERO_RT_AARCH64_A /
-         * $ZERO_RT_RISCV64_A). Disable with --no-zerocc-rt. */
-        const char *rt_filename = "zero_rt.a";
-        const char *env_var = "ZERO_RT_A";
-        if (target_isa == ISA_AARCH64) {
-            rt_filename = "zero_rt_aarch64.a";
-            env_var = "ZERO_RT_AARCH64_A";
-        } else if (target_isa == ISA_RISCV64) {
-            rt_filename = "zero_rt_riscv64.a";
-            env_var = "ZERO_RT_RISCV64_A";
-        }
-
-        char rt_path[2048] = "";
-        const char *rt_env = getenv(env_var);
-        if (rt_env && rt_env[0]) {
-            snprintf(rt_path, sizeof rt_path, "%s", rt_env);
-        } else if (target_isa == ISA_X86_64 || target_isa == ISA_AARCH64 ||
-                   target_isa == ISA_RISCV64) {
-            char self[512];
-            ssize_t n = readlink("/proc/self/exe", self, sizeof self - 1);
-            if (n > 0) {
-                self[n] = 0;
-                char *slash = strrchr(self, '/');
-                if (slash) {
-                    *slash = '\0';
-                    snprintf(rt_path, sizeof rt_path, "%s/../lib/%s",
-                             self, rt_filename);
-                }
-            }
-        }
         if (!opts->no_zerocc_rt && rt_path[0] && access(rt_path, R_OK) == 0
             && arch_count < 32) {
             arch_paths[arch_count++] = rt_path;
@@ -1538,9 +1539,13 @@ static int compile_and_link(CompileOptions *opts) {
                  "-o %s%s 2>&1",
                  all_objs, output, lib_args);
     } else {
+        char rt_arg[2100] = "";
+        if (!opts->no_zerocc_rt && rt_path[0] && access(rt_path, R_OK) == 0) {
+            snprintf(rt_arg, sizeof(rt_arg), " %s", rt_path);
+        }
         snprintf(cmd, sizeof(cmd),
-                 "%s %s %s -Wl,--defsym=link_error=0 -o %s %s -lc -lm%s 2>&1",
-                 linker, abi_flags, static_flag, output, all_objs, lib_args);
+                 "%s %s %s -Wl,--defsym=link_error=0 -o %s %s -lc -lm%s%s 2>&1",
+                 linker, abi_flags, static_flag, output, all_objs, rt_arg, lib_args);
     }
 
     if (opts->verbose) {

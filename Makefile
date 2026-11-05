@@ -163,7 +163,9 @@ build/bin/zerocc: src/main.c $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ)
 	@mkdir -p build/bin
 	$(CC) $(CFLAGS) -o $@ src/main.c $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ) \
 	  -Wl,--export-dynamic-symbol=zc_udiv128 -Wl,--export-dynamic-symbol=zc_umod128 \
-	  -Wl,--export-dynamic-symbol=zc_sdiv128 -Wl,--export-dynamic-symbol=zc_smod128 $(LDFLAGS)
+	  -Wl,--export-dynamic-symbol=zc_sdiv128 -Wl,--export-dynamic-symbol=zc_smod128 \
+	  -Wl,--export-dynamic-symbol=zc_shl128_v -Wl,--export-dynamic-symbol=zc_shr128_v \
+	  -Wl,--export-dynamic-symbol=zc_sar128_v $(LDFLAGS)
 
 .PHONY: zerocc
 zerocc: build/bin/zerocc

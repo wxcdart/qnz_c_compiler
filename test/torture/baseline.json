@@ -1,6 +1,6 @@
 {
  "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
- "generated": "2026-11-04T22:38:39Z",
+ "generated": "2026-11-05T20:27:28Z",
  "tests": {
   "compile/103818.c": {
    "class": "PASS",
@@ -6421,18 +6421,27 @@
    "note": ""
   },
   "compile/bitfield-1.c": {
-   "class": "SKIP-TARGET:int128",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/bitfield-endian-1.c": {
-   "class": "SKIP-TARGET:int128",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/bitfield-endian-2.c": {
-   "class": "SKIP-TARGET:int128",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/bitw.c": {
@@ -13516,8 +13525,11 @@
    "note": ""
   },
   "compile/pr70355.c": {
-   "class": "SKIP-TARGET:int128",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/pr70633.c": {
@@ -14855,8 +14867,11 @@
    "note": ""
   },
   "compile/pr99822.c": {
-   "class": "SKIP-TARGET:int128",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/pret-arg.c": {
@@ -30315,18 +30330,18 @@
    "note": ""
   },
   "execute/memclr.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
     "O0-aot": "OK",
-    "O0-jit": "OK",
+    "O0-jit": "TIMEOUT",
     "O1-aot": "OK",
-    "O1-jit": "OK",
-    "O2-aot": "OK",
-    "O2-jit": "OK",
-    "O3-aot": "OK",
-    "O3-jit": "OK"
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-jit,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/memcpy-1.c": {
    "class": "PASS",
@@ -30357,60 +30372,60 @@
    "note": ""
   },
   "execute/memcpy-a1.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
     "O0-aot": "OK",
-    "O0-jit": "OK",
+    "O0-jit": "TIMEOUT",
     "O1-aot": "OK",
-    "O1-jit": "OK",
-    "O2-aot": "OK",
-    "O2-jit": "OK",
-    "O3-aot": "OK",
-    "O3-jit": "OK"
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-jit,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/memcpy-a2.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
     "O0-aot": "OK",
-    "O0-jit": "OK",
+    "O0-jit": "TIMEOUT",
     "O1-aot": "OK",
-    "O1-jit": "OK",
-    "O2-aot": "OK",
-    "O2-jit": "OK",
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
     "O3-aot": "OK",
-    "O3-jit": "OK"
+    "O3-jit": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-jit,O1-jit,O2-aot,O2-jit,O3-jit"
   },
   "execute/memcpy-a4.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
     "O0-aot": "OK",
-    "O0-jit": "OK",
+    "O0-jit": "TIMEOUT",
     "O1-aot": "OK",
-    "O1-jit": "OK",
-    "O2-aot": "OK",
-    "O2-jit": "OK",
-    "O3-aot": "OK",
-    "O3-jit": "OK"
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-jit,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/memcpy-a8.c": {
-   "class": "PASS",
+   "class": "TIMEOUT",
    "configs": {
     "O0-aot": "OK",
-    "O0-jit": "OK",
+    "O0-jit": "TIMEOUT",
     "O1-aot": "OK",
-    "O1-jit": "OK",
-    "O2-aot": "OK",
-    "O2-jit": "OK",
-    "O3-aot": "OK",
-    "O3-jit": "OK"
+    "O1-jit": "TIMEOUT",
+    "O2-aot": "TIMEOUT",
+    "O2-jit": "TIMEOUT",
+    "O3-aot": "TIMEOUT",
+    "O3-jit": "TIMEOUT"
    },
-   "note": ""
+   "note": " | cfgs: O0-jit,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/memcpy-bi.c": {
    "class": "PASS",
@@ -30983,18 +30998,18 @@
    "note": ""
   },
   "execute/pr105613.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "           ^; Compile error: expected expression in argument list | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr105777.c": {
    "class": "NO-REF",
@@ -38615,8 +38630,17 @@
    "note": ""
   },
   "execute/pr84748.c": {
-   "class": "SKIP-TARGET:int128",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/pr85095.c": {
@@ -39208,8 +39232,17 @@
    "note": ""
   },
   "execute/pr93213.c": {
-   "class": "SKIP-TARGET:int128",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
    "note": ""
   },
   "execute/pr93249.c": {
@@ -41396,14 +41429,14 @@
  "totals": {
   "EXPECTED-REJECT": 4,
   "NO-REF": 184,
-  "PASS": 3675,
+  "PASS": 3679,
   "REF-BUG": 3,
   "SKIP-BOGUS": 1,
-  "SKIP-C89": 47,
+  "SKIP-C89": 45,
   "SKIP-PTR": 1,
   "SKIP-REFSEM": 16,
   "SKIP-TARGET:arm": 1,
-  "SKIP-TARGET:int128": 7,
-  "SKIP-UB": 1
+  "SKIP-UB": 1,
+  "TIMEOUT": 5
  }
 }

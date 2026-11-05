@@ -660,10 +660,33 @@ static inline bool zc_object_resolve_scalar_leaf(const ZeroCCType *t, size_t tar
                 (((uint32_t)(bw) & 0x3Fu) << 24) | \
                 (((uint32_t)(boff) & 0x3Fu) << 18) | \
                 ((((uint32_t)(off) & 0x7FFFu) << 3) | ZC_INIT_ABS_SIZE_CODE((sz)))))
-#define ZC_INIT_IS_BF(stamp)        (((stamp) & ZC_INIT_BF_TAG) != 0)
+#define ZC_INIT_IS_BF(stamp)        (((stamp) & ZC_INIT_BF_TAG) != 0 && !ZC_INIT_IS_WIDE_BF(stamp))
 #define ZC_INIT_BF_BOFF(stamp)      ((uint8_t)(((stamp) >> 18) & 0x3Fu))
 #define ZC_INIT_BF_BW(stamp)        ((uint8_t)(((stamp) >> 24) & 0x3Fu))
-#define ZC_INIT_ABS_OFF(stamp)      (ZC_INIT_IS_BF(stamp) ? (size_t)(((stamp) >> 3) & 0x7FFFu) : (size_t)(((stamp) & 0x7FFFFFFFu) >> 3))
+#define ZC_INIT_ABS_OFF(stamp)      (ZC_INIT_IS_WIDE_BF(stamp) ? ZC_INIT_WB_OFF(stamp) : (ZC_INIT_IS_BF(stamp) ? (size_t)(((stamp) >> 3) & 0x7FFFu) : (size_t)(((stamp) & 0x7FFFFFFFu) >> 3)))
 #define ZC_INIT_ABS_SIZE(stamp)     ((size_t)1u << (size_t)((stamp) & 7u))
+
+/* Wide bit-field stamp (Sprint 113): a 16-byte allocation unit where the
+ * field does not fit the narrow stamp's 6-bit boff/bw fields (boff + bw >
+ * 64).  Distinguished by size code 4 (16-byte unit; normal stamps cap at
+ * 8).  Layout (bit 31 = ZC_INIT_ABS_TAG):
+ *   bits  2..0  : 4 (wide marker)
+ *   bit   3     : bit 6 of (boff + bw - 1)
+ *   bits  6..4  : 0 (reserved)
+ *   bits 17..7  : unit byte offset >> 4 (16-aligned, 32 KB aggregate cap)
+ *   bits 24..18 : boff (0..127)
+ *   bits 30..25 : (boff + bw - 1) & 0x3F   ("end-1"; bw = end - boff) */
+#define ZC_INIT_IS_WIDE_BF(stamp)   ((bool)((stamp) & ZC_INIT_ABS_TAG) && ((stamp) & 7u) == 4u)
+#define ZC_INIT_WIDE_BF_STAMP(off, boff, bw) \
+    ((uint32_t)(ZC_INIT_ABS_TAG | 4u | \
+                ((((uint32_t)(boff) + (uint32_t)(bw) - 1u) & 1u) << 3) | \
+                ((((uint32_t)(off) >> 4) & 0x7FFu) << 7) | \
+                (((uint32_t)(boff) & 0x7Fu) << 18) | \
+                ((((uint32_t)(boff) + (uint32_t)(bw) - 1u) & 0x3Fu) << 25)))
+#define ZC_INIT_WB_OFF(stamp)       ((size_t)(((stamp) >> 7) & 0x7FFu) << 4)
+#define ZC_INIT_WB_BOFF(stamp)      ((uint8_t)(((stamp) >> 18) & 0x7Fu))
+#define ZC_INIT_WB_ENDMINUS1(stamp) ((uint8_t)((((stamp) >> 25) & 0x3Fu) | \
+                                                (((stamp) >> 3) & 1u) << 6))
+#define ZC_INIT_WB_BW(stamp)        ((uint8_t)(ZC_INIT_WB_ENDMINUS1(stamp) + 1u - ZC_INIT_WB_BOFF(stamp)))
 
 #endif /* ZERO_CC_TYPES_TYPE_FUNCS_H */

@@ -259,6 +259,13 @@ static ASTRef parse_brace_init_list_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena
                     }
                     if (sz > 8) sz = 8;
                     if (sz == 0) sz = 4;
+                    /* Sprint 113: wide bit-field (boff + bw > 64, 16-byte
+                     * unit) - the narrow BF stamp's 6-bit boff/bw fields
+                     * cannot encode it; use the wide stamp (size code 4).
+                     * The unit offset is 16-aligned, so the wide encoding
+                     * is lossless up to 32 KB aggregates. */
+                    bool wide_bf = is_bf && (boff + bw) > 64;
+                    if (wide_bf) sz = 16;
                     for (int64_t k = 0; k <= (is_range ? (desig_hi - desig_lo) : 0); k++) {
                         ASTRef node_ref = (k == 0) ? elem : zero_cc_ast_clone(arena, elem, arena);
                         ZeroCCASTNode *en = zero_cc_ast_get(arena, node_ref);
@@ -266,8 +273,9 @@ static ASTRef parse_brace_init_list_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena
                             en->next = AST_NULL;
                             if (has_desig) en->flags |= NODE_FLAG_DESIGNATED;
                             size_t e_off = off + (size_t)k * step;
-                            en->desig_idx = is_bf ? ZC_INIT_BF_STAMP(e_off, sz, boff, bw)
-                                                  : ZC_INIT_ABS_STAMP(e_off, sz);
+                            en->desig_idx = wide_bf ? ZC_INIT_WIDE_BF_STAMP(e_off, boff, bw)
+                              : (is_bf ? ZC_INIT_BF_STAMP(e_off, sz, boff, bw)
+                                       : ZC_INIT_ABS_STAMP(e_off, sz));
                         }
                         if (head_expr == AST_NULL) head_expr = node_ref;
                         else if (last_expr != AST_NULL) {

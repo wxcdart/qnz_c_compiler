@@ -101,7 +101,11 @@ UNSUPPORTED_TARGETS = {
     # named PROGBITS/NOBITS section and functions in a named PROGBITS|EXECINSTR
     # section (code copied out of .text, symbol placed there; .text/.data copies are
     # dead).  All three former tests (pr23237, pr61848, section.c) now PASS.
-    "int128", "cilk",
+    # "int128" is unskipped (Sprint 113): wide __int128 bitfields and 128-bit
+    # vector lanes (v2ti) fully implemented; all 7 former SKIP-TARGET:int128
+    # tests (bitfield-1, bitfield-endian-1, bitfield-endian-2, pr70355, pr99822,
+    # pr84748, pr93213) now PASS.
+    "cilk",
     # other languages
     "c++", "cxx", "c2a", "go", "fortran", "ada", "objc", "java", "openmp",
     # other architectures / feature targets

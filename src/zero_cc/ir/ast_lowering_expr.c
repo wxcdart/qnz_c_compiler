@@ -361,8 +361,8 @@ int zero_cc_lower_lvalue_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef r
             ir_emit_mul(c, scaled_index, index_temp, sz_temp);
         } else if (elem_size == 1) {
             scaled_index = index_temp;
-        } else if (elem_size == 2 || elem_size == 4 || elem_size == 8) {
-            int shift = (elem_size == 2) ? 1 : ((elem_size == 4) ? 2 : 3);
+        } else if (elem_size == 2 || elem_size == 4 || elem_size == 8 || elem_size == 16) {
+            int shift = (elem_size == 2) ? 1 : ((elem_size == 4) ? 2 : ((elem_size == 8) ? 3 : 4));
             int sh_temp = c->next_temp_id++;
             ir_emit_mov_imm(c, sh_temp, shift);
             scaled_index = c->next_temp_id++;
@@ -377,8 +377,8 @@ int zero_cc_lower_lvalue_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef r
         if (mirror_form) {
             int base_scaled = array_temp;
             if (mirror_esz != 1) {
-                if (mirror_esz == 2 || mirror_esz == 4 || mirror_esz == 8) {
-                    int shift = (mirror_esz == 2) ? 1 : ((mirror_esz == 4) ? 2 : 3);
+                if (mirror_esz == 2 || mirror_esz == 4 || mirror_esz == 8 || mirror_esz == 16) {
+                    int shift = (mirror_esz == 2) ? 1 : ((mirror_esz == 4) ? 2 : ((mirror_esz == 8) ? 3 : 4));
                     int sh_temp = c->next_temp_id++;
                     ir_emit_mov_imm(c, sh_temp, shift);
                     base_scaled = c->next_temp_id++;
@@ -1273,6 +1273,76 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     size_t abs_off = ZC_INIT_ABS_OFF(elem_node->desig_idx);
                     size_t abs_sz = ZC_INIT_ABS_SIZE(elem_node->desig_idx);
                     int32_t abs_store_off = -(sym->stack_offset - (int32_t)abs_off);
+                    if (ZC_INIT_IS_WIDE_BF(elem_node->desig_idx)) {
+                        /* Sprint 113: wide bit-field (16-byte unit) - the
+                         * RMW runs on a GPR128 (lo,hi). */
+                        uint8_t boff = ZC_INIT_WB_BOFF(elem_node->desig_idx);
+                        uint8_t bw = ZC_INIT_WB_BW(elem_node->desig_idx);
+                        /* SSO + signedness derived from the target struct's
+                         * member layout (no free stamp bits). */
+                        bool bf_sso = false, bf_signed = false;
+                        if (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) {
+                            for (size_t bmi = 0; bmi < sym->type.member_count; bmi++) {
+                                const ZeroCCStructMember *bmf = &sym->type.members[bmi];
+                                if (bmf->is_bitfield && bmf->offset == abs_off) {
+                                    bf_sso = bmf->sso_be;
+                                    bf_signed = bmf->is_signed;
+                                    break;
+                                }
+                            }
+                        }
+                        int addr_temp = c->next_temp_id++;
+                        ir_emit_lea(c, addr_temp, TEMP_NONE, abs_store_off);
+                        int unit = c->next_temp_id++;
+                        ir_emit_load128(c, unit, addr_temp);
+                        if (bf_sso) unit = zc_emit_unit_bswap128(c, unit);
+                        int val128 = val_temp;
+                        if (!c->last_expr_is_128) {
+                            int ext = c->next_temp_id++;
+                            if (bf_signed) ir_emit_sext64_128(c, ext, val_temp);
+                            else ir_emit_zext64_128(c, ext, val_temp);
+                            val128 = ext;
+                        }
+                        uint64_t vm_hi = (bw >= 128) ? ~0ULL :
+                                         (bw > 64 ? ((1ULL << (bw - 64)) - 1) : 0ULL);
+                        int vm = c->next_temp_id++;
+                        {
+                            int vml = c->next_temp_id++; ir_emit_mov_imm(c, vml, (int64_t)~0ULL);
+                            int vmh = c->next_temp_id++; ir_emit_mov_imm(c, vmh, (int64_t)vm_hi);
+                            ir_emit_mk128(c, vm, vml, vmh);
+                        }
+                        int bits = c->next_temp_id++;
+                        ir_emit_and128(c, bits, val128, vm);
+                        uint64_t f_lo, f_hi;
+                        if (boff == 0) { f_lo = ~0ULL; f_hi = vm_hi; }
+                        else if (boff < 64) {
+                            f_lo = ~0ULL << boff;
+                            f_hi = (vm_hi << boff) | (~0ULL >> (64 - boff));
+                        } else { f_lo = 0; f_hi = ~0ULL << (boff - 64); }
+                        int cmask = c->next_temp_id++;
+                        {
+                            int cml = c->next_temp_id++; ir_emit_mov_imm(c, cml, (int64_t)~f_lo);
+                            int cmh = c->next_temp_id++; ir_emit_mov_imm(c, cmh, (int64_t)~f_hi);
+                            ir_emit_mk128(c, cmask, cml, cmh);
+                        }
+                        int cleared = c->next_temp_id++;
+                        ir_emit_and128(c, cleared, unit, cmask);
+                        if (boff > 0) {
+                            int s_lo = c->next_temp_id++; ir_emit_lo128(c, s_lo, bits);
+                            int s_hi = c->next_temp_id++; ir_emit_hi128(c, s_hi, bits);
+                            int dlo = c->next_temp_id++, dhi = c->next_temp_id++;
+                            zc_emit_128_shift(c, dlo, dhi, s_lo, s_hi, boff, TK_SHL, false);
+                            bits = c->next_temp_id++; ir_emit_mk128(c, bits, dlo, dhi);
+                        }
+                        int comb = c->next_temp_id++;
+                        ir_emit_or128(c, comb, cleared, bits);
+                        if (bf_sso) comb = zc_emit_unit_bswap128(c, comb);
+                        int saddr_temp = c->next_temp_id++;
+                        ir_emit_lea(c, saddr_temp, TEMP_NONE, abs_store_off);
+                        ir_emit_store128(c, comb, saddr_temp);
+                        cur_ref = elem_node->next;
+                        continue;
+                    }
                     if (ZC_INIT_IS_BF(elem_node->desig_idx)) {
                         uint8_t boff = ZC_INIT_BF_BOFF(elem_node->desig_idx);
                         uint8_t bw = ZC_INIT_BF_BW(elem_node->desig_idx);
@@ -1731,8 +1801,8 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 ir_emit_mul(c, scaled_index, index_temp, sz_temp);
             } else if (elem_size == 1) {
                 scaled_index = index_temp;
-            } else if (elem_size == 2 || elem_size == 4 || elem_size == 8) {
-                int shift = (elem_size == 2) ? 1 : ((elem_size == 4) ? 2 : 3);
+            } else if (elem_size == 2 || elem_size == 4 || elem_size == 8 || elem_size == 16) {
+                int shift = (elem_size == 2) ? 1 : ((elem_size == 4) ? 2 : ((elem_size == 8) ? 3 : 4));
                 int sh_temp = c->next_temp_id++;
                 ir_emit_mov_imm(c, sh_temp, shift);
                 scaled_index = c->next_temp_id++;
@@ -1748,8 +1818,8 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             if (mirror_form) {
                 int base_scaled = array_temp;
                 if (mirror_esz != 1) {
-                    if (mirror_esz == 2 || mirror_esz == 4 || mirror_esz == 8) {
-                        int shift = (mirror_esz == 2) ? 1 : ((mirror_esz == 4) ? 2 : 3);
+                    if (mirror_esz == 2 || mirror_esz == 4 || mirror_esz == 8 || mirror_esz == 16) {
+                        int shift = (mirror_esz == 2) ? 1 : ((mirror_esz == 4) ? 2 : ((mirror_esz == 8) ? 3 : 4));
                         int sh_temp = c->next_temp_id++;
                         ir_emit_mov_imm(c, sh_temp, shift);
                         base_scaled = c->next_temp_id++;
@@ -1805,6 +1875,10 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     ir_emit_vloadsd(c, (uint16_t)result_temp, (uint16_t)addr_temp);
                 }
                 c->last_expr_is_float = 1;
+            } else if (elem_size == 16 || (elem_ti && elem_ti->kind == TYPE_KIND_INT128)) {
+                ir_emit_load128(c, result_temp, addr_temp);
+                c->last_expr_is_float = 0;
+                c->last_expr_is_128 = 1;
             } else {
                 if (elem_size == 1) {
                     ir_emit_load_byte(c, result_temp, addr_temp);
@@ -1863,6 +1937,13 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             bool member_is_struct = (member_ti && (member_ti->kind == TYPE_KIND_STRUCT || member_ti->kind == TYPE_KIND_UNION));
             bool member_is_float = (member_ti && type_is_floating(member_ti) && !member_is_array);
             size_t member_sz = member_ti ? type_size(member_ti) : 0;
+            /* GNU multi-word bit-field (Sprint 113): a 16-byte allocation
+             * unit where the field does not fit in the low word
+             * (bit_offset + bit_width > 64). The load subpaths below take
+             * the whole unit into a GPR128 (lo,hi) temp and the shared
+             * bit-field tail extracts it in the 128-bit domain. */
+            bool member_is_wide_bf = (node->flags & NODE_MEMBER_IS_BITFIELD) &&
+                ((int)(node->aux.step & 0xFF) + (int)((node->aux.step >> 8) & 0xFF)) > 64;
             /* Fallback: derive member float-ness from the base struct's layout.
              * Only when the typeinfo (aux.extra) is unavailable AND for a
              * single (un-chained) member access - when typeinfo exists it is
@@ -1933,9 +2014,13 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         c->last_expr_is_float = 1;
                         return val_temp;
                     }
-                    /* 64-bit load; the shared width-narrowing tail below
-                     * fixes up sub-8-byte members. */
-                    ir_emit_deref(c, val_temp, multi_addr);
+                    if (member_is_wide_bf) {
+                        ir_emit_load128(c, val_temp, multi_addr);
+                    } else {
+                        /* 64-bit load; the shared width-narrowing tail below
+                         * fixes up sub-8-byte members. */
+                        ir_emit_deref(c, val_temp, multi_addr);
+                    }
                 }
             }
             if (multi_addr == TEMP_NONE && base_node && base_node->tag == NODE_IDENT) {
@@ -1974,7 +2059,8 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                          * pack smaller members - e.g. `int a; float f;` - so
                          * the upper bytes of the load are not zero and an
                          * early return would leak them into the value). */
-                        ir_emit_deref(c, val_temp, gaddr2);
+                        if (member_is_wide_bf) ir_emit_load128(c, val_temp, gaddr2);
+                        else ir_emit_deref(c, val_temp, gaddr2);
                 } else if (sym && base_is_ptr) {
                     /* Unknown identifier falls through to the local-style
                      * load below with base_stack_offset 0. */
@@ -2000,7 +2086,8 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         c->last_expr_is_float = 1;
                         return val_temp;
                     } else {
-                        ir_emit_deref(c, val_temp, addr_temp);
+                        if (member_is_wide_bf) ir_emit_load128(c, val_temp, addr_temp);
+                        else ir_emit_deref(c, val_temp, addr_temp);
                     }
                 } else if (sym && sym->is_vla_struct) {
                     /* GNU VLA struct local/param: the frame slot holds the
@@ -2027,7 +2114,8 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         c->last_expr_is_float = 1;
                         return val_temp;
                     } else {
-                        ir_emit_deref(c, val_temp, addr_temp);
+                        if (member_is_wide_bf) ir_emit_load128(c, val_temp, addr_temp);
+                        else ir_emit_deref(c, val_temp, addr_temp);
                     }
                 } else if (sym) {
                     /* Local struct/union base accessed via `.`: frame-
@@ -2053,6 +2141,10 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         ir_emit_lea(c, val_temp, BE(c)->fp_reg, total_offset);
                         c->last_expr_is_float = 0;
                         return val_temp;
+                    } else if (member_is_wide_bf) {
+                        int waddr = c->next_temp_id++;
+                        ir_emit_lea(c, waddr, TEMP_NONE, total_offset);
+                        ir_emit_load128(c, val_temp, waddr);
                     } else {
                         ir_emit_load(c, val_temp, BE(c)->fp_reg, total_offset);
                     }
@@ -2087,7 +2179,8 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         c->last_expr_is_float = 1;
                         return val_temp;
                     } else {
-                        ir_emit_deref(c, val_temp, addr_temp);
+                        if (member_is_wide_bf) ir_emit_load128(c, val_temp, addr_temp);
+                        else ir_emit_deref(c, val_temp, addr_temp);
                     }
                 }
             } else if (multi_addr == TEMP_NONE && base_node && base_node->tag == NODE_COMPOUND_LIT) {
@@ -2112,6 +2205,10 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     ir_emit_lea(c, val_temp, BE(c)->fp_reg, total_offset);
                     c->last_expr_is_float = 0;
                     return val_temp;
+                } else if (member_is_wide_bf) {
+                    int waddr = c->next_temp_id++;
+                    ir_emit_lea(c, waddr, TEMP_NONE, total_offset);
+                    ir_emit_load128(c, val_temp, waddr);
                 } else {
                     ir_emit_load(c, val_temp, BE(c)->fp_reg, total_offset);
                 }
@@ -2158,7 +2255,8 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     c->last_expr_is_float = 1;
                     return val_temp;
                 } else {
-                    ir_emit_deref(c, val_temp, addr_temp);
+                    if (member_is_wide_bf) ir_emit_load128(c, val_temp, addr_temp);
+                    else ir_emit_deref(c, val_temp, addr_temp);
                 }
             }
 
@@ -2173,6 +2271,76 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 bool is_signed = ((node->aux.step >> 16) & 1) != 0;
                 bool sso_be = ((node->aux.step >> 17) & 1) != 0;
                 int sso_unit = (int)((node->aux.step >> 18) & 0xF);
+                if (sso_unit) sso_unit = 1 << sso_unit; /* log2 code -> bytes */
+
+                if (member_is_wide_bf) {
+                    /* Sprint 113: 16-byte allocation unit (GPR128 value). */
+                    if (sso_be) {
+                        val_temp = zc_emit_unit_bswap128(c, val_temp);
+                    }
+                    if (bit_offset > 0) {
+                        int s_lo = c->next_temp_id++;
+                        ir_emit_lo128(c, s_lo, val_temp);
+                        int s_hi = c->next_temp_id++;
+                        ir_emit_hi128(c, s_hi, val_temp);
+                        int dlo = c->next_temp_id++, dhi = c->next_temp_id++;
+                        zc_emit_128_shift(c, dlo, dhi, s_lo, s_hi, bit_offset, TK_SHR, false);
+                        val_temp = c->next_temp_id++;
+                        ir_emit_mk128(c, val_temp, dlo, dhi);
+                    }
+                    if (bit_width > 64) {
+                        /* 128-bit mask (+ sign extension): the value is the
+                         * field's own (128-bit) type. */
+                        uint64_t hi_m = (bit_width >= 128) ? ~0ULL : ((1ULL << (bit_width - 64)) - 1);
+                        int mlo = c->next_temp_id++;
+                        ir_emit_mov_imm(c, mlo, (int64_t)~0ULL);
+                        int mhi = c->next_temp_id++;
+                        ir_emit_mov_imm(c, mhi, (int64_t)hi_m);
+                        int mt = c->next_temp_id++;
+                        ir_emit_mk128(c, mt, mlo, mhi);
+                        int mtd = c->next_temp_id++;
+                        ir_emit_and128(c, mtd, val_temp, mt);
+                        val_temp = mtd;
+                        if (is_signed && bit_width < 128) {
+                            int64_t sb = (int64_t)(1ULL << (bit_width - 65));
+                            int zlo = c->next_temp_id++;
+                            ir_emit_mov_imm(c, zlo, 0);
+                            int shi = c->next_temp_id++;
+                            ir_emit_mov_imm(c, shi, sb);
+                            int sbt = c->next_temp_id++;
+                            ir_emit_mk128(c, sbt, zlo, shi);
+                            int xt = c->next_temp_id++;
+                            ir_emit_xor128(c, xt, val_temp, sbt);
+                            val_temp = c->next_temp_id++;
+                            ir_emit_sub128(c, val_temp, xt, sbt);
+                        }
+                        c->last_expr_is_128 = 1;
+                    } else {
+                        /* Narrow field in the upper word: after the shift the
+                         * value sits in the low bits - extract it into the
+                         * int domain (promotion per the field type). */
+                        int lo = c->next_temp_id++;
+                        ir_emit_lo128(c, lo, val_temp);
+                        uint64_t mask = (bit_width >= 64) ? ~0ULL : ((1ULL << bit_width) - 1);
+                        int mask_temp = c->next_temp_id++;
+                        ir_emit_mov_imm(c, mask_temp, (int64_t)mask);
+                        int masked_temp = c->next_temp_id++;
+                        ir_emit_and(c, masked_temp, lo, mask_temp);
+                        val_temp = masked_temp;
+                        if (is_signed && bit_width > 0 && bit_width < 64) {
+                            int64_t sign_bit = (int64_t)(1ULL << (bit_width - 1));
+                            int sign_temp = c->next_temp_id++;
+                            ir_emit_mov_imm(c, sign_temp, sign_bit);
+                            int xor_temp = c->next_temp_id++;
+                            ir_emit_xor(c, xor_temp, val_temp, sign_temp);
+                            val_temp = c->next_temp_id++;
+                            ir_emit_sub(c, val_temp, xor_temp, sign_temp);
+                        }
+                        c->last_expr_is_128 = 0;
+                    }
+                    c->last_expr_is_float = 0;
+                    return val_temp;
+                }
 
                 /* scalar_storage_order("big-endian"): the stored unit
                  * bytes are big-endian - byte-swap the loaded unit into

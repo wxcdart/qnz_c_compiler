@@ -685,4 +685,19 @@ static inline int zc_emit_unit_bswap(ZeroCCCompiler *c, int val_temp, int unit) 
     return r;
 }
 
+/* 16-byte SSO unit (Sprint 113): byte-swap the whole 128-bit value of a
+ * GPR128 (lo,hi) temp - bswap64(hi) becomes the low half, bswap64(lo)
+ * the high half. Result is a new GPR128 temp. */
+static inline int zc_emit_unit_bswap128(ZeroCCCompiler *c, int gpr128_temp) {
+    int lo = c->next_temp_id++;
+    ir_emit_lo128(c, lo, gpr128_temp);
+    int hi = c->next_temp_id++;
+    ir_emit_hi128(c, hi, gpr128_temp);
+    int lo_r = zc_emit_unit_bswap(c, hi, 8);
+    int hi_r = zc_emit_unit_bswap(c, lo, 8);
+    int r = c->next_temp_id++;
+    ir_emit_mk128(c, r, lo_r, hi_r);
+    return r;
+}
+
 #endif /* ZERO_CC_PARSER_AST_LOWERING_INTERNAL_H */

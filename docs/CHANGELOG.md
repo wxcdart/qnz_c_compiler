@@ -1,3 +1,27 @@
+## [Sprint 113] - 2026-11-05 - Wide `__int128` bitfields + 128-bit vector lanes (`v2ti`); `SKIP-TARGET:int128` eliminated (+8 PASS, 3,679)
+
+Eliminates the entire `SKIP-TARGET:int128` c-torture bucket by implementing wide bitfields (up to 128-bit fields in 16-byte units) and 128-bit vector lanes (`v2ti`/`v1ti` vectors):
+
+- **Wide bitfields (up to 128 bits in 16-byte storage units)**:
+  - Layout (`parser/decl_struct.c`): `__uint128_t` / `__int128` bitfield members allocate 16-byte units aligned to 16 bytes.
+  - Scalar storage order (SSO): switched unit encoding to log2 codes across `semantic/expr.c` and decoders; added 16-byte bswap helper (`zc_emit_unit_bswap128`).
+  - Read path (`ir/ast_lowering_expr.c`), write path (`ir/ast_lowering_assign.c`), inc/dec, and brace-initializer stamps (`ZC_INIT_WIDE_BF_STAMP` in `parser/ast_expr.h`).
+  - Excluded bitfield member writes from the raw 16-byte store fast path via `NODE_MEMBER_IS_BITFIELD` to preserve read-modify-write semantics.
+  - Fixed local declarations (`parser/decl_local.h`) parsing `unsigned __int128` as a variable named `__int128`.
+  - Added 16-byte branch to `lower_expr_cast` (`ZEXT64_128`/`SEXT64_128`).
+- **128-bit vector lanes (`v2ti`/`v1ti`)**:
+  - Vector binops (`ir/ast_lowering_binop.c`): widened element size limit to 16 bytes; added per-lane `OP_LOAD128` / `OP_STORE128`, GPR128 operations, 128-bit lane div/mod calls via `zc_u*div/mod128`, variable shifts via `zc_sh[lra]128_v`, and 128-bit lane comparisons.
+  - Vector unary ops: `~` lowers to `NOT128`, `-` lowers to two's-complement negation (`NOT128` + `ADD128` 1), and `+` to `MOV128`.
+  - Vector subscript (`ir/ast_lowering_expr.c` `NODE_INDEX`): 16-byte element subscripts load full 16-byte values via `ir_emit_load128` and set `c->last_expr_is_128 = 1`.
+  - Vector comparison masks (`ir/ast_lowering_binop.c`): 128-bit lane comparisons replicate 64-bit boolean mask to both halves of `GPR128` and store full 16 bytes, unblocking `execute/pr105613.c`.
+  - Runtime resolution: `main.c` provides `zero_rt.a` after `-lc -lm` in the host linker invocation, resolving `zc_u*div/mod128` and `zc_sh*128_v` helpers in AOT mode without `--zerocc-link`.
+- **C-Torture Gate & Conformance**:
+  - Unskipped `"int128"` in `tools/torture_run.py`; all 7 former `SKIP-TARGET:int128` tests (`compile/bitfield-1.c`, `compile/bitfield-endian-1.c`, `compile/bitfield-endian-2.c`, `compile/pr70355.c`, `compile/pr99822.c`, `execute/pr84748.c`, `execute/pr93213.c`) plus `execute/pr105613.c` now PASS cleanly across all configurations.
+  - Total `PASS` count reached an all-time high of **3,679** (0 bad, 0 MISCOMPILE, 0 REJECT).
+  - All test gates passing: `make test` (176/176), `make test-opt` (138 ok), `make test-isa128` (144/144), `diag_battery`, `sret_verifier`, `style_check`, `okf lint`.
+
+---
+
 ## [Sprint 112] - 2026-11-05 - `__float128` (quad precision) type & object model + MC-path FP-arg fix
 
 `__float128` (GNU binary128) is now a recognized scalar floating type: 16 bytes, 16-byte aligned, lowered through the 64-bit double value model (same object/value model as `long double`; true 113-bit significand precision is not implemented — documented v1 limitation, values double-exact in both). 

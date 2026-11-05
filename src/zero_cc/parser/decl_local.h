@@ -901,6 +901,16 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
                     if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LONG) c->token_pos++; /* long long */
                     if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_INT) c->token_pos++; /* long [long] int */
                 }
+            } else if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT &&
+                       zc_name_int128_kind(c->tokens[c->token_pos].allocated_str ?
+                                           c->tokens[c->token_pos].allocated_str
+                                           : c->tokens[c->token_pos].str_val) != 0) {
+                /* GNU `unsigned __int128` / `signed __int128` / redundant
+                 * `unsigned __uint128_t`: the 128-bit base follows the
+                 * qualifier (Sprint 113 - c-torture int128 bucket). */
+                type_tok = TK_IDENT;
+                type_start_pos = c->token_pos;
+                c->token_pos++;
             } else {
                 type_tok = TK_INT;  /* bare `unsigned` / `signed` */
             }
@@ -1126,6 +1136,7 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
                     else if (base_ret.tag == TYPE_INT16) base_ret.tag = TYPE_UINT16;
                     else if (base_ret.tag == TYPE_INT32) base_ret.tag = TYPE_UINT32;
                     else if (base_ret.tag == TYPE_INT64) base_ret.tag = TYPE_UINT64;
+                    else if (base_ret.tag == TYPE_INT128) base_ret.tag = TYPE_UINT128;
                 }
                 base_ret.is_const = is_const;
                 base_ret.is_volatile = is_volatile;
@@ -1796,6 +1807,7 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
                     else if (base_decl.tag == TYPE_INT16) base_decl.tag = TYPE_UINT16;
                     else if (base_decl.tag == TYPE_INT32) base_decl.tag = TYPE_UINT32;
                     else if (base_decl.tag == TYPE_INT64) base_decl.tag = TYPE_UINT64;
+                    else if (base_decl.tag == TYPE_INT128) base_decl.tag = TYPE_UINT128;
                 }
                 base_decl.is_const = is_const;
                 base_decl.is_volatile = is_volatile;
@@ -2079,6 +2091,7 @@ static inline bool zero_cc_parse_local_decl(ZeroCCCompiler *c,
                         else if (next_base.tag == TYPE_INT16) next_base.tag = TYPE_UINT16;
                         else if (next_base.tag == TYPE_INT32) next_base.tag = TYPE_UINT32;
                         else if (next_base.tag == TYPE_INT64) next_base.tag = TYPE_UINT64;
+                        else if (next_base.tag == TYPE_INT128) next_base.tag = TYPE_UINT128;
                     }
                     next_base.is_const = is_const;
                     next_base.is_volatile = is_volatile;

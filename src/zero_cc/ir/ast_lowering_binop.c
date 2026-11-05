@@ -1085,7 +1085,9 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                 const TypeInfo *el_ti = vec_ti->details.array.base;
                 size_t esz = el_ti ? type_size(el_ti) : 0;
                 size_t lanes = (esz > 0 && type_size(vec_ti) > 0) ? type_size(vec_ti) / esz : 0;
-                if (esz < 1 || esz > 8 || lanes < 1 || lanes > 32) {
+                /* Sprint 113: 16-byte (128-bit) integer lanes are supported
+                 * via the GPR128 op set (c-torture compile/pr70355, v2ti). */
+                if (esz < 1 || esz > 16 || lanes < 1 || lanes > 32) {
                     diag_report_error_at_token(c, "unsupported vector operand size");
                     int zt = c->next_temp_id++;
                     ir_emit_mov_imm(c, zt, 0);
@@ -1127,6 +1129,24 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                         else if (esz == 2) { if (elem_unsigned) ir_emit_zext(c, right_temp, 2); else ir_emit_sext(c, right_temp, 2); }
                         else if (esz == 1) { if (elem_unsigned) ir_emit_zext(c, right_temp, 1); else ir_emit_sext(c, right_temp, 1); }
                     }
+                } else if (!elem_float && esz == 16) {
+                    /* Broadcast a 64-bit scalar across 128-bit lanes: widen
+                     * it to a GPR128 with the lane's signedness. The operand
+                     * is already 128-bit when its own type is __int128. */
+                    bool left_128 = (l_ti && l_ti->kind == TYPE_KIND_INT128);
+                    bool right_128 = (r_ti && r_ti->kind == TYPE_KIND_INT128);
+                    if (!left_vec && !left_128) {
+                        int d = c->next_temp_id++;
+                        if (elem_unsigned) ir_emit_zext64_128(c, d, left_temp);
+                        else ir_emit_sext64_128(c, d, left_temp);
+                        left_temp = d;
+                    }
+                    if (!right_vec && !right_128) {
+                        int d = c->next_temp_id++;
+                        if (elem_unsigned) ir_emit_zext64_128(c, d, right_temp);
+                        else ir_emit_sext64_128(c, d, right_temp);
+                        right_temp = d;
+                    }
                 }
 
                 int cmp_cc = CC_EQ;
@@ -1163,6 +1183,8 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                         } else if (esz == 4) {
                             ir_emit_load_32(c, lv, a);
                             if (elem_unsigned) ir_emit_zext(c, lv, 4); else ir_emit_sext(c, lv, 4);
+                        } else if (esz == 16) {
+                            ir_emit_load128(c, lv, a);
                         } else {
                             ir_emit_deref(c, lv, a);
                         }
@@ -1189,6 +1211,8 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                         } else if (esz == 4) {
                             ir_emit_load_32(c, rv, a);
                             if (elem_unsigned) ir_emit_zext(c, rv, 4); else ir_emit_sext(c, rv, 4);
+                        } else if (esz == 16) {
+                            ir_emit_load128(c, rv, a);
                         } else {
                             ir_emit_deref(c, rv, a);
                         }
@@ -1197,7 +1221,38 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                     int ov = c->next_temp_id++;
                     bool ov_flt = false;
                     if (is_cmp) {
-                        if (elem_float) {
+                        if (esz == 16) {
+                            /* Sprint 113: 128-bit lane comparison - same
+                             * decomposition as the scalar __int128 path
+                             * (hi first, lo unsigned tie-break). */
+                            int lh = c->next_temp_id++; ir_emit_hi128(c, lh, lv);
+                            int ll = c->next_temp_id++; ir_emit_lo128(c, ll, lv);
+                            int rh = c->next_temp_id++; ir_emit_hi128(c, rh, rv);
+                            int rl = c->next_temp_id++; ir_emit_lo128(c, rl, rv);
+                            int hi_cc_lt = elem_unsigned ? CC_FLT_LT : CC_LT;
+                            int hi_cc_gt = elem_unsigned ? CC_FLT_GT : CC_GT;
+                            if (vop == TK_EQ) {
+                                int eh = zc_cmp64_bool(c, lh, rh, CC_EQ);
+                                int el = zc_cmp64_bool(c, ll, rl, CC_EQ);
+                                ir_emit_and(c, ov, eh, el);
+                            } else if (vop == TK_NE) {
+                                int nh = zc_cmp64_bool(c, lh, rh, CC_NE);
+                                int nl = zc_cmp64_bool(c, ll, rl, CC_NE);
+                                ir_emit_or(c, ov, nh, nl);
+                            } else if (vop == TK_LT || vop == TK_LE) {
+                                int t1 = zc_cmp64_bool(c, lh, rh, hi_cc_lt);
+                                int t2 = zc_cmp64_bool(c, lh, rh, CC_EQ);
+                                int t3 = zc_cmp64_bool(c, ll, rl, vop == TK_LT ? CC_FLT_LT : CC_FLT_LE);
+                                int t4 = c->next_temp_id++; ir_emit_and(c, t4, t2, t3);
+                                ir_emit_or(c, ov, t1, t4);
+                            } else {
+                                int t1 = zc_cmp64_bool(c, lh, rh, hi_cc_gt);
+                                int t2 = zc_cmp64_bool(c, lh, rh, CC_EQ);
+                                int t3 = zc_cmp64_bool(c, ll, rl, vop == TK_GT ? CC_FLT_GT : CC_FLT_GE);
+                                int t4 = c->next_temp_id++; ir_emit_and(c, t4, t2, t3);
+                                ir_emit_or(c, ov, t1, t4);
+                            }
+                        } else if (elem_float) {
                             /* Double FP model: VLOADSS already widened the
                              * lane single to double; a double scalar with
                              * float lanes is first narrowed to the element
@@ -1214,16 +1269,29 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                         } else {
                             ir_emit_cmp(c, (uint16_t)lv, (uint16_t)rv);
                         }
-                        ir_emit_cond_set(c, (uint16_t)ov, cmp_cc);
-                        /* Predicate lane: full -1 mask / 0 (GCC). The
-                         * result vector has an integer element type
-                         * (see type_vector_cmp_result); the mask stores
-                         * as int lanes of the result element width. */
-                        int m = c->next_temp_id++;
-                        ir_emit_mov_imm(c, m, -1);
-                        int ov2 = c->next_temp_id++;
-                        ir_emit_mul(c, ov2, ov, m);
-                        ov = ov2;
+                        if (esz == 16) {
+                            /* Predicate lane: full 128-bit -1 mask or 0.
+                             * ov is 0 or 1. Multiply by 64-bit -1 to get 0 or ~0ULL,
+                             * and replicate to both halves of GPR128. */
+                            int m = c->next_temp_id++;
+                            ir_emit_mov_imm(c, m, -1);
+                            int m64 = c->next_temp_id++;
+                            ir_emit_mul(c, m64, ov, m);
+                            int ov128 = c->next_temp_id++;
+                            ir_emit_mk128(c, ov128, m64, m64);
+                            ov = ov128;
+                        } else {
+                            ir_emit_cond_set(c, (uint16_t)ov, cmp_cc);
+                            /* Predicate lane: full -1 mask / 0 (GCC). The
+                             * result vector has an integer element type
+                             * (see type_vector_cmp_result); the mask stores
+                             * as int lanes of the result element width. */
+                            int m = c->next_temp_id++;
+                            ir_emit_mov_imm(c, m, -1);
+                            int ov2 = c->next_temp_id++;
+                            ir_emit_mul(c, ov2, ov, m);
+                            ov = ov2;
+                        }
                     } else if (elem_float) {
                         int ls = lv, rs = rv;
                         /* Double FP model: VLOADSS/VLOADSD lane values
@@ -1244,6 +1312,79 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                             default:       ir_emit_fdiv(c, (uint16_t)ov, (uint16_t)ls, (uint16_t)rs); break;
                         }
                         ov_flt = 1;
+                    } else if (esz == 16) {
+                        /* Sprint 113: 128-bit integer lane - GPR128 op set.
+                         * div/mod and variable shifts call the zero_rt
+                         * software routines (same pattern as the scalar
+                         * __int128 path). */
+                        switch (vop) {
+                            case TK_PLUS:  ir_emit_add128(c, ov, lv, rv); break;
+                            case TK_MINUS: ir_emit_sub128(c, ov, lv, rv); break;
+                            case TK_STAR:  ir_emit_mul128(c, ov, lv, rv); break;
+                            case TK_AMP:   ir_emit_and128(c, ov, lv, rv); break;
+                            case TK_PIPE:  ir_emit_or128(c, ov, lv, rv);  break;
+                            case TK_CARET: ir_emit_xor128(c, ov, lv, rv); break;
+                            case TK_SLASH:
+                            case TK_PERCENT: {
+                                bool is_div = (vop == TK_SLASH);
+                                const char *fn = is_div ? (elem_unsigned ? "zc_udiv128" : "zc_sdiv128")
+                                                        : (elem_unsigned ? "zc_umod128" : "zc_smod128");
+                                if (c->function_count < ZERO_CC_MAX_FUNCTIONS &&
+                                    !zero_cc_find_function(c, fn)) {
+                                    ZeroCCFunction *zfn = &c->functions[c->function_count++];
+                                    memset(zfn, 0, sizeof(*zfn));
+                                    snprintf(zfn->name, sizeof(zfn->name), "%s", fn);
+                                    zfn->text_offset = 0;
+                                    zfn->returns_struct = false;
+                                    zfn->ret_struct_sz = 0;
+                                    zfn->is_prototype = true;
+                                    zfn->has_prototype = false;
+                                    zfn->is_external = true;
+                                    zfn->is_variadic = false;
+                                }
+                                int alo = c->next_temp_id++; ir_emit_lo128(c, alo, lv);
+                                int ahi = c->next_temp_id++; ir_emit_hi128(c, ahi, lv);
+                                int blo = c->next_temp_id++; ir_emit_lo128(c, blo, rv);
+                                int bhi = c->next_temp_id++; ir_emit_hi128(c, bhi, rv);
+                                ir_emit_call(c, fn);
+                                int at[4] = {alo, ahi, blo, bhi};
+                                ir_call_args_record(c, ir_get_count(c) - 1, 4, at, NULL, NULL);
+                                int rlo = c->next_temp_id++; ir_emit_mov_reg(c, rlo, VREG_0);
+                                int rhi = c->next_temp_id++; ir_emit_mov_reg(c, rhi, VREG_2);
+                                ir_emit_mk128(c, ov, rlo, rhi);
+                                if (elem_unsigned) ir_mark_last_unsigned(c, 1);
+                                break;
+                            }
+                            case TK_SHL:
+                            case TK_SHR: {
+                                const char *fn = vop == TK_SHL ? "zc_shl128_v" :
+                                                 (elem_unsigned ? "zc_shr128_v" : "zc_sar128_v");
+                                if (c->function_count < ZERO_CC_MAX_FUNCTIONS &&
+                                    !zero_cc_find_function(c, fn)) {
+                                    ZeroCCFunction *zfn = &c->functions[c->function_count++];
+                                    memset(zfn, 0, sizeof(*zfn));
+                                    snprintf(zfn->name, sizeof(zfn->name), "%s", fn);
+                                    zfn->text_offset = 0;
+                                    zfn->returns_struct = false;
+                                    zfn->ret_struct_sz = 0;
+                                    zfn->is_prototype = true;
+                                    zfn->has_prototype = false;
+                                    zfn->is_external = true;
+                                    zfn->is_variadic = false;
+                                }
+                                int alo = c->next_temp_id++; ir_emit_lo128(c, alo, lv);
+                                int ahi = c->next_temp_id++; ir_emit_hi128(c, ahi, lv);
+                                int n64 = c->next_temp_id++; ir_emit_lo128(c, n64, rv);
+                                ir_emit_call(c, fn);
+                                int at[3] = {alo, ahi, n64};
+                                ir_call_args_record(c, ir_get_count(c) - 1, 3, at, NULL, NULL);
+                                int rlo = c->next_temp_id++; ir_emit_mov_reg(c, rlo, VREG_0);
+                                int rhi = c->next_temp_id++; ir_emit_mov_reg(c, rhi, VREG_2);
+                                ir_emit_mk128(c, ov, rlo, rhi);
+                                break;
+                            }
+                            default: ir_emit_mov128(c, ov, lv); break;
+                        }
                     } else {
                         switch (vop) {
                             case TK_PLUS:  ir_emit_add(c, ov, lv, rv); break;
@@ -1270,6 +1411,7 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                         if (esz == 1) ir_emit_store_byte(c, ov, lane_addr);
                         else if (esz == 2) ir_emit_store_16(c, ov, lane_addr);
                         else if (esz == 4) ir_emit_store_32(c, ov, lane_addr);
+                        else if (esz == 16) ir_emit_store128(c, ov, lane_addr);
                         else ir_emit_store_64(c, ov, lane_addr);
                     } else if (elem_float) {
                         if (esz == 4) {
@@ -1280,6 +1422,8 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                         } else {
                             ir_emit_vstoresd(c, (uint16_t)lane_addr, (uint16_t)ov);
                         }
+                    } else if (esz == 16) {
+                        ir_emit_store128(c, ov, lane_addr);
                     } else if (esz == 1) {
                         ir_emit_store_byte(c, ov, lane_addr);
                     } else if (esz == 2) {
@@ -1916,9 +2060,91 @@ int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                     uint8_t bf_off = (uint8_t)(operand->aux.step & 0xFF);
                     uint8_t bf_w = (uint8_t)((operand->aux.step >> 8) & 0xFF);
                     bool bf_signed = ((operand->aux.step >> 16) & 1) != 0;
+                    bool bf_sso_be = ((operand->aux.step >> 17) & 1) != 0;
                     TypeInfo *bti = ast_node_get_typeinfo(c, operand);
                     size_t bm_size = bti ? type_size(bti) : 4;
                     bool bf64 = (bm_size > 4 || (bf_off + bf_w > 32));
+
+                    if ((int)bf_off + (int)bf_w > 64) {
+                        /* Sprint 113: 16-byte allocation unit (GPR128 RMW). */
+                        int unit = c->next_temp_id++;
+                        ir_emit_load128(c, unit, addr);
+                        if (bf_sso_be) unit = zc_emit_unit_bswap128(c, unit);
+                        int cur = unit;
+                        if (bf_off > 0) {
+                            int s_lo = c->next_temp_id++; ir_emit_lo128(c, s_lo, cur);
+                            int s_hi = c->next_temp_id++; ir_emit_hi128(c, s_hi, cur);
+                            int dlo = c->next_temp_id++, dhi = c->next_temp_id++;
+                            zc_emit_128_shift(c, dlo, dhi, s_lo, s_hi, bf_off, TK_SHR, false);
+                            cur = c->next_temp_id++; ir_emit_mk128(c, cur, dlo, dhi);
+                        }
+                        uint64_t vm_hi = (bf_w >= 128) ? ~0ULL : ((1ULL << (bf_w - 64)) - 1);
+                        int vm_lo_t = c->next_temp_id++; ir_emit_mov_imm(c, vm_lo_t, (int64_t)~0ULL);
+                        int vm_hi_t = c->next_temp_id++; ir_emit_mov_imm(c, vm_hi_t, (int64_t)vm_hi);
+                        int vm = c->next_temp_id++; ir_emit_mk128(c, vm, vm_lo_t, vm_hi_t);
+                        int curm = c->next_temp_id++; ir_emit_and128(c, curm, cur, vm);
+                        int old_val = curm;
+                        if (bf_signed && bf_w < 128) {
+                            int64_t sb = (int64_t)(1ULL << (bf_w - 65));
+                            int zlo = c->next_temp_id++; ir_emit_mov_imm(c, zlo, 0);
+                            int shi = c->next_temp_id++; ir_emit_mov_imm(c, shi, sb);
+                            int sbt = c->next_temp_id++; ir_emit_mk128(c, sbt, zlo, shi);
+                            int xt = c->next_temp_id++; ir_emit_xor128(c, xt, old_val, sbt);
+                            old_val = c->next_temp_id++; ir_emit_sub128(c, old_val, xt, sbt);
+                        }
+                        int one_t = c->next_temp_id++;
+                        ir_emit_mov_imm(c, one_t, (node->aux.op == TK_INC) ? 1 : -1);
+                        int one128 = c->next_temp_id++;
+                        if (bf_signed) ir_emit_sext64_128(c, one128, one_t);
+                        else ir_emit_zext64_128(c, one128, one_t);
+                        int newv = c->next_temp_id++;
+                        ir_emit_add128(c, newv, old_val, one128);
+                        int bits = c->next_temp_id++; ir_emit_and128(c, bits, newv, vm);
+                        uint64_t f_lo, f_hi;
+                        if (bf_off == 0) { f_lo = ~0ULL; f_hi = vm_hi; }
+                        else if (bf_off < 64) {
+                            f_lo = ~0ULL << bf_off;
+                            f_hi = (vm_hi << bf_off) | (~0ULL >> (64 - bf_off));
+                        } else { f_lo = 0; f_hi = ~0ULL << (bf_off - 64); }
+                        int fmask = c->next_temp_id++;
+                        {
+                            int fml = c->next_temp_id++; ir_emit_mov_imm(c, fml, (int64_t)f_lo);
+                            int fmh = c->next_temp_id++; ir_emit_mov_imm(c, fmh, (int64_t)f_hi);
+                            ir_emit_mk128(c, fmask, fml, fmh);
+                        }
+                        int cmask = c->next_temp_id++;
+                        {
+                            int cml = c->next_temp_id++; ir_emit_mov_imm(c, cml, (int64_t)~f_lo);
+                            int cmh = c->next_temp_id++; ir_emit_mov_imm(c, cmh, (int64_t)~f_hi);
+                            ir_emit_mk128(c, cmask, cml, cmh);
+                        }
+                        int cleared = c->next_temp_id++;
+                        ir_emit_and128(c, cleared, unit, cmask);
+                        if (bf_off > 0) {
+                            int s_lo = c->next_temp_id++; ir_emit_lo128(c, s_lo, bits);
+                            int s_hi = c->next_temp_id++; ir_emit_hi128(c, s_hi, bits);
+                            int dlo = c->next_temp_id++, dhi = c->next_temp_id++;
+                            zc_emit_128_shift(c, dlo, dhi, s_lo, s_hi, bf_off, TK_SHL, false);
+                            bits = c->next_temp_id++; ir_emit_mk128(c, bits, dlo, dhi);
+                        }
+                        int comb = c->next_temp_id++;
+                        ir_emit_or128(c, comb, cleared, bits);
+                        if (bf_sso_be) comb = zc_emit_unit_bswap128(c, comb);
+                        ir_emit_store128(c, comb, addr);
+                        int new_val = c->next_temp_id++; ir_emit_and128(c, new_val, newv, vm);
+                        if (bf_signed && bf_w < 128) {
+                            int64_t sb = (int64_t)(1ULL << (bf_w - 65));
+                            int zlo = c->next_temp_id++; ir_emit_mov_imm(c, zlo, 0);
+                            int shi = c->next_temp_id++; ir_emit_mov_imm(c, shi, sb);
+                            int sbt = c->next_temp_id++; ir_emit_mk128(c, sbt, zlo, shi);
+                            int xt = c->next_temp_id++; ir_emit_xor128(c, xt, new_val, sbt);
+                            new_val = c->next_temp_id++; ir_emit_sub128(c, new_val, xt, sbt);
+                        }
+                        c->last_expr_is_float = 0;
+                        c->last_expr_is_128 = 1;
+                        return (node->flags & 1) ? old_val : new_val;
+                    }
+
                     uint64_t wmask = (bf_w >= 64) ? ~0ULL : ((1ULL << bf_w) - 1);
                     int word_t = c->next_temp_id++;
                     if (bf64) ir_emit_deref(c, word_t, addr);
@@ -2046,7 +2272,8 @@ int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                 const TypeInfo *el_ti = un_ti->details.array.base;
                 size_t esz = el_ti ? type_size(el_ti) : 0;
                 size_t lanes = (esz > 0 && type_size(un_ti) > 0) ? type_size(un_ti) / esz : 0;
-                if (esz < 1 || esz > 8 || lanes < 1 || lanes > 32) {
+                /* Sprint 113: 16-byte (128-bit) integer lanes (v2ti). */
+                if (esz < 1 || esz > 16 || lanes < 1 || lanes > 32) {
                     diag_report_error_at_token(c, "unsupported vector operand size");
                     int zt = c->next_temp_id++;
                     ir_emit_mov_imm(c, zt, 0);
@@ -2081,6 +2308,8 @@ int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                     } else if (esz == 4) {
                         ir_emit_load_32(c, lv, a);
                         if (elem_unsigned) ir_emit_zext(c, lv, 4); else ir_emit_sext(c, lv, 4);
+                    } else if (esz == 16) {
+                        ir_emit_load128(c, lv, a);
                     } else {
                         ir_emit_deref(c, lv, a);
                     }
@@ -2100,6 +2329,19 @@ int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                             ir_emit_fmov(c, (uint16_t)ov, (uint16_t)ls);
                         }
                         ov_flt = 1;
+                    } else if (esz == 16) {
+                        /* 128-bit lane: NOT128; negation is NOT + add 1. */
+                        if (node->aux.op == TK_TILDE || node->aux.op == '~') {
+                            ir_emit_not128(c, ov, lv);
+                        } else if (node->aux.op == TK_MINUS || node->aux.op == '-') {
+                            int one_lo = c->next_temp_id++; ir_emit_mov_imm(c, one_lo, 1);
+                            int one_hi = c->next_temp_id++; ir_emit_mov_imm(c, one_hi, 0);
+                            int one = c->next_temp_id++; ir_emit_mk128(c, one, one_lo, one_hi);
+                            ir_emit_not128(c, ov, lv);
+                            ir_emit_add128(c, ov, ov, one);
+                        } else {
+                            ir_emit_mov128(c, ov, lv);
+                        }
                     } else if (node->aux.op == TK_TILDE || node->aux.op == '~') {
                         ir_emit_not(c, ov, lv);
                     } else if (node->aux.op == TK_MINUS || node->aux.op == '-') {
@@ -2117,6 +2359,8 @@ int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                         } else {
                             ir_emit_vstoresd(c, (uint16_t)lane_addr, (uint16_t)ov);
                         }
+                    } else if (esz == 16) {
+                        ir_emit_store128(c, ov, lane_addr);
                     } else if (esz == 1) {
                         ir_emit_store_byte(c, ov, lane_addr);
                     } else if (esz == 2) {
@@ -2232,6 +2476,12 @@ int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                 if (p_size == 1) ir_emit_load_byte(c, result_temp, operand_temp);
                 else if (p_size == 2) ir_emit_load_16(c, result_temp, operand_temp);
                 else if (p_size == 4) ir_emit_load_32(c, result_temp, operand_temp);
+                else if (!is_struct && (p_size == 16 || (ti && ti->kind == TYPE_KIND_INT128))) {
+                    ir_emit_load128(c, result_temp, operand_temp);
+                    c->last_expr_is_float = 0;
+                    c->last_expr_is_128 = 1;
+                    return result_temp;
+                }
                 else ir_emit_deref(c, result_temp, operand_temp);
                 lower_extend_narrow(c, result_temp, ti);
                 break;
@@ -2969,6 +3219,18 @@ int lower_expr_cast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                 if (ctsu) ir_emit_zext(c, cast_t, (int)ctsz);
                 else ir_emit_sext(c, cast_t, (int)ctsz);
                 result = cast_t;
+            } else if (ctsz == 16 && cast_ti->kind == TYPE_KIND_INT128 &&
+                       !c->last_expr_is_128) {
+                /* Sprint 113: int -> __int128 cast: widen the 64-bit value
+                 * to a real GPR128 (lo,hi). Without this the 64-bit temp is
+                 * consumed as a 128-bit pair whose hi register holds garbage
+                 * (`(~((__uint128_t)0))` read random hi bits). */
+                bool ctsu = (cast_ti->modifiers & TYPE_MOD_UNSIGNED) != 0;
+                int cast_t = c->next_temp_id++;
+                if (ctsu) ir_emit_zext64_128(c, cast_t, result);
+                else ir_emit_sext64_128(c, cast_t, result);
+                result = cast_t;
+                c->last_expr_is_128 = 1;
             }
         }
         return result;

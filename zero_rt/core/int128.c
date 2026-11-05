@@ -84,7 +84,6 @@ unsigned __int128 zc_udiv128(uint64_t a0, uint64_t a1, uint64_t b0, uint64_t b1)
     zc_udivmod128(a0, a1, b0, b1, &q0, &q1, &r0, &r1);
     return (zc_u128)((zc_u128)q1 << 64) | q0;
 }
-
 unsigned __int128 zc_umod128(uint64_t a0, uint64_t a1, uint64_t b0, uint64_t b1) {
     uint64_t q0, q1, r0, r1;
     zc_udivmod128(a0, a1, b0, b1, &q0, &q1, &r0, &r1);
@@ -101,6 +100,50 @@ __int128 zc_smod128(uint64_t a0, uint64_t a1, uint64_t b0, uint64_t b1) {
     uint64_t q0, q1, r0, r1;
     zc_sdivmod128(a0, a1, b0, b1, &q0, &q1, &r0, &r1);
     return (zc_s128)((zc_u128)r1 << 64) | (zc_u128)r0;
+}
+
+/* Variable-count 128-bit shifts (Sprint 113) - 64-bit halves only: this
+ * file is also compiled by zerocc itself for the AOT zero_rt archive, and
+ * zerocc's 128-bit shift lowering requires a compile-time-constant count.
+ * The count is masked to 127 (C11 6.5.7p3: shift >= width is
+ * implementation-defined; every real target masks). */
+static void zc_shl128_var(uint64_t lo, uint64_t hi, uint64_t n,
+                          uint64_t *o0, uint64_t *o1) {
+    n &= 127;
+    if (n == 0) { *o0 = lo; *o1 = hi; return; }
+    if (n < 64) { *o0 = lo << n; *o1 = (hi << n) | (lo >> (64 - n)); }
+    else        { *o0 = 0;        *o1 = lo << (n - 64); }
+}
+static void zc_shr128_var(uint64_t lo, uint64_t hi, uint64_t n,
+                          uint64_t *o0, uint64_t *o1) {
+    n &= 127;
+    if (n == 0) { *o0 = lo; *o1 = hi; return; }
+    if (n < 64) { *o0 = (lo >> n) | (hi << (64 - n)); *o1 = hi >> n; }
+    else        { *o0 = hi >> (n - 64);               *o1 = 0; }
+}
+static void zc_sar128_var(uint64_t lo, uint64_t hi, uint64_t n,
+                          uint64_t *o0, uint64_t *o1) {
+    n &= 127;
+    if (n == 0) { *o0 = lo; *o1 = hi; return; }
+    int64_t h = (int64_t)hi;
+    if (n < 64) { *o0 = (lo >> n) | (hi << (64 - n)); *o1 = (uint64_t)(h >> n); }
+    else        { *o0 = (uint64_t)(h >> (n - 64));    *o1 = (uint64_t)(h >> 63); }
+}
+
+unsigned __int128 zc_shl128_v(uint64_t a0, uint64_t a1, uint64_t n) {
+    uint64_t o0, o1;
+    zc_shl128_var(a0, a1, n, &o0, &o1);
+    return (zc_u128)((zc_u128)o1 << 64) | o0;
+}
+unsigned __int128 zc_shr128_v(uint64_t a0, uint64_t a1, uint64_t n) {
+    uint64_t o0, o1;
+    zc_shr128_var(a0, a1, n, &o0, &o1);
+    return (zc_u128)((zc_u128)o1 << 64) | o0;
+}
+__int128 zc_sar128_v(uint64_t a0, uint64_t a1, uint64_t n) {
+    uint64_t o0, o1;
+    zc_sar128_var(a0, a1, n, &o0, &o1);
+    return (zc_s128)((zc_u128)o1 << 64) | (zc_u128)o0;
 }
 
 #endif /* ZERO_RT_USE_INT128_TYPE */
