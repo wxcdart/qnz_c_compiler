@@ -1,3 +1,19 @@
+## [Sprint 109] - 2026-11-05 - `__int128` add/sub/neg high-half on all ISAs (carry/borrow/negation)
+
+The 128-bit arithmetic **high half** (carry / borrow / sign extension) was wrong across ISAs. Each `(lo,hi)` decomposition computed the low half correctly but propagated the wrong borrow/carry into the high half.
+
+- **AArch64** (`isa/aarch64.c`): `add128`/`sub128`/`neg128` emitted a plain `add`/`sub` (**S=0**) for the low half, so the following `adc`/`sbc` read a **stale carry flag**. Now emit the **flag-setting** forms (`ADD`/`SUB` with **S=1**, base `0xAB`/`0xEB`) so `adc`/`sbc` consume the real carry/borrow — matching gcc's `cmn`/`cmp` before its `adc`/`sbc`.
+- **RISC-V64** (`isa/riscv.c`): the carry/borrow detect used `rv64_R(...,2,...)` = **`SLT`** (signed, funct3=2) instead of **`SLTU`** (unsigned, funct3=3), **with inverted operands** — a signed compare of `(~0)+1` reads as "no carry". Now `SLTU` (funct3=3) with the correct operands: carry = `sum < addend`, borrow = `minuend < subtrahend`. `neg128`'s borrow was `sltu t0, slo, 0` (= 0 always); corrected to `sltu t0, 0, slo` (borrow of `0-slo` = `slo != 0`).
+- **x86-64** (`isa/x86_64.c`): `neg128` did `neg dlo` (CF=`s_lo!=0`) then `neg dhi` (**clobbered CF** to `s_hi!=0`) then `sbb dhi,0` — the `sbb` used the wrong CF, so `-5` came out `hi=0` instead of all-ones. Rewrote to the `~x+1` form using the correct encodings: `NOT` (`F7 /2`), `ADD imm` (`0x83 /0`), `ADC imm` (`0x83 /2`).
+- **Lowering** (`ir/ast_lowering_binop.c`): unary minus on a 128-bit operand used the generic 64-bit `ir_emit_neg` (only the low half; the high half came out as a copy of the low). Now dispatches to `ir_emit_neg128` for `TYPE_KIND_INT128` and sets `last_expr_is_128`.
+- **Regression** (`test/jit/int128_arith.c`): added high-half carry/borrow/negation cases (`(2^64-1)+1`, `(100+2^64)-3`, `0-1`, `-5`) that the old small-value-only test could not catch. Run `-O0..-O3` JIT+AOT.
+
+**Verification (all green):** `make test` 173/173, `make test-opt` 135 ok, `style`/`vtable`/`okf` clean, c-torture PASS 3,676 / 0 bad (no regressions), `test-isa-qemu` 15/15 (x86-64/aarch64/riscv64) + 14/14 (riscv32). `add_c`/`sub_b`/`borrow`/`nneg` high halves match gcc on **x86-64, AArch64, and RISC-V64**; 128-bit division runs end-to-end on all three under QEMU.
+
+*Still-open non-x86 128-bit gaps (tracked, separate): (1) 128-bit return-ABI high-half register (lowering hard-codes `VREG_2`=`rdx`; AArch64 `x1`/RISC-V `a1`=`VREG_1`); (2) 128-bit pass-by-value argument ABI; (3) GPR128 spill path drops the high half when a 128-bit value spills (>~4-5 live temps); (4) riscv32 128-bit pair pool + `--zerocc-link`.*
+
+---
+
 ## [Sprint 109] - 2026-11-04 - `__int128` division/modulo via zero_rt (portable, no libgcc)
 
 128-bit `/` and `%` for `__int128` / `__uint128_t`, backed by a **ZeroCC-owned, portable** software routine (no libgcc — musl/`zero_rt` don't ship `__divti3`-style helpers, and `__int128` is a freestanding compiler extension, so the op must be inline or a compiler-runtime helper we own).
