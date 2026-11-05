@@ -870,6 +870,12 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         strcmp(name, c->lowering.inlining.param_names[p]) == 0) {
                         int p_temp = c->lowering.inlining.param_temps[p];
                         c->last_expr_is_float = 0;
+                        /* Sprint 110: a 128-bit param's temp is a GPR128
+                         * pair - without this, consumers (binop lowering,
+                         * shifts, casts) classify it as a plain 64-bit
+                         * value and silently drop the high half (O2
+                         * inlining of `hi128(v)` became `hi128(zext64(v))`). */
+                        c->last_expr_is_128 = c->lowering.inlining.param_is_128[p] ? 1 : 0;
                         return p_temp;
                     }
                 }

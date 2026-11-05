@@ -1506,13 +1506,19 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
              *    a same-named caller label would alias the inlined body's target),
              *  - no &param (value params bind to virtual registers with no address).
              *  Real calls from the inlined body, struct params/returns <=8B, multiple
-             *    returns, and nested inlining (depth < 2) are verified safe. */
+             *  returns, and nested inlining (depth < 2) are verified safe.
+             *  Sprint 110: 128-bit scalar params/returns are safe to inline - the
+             *  inlined param substitution sets last_expr_is_128, the arg loop
+             *  normalizes 128-bit width, and the inlined return widens + MOV128s
+             *  into the target temp. */
             bool uses_va_arg_pack = fn->is_variadic && fn_inline &&
                 (zero_cc_ast_has_call(&arena, body, "__builtin_va_arg_pack") ||
                  zero_cc_ast_has_call(&arena, body, "__builtin_va_arg_pack_len"));
+            bool ret_is_128_scalar = (fn_ret_type.tag == TYPE_INT128 ||
+                                      fn_ret_type.tag == TYPE_UINT128);
             if (c->tu_ast_arena && (fn_inline || fn_static) &&
                 (!fn->is_variadic || uses_va_arg_pack) &&
-                !fn->returns_struct && fn->ret_struct_sz <= 8) {
+                !fn->returns_struct && (fn->ret_struct_sz <= 8 || ret_is_128_scalar)) {
                 ZeroCCASTArena *tu_arena = (ZeroCCASTArena *)c->tu_ast_arena;
                 size_t node_count = zero_cc_ast_node_count(&arena, body);
                 bool inline_ok = (node_count > 0 && node_count <= 35 &&

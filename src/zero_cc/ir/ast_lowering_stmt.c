@@ -801,11 +801,32 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
         if (node && node->left != AST_NULL) {
             int res = lower_expr(c, arena, node->left);
             if (c->lowering.inlining.return_type.tag != TYPE_VOID) {
-                if (!c->last_expr_is_float && c->lowering.inlining.return_type.size > 0) {
-                    zero_cc_emit_int_extend(c, res, &c->lowering.inlining.return_type);
+                /* Sprint 110: 128-bit return. Mirror the non-inlined path
+                 * (below): widen a narrow expression to GPR128 per the
+                 * return type's signedness, and copy the FULL 16-byte value
+                 * into the target temp (OP_MOV_REG moves one 64-bit half).
+                 * Without the widen, `return 5;` in an inlined
+                 * `__int128 f()` leaves a 64-bit temp that the caller
+                 * misclassifies as GPR128 (garbage high half). */
+                bool ret128 = (c->lowering.inlining.return_type.tag == TYPE_INT128 ||
+                               c->lowering.inlining.return_type.tag == TYPE_UINT128);
+                if (!c->last_expr_is_float) {
+                    if (ret128) {
+                        if (!c->last_expr_is_128) {
+                            int d = c->next_temp_id++;
+                            if (zero_cc_type_is_unsigned(&c->lowering.inlining.return_type))
+                                ir_emit_zext64_128(c, d, res);
+                            else
+                                ir_emit_sext64_128(c, d, res);
+                            res = d;
+                        }
+                    } else {
+                        zero_cc_emit_int_extend(c, res, &c->lowering.inlining.return_type);
+                    }
                 }
                 if (c->lowering.inlining.return_target_temp >= 0 && res >= 0 && res != c->lowering.inlining.return_target_temp) {
-                    ir_emit_mov_reg(c, c->lowering.inlining.return_target_temp, res);
+                    if (ret128) ir_emit_mov128(c, c->lowering.inlining.return_target_temp, res);
+                    else ir_emit_mov_reg(c, c->lowering.inlining.return_target_temp, res);
                 }
             }
         }

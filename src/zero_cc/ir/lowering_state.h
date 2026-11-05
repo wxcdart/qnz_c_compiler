@@ -136,6 +136,7 @@ typedef struct {
         const char *param_names[8];    /* Parameter names */
         int param_temps[8];            /* Evaluated argument temps */
         bool param_is_func_ptr[8];     /* Param is a function pointer (indirect calls through it must stay indirect) */
+        bool param_is_128[8];          /* Sprint 110: param is a 128-bit scalar (GPR128 temp) - param substitution must set last_expr_is_128 */
     } inlining;
 } LoweringState;
 

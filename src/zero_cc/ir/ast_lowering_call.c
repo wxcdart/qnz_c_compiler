@@ -320,9 +320,46 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                     ASTRef a_ref = node->right;
                     while (a_ref != AST_NULL && p_idx < (int)callee_fn->param_count && p_idx < 8) {
                         int a_temp = lower_expr(c, arena, a_ref);
-                        /* Extend integer argument if narrow */
+                        /* Sprint 110: normalize 128-bit argument width. The
+                         * inlined body substitutes the param temp directly,
+                         * so the temp must carry the callee parameter's value
+                         * representation: a narrow argument to a 128-bit param
+                         * must be zext/sext to GPR128 (an in-place narrow
+                         * extend would drop nothing here but the inlined body
+                         * would read a garbage high half), and a 128-bit
+                         * argument to a 64-bit param must truncate to the low
+                         * half. `zero_cc_emit_int_extend` below only handles
+                         * 1/2/4-byte params. */
+                        bool a_is128 = c->last_expr_is_128;
+                        c->last_expr_is_128 = 0;
+                        const ZeroCCType *ipt = &callee_fn->param_types[p_idx];
+                        bool p_is128 = (ipt->tag == TYPE_INT128 || ipt->tag == TYPE_UINT128);
                         if (!c->last_expr_is_float) {
-                            zero_cc_emit_int_extend(c, a_temp, &callee_fn->param_types[p_idx]);
+                            if (p_is128 && !a_is128) {
+                                int t128 = c->next_temp_id++;
+                                bool src_signed = false;
+                                ZeroCCASTNode *an0 = zero_cc_ast_get(arena, a_ref);
+                                TypeInfo *ati = an0 ? ast_node_get_typeinfo(c, an0) : NULL;
+                                if (ati) {
+                                    int k = ati->kind;
+                                    src_signed = (k == TYPE_KIND_CHAR || k == TYPE_KIND_SHORT ||
+                                                  k == TYPE_KIND_INT || k == TYPE_KIND_LONG) &&
+                                                 !(ati->modifiers & TYPE_MOD_UNSIGNED);
+                                }
+                                if (src_signed) ir_emit_sext64_128(c, t128, a_temp);
+                                else ir_emit_zext64_128(c, t128, a_temp);
+                                a_temp = t128;
+                                a_is128 = true;
+                            } else if (!p_is128 && a_is128) {
+                                int t64 = c->next_temp_id++;
+                                ir_emit_trunc128_64(c, t64, a_temp);
+                                a_temp = t64;
+                                a_is128 = false;
+                            }
+                            /* Extend integer argument if narrow */
+                            if (!a_is128) {
+                                zero_cc_emit_int_extend(c, a_temp, ipt);
+                            }
                         }
                         inlined_param_temps[p_idx++] = a_temp;
                         ZeroCCASTNode *an = zero_cc_ast_get(arena, a_ref);
@@ -357,10 +394,12 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                         const char *prev_param_names[8];
                         int prev_param_temps[8];
                         bool prev_param_is_func_ptr[8];
+                        bool prev_param_is_128[8];
                         for (int p = 0; p < 8; p++) {
                             prev_param_names[p] = c->lowering.inlining.param_names[p];
                             prev_param_temps[p] = c->lowering.inlining.param_temps[p];
                             prev_param_is_func_ptr[p] = c->lowering.inlining.param_is_func_ptr[p];
+                            prev_param_is_128[p] = c->lowering.inlining.param_is_128[p];
                         }
 
                         /* Setup new inlining context */
@@ -375,6 +414,10 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                             c->lowering.inlining.param_is_func_ptr[p] =
                                 (callee_fn->param_types &&
                                  callee_fn->param_types[p].is_func_ptr);
+                            c->lowering.inlining.param_is_128[p] =
+                                (callee_fn->param_types &&
+                                 (callee_fn->param_types[p].tag == TYPE_INT128 ||
+                                  callee_fn->param_types[p].tag == TYPE_UINT128));
                         }
 
                         /* Lower inlined body statements into IR */
@@ -392,10 +435,17 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                             c->lowering.inlining.param_names[p] = prev_param_names[p];
                             c->lowering.inlining.param_temps[p] = prev_param_temps[p];
                             c->lowering.inlining.param_is_func_ptr[p] = prev_param_is_func_ptr[p];
+                            c->lowering.inlining.param_is_128[p] = prev_param_is_128[p];
                         }
 
                         c->last_expr_is_float = (callee_fn->return_type.tag == TYPE_FLOAT ||
                                                  callee_fn->return_type.tag == TYPE_DOUBLE);
+                        /* Sprint 110: an inlined 128-bit return yields a
+                         * GPR128 temp - tell the caller its value is 128-bit
+                         * so consuming ops (binops, assigns, casts) classify
+                         * it correctly. */
+                        c->last_expr_is_128 = (callee_fn->return_type.tag == TYPE_INT128 ||
+                                               callee_fn->return_type.tag == TYPE_UINT128) ? 1 : 0;
                         return inline_res_temp;
                     }
                 }

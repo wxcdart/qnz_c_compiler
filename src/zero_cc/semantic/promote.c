@@ -162,6 +162,7 @@ bool type_is_compatible(const TypeInfo *t1, const TypeInfo *t2) {
         case TYPE_KIND_SHORT:
         case TYPE_KIND_INT:
         case TYPE_KIND_LONG:
+        case TYPE_KIND_INT128:
         case TYPE_KIND_FLOAT:
         case TYPE_KIND_DOUBLE:
             return true;

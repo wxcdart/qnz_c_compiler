@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-05T17:20:45Z
+timestamp: 2026-11-05T18:42:15Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -954,3 +954,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-05 — Updated `abi-sysv-x86_64.md`
 - Sprint 110: documented __int128 scalar argument rule (two consecutive integer-arg units, low unit at lower address on stack, register/stack straddle).
+
+## 2026-11-05 — Updated `isa-backends.md`
+- Sprint 111: __int128 function-pointer signatures (type_is_compatible INT128 arm) + O2 small-function inliner 128-bit fixes (param_is_128 state, arg width normalization, inlined return MOV128, 128-bit returns inlining-eligible). test/jit/int128_fnptr.c; isa128 gate 120/120.
