@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 165-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-11-04T16:35:33Z
+timestamp: 2026-11-05T16:54:29Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -156,6 +156,10 @@ python3 tools/sret_verifier.py --target-all
 # Differential-test EVERY target ISA's RAW binary emitter under QEMU (make target below).
 make test-isa-qemu
 
+# Cross-ISA __int128 gate: test/jit/int128_*.c x {x86-64, aarch64, riscv64} x
+# -O0..-O3 x {raw AOT, -S + cross-as} under QEMU, diffed vs gcc -static -O2.
+make test-isa128
+
 ### Cross-ISA Raw-Binary-Emitter Differential Test (`make test-isa-qemu`)
 
 `tools/isa_qemu_diff.py` is the differential harness that was missing for the
@@ -178,6 +182,29 @@ baseline is consistent. The harness lists exactly what is missing if absent and
 prints the `setup_musl_cross.sh` command to build each reference.
 
 **Current state** (raw emitters): **All 4 target ISAs (59/59 runs)** pass cleanly with 0 failures, 0 timeouts, and 0 mismatches: **x86-64 15/15**, **aarch64 15/15**, **riscv64 15/15**, and **riscv32 14/14** (15 tests in `test/isa_qemu/`; `15_nested_tramp.c` is `isa-skip: riscv32` because RISC-V32 rejects address-taking of capturing nested functions by design). For aarch64, stack frame setup, relocation pairing (`ADR_PREL_PG_HI21`/`ADD_ABS_LO12_NC`), byte/halfword stores, variable shifts, and FP instruction encodings are green. For riscv32, true ELF32 object generation, frame setup, shift/extension width fixups, and struct return registers are green. Run a single ISA with `python3 tools/isa_qemu_diff.py --isa <arch>`.
+
+### Cross-ISA __int128 Differential Gate (`make test-isa128`)
+
+`tools/isa128_diff.py` is the differential guard for the 128-bit (lo,hi) GPR128
+value model. For every `test/jit/int128_*.c` test (arith, return-ABI, type/
+sizeof) and each ISA (`x86-64` native, `aarch64`, `riscv64`) it compiles at
+`-O0..-O3` in **both** AOT paths — the raw-binary link and `-S` +
+cross-assembler + static link — runs under `qemu-*-static` (x86-64 runs
+native), and diffs `(stdout, exit)` against a host `gcc -static -O2`
+reference (the reference itself is the ground truth: a source whose expected
+constants are wrong fails the gate as REF-FAIL). Every Sprint 109 128-bit
+regression — the RISC-V `t5`/AArch64 `x16` large-offset scratch clobbers,
+the multiword borrow `sltu`/carry ordering, all-spilled and mixed MUL128, the
+AArch64 mul-before-umulh ordering, and the 128-bit call-return high-half
+protection — was cross-ISA only and invisible to `make test-opt` (x86-64
+only). Current state: **72/72 runs pass** (3 tests x 3 ISAs x 4 levels x 2
+paths).
+
+**Dependency (required, preflighted):** `build/bin/zerocc`, host `gcc`
+(reference), `qemu-aarch64-static`/`qemu-riscv64-static`, and the
+cross compilers `aarch64-linux-gnu-gcc`/`riscv64-linux-gnu-gcc` (same
+toolchains as `test-isa-qemu`; no musl wrappers needed). Run a subset with
+`python3 tools/isa128_diff.py --isa aarch64 riscv64 --levels 0 2 --paths asm`.
 
 # Verify struct ABI classification and register usage
 python3 tools/struct_abi_verifier.py --test test/abi/struct_return_20byte.c

@@ -316,6 +316,16 @@ $(BUILD_DIR)/obj/zero_rt_riscv64/d2fixed.o: third_party/vendor/ryu/ryu/d2fixed.c
 test-isa-qemu: all
 	@python3 tools/isa_qemu_diff.py
 
+# Cross-ISA __int128 differential gate (Sprint 109): compiles test/jit/int128_*.c
+# for x86-64/aarch64/riscv64 at -O0..-O3 in BOTH AOT paths (raw binary and
+# -S + cross-assembler), runs under qemu-*-static (x86-64 native), and diffs
+# stdout+exit against a host `gcc -static -O2` reference. Guards the cross-ISA
+# 128-bit (lo,hi) GPR128 emitters (large-offset scratch clobbers, multiword
+# borrow chains, spilled MUL128, call-return high-half protection) that the
+# x86-64-only test-opt cannot see.
+test-isa128: all
+	@python3 tools/isa128_diff.py
+
 asan: CFLAGS += -fsanitize=address,undefined -g
 asan: LDFLAGS += -fsanitize=address,undefined
 asan: all

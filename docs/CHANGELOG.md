@@ -1,3 +1,9 @@
+## [Sprint 109] - 2026-11-05 - Cross-ISA `__int128` differential gate (`make test-isa128`)
+
+New permanent regression gate for the 128-bit (lo,hi) GPR128 value model: `tools/isa128_diff.py` compiles every `test/jit/int128_*.c` test (arith, return-ABI, type/sizeof) for x86-64 (native), aarch64, and riscv64 at `-O0..-O3` in **both** AOT paths (raw-binary link and `-S` + cross-assembler + static link), runs each under `qemu-*-static`, and diffs `(stdout, exit)` against a host `gcc -static -O2` reference. Every Sprint 109 128-bit bug (RISC-V `t5`/AArch64 `x16` large-offset scratch clobbers, multiword borrow ordering, spilled MUL128, mul/umulh ordering, 128-bit call-return high-half protection) was cross-ISA only and invisible to the x86-64-only `make test-opt` sweep — this gate is its permanent differential guard. Current state: 72/72 runs pass (3 tests x 3 ISAs x 4 levels x 2 paths). Wire-up: `make test-isa128` (Makefile), documented in `docs/okf/build-and-verification.md`.
+
+---
+
 ## [Sprint 109] - 2026-11-05 - `__int128` Cross-ISA Stabilization & Register Allocation Fixes
 
 Full cross-ISA stabilization of the `__int128` pipeline across x86-64, AArch64, and RISC-V64 in both JIT and AOT modes:
