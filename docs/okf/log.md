@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-04T23:04:20Z
+timestamp: 2026-11-05T01:54:07Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -921,3 +921,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-04 — Updated `frontend-and-types.md`
 - Sprint 109 Phase 1: __int128/__uint128_t 16-byte type foundation (TYPE_INT128/UINT128, TYPE_KIND_INT128); sizeof/_Alignof now 16; __SIZEOF_INT128__ left undefined
+
+## 2026-11-05 — Updated `c-torture-gate.md`
+- Sprint 109 value model: int128 local arithmetic on all backends; get_integer_rank fix unblocks pr93335 (SKIP-C89->PASS); gate PASS 3,676 / SKIP-C89 46

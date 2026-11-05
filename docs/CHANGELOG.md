@@ -1,3 +1,18 @@
+## [Sprint 109] - 2026-11-05 - `__int128` value model: local arithmetic on all backends (+1 PASS, 3,676)
+
+The **128-bit value model** for locals: a `__int128` / `__uint128_t` value is a **pair of GPRs** (`REG_CLASS_GPR128`, low in `assigned_reg`, high in `assigned_reg_hi`). Local load/store/init/assignment and full binary-op arithmetic now lower on the `(lo,hi)` pair.
+
+- **IR ops** (`ir/ir.h`): `ADD/SUB/MUL/AND/OR/XOR/NOT/NEG/SHL/SHR/SAR/CMP/MOV/LOAD/STORE128`, `ZEXT/SEXT64_128`, `TRUNC128_64`, `MOV128_IMM`, `LO128`/`HI128`/`MK128` + `ir_emit_*` helpers (`ir_emit_ops.h`). Live-range class assignment and the `OP_MUL128` clobber reservation (`live_range.h`) treat them as `GPR128`.
+- **Backends** (`isa/`): x86-64 machine-code emission (carry-chain `adc`/`sbb`, `mul`-based low-128 multiply on `rax`/`rdx` scratch); **AArch64 and RISC-V `(lo,hi)` decompositions** (verified encodings: ADC `0x9A000000`, SBC `0xDA000000`, UMULH `0x9BC07C00`, `ASR#63` `0x937FFC00`; RISC-V carry/borrow via `sltu`, `mulhu`) so `tools/vtable_check.py` stays clean on every ISA. Non-x86 GPR128 values spill (regalloc returns -1); no test uses `__int128` on those ISAs yet.
+- **Lowering** (`ir/ast_lowering_*.c`): local 128-bit load/store/init; assignment `=`, `+=`, `-=`, `*=`, `&=`, `|=`, `^=`, and constant-count `<<=`/`>>=` (shared `zc_emit_128_shift` helper). Binary ops: arithmetic, bitwise, shifts (all count ranges — the `64<N<128` and cross-half terms were fixed against a worked example), and half-compare ordering for relational ops. `c->last_expr_is_128` (analogous to `last_expr_is_float`) tracks whether the last `lower_expr` produced a GPR128 temp so already-128-bit operands are **not** re-widened (re-widening drops the high half). `zc_node_is_int128` detects a 128-bit operand via the semantic `TypeInfo` *or* the lowered local/global type.
+- **`get_integer_rank`** (`semantic/promote.c`): `TYPE_KIND_INT128` now ranks **6** (was the `default` 0), so `type_promote` no longer wrongly promotes `__int128` to `int`. This unblocks **`compile/pr93335.c`** (`__builtin_sub_overflow_p` with `(__int128)0` casts): **SKIP-C89 → PASS**.
+
+**Verification (all green):** `make test` 171/171, `make test-opt` 134 ok (new `test/jit/int128_arith.c` runs `-O0..-O3` JIT+AOT against the gcc reference), `make test-driver` 37/37, `make test-isa-qemu` 59/59, `vtable_check`/`style_check`/`okf` clean, `diag_battery` no regressions. **c-torture: PASS 3,675 → 3,676 (+1, 0 bad), SKIP-C89 47 → 46 (baseline ratcheted).**
+
+*Remaining for the 7 `SKIP-TARGET:int128` tests: file-scope global 128-bit type (currently allocates 8 B — a separate declaration bug), 128-bit division/modulo, the two-register function arg/return ABI, 124-bit bitfields, 32-byte vectors, `__builtin_mul_overflow`, pointer↔128-bit casts, and the `-S`/text-AOT `asm_emitter` 128-bit ops.*
+
+---
+
 ## [Sprint 109] - 2026-11-05 - `__int128` type foundation (Phase 1 of multi-sprint int128)
 
 **Phase 1 of the `__int128` feature: the type system.** GNU's 128-bit integer types (`__int128`, `__int128_t`, `__uint128_t`, `unsigned __int128`) are now a real **16-byte scalar with 16-byte alignment** instead of being silently typed as a 4-byte `int`. This fixes a latent miscompile: `sizeof(__int128)` was **4** (GCC says **16**).
