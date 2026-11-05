@@ -389,6 +389,38 @@ static inline bool regalloc_reg_conflicts_fixed(const RegAllocator *ra, int phys
     return false;
 }
 
+/* Allocate a PAIR of GPRs for a REG_CLASS_GPR128 temp: `lo` is returned and
+ * `hi` is stored on the interval. The two halves are distinct, free registers
+ * drawn from `pool`; any in `cs_mask` are callee-saved (recorded in
+ * used_callee_saved_gpr_mask so the prologue preserves the pair across calls).
+ * Returns the low-half register, or -1 to spill. */
+static int gpr128_alloc_pair(RegAllocator *ra, LiveInterval *interval,
+                             const int *pool, size_t npool, uint32_t cs_mask) {
+    int lo = -1, hi = -1;
+    for (size_t i = 0; i < npool && lo < 0; i++) {
+        int r = pool[i];
+        if (r >= 0 && r < GPR_COUNT && ra->gpr_free[r] &&
+            !regalloc_reg_conflicts_fixed(ra, r, interval)) {
+            lo = r; ra->gpr_free[lo] = false;
+            if ((cs_mask >> lo) & 1u) ra->used_callee_saved_gpr_mask |= (1u << lo);
+        }
+    }
+    for (size_t i = 0; i < npool && hi < 0; i++) {
+        int r = pool[i];
+        if (r >= 0 && r != lo && r < GPR_COUNT && ra->gpr_free[r] &&
+            !regalloc_reg_conflicts_fixed(ra, r, interval)) {
+            hi = r; ra->gpr_free[hi] = false;
+            if ((cs_mask >> hi) & 1u) ra->used_callee_saved_gpr_mask |= (1u << hi);
+        }
+    }
+    if (lo >= 0 && hi >= 0) {
+        interval->assigned_reg_hi = hi;
+        return lo;
+    }
+    if (lo >= 0) ra->gpr_free[lo] = true;  /* release lo if no hi */
+    return -1; /* spill */
+}
+
 /* Allocate a register for the given interval */
 static int alloc_reg(RegAllocator *ra, LiveInterval *interval) __attribute__((unused));
 static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
@@ -492,41 +524,39 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
         }
     } else if (interval->reg_class == REG_CLASS_GPR128) {
         /* 128-bit integer: allocate a PAIR of GPRs (lo returned, hi stored on
-         * the interval). x86-64 for now; other ISAs spill the value (no test
-         * on them uses __int128). */
+         * the interval). The pair is kept in callee-saved registers so it
+         * survives across calls (a 128-bit value outlives the calls between its
+         * producer and its uses). */
         if (ra->target_isa == ISA_X86_64) {
+            /* Exclude rax(0)/rdx(2): OP_MUL128 / 128-bit div use them as scratch. */
             static const int cs_pool[] = {3, 12, 13, 14, 15};
-            /* Exclude rax(0)/rdx(2): OP_MUL128/128-bit div use them as scratch. */
             static const int gp_pool[] = {7, 6, 8, 9, 3, 12, 13, 14, 15};
+            static const uint32_t x86_cs_mask =
+                (1u << 3) | (1u << 12) | (1u << 13) | (1u << 14) | (1u << 15);
             const int *pool = interval->spans_call ? cs_pool : gp_pool;
             size_t npool = interval->spans_call ? 5
                         : sizeof(gp_pool) / sizeof(gp_pool[0]);
-            static const uint32_t x86_cs_mask =
-                (1u << 3) | (1u << 12) | (1u << 13) | (1u << 14) | (1u << 15);
-            int lo = -1, hi = -1;
-            for (size_t i = 0; i < npool && lo < 0; i++) {
-                int r = pool[i];
-                if (ra->gpr_free[r] && !regalloc_reg_conflicts_fixed(ra, r, interval)) {
-                    lo = r; ra->gpr_free[lo] = false;
-                    if ((x86_cs_mask >> lo) & 1u) ra->used_callee_saved_gpr_mask |= (1u << lo);
-                }
-            }
-            for (size_t i = 0; i < npool && hi < 0; i++) {
-                int r = pool[i];
-                if (r != lo && ra->gpr_free[r] &&
-                    !regalloc_reg_conflicts_fixed(ra, r, interval)) {
-                    hi = r; ra->gpr_free[hi] = false;
-                    if ((x86_cs_mask >> hi) & 1u) ra->used_callee_saved_gpr_mask |= (1u << hi);
-                }
-            }
-            if (lo >= 0 && hi >= 0) {
-                interval->assigned_reg_hi = hi;
-                return lo;
-            }
-            if (lo >= 0) ra->gpr_free[lo] = true;  /* release lo if no hi */
-            return -1; /* spill */
+            return gpr128_alloc_pair(ra, interval, pool, npool, x86_cs_mask);
         }
-        return -1; /* other ISAs: spill the 128-bit value */
+        if (ra->target_isa == ISA_AARCH64) {
+            /* (lo,hi) pair from callee-saved x19-x28. */
+            static const int cs_pool[] = {19, 20, 21, 22, 23, 24, 25, 26, 27, 28};
+            static const uint32_t cs_mask =
+                (1u<<19)|(1u<<20)|(1u<<21)|(1u<<22)|(1u<<23)|(1u<<24)|
+                (1u<<25)|(1u<<26)|(1u<<27)|(1u<<28);
+            return gpr128_alloc_pair(ra, interval, cs_pool,
+                                     sizeof(cs_pool)/sizeof(cs_pool[0]), cs_mask);
+        }
+        if (ra->target_isa == ISA_RISCV64) {
+            /* (lo,hi) pair from callee-saved s2-s11 (18-27). */
+            static const int cs_pool[] = {18, 19, 20, 21, 22, 23, 24, 25, 26, 27};
+            static const uint32_t cs_mask =
+                (1u<<18)|(1u<<19)|(1u<<20)|(1u<<21)|(1u<<22)|(1u<<23)|
+                (1u<<24)|(1u<<25)|(1u<<26)|(1u<<27);
+            return gpr128_alloc_pair(ra, interval, cs_pool,
+                                     sizeof(cs_pool)/sizeof(cs_pool[0]), cs_mask);
+        }
+        return -1; /* other ISAs (e.g. riscv32, 32-bit GPRs): spill for now */
     } else if (interval->reg_class == REG_CLASS_XMM) {
         /* All FP registers are caller-saved on every supported ABI: an FP
          * interval that spans a call cannot live in a register - force the
