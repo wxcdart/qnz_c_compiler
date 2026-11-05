@@ -1617,11 +1617,17 @@ static int aarch64_get_fp_reg(int vreg) { return vreg; }
  * verified against `aarch64-linux-gnu-gcc`: ADC=0x9A000000, SBC=0xDA000000,
  * MUL=0x9B007C00, UMULH=0x9BC07C00, ASR#63=0x937FFC00. */
 static void aarch64_emit_add128(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi) {
-    aarch64_emit_add(c, dlo, alo, blo);
+    /* add dlo, alo, blo with S=1 (0xAB): the plain `add` (0x8B) does NOT set the
+     * carry flag, so the following `adc` would read a stale C. The flag-setting
+     * form matches what gcc emits as `cmn` before its `adc`. */
+    arm64_emit_u32(c, 0xAB000000u | ((blo & 0x1F) << 16) | ((alo & 0x1F) << 5) | (dlo & 0x1F));
     arm64_emit_u32(c, 0x9A000000u | ((bhi & 0x1F) << 16) | ((ahi & 0x1F) << 5) | (dhi & 0x1F)); /* adc dhi, ahi, bhi */
 }
 static void aarch64_emit_sub128(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi) {
-    aarch64_emit_sub(c, dlo, alo, blo);
+    /* sub dlo, alo, blo with S=1 (0xEB): the plain `sub` (0xCB) does NOT set the
+     * carry flag, so the following `sbc` would read a stale C. The flag-setting
+     * form (C = NOT-borrow) matches what gcc emits as `cmp` before its `sbc`. */
+    arm64_emit_u32(c, 0xEB000000u | ((blo & 0x1F) << 16) | ((alo & 0x1F) << 5) | (dlo & 0x1F));
     arm64_emit_u32(c, 0xDA000000u | ((bhi & 0x1F) << 16) | ((ahi & 0x1F) << 5) | (dhi & 0x1F)); /* sbc dhi, ahi, bhi */
 }
 static void aarch64_emit_mul128(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi) {
@@ -1648,7 +1654,9 @@ static void aarch64_emit_not128(ZeroCCCompiler *c, int dlo, int dhi, int slo, in
     aarch64_emit_not(c, dlo, slo); aarch64_emit_not(c, dhi, shi);
 }
 static void aarch64_emit_neg128(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi) {
-    aarch64_emit_sub(c, dlo, 31, slo);  /* sub dlo, xzr, slo (CF = borrow) */
+    /* -x = 0 - x. low = 0-slo must SET the C flag (borrow) for the high sbc, so
+     * use the flag-setting SUBS (0xEB S=1), not plain SUB (0xCB S=0). */
+    arm64_emit_u32(c, 0xEB000000u | ((slo & 0x1F) << 5) | (dlo & 0x1F));        /* subs dlo, xzr, slo (set CF) */
     arm64_emit_u32(c, 0xDA000000u | ((shi & 0x1F) << 16) | (31u << 5) | (dhi & 0x1F)); /* sbc dhi, xzr, shi */
 }
 static void aarch64_emit_mov128(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi) {

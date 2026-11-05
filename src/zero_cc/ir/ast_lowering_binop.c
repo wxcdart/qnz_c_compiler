@@ -2225,6 +2225,17 @@ int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                     c->last_expr_is_float = 1;
                     return result_temp;
                 }
+                {
+                    /* 128-bit negation: operand is a GPR128 (lo,hi) pair, so use the
+                     * dedicated two's-complement neg128, not the 64-bit ir_emit_neg
+                     * (which only touches the low half and leaves hi = copy of lo). */
+                    TypeInfo *neg128_ti = ast_node_get_typeinfo(c, node);
+                    if (neg128_ti && neg128_ti->kind == TYPE_KIND_INT128) {
+                        ir_emit_neg128(c, result_temp, operand_temp);
+                        c->last_expr_is_128 = 1;
+                        break;
+                    }
+                }
                 ir_emit_neg(c, result_temp, operand_temp);
                 /* C99 6.5.3.3: the result type is the promoted operand
                  * type, so a 32-bit unsigned negation wraps at 32 bits

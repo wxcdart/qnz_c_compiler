@@ -39,6 +39,23 @@ int main(void) {
     if ((int)(a >= c) != 0) ok = 0;   /* a=1000 < c=1500 */
     if ((int)(c != a) != 1) ok = 0;
 
+    /* high-half carry / borrow / negation (Sprint 109: aarch64 SUBS->SBC,
+     * riscv SLTU carry/borrow, x86-64 neg CF-clobber, unary-minus lowering).
+     * Checked via >>64 + compare to keep the 128-bit value register-resident
+     * (the 128-bit pass-by-value argument ABI is not yet implemented). */
+    __uint128_t add_c = ((__uint128_t)0xFFFFFFFFFFFFFFFFULL) + 1;  /* (0, 1) */
+    if ((int)((add_c >> 64) != 1) != 0) ok = 0;
+    if ((int)(add_c != 0) != 1) ok = 0;
+    __uint128_t sub_b = ((__uint128_t)100 + ((__uint128_t)1 << 64)) - 3;  /* (97, 1) */
+    if ((int)((sub_b >> 64) != 1) != 0) ok = 0;
+    if ((int)(sub_b != 97) != 1) ok = 0;
+    __uint128_t borrow = ((__uint128_t)0) - 1;  /* 2^128-1 = (ff, ff) */
+    if ((int)((borrow >> 64) != 0xFFFFFFFFFFFFFFFFULL) != 0) ok = 0;
+    if ((int)(borrow != 0xFFFFFFFFFFFFFFFFULL) != 1) ok = 0;
+    __int128 nneg = -5;  /* (fb, ff) */
+    if ((int)(((__uint128_t)nneg >> 64) != 0xFFFFFFFFFFFFFFFFULL) != 0) ok = 0;
+    if ((int)(((__uint128_t)nneg) != 0xFFFFFFFFFFFFFFFFULL) != 1) ok = 0;
+
     /* compound assignment */
     a += 10;
     if ((int)(a == 1010) != 1) ok = 0;

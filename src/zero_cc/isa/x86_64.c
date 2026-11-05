@@ -2291,11 +2291,12 @@ static void x86_emit_not128(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s
     x86_emit_not(c, dhi, s_hi);
 }
 static void x86_emit_neg128(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi) {
-    x86_mov_rr(c, dlo, s_lo);
-    x86_rex(c, 1, 0, 0, (dlo >> 3) & 1); me_emit_u8(c, 0xF7); x86_modrm(c, 3, 3, dlo); /* neg dlo; CF=(s_lo!=0) */
-    x86_mov_rr(c, dhi, s_hi);
-    x86_rex(c, 1, 0, 0, (dhi >> 3) & 1); me_emit_u8(c, 0xF7); x86_modrm(c, 3, 3, dhi); /* neg dhi */
-    x86_rex(c, 1, 0, 0, (dhi >> 3) & 1); me_emit_u8(c, 0xF7); x86_modrm(c, 3, 5, dhi); /* sbb dhi, 0 */
+    /* -x = ~x + 1. low = ~s_lo+1 (CF = carry-out = (s_lo==0)); high = ~s_hi + CF.
+     * NOT (F7 /2) preserves CF; ADD r64,imm8 (0x83 /0) sets CF; ADC r/m64,imm8 is 0x83 /2. */
+    x86_emit_not(c, dlo, s_lo);      /* dlo = ~s_lo (CF preserved) */
+    x86_emit_add_imm(c, dlo, 1);     /* dlo = ~s_lo+1 = low; CF = (s_lo==0) */
+    x86_emit_not(c, dhi, s_hi);      /* dhi = ~s_hi (CF preserved) */
+    x86_rex(c, 1, 0, 0, (dhi >> 3) & 1); me_emit_u8(c, 0x83); x86_modrm(c, 3, 2, dhi); me_emit_u8(c, 0x00); /* adc dhi, 0 (0x83 /2): high = ~s_hi + CF */
 }
 static void x86_emit_mov128(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi) {
     x86_mov_rr(c, dlo, s_lo);

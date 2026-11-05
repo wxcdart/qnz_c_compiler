@@ -1594,13 +1594,13 @@ void zero_cc_riscv_emit_tramp_stub(ZeroCCCompiler *c, const ZeroCCFunction *nf) 
  * spill-only path never keeps them live as 128-bit operand halves). */
 static void riscv64_emit_add128(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi) {
     riscv64_emit_add(c, dlo, alo, blo);              /* dlo = alo + blo */
-    riscv_emit_u32(c, rv64_R(RV_REG(5), RV_REG(alo), RV_REG(blo), 2, 0)); /* sltu t0, alo, blo (carry) */
+    riscv_emit_u32(c, rv64_R(RV_REG(5), RV_REG(dlo), RV_REG(alo), 3, 0)); /* sltu t0, dlo, alo (carry: sum < addend; funct3=3 = SLTU, NOT 2=SLT) */
     riscv64_emit_add(c, dhi, ahi, bhi);
     riscv64_emit_add(c, dhi, dhi, 5);                 /* dhi += carry */
 }
 static void riscv64_emit_sub128(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi) {
     riscv64_emit_sub(c, dlo, alo, blo);              /* dlo = alo - blo */
-    riscv_emit_u32(c, rv64_R(RV_REG(5), RV_REG(blo), RV_REG(alo), 2, 0)); /* sltu t0, blo, alo (borrow) */
+    riscv_emit_u32(c, rv64_R(RV_REG(5), RV_REG(alo), RV_REG(blo), 3, 0)); /* sltu t0, alo, blo (borrow: minuend < subtrahend; funct3=3 = SLTU, NOT 2=SLT) */
     riscv64_emit_sub(c, dhi, ahi, bhi);
     riscv64_emit_sub(c, dhi, dhi, 5);                 /* dhi -= borrow */
 }
@@ -1628,7 +1628,7 @@ static void riscv64_emit_not128(ZeroCCCompiler *c, int dlo, int dhi, int slo, in
 }
 static void riscv64_emit_neg128(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi) {
     riscv64_emit_sub(c, dlo, 0, slo);                /* dlo = 0 - slo */
-    riscv_emit_u32(c, rv64_R(RV_REG(5), RV_REG(slo), RV_REG(0), 2, 0)); /* sltu t0, slo, 0 (borrow) */
+    riscv_emit_u32(c, rv64_R(RV_REG(5), RV_REG(0), RV_REG(slo), 3, 0)); /* sltu t0, 0, slo (borrow of 0-slo = slo!=0; funct3=3 = SLTU) */
     riscv64_emit_sub(c, dhi, 0, shi);
     riscv64_emit_sub(c, dhi, dhi, 5);                /* dhi -= borrow */
 }
