@@ -2322,7 +2322,7 @@ static void x86_emit_sext64_128(ZeroCCCompiler *c, int dlo, int dhi, int src) {
     x86_mov_rr(c, dhi, src);
     x86_rex(c, 1, 0, 0, (dhi >> 3) & 1);
     me_emit_u8(c, 0xC1);
-    x86_modrm(c, 3, 5, dhi & 7);  /* SAR r64, imm8 (mod=11 = register) */
+    x86_modrm(c, 3, 7, dhi & 7);  /* SAR r64, imm8 (reg field 7 = arithmetic; 5 is logical SHR) */
     me_emit_u8(c, 63);
 }
 static void x86_emit_trunc128_64(ZeroCCCompiler *c, int dst, int s_lo) {

@@ -429,7 +429,8 @@ static int zc_lower_binop128(ZeroCCCompiler *c, ZeroCCASTArena *arena,
     bool cmp   = (op == TK_EQ || op == TK_NE || op == TK_LT ||
                   op == TK_LE || op == TK_GT || op == TK_GE);
     bool shift = (op == TK_SHL || op == TK_SHR);
-    if (!arith && !cmp && !shift) return TEMP_NONE;
+    bool divmod = (op == TK_SLASH || op == TK_PERCENT);
+    if (!arith && !cmp && !shift && !divmod) return TEMP_NONE;
 
     const TypeInfo *common = (cl_ti && type_size(cl_ti) == 16) ? cl_ti
                         : (cr_ti && type_size(cr_ti) == 16) ? cr_ti : cl_ti;
@@ -461,8 +462,47 @@ static int zc_lower_binop128(ZeroCCCompiler *c, ZeroCCASTArena *arena,
     int l_is128 = c->last_expr_is_128;
     int r = lower_expr(c, arena, node->right);
     int r_is128 = c->last_expr_is_128;
-    if (!l_is128) { int d = c->next_temp_id++; if (unsigned_) ir_emit_zext64_128(c, d, l); else ir_emit_sext64_128(c, d, l); l = d; }
-    if (!r_is128) { int d = c->next_temp_id++; if (unsigned_) ir_emit_zext64_128(c, d, r); else ir_emit_sext64_128(c, d, r); r = d; }
+    if (!l_is128) { int d = c->next_temp_id++; if (cl_ti ? type_is_unsigned(cl_ti) : unsigned_) ir_emit_zext64_128(c, d, l); else ir_emit_sext64_128(c, d, l); l = d; }
+    if (!r_is128) { int d = c->next_temp_id++; if (cr_ti ? type_is_unsigned(cr_ti) : unsigned_) ir_emit_zext64_128(c, d, r); else ir_emit_sext64_128(c, d, r); r = d; }
+
+    if (divmod) {
+        /* 128-bit / and %: call the ZeroCC-owned software routine (zero_rt,
+         * not libgcc). The operands are passed as four 64-bit integer args
+         * (a_lo, a_hi, b_lo, b_hi) in the normal integer-arg registers; the
+         * 128-bit quotient/remainder comes back in the (rax,rdx)=(VREG_0,VREG_2)
+         * return pair and is recombined into a GPR128 temp. */
+        int alo = c->next_temp_id++; ir_emit_lo128(c, alo, l);
+        int ahi = c->next_temp_id++; ir_emit_hi128(c, ahi, l);
+        int blo = c->next_temp_id++; ir_emit_lo128(c, blo, r);
+        int bhi = c->next_temp_id++; ir_emit_hi128(c, bhi, r);
+        bool is_div = (op == TK_SLASH);
+        const char *fn = is_div ? (unsigned_ ? "zc_udiv128" : "zc_sdiv128")
+                                : (unsigned_ ? "zc_umod128" : "zc_smod128");
+        /* Register the zero_rt helper so the AOT object emits it as a symbol
+         * (a call target absent from the TU symbol table resolves to symbol
+         * index 0 -> `call 0 <link_error>`; the JIT resolves it via dlsym). */
+        if (c->function_count < ZERO_CC_MAX_FUNCTIONS &&
+            !zero_cc_find_function(c, fn)) {
+            ZeroCCFunction *zfn = &c->functions[c->function_count++];
+            memset(zfn, 0, sizeof(*zfn));
+            snprintf(zfn->name, sizeof(zfn->name), "%s", fn);
+            zfn->text_offset = 0;
+            zfn->returns_struct = false;
+            zfn->ret_struct_sz = 0;
+            zfn->is_prototype = true;
+            zfn->has_prototype = false;
+            zfn->is_external = true;
+            zfn->is_variadic = false;
+        }
+        ir_emit_call(c, fn);
+        int at[4] = {alo, ahi, blo, bhi};
+        ir_call_args_record(c, ir_get_count(c) - 1, 4, at, NULL, NULL);
+        int rlo = c->next_temp_id++; ir_emit_mov_reg(c, rlo, VREG_0);
+        int rhi = c->next_temp_id++; ir_emit_mov_reg(c, rhi, VREG_2);
+        int res = c->next_temp_id++; ir_emit_mk128(c, res, rlo, rhi);
+        c->last_expr_is_128 = 1;
+        return res;
+    }
 
     if (arith) {
         int res = c->next_temp_id++;

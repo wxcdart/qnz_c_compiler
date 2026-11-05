@@ -149,11 +149,21 @@ $(OBJ_DIR)/%.o: %.c
 .SECONDARY: $(EXTRA_OBJS) $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ)
 
 
+# 128-bit div/mod runtime for the JIT (host x86-64): compiled by the host CC,
+# linked into zerocc and exported so the JIT resolves it via dlsym(RTLD_DEFAULT).
+# (The AOT zero_rt.a below compiles the same source with zerocc per-target.)
+JIT_INT128_OBJ := $(BUILD_DIR)/obj/zero_rt/jit_int128.o
+$(JIT_INT128_OBJ): zero_rt/core/int128.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -c $< -o $@
+
 # ZeroCC CLI driver
 ZEROCCLIB_OBJS = $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS)
-build/bin/zerocc: src/main.c $(ZEROCCLIB_OBJS)
+build/bin/zerocc: src/main.c $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ)
 	@mkdir -p build/bin
-	$(CC) $(CFLAGS) -o $@ src/main.c $(ZEROCCLIB_OBJS) $(LDFLAGS)
+	$(CC) $(CFLAGS) -o $@ src/main.c $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ) \
+	  -Wl,--export-dynamic-symbol=zc_udiv128 -Wl,--export-dynamic-symbol=zc_umod128 \
+	  -Wl,--export-dynamic-symbol=zc_sdiv128 -Wl,--export-dynamic-symbol=zc_smod128 $(LDFLAGS)
 
 .PHONY: zerocc
 zerocc: build/bin/zerocc
@@ -197,7 +207,8 @@ ZERO_RT_CFLAGS = -O0 -Izero_rt -Ithird_party/vendor/ryu
 ZERO_RT_OBJS = $(BUILD_DIR)/obj/zero_rt/os.o \
                $(BUILD_DIR)/obj/zero_rt/heap.o $(BUILD_DIR)/obj/zero_rt/string.o \
                $(BUILD_DIR)/obj/zero_rt/exit.o $(BUILD_DIR)/obj/zero_rt/stdio.o \
-               $(BUILD_DIR)/obj/zero_rt/d2s.o $(BUILD_DIR)/obj/zero_rt/d2fixed.o
+               $(BUILD_DIR)/obj/zero_rt/d2s.o $(BUILD_DIR)/obj/zero_rt/d2fixed.o \
+               $(BUILD_DIR)/obj/zero_rt/int128.o
 $(BUILD_DIR)/lib/zero_rt.a: $(ZERO_RT_OBJS)
 	@mkdir -p $(dir $@)
 	ar rcs $@ $^
@@ -216,6 +227,9 @@ $(BUILD_DIR)/obj/zero_rt/exit.o: zero_rt/core/exit.c zero_rt/rt_os.h $(BUILD_DIR
 $(BUILD_DIR)/obj/zero_rt/stdio.o: zero_rt/core/stdio.c zero_rt/rt_os.h $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc -c $< $(ZERO_RT_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt/int128.o: zero_rt/core/int128.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc -c $< $(ZERO_RT_CFLAGS) -o $@
 $(BUILD_DIR)/obj/zero_rt/d2s.o: third_party/vendor/ryu/ryu/d2s.c $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc -c $< -Ithird_party/vendor/ryu -o $@
@@ -227,7 +241,8 @@ $(BUILD_DIR)/obj/zero_rt/d2fixed.o: third_party/vendor/ryu/ryu/d2fixed.c $(BUILD
 ZERO_RT_AARCH64_OBJS = $(BUILD_DIR)/obj/zero_rt_aarch64/os.o \
                        $(BUILD_DIR)/obj/zero_rt_aarch64/heap.o $(BUILD_DIR)/obj/zero_rt_aarch64/string.o \
                        $(BUILD_DIR)/obj/zero_rt_aarch64/exit.o $(BUILD_DIR)/obj/zero_rt_aarch64/stdio.o \
-                       $(BUILD_DIR)/obj/zero_rt_aarch64/d2s.o $(BUILD_DIR)/obj/zero_rt_aarch64/d2fixed.o
+                       $(BUILD_DIR)/obj/zero_rt_aarch64/d2s.o $(BUILD_DIR)/obj/zero_rt_aarch64/d2fixed.o \
+                       $(BUILD_DIR)/obj/zero_rt_aarch64/int128.o
 $(BUILD_DIR)/lib/zero_rt_aarch64.a: $(ZERO_RT_AARCH64_OBJS)
 	@mkdir -p $(dir $@)
 	ar rcs $@ $^
@@ -246,6 +261,9 @@ $(BUILD_DIR)/obj/zero_rt_aarch64/exit.o: zero_rt/core/exit.c zero_rt/rt_os.h $(B
 $(BUILD_DIR)/obj/zero_rt_aarch64/stdio.o: zero_rt/core/stdio.c zero_rt/rt_os.h $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --target aarch64 -c $< $(ZERO_RT_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_aarch64/int128.o: zero_rt/core/int128.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target aarch64 -c $< $(ZERO_RT_CFLAGS) -o $@
 $(BUILD_DIR)/obj/zero_rt_aarch64/d2s.o: third_party/vendor/ryu/ryu/d2s.c $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --target aarch64 -c $< -Ithird_party/vendor/ryu -o $@
@@ -257,7 +275,8 @@ $(BUILD_DIR)/obj/zero_rt_aarch64/d2fixed.o: third_party/vendor/ryu/ryu/d2fixed.c
 ZERO_RT_RISCV64_OBJS = $(BUILD_DIR)/obj/zero_rt_riscv64/os.o \
                        $(BUILD_DIR)/obj/zero_rt_riscv64/heap.o $(BUILD_DIR)/obj/zero_rt_riscv64/string.o \
                        $(BUILD_DIR)/obj/zero_rt_riscv64/exit.o $(BUILD_DIR)/obj/zero_rt_riscv64/stdio.o \
-                       $(BUILD_DIR)/obj/zero_rt_riscv64/d2s.o $(BUILD_DIR)/obj/zero_rt_riscv64/d2fixed.o
+                       $(BUILD_DIR)/obj/zero_rt_riscv64/d2s.o $(BUILD_DIR)/obj/zero_rt_riscv64/d2fixed.o \
+                       $(BUILD_DIR)/obj/zero_rt_riscv64/int128.o
 $(BUILD_DIR)/lib/zero_rt_riscv64.a: $(ZERO_RT_RISCV64_OBJS)
 	@mkdir -p $(dir $@)
 	ar rcs $@ $^
@@ -274,6 +293,9 @@ $(BUILD_DIR)/obj/zero_rt_riscv64/exit.o: zero_rt/core/exit.c zero_rt/rt_os.h $(B
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --target riscv64 -c $< $(ZERO_RT_CFLAGS) -o $@
 $(BUILD_DIR)/obj/zero_rt_riscv64/stdio.o: zero_rt/core/stdio.c zero_rt/rt_os.h $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target riscv64 -c $< $(ZERO_RT_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_riscv64/int128.o: zero_rt/core/int128.c $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --target riscv64 -c $< $(ZERO_RT_CFLAGS) -o $@
 $(BUILD_DIR)/obj/zero_rt_riscv64/d2s.o: third_party/vendor/ryu/ryu/d2s.c $(BUILD_DIR)/bin/zerocc
