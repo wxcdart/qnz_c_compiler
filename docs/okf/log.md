@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-05T23:00:24Z
+timestamp: 2026-11-05T23:14:02Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -978,3 +978,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-05 — Updated `architecture-pipeline.md`
 - Sprint 114b: decl_local.h and compile.h converted to translation units (Tier B)
+
+## 2026-11-05 — Updated `architecture-pipeline.md`
+- Sprint 114c: const_eval.h, init_common.h, ast_expr.h converted to translation units (Tier C) - Sprint 114 complete

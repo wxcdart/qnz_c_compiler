@@ -16,10 +16,6 @@
 #include "zero_cc/parser/definitions.h"
 #include "zero_cc/parser/init_common.h"
 
-static ASTRef parse_expr_ast_internal(ZeroCCCompiler *c, ZeroCCASTArena *arena);
-static ASTRef parse_assignment_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena);
-static ASTRef parse_brace_init_list_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCType lit_type, size_t base_off, size_t *leaf_cursor, size_t *out_elem_count);
-
 #include "zero_cc/parser/zero_cc_declarator_stack.h"
 
 #include "zero_cc/parser/decl_local.h"

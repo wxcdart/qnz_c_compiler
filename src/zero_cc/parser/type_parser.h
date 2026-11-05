@@ -12,11 +12,11 @@
 #include "zero_cc/types/global_vars.h"
 
 /* Forward declarations for constant-evaluation helpers */
-static inline int64_t eval_sizeof(ZeroCCCompiler *c, size_t *pos);
-static inline int64_t eval_alignof(ZeroCCCompiler *c, size_t *pos);
-static inline int zero_cc_parse_aligned_attr(ZeroCCCompiler *c, size_t *pos, size_t *out_align);
-static inline int zero_cc_parse_vector_attr(ZeroCCCompiler *c, size_t *pos, size_t *out_size);
-static inline int zero_cc_parse_mode_attr(ZeroCCCompiler *c, size_t *pos, size_t *out_bytes);
+int64_t eval_sizeof(ZeroCCCompiler *c, size_t *pos);
+int64_t eval_alignof(ZeroCCCompiler *c, size_t *pos);
+int zero_cc_parse_aligned_attr(ZeroCCCompiler *c, size_t *pos, size_t *out_align);
+int zero_cc_parse_vector_attr(ZeroCCCompiler *c, size_t *pos, size_t *out_size);
+int zero_cc_parse_mode_attr(ZeroCCCompiler *c, size_t *pos, size_t *out_bytes);
 
 /* Apply a GNU `mode(X)` integer-width attribute (marker byte count) to a
  * base integer type, preserving signedness (c-torture execute/memclr:
@@ -36,7 +36,7 @@ static inline ZeroCCType zero_cc_type_apply_mode(ZeroCCType ty, size_t mode_byte
         default: return ty; /* TI and unknown: leave as-is */
     }
 }
-static inline bool zero_cc_tok_is_type_start(ZeroCCCompiler *c, size_t pos);
+bool zero_cc_tok_is_type_start(ZeroCCCompiler *c, size_t pos);
 
 static inline ZeroCCType zero_cc_type_of_equality(ZeroCCCompiler *c, size_t *pos);
 static inline ZeroCCType zero_cc_type_of_relational(ZeroCCCompiler *c, size_t *pos);

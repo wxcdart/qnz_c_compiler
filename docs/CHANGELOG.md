@@ -24,6 +24,19 @@ Continues the Sprint 114 refactor into the header monoliths that were being comp
   - `main.c` used `zero_cc_parse_struct_body` transitively via the old chain; it now includes `parser/decl_struct.h` directly.
 - **Verification**: `make test` (176/176), `make test-opt` (138 ok), `make test-isa128` (144/144), `make test-isa-qemu` (59/59, all 4 ISAs), c-torture gate (PASS 3,679, 0 bad), `diag_battery` (baseline OK), `style_check` (0 errors), `okf lint`; K&R / nested-function / local-static / aggregate-init probes match GCC in JIT + AOT.
 
+## [Sprint 114c] - 2026-11-05 - Monolith split (Tier C): `const_eval.h`, `init_common.h`, `ast_expr.h` converted to translation units
+
+The last three multi-TU parser header monoliths - whose static-inline bodies were being compiled into **every** parser consumer TU (parser.c, main.c, compile_unit.c, decl_struct.c, decl_local.c) - are now real translation units with thin prototype headers.
+
+- **`const_eval.h` (1,539) → `const_eval.c` (1,554) + 85-line header** (45 fns): compile-time constant evaluation. The header keeps the `ZCConstVal` value model (int/float/complex/`__int128`) + entry-point prototypes. The header now includes `type_parser.h` up top - the original provided it transitively (it included type_parser.h at the *end* of the file, line 1537), and consumers like `ast_expr.h` rely on that for `zero_cc_parse_type_name`.
+- **`init_common.h` (1,602) → `init_common.c` (1,594) + 42-line header** (17 fns): the aggregate/designated-initializer engine (Sprint 44). The `ZcInitTarget` designator-target struct moved to the header (used by two prototypes); everything else is TU-local.
+- **`ast_expr.h` (1,422) → `ast_expr.c` (1,423) + 49-line header** (22 fns): the expression-precedence-climb parser. The five cross-header `static` forward-declarations (`ast_stmt.h` ×3, `zero_cc_declarator_stack.h` ×2) were removed - the prototypes come from the thin header.
+- **Naming collision found & fixed**: the const-eval 128-bit division helper `zc_udiv128` collided at link time with the zero_rt runtime function of the same name (they coexist in the zerocc binary for the JIT `--export-dynamic-symbol` path). The const-eval copy is now `zc_cv_udiv128` (the `zc_cv_*` family).
+- **Conversion tooling lessons** (kept in the tier plan): header bodies contain comments with unbalanced braces (e.g. `/* Found (Type) { */`), so function detection must strip comments/strings before brace-matching; and functions like `zero_cc_type_of_equality` are *defined* in `type_parser.h` (static inline) while merely forward-declared in `const_eval.h` - only true definitions move, and type_parser.h's own statics must stay static (an extern prototype + static definition is a hard error).
+- **Verification**: `make test` (176/176), `make test-opt` (138 ok), `make test-isa128` (144/144), `make test-isa-qemu` (59/59, all 4 ISAs), c-torture gate (PASS 3,679, 0 bad), `diag_battery` (baseline OK), `style_check` (0 errors, 172 files), `okf lint`; const-eval / K&R / nested-function / int128 probes match GCC in JIT + AOT.
+
+**Sprint 114 complete (Tiers A + B + C).**
+
 ---
 
 ## [Sprint 113] - 2026-11-05 - Wide `__int128` bitfields + 128-bit vector lanes (`v2ti`); `SKIP-TARGET:int128` eliminated (+8 PASS, 3,679)

@@ -77,8 +77,6 @@ typedef struct ZeroCCDeclarator {
 } ZeroCCDeclarator;
 
 /* Forward declarations */
-static ASTRef parse_expr_ast_internal(ZeroCCCompiler *c, ZeroCCASTArena *arena);
-static bool is_type_specifier(ZeroCCCompiler *c, ZeroCCTokType t);
 static inline ZeroCCType zero_cc_resolve_base_type(ZeroCCCompiler *c, ZeroCCTokType t, const char *s);
 
 /* Initialize declarator struct */

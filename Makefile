@@ -45,6 +45,9 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	src/zero_cc/semantic/semantic.o \
 	src/zero_cc/parser/decl_struct.o \
 	src/zero_cc/parser/decl_local.o \
+	src/zero_cc/parser/const_eval.o \
+	src/zero_cc/parser/init_common.o \
+	src/zero_cc/parser/ast_expr.o \
 	src/zero_cc/common/arena.o \
 	src/zero_cc/ir/ir.o \
 	src/zero_cc/ir/ast_lowering.o \
