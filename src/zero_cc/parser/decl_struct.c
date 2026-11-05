@@ -768,10 +768,13 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
             mt == TK_TYPEOF || mt == TK_TYPEOF_UNQUAL) {
             bool is_unsigned = (mt == TK_UNSIGNED || mt == TK_BOOL_KW);
             bool member_is_long_double = false;
+            bool member_is_float128 = false;
             bool member_is_func_ptr = false;
             char type_ident[128] = "";
             if (mt == TK_IDENT) {
                 snprintf(type_ident, sizeof(type_ident), "%s", c->tokens[c->token_pos].str_val);
+                /* GNU __float128 member (Sprint 112). */
+                if (strcmp(type_ident, "__float128") == 0) member_is_float128 = true;
             }
             if (mt == TK_ATOMIC) {
                 member_is_atomic = true;
@@ -926,6 +929,7 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
             else if (member_is_long_double) { base_align = 16; base_size = 16; }
             else if (mt == TK_LONG || mt == TK_DOUBLE_KW || mt == TK_VOID) { base_align = 8; base_size = 8; }
             else if (mt == TK_IDENT) {
+                if (member_is_float128) { base_align = 16; base_size = 16; }
                 ZeroCCType *td = zero_cc_find_typedef(c, type_ident);
                 if (!td) td = zero_cc_find_struct(c, type_ident);
                 if (td) {
@@ -1076,6 +1080,7 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                     else if (mt == TK_INT) m->tag = is_unsigned ? TYPE_UINT32 : TYPE_INT32;
                     else if (mt == TK_DOUBLE_KW) m->tag = TYPE_DOUBLE;
                     else if (mt == TK_LONG || mt == TK_VOID) m->tag = (mt == TK_VOID) ? TYPE_INT64 : (member_is_long_double ? TYPE_DOUBLE : (is_unsigned ? TYPE_UINT64 : TYPE_INT64));
+                    else if (mt == TK_IDENT && member_is_float128) { m->tag = TYPE_DOUBLE; m->is_float128 = true; }
                     else if (mt == TK_IDENT) {
                         ZeroCCType *td = zero_cc_find_typedef(c, type_ident);
                         if (!td) td = zero_cc_find_struct(c, type_ident);
@@ -1258,6 +1263,7 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                         else if (mt == TK_INT) m->tag = is_unsigned ? TYPE_UINT32 : TYPE_INT32;
                         else if (mt == TK_DOUBLE_KW) m->tag = TYPE_DOUBLE;
                         else if (mt == TK_LONG || mt == TK_VOID) m->tag = (mt == TK_VOID) ? TYPE_INT64 : (member_is_long_double ? TYPE_DOUBLE : (is_unsigned ? TYPE_UINT64 : TYPE_INT64));
+                        else if (mt == TK_IDENT && member_is_float128) { m->tag = TYPE_DOUBLE; m->is_float128 = true; }
                         else if (mt == TK_IDENT) {
                             ZeroCCType *td = zero_cc_find_typedef(c, type_ident);
                             if (!td) td = zero_cc_find_struct(c, type_ident);
@@ -1467,6 +1473,7 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                         else if (mt == TK_INT) m->tag = is_unsigned ? TYPE_UINT32 : TYPE_INT32;
                         else if (mt == TK_DOUBLE_KW) m->tag = TYPE_DOUBLE;
                         else if (mt == TK_LONG || mt == TK_VOID) m->tag = (mt == TK_VOID) ? TYPE_INT64 : (member_is_long_double ? TYPE_DOUBLE : (is_unsigned ? TYPE_UINT64 : TYPE_INT64));
+                        else if (mt == TK_IDENT && member_is_float128) { m->tag = TYPE_DOUBLE; m->is_float128 = true; }
                         else if (mt == TK_IDENT) {
                             ZeroCCType *td = zero_cc_find_typedef(c, type_ident);
                             if (!td) td = zero_cc_find_struct(c, type_ident);
@@ -1638,6 +1645,7 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                         else if (mt == TK_INT) m->tag = is_unsigned ? TYPE_UINT32 : TYPE_INT32;
                         else if (mt == TK_DOUBLE_KW) m->tag = TYPE_DOUBLE;
                         else if (mt == TK_LONG || mt == TK_VOID) m->tag = (mt == TK_VOID) ? TYPE_INT64 : (member_is_long_double ? TYPE_DOUBLE : (is_unsigned ? TYPE_UINT64 : TYPE_INT64));
+                        else if (mt == TK_IDENT && member_is_float128) { m->tag = TYPE_DOUBLE; m->is_float128 = true; }
                         else if (mt == TK_IDENT) {
                             ZeroCCType *td = zero_cc_find_typedef(c, type_ident);
                             if (!td) td = zero_cc_find_struct(c, type_ident);

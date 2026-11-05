@@ -88,7 +88,7 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
         case TYPE_INT128: ti = type_int128(perm); break;
         case TYPE_UINT128: ti = type_uint128(perm); break;
         case TYPE_FLOAT: ti = type_float(perm); break;
-        case TYPE_DOUBLE: ti = type_double(perm); if (t.is_long_double) ti->is_long_double = true; break;
+        case TYPE_DOUBLE: ti = type_double(perm); if (t.is_long_double) ti->is_long_double = true; if (t.is_float128) ti->is_float128 = true; break;
         case TYPE_NULLPTR: ti = type_pointer_to(perm, type_void(perm)); break;
         case TYPE_PTR: {
             // FIX: Guard against NULL base pointer (incomplete types like FILE*)
@@ -322,7 +322,7 @@ static inline ZeroCCType typeinfo_to_zero_cc_type(const TypeInfo *ti) {
         case TYPE_KIND_LONG:    t = is_u ? zero_cc_type_uint64() : zero_cc_type_int64(); break;
         case TYPE_KIND_INT128: t = is_u ? zero_cc_type_uint128() : zero_cc_type_int128(); break;
         case TYPE_KIND_FLOAT:   t = zero_cc_type_float(); break;
-        case TYPE_KIND_DOUBLE:  t = ti->is_long_double ? zero_cc_type_long_double() : zero_cc_type_double(); break;
+        case TYPE_KIND_DOUBLE:  t = ti->is_float128 ? zero_cc_type_float128() : (ti->is_long_double ? zero_cc_type_long_double() : zero_cc_type_double()); break;
         case TYPE_KIND_ENUM:    t = zero_cc_type_enum(ti->details.record.tag); break;
         case TYPE_KIND_FUNCTION: {
             ZeroCCType ret_t = typeinfo_to_zero_cc_type(ti->details.function.ret);
@@ -452,6 +452,9 @@ static inline ZeroCCType zero_cc_resolve_base_type(ZeroCCCompiler *c, ZeroCCTokT
         if (strcmp(type_name, "__int128") == 0 || strcmp(type_name, "__int128_t") == 0)
             return zero_cc_type_int128();
         if (strcmp(type_name, "__uint128_t") == 0) return zero_cc_type_uint128();
+        /* GNU __float128 (Sprint 112): 16-byte quad-precision FP base
+         * (lowered through the 64-bit double value model). */
+        if (strcmp(type_name, "__float128") == 0) return zero_cc_type_float128();
         ZeroCCType *tdef = zero_cc_find_typedef(c, type_name);
         if (!tdef) tdef = zero_cc_find_struct(c, type_name);
         if (!tdef) tdef = zero_cc_find_enum(c, type_name);
@@ -465,6 +468,7 @@ static inline bool zero_cc_type_matches_typeinfo(const ZeroCCType *zt, const Typ
     if (!zt || !ti) return false;
     if (zt->is_complex != (ti->kind == TYPE_KIND_COMPLEX)) return false;
     if (zt->is_long_double != ti->is_long_double) return false;
+    if (zt->is_float128 != ti->is_float128) return false;
     if (zero_cc_type_is_unsigned(zt) != type_is_unsigned(ti)) return false;
 
     if (zero_cc_type_is_integer(zt)) return type_is_integer(ti) && zt->size == type_size(ti);

@@ -283,6 +283,11 @@ static inline ZeroCCType zero_cc_type_of_primary(ZeroCCCompiler *c, size_t *pos)
             const char *name = c->tokens[*pos].str_val;
             if (zero_cc_find_typedef(c, name)) {
                 is_type = true;
+            } else if (strcmp(name, "__int128") == 0 || strcmp(name, "__int128_t") == 0 ||
+                       strcmp(name, "__uint128_t") == 0 || strcmp(name, "__float128") == 0) {
+                /* GNU 128-bit base / __float128 cast: `(__int128)x`,
+                 * `(__uint128_t)x`, `(__float128)x`. */
+                is_type = true;
             }
         }
         if (is_type) {
@@ -519,7 +524,7 @@ static inline ZeroCCType zc_parse_basic_type_spec(ZeroCCCompiler *c, size_t *pos
     int has_char = 0, has_short = 0, has_long = 0;
     int has_float = 0, has_double = 0;
     int n_unsigned = 0, n_signed = 0;
-    int has_int128 = 0, int128_kind = 0;
+    int has_int128 = 0, int128_kind = 0, has_float128 = 0;
     for (;;) {
         ZeroCCTokType u = (*pos < c->token_count) ? c->tokens[*pos].type : TK_EOF;
         if (u == TK_INT) { /* int - carries no extra information */ }
@@ -534,6 +539,8 @@ static inline ZeroCCType zc_parse_basic_type_spec(ZeroCCCompiler *c, size_t *pos
             /* GNU 128-bit base type (`__int128` / `__uint128_t` / `__int128_t`). */
             int k = zc_name_int128_kind(c->tokens[*pos].str_val);
             if (k) { has_int128 = 1; int128_kind = k; }
+            /* GNU __float128 (Sprint 112). */
+            else if (strcmp(c->tokens[*pos].str_val, "__float128") == 0) has_float128 = 1;
             else break;
         }
         /* Type qualifiers interleave with specifiers in any order
@@ -550,6 +557,7 @@ static inline ZeroCCType zc_parse_basic_type_spec(ZeroCCCompiler *c, size_t *pos
         bool u = (int128_kind == 2) || is_unsigned;
         return u ? zero_cc_type_uint128() : zero_cc_type_int128();
     }
+    if (has_float128) return zero_cc_type_float128();
     if (has_double || has_float) {
         if (has_double) return has_long ? zero_cc_type_long_double() : zero_cc_type_double();
         return has_long ? zero_cc_type_long_double() : zero_cc_type_float();
@@ -693,6 +701,7 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
             int i128k = zc_name_int128_kind(name);
             ty = (i128k == 2) ? zero_cc_type_uint128()
                : (i128k == 1) ? zero_cc_type_int128()
+               : (strcmp(name, "__float128") == 0) ? zero_cc_type_float128()
                : zero_cc_type_int();
             (*pos)++;
         }
@@ -1041,6 +1050,10 @@ static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c) {
             // always unsigned; `__int128`/`__int128_t` are signed here.
             bool u128 = (strcmp(name, "__uint128_t") == 0);
             ty = u128 ? zero_cc_type_uint128() : zero_cc_type_int128();
+            c->token_pos++;
+        } else if (strcmp(name, "__float128") == 0) {
+            // GNU __float128 cast target (Sprint 112).
+            ty = zero_cc_type_float128();
             c->token_pos++;
         } else if (strcmp(name, "y") == 0) {
             // lookup local variable y

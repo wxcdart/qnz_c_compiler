@@ -106,6 +106,7 @@ struct TypeInfo {
         } record;
     } details;
     bool is_long_double; /* C99 6.2.5: long double (16-byte storage, 8-byte value) */
+    bool is_float128;   /* GNU __float128 (16-byte storage, 8-byte double value) */
 };
 
 /** Allocate a new TypeInfo from the permanent arena */

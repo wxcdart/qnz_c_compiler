@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 165-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-11-05T16:54:29Z
+timestamp: 2026-11-05T19:19:02Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -186,7 +186,8 @@ prints the `setup_musl_cross.sh` command to build each reference.
 ### Cross-ISA __int128 Differential Gate (`make test-isa128`)
 
 `tools/isa128_diff.py` is the differential guard for the 128-bit (lo,hi) GPR128
-value model. For every `test/jit/int128_*.c` test (arith, return-ABI, arg-ABI, fnptr-signatures, type/
+value model and the `__float128` object model. For every `test/jit/int128_*.c` test (arith,
+return-ABI, arg-ABI, fnptr-signatures, float128, type/
 sizeof) and each ISA (`x86-64` native, `aarch64`, `riscv64`) it compiles at
 `-O0..-O3` in **both** AOT paths — the raw-binary link and `-S` +
 cross-assembler + static link — runs under `qemu-*-static` (x86-64 runs
@@ -198,9 +199,11 @@ the multiword borrow `sltu`/carry ordering, all-spilled and mixed MUL128, the
 AArch64 mul-before-umulh ordering, and the 128-bit call-return high-half
 protection — was cross-ISA only and invisible to `make test-opt` (x86-64
 only). Sprint 110's `__int128` **argument** ABI (two-unit register pairs,
-caller-stack overflow, register/stack straddle) and Sprint 111's 128-bit
-**function-pointer signatures** + O2 inliner high-half fixes are guarded here
-too. Current state: **120/120 runs pass** (5 tests x 3 ISAs x 4 levels x 2
+caller-stack overflow, register/stack straddle), Sprint 111's 128-bit
+**function-pointer signatures** + O2 inliner high-half fixes, and Sprint 112's
+`__float128` type/ABI (plus the >64-call FP-arg MC-path bug the float128 test's
+143-call `main` exercises) are guarded here too. Current state:
+**144/144 runs pass** (6 tests x 3 ISAs x 4 levels x 2
 paths).
 
 **Dependency (required, preflighted):** `build/bin/zerocc`, host `gcc`

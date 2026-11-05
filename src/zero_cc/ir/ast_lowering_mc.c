@@ -1317,7 +1317,8 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                  * -S path (x86_emit_call_asm & co) emits FP args first for
                  * the same reason. */
                 int cidx = call_idx;
-                if (call_idx < c->lowering.ir_ctx.call_count) {
+                bool have_fp_table = (call_idx < c->lowering.ir_ctx.call_count);
+                if (have_fp_table) {
                     int fp_count = c->lowering.ir_ctx.call_fp_spill_counts[call_idx];
                     int fp_reg_cap = BE(c)->conv ? BE(c)->conv->fp_arg_reg_count : 8;
                     for (int f = 0; f < fp_count && f < fp_reg_cap; f++) {
@@ -1329,8 +1330,38 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                             BE(c)->emit_load_fp(c, fp_arg_reg, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -spill_off));
                         }
                     }
-                    call_idx++;
+                } else if (full_args) {
+                    /* Capped-table fallback: the call_fp_spills side table
+                     * covers only the first 64 calls of a function (see
+                     * lowering_state.h); for calls past the cap, load the
+                     * FP register args from their reload temps - the same
+                     * mechanism the -S emitter uses (x86_emit_call_asm).
+                     * Without this, functions with >64 calls pass garbage
+                     * FP args on the MC path while -S/JIT-via-asm work. */
+                    int fp_reg_cap = BE(c)->conv ? BE(c)->conv->fp_arg_reg_count : 8;
+                    int fp_seen = 0;
+                    for (int ai = 0; ai < full_args->count && fp_seen < fp_reg_cap; ai++) {
+                        if (full_args->is_fp[ai] != 1) continue;
+                        if (full_args->stack_pos[ai] < 255) continue; /* FP stack arg, pushed below */
+                        int temp = full_args->temps[ai];
+                        int fp_arg_reg = backend_get_fp_arg_reg(BE(c), fp_seen);
+                        if (fp_arg_reg < 0) break;
+                        int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, temp);
+                        if (sp >= 0) {
+                            int32_t off = spill_base_offset + (sp + 1) * 8;
+                            if (BE(c)->emit_load_fp) {
+                                BE(c)->emit_load_fp(c, fp_arg_reg, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off));
+                            }
+                        } else {
+                            int phys = regalloc_get_reg_for_temp(&c->regalloc, temp);
+                            if (phys >= 0 && phys != fp_arg_reg && BE(c)->emit_fp_mov) {
+                                BE(c)->emit_fp_mov(c, fp_arg_reg, phys);
+                            }
+                        }
+                        fp_seen++;
+                    }
                 }
+                call_idx++;
 
                 /* Stack args: everything the lowering marked stack_pos < 255
                  * (integer args beyond the GP registers, FP args beyond the
@@ -1379,12 +1410,45 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                     }
                     for (int pos = n_stack - 1; pos >= 0; pos--) {
                         int r;
+                        bool fp_stack_done = false;
                         if (full_args && stack_meta_fp[pos] >= 0) {
-                            /* FP stack arg: bits live in the lowering's spill slot */
-                            int f = stack_meta_fp[pos];
-                            int32_t fslot = c->lowering.ir_ctx.call_fp_spills[cidx][f];
-                            if (BE(c)->emit_load) BE(c)->emit_load(c, BE(c)->scratch_reg1, zero_cc_frame_base_reg(c), zero_cc_frame_disp_at(c, -fslot, extra_sp));
-                            r = BE(c)->scratch_reg1;
+                            /* FP stack arg: bits live in the lowering's spill
+                             * slot (or, past the 64-call table cap, in the
+                             * arg's reload temp). */
+                            if (have_fp_table) {
+                                int f = stack_meta_fp[pos];
+                                int32_t fslot = c->lowering.ir_ctx.call_fp_spills[cidx][f];
+                                if (BE(c)->emit_load) BE(c)->emit_load(c, BE(c)->scratch_reg1, zero_cc_frame_base_reg(c), zero_cc_frame_disp_at(c, -fslot, extra_sp));
+                                r = BE(c)->scratch_reg1;
+                            } else {
+                                int t = -1;
+                                for (int ai = 0; ai < full_args->count; ai++) {
+                                    if (full_args->is_fp[ai] == 1 && full_args->stack_pos[ai] == pos) {
+                                        t = full_args->temps[ai];
+                                        break;
+                                    }
+                                }
+                                r = BE(c)->scratch_reg1;
+                                if (t >= 0) {
+                                    int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, t);
+                                    if (sp >= 0) {
+                                        int32_t off = spill_base_offset + (sp + 1) * 8;
+                                        if (BE(c)->emit_load) BE(c)->emit_load(c, BE(c)->scratch_reg1, zero_cc_frame_base_reg(c), zero_cc_frame_disp_at(c, -off, extra_sp));
+                                    } else {
+                                        /* Bits live in the reload temp's FP
+                                         * register: store them just below RSP
+                                         * and claim that slot (same shape as
+                                         * the -S emitter's FP stack args). */
+                                        int phys = regalloc_get_reg_for_temp(&c->regalloc, t);
+                                        if (phys >= 0 && BE(c)->emit_store_fp) {
+                                            BE(c)->emit_store_fp(c, phys, BE(c)->sp_reg, -8);
+                                            BE(c)->emit_stack_adjust(c, -8);
+                                            extra_sp += 8;
+                                            fp_stack_done = true;
+                                        }
+                                    }
+                                }
+                            }
                         } else if (full_args) {
                             int t = stack_meta_temp[pos];
                             r = regalloc_get_reg_for_temp(&c->regalloc, t);
@@ -1405,6 +1469,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                                 r = BE(c)->scratch_reg1;
                             }
                         }
+                        if (fp_stack_done) continue; /* slot already claimed via [rsp-8] store */
                         BE(c)->emit_push_reg(c, r);
                         extra_sp += 8;
                     }

@@ -1880,11 +1880,12 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                     } else {
                         ir_emit_fstore(c, (uint16_t)op_res, TEMP_NONE, -sym->stack_offset);
                     }
-                    if (sym->type.is_long_double) {
+                    if (sym->type.is_long_double || sym->type.is_float128) {
                         /* Zero the top 8 bytes of the 16-byte slot: the
                          * value is an 8-byte double and the top half is
                          * otherwise stale stack (c-torture ieee/copysign*
-                         * memcmp the full sizeof(long double)). */
+                         * memcmp the full sizeof(long double); the same
+                         * byte-level view applies to __float128). */
                         int z8 = c->next_temp_id++;
                         ir_emit_mov_imm(c, z8, 0);
                         ir_emit_store(c, z8, BE(c)->fp_reg, -sym->stack_offset + 8);
@@ -1906,7 +1907,7 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                     } else {
                         ir_emit_fstore(c, (uint16_t)float_temp, TEMP_NONE, -sym->stack_offset);
                     }
-                    if (sym->type.is_long_double) {
+                    if (sym->type.is_long_double || sym->type.is_float128) {
                         int z8 = c->next_temp_id++;
                         ir_emit_mov_imm(c, z8, 0);
                         ir_emit_store(c, z8, BE(c)->fp_reg, -sym->stack_offset + 8);

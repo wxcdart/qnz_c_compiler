@@ -1398,6 +1398,10 @@ static bool is_type_specifier_at(ZeroCCCompiler *c, size_t pos, ZeroCCTokType t)
             strcmp(tname, "__uint128_t") == 0) {
             return true;
         }
+        /* GNU __float128 (Sprint 112): quad-precision FP base name. */
+        if (strcmp(tname, "__float128") == 0) {
+            return true;
+        }
     }
     return false;
 }

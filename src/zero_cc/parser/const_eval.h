@@ -577,7 +577,8 @@ static inline bool zero_cc_tok_is_type_start(ZeroCCCompiler *c, size_t pos) {
                zero_cc_tok_is_complex_spec(name) ||
                strcmp(name, "__int128") == 0 ||
                strcmp(name, "__int128_t") == 0 ||
-               strcmp(name, "__uint128_t") == 0;
+               strcmp(name, "__uint128_t") == 0 ||
+               strcmp(name, "__float128") == 0;
     }
     return false;
 }

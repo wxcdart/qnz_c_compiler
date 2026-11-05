@@ -96,6 +96,22 @@ static inline ZeroCCType zero_cc_type_long_double(void) {
     t.size = 16; t.align = 16; t.is_long_double = true;
     return t;
 }
+/* GNU __float128 (binary128): 16-byte object, 16-byte alignment.
+ * The compiler's value model lowers it through the 64-bit double path
+ * (value in the low 8 bytes; true quad precision is not implemented -
+ * same object/value model as long double). */
+static inline ZeroCCType zero_cc_type_float128(void) {
+    ZeroCCType t = zero_cc_type_double();
+    t.size = 16; t.align = 16; t.is_float128 = true;
+    return t;
+}
+/* 16-byte wide-floating-point object lowered through the 64-bit double
+ * value model (value in the low 8 bytes): long double and __float128.
+ * Load/store/arith/ABI code that special-cases long double must treat
+ * __float128 the same way. */
+static inline bool zero_cc_type_is_wide_fp(const ZeroCCType *t) {
+    return t && (t->is_long_double || t->is_float128);
+}
 static inline ZeroCCType zero_cc_type_nullptr(void) {
     ZeroCCType t; memset(&t, 0, sizeof(t));
     t.tag = TYPE_NULLPTR; t.size = 8; t.align = 8;
@@ -187,12 +203,13 @@ static inline ZeroCCType zero_cc_type_complex(const ZeroCCType *elem) {
          * each; long double is modeled through the 8-byte double value
          * model, so a long-double element collapses to double here
          * (_Complex long double behaves as _Complex double: 16 bytes). */
-        if (elem->is_long_double) {
+        if (elem->is_long_double || elem->is_float128) {
             ZeroCCType d = zero_cc_type_double();
             t.base = zero_cc_type_alloc_base(&d);
             t.size = 16;
             t.align = 16;
             t.is_long_double = false;
+            t.is_float128 = false;
         } else {
             t.base = zero_cc_type_alloc_base(elem);
             t.size = elem->size * 2;
@@ -392,6 +409,7 @@ static inline bool zero_cc_type_equal(const ZeroCCType *a, const ZeroCCType *b) 
     if (a->tag != b->tag) return false;
     if (a->is_complex != b->is_complex) return false;
     if (a->is_long_double != b->is_long_double) return false;
+    if (a->is_float128 != b->is_float128) return false;
     if (a->is_func != b->is_func) return false;
     if (a->is_func_ptr != b->is_func_ptr) return false;
 

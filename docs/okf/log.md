@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-05T18:42:15Z
+timestamp: 2026-11-05T19:19:02Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -957,3 +957,12 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-05 — Updated `isa-backends.md`
 - Sprint 111: __int128 function-pointer signatures (type_is_compatible INT128 arm) + O2 small-function inliner 128-bit fixes (param_is_128 state, arg width normalization, inlined return MOV128, 128-bit returns inlining-eligible). test/jit/int128_fnptr.c; isa128 gate 120/120.
+
+## 2026-11-05 — Updated `isa-backends.md`
+- Sprint 112: __float128 object/value model (16B, double value model) + MC-path OP_CALL FP-arg fix for >64-call functions (capped call_fp_spills table)
+
+## 2026-11-05 — Updated `build-and-verification.md`
+- Sprint 112: int128 gate now covers __float128 test (144/144, 6 tests)
+
+## 2026-11-05 — Updated `frontend-and-types.md`
+- Sprint 112: is_float128 flag in ZeroCCType/TypeInfo bridges

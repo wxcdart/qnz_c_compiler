@@ -2085,9 +2085,9 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                             } else if (it == TK_FLOAT ||
                                        (elem_size == 4 && gtype.tag == TYPE_FLOAT) ||
                                        (elem_size == 8 && gtype.tag == TYPE_DOUBLE) ||
-                                       (gtype.is_long_double && (it == TK_NUM || it == TK_FLOAT)) ||
+                                       ((gtype.is_long_double || gtype.is_float128) && (it == TK_NUM || it == TK_FLOAT)) ||
                                        ((it == TK_PLUS || it == TK_MINUS) &&
-                                        (gtype.tag == TYPE_FLOAT || gtype.tag == TYPE_DOUBLE || gtype.is_long_double))) {
+                                        (gtype.tag == TYPE_FLOAT || gtype.tag == TYPE_DOUBLE || gtype.is_long_double || gtype.is_float128))) {
                                 /* Float/double scalar initializer: emit IEEE-754 bits.
                                  * For a 4-byte float, convert to float first so the
                                  * stored bits are the float pattern (not the low

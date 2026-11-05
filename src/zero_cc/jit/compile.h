@@ -87,6 +87,11 @@ static bool zero_cc_parse_fn_param_block(ZeroCCCompiler *c, SemContext *ctx,
                 kr_shape = false;
                 break;
             }
+            /* GNU __float128 (Sprint 112): same K&R hazard. */
+            if (strcmp(c->tokens[q].str_val, "__float128") == 0) {
+                kr_shape = false;
+                break;
+            }
             bare_count++;
         }
         else { kr_shape = false; break; }
@@ -356,6 +361,9 @@ if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
             /* GNU 128-bit base type in parameter position (`__int128 a` /
              * `__uint128_t a`): tokenized as identifiers, not typedefs. */
             pt = (zc_name_int128_kind(ptname) == 2) ? zero_cc_type_uint128() : zero_cc_type_int128();
+        } else if (ptt == TK_IDENT && !pfound && strcmp(ptname, "__float128") == 0) {
+            /* GNU __float128 base type in parameter position (Sprint 112). */
+            pt = zero_cc_type_float128();
         } else if (pfound) {
             pt = *pfound;
             /* An explicit `struct`/`union` keyword means ptname IS the tag
@@ -877,6 +885,10 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
              * __int128/__int128_t are signed here (a leading unsigned/signed
              * keyword would have routed to the basic-specifier window). */
             fn_ret_type = (strcmp(rtname, "__uint128_t") == 0) ? zero_cc_type_uint128() : zero_cc_type_int128();
+            c->token_pos++;
+        } else if (rtname && strcmp(rtname, "__float128") == 0) {
+            /* GNU __float128 return type (Sprint 112). */
+            fn_ret_type = zero_cc_type_float128();
             c->token_pos++;
         } else {
         ZeroCCType *tdef = zero_cc_find_typedef(c, c->tokens[c->token_pos].str_val);

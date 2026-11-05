@@ -52,6 +52,7 @@ typedef struct ZeroCCStructMember {
     bool is_atomic;
     bool is_complex;   /* C99 6.2.5: _Complex T member (base = element type) */
     bool is_long_double; /* C99 6.2.5: long double member (16B, value in low 8B) */
+    bool is_float128;   /* GNU __float128 member (16B, value in low 8B as double) */
     bool is_func_ptr;  /* Member is `T (*name)(args)` - base holds the RETURN
                         * type; the TypeInfo field must be pointer→function. */
     /* GNU variably-modified struct member (`char b[argc];` inside a
@@ -103,6 +104,10 @@ typedef struct ZeroCCType {
     /* C99 long double: 16-byte object (x86-64 SysV) but lowered with the
      * 64-bit double value model. */
     bool is_long_double;
+    /* GNU __float128: 16-byte object (16-byte aligned), lowered with the
+     * 64-bit double value model (value in low 8 bytes; quad precision is
+     * NOT implemented - same model as long double). */
+    bool is_float128;
     /* C99 6.2.5: _Complex T - a two-part object of element type
      * `*base` (re-tagged), size 2 * element.  Lowering intercepts
      * arithmetic/comparisons and the __real__/__imag__ operators. */
