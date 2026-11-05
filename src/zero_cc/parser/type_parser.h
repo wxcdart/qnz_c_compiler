@@ -1033,6 +1033,15 @@ static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c) {
                 ty = zero_cc_type_int64(); // assume long is 64-bit
                 c->token_pos++;
             }
+        } else if (strcmp(name, "__int128") == 0 || strcmp(name, "__int128_t") == 0 ||
+                   strcmp(name, "__uint128_t") == 0) {
+            // GNU 128-bit base type reached as a bare identifier (no leading
+            // unsigned/signed keyword, which would have routed the specifier
+            // window to zc_parse_basic_type_spec instead). `__uint128_t` is
+            // always unsigned; `__int128`/`__int128_t` are signed here.
+            bool u128 = (strcmp(name, "__uint128_t") == 0);
+            ty = u128 ? zero_cc_type_uint128() : zero_cc_type_int128();
+            c->token_pos++;
         } else if (strcmp(name, "y") == 0) {
             // lookup local variable y
             ZeroCCSym *sym = zero_cc_find_local(c, "y");
