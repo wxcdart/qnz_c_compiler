@@ -4,7 +4,7 @@ title: ZeroCC Compilation Pipeline & Two-Pass Architecture
 description: End-to-end compilation pipeline from C source through AST arena, semantic analysis, two-pass IR, optimization passes, and JIT/AOT code generation.
 resource: architecture/pipeline
 tags: [architecture, pipeline, ast, ir, jit, aot]
-timestamp: 2026-11-05T22:47:16Z
+timestamp: 2026-11-05T23:00:24Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -19,8 +19,8 @@ ZeroCC compiles C99/C11 source files through a unified pipeline that supports bo
 1. **Lexer & Preprocessor (`src/zero_cc/lexer/`, `src/zero_cc/core/`)**
    - Tokenizes preprocessed/raw C source, handling `#include`, `#define` macros, `#if` arithmetic evaluation (`cpp_expr.h`), virtual embedded headers (`virtual_headers.h`), and `#pragma pack` / diagnostic pragmas (`src/zero_cc/core/pragma_state.c`).
 2. **Parser & AST Arena (`src/zero_cc/parser/`)**
-   - Parses declarations (`definitions.h`, `decl_struct.h`, `decl_enum.h`, `decl_local.h`), type expressions (`type_parser.h`), statements (`ast_stmt.h`), constant expressions (`const_eval.h`), and expressions (`ast_expr.h`) into a contiguous `ZeroCCASTArena` indexed by `ASTRef` (`uint32_t`).
-   - Collects function prototypes and local/global symbol tables into `ZeroCCCompiler` (`src/zero_cc/jit/compile.h`, `src/zero_cc/jit/compile_unit.h`, `src/zero_cc/jit/const_ptr_eval.h`). Global variables (`c->global_vars`) and their name-to-index open-addressing hash table (`c->g_name_hash`) are compiler-instance owned (Sprint 77).
+   - Parses declarations (`definitions.h`, `decl_struct.h`, `decl_enum.h`, `decl_local.c` - Sprint 114: local-declaration parsing moved out of the 2,200-line `decl_local.h` header into its own translation unit; the header now only declares `zero_cc_parse_local_decl`), type expressions (`type_parser.h`), statements (`ast_stmt.h`), constant expressions (`const_eval.h`), and expressions (`ast_expr.h`) into a contiguous `ZeroCCASTArena` indexed by `ASTRef` (`uint32_t`).
+   - Collects function prototypes and local/global symbol tables into `ZeroCCCompiler` (`src/zero_cc/jit/compile.c` - Sprint 114: `zero_cc_compile_function` + the fn-parameter-block parser moved out of the 1,800-line `compile.h` header into their own translation unit; the header keeps the two cross-TU entry-point declarations - `src/zero_cc/jit/compile_unit.h`, `src/zero_cc/jit/const_ptr_eval.h`). Global variables (`c->global_vars`) and their name-to-index open-addressing hash table (`c->g_name_hash`) are compiler-instance owned (Sprint 77).
 3. **Semantic Analysis (`src/zero_cc/semantic/`)**
    - Validates types, scopes, and promotions (`visitor.c`, `expr.c`, `stmt.c`, `promote.c`) and annotates AST nodes with `TypeInfo *`.
    - The **live pass** is `sem_analyze_ref` over each function body (invoked from `zero_cc_compile_function` in `src/zero_cc/jit/compile.h` after the previously-compiled functions are registered in the global scope); new diagnostics set `ZeroCCCompiler.had_error` and stop compilation. The standalone `semantic_analyze()` facade (with its `DiagBuf`) is exercised separately by `test/semantic/semantic_facade_test.c`.
@@ -52,11 +52,11 @@ ZeroCC compiles C99/C11 source files through a unified pipeline that supports bo
 
 | Subsystem | Primary Files |
 | :--- | :--- |
-| CLI & Driver | `src/main.c`, `src/zero_cc/driver/driver_opts.h`, `src/zero_cc/driver/driver_asm.h`, `src/zero_cc/jit/compile.h`, `src/zero_cc/jit/execution.h` |
+| CLI & Driver | `src/main.c`, `src/zero_cc/driver/driver_opts.h`, `src/zero_cc/driver/driver_asm.h`, `src/zero_cc/jit/execution.h` |
 | Preprocessor | `src/zero_cc/core/preprocessor.h`, `src/zero_cc/core/preprocessor.c`, `src/zero_cc/core/virtual_headers.h`, `src/zero_cc/core/cpp_expr.h` |
 | Type System & Symbols | `src/zero_cc/types/type_system.h`, `src/zero_cc/types/symbol_mgmt.h`, `src/zero_cc/jit/type_info.h` |
-| Parser (Decl/Stmt/Expr) | `src/zero_cc/parser/definitions.h`, `src/zero_cc/parser/decl_struct.h`, `src/zero_cc/parser/decl_struct.c`, `src/zero_cc/parser/decl_enum.h`, `src/zero_cc/parser/const_eval.h`, `src/zero_cc/parser/type_parser.h`, `src/zero_cc/parser/ast_stmt.h`, `src/zero_cc/parser/decl_local.h`, `src/zero_cc/parser/ast_expr.h` |
-| Compilation Unit & Const Ptr | `src/zero_cc/jit/compile_unit.h`, `src/zero_cc/jit/compile_unit.c`, `src/zero_cc/jit/const_ptr_eval.h` |
+| Parser (Decl/Stmt/Expr) | `src/zero_cc/parser/definitions.h`, `src/zero_cc/parser/decl_struct.h`, `src/zero_cc/parser/decl_struct.c`, `src/zero_cc/parser/decl_enum.h`, `src/zero_cc/parser/const_eval.h`, `src/zero_cc/parser/type_parser.h`, `src/zero_cc/parser/ast_stmt.h`, `src/zero_cc/parser/decl_local.c`, `src/zero_cc/parser/ast_expr.h` |
+| Compilation Unit & Const Ptr | `src/zero_cc/jit/compile_unit.h`, `src/zero_cc/jit/compile_unit.c`, `src/zero_cc/jit/compile.c`, `src/zero_cc/jit/const_ptr_eval.h` |
 | Semantic Checker | `src/zero_cc/semantic/visitor.c`, `src/zero_cc/semantic/expr.c`, `src/zero_cc/semantic/promote.c` |
 | IR, Lowering & RegAlloc | `src/zero_cc/ir/ir.h`, `src/zero_cc/ir/ast_lowering.c`, `src/zero_cc/ir/ast_lowering_stmt.c`, `src/zero_cc/ir/ast_lowering_expr.c`, `src/zero_cc/ir/ast_lowering_call.c`, `src/zero_cc/ir/ast_lowering_builtins.c`, `src/zero_cc/ir/ast_lowering_builtin_helpers.c`, `src/zero_cc/ir/ast_lowering_varargs.c`, `src/zero_cc/ir/ast_lowering_assign.c`, `src/zero_cc/ir/ast_lowering_bitfield.c`, `src/zero_cc/ir/ast_lowering_binop.c`, `src/zero_cc/ir/ast_lowering_unop.c`, `src/zero_cc/ir/ast_lowering_cast.c`, `src/zero_cc/ir/regalloc.h` |
 | Optimizations | `src/zero_cc/opt/opt_pass.c`, `src/zero_cc/opt/opt_mem2reg.c`, `src/zero_cc/opt/opt_loop.c`, `src/zero_cc/opt/opt_vectorize.c` |

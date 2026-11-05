@@ -22,6 +22,7 @@
 #include "zero_cc/ir/ir_arena.h"
 #include "zero_cc/jit/elf_writer.h"
 #include "zero_cc/isa/isa_backend.h"
+#include "zero_cc/parser/decl_struct.h"  /* zero_cc_parse_struct_body (Sprint 114: was transitive via compile.h) */
 
 #include "zero_cc/types/global_vars.h"
 #include "zero_cc/core/multi_tu.h"

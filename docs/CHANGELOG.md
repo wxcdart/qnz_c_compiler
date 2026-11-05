@@ -13,6 +13,17 @@ Behavior-identical refactor: breaks up the largest translation units in the ISA 
 - **Verification**: `make test` (176/176), `make test-opt` (138 ok), `make test-isa128` (144/144), `make test-isa-qemu` (59/59, all 4 ISAs), c-torture gate (PASS 3,679, 0 bad), `diag_battery`, `style_check` (0 errors), `okf lint`.
 - **Note**: the ISA MC emitters' large apparent line counts are inflated by the `#include "..._asm.c"` single-TU pattern (e.g. `x86_64.c` is ~1,140 lines of its own code + the 1,592-line `x86_64_asm.c`); domain-splitting those was assessed and deferred since their own code is already under the 1,200-line target.
 
+## [Sprint 114b] - 2026-11-05 - Monolith split (Tier B): `decl_local.h` and `compile.h` converted to translation units
+
+Continues the Sprint 114 refactor into the header monoliths that were being compiled (with all their static function bodies) into other TUs' include chains. Behavior-identical; all gates green at their pre-refactor counts.
+
+- **`parser/decl_local.h` (2,268) → `decl_local.c` (2,268) + 19-line header**: the header was included (with its ~8 large static function bodies: local declarations, aggregate initializers, VLA handling, K&R nested reparse) only by `ast_stmt.h` in the parser.c TU. The single cross-file entry point `zero_cc_parse_local_decl` (called from `ast_stmt.h`) is now extern with its declaration in the thin header; everything else is TU-local to `decl_local.c`. No other linkage changes: the 28 shared static-inline helpers (type parsing, const eval, brace-init common code, declarator stack) are pulled in via includes, exactly as the single-TU pattern always provided them.
+- **`jit/compile.h` (1,805) → `compile.c` (1,810) + 34-line header**: the header's static bodies (`zero_cc_compile_function` - per-function compile entry incl. the nested-function loop, and `zero_cc_parse_fn_param_block` - K&R/attribute/VLA param parsing) were being compiled into **both** the main.c TU (via the `zero_cc.h` → `jit_linker.h` umbrella, where they were never called) and the compile_unit.c TU (where they are called). Both entry points are now extern in `compile.c`; `jit_linker.h` no longer includes `compile.h`, so main.c's TU sheds ~1,800 lines of dead static code. `compile.h` keeps the two entry-point declarations for `compile_unit.c`.
+- **Latent include-ordering bugs surfaced & fixed** (the old header-inclusion order accidentally masked them):
+  - `definitions.h` calls `parse_expr_ast_internal` / `zero_cc_eval_const_expr_float` / `zc_measure_fam_init_bytes` / `zero_cc_emit_brace_init_global` without declarations (C99 implicit-declaration UB); safe only when `ast_expr.h`/`init_common.h` precede it. `decl_local.c` now includes `ast_expr.h` before `definitions.h` (mirroring the historical parser.c TU order), and the thin `compile.h` includes `zero_cc_declarator_stack.h` for the same reason.
+  - `main.c` used `zero_cc_parse_struct_body` transitively via the old chain; it now includes `parser/decl_struct.h` directly.
+- **Verification**: `make test` (176/176), `make test-opt` (138 ok), `make test-isa128` (144/144), `make test-isa-qemu` (59/59, all 4 ISAs), c-torture gate (PASS 3,679, 0 bad), `diag_battery` (baseline OK), `style_check` (0 errors), `okf lint`; K&R / nested-function / local-static / aggregate-init probes match GCC in JIT + AOT.
+
 ---
 
 ## [Sprint 113] - 2026-11-05 - Wide `__int128` bitfields + 128-bit vector lanes (`v2ti`); `SKIP-TARGET:int128` eliminated (+8 PASS, 3,679)
