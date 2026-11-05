@@ -246,6 +246,35 @@ typedef enum {
     OP_NONLOCAL_GOTO,  /* restore (FP, SP) = (temp_src1, temp_src2), jump to the
                         * label (imm64 = target function index, label_idx = the
                         * label's IR index in that function's namespace) */
+
+    /* GNU __int128 (Sprint 109): 128-bit integer ops. A 128-bit value lives in
+     * a REG_CLASS_GPR128 temp (low half = regalloc_get_reg_for_temp, high half
+     * = regalloc_get_reg_hi_for_temp). For each op the (lo,hi) pair is read
+     * from the named temps; 64-bit address/result temps use the single-reg
+     * accessors. Division/modulo are lowered to a __udivti3/__divti3 libgcc
+     * call (no dedicated op). */
+    OP_ADD128,         /* dest = src1 + src2 (128-bit, unsigned carry) */
+    OP_SUB128,         /* dest = src1 - src2 (128-bit, unsigned borrow) */
+    OP_MUL128,         /* dest = src1 * src2 (128x128 -> low 128 bits) */
+    OP_AND128,         /* dest = src1 & src2 */
+    OP_OR128,          /* dest = src1 | src2 */
+    OP_XOR128,         /* dest = src1 ^ src2 */
+    OP_NOT128,         /* dest = ~src1 */
+    OP_NEG128,         /* dest = -src1 (two's complement) */
+    OP_SHL128,         /* dest = src1 << src2 (src2 = shift count, 0..127) */
+    OP_SHR128,         /* dest = src1 >> src2 (logical, unsigned) */
+    OP_SAR128,         /* dest = src1 >> src2 (arithmetic, signed) */
+    OP_CMP128,         /* compare src1, src2 (128-bit); sets flags for OP_COND_SET */
+    OP_MOV128,         /* dest (128) = src1 (128) */
+    OP_LOAD128,        /* dest (128) = *(128-bit *)src1 (address) */
+    OP_STORE128,       /* *(128-bit *)src2 (address) = src1 (128) */
+    OP_ZEXT64_128,     /* dest (128) = (u128)src1 (64-bit, zero-extended; hi=0) */
+    OP_SEXT64_128,     /* dest (128) = (s128)src1 (64-bit, sign-extended) */
+    OP_TRUNC128_64,    /* dest (64) = low 64 bits of src1 (128) */
+    OP_MOV128_IMM,     /* dest (128) = {0, imm64} (hi=0, lo=imm64) */
+    OP_LO128,          /* dest (64) = low 64 bits of src1 (128) */
+    OP_HI128,          /* dest (64) = high 64 bits of src1 (128) */
+    OP_MK128,          /* dest (128) = {hi64 = src2, lo64 = src1} */
 } Opcode;
 
 /* Condition codes for OP_COND_SET */
@@ -402,6 +431,28 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_SETJMP: return "SETJMP";
         case OP_LONGJMP: return "LONGJMP";
         case OP_NONLOCAL_GOTO: return "NONLOCAL_GOTO";
+        case OP_ADD128: return "ADD128";
+        case OP_SUB128: return "SUB128";
+        case OP_MUL128: return "MUL128";
+        case OP_AND128: return "AND128";
+        case OP_OR128: return "OR128";
+        case OP_XOR128: return "XOR128";
+        case OP_NOT128: return "NOT128";
+        case OP_NEG128: return "NEG128";
+        case OP_SHL128: return "SHL128";
+        case OP_SHR128: return "SHR128";
+        case OP_SAR128: return "SAR128";
+        case OP_CMP128: return "CMP128";
+        case OP_MOV128: return "MOV128";
+        case OP_LOAD128: return "LOAD128";
+        case OP_STORE128: return "STORE128";
+        case OP_ZEXT64_128: return "ZEXT64_128";
+        case OP_SEXT64_128: return "SEXT64_128";
+        case OP_TRUNC128_64: return "TRUNC128_64";
+        case OP_MOV128_IMM: return "MOV128_IMM";
+        case OP_LO128: return "LO128";
+        case OP_HI128: return "HI128";
+        case OP_MK128: return "MK128";
         default: return "UNKNOWN";
     }
 }

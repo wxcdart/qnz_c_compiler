@@ -188,6 +188,29 @@ typedef struct ZeroCCISABackend {
     void (*emit_idiv)(ZeroCCCompiler *c, int src);
     void (*emit_lea)(ZeroCCCompiler *c, int dst, int base, int32_t offset);
 
+    /* GNU __int128 (Sprint 109): 128-bit integer ops on a (lo,hi) GPR pair.
+     * NULL on backends that do not implement __int128 (the lowering rejects
+     * 128-bit codegen on those targets). x86-64 only for now. */
+    void (*emit_add128)(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi);
+    void (*emit_sub128)(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi);
+    void (*emit_mul128)(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi);
+    void (*emit_and128)(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi);
+    void (*emit_or128)(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi);
+    void (*emit_xor128)(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi);
+    void (*emit_not128)(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi);
+    void (*emit_neg128)(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi);
+    void (*emit_shl128)(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi, int shift);
+    void (*emit_shr128)(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi, int shift);
+    void (*emit_sar128)(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi, int shift);
+    void (*emit_cmp128)(ZeroCCCompiler *c, int a_lo, int a_hi, int b_lo, int b_hi);
+    void (*emit_mov128)(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi);
+    void (*emit_load128)(ZeroCCCompiler *c, int dlo, int dhi, int base, int32_t offset);
+    void (*emit_store128)(ZeroCCCompiler *c, int s_lo, int s_hi, int base, int32_t offset);
+    void (*emit_zext64_128)(ZeroCCCompiler *c, int dlo, int dhi, int src);
+    void (*emit_sext64_128)(ZeroCCCompiler *c, int dlo, int dhi, int src);
+    void (*emit_trunc128_64)(ZeroCCCompiler *c, int dst, int s_lo);
+    void (*emit_mov128_imm)(ZeroCCCompiler *c, int dlo, int dhi, int64_t imm);
+
     /* Vector operations for binary JIT emission */
     void (*emit_vload)(ZeroCCCompiler *c, int dst, int base, int32_t offset);
     void (*emit_vstore)(ZeroCCCompiler *c, int src, int base, int32_t offset);

@@ -2240,6 +2240,91 @@ void zero_cc_x86_emit_tramp_stub(ZeroCCCompiler *c, const ZeroCCFunction *nf) {
     me_emit_u8(c, 0xC9);                 /* leave */
     me_emit_u8(c, 0xC3);                 /* ret */
 }
+/* ==========================================================================
+ * GNU __int128 (Sprint 109): 128-bit integer ops on a (lo,hi) GPR pair.
+ * Register numbers are the standard x86-64 encoding (0=rax, 1=rcx, 2=rdx,
+ * 3=rbx, 6=rsi, 7=rdi, 8-15=r8-r15). 128-bit temps never live in rax/rdx
+ * (the GPR128 pool excludes them), so OP_MUL128 may use rax/rdx as scratch.
+ * ========================================================================= */
+static void x86_emit_add128(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi) {
+    x86_mov_rr(c, dlo, a_lo);
+    x86_alu(c, 0x01, dlo, b_lo);   /* add dlo, b_lo  (CF) */
+    x86_mov_rr(c, dhi, a_hi);
+    x86_alu(c, 0x11, dhi, b_hi);   /* adc dhi, b_hi */
+}
+static void x86_emit_sub128(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi) {
+    x86_mov_rr(c, dlo, a_lo);
+    x86_alu(c, 0x29, dlo, b_lo);   /* sub dlo, b_lo  (CF = borrow) */
+    x86_mov_rr(c, dhi, a_hi);
+    x86_alu(c, 0x19, dhi, b_hi);   /* sbb dhi, b_hi */
+}
+/* 128x128 -> low 128 bits. result.lo = (a0*b0) mod 2^64; result.hi =
+ * (r0.hi + (a0*b1) mod 2^64 + (a1*b0) mod 2^64) mod 2^64, where
+ * r0 = a0*b0. Uses rax/rdx (reserved for OP_MUL128) as scratch. */
+static void x86_emit_mul128(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi) {
+    int rax = 0, rdx = 2;
+    x86_mov_rr(c, rax, a_lo);
+    x86_rex(c, 1, 0, 0, (b_lo >> 3) & 1); me_emit_u8(c, 0xF7); x86_modrm(c, 3, 4, b_lo); /* mul b_lo -> rdx:rax */
+    x86_mov_rr(c, dlo, rax);   /* dlo = (a_lo*b_lo) low  */
+    x86_mov_rr(c, dhi, rdx);   /* dhi = (a_lo*b_lo) high */
+    x86_mov_rr(c, rax, a_lo);
+    x86_rex(c, 1, 0, 0, (b_hi >> 3) & 1); me_emit_u8(c, 0xF7); x86_modrm(c, 3, 4, b_hi); /* mul b_hi -> rdx:rax */
+    x86_alu(c, 0x01, dhi, rax); /* dhi += (a_lo*b_hi) low */
+    x86_mov_rr(c, rax, a_hi);
+    x86_rex(c, 1, 0, 0, (b_lo >> 3) & 1); me_emit_u8(c, 0xF7); x86_modrm(c, 3, 4, b_lo); /* mul b_lo -> rdx:rax */
+    x86_alu(c, 0x01, dhi, rax); /* dhi += (a_hi*b_lo) low */
+}
+static void x86_emit_and128(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi) {
+    x86_mov_rr(c, dlo, a_lo); x86_alu(c, 0x21, dlo, b_lo);
+    x86_mov_rr(c, dhi, a_hi); x86_alu(c, 0x21, dhi, b_hi);
+}
+static void x86_emit_or128(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi) {
+    x86_mov_rr(c, dlo, a_lo); x86_alu(c, 0x09, dlo, b_lo);
+    x86_mov_rr(c, dhi, a_hi); x86_alu(c, 0x09, dhi, b_hi);
+}
+static void x86_emit_xor128(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi) {
+    x86_mov_rr(c, dlo, a_lo); x86_alu(c, 0x31, dlo, b_lo);
+    x86_mov_rr(c, dhi, a_hi); x86_alu(c, 0x31, dhi, b_hi);
+}
+static void x86_emit_not128(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi) {
+    x86_emit_not(c, dlo, s_lo);
+    x86_emit_not(c, dhi, s_hi);
+}
+static void x86_emit_neg128(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi) {
+    x86_mov_rr(c, dlo, s_lo);
+    x86_rex(c, 1, 0, 0, (dlo >> 3) & 1); me_emit_u8(c, 0xF7); x86_modrm(c, 3, 3, dlo); /* neg dlo; CF=(s_lo!=0) */
+    x86_mov_rr(c, dhi, s_hi);
+    x86_rex(c, 1, 0, 0, (dhi >> 3) & 1); me_emit_u8(c, 0xF7); x86_modrm(c, 3, 3, dhi); /* neg dhi */
+    x86_rex(c, 1, 0, 0, (dhi >> 3) & 1); me_emit_u8(c, 0xF7); x86_modrm(c, 3, 5, dhi); /* sbb dhi, 0 */
+}
+static void x86_emit_mov128(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi) {
+    x86_mov_rr(c, dlo, s_lo);
+    x86_mov_rr(c, dhi, s_hi);
+}
+static void x86_emit_load128(ZeroCCCompiler *c, int dlo, int dhi, int base, int32_t offset) {
+    x86_rm(c, 0x8B, dlo, base, offset);      /* mov dlo, [base+offset]   */
+    x86_rm(c, 0x8B, dhi, base, offset + 8);  /* mov dhi, [base+offset+8] */
+}
+static void x86_emit_store128(ZeroCCCompiler *c, int s_lo, int s_hi, int base, int32_t offset) {
+    x86_rm(c, 0x89, s_lo, base, offset);      /* mov [base+offset], s_lo   */
+    x86_rm(c, 0x89, s_hi, base, offset + 8);  /* mov [base+offset+8], s_hi */
+}
+static void x86_emit_zext64_128(ZeroCCCompiler *c, int dlo, int dhi, int src) {
+    x86_mov_rr(c, dlo, src);
+    x86_emit_mov_imm(c, dhi, 0);
+}
+static void x86_emit_sext64_128(ZeroCCCompiler *c, int dlo, int dhi, int src) {
+    x86_mov_rr(c, dlo, src);
+    x86_rr(c, (const uint8_t[]){0x63}, 1, dhi, src);  /* movsx dhi, src */
+}
+static void x86_emit_trunc128_64(ZeroCCCompiler *c, int dst, int s_lo) {
+    x86_mov_rr(c, dst, s_lo);
+}
+static void x86_emit_mov128_imm(ZeroCCCompiler *c, int dlo, int dhi, int64_t imm) {
+    x86_emit_mov_imm(c, dlo, imm);
+    x86_emit_mov_imm(c, dhi, 0);
+}
+
 ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled in lazily */
     .isa = ISA_X86_64,
     .regs = &x86_64_regs,
@@ -2280,6 +2365,23 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_cqo = x86_emit_cqo,
     .emit_idiv = x86_emit_idiv,
     .emit_lea = x86_emit_lea,
+
+    /* GNU __int128 */
+    .emit_add128 = x86_emit_add128,
+    .emit_sub128 = x86_emit_sub128,
+    .emit_mul128 = x86_emit_mul128,
+    .emit_and128 = x86_emit_and128,
+    .emit_or128 = x86_emit_or128,
+    .emit_xor128 = x86_emit_xor128,
+    .emit_not128 = x86_emit_not128,
+    .emit_neg128 = x86_emit_neg128,
+    .emit_mov128 = x86_emit_mov128,
+    .emit_load128 = x86_emit_load128,
+    .emit_store128 = x86_emit_store128,
+    .emit_zext64_128 = x86_emit_zext64_128,
+    .emit_sext64_128 = x86_emit_sext64_128,
+    .emit_trunc128_64 = x86_emit_trunc128_64,
+    .emit_mov128_imm = x86_emit_mov128_imm,
 
     /* Vector operations for JIT binary emission */
     .emit_vload = x86_emit_vload,

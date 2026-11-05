@@ -1393,6 +1393,11 @@ static bool is_type_specifier_at(ZeroCCCompiler *c, size_t pos, ZeroCCTokType t)
         if (zero_cc_tok_is_complex_spec(tname)) {
             return true;
         }
+        /* GNU __int128 / __uint128_t (Sprint 109): 128-bit scalar base names. */
+        if (strcmp(tname, "__int128") == 0 || strcmp(tname, "__int128_t") == 0 ||
+            strcmp(tname, "__uint128_t") == 0) {
+            return true;
+        }
     }
     return false;
 }

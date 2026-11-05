@@ -375,6 +375,177 @@ static int zc_binop_bitfield_reduce(ZeroCCCompiler *c, ZeroCCASTArena *arena,
     return result_temp;
 }
 
+/* GNU __int128 (Sprint 109): 64-bit (x op y) -> boolean temp (0/1). */
+static int zc_cmp64_bool(ZeroCCCompiler *c, int x, int y, int cc) {
+    int b = c->next_temp_id++;
+    ir_emit_cmp(c, x, y);
+    ir_emit_cond_set(c, b, cc);
+    return b;
+}
+
+/* GNU __int128 (Sprint 109): emit a constant-count 128-bit shift of the
+ * (lo,hi) pair (s_lo,s_hi) into (dlo,dhi). op is TK_SHL or TK_SHR (logical).
+ * Shared by the binop lowering and the compound-assignment (<<=, >>=) path. */
+void zc_emit_128_shift(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi, int64_t N, uint32_t op) {
+    if (op == TK_SHL) {
+        if (N < 64) {
+            /* dlo = s_lo << N ; dhi = (s_hi << N) | (s_lo >> (64-N)) */
+            int n1 = c->next_temp_id++; ir_emit_mov_imm(c, n1, N);
+            ir_emit_shl(c, dlo, s_lo, n1);
+            int n2 = c->next_temp_id++; ir_emit_mov_imm(c, n2, 64 - N);
+            int b  = c->next_temp_id++; ir_emit_shr(c, b, s_lo, n2);   /* s_lo >> (64-N) */
+            int n3 = c->next_temp_id++; ir_emit_mov_imm(c, n3, N);
+            int a  = c->next_temp_id++; ir_emit_shl(c, a, s_hi, n3);   /* s_hi << N */
+            ir_emit_or(c, dhi, a, b);
+        } else if (N == 64) { ir_emit_mov_imm(c, dlo, 0); ir_emit_mov_reg(c, dhi, s_lo); }  /* s_lo moves to hi */
+        else if (N < 128) { int n = c->next_temp_id++; ir_emit_mov_imm(c, n, N - 64); ir_emit_mov_imm(c, dlo, 0); ir_emit_shl(c, dhi, s_lo, n); }  /* dhi = s_lo << (N-64) */
+        else { ir_emit_mov_imm(c, dlo, 0); ir_emit_mov_imm(c, dhi, 0); }
+    } else { /* TK_SHR: logical */
+        if (N < 64) {
+            int n1 = c->next_temp_id++; ir_emit_mov_imm(c, n1, N);
+            int a  = c->next_temp_id++; ir_emit_shr(c, a, s_lo, n1);
+            int n2 = c->next_temp_id++; ir_emit_mov_imm(c, n2, 64 - N);
+            int b  = c->next_temp_id++; ir_emit_shl(c, b, s_hi, n2);
+            ir_emit_or(c, dlo, a, b);
+            int n3 = c->next_temp_id++; ir_emit_mov_imm(c, n3, N);
+            ir_emit_shr(c, dhi, s_hi, n3);
+        } else if (N == 64) { ir_emit_mov_reg(c, dlo, s_hi); ir_emit_mov_imm(c, dhi, 0); }
+        else if (N < 128) { int n = c->next_temp_id++; ir_emit_mov_imm(c, n, N - 64); ir_emit_shr(c, dlo, s_hi, n); ir_emit_mov_imm(c, dhi, 0); }
+        else { ir_emit_mov_imm(c, dlo, 0); ir_emit_mov_imm(c, dhi, 0); }
+    }
+}
+
+/* GNU __int128 (Sprint 109): lower a 128-bit binary op on (lo,hi) GPR128 pairs.
+ * Arithmetic -> GPR128 result temp; comparison -> boolean temp. Returns
+ * TEMP_NONE if the op is not handled here (caller falls through). Shifts
+ * require a compile-time-constant count for this decomposition. */
+static int zc_lower_binop128(ZeroCCCompiler *c, ZeroCCASTArena *arena,
+                             ZeroCCASTNode *node, ZeroCCASTNode *cl_node,
+                             ZeroCCASTNode *cr_node, const TypeInfo *cl_ti,
+                             const TypeInfo *cr_ti) {
+    uint32_t op = node->aux.op;
+    bool arith = (op == TK_PLUS || op == TK_MINUS || op == TK_STAR ||
+                  op == TK_AMP || op == TK_PIPE || op == TK_CARET);
+    bool cmp   = (op == TK_EQ || op == TK_NE || op == TK_LT ||
+                  op == TK_LE || op == TK_GT || op == TK_GE);
+    bool shift = (op == TK_SHL || op == TK_SHR);
+    if (!arith && !cmp && !shift) return TEMP_NONE;
+
+    const TypeInfo *common = (cl_ti && type_size(cl_ti) == 16) ? cl_ti
+                        : (cr_ti && type_size(cr_ti) == 16) ? cr_ti : cl_ti;
+    bool unsigned_ = common ? type_is_unsigned(common) : false;
+
+    if (shift) {
+        if (!cr_node || cr_node->tag != NODE_INT) return TEMP_NONE;  /* const count only */
+        int64_t N = cr_node->int_val;
+        int l = lower_expr(c, arena, node->left);
+        int l_is128 = c->last_expr_is_128;
+        if (!l_is128) {
+            int d = c->next_temp_id++;
+            if (unsigned_) ir_emit_zext64_128(c, d, l); else ir_emit_sext64_128(c, d, l);
+            l = d;
+        }
+        int res = c->next_temp_id++;
+        if (N <= 0) { ir_emit_mov128(c, res, l); return res; }
+        int s_lo = c->next_temp_id++; ir_emit_lo128(c, s_lo, l);
+        int s_hi = c->next_temp_id++; ir_emit_hi128(c, s_hi, l);
+        int dlo = c->next_temp_id++, dhi = c->next_temp_id++;
+        zc_emit_128_shift(c, dlo, dhi, s_lo, s_hi, N, op);
+        ir_emit_mk128(c, res, dlo, dhi);
+        c->last_expr_is_128 = 1;
+        return res;
+    }
+
+    /* arithmetic & comparison: widen both operands to GPR128 */
+    int l = lower_expr(c, arena, node->left);
+    int l_is128 = c->last_expr_is_128;
+    int r = lower_expr(c, arena, node->right);
+    int r_is128 = c->last_expr_is_128;
+    if (!l_is128) { int d = c->next_temp_id++; if (unsigned_) ir_emit_zext64_128(c, d, l); else ir_emit_sext64_128(c, d, l); l = d; }
+    if (!r_is128) { int d = c->next_temp_id++; if (unsigned_) ir_emit_zext64_128(c, d, r); else ir_emit_sext64_128(c, d, r); r = d; }
+
+    if (arith) {
+        int res = c->next_temp_id++;
+        switch (op) {
+            case TK_PLUS:  ir_emit_add128(c, res, l, r); break;
+            case TK_MINUS: ir_emit_sub128(c, res, l, r); break;
+            case TK_STAR:  ir_emit_mul128(c, res, l, r); break;
+            case TK_AMP:   ir_emit_and128(c, res, l, r); break;
+            case TK_PIPE:  ir_emit_or128(c, res, l, r);  break;
+            case TK_CARET: ir_emit_xor128(c, res, l, r); break;
+        }
+        c->last_expr_is_128 = 1;
+        return res;
+    }
+
+    /* comparison: boolean result. hi compared signed/unsigned per type; the
+     * tie-break on equal hi compares lo unsigned. */
+    int lh = c->next_temp_id++; ir_emit_hi128(c, lh, l);
+    int ll = c->next_temp_id++; ir_emit_lo128(c, ll, l);
+    int rh = c->next_temp_id++; ir_emit_hi128(c, rh, r);
+    int rl = c->next_temp_id++; ir_emit_lo128(c, rl, r);
+    int hi_cc_lt = unsigned_ ? CC_FLT_LT : CC_LT;
+    int hi_cc_gt = unsigned_ ? CC_FLT_GT : CC_GT;
+    switch (op) {
+    case TK_EQ: {
+        int eh = zc_cmp64_bool(c, lh, rh, CC_EQ);
+        int el = zc_cmp64_bool(c, ll, rl, CC_EQ);
+        int a = c->next_temp_id++; ir_emit_and(c, a, eh, el); return a;
+    }
+    case TK_NE: {
+        int nh = zc_cmp64_bool(c, lh, rh, CC_NE);
+        int nl = zc_cmp64_bool(c, ll, rl, CC_NE);
+        int a = c->next_temp_id++; ir_emit_or(c, a, nh, nl); return a;
+    }
+    case TK_LT: {
+        int t1 = zc_cmp64_bool(c, lh, rh, hi_cc_lt);
+        int t2 = zc_cmp64_bool(c, lh, rh, CC_EQ);
+        int t3 = zc_cmp64_bool(c, ll, rl, CC_FLT_LT);
+        int t4 = c->next_temp_id++; ir_emit_and(c, t4, t2, t3);
+        int a = c->next_temp_id++; ir_emit_or(c, a, t1, t4); return a;
+    }
+    case TK_GT: {
+        int t1 = zc_cmp64_bool(c, lh, rh, hi_cc_gt);
+        int t2 = zc_cmp64_bool(c, lh, rh, CC_EQ);
+        int t3 = zc_cmp64_bool(c, ll, rl, CC_FLT_GT);
+        int t4 = c->next_temp_id++; ir_emit_and(c, t4, t2, t3);
+        int a = c->next_temp_id++; ir_emit_or(c, a, t1, t4); return a;
+    }
+    case TK_LE: {
+        int t1 = zc_cmp64_bool(c, lh, rh, hi_cc_lt);
+        int t2 = zc_cmp64_bool(c, lh, rh, CC_EQ);
+        int t3 = zc_cmp64_bool(c, ll, rl, CC_FLT_LE);
+        int t4 = c->next_temp_id++; ir_emit_and(c, t4, t2, t3);
+        int a = c->next_temp_id++; ir_emit_or(c, a, t1, t4); return a;
+    }
+    case TK_GE: {
+        int t1 = zc_cmp64_bool(c, lh, rh, hi_cc_gt);
+        int t2 = zc_cmp64_bool(c, lh, rh, CC_EQ);
+        int t3 = zc_cmp64_bool(c, ll, rl, CC_FLT_GE);
+        int t4 = c->next_temp_id++; ir_emit_and(c, t4, t2, t3);
+        int a = c->next_temp_id++; ir_emit_or(c, a, t1, t4); return a;
+    }
+    }
+    return TEMP_NONE;
+}
+
+/* GNU __int128 (Sprint 109): true if this expression node is a 128-bit
+ * integer value. The semantic TypeInfo is the primary signal, but for some
+ * nodes (global idents, anonymous sub-expressions) the attached TypeInfo is
+ * unreliable, so also consult the lowered symbol / global type directly. */
+static bool zc_node_is_int128(ZeroCCCompiler *c, const ZeroCCASTNode *node) {
+    if (!node) return false;
+    const TypeInfo *ti = ast_node_get_typeinfo(c, node);
+    if (ti && ti->kind == TYPE_KIND_INT128 && type_size(ti) == 16) return true;
+    if (node->tag == NODE_IDENT && node->s.str) {
+        ZeroCCSym *s = zero_cc_find_local(c, node->s.str);
+        if (s && (s->type.tag == TYPE_INT128 || s->type.tag == TYPE_UINT128)) return true;
+        ZeroCCGlobalVar *gv = find_global_var(c, node->s.str);
+        if (gv && (gv->type.tag == TYPE_INT128 || gv->type.tag == TYPE_UINT128)) return true;
+    }
+    return false;
+}
+
 int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
         /* C99 6.5.5 complex arithmetic: both operands are complex
          * (an address-form 2-part object: real half first) or scalar
@@ -386,6 +557,20 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
             TypeInfo *cres_ti = ast_node_get_typeinfo(c, node);
             TypeInfo *cl_ti = ast_node_get_typeinfo(c, cl_node);
             TypeInfo *cr_ti = ast_node_get_typeinfo(c, cr_node);
+            /* GNU __int128 (Sprint 109): an operand that is a 128-bit integer
+             * (and this is not a complex op) is lowered on the (lo,hi) GPR128
+             * pair. Complex is also 16 bytes, so exclude it explicitly. */
+            {
+                bool l128 = zc_node_is_int128(c, cl_node);
+                bool r128 = zc_node_is_int128(c, cr_node);
+                if ((l128 || r128) &&
+                    !(cres_ti && cres_ti->kind == TYPE_KIND_COMPLEX) &&
+                    !(cl_ti && cl_ti->kind == TYPE_KIND_COMPLEX) &&
+                    !(cr_ti && cr_ti->kind == TYPE_KIND_COMPLEX)) {
+                    int r128 = zc_lower_binop128(c, arena, node, cl_node, cr_node, cl_ti, cr_ti);
+                    if (r128 != TEMP_NONE) { c->last_expr_is_float = 0; return r128; }
+                }
+            }
             bool is_cx_eqne = (node->aux.op == TK_EQ || node->aux.op == TK_NE) &&
                               cl_ti && cr_ti &&
                               (cl_ti->kind == TYPE_KIND_COMPLEX || cr_ti->kind == TYPE_KIND_COMPLEX);

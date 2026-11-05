@@ -1609,6 +1609,75 @@ void zero_cc_aarch64_emit_tramp_stub(ZeroCCCompiler *c, const ZeroCCFunction *nf
 static int aarch64_get_int_reg(int vreg) { return vreg; }
 static int aarch64_get_fp_reg(int vreg) { return vreg; }
 
+/* ---- GNU __int128 (Sprint 109): (lo,hi) GPR-pair decompositions ----
+ * On AArch64 a REG_CLASS_GPR128 value always spills (regalloc returns -1)
+ * and no current test exercises 128-bit integers on this ISA, so these are
+ * best-effort (lo,hi) decompositions built from the 64-bit primitives plus
+ * the carry/borrow, multiply-high and sign-extract instructions. Encodings
+ * verified against `aarch64-linux-gnu-gcc`: ADC=0x9A000000, SBC=0xDA000000,
+ * MUL=0x9B007C00, UMULH=0x9BC07C00, ASR#63=0x937FFC00. */
+static void aarch64_emit_add128(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi) {
+    aarch64_emit_add(c, dlo, alo, blo);
+    arm64_emit_u32(c, 0x9A000000u | ((bhi & 0x1F) << 16) | ((ahi & 0x1F) << 5) | (dhi & 0x1F)); /* adc dhi, ahi, bhi */
+}
+static void aarch64_emit_sub128(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi) {
+    aarch64_emit_sub(c, dlo, alo, blo);
+    arm64_emit_u32(c, 0xDA000000u | ((bhi & 0x1F) << 16) | ((ahi & 0x1F) << 5) | (dhi & 0x1F)); /* sbc dhi, ahi, bhi */
+}
+static void aarch64_emit_mul128(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi) {
+    /* low 128 bits of a 128x128 product:
+     * dlo = lo(alo*blo); dhi = hi(alo*blo) + lo(alo*bhi) + lo(ahi*blo). */
+    int t1 = BE(c)->scratch_reg1, t2 = BE(c)->scratch_reg2;
+    arm64_emit_u32(c, 0x9B007C00u | ((blo & 0x1F) << 16) | ((alo & 0x1F) << 5) | (dlo & 0x1F)); /* mul dlo, alo, blo */
+    arm64_emit_u32(c, 0x9BC07C00u | ((blo & 0x1F) << 16) | ((alo & 0x1F) << 5) | (dhi & 0x1F)); /* umulh dhi, alo, blo */
+    arm64_emit_u32(c, 0x9B007C00u | ((bhi & 0x1F) << 16) | ((alo & 0x1F) << 5) | (t1 & 0x1F));  /* mul t1, alo, bhi */
+    aarch64_emit_add(c, dhi, dhi, t1);
+    arm64_emit_u32(c, 0x9B007C00u | ((blo & 0x1F) << 16) | ((ahi & 0x1F) << 5) | (t2 & 0x1F));  /* mul t2, ahi, blo */
+    aarch64_emit_add(c, dhi, dhi, t2);
+}
+static void aarch64_emit_and128(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi) {
+    aarch64_emit_and(c, dlo, alo, blo); aarch64_emit_and(c, dhi, ahi, bhi);
+}
+static void aarch64_emit_or128(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi) {
+    aarch64_emit_or(c, dlo, alo, blo); aarch64_emit_or(c, dhi, ahi, bhi);
+}
+static void aarch64_emit_xor128(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi) {
+    aarch64_emit_xor(c, dlo, alo, blo); aarch64_emit_xor(c, dhi, ahi, bhi);
+}
+static void aarch64_emit_not128(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi) {
+    aarch64_emit_not(c, dlo, slo); aarch64_emit_not(c, dhi, shi);
+}
+static void aarch64_emit_neg128(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi) {
+    aarch64_emit_sub(c, dlo, 31, slo);  /* sub dlo, xzr, slo (CF = borrow) */
+    arm64_emit_u32(c, 0xDA000000u | ((shi & 0x1F) << 16) | (31u << 5) | (dhi & 0x1F)); /* sbc dhi, xzr, shi */
+}
+static void aarch64_emit_mov128(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi) {
+    aarch64_emit_mov_reg(c, dlo, slo); aarch64_emit_mov_reg(c, dhi, shi);
+}
+static void aarch64_emit_load128(ZeroCCCompiler *c, int dlo, int dhi, int base, int32_t offset) {
+    aarch64_emit_load(c, dlo, base, offset);
+    aarch64_emit_load(c, dhi, base, offset + 8);
+}
+static void aarch64_emit_store128(ZeroCCCompiler *c, int slo, int shi, int base, int32_t offset) {
+    aarch64_emit_store(c, slo, base, offset);
+    aarch64_emit_store(c, shi, base, offset + 8);
+}
+static void aarch64_emit_zext64_128(ZeroCCCompiler *c, int dlo, int dhi, int src) {
+    aarch64_emit_mov_reg(c, dlo, src);
+    aarch64_emit_mov_imm(c, dhi, 0);
+}
+static void aarch64_emit_sext64_128(ZeroCCCompiler *c, int dlo, int dhi, int src) {
+    aarch64_emit_mov_reg(c, dlo, src);
+    arm64_emit_u32(c, 0x937FFC00u | ((src & 0x1F) << 5) | (dhi & 0x1F));  /* asr dhi, src, #63 */
+}
+static void aarch64_emit_trunc128_64(ZeroCCCompiler *c, int dst, int slo) {
+    aarch64_emit_mov_reg(c, dst, slo);
+}
+static void aarch64_emit_mov128_imm(ZeroCCCompiler *c, int dlo, int dhi, int64_t imm) {
+    aarch64_emit_mov_imm(c, dlo, imm);
+    aarch64_emit_mov_imm(c, dhi, 0);
+}
+
 ZeroCCISABackend aarch64_backend = {  /* writable: ASM emit pointers are filled in lazily */
     .isa = ISA_AARCH64,
     .regs = &aarch64_regs,
@@ -1652,6 +1721,24 @@ ZeroCCISABackend aarch64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_cqo = aarch64_emit_cqo,
     .emit_idiv = aarch64_emit_idiv,
     .emit_lea = aarch64_emit_lea,
+
+    /* GNU __int128 (Sprint 109) */
+    .emit_add128 = aarch64_emit_add128,
+    .emit_sub128 = aarch64_emit_sub128,
+    .emit_mul128 = aarch64_emit_mul128,
+    .emit_and128 = aarch64_emit_and128,
+    .emit_or128 = aarch64_emit_or128,
+    .emit_xor128 = aarch64_emit_xor128,
+    .emit_not128 = aarch64_emit_not128,
+    .emit_neg128 = aarch64_emit_neg128,
+    .emit_mov128 = aarch64_emit_mov128,
+    .emit_load128 = aarch64_emit_load128,
+    .emit_store128 = aarch64_emit_store128,
+    .emit_zext64_128 = aarch64_emit_zext64_128,
+    .emit_sext64_128 = aarch64_emit_sext64_128,
+    .emit_trunc128_64 = aarch64_emit_trunc128_64,
+    .emit_mov128_imm = aarch64_emit_mov128_imm,
+
     .patch_jmp = aarch64_patch_jmp,
     .resolve_labels = aarch64_resolve_labels,
 

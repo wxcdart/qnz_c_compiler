@@ -496,7 +496,8 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
          * on them uses __int128). */
         if (ra->target_isa == ISA_X86_64) {
             static const int cs_pool[] = {3, 12, 13, 14, 15};
-            static const int gp_pool[] = {7, 6, 2, 8, 9, 0, 3, 12, 13, 14, 15};
+            /* Exclude rax(0)/rdx(2): OP_MUL128/128-bit div use them as scratch. */
+            static const int gp_pool[] = {7, 6, 8, 9, 3, 12, 13, 14, 15};
             const int *pool = interval->spans_call ? cs_pool : gp_pool;
             size_t npool = interval->spans_call ? 5
                         : sizeof(gp_pool) / sizeof(gp_pool[0]);

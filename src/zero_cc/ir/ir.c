@@ -230,6 +230,24 @@ void ir_dump(const ZeroCCCompiler *c, FILE *f) {
                          break;
             case OP_SAR: fprintf(f, "SAR r%u, r%u, r%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);
                          break;
+            case OP_ADD128: fprintf(f, "ADD128 r%u, r%u, r%u", instr->temp_dest, instr->temp_src1, instr->temp_src2); break;
+            case OP_SUB128: fprintf(f, "SUB128 r%u, r%u, r%u", instr->temp_dest, instr->temp_src1, instr->temp_src2); break;
+            case OP_MUL128: fprintf(f, "MUL128 r%u, r%u, r%u", instr->temp_dest, instr->temp_src1, instr->temp_src2); break;
+            case OP_AND128: fprintf(f, "AND128 r%u, r%u, r%u", instr->temp_dest, instr->temp_src1, instr->temp_src2); break;
+            case OP_OR128:  fprintf(f, "OR128 r%u, r%u, r%u", instr->temp_dest, instr->temp_src1, instr->temp_src2); break;
+            case OP_XOR128: fprintf(f, "XOR128 r%u, r%u, r%u", instr->temp_dest, instr->temp_src1, instr->temp_src2); break;
+            case OP_NOT128: fprintf(f, "NOT128 r%u, r%u", instr->temp_dest, instr->temp_src1); break;
+            case OP_NEG128: fprintf(f, "NEG128 r%u, r%u", instr->temp_dest, instr->temp_src1); break;
+            case OP_MOV128: fprintf(f, "MOV128 r%u, r%u", instr->temp_dest, instr->temp_src1); break;
+            case OP_MOV128_IMM: fprintf(f, "MOV128_IMM r%u, %lld", instr->temp_dest, (long long)instr->imm64); break;
+            case OP_LOAD128: fprintf(f, "LOAD128 r%u, [r%u]", instr->temp_dest, instr->temp_src1); break;
+            case OP_STORE128: fprintf(f, "STORE128 [r%u], r%u", instr->temp_src2, instr->temp_src1); break;
+            case OP_ZEXT64_128: fprintf(f, "ZEXT64_128 r%u, r%u", instr->temp_dest, instr->temp_src1); break;
+            case OP_SEXT64_128: fprintf(f, "SEXT64_128 r%u, r%u", instr->temp_dest, instr->temp_src1); break;
+            case OP_TRUNC128_64: fprintf(f, "TRUNC128_64 r%u, r%u", instr->temp_dest, instr->temp_src1); break;
+            case OP_LO128: fprintf(f, "LO128 r%u, r%u", instr->temp_dest, instr->temp_src1); break;
+            case OP_HI128: fprintf(f, "HI128 r%u, r%u", instr->temp_dest, instr->temp_src1); break;
+            case OP_MK128: fprintf(f, "MK128 r%u, r%u(lo), r%u(hi)", instr->temp_dest, instr->temp_src1, instr->temp_src2); break;
             case OP_NEG: fprintf(f, "NEG r%u, r%u", instr->temp_dest, instr->temp_src1);
                          break;
             case OP_SEXT8: case OP_SEXT16: case OP_SEXT32:

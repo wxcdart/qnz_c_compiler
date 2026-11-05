@@ -14559,12 +14559,12 @@
    "note": ""
   },
   "compile/pr93335.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                                         ^; Compile error: expected expression in argument list | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr93348-1.c": {
    "class": "PASS",

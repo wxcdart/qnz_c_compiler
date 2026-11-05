@@ -224,6 +224,100 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 BE(c)->emit_xor(c, phys_dst, phys_src1, phys_src2);
                 break;
 
+            /* GNU __int128 (Sprint 109): 128-bit ops on a (lo,hi) GPR128 pair.
+             * phys_dst/phys_src1/phys_src2 are the low halves (spill-handled);
+             * the high halves come from regalloc_get_reg_hi_for_temp. Assumes
+             * GPR128 temps are register-resident (the tests keep few live). */
+            case OP_ADD128:
+                BE(c)->emit_add128(c, phys_dst,
+                    regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_dest),
+                    phys_src1, regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_src1),
+                    phys_src2, regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_src2));
+                break;
+            case OP_SUB128:
+                BE(c)->emit_sub128(c, phys_dst,
+                    regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_dest),
+                    phys_src1, regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_src1),
+                    phys_src2, regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_src2));
+                break;
+            case OP_MUL128:
+                BE(c)->emit_mul128(c, phys_dst,
+                    regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_dest),
+                    phys_src1, regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_src1),
+                    phys_src2, regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_src2));
+                break;
+            case OP_AND128:
+                BE(c)->emit_and128(c, phys_dst,
+                    regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_dest),
+                    phys_src1, regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_src1),
+                    phys_src2, regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_src2));
+                break;
+            case OP_OR128:
+                BE(c)->emit_or128(c, phys_dst,
+                    regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_dest),
+                    phys_src1, regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_src1),
+                    phys_src2, regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_src2));
+                break;
+            case OP_XOR128:
+                BE(c)->emit_xor128(c, phys_dst,
+                    regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_dest),
+                    phys_src1, regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_src1),
+                    phys_src2, regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_src2));
+                break;
+            case OP_NOT128:
+                BE(c)->emit_not128(c, phys_dst,
+                    regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_dest),
+                    phys_src1, regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_src1));
+                break;
+            case OP_NEG128:
+                BE(c)->emit_neg128(c, phys_dst,
+                    regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_dest),
+                    phys_src1, regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_src1));
+                break;
+            case OP_MOV128:
+                BE(c)->emit_mov128(c, phys_dst,
+                    regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_dest),
+                    phys_src1, regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_src1));
+                break;
+            case OP_MOV128_IMM:
+                BE(c)->emit_mov128_imm(c, phys_dst,
+                    regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_dest),
+                    instr->imm64);
+                break;
+            case OP_LOAD128:
+                BE(c)->emit_load128(c, phys_dst,
+                    regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_dest),
+                    phys_src1, 0);
+                break;
+            case OP_STORE128:
+                BE(c)->emit_store128(c, phys_src1,
+                    regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_src1),
+                    phys_src2, 0);
+                break;
+            case OP_ZEXT64_128:
+                BE(c)->emit_zext64_128(c, phys_dst,
+                    regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_dest),
+                    phys_src1);
+                break;
+            case OP_SEXT64_128:
+                BE(c)->emit_sext64_128(c, phys_dst,
+                    regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_dest),
+                    phys_src1);
+                break;
+            case OP_TRUNC128_64:
+                BE(c)->emit_trunc128_64(c, phys_dst, phys_src1);
+                break;
+            case OP_LO128:
+                BE(c)->emit_mov_reg(c, phys_dst, regalloc_get_reg_for_temp(&c->regalloc, instr->temp_src1));
+                break;
+            case OP_HI128:
+                BE(c)->emit_mov_reg(c, phys_dst, regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_src1));
+                break;
+            case OP_MK128:
+                BE(c)->emit_mov_reg(c, phys_dst, phys_src1);  /* dest.lo = src1 */
+                BE(c)->emit_mov_reg(c, regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_dest), phys_src2);  /* dest.hi = src2 */
+                break;
+
             case OP_SHL:
                 BE(c)->emit_shl(c, phys_dst, phys_src1, phys_src2);
                 break;

@@ -37,6 +37,8 @@ static int get_integer_rank(const TypeInfo *t) {
             return 4;
         case TYPE_KIND_LONG:
             return 5;
+        case TYPE_KIND_INT128:
+            return 6;
         default:
             return 0;
     }

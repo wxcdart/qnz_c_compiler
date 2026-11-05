@@ -379,6 +379,7 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
             return;
         }
         int result_temp = lower_expr(c, arena, node->left);
+        int result_is128 = c->last_expr_is_128;  /* GNU __int128 (Sprint 109) */
         const char *var = node->s.str;
         ZeroCCSym *sym = lowering_local_sym(c, node, var);
         if (sym) {
@@ -739,6 +740,22 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                             } else {
                                 ZeroCCASTNode *lnode = zero_cc_ast_get(arena, node->left);
                                 ZeroCCSym *src_sym = (lnode && lnode->tag == NODE_IDENT) ? zero_cc_find_local(c, lnode->s.str) : NULL;
+                                if (sym->type.tag == TYPE_INT128 || sym->type.tag == TYPE_UINT128) {
+                                    /* GNU __int128 (Sprint 109): store the full 16 bytes.
+                                     * Widen a non-128-bit initializer (e.g. a literal) first. */
+                                    bool unsigned_128 = zero_cc_type_is_unsigned(&sym->type);
+                                    if (!result_is128) {
+                                        int d = c->next_temp_id++;
+                                        if (unsigned_128) ir_emit_zext64_128(c, d, result_temp);
+                                        else ir_emit_sext64_128(c, d, result_temp);
+                                        result_temp = d;
+                                    }
+                                    int addr128 = c->next_temp_id++;
+                                    ir_emit_lea(c, addr128, BE(c)->fp_reg, -sym->stack_offset);
+                                    ir_emit_store128(c, result_temp, addr128);
+                                    c->last_expr_is_float = 0;
+                                    return;
+                                }
                                 if (src_sym && (src_sym->type.tag == TYPE_STRUCT || src_sym->type.tag == TYPE_UNION) && sym->type.size > 16) {
                                     int num_chunks = (int)((sym->type.size + 7) / 8);
                                     for (int ch = 0; ch < num_chunks; ch++) {

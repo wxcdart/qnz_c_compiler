@@ -451,4 +451,74 @@ static inline void ir_emit_lnot(ZeroCCCompiler *c, int temp_dest, int temp_src) 
 }
 
 
+/* =========================================================================
+ * GNU __int128 (Sprint 109): 128-bit integer ops on a (lo,hi) GPR128 temp.
+ * A 128-bit value lives in ONE temp classified REG_CLASS_GPR128; its low
+ * half is the temp's normal register and its high half is the paired
+ * register (regalloc_get_reg_hi_for_temp). Load/store are frame-relative
+ * (like OP_MOV/OP_MOV_MEM) or register-base (like OP_DEREF).
+ * ========================================================================= */
+static inline void ir_emit_add128(ZeroCCCompiler *c, int d, int a, int b) {
+    ir_emit(c, (Instr){.op = OP_ADD128, .temp_dest = (uint16_t)d, .temp_src1 = (uint16_t)a, .temp_src2 = (uint16_t)b, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
+static inline void ir_emit_sub128(ZeroCCCompiler *c, int d, int a, int b) {
+    ir_emit(c, (Instr){.op = OP_SUB128, .temp_dest = (uint16_t)d, .temp_src1 = (uint16_t)a, .temp_src2 = (uint16_t)b, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
+static inline void ir_emit_mul128(ZeroCCCompiler *c, int d, int a, int b) {
+    ir_emit(c, (Instr){.op = OP_MUL128, .temp_dest = (uint16_t)d, .temp_src1 = (uint16_t)a, .temp_src2 = (uint16_t)b, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
+static inline void ir_emit_and128(ZeroCCCompiler *c, int d, int a, int b) {
+    ir_emit(c, (Instr){.op = OP_AND128, .temp_dest = (uint16_t)d, .temp_src1 = (uint16_t)a, .temp_src2 = (uint16_t)b, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
+static inline void ir_emit_or128(ZeroCCCompiler *c, int d, int a, int b) {
+    ir_emit(c, (Instr){.op = OP_OR128, .temp_dest = (uint16_t)d, .temp_src1 = (uint16_t)a, .temp_src2 = (uint16_t)b, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
+static inline void ir_emit_xor128(ZeroCCCompiler *c, int d, int a, int b) {
+    ir_emit(c, (Instr){.op = OP_XOR128, .temp_dest = (uint16_t)d, .temp_src1 = (uint16_t)a, .temp_src2 = (uint16_t)b, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
+static inline void ir_emit_not128(ZeroCCCompiler *c, int d, int a) {
+    ir_emit(c, (Instr){.op = OP_NOT128, .temp_dest = (uint16_t)d, .temp_src1 = (uint16_t)a, .temp_src2 = TEMP_NONE, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
+static inline void ir_emit_neg128(ZeroCCCompiler *c, int d, int a) {
+    ir_emit(c, (Instr){.op = OP_NEG128, .temp_dest = (uint16_t)d, .temp_src1 = (uint16_t)a, .temp_src2 = TEMP_NONE, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
+static inline void ir_emit_mov128(ZeroCCCompiler *c, int d, int a) {
+    ir_emit(c, (Instr){.op = OP_MOV128, .temp_dest = (uint16_t)d, .temp_src1 = (uint16_t)a, .temp_src2 = TEMP_NONE, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
+static inline void ir_emit_mov128_imm(ZeroCCCompiler *c, int d, int64_t imm) {
+    ir_emit(c, (Instr){.op = OP_MOV128_IMM, .temp_dest = (uint16_t)d, .temp_src1 = TEMP_NONE, .temp_src2 = TEMP_NONE, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = imm, .label_idx = 0});
+}
+/* Register-base 128-bit load / store: base is an ADDRESS temp (a register).
+ * Locals: ir_emit_lea the frame offset first; globals: ir_emit_global_addr. */
+static inline void ir_emit_load128(ZeroCCCompiler *c, int d, int base_addr) {
+    ir_emit(c, (Instr){.op = OP_LOAD128, .temp_dest = (uint16_t)d, .temp_src1 = (uint16_t)base_addr, .temp_src2 = TEMP_NONE, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
+static inline void ir_emit_store128(ZeroCCCompiler *c, int s, int base_addr) {
+    ir_emit(c, (Instr){.op = OP_STORE128, .temp_dest = TEMP_NONE, .temp_src1 = (uint16_t)s, .temp_src2 = (uint16_t)base_addr, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
+/* 64-bit <-> 128-bit conversions. zext/sext: 64-bit src -> 128-bit dest.
+ * trunc: 128-bit src -> 64-bit dest (takes the low half). */
+static inline void ir_emit_zext64_128(ZeroCCCompiler *c, int d, int a) {
+    ir_emit(c, (Instr){.op = OP_ZEXT64_128, .temp_dest = (uint16_t)d, .temp_src1 = (uint16_t)a, .temp_src2 = TEMP_NONE, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
+static inline void ir_emit_sext64_128(ZeroCCCompiler *c, int d, int a) {
+    ir_emit(c, (Instr){.op = OP_SEXT64_128, .temp_dest = (uint16_t)d, .temp_src1 = (uint16_t)a, .temp_src2 = TEMP_NONE, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
+static inline void ir_emit_trunc128_64(ZeroCCCompiler *c, int d, int a) {
+    ir_emit(c, (Instr){.op = OP_TRUNC128_64, .temp_dest = (uint16_t)d, .temp_src1 = (uint16_t)a, .temp_src2 = TEMP_NONE, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
+/* Extract a half of a 128-bit value into a 64-bit temp (for compare/shift
+ * decomposition). dest is a plain 64-bit temp; src1 is a GPR128 temp. */
+static inline void ir_emit_lo128(ZeroCCCompiler *c, int d, int a) {
+    ir_emit(c, (Instr){.op = OP_LO128, .temp_dest = (uint16_t)d, .temp_src1 = (uint16_t)a, .temp_src2 = TEMP_NONE, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
+static inline void ir_emit_hi128(ZeroCCCompiler *c, int d, int a) {
+    ir_emit(c, (Instr){.op = OP_HI128, .temp_dest = (uint16_t)d, .temp_src1 = (uint16_t)a, .temp_src2 = TEMP_NONE, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
+/* Build a 128-bit value from two 64-bit halves: dest.lo = src1, dest.hi = src2. */
+static inline void ir_emit_mk128(ZeroCCCompiler *c, int d, int lo, int hi) {
+    ir_emit(c, (Instr){.op = OP_MK128, .temp_dest = (uint16_t)d, .temp_src1 = (uint16_t)lo, .temp_src2 = (uint16_t)hi, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
+
+
 #endif /* ZERO_CC_PARSER_IR_EMIT_OPS_H */

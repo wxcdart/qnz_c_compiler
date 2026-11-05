@@ -271,6 +271,95 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
         bool is_compound = (node->aux.op != TK_ASSIGN && node->aux.op != '=');
         ZeroCCASTNode *left_node = zero_cc_ast_get(arena, node->left);
 
+        /* GNU __int128 (Sprint 109): assignment to a 128-bit scalar lvalue
+         * (local, global, or element). Store the full 16 bytes. Compound ops
+         * (+=, -=, *=, &=, |=, ^=) desugar to a 128-bit binop on the loaded
+         * LHS and the RHS. */
+        if (left_node && node->right != AST_NULL) {
+            TypeInfo *lhs_ti = ast_node_get_typeinfo(c, left_node);
+            ZeroCCSym *lhs_sym = (left_node->tag == NODE_IDENT) ? zero_cc_find_local(c, left_node->s.str) : NULL;
+            ZeroCCGlobalVar *lhs_gv = (left_node->tag == NODE_IDENT && left_node->s.str) ? find_global_var(c, left_node->s.str) : NULL;
+            bool lhs_is128 = (lhs_ti && lhs_ti->kind == TYPE_KIND_INT128 && type_size(lhs_ti) == 16) ||
+                             (lhs_sym && (lhs_sym->type.tag == TYPE_INT128 || lhs_sym->type.tag == TYPE_UINT128)) ||
+                             (lhs_gv && (lhs_gv->type.tag == TYPE_INT128 || lhs_gv->type.tag == TYPE_UINT128));
+            if (lhs_is128) {
+                bool unsigned_ = lhs_ti ? type_is_unsigned(lhs_ti) :
+                              (lhs_sym ? zero_cc_type_is_unsigned(&lhs_sym->type) :
+                               (lhs_gv ? zero_cc_type_is_unsigned(&lhs_gv->type) : false));
+                /* Decide whether the 128-bit path can handle this assignment:
+                 * plain `=`, arithmetic/bitwise compounds, and constant-count
+                 * shift compounds.  div/mod and non-constant shifts are deferred
+                 * to the generic path below (128-bit division is not implemented). */
+                uint32_t cop = 0;
+                if (is_compound) {
+                    cop = node->aux.op == TK_ADD_ASSIGN ? TK_PLUS :
+                          node->aux.op == TK_SUB_ASSIGN ? TK_MINUS :
+                          node->aux.op == TK_MUL_ASSIGN ? TK_STAR :
+                          node->aux.op == TK_AND_ASSIGN ? TK_AMP :
+                          node->aux.op == TK_OR_ASSIGN ? TK_PIPE :
+                          node->aux.op == TK_XOR_ASSIGN ? TK_CARET :
+                          node->aux.op == TK_SHL_ASSIGN ? TK_SHL :
+                          node->aux.op == TK_SHR_ASSIGN ? TK_SHR : 0;
+                }
+                bool shift_op = (cop == TK_SHL || cop == TK_SHR);
+                bool shift_const = !shift_op;
+                if (shift_op) {
+                    ZeroCCASTNode *rc = zero_cc_ast_get(arena, node->right);
+                    shift_const = (rc && rc->tag == NODE_INT);
+                }
+                bool supported = !is_compound || (!shift_op && cop != 0) || (shift_op && shift_const);
+                if (supported) {
+                    int target = zero_cc_lower_lvalue_addr(c, arena, node->left);
+                    if (target != TEMP_NONE) {
+                        int val;
+                        int val_is128 = 0;
+                        if (!is_compound) {
+                            val = lower_expr(c, arena, node->right);
+                            val_is128 = c->last_expr_is_128;
+                        } else if (shift_op) {
+                            int64_t N = zero_cc_ast_get(arena, node->right)->int_val;
+                            int lv = lower_expr(c, arena, node->left);
+                            int lv128 = c->last_expr_is_128;
+                            if (!lv128) { int d = c->next_temp_id++; if (unsigned_) ir_emit_zext64_128(c, d, lv); else ir_emit_sext64_128(c, d, lv); lv = d; }
+                            int s_lo = c->next_temp_id++; ir_emit_lo128(c, s_lo, lv);
+                            int s_hi = c->next_temp_id++; ir_emit_hi128(c, s_hi, lv);
+                            int dlo = c->next_temp_id++, dhi = c->next_temp_id++;
+                            if (N <= 0) { ir_emit_mov_reg(c, dlo, s_lo); ir_emit_mov_reg(c, dhi, s_hi); }
+                            else zc_emit_128_shift(c, dlo, dhi, s_lo, s_hi, N, cop);
+                            val = c->next_temp_id++; ir_emit_mk128(c, val, dlo, dhi);
+                            val_is128 = 1;
+                        } else {
+                            int lv = lower_expr(c, arena, node->left);
+                            int lv128 = c->last_expr_is_128;
+                            int rv = lower_expr(c, arena, node->right);
+                            int rv128 = c->last_expr_is_128;
+                            if (!lv128) { int d = c->next_temp_id++; if (unsigned_) ir_emit_zext64_128(c, d, lv); else ir_emit_sext64_128(c, d, lv); lv = d; }
+                            if (!rv128) { int d = c->next_temp_id++; if (unsigned_) ir_emit_zext64_128(c, d, rv); else ir_emit_sext64_128(c, d, rv); rv = d; }
+                            val = c->next_temp_id++;
+                            switch (cop) {
+                                case TK_PLUS:  ir_emit_add128(c, val, lv, rv); break;
+                                case TK_MINUS: ir_emit_sub128(c, val, lv, rv); break;
+                                case TK_STAR:  ir_emit_mul128(c, val, lv, rv); break;
+                                case TK_AMP:   ir_emit_and128(c, val, lv, rv); break;
+                                case TK_PIPE:  ir_emit_or128(c, val, lv, rv);  break;
+                                case TK_CARET: ir_emit_xor128(c, val, lv, rv); break;
+                            }
+                            val_is128 = 1;  /* 128-bit binop result is GPR128 */
+                        }
+                        if (!val_is128) {
+                            int d = c->next_temp_id++;
+                            if (unsigned_) ir_emit_zext64_128(c, d, val); else ir_emit_sext64_128(c, d, val);
+                            val = d;
+                        }
+                        ir_emit_store128(c, val, target);
+                        c->last_expr_is_float = 0;
+                        c->last_expr_is_128 = 1;  /* the stored value is 128-bit */
+                        return val;
+                    }
+                }
+            }
+        }
+
         /* GNU variably-modified struct/union target: the object is
          * runtime-sized (the static layout size is a 2-element
          * placeholder), so the value copy must use the runtime size.

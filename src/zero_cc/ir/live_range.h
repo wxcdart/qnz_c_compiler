@@ -465,6 +465,13 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
                 } else if (ir_opcode_is_simd(instr->op)) {
                     /* SIMD instructions produce vector register results */
                     lra->temp_reg_class[instr->temp_dest] = REG_CLASS_VEC;
+                } else if (instr->op == OP_ADD128 || instr->op == OP_SUB128 || instr->op == OP_MUL128 ||
+                    instr->op == OP_AND128 || instr->op == OP_OR128 || instr->op == OP_XOR128 ||
+                    instr->op == OP_NOT128 || instr->op == OP_NEG128 || instr->op == OP_SHL128 ||
+                    instr->op == OP_SHR128 || instr->op == OP_SAR128 || instr->op == OP_MOV128 ||
+                    instr->op == OP_LOAD128 || instr->op == OP_ZEXT64_128 || instr->op == OP_SEXT64_128 ||
+                    instr->op == OP_MOV128_IMM || instr->op == OP_MK128) {
+                    lra->temp_reg_class[instr->temp_dest] = REG_CLASS_GPR128;
                 }
             }
         }
@@ -484,6 +491,13 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
                 } else if (ir_opcode_is_simd(instr->op)) {
                     /* SIMD instructions consume vector registers for sources */
                     lra->temp_reg_class[instr->temp_src1] = REG_CLASS_VEC;
+                } else if (instr->op == OP_ADD128 || instr->op == OP_SUB128 || instr->op == OP_MUL128 ||
+                    instr->op == OP_AND128 || instr->op == OP_OR128 || instr->op == OP_XOR128 ||
+                    instr->op == OP_NOT128 || instr->op == OP_NEG128 || instr->op == OP_SHL128 ||
+                    instr->op == OP_SHR128 || instr->op == OP_SAR128 || instr->op == OP_CMP128 ||
+                    instr->op == OP_MOV128 || instr->op == OP_STORE128 || instr->op == OP_TRUNC128_64 ||
+                    instr->op == OP_LO128 || instr->op == OP_HI128) {
+                    lra->temp_reg_class[instr->temp_src1] = REG_CLASS_GPR128;
                 }
             }
         }
@@ -499,6 +513,10 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
                 } else if (ir_opcode_is_simd(instr->op)) {
                     /* SIMD instructions consume vector registers for sources */
                     lra->temp_reg_class[instr->temp_src2] = REG_CLASS_VEC;
+                } else if (instr->op == OP_ADD128 || instr->op == OP_SUB128 || instr->op == OP_MUL128 ||
+                    instr->op == OP_AND128 || instr->op == OP_OR128 || instr->op == OP_XOR128 ||
+                    instr->op == OP_CMP128) {
+                    lra->temp_reg_class[instr->temp_src2] = REG_CLASS_GPR128;
                 }
             }
         }
@@ -509,7 +527,7 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
          * these registers for the DIV and prevents other temps from using them.
          * Also mark rax and rdx as clobbered so the register allocator knows
          * not to assign other temps to these registers during DIV. */
-        if (instr->op == OP_DIV || instr->op == OP_MOD) {
+        if (instr->op == OP_DIV || instr->op == OP_MOD || instr->op == OP_MUL128) {
             /* Extend rax (temp 0) live range to DIV instruction */
             live_range_add_use(lra, i, 0, false);  /* rax use at DIV */
             /* Extend rdx (temp 2) live range to DIV instruction */

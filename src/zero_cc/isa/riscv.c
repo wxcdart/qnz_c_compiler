@@ -1585,6 +1585,80 @@ void zero_cc_riscv_emit_tramp_stub(ZeroCCCompiler *c, const ZeroCCFunction *nf) 
     riscv_emit_u32(c, 0x00008067u);                           /* ret (jalr zero, 0(ra)) */
 }
 
+/* ---- GNU __int128 (Sprint 109): (lo,hi) GPR-pair decompositions ----
+ * On RISC-V a REG_CLASS_GPR128 value always spills (regalloc returns -1)
+ * and no current test exercises 128-bit integers on this ISA, so these are
+ * best-effort (lo,hi) decompositions built from the 64-bit M/D-ext
+ * primitives (RISC-V has no carry-flag add, so carry/borrow are computed
+ * with sltu). mul128 uses the t0/t1 scratch regs (assumed free - the
+ * spill-only path never keeps them live as 128-bit operand halves). */
+static void riscv64_emit_add128(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi) {
+    riscv64_emit_add(c, dlo, alo, blo);              /* dlo = alo + blo */
+    riscv_emit_u32(c, rv64_R(RV_REG(5), RV_REG(alo), RV_REG(blo), 2, 0)); /* sltu t0, alo, blo (carry) */
+    riscv64_emit_add(c, dhi, ahi, bhi);
+    riscv64_emit_add(c, dhi, dhi, 5);                 /* dhi += carry */
+}
+static void riscv64_emit_sub128(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi) {
+    riscv64_emit_sub(c, dlo, alo, blo);              /* dlo = alo - blo */
+    riscv_emit_u32(c, rv64_R(RV_REG(5), RV_REG(blo), RV_REG(alo), 2, 0)); /* sltu t0, blo, alo (borrow) */
+    riscv64_emit_sub(c, dhi, ahi, bhi);
+    riscv64_emit_sub(c, dhi, dhi, 5);                 /* dhi -= borrow */
+}
+static void riscv64_emit_mul128(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi) {
+    /* low 128 bits of a 128x128 product (unsigned): */
+    riscv64_emit_mul(c, dlo, alo, blo);              /* dlo = lo(alo*blo) */
+    riscv_emit_u32(c, rv64_R(RV_REG(dhi), RV_REG(alo), RV_REG(blo), 3, 1)); /* mulhu dhi, alo, blo */
+    riscv64_emit_mul(c, 5, alo, bhi);                /* t0 = lo(alo*bhi) */
+    riscv64_emit_add(c, dhi, dhi, 5);
+    riscv64_emit_mul(c, 5, ahi, blo);                /* t0 = lo(ahi*blo) */
+    riscv64_emit_add(c, dhi, dhi, 5);
+}
+static void riscv64_emit_and128(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi) {
+    riscv64_emit_and(c, dlo, alo, blo); riscv64_emit_and(c, dhi, ahi, bhi);
+}
+static void riscv64_emit_or128(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi) {
+    riscv64_emit_or(c, dlo, alo, blo); riscv64_emit_or(c, dhi, ahi, bhi);
+}
+static void riscv64_emit_xor128(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi) {
+    riscv64_emit_xor(c, dlo, alo, blo); riscv64_emit_xor(c, dhi, ahi, bhi);
+}
+static void riscv64_emit_not128(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi) {
+    riscv_emit_u32(c, rv64_I(RV_REG(dlo), RV_REG(slo), 4, -1, 0x13));  /* xori dlo, slo, -1 */
+    riscv_emit_u32(c, rv64_I(RV_REG(dhi), RV_REG(shi), 4, -1, 0x13));  /* xori dhi, shi, -1 */
+}
+static void riscv64_emit_neg128(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi) {
+    riscv64_emit_sub(c, dlo, 0, slo);                /* dlo = 0 - slo */
+    riscv_emit_u32(c, rv64_R(RV_REG(5), RV_REG(slo), RV_REG(0), 2, 0)); /* sltu t0, slo, 0 (borrow) */
+    riscv64_emit_sub(c, dhi, 0, shi);
+    riscv64_emit_sub(c, dhi, dhi, 5);                /* dhi -= borrow */
+}
+static void riscv64_emit_mov128(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi) {
+    riscv64_emit_mov_reg(c, dlo, slo); riscv64_emit_mov_reg(c, dhi, shi);
+}
+static void riscv64_emit_load128(ZeroCCCompiler *c, int dlo, int dhi, int base, int32_t offset) {
+    riscv64_emit_load(c, dlo, base, offset);
+    riscv64_emit_load(c, dhi, base, offset + 8);
+}
+static void riscv64_emit_store128(ZeroCCCompiler *c, int slo, int shi, int base, int32_t offset) {
+    riscv64_emit_store(c, slo, base, offset);
+    riscv64_emit_store(c, shi, base, offset + 8);
+}
+static void riscv64_emit_zext64_128(ZeroCCCompiler *c, int dlo, int dhi, int src) {
+    riscv64_emit_mov_reg(c, dlo, src);
+    riscv64_emit_mov_imm(c, dhi, 0);
+}
+static void riscv64_emit_sext64_128(ZeroCCCompiler *c, int dlo, int dhi, int src) {
+    riscv64_emit_mov_reg(c, dlo, src);
+    riscv_emit_u32(c, rv64_I(RV_REG(dhi), RV_REG(src), 5, 63, 0x13) | (1u << 30)); /* srai dhi, src, 63 */
+}
+static void riscv64_emit_trunc128_64(ZeroCCCompiler *c, int dst, int slo) {
+    riscv64_emit_mov_reg(c, dst, slo);
+}
+static void riscv64_emit_mov128_imm(ZeroCCCompiler *c, int dlo, int dhi, int64_t imm) {
+    riscv64_emit_mov_imm(c, dlo, imm);
+    riscv64_emit_mov_imm(c, dhi, 0);
+}
+
 /* RISC-V 64-bit backend instance */
 
 /* RISC-V VREG mapping: map virtual register numbers to RISC-V encodings
@@ -1638,6 +1712,24 @@ ZeroCCISABackend riscv64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_cqo = riscv64_emit_cqo,
     .emit_idiv = riscv64_emit_idiv,
     .emit_lea = riscv64_emit_lea,
+
+    /* GNU __int128 (Sprint 109) */
+    .emit_add128 = riscv64_emit_add128,
+    .emit_sub128 = riscv64_emit_sub128,
+    .emit_mul128 = riscv64_emit_mul128,
+    .emit_and128 = riscv64_emit_and128,
+    .emit_or128 = riscv64_emit_or128,
+    .emit_xor128 = riscv64_emit_xor128,
+    .emit_not128 = riscv64_emit_not128,
+    .emit_neg128 = riscv64_emit_neg128,
+    .emit_mov128 = riscv64_emit_mov128,
+    .emit_load128 = riscv64_emit_load128,
+    .emit_store128 = riscv64_emit_store128,
+    .emit_zext64_128 = riscv64_emit_zext64_128,
+    .emit_sext64_128 = riscv64_emit_sext64_128,
+    .emit_trunc128_64 = riscv64_emit_trunc128_64,
+    .emit_mov128_imm = riscv64_emit_mov128_imm,
+
     .patch_jmp = riscv64_patch_jmp,
     .resolve_labels = riscv_resolve_labels,
 
@@ -1904,6 +1996,24 @@ ZeroCCISABackend riscv32_backend = {  /* writable: ASM emit pointers are filled 
     .emit_cqo = riscv64_emit_cqo,
     .emit_idiv = riscv64_emit_idiv,
     .emit_lea = riscv64_emit_lea,
+
+    /* GNU __int128 (Sprint 109) */
+    .emit_add128 = riscv64_emit_add128,
+    .emit_sub128 = riscv64_emit_sub128,
+    .emit_mul128 = riscv64_emit_mul128,
+    .emit_and128 = riscv64_emit_and128,
+    .emit_or128 = riscv64_emit_or128,
+    .emit_xor128 = riscv64_emit_xor128,
+    .emit_not128 = riscv64_emit_not128,
+    .emit_neg128 = riscv64_emit_neg128,
+    .emit_mov128 = riscv64_emit_mov128,
+    .emit_load128 = riscv64_emit_load128,
+    .emit_store128 = riscv64_emit_store128,
+    .emit_zext64_128 = riscv64_emit_zext64_128,
+    .emit_sext64_128 = riscv64_emit_sext64_128,
+    .emit_trunc128_64 = riscv64_emit_trunc128_64,
+    .emit_mov128_imm = riscv64_emit_mov128_imm,
+
     .patch_jmp = riscv64_patch_jmp,
     .resolve_labels = riscv_resolve_labels,
 

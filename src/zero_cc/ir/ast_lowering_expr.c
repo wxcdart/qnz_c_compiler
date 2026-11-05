@@ -696,6 +696,7 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
     if (ref == AST_NULL) return TEMP_NONE;
     ZeroCCASTNode *node = zero_cc_ast_get(arena, ref);
     if (!node) return TEMP_NONE;
+    c->last_expr_is_128 = 0;  /* GNU __int128 (Sprint 109): 128-bit cases set it */
 
     switch (node->tag) {
         case NODE_INT: {
@@ -943,6 +944,15 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                         c->last_expr_is_float = 0;
                         return temp;
                     }
+                } else if (sym->type.tag == TYPE_INT128 || sym->type.tag == TYPE_UINT128) {
+                    /* GNU __int128 (Sprint 109): load the full 16 bytes into a
+                     * GPR128 (lo,hi) temp. */
+                    int addr = zc_sym_addr(c, sym, 0);
+                    int temp = c->next_temp_id++;
+                    ir_emit_load128(c, temp, addr);
+                    c->last_expr_is_float = 0;
+                    c->last_expr_is_128 = 1;
+                    return temp;
                 } else {
                     int temp = c->next_temp_id++;
                     zc_sym_load(c, sym, 0, temp);  /* Sprint 72 */
@@ -985,6 +995,14 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                     if (gv->type.tag == TYPE_DOUBLE) {
                         ir_emit_vloadsd(c, (uint16_t)val_temp, (uint16_t)addr_temp);
                         c->last_expr_is_float = 1;
+                        return val_temp;
+                    }
+                    if (gv->type.tag == TYPE_INT128 || gv->type.tag == TYPE_UINT128) {
+                        /* GNU __int128 (Sprint 109): load the full 16 bytes
+                         * into a GPR128 (lo,hi) temp. */
+                        ir_emit_load128(c, val_temp, addr_temp);
+                        c->last_expr_is_float = 0;
+                        c->last_expr_is_128 = 1;
                         return val_temp;
                     }
                     size_t gv_sz = gv->size > 0 ? gv->size : 4;

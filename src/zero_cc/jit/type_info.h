@@ -448,6 +448,10 @@ static inline ZeroCCType zero_cc_resolve_base_type(ZeroCCCompiler *c, ZeroCCTokT
     }
     if (type_name) {
         if (strcmp(type_name, "__builtin_va_list") == 0) return zero_cc_type_va_list();
+        /* GNU __int128 / __uint128_t (Sprint 109): 16-byte scalar base. */
+        if (strcmp(type_name, "__int128") == 0 || strcmp(type_name, "__int128_t") == 0)
+            return zero_cc_type_int128();
+        if (strcmp(type_name, "__uint128_t") == 0) return zero_cc_type_uint128();
         ZeroCCType *tdef = zero_cc_find_typedef(c, type_name);
         if (!tdef) tdef = zero_cc_find_struct(c, type_name);
         if (!tdef) tdef = zero_cc_find_enum(c, type_name);
