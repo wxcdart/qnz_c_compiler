@@ -4,7 +4,7 @@ title: Zero_RT — ZeroCC's Own Freestanding Runtime (Linux x86-64 + AArch64/RIS
 description: The zero_rt/ runtime (heap, strings, exit, minimal stdio with Ryū float formatting) compiled by zerocc itself, auto-linked by --zerocc-link, and the zeroc_main_wrapper entry routing that makes atexit work on a plain return from main.
 resource: zero-rt
 tags: [zero-rt, runtime, freestanding, heap, stdio, ryu, zero-cc-link, phase-0]
-timestamp: 2026-11-04T16:36:04Z
+timestamp: 2026-11-05T02:19:30Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -16,14 +16,14 @@ status: active
 
 ## Layout (`zero_rt/`)
 
-- `rt_os.h` — OS-boundary declarations. Syscalls go through the `__zerocc_syscall(...)` IR builtin (see the `OP_SYSCALL` entry in [ir-and-regalloc.md](./ir-and-regalloc.md) / the Sprint 43 changelog), not inline asm.
+- `rt_os.h` — OS-boundary declarations. Syscalls go through the `__zerocc_syscall(...)` IR builtin (`OP_SYSCALL`, see [ir-and-regalloc.md](./ir-and-regalloc.md) and [isa-backends.md](./isa-backends.md)), which is implemented across all **4 target ISAs** (`x86_64` `syscall`, `aarch64` `svc #0`, `riscv64`/`riscv32` `ecall`) in both raw machine-code and GAS `.s` assembly emitters (Sprint 89), not inline asm.
 - `linux/os.c` — syscall implementations: `read`, `write`, `brk`, `getpid`, `exit_group`.
 - `core/heap.c` — `malloc`/`free`/`calloc`/`realloc` on a `brk`-backed first-fit allocator.
 - `core/string.c` — `memcpy`/`memmove`/`memset`/`memcmp`, `strlen`/`strcpy`/`strcat`/etc.
 - `core/exit.c` — `atexit`/`exit`/`abort` plus **`zeroc_main_wrapper`**: calls `main`, then `exit(status)`, so the atexit list runs on a plain `return` from `main`.
 - `core/stdio.c` — unbuffered `printf`/`fprintf`/`sprintf`/`snprintf`/`puts`/`putchar`; float formatting via vendored **Ryū** (`third_party/vendor/ryu/`, Apache-2.0 OR Boost-1.0: `d2fixed_buffered` for `%f`, `d2exp_buffered` for `%e`/`%g`).
 
-Virtual freestanding headers for the compiler's preprocessor (`core/preprocessor.h`) were extended for Phase 0: `inttypes.h` (stdint + PRI*/SCN* macros), `assert.h` (always-evaluated, `abort()` on failure), and `atexit` in `stdlib.h`.
+Virtual freestanding headers in [`src/zero_cc/core/virtual_headers.h`](../../src/zero_cc/core/virtual_headers.h) (extracted from `core/preprocessor.h` in Sprint 80, with preprocessor expansion in [`src/zero_cc/core/preprocessor.c`](../../src/zero_cc/core/preprocessor.c)) provide `inttypes.h` (`stdint.h` + `PRI*`/`SCN*` macros), `assert.h` (always-evaluated, `abort()` on failure), `atexit` in `stdlib.h`, `immintrin.h` (Sprint 89), and full `<stdio.h>` stream declarations including `freopen`, `feof`, `ferror`, `clearerr`, and `ungetc` (Sprint 106). Non-local jumps (`setjmp`/`longjmp`, `__builtin_setjmp`/`__builtin_longjmp`) are lowered directly to inline multi-ISA `OP_SETJMP`/`OP_LONGJMP` instructions across all 4 ISAs (Sprint 88) without requiring any host libc helper.
 
 ## Build & Self-Compilation
 
@@ -45,7 +45,7 @@ All `zero_rt` `printf` / `snprintf` / `sprintf` / `fprintf` / heap / string capa
 - **Cross Runtime Archives (`build/lib/zero_rt_aarch64.a`, `build/lib/zero_rt_riscv64.a`)**: Built directly with zerocc self-compilation (`--target aarch64`, `--target riscv64`) and auto-linked under `--zerocc-link` matching `--target` or sniffing input object `e_machine`.
 - **AArch64 Relocations & Stores**: Fixed `R_AARCH64_ABS64`/`ABS32` relocation stomping lower 32 bits of pointer targets in `linker.c`, corrected `R_AARCH64_ADR_PREL_PG_HI21` instruction mask (`0x60FFFFE0`), and eliminated broken `param_save` offset calculations in `aarch64.c`.
 - **RISC-V 64-bit Immediates & Branches**: Added full 64-bit immediate materialization in `riscv.c` (`slli 32` + low 32 bits ORed), inverted B-type branch skip (+8) over 20-bit JAL trampolines for >4KB jumps, and mapped variadic float args to GP register streams per psABI.
-- **Syscall Non-Leaf Frame Safety**: `OP_SYSCALL` marks lowering functions as non-leaf, preventing x86-64 red zone stack omission (`alloc_frame_size = 0`) from corrupting stack variables during syscall register push/pop sequences.
+- **Syscall Non-Leaf Frame Safety & 4-ISA QEMU Gate (Sprint 89)**: `OP_SYSCALL` marks lowering functions as non-leaf, preventing x86-64 red zone stack omission (`alloc_frame_size = 0`) from corrupting stack variables during syscall register push/pop sequences; `aarch64_emit_syscall_asm` maintains 16-byte stack alignment (`112`-byte register save area) across `svc #0`; and [`test/isa_qemu/13_syscall.c`](../../test/isa_qemu/13_syscall.c) differential-tests `__zerocc_syscall` (`SYS_getpid`, `SYS_write`, `SYS_brk`) across all 4 ISAs (`x86_64`, `aarch64`, `riscv64`, `riscv32`) in both raw binary and `-S` assembly modes under `make test-isa-qemu`.
 - **Linux Generic Syscalls**: Corrected `RT_SYS_BRK` to 214 and enabled `RT_HAS_BRK` for both AArch64 and RISC-V64. Fixed 64-bit heap allocation free-bit mask in `heap.c` and copy loops in `string.c`.
 
 ## Related Concepts

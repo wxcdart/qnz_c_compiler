@@ -4,7 +4,7 @@ title: Target-Side Sanitizer (zero_san) Design & Roadmap
 description: Analysis and phased roadmap for an optional, parked target-side safety-check feature (zero_san) — a codegen-first UBSan-lite signed-overflow check, with bounds, leaks, and ASan/LSan scoped out and justified.
 resource: sanitizer/roadmap
 tags: [sanitizer, zero_san, codegen, ubsan, overflow, bounds, asan, lsan, leak, roadmap, design, safety]
-timestamp: 2026-11-02T16:05:58Z
+timestamp: 2026-11-05T02:19:30Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -64,8 +64,8 @@ the freestanding path) sits on a thinner test track than the host path.
 
 Two structural facts drive the costs:
 - **The per-access surface is the wall.** There are ~49 memory-access emission sites in the
-  x86-64 backend alone; a per-access sanitizer touches all of them, ×3 for the three ISAs
-  (see [ISA Backends](./isa-backends.md)).
+  x86-64 backend alone; a per-access sanitizer touches all of them, ×4 for the four target ISAs
+  (`x86_64`, `aarch64`, `riscv64`, `riscv32` — see [ISA Backends](./isa-backends.md)).
 - **LSan-grade requires ASan's shadow memory** (pointer provenance for the reachability scan),
   so "full LSan" and "full ASan" are the *same* infrastructure. They are not independently cheap.
 - **Leaks are a different class** (allocator + at-exit, not per-instruction codegen) — see §4.3.
@@ -88,7 +88,7 @@ GCC keeps UBSan's `alignment` check *opt-in*). Alignment is dropped from v1.
   by `asm_emitter.c`). The earlier "one shared lowering covers both" assumption was **wrong**;
   these are two paths that can drift.
 - **Trap:** a zerocc builtin `__zerocsan_trap` (print + abort).
-- **Reuses** the `zc_ovf_*` primitives already proven by `__builtin_{add,sub,mul}_overflow`.
+- **Reuses** the `zc_ovf_*` primitives already proven by `__builtin_{add,sub,mul}_overflow` in [`src/zero_cc/ir/ast_lowering_builtins.c`](../../src/zero_cc/ir/ast_lowering_builtins.c).
 - **Flag:** opt-in (`-fsanitize=undefined` for GCC parity, or `-fsafety-checks`); **not**
   default-on for users.
 - **Report:** op-level only (no file:line — ZeroCC emits **no DWARF** today).
@@ -135,17 +135,12 @@ ASan-class and stays out of scope.
 
 ## 6. Gating — when this actually starts
 
-`zero_san` is **parked behind the current priorities**:
-1. the remaining 13 conformance `REJECT`s,
-2. modularizing the remaining header-monoliths (`preprocessor.h`, `definitions.h`,
-   `const_eval.h`, `main.c` — see [Architecture](./architecture-pipeline.md)),
-3. the "compile a real project" differential gate (a higher-value miscompile oracle than
-   target-side sanitizers).
+`zero_san` was originally parked behind three prerequisites, two of which are now **complete**:
+1. ✅ **Conformance `REJECT` burn-down (Completed in Sprint 89):** `REJECT` is now **0** and `MISCOMPILE` is **0** across the entire 3,940-test `c-torture` corpus (**3,676 `PASS`** as of Sprint 109; see [c-torture Conformance Gate](./c-torture-gate.md)).
+2. ✅ **Header-monolith modularization (Completed in Sprints 76–83):** `preprocessor.h` (`preprocessor.c` + `virtual_headers.h`), `definitions.h` (`decl_struct.c`, `decl_local.h`, `type_parser.h`), `compile_unit.h` (`compile_unit.c`), and `ast_lowering_expr.c` (`ast_lowering_{expr,call,builtins,assign,binop}.c`) are now split into dedicated translation units (see [Architecture](./architecture-pipeline.md)).
+3. **Remaining priority before `zero_san`:** closing out the `SKIP-TARGET:int128` bucket (Sprint 109) and the "compile a real project" differential gate (a higher-value miscompile oracle than target-side sanitizers).
 
-**Entry condition for Phase 1:** after those, *and* only if the team wants (a) the small, safe,
-conformant piece that de-risks the `zero_san` architecture, or (b) a freestanding-debug
-differentiator. **v1 is optional and niche** — worth doing as a bounded, conformant,
-architecture-de-risking step, *not* as a strategic priority.
+**Entry condition for Phase 1:** after `int128` and the real-project gate, *and* only if the team wants (a) the small, safe, conformant piece that de-risks the `zero_san` architecture, or (b) a freestanding-debug differentiator. **v1 is optional and niche** — worth doing as a bounded, conformant, architecture-de-risking step, *not* as a strategic priority.
 
 ## 7. Open decisions
 

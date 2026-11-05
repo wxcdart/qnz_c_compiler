@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-05T01:54:07Z
+timestamp: 2026-11-05T02:21:07Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -924,3 +924,15 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-05 — Updated `c-torture-gate.md`
 - Sprint 109 value model: int128 local arithmetic on all backends; get_integer_rank fix unblocks pr93335 (SKIP-C89->PASS); gate PASS 3,676 / SKIP-C89 46
+
+## 2026-11-05 — Updated `sanitizer-roadmap.md`
+- Refresh sanitizer-roadmap.md: mark REJECT burn-down (0 REJECT, 3,676 PASS) and header-monolith modularization prerequisites completed, update 4-ISA backend count and ast_lowering_builtins.c link
+
+## 2026-11-05 — Updated `zero-rt.md`
+- Refresh zero-rt.md: document virtual_headers.h/preprocessor.c split, stdio/immintrin virtual header additions, 4-ISA OP_SYSCALL QEMU gate (13_syscall.c), and inline multi-ISA OP_SETJMP/OP_LONGJMP
+
+## 2026-11-05 — Updated `own-linker.md`
+- Refresh own-linker.md: reconcile cross-target zero_rt auto-linking note, document Sprint 107/108 named object/function sections via elf_writer_section_index, and link multi-tu.md
+
+## 2026-11-05 — Updated `perf-measurements.md`
+- Refresh perf-measurements.md: add §4 Algorithmic Scaling Fixes (enum/global/function open-addressing hashes, OPT_MAX_BASIC_BLOCKS/INSTRS guards, RegAllocator O(1) temp_to_interval[65536] & temp reuse)

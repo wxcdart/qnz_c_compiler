@@ -4,7 +4,7 @@ title: ZeroCC Own Linker (T2) - ELF Reader, ar Reader, Static ET_EXEC Output (x8
 description: ZeroCC's own static linker - the ELF64-LE object reader, the classic ar archive reader with greedy member extraction, symbol resolution, section layout at conventional x86-64/AArch64/RISC-V64 bases, supported relocation sets, and per-ISA generated _start stubs. Gate: make test-linker (21/21).
 resource: linker
 tags: [linker, elf, ar, aot, x86-64, aarch64, riscv64, relocations, zero-rt]
-timestamp: 2026-11-04T16:36:04Z
+timestamp: 2026-11-05T02:21:07Z
 generated: pi-agent
 verified: engineering-lead
 status: active
@@ -22,8 +22,9 @@ directly-executable **static ET_EXEC** (no libc, no crt files): two
 must share one `e_machine` (mixed-architecture link is an error). The
 per-ISA differences: text base (`0x401000` x86-64, `0x400000` AArch64, `0x10000` RISC-V64 —
 standard static conventions), the relocation sets, and the `_start` stub
-bytes. zero_rt Phase 0 is the first customer (x86-64; a cross zero_rt is
-Phase 1, so `--zerocc-link` only auto-links `zero_rt.a` for x86-64).
+bytes. `--zerocc-link` auto-links the matching freestanding [Zero_RT](./zero-rt.md) archive
+(`zero_rt.a` for x86-64, `zero_rt_aarch64.a` for AArch64, `zero_rt_riscv64.a` for RISC-V64;
+pass `--no-zerocc-rt` to link against the raw `_start` stub alone).
 
 This is the next step on the zero_rt critical path (T1 driver → **T2 own
 linker** → T3 runtime): zero_rt Phase 0 is its first customer.
@@ -158,6 +159,10 @@ misresolved the global (segfault; ld bound it `ABS`). Fixed by
 section, 0 if absent) replacing every hardcoded position. Invariant:
 **call sites that add symbols or relocations must resolve the section
 index by name after the sections are added — never assume a position.**
+This invariant is also relied on by `__attribute__((section("name")))` on
+global objects (Sprint 107) and functions (Sprint 108) in `compile_object_single`
+([`src/main.c`](../../src/main.c)), which emit dedicated `PROGBITS`/`NOBITS`/`EXECINSTR`
+sections and bind each symbol's `shndx` via `elf_writer_section_index`.
 
 ## Known limitations (documented, not bugs)
 
@@ -172,5 +177,5 @@ index by name after the sections are added — never assume a position.**
 sprint: the emitter now produces the correct object shape — a `.rela..data`
 `R_X86_64_64` against the UND symbol, via a kind-2 by-name data reloc —
 and all three paths (own linker, system linker, JIT merge) resolve it.
-See `multi-tu.md`; the `cross_ptr` / `cross_ptr_gccobj` battery cases
+See [multi-tu.md](./multi-tu.md); the `cross_ptr` / `cross_ptr_gccobj` battery cases
 cover both object shapes.)

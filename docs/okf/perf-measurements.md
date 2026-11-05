@@ -4,7 +4,7 @@ title: Performance Measurements & the JIT-vs-GCC Claim
 description: Measured per-pass optimizer costs (--profile-opts) before/after the Sprint 35 CFG migration, the re-measured JIT-vs-GCC compile-time comparison (the old "~78x faster than GCC" figure is retracted), the dominant mem2reg cost analysis, and the 16-bit temp-id OOB bugs the measurement exposed.
 resource: concepts/perf-measurements
 tags: [performance, profiling, jit, gcc, benchmark, opt-profile, mem2reg, temp-id]
-timestamp: 2026-10-20T02:28:04Z
+timestamp: 2026-11-05T02:21:07Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -133,7 +133,24 @@ Lesson recorded: **any table keyed by temp id must be sized for the full
 16-bit temp-id space** (or bounds-checked), same for instruction-index tables
 which must be sized by `ir_get_count()`, never by a loop-body cap.
 
-## 4. Reproducing
+## 4. Algorithmic Scaling Fixes Exposed by `c-torture` Stress Tests (Sprints 58–89)
+
+Burning down `TIMEOUT`s and `REJECT`s across the 3,940-test GCC `c-torture` corpus ([c-torture-gate.md](./c-torture-gate.md)) exposed five quadratic $O(N^2)$ bottlenecks in symbol lookup, IR optimization, and register allocation:
+
+1. **Enum Constant Open-Addressing Hash Table (Sprint 58)**:
+   - `compile/limits-enumconst.c` (100,000 enum constants) hung in linear `strcmp` scans during enum registration and lookup. Replaced with an open-addressing hash table for $O(1)$ enum constant resolution.
+2. **Global Variable FNV-1a Hash Table (Sprint 65, [`src/zero_cc/types/global_vars.h`](../../src/zero_cc/types/global_vars.h))**:
+   - Replaced the $O(N)$ `find_global_var` linear scan over `c->globals[]` with an FNV-1a open-addressing hash table once hundreds of file-scope globals were unblocked in `c-torture`.
+3. **Function Symbol Open-Addressing Hash Table (Sprint 67, [`src/zero_cc/types/symbol_mgmt.h`](../../src/zero_cc/types/symbol_mgmt.h))**:
+   - `compile/limits-externdecl.c` (100,000 `extern int x();` declarations) triggered $\approx 5 \times 10^9$ `strcmp` calls in `zero_cc_find_function` (8.6 s `TIMEOUT`). Added an incremental open-addressing hash with same-name chains (preserving definition-over-prototype preference), reducing parse time to **0.31 s**.
+4. **Optimizer Superlinear Pass Guards on Giant Functions (Sprint 89, [`src/zero_cc/opt/opt_pass.c`](../../src/zero_cc/opt/opt_pass.c))**:
+   - `execute/20090113-2.c` and `execute/20090113-3.c` timed out in multi-pass dataflow analyses (`cse`, `gvn`, `licm`, `mem2reg`) on giant generated functions. Added `OPT_MAX_BASIC_BLOCKS` (`512`) and `OPT_MAX_INSTRS` (`8192`) thresholds in `opt_run_passes` to bypass superlinear whole-CFG passes on massive functions while keeping linear local passes active.
+5. **`RegAllocator` $O(1)$ `temp_to_interval[65536]` & Statement-Local Temp Reuse (Sprint 89, [`src/zero_cc/ir/regalloc.h`](../../src/zero_cc/ir/regalloc.h), [`src/zero_cc/ir/ast_lowering_stmt.c`](../../src/zero_cc/ir/ast_lowering_stmt.c))**:
+   - `compile/limits-caselabels.c` and `compile/20001226-1.c` (8,192 sequential `if (a > b) goto gt;` statements, originally allocating 188,421 temporaries and exceeding the 16-bit `65,534` temp-id cap) exposed two issues:
+     - Statement-local expression temporaries in `collect_switch_cases` and `lower_stmt_if` (outside loops once `next_temp_id > 1024`) are dead at the statement boundary and now recycle `next_temp_id`, keeping peak temp IDs around `~1,050`.
+     - `regalloc_get_reg_for_temp`, `regalloc_get_spill_slot_for_temp`, `regalloc_get_class_for_temp`, and `regalloc_reg_conflicts_fixed` previously scanned `ra->intervals[0..interval_count]` linearly on every instruction operand ($1.8 \times 10^5 \text{ instrs} \times 3 \times 3.2 \times 10^4 \approx 1.7 \times 10^{10}$ iterations, causing a >10 s `TIMEOUT` in `emit_ir_to_machine_code`). Adding `temp_to_interval[65536]` and `fixed_interval_indices[256]` to `RegAllocator` made all temp-to-interval lookups **$O(1)$**, reducing `compile/20001226-1.c` compile time from **>10 s (`TIMEOUT`) to <0.4 s**.
+
+## 5. Reproducing
 
 ```bash
 # per-pass profile (AOT; the JIT path also honors --profile-opts)
