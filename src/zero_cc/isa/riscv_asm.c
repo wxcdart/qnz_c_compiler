@@ -136,10 +136,22 @@ static void riscv_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
     }
 
     const char *st_op = (c->isa == ISA_RISCV32) ? "sw" : "sd";
-    fprintf(out, "\taddi\tsp, sp, -%zu\n", total_alloc);
-    fprintf(out, "\t%s\tra, %zu(sp)\n", st_op, aligned_sz + ((c->isa == ISA_RISCV32) ? 4 : 8));
-    fprintf(out, "\t%s\ts0, %zu(sp)\n", st_op, aligned_sz);
-    fprintf(out, "\taddi\ts0, sp, %zu\n", aligned_sz);
+    if (total_alloc > 2047 || aligned_sz > 2047) {
+        /* Large frame (many spilled 128-bit temps): addi/12-bit store offsets
+         * cannot express the frame; build the addresses in scratch regs and
+         * save ra/s0 relative to the freshly computed s0. (Sprint 109) */
+        fprintf(out, "\tli\tt0, %zu\n", total_alloc);
+        fprintf(out, "\tsub\tsp, sp, t0\n");
+        fprintf(out, "\tli\tt1, %zu\n", aligned_sz);
+        fprintf(out, "\tadd\ts0, sp, t1\n");
+        fprintf(out, "\t%s\tra, %d(s0)\n", st_op, (c->isa == ISA_RISCV32) ? 4 : 8);
+        fprintf(out, "\t%s\ts0, 0(s0)\n", st_op);
+    } else {
+        fprintf(out, "\taddi\tsp, sp, -%zu\n", total_alloc);
+        fprintf(out, "\t%s\tra, %zu(sp)\n", st_op, aligned_sz + ((c->isa == ISA_RISCV32) ? 4 : 8));
+        fprintf(out, "\t%s\ts0, %zu(sp)\n", st_op, aligned_sz);
+        fprintf(out, "\taddi\ts0, sp, %zu\n", aligned_sz);
+    }
 
     /* Save callee-saved registers s1..s11 at -offset(s0) (only allocated ones) */
     const int *callee_saved = BE(c)->conv->callee_saved_gpr;
@@ -259,8 +271,10 @@ static void riscv_emit_load_asm(ZeroCCCompiler *c, int dst, int base, int32_t of
     if (offset >= -2048 && offset <= 2047) {
         fprintf(out, "\t%s\t%s, %d(%s)\n", op, dst_name, offset, base_name);
     } else {
-        /* S/I-type immediates are 12-bit; large frames need a register base */
-        int scratch = (dst != 5) ? 5 : 6; /* t0 (or t1 if dst is t0) */
+        /* S/I-type immediates are 12-bit; large frames need a register base.
+         * t5 (x30) is the reserved address scratch (Sprint 109): t0/t1 may
+         * hold a live 64-bit spill reload at this point. */
+        int scratch = (dst != 30 && base != 30) ? 30 : ((dst != 5 && base != 5) ? 5 : 6);
         const char *sc_name = BE(c)->get_hw_reg_name(scratch);
         fprintf(out, "\tli\t%s, %d\n", sc_name, (int)offset);
         fprintf(out, "\tadd\t%s, %s, %s\n", sc_name, base_name, sc_name);
@@ -276,8 +290,9 @@ static void riscv_emit_store_asm(ZeroCCCompiler *c, int src, int base, int32_t o
     if (offset >= -2048 && offset <= 2047) {
         fprintf(out, "\t%s\t%s, %d(%s)\n", op, src_name, offset, base_name);
     } else {
-        /* S/I-type immediates are 12-bit; large frames need a register base */
-        int scratch = (src != 5) ? 5 : 6; /* t0 (or t1 if src is t0) */
+        /* S/I-type immediates are 12-bit; large frames need a register base
+         * (t5 = reserved address scratch; see riscv_emit_load_asm). */
+        int scratch = (src != 30 && base != 30) ? 30 : ((src != 5 && base != 5) ? 5 : 6);
         const char *sc_name = BE(c)->get_hw_reg_name(scratch);
         fprintf(out, "\tli\t%s, %d\n", sc_name, (int)offset);
         fprintf(out, "\tadd\t%s, %s, %s\n", sc_name, base_name, sc_name);
@@ -500,9 +515,12 @@ static void riscv_emit_lea_asm(ZeroCCCompiler *c, int dst, int base, int32_t off
     if (offset >= -2048 && offset <= 2047) {
         fprintf(out, "\taddi\t%s, %s, %d\n", dst_name, base_name, offset);
     } else {
-        /* addi's 12-bit immediate caps offsets at +/-2047 */
-        fprintf(out, "\tli\tt0, %d\n", offset);
-        fprintf(out, "\tadd\t%s, %s, t0\n", dst_name, base_name);
+        /* addi's 12-bit immediate caps offsets at +/-2047 (t5 = reserved
+         * address scratch; t0 may hold a live spill reload). */
+        int scratch = (dst != 30 && base != 30) ? 30 : ((dst != 5 && base != 5) ? 5 : 6);
+        const char *sc_name = BE(c)->get_hw_reg_name(scratch);
+        fprintf(out, "\tli\t%s, %d\n", sc_name, offset);
+        fprintf(out, "\tadd\t%s, %s, %s\n", dst_name, base_name, sc_name);
     }
 }
 
@@ -808,14 +826,26 @@ static void riscv_emit_jge_asm(ZeroCCCompiler *, const char *label, FILE *out) {
 static void riscv_emit_load_fp_asm(ZeroCCCompiler *c, int dst, int base, int32_t offset, FILE *out) {
     const char *dst_name = BE(c)->regs->fp_regs[dst];
     const char *base_name = BE(c)->get_hw_reg_name(base);
-    fprintf(out, "\tfld\t%s, %d(%s)\n", dst_name, offset, base_name);
+    if (offset >= -2048 && offset <= 2047) {
+        fprintf(out, "\tfld\t%s, %d(%s)\n", dst_name, offset, base_name);
+    } else {
+        fprintf(out, "\tli\tt5, %d\n", (int)offset);
+        fprintf(out, "\tadd\tt5, %s, t5\n", base_name);
+        fprintf(out, "\tfld\t%s, 0(t5)\n", dst_name);
+    }
 }
 
 /* FP STORE: fsd fa, offset(base) */
 static void riscv_emit_store_fp_asm(ZeroCCCompiler *c, int src, int base, int32_t offset, FILE *out) {
     const char *src_name = BE(c)->regs->fp_regs[src];
     const char *base_name = BE(c)->get_hw_reg_name(base);
-    fprintf(out, "\tfsd\t%s, %d(%s)\n", src_name, offset, base_name);
+    if (offset >= -2048 && offset <= 2047) {
+        fprintf(out, "\tfsd\t%s, %d(%s)\n", src_name, offset, base_name);
+    } else {
+        fprintf(out, "\tli\tt5, %d\n", (int)offset);
+        fprintf(out, "\tadd\tt5, %s, t5\n", base_name);
+        fprintf(out, "\tfsd\t%s, 0(t5)\n", src_name);
+    }
 }
 
 /* FP ADD: fadd.s/d dst, src1, src2 */
@@ -1195,6 +1225,167 @@ static void riscv_emit_vcmpsd_asm(ZeroCCCompiler *c, int, int src1, int src2, in
     fprintf(out, "\tfeq.d\tt0, %s, %s\n", src1_name, src2_name);
 }
 
+/* =========================================================================
+ * GNU __int128 (Sprint 109): 128-bit ops, RISC-V text forms. RISC-V has no
+ * carry flag, so carry/borrow are computed with sltu into t0 (reg 5), mirroring
+ * the raw emitters in riscv.c. mul128 also uses t0 as its working scratch.
+ * ========================================================================= */
+static void riscv_emit_add128_asm(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi, FILE *out) {
+    const char *dlo_n = BE(c)->get_hw_reg_name(dlo), *dhi_n = BE(c)->get_hw_reg_name(dhi);
+    const char *alo_n = BE(c)->get_hw_reg_name(alo), *ahi_n = BE(c)->get_hw_reg_name(ahi);
+    const char *blo_n = BE(c)->get_hw_reg_name(blo), *bhi_n = BE(c)->get_hw_reg_name(bhi);
+    const char *t0_n = BE(c)->get_hw_reg_name(5);
+    if (dlo == alo) {
+        fprintf(out, "\tmv\t%s, %s\n", t0_n, alo_n);
+        fprintf(out, "\tadd\t%s, %s, %s\n", dlo_n, alo_n, blo_n);
+        fprintf(out, "\tsltu\t%s, %s, %s\n", t0_n, dlo_n, t0_n); /* carry: sum < addend */
+    } else {
+        fprintf(out, "\tadd\t%s, %s, %s\n", dlo_n, alo_n, blo_n);
+        fprintf(out, "\tsltu\t%s, %s, %s\n", t0_n, dlo_n, alo_n); /* carry: sum < addend */
+    }
+    fprintf(out, "\tadd\t%s, %s, %s\n", dhi_n, ahi_n, bhi_n);
+    fprintf(out, "\tadd\t%s, %s, %s\n", dhi_n, dhi_n, t0_n);
+}
+static void riscv_emit_sub128_asm(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi, FILE *out) {
+    const char *dlo_n = BE(c)->get_hw_reg_name(dlo), *dhi_n = BE(c)->get_hw_reg_name(dhi);
+    const char *alo_n = BE(c)->get_hw_reg_name(alo), *ahi_n = BE(c)->get_hw_reg_name(ahi);
+    const char *blo_n = BE(c)->get_hw_reg_name(blo), *bhi_n = BE(c)->get_hw_reg_name(bhi);
+    const char *t0_n = BE(c)->get_hw_reg_name(5);
+    fprintf(out, "\tsltu\t%s, %s, %s\n", t0_n, alo_n, blo_n); /* borrow: minuend < subtrahend (must precede sub in case dlo == alo) */
+    fprintf(out, "\tsub\t%s, %s, %s\n", dlo_n, alo_n, blo_n);
+    fprintf(out, "\tsub\t%s, %s, %s\n", dhi_n, ahi_n, bhi_n);
+    fprintf(out, "\tsub\t%s, %s, %s\n", dhi_n, dhi_n, t0_n);
+}
+static void riscv_emit_mul128_asm(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi, FILE *out) {
+    const char *dlo_n = BE(c)->get_hw_reg_name(dlo), *dhi_n = BE(c)->get_hw_reg_name(dhi);
+    const char *alo_n = BE(c)->get_hw_reg_name(alo), *ahi_n = BE(c)->get_hw_reg_name(ahi);
+    const char *blo_n = BE(c)->get_hw_reg_name(blo), *bhi_n = BE(c)->get_hw_reg_name(bhi);
+    const char *t0_n = BE(c)->get_hw_reg_name(5);
+    fprintf(out, "\tmul\t%s, %s, %s\n", dlo_n, alo_n, blo_n);
+    fprintf(out, "\tmulhu\t%s, %s, %s\n", dhi_n, alo_n, blo_n);
+    fprintf(out, "\tmul\t%s, %s, %s\n", t0_n, alo_n, bhi_n);
+    fprintf(out, "\tadd\t%s, %s, %s\n", dhi_n, dhi_n, t0_n);
+    fprintf(out, "\tmul\t%s, %s, %s\n", t0_n, ahi_n, blo_n);
+    fprintf(out, "\tadd\t%s, %s, %s\n", dhi_n, dhi_n, t0_n);
+}
+static void riscv_emit_mul128_spilled_asm(ZeroCCCompiler *c,
+                                          int32_t d_lo, int32_t d_hi,
+                                          int32_t a_lo, int32_t a_hi,
+                                          int32_t b_lo, int32_t b_hi, FILE *out) {
+    /* Spilled MUL128 (Sprint 109): all operands in frame slots. Uses only the
+     * reserved 128-bit scratch registers (never hold a live value): pair0
+     * (plo,phi) and pair1.lo (b1). */
+    int plo = BE(c)->g128_scratch_lo[0], phi = BE(c)->g128_scratch_hi[0];
+    int b1 = BE(c)->g128_scratch_lo[1];
+    int base = zero_cc_frame_base_reg(c);
+    const char *plo_n = BE(c)->get_hw_reg_name(plo), *phi_n = BE(c)->get_hw_reg_name(phi);
+    const char *b1_n = BE(c)->get_hw_reg_name(b1);
+    /* P0 = a_lo * b_lo */
+    riscv_emit_load_asm(c, plo, base, a_lo, out);
+    riscv_emit_load_asm(c, b1, base, b_lo, out);
+    fprintf(out, "\tmulhu\t%s, %s, %s\n", phi_n, plo_n, b1_n);
+    fprintf(out, "\tmul\t%s, %s, %s\n", b1_n, plo_n, b1_n);
+    riscv_emit_store_asm(c, b1, base, d_lo, out);
+    riscv_emit_store_asm(c, phi, base, d_hi, out);
+    /* P1 = a_lo * b_hi; dhi += P1.lo */
+    riscv_emit_load_asm(c, b1, base, b_hi, out);
+    fprintf(out, "\tmul\t%s, %s, %s\n", phi_n, plo_n, b1_n);
+    riscv_emit_load_asm(c, b1, base, d_hi, out);
+    fprintf(out, "\tadd\t%s, %s, %s\n", b1_n, b1_n, phi_n);
+    riscv_emit_store_asm(c, b1, base, d_hi, out);
+    /* P2 = a_hi * b_lo; dhi += P2.lo */
+    riscv_emit_load_asm(c, plo, base, a_hi, out);
+    riscv_emit_load_asm(c, b1, base, b_lo, out);
+    fprintf(out, "\tmul\t%s, %s, %s\n", phi_n, plo_n, b1_n);
+    riscv_emit_load_asm(c, b1, base, d_hi, out);
+    fprintf(out, "\tadd\t%s, %s, %s\n", b1_n, b1_n, phi_n);
+    riscv_emit_store_asm(c, b1, base, d_hi, out);
+}
+static void riscv_emit_and128_asm(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi, FILE *out) {
+    const char *dlo_n = BE(c)->get_hw_reg_name(dlo), *dhi_n = BE(c)->get_hw_reg_name(dhi);
+    const char *alo_n = BE(c)->get_hw_reg_name(alo), *ahi_n = BE(c)->get_hw_reg_name(ahi);
+    const char *blo_n = BE(c)->get_hw_reg_name(blo), *bhi_n = BE(c)->get_hw_reg_name(bhi);
+    fprintf(out, "\tand\t%s, %s, %s\n", dlo_n, alo_n, blo_n);
+    fprintf(out, "\tand\t%s, %s, %s\n", dhi_n, ahi_n, bhi_n);
+}
+static void riscv_emit_or128_asm(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi, FILE *out) {
+    const char *dlo_n = BE(c)->get_hw_reg_name(dlo), *dhi_n = BE(c)->get_hw_reg_name(dhi);
+    const char *alo_n = BE(c)->get_hw_reg_name(alo), *ahi_n = BE(c)->get_hw_reg_name(ahi);
+    const char *blo_n = BE(c)->get_hw_reg_name(blo), *bhi_n = BE(c)->get_hw_reg_name(bhi);
+    fprintf(out, "\tor\t%s, %s, %s\n", dlo_n, alo_n, blo_n);
+    fprintf(out, "\tor\t%s, %s, %s\n", dhi_n, ahi_n, bhi_n);
+}
+static void riscv_emit_xor128_asm(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi, FILE *out) {
+    const char *dlo_n = BE(c)->get_hw_reg_name(dlo), *dhi_n = BE(c)->get_hw_reg_name(dhi);
+    const char *alo_n = BE(c)->get_hw_reg_name(alo), *ahi_n = BE(c)->get_hw_reg_name(ahi);
+    const char *blo_n = BE(c)->get_hw_reg_name(blo), *bhi_n = BE(c)->get_hw_reg_name(bhi);
+    fprintf(out, "\txor\t%s, %s, %s\n", dlo_n, alo_n, blo_n);
+    fprintf(out, "\txor\t%s, %s, %s\n", dhi_n, ahi_n, bhi_n);
+}
+static void riscv_emit_not128_asm(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi, FILE *out) {
+    const char *dlo_n = BE(c)->get_hw_reg_name(dlo), *dhi_n = BE(c)->get_hw_reg_name(dhi);
+    const char *slo_n = BE(c)->get_hw_reg_name(slo), *shi_n = BE(c)->get_hw_reg_name(shi);
+    if (dlo != slo) fprintf(out, "\tmv\t%s, %s\n", dlo_n, slo_n);
+    fprintf(out, "\txori\t%s, %s, -1\n", dlo_n, dlo_n);
+    if (dhi != shi) fprintf(out, "\tmv\t%s, %s\n", dhi_n, shi_n);
+    fprintf(out, "\txori\t%s, %s, -1\n", dhi_n, dhi_n);
+}
+static void riscv_emit_neg128_asm(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi, FILE *out) {
+    const char *dlo_n = BE(c)->get_hw_reg_name(dlo), *dhi_n = BE(c)->get_hw_reg_name(dhi);
+    const char *slo_n = BE(c)->get_hw_reg_name(slo), *shi_n = BE(c)->get_hw_reg_name(shi);
+    const char *t0_n = BE(c)->get_hw_reg_name(5);
+    /* -x = 0 - x. borrow of 0-slo = (slo != 0), computed with sltu into t0 before slo clobber. */
+    fprintf(out, "\tsltu\t%s, zero, %s\n", t0_n, slo_n);
+    fprintf(out, "\tsub\t%s, zero, %s\n", dlo_n, slo_n);
+    fprintf(out, "\tsub\t%s, zero, %s\n", dhi_n, shi_n);
+    fprintf(out, "\tsub\t%s, %s, %s\n", dhi_n, dhi_n, t0_n);
+}
+static void riscv_emit_mov128_asm(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi, FILE *out) {
+    const char *dlo_n = BE(c)->get_hw_reg_name(dlo), *dhi_n = BE(c)->get_hw_reg_name(dhi);
+    const char *slo_n = BE(c)->get_hw_reg_name(slo), *shi_n = BE(c)->get_hw_reg_name(shi);
+    if (dlo != slo) fprintf(out, "\tmv\t%s, %s\n", dlo_n, slo_n);
+    if (dhi != shi) fprintf(out, "\tmv\t%s, %s\n", dhi_n, shi_n);
+}
+static void riscv_emit_mov128_imm_asm(ZeroCCCompiler *c, int dlo, int dhi, int64_t imm, FILE *out) {
+    const char *dlo_n = BE(c)->get_hw_reg_name(dlo), *dhi_n = BE(c)->get_hw_reg_name(dhi);
+    fprintf(out, "\tli\t%s, %ld\n", dlo_n, (long)imm);
+    fprintf(out, "\tli\t%s, 0\n", dhi_n);
+}
+static void riscv_emit_load128_asm(ZeroCCCompiler *c, int dlo, int dhi, int base, int32_t offset, FILE *out) {
+    /* Aliasing: if dlo == base, load the hi half first (see riscv64_emit_load128). */
+    if (BE(c)->emit_load_asm) {
+        if (dlo == base) {
+            BE(c)->emit_load_asm(c, dhi, base, offset + 8, out);
+            BE(c)->emit_load_asm(c, dlo, base, offset, out);
+        } else {
+            BE(c)->emit_load_asm(c, dlo, base, offset, out);
+            BE(c)->emit_load_asm(c, dhi, base, offset + 8, out);
+        }
+    }
+}
+static void riscv_emit_store128_asm(ZeroCCCompiler *c, int slo, int shi, int base, int32_t offset, FILE *out) {
+    if (BE(c)->emit_store_asm) {
+        BE(c)->emit_store_asm(c, slo, base, offset, out);
+        BE(c)->emit_store_asm(c, shi, base, offset + 8, out);
+    }
+}
+static void riscv_emit_zext64_128_asm(ZeroCCCompiler *c, int dlo, int dhi, int src, FILE *out) {
+    const char *dlo_n = BE(c)->get_hw_reg_name(dlo), *dhi_n = BE(c)->get_hw_reg_name(dhi);
+    const char *src_n = BE(c)->get_hw_reg_name(src);
+    fprintf(out, "\tmv\t%s, %s\n", dlo_n, src_n);
+    fprintf(out, "\tli\t%s, 0\n", dhi_n);
+}
+static void riscv_emit_sext64_128_asm(ZeroCCCompiler *c, int dlo, int dhi, int src, FILE *out) {
+    const char *dlo_n = BE(c)->get_hw_reg_name(dlo), *dhi_n = BE(c)->get_hw_reg_name(dhi);
+    const char *src_n = BE(c)->get_hw_reg_name(src);
+    fprintf(out, "\tmv\t%s, %s\n", dlo_n, src_n);
+    fprintf(out, "\tsrai\t%s, %s, 63\n", dhi_n, src_n);
+}
+static void riscv_emit_trunc128_64_asm(ZeroCCCompiler *c, int dst, int slo, FILE *out) {
+    if (dst != slo)
+        fprintf(out, "\tmv\t%s, %s\n", BE(c)->get_hw_reg_name(dst), BE(c)->get_hw_reg_name(slo));
+}
+
 /* Initialize RISC-V assembly emission functions in backend */
 void riscv64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_prologue_asm = riscv_emit_prologue_asm;
@@ -1226,6 +1417,22 @@ void riscv64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_inc_asm = riscv_emit_inc_asm;
     be->emit_dec_asm = riscv_emit_dec_asm;
     be->emit_not_asm = riscv_emit_not_asm;
+    be->emit_add128_asm = riscv_emit_add128_asm;
+    be->emit_sub128_asm = riscv_emit_sub128_asm;
+    be->emit_mul128_asm = riscv_emit_mul128_asm;
+    be->emit_mul128_spilled_asm = riscv_emit_mul128_spilled_asm;
+    be->emit_and128_asm = riscv_emit_and128_asm;
+    be->emit_or128_asm = riscv_emit_or128_asm;
+    be->emit_xor128_asm = riscv_emit_xor128_asm;
+    be->emit_not128_asm = riscv_emit_not128_asm;
+    be->emit_neg128_asm = riscv_emit_neg128_asm;
+    be->emit_mov128_asm = riscv_emit_mov128_asm;
+    be->emit_mov128_imm_asm = riscv_emit_mov128_imm_asm;
+    be->emit_load128_asm = riscv_emit_load128_asm;
+    be->emit_store128_asm = riscv_emit_store128_asm;
+    be->emit_zext64_128_asm = riscv_emit_zext64_128_asm;
+    be->emit_sext64_128_asm = riscv_emit_sext64_128_asm;
+    be->emit_trunc128_64_asm = riscv_emit_trunc128_64_asm;
     be->emit_lea_asm = riscv_emit_lea_asm;
     be->emit_deref_asm = riscv_emit_deref_asm;
     be->emit_call_asm = riscv_emit_call_asm;

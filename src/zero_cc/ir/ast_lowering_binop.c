@@ -384,9 +384,13 @@ static int zc_cmp64_bool(ZeroCCCompiler *c, int x, int y, int cc) {
 }
 
 /* GNU __int128 (Sprint 109): emit a constant-count 128-bit shift of the
- * (lo,hi) pair (s_lo,s_hi) into (dlo,dhi). op is TK_SHL or TK_SHR (logical).
+ * (lo,hi) pair (s_lo,s_hi) into (dlo,dhi). op is TK_SHL or TK_SHR.  A TK_SHR
+ * is LOGICAL for unsigned types and ARITHMETIC (sign-filling) for signed
+ * __int128 (the `signed_` flag - a signed shift must fill the vacated high
+ * bits with the sign bit, which a plain logical decomposition cannot do).
  * Shared by the binop lowering and the compound-assignment (<<=, >>=) path. */
-void zc_emit_128_shift(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi, int64_t N, uint32_t op) {
+void zc_emit_128_shift(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi,
+                       int64_t N, uint32_t op, bool signed_) {
     if (op == TK_SHL) {
         if (N < 64) {
             /* dlo = s_lo << N ; dhi = (s_hi << N) | (s_lo >> (64-N)) */
@@ -400,7 +404,34 @@ void zc_emit_128_shift(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi, 
         } else if (N == 64) { ir_emit_mov_imm(c, dlo, 0); ir_emit_mov_reg(c, dhi, s_lo); }  /* s_lo moves to hi */
         else if (N < 128) { int n = c->next_temp_id++; ir_emit_mov_imm(c, n, N - 64); ir_emit_mov_imm(c, dlo, 0); ir_emit_shl(c, dhi, s_lo, n); }  /* dhi = s_lo << (N-64) */
         else { ir_emit_mov_imm(c, dlo, 0); ir_emit_mov_imm(c, dhi, 0); }
-    } else { /* TK_SHR: logical */
+    } else if (signed_) { /* TK_SHR: arithmetic (signed __int128) */
+        if (N < 64) {
+            /* dlo = (s_lo >> N) | (s_hi << (64-N)) ; dhi = s_hi >>N (arith) */
+            int n1 = c->next_temp_id++; ir_emit_mov_imm(c, n1, N);
+            int a  = c->next_temp_id++; ir_emit_shr(c, a, s_lo, n1);
+            int n2 = c->next_temp_id++; ir_emit_mov_imm(c, n2, 64 - N);
+            int b  = c->next_temp_id++; ir_emit_shl(c, b, s_hi, n2);
+            ir_emit_or(c, dlo, a, b);
+            int n3 = c->next_temp_id++; ir_emit_mov_imm(c, n3, N);
+            ir_emit_sar(c, dhi, s_hi, n3);   /* sign-fills the vacated bits */
+        } else if (N == 64) {
+            ir_emit_mov_reg(c, dlo, s_hi);
+            int n = c->next_temp_id++; ir_emit_mov_imm(c, n, 63);
+            ir_emit_sar(c, dhi, s_hi, n);    /* all-ones or all-zeros */
+        } else if (N < 128) {
+            int n  = c->next_temp_id++; ir_emit_mov_imm(c, n, N - 64);
+            ir_emit_sar(c, dlo, s_hi, n);
+            int n2 = c->next_temp_id++; ir_emit_mov_imm(c, n2, 63);
+            ir_emit_sar(c, dhi, s_hi, n2);   /* all-ones or all-zeros */
+        } else {
+            /* N >= 128: the value is its sign (0 or -1) on all practical
+             * targets (C11 6.5.7p3 leaves negative >> count >= width
+             * implementation-defined; every real target sign-fills). */
+            int n = c->next_temp_id++; ir_emit_mov_imm(c, n, 63);
+            ir_emit_sar(c, dlo, s_hi, n);
+            ir_emit_mov_reg(c, dhi, dlo);
+        }
+    } else { /* TK_SHR: logical (unsigned) */
         if (N < 64) {
             int n1 = c->next_temp_id++; ir_emit_mov_imm(c, n1, N);
             int a  = c->next_temp_id++; ir_emit_shr(c, a, s_lo, n1);
@@ -451,7 +482,7 @@ static int zc_lower_binop128(ZeroCCCompiler *c, ZeroCCASTArena *arena,
         int s_lo = c->next_temp_id++; ir_emit_lo128(c, s_lo, l);
         int s_hi = c->next_temp_id++; ir_emit_hi128(c, s_hi, l);
         int dlo = c->next_temp_id++, dhi = c->next_temp_id++;
-        zc_emit_128_shift(c, dlo, dhi, s_lo, s_hi, N, op);
+        zc_emit_128_shift(c, dlo, dhi, s_lo, s_hi, N, op, !unsigned_);
         ir_emit_mk128(c, res, dlo, dhi);
         c->last_expr_is_128 = 1;
         return res;
@@ -2380,6 +2411,17 @@ int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                     }
                     c->last_expr_is_float = 0;
                     return res_addr;
+                }
+                /* 128-bit bitwise NOT: operand is a GPR128 (lo,hi) pair, so use
+                 * NOT128, not the 64-bit ir_emit_not (which only inverts the low
+                 * half and leaves hi untouched). */
+                {
+                    TypeInfo *tilde128_ti = ast_node_get_typeinfo(c, node);
+                    if (tilde128_ti && tilde128_ti->kind == TYPE_KIND_INT128) {
+                        ir_emit_not128(c, result_temp, operand_temp);
+                        c->last_expr_is_128 = 1;
+                        break;
+                    }
                 }
                 ir_emit_not(c, result_temp, operand_temp);
                 break;

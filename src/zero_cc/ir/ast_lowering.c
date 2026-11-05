@@ -884,8 +884,8 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         fprintf(stderr, "=== Allocated Intervals (%zu) ===\n", c->regalloc.interval_count);
         for (size_t i = 0; i < c->regalloc.interval_count; i++) {
             LiveInterval *inv = &c->regalloc.intervals[i];
-            fprintf(stderr, "temp r%d (class %d): start=%zu, end=%zu -> reg %d (spill=%d)\n",
-                    inv->temp_id, inv->reg_class, inv->start, inv->end, inv->assigned_reg, inv->spill_slot);
+            fprintf(stderr, "temp r%d (class %d): start=%zu, end=%zu -> reg %d (hi=%d) (spill=%d)\n",
+                    inv->temp_id, inv->reg_class, inv->start, inv->end, inv->assigned_reg, inv->assigned_reg_hi, inv->spill_slot);
         }
     }
 

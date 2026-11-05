@@ -644,14 +644,11 @@ static void aarch64_emit_load(ZeroCCCompiler *c, int dst_reg, int base_reg, int3
         uint32_t imm9 = ((uint32_t)offset) & 0x1FF;
         arm64_emit_u32(c, 0xF8400000 | (imm9 << 12) | ((base_reg & 0x1F) << 5) | (dst_reg & 0x1F));
     } else {
+        /* Large offset: LDR (register) [base, x16]. In this addressing mode
+         * X31=SP is legal, whereas in register ADD/SUB Rn=31 encodes XZR
+         * (an `add x16, sp, x16` is therefore invalid). */
         aarch64_emit_mov_imm(c, 16, offset);
-        if ((base_reg & 0x1F) == 31) {
-            /* add x16, sp, x16 - SP is legal as Rn here (not Rm) */
-            arm64_emit_u32(c, 0x8B000000u | (16u << 16) | (31u << 5) | 16u);
-        } else {
-            arm64_emit_u32(c, 0x8B000000u | (16u << 16) | (((uint32_t)base_reg & 0x1Fu) << 5) | 16u);
-        }
-        arm64_emit_u32(c, 0xF9400000u | (16u << 5) | (dst_reg & 0x1F));
+        arm64_emit_u32(c, 0xF8606800u | (16u << 16) | ((base_reg & 0x1F) << 5) | (dst_reg & 0x1F));
     }
 }
 
@@ -668,14 +665,10 @@ static void aarch64_emit_store(ZeroCCCompiler *c, int src_reg, int base_reg, int
         uint32_t imm9 = ((uint32_t)offset) & 0x1FF;
         arm64_emit_u32(c, 0xF8000000 | (imm9 << 12) | ((base_reg & 0x1F) << 5) | (src_reg & 0x1F));
     } else {
+        /* Large offset: STR (register) [base, x16] (X31=SP is legal here;
+         * see aarch64_emit_load). */
         aarch64_emit_mov_imm(c, 16, offset);
-        if ((base_reg & 0x1F) == 31) {
-            /* add x16, sp, x16 - SP is legal as Rn here (not Rm) */
-            arm64_emit_u32(c, 0x8B000000u | (16u << 16) | (31u << 5) | 16u);
-        } else {
-            arm64_emit_u32(c, 0x8B000000u | (16u << 16) | (((uint32_t)base_reg & 0x1Fu) << 5) | 16u);
-        }
-        arm64_emit_u32(c, 0xF9000000u | (16u << 5) | (src_reg & 0x1F));
+        arm64_emit_u32(c, 0xF8206800u | (16u << 16) | ((base_reg & 0x1F) << 5) | (src_reg & 0x1F));
     }
 }
 
@@ -884,13 +877,10 @@ static void aarch64_emit_load_fp(ZeroCCCompiler *c, int dst_reg, int base_reg, i
         uint32_t imm9 = ((uint32_t)offset) & 0x1FF;
         arm64_emit_u32(c, 0xFC400000 | (imm9 << 12) | ((base_reg & 0x1F) << 5) | (dst_reg & 0x1F));
     } else {
+        /* Large offset: LDR D (register) [base, x16] (X31=SP is legal in
+         * this addressing mode; register ADD cannot use SP). */
         aarch64_emit_mov_imm(c, 16, offset);
-        if ((base_reg & 0x1F) == 31) {
-            arm64_emit_u32(c, 0x8B000000u | (16u << 16) | (31u << 5) | 16u);  /* add x16, sp, x16 */
-        } else {
-            arm64_emit_u32(c, 0x8B000000u | (16u << 16) | (((uint32_t)base_reg & 0x1Fu) << 5) | 16u);
-        }
-        arm64_emit_u32(c, 0xFD400000u | (16u << 5) | (dst_reg & 0x1F));
+        arm64_emit_u32(c, 0xFC606800u | (16u << 16) | ((base_reg & 0x1F) << 5) | (dst_reg & 0x1F));
     }
 }
 
@@ -907,13 +897,9 @@ static void aarch64_emit_store_fp(ZeroCCCompiler *c, int src_reg, int base_reg, 
         uint32_t imm9 = ((uint32_t)offset) & 0x1FF;
         arm64_emit_u32(c, 0xFC000000 | (imm9 << 12) | ((base_reg & 0x1F) << 5) | (src_reg & 0x1F));
     } else {
+        /* Large offset: STR D (register) [base, x16] (see aarch64_emit_load). */
         aarch64_emit_mov_imm(c, 16, offset);
-        if ((base_reg & 0x1F) == 31) {
-            arm64_emit_u32(c, 0x8B000000u | (16u << 16) | (31u << 5) | 16u);  /* add x16, sp, x16 */
-        } else {
-            arm64_emit_u32(c, 0x8B000000u | (16u << 16) | (((uint32_t)base_reg & 0x1Fu) << 5) | 16u);
-        }
-        arm64_emit_u32(c, 0xFD000000u | (16u << 5) | (src_reg & 0x1F));
+        arm64_emit_u32(c, 0xFC206800u | (16u << 16) | ((base_reg & 0x1F) << 5) | (src_reg & 0x1F));
     }
 }
 
@@ -938,13 +924,10 @@ static void aarch64_emit_load_single_fp(ZeroCCCompiler *c, int dst_reg, int base
         uint32_t imm9 = ((uint32_t)offset) & 0x1FF;
         arm64_emit_u32(c, 0xBC400000 | (imm9 << 12) | ((base_reg & 0x1F) << 5) | (dst_reg & 0x1F));
     } else {
+        /* Large offset: LDR S (register) [base, x16] (X31=SP is legal in
+         * this addressing mode; register ADD cannot use SP). */
         aarch64_emit_mov_imm(c, 16, offset);
-        if ((base_reg & 0x1F) == 31) {
-            arm64_emit_u32(c, 0x8B000000u | (16u << 16) | (31u << 5) | 16u);  /* add x16, sp, x16 */
-        } else {
-            arm64_emit_u32(c, 0x8B000000u | (16u << 16) | (((uint32_t)base_reg & 0x1Fu) << 5) | 16u);
-        }
-        arm64_emit_u32(c, 0xBD400000u | (16u << 5) | (dst_reg & 0x1F));
+        arm64_emit_u32(c, 0xBC606800u | (16u << 16) | ((base_reg & 0x1F) << 5) | (dst_reg & 0x1F));
     }
     /* Widen single to double: fcvt d<dst>, s<dst> */
     arm64_emit_u32(c, 0x1E22C000 | ((dst_reg & 0x1F) << 5) | (dst_reg & 0x1F));
@@ -959,13 +942,9 @@ static void aarch64_emit_store_single_fp(ZeroCCCompiler *c, int src_reg, int bas
         uint32_t imm9 = ((uint32_t)offset) & 0x1FF;
         arm64_emit_u32(c, 0xBC000000 | (imm9 << 12) | ((base_reg & 0x1F) << 5) | tmp_fp);
     } else {
+        /* Large offset: STR S (register) [base, x16] (see aarch64_emit_load). */
         aarch64_emit_mov_imm(c, 16, offset);
-        if ((base_reg & 0x1F) == 31) {
-            arm64_emit_u32(c, 0x8B000000u | (16u << 16) | (31u << 5) | 16u);  /* add x16, sp, x16 */
-        } else {
-            arm64_emit_u32(c, 0x8B000000u | (16u << 16) | (((uint32_t)base_reg & 0x1Fu) << 5) | 16u);
-        }
-        arm64_emit_u32(c, 0xBD000000u | (16u << 5) | tmp_fp);
+        arm64_emit_u32(c, 0xBC206800u | (16u << 16) | ((base_reg & 0x1F) << 5) | tmp_fp);
     }
 }
 
@@ -1641,6 +1620,94 @@ static void aarch64_emit_mul128(ZeroCCCompiler *c, int dlo, int dhi, int alo, in
     arm64_emit_u32(c, 0x9B007C00u | ((blo & 0x1F) << 16) | ((ahi & 0x1F) << 5) | (t2 & 0x1F));  /* mul t2, ahi, blo */
     aarch64_emit_add(c, dhi, dhi, t2);
 }
+static void aarch64_emit_mul128_spilled(ZeroCCCompiler *c,
+                                        int32_t d_lo, int32_t d_hi,
+                                        int32_t a_lo, int32_t a_hi,
+                                        int32_t b_lo, int32_t b_hi) {
+    /* Spilled MUL128 (Sprint 109): all operands live in frame slots. Uses
+     * only the reserved 128-bit scratch pairs (never hold a live value):
+     * pair0 (lo,hi) holds the current product, pair1.lo the second factor. */
+    int base = zero_cc_frame_base_reg(c);
+    int plo = BE(c)->g128_scratch_lo[0], phi = BE(c)->g128_scratch_hi[0];
+    int b1lo = BE(c)->g128_scratch_lo[1];
+    /* P0 = a_lo * b_lo: phi=P0.hi (umulh FIRST - the following mul overwrites
+     * plo, which holds a_lo), plo=P0.lo (mul) */
+    BE(c)->emit_load(c, plo, base, a_lo);
+    BE(c)->emit_load(c, b1lo, base, b_lo);
+    arm64_emit_u32(c, 0x9BC07C00u | ((b1lo & 0x1F) << 16) | ((plo & 0x1F) << 5) | (phi & 0x1F)); /* umulh phi, plo, b1lo */
+    arm64_emit_u32(c, 0x9B007C00u | ((b1lo & 0x1F) << 16) | ((plo & 0x1F) << 5) | (plo & 0x1F)); /* mul plo, plo, b1lo */
+    BE(c)->emit_store(c, plo, base, d_lo);
+    BE(c)->emit_store(c, phi, base, d_hi);
+    /* P1 = a_lo * b_hi; dhi += P1.lo */
+    BE(c)->emit_load(c, plo, base, a_lo);
+    BE(c)->emit_load(c, b1lo, base, b_hi);
+    arm64_emit_u32(c, 0x9B007C00u | ((b1lo & 0x1F) << 16) | ((plo & 0x1F) << 5) | (plo & 0x1F)); /* mul plo, plo, b1lo */
+    BE(c)->emit_load(c, b1lo, base, d_hi);
+    aarch64_emit_add(c, b1lo, b1lo, plo);
+    BE(c)->emit_store(c, b1lo, base, d_hi);
+    /* P2 = a_hi * b_lo; dhi += P2.lo */
+    BE(c)->emit_load(c, plo, base, a_hi);
+    BE(c)->emit_load(c, b1lo, base, b_lo);
+    arm64_emit_u32(c, 0x9B007C00u | ((b1lo & 0x1F) << 16) | ((plo & 0x1F) << 5) | (plo & 0x1F)); /* mul plo, plo, b1lo */
+    BE(c)->emit_load(c, b1lo, base, d_hi);
+    aarch64_emit_add(c, b1lo, b1lo, plo);
+    BE(c)->emit_store(c, b1lo, base, d_hi);
+}
+/* MUL128 with an arbitrary mix of register-pair / frame-slot operands
+ * (Sprint 109 1-scratch-pair fix). Each of d/a/b is either REG (physical
+ * registers) or MEM (frame displacements), per the *_mem flags. Uses only
+ * the four reserved 128-bit scratch registers (pair0 = plo/phi, pair1 =
+ * b1/hi1); d is written last so d may alias a or b. */
+static void aarch64_emit_mul128_mixed(ZeroCCCompiler *c,
+                                      int d_mem, int d_lo, int d_hi,
+                                      int a_mem, int a_lo, int a_hi,
+                                      int b_mem, int b_lo, int b_hi) {
+    int base = zero_cc_frame_base_reg(c);
+    int plo = BE(c)->g128_scratch_lo[0], phi = BE(c)->g128_scratch_hi[0];
+    int b1 = BE(c)->g128_scratch_lo[1], b1h = BE(c)->g128_scratch_hi[1];
+    /* load a half into a scratch reg (mov if REG, ldr if MEM) */
+    #define A_LOAD(reg, home, is_mem) \
+        do { if (is_mem) BE(c)->emit_load(c, (reg), base, (home)); \
+             else aarch64_emit_mov_reg(c, (reg), (home)); } while (0)
+    /* P0 = a_lo * b_lo: phi=P0.hi (umulh FIRST - the following mul overwrites
+     * plo, which holds a_lo), plo=P0.lo (mul) */
+    A_LOAD(plo, a_lo, a_mem);
+    A_LOAD(b1, b_lo, b_mem);
+    arm64_emit_u32(c, 0x9BC07C00u | ((b1 & 0x1F) << 16) | ((plo & 0x1F) << 5) | (phi & 0x1F)); /* umulh phi, plo, b1 */
+    arm64_emit_u32(c, 0x9B007C00u | ((b1 & 0x1F) << 16) | ((plo & 0x1F) << 5) | (plo & 0x1F)); /* mul plo, plo, b1 */
+    aarch64_emit_mov_reg(c, b1h, plo);  /* stash P0.lo (plo is reused below) */
+    /* P1 = a_lo * b_hi; d_hi += P1.lo */
+    A_LOAD(plo, a_lo, a_mem);
+    A_LOAD(b1, b_hi, b_mem);
+    arm64_emit_u32(c, 0x9B007C00u | ((b1 & 0x1F) << 16) | ((plo & 0x1F) << 5) | (plo & 0x1F)); /* mul plo, plo, b1 */
+    if (d_mem) {
+        BE(c)->emit_load(c, b1, base, d_hi);
+        aarch64_emit_add(c, b1, b1, plo);
+        BE(c)->emit_store(c, b1, base, d_hi);
+    } else {
+        aarch64_emit_add(c, d_hi, d_hi, plo);
+    }
+    /* P2 = a_hi * b_lo; d_hi += P2.lo */
+    A_LOAD(plo, a_hi, a_mem);
+    A_LOAD(b1, b_lo, b_mem);
+    arm64_emit_u32(c, 0x9B007C00u | ((b1 & 0x1F) << 16) | ((plo & 0x1F) << 5) | (plo & 0x1F)); /* mul plo, plo, b1 */
+    if (d_mem) {
+        BE(c)->emit_load(c, b1, base, d_hi);
+        aarch64_emit_add(c, b1, b1, plo);
+        BE(c)->emit_store(c, b1, base, d_hi);
+    } else {
+        aarch64_emit_add(c, d_hi, d_hi, plo);
+    }
+    /* write d last (d may alias a or b) */
+    if (d_mem) {
+        BE(c)->emit_store(c, b1h, base, d_lo);
+        BE(c)->emit_store(c, phi, base, d_hi);
+    } else {
+        aarch64_emit_mov_reg(c, d_lo, b1h);
+        aarch64_emit_mov_reg(c, d_hi, phi);
+    }
+    #undef A_LOAD
+}
 static void aarch64_emit_and128(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi) {
     aarch64_emit_and(c, dlo, alo, blo); aarch64_emit_and(c, dhi, ahi, bhi);
 }
@@ -1655,16 +1722,26 @@ static void aarch64_emit_not128(ZeroCCCompiler *c, int dlo, int dhi, int slo, in
 }
 static void aarch64_emit_neg128(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi) {
     /* -x = 0 - x. low = 0-slo must SET the C flag (borrow) for the high sbc, so
-     * use the flag-setting SUBS (0xEB S=1), not plain SUB (0xCB S=0). */
-    arm64_emit_u32(c, 0xEB000000u | ((slo & 0x1F) << 5) | (dlo & 0x1F));        /* subs dlo, xzr, slo (set CF) */
+     * use the flag-setting SUBS (0xEB S=1), not plain SUB (0xCB S=0).
+     * Extended-register SUBS: Rn = xzr (31), Rm = slo. (The earlier encoding
+     * put slo in Rn and nothing in Rm - `subs dlo, slo, xzr` - which computed
+     * dlo = slo instead of 0 - slo.) */
+    arm64_emit_u32(c, 0xEB000000u | ((slo & 0x1F) << 16) | (31u << 5) | (dlo & 0x1F));        /* subs dlo, xzr, slo (set CF) */
     arm64_emit_u32(c, 0xDA000000u | ((shi & 0x1F) << 16) | (31u << 5) | (dhi & 0x1F)); /* sbc dhi, xzr, shi */
 }
 static void aarch64_emit_mov128(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi) {
     aarch64_emit_mov_reg(c, dlo, slo); aarch64_emit_mov_reg(c, dhi, shi);
 }
 static void aarch64_emit_load128(ZeroCCCompiler *c, int dlo, int dhi, int base, int32_t offset) {
-    aarch64_emit_load(c, dlo, base, offset);
-    aarch64_emit_load(c, dhi, base, offset + 8);
+    /* Aliasing: if dlo == base, load the hi half first (see x86 note); the
+     * self-referential lo load `ldr dlo, [base]` is safe on AArch64. */
+    if (dlo == base) {
+        aarch64_emit_load(c, dhi, base, offset + 8);
+        aarch64_emit_load(c, dlo, base, offset);
+    } else {
+        aarch64_emit_load(c, dlo, base, offset);
+        aarch64_emit_load(c, dhi, base, offset + 8);
+    }
 }
 static void aarch64_emit_store128(ZeroCCCompiler *c, int slo, int shi, int base, int32_t offset) {
     aarch64_emit_store(c, slo, base, offset);
@@ -1696,6 +1773,13 @@ ZeroCCISABackend aarch64_backend = {  /* writable: ASM emit pointers are filled 
     .scratch_reg2 = 10,                        /* x10 (non-argument/return) */
     .fp_scratch_reg1 = REGALLOC_FP_SCRATCH1,  /* d15 - outside XMM pool 0-7 */
     .fp_scratch_reg2 = REGALLOC_FP_SCRATCH2,   /* d14 - outside XMM pool 0-7 */
+    /* 128-bit spill scratch (reserved; not in the 64-bit or GPR128 pools, and
+     * NOT x9/x10 which the AArch64 mul128 uses as internal scratch, and NOT
+     * x16 which is the dedicated large-offset address scratch):
+     * pair0 = (x8, x17), pair1 = (x15, x18). */
+    .g128_scratch_lo = {8, 15},
+    .g128_scratch_hi = {17, 18},
+    .g128_scratch_pair_count = 2,
     .callee_save_frame_reserve = 96,           /* 12 callee-saved regs: x19-x30 */
 
     .emit_prologue = aarch64_emit_prologue,
@@ -1734,6 +1818,8 @@ ZeroCCISABackend aarch64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_add128 = aarch64_emit_add128,
     .emit_sub128 = aarch64_emit_sub128,
     .emit_mul128 = aarch64_emit_mul128,
+    .emit_mul128_spilled = aarch64_emit_mul128_spilled,
+    .emit_mul128_mixed = aarch64_emit_mul128_mixed,
     .emit_and128 = aarch64_emit_and128,
     .emit_or128 = aarch64_emit_or128,
     .emit_xor128 = aarch64_emit_xor128,

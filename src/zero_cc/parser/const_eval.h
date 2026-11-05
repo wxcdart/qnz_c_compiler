@@ -21,9 +21,15 @@ typedef enum {
 
 typedef struct {
     ZCConstValKind kind;
-    int64_t i;
+    int64_t i;      /* low 64 bits for ZC_CV_INT (and for w128 values) */
     double r;
     double im;
+    /* GNU __int128 constant support (Sprint 109): when w128 is set the value
+     * is 128 bits wide, split as (hi, i). 64-bit operands mixed into a 128-bit
+     * operation are extended using signed_ (sign-extend) or zero-extended. */
+    uint64_t hi;
+    bool w128;
+    bool signed_;
 } ZCConstVal;
 
 static inline ZCConstVal zc_cv_int(int64_t i) {
@@ -32,6 +38,9 @@ static inline ZCConstVal zc_cv_int(int64_t i) {
     v.i = i;
     v.r = (double)i;
     v.im = 0.0;
+    v.hi = 0;
+    v.w128 = false;
+    v.signed_ = false;
     return v;
 }
 
@@ -41,6 +50,9 @@ static inline ZCConstVal zc_cv_float(double r) {
     v.i = (int64_t)r;
     v.r = r;
     v.im = 0.0;
+    v.hi = 0;
+    v.w128 = false;
+    v.signed_ = false;
     return v;
 }
 
@@ -50,12 +62,45 @@ static inline ZCConstVal zc_cv_complex(double r, double im) {
     v.i = (int64_t)r;
     v.r = r;
     v.im = im;
+    v.hi = 0;
+    v.w128 = false;
+    v.signed_ = false;
+    return v;
+}
+
+/* Promote a 64-bit int value to 128 bits (sign- or zero-extend). A no-op
+ * for values that are already 128-bit. */
+static inline ZCConstVal zc_cv_promote128(ZCConstVal v) {
+    if (v.kind == ZC_CV_INT && !v.w128) {
+        v.hi = (v.signed_ && v.i < 0) ? ~0ULL : 0;
+        v.w128 = true;
+    }
+    return v;
+}
+
+/* True (negative) when a signed 128-bit value's top bit is set. */
+static inline bool zc_cv128_negative(ZCConstVal v) {
+    return v.w128 && v.signed_ && (v.hi >> 63) != 0;
+}
+
+/* 128-bit two's-complement negation (in place, w128 preserved). */
+static inline ZCConstVal zc_cv128_neg(ZCConstVal v) {
+    if (v.kind == ZC_CV_INT && v.w128) {
+        uint64_t lo = (uint64_t)v.i;
+        uint64_t nlo = ~lo + 1;
+        v.i = (int64_t)nlo;
+        v.hi = ~v.hi + (nlo == 0);
+    } else if (v.kind == ZC_CV_INT) {
+        v.i = -v.i;
+        v.signed_ = true;
+    }
     return v;
 }
 
 static inline bool zc_cv_is_true(ZCConstVal v) {
     if (v.kind == ZC_CV_COMPLEX) return v.r != 0.0 || v.im != 0.0;
     if (v.kind == ZC_CV_FLOAT) return v.r != 0.0;
+    if (v.w128) return v.i != 0 || v.hi != 0;
     return v.i != 0;
 }
 
@@ -68,6 +113,22 @@ static inline ZCConstVal zc_cv_cast(ZCConstVal v, ZeroCCType ty) {
     if (ty.tag == TYPE_FLOAT || ty.tag == TYPE_DOUBLE) {
         double r = (v.kind == ZC_CV_INT) ? (double)v.i : v.r;
         return zc_cv_float(r);
+    }
+    /* GNU __int128 cast target: widen the 64-bit value into (hi, lo),
+     * zero-extended for __uint128_t, sign-extended for __int128. Casting a
+     * 128-bit value to a 64-bit type truncates to the low half. */
+    if (ty.tag == TYPE_INT128 || ty.tag == TYPE_UINT128) {
+        ZCConstVal w = (v.kind == ZC_CV_INT) ? v : zc_cv_int((int64_t)v.r);
+        w.signed_ = (ty.tag == TYPE_INT128);
+        if (!w.w128) {
+            w.hi = (w.signed_ && w.i < 0) ? ~0ULL : 0;
+            w.w128 = true;
+        }
+        return w;
+    }
+    if (v.w128 && v.kind == ZC_CV_INT) {
+        v.hi = 0;  /* truncate to the low 64 bits */
+        v.w128 = false;
     }
     int64_t val = (v.kind == ZC_CV_INT) ? v.i : (int64_t)v.r;
     uint64_t u = (uint64_t)val;
@@ -100,6 +161,15 @@ static inline ZCConstVal zc_cv_add(ZCConstVal a, ZCConstVal b) {
         double br = (b.kind == ZC_CV_INT) ? (double)b.i : b.r;
         return zc_cv_float(ar + br);
     }
+    if (a.w128 || b.w128) {  /* 128-bit add (Sprint 109) */
+        a = zc_cv_promote128(a); b = zc_cv_promote128(b);
+        uint64_t alo = (uint64_t)a.i, blo = (uint64_t)b.i;
+        ZCConstVal r = zc_cv_int((int64_t)(alo + blo));
+        r.hi = a.hi + b.hi + (alo + blo < alo);
+        r.w128 = true;
+        r.signed_ = a.signed_ && b.signed_;
+        return r;
+    }
     return zc_cv_int(a.i + b.i);
 }
 
@@ -115,6 +185,15 @@ static inline ZCConstVal zc_cv_sub(ZCConstVal a, ZCConstVal b) {
         double ar = (a.kind == ZC_CV_INT) ? (double)a.i : a.r;
         double br = (b.kind == ZC_CV_INT) ? (double)b.i : b.r;
         return zc_cv_float(ar - br);
+    }
+    if (a.w128 || b.w128) {  /* 128-bit sub (Sprint 109) */
+        a = zc_cv_promote128(a); b = zc_cv_promote128(b);
+        uint64_t alo = (uint64_t)a.i, blo = (uint64_t)b.i;
+        ZCConstVal r = zc_cv_int((int64_t)(alo - blo));
+        r.hi = a.hi - b.hi - (alo < blo);
+        r.w128 = true;
+        r.signed_ = a.signed_ && b.signed_;
+        return r;
     }
     return zc_cv_int(a.i - b.i);
 }
@@ -132,7 +211,48 @@ static inline ZCConstVal zc_cv_mul(ZCConstVal a, ZCConstVal b) {
         double br = (b.kind == ZC_CV_INT) ? (double)b.i : b.r;
         return zc_cv_float(ar * br);
     }
+    if (a.w128 || b.w128) {  /* low 128 bits of the 128x128 product (Sprint 109) */
+        a = zc_cv_promote128(a); b = zc_cv_promote128(b);
+        uint64_t alo = (uint64_t)a.i, ahi = a.hi;
+        uint64_t blo = (uint64_t)b.i, bhi = b.hi;
+        uint64_t lo = alo * blo;
+        /* carry of alo*blo via 32-bit limbs (portable, no __int128) */
+        uint64_t p0 = (alo & 0xFFFFFFFFu) * (blo & 0xFFFFFFFFu);
+        uint64_t p1 = (alo & 0xFFFFFFFFu) * (blo >> 32);
+        uint64_t p2 = (alo >> 32) * (blo & 0xFFFFFFFFu);
+        uint64_t mid = (p0 >> 32) + (p1 & 0xFFFFFFFFu) + (p2 & 0xFFFFFFFFu);
+        uint64_t c = (p1 >> 32) + (p2 >> 32) + (mid >> 32);
+        uint64_t hi = ahi * blo + alo * bhi + c;  /* ahi*bhi overflows the low 128 bits */
+        ZCConstVal r = zc_cv_int((int64_t)lo);
+        r.hi = hi;
+        r.w128 = true;
+        r.signed_ = a.signed_ && b.signed_;
+        return r;
+    }
     return zc_cv_int(a.i * b.i);
+}
+
+/* Unsigned 128/128 division via bitwise long division (compile-time only,
+ * 128 iterations is fine). Quotient in (qlo,qhi), remainder in (rlo,rhi).
+ * Sprint 109: 128-bit constant initializers. */
+static inline void zc_udiv128(uint64_t alo, uint64_t ahi,
+                              uint64_t blo, uint64_t bhi,
+                              uint64_t *qlo, uint64_t *qhi,
+                              uint64_t *rlo, uint64_t *rhi) {
+    uint64_t rem_lo = 0, rem_hi = 0, ql = 0, qh = 0;
+    for (int i = 0; i < 128; i++) {
+        uint64_t bit = (i < 64) ? (ahi >> (63 - i)) : (alo >> (127 - i));
+        rem_hi = (rem_hi << 1) | (rem_lo >> 63);
+        rem_lo = (rem_lo << 1) | bit;
+        if (rem_hi > bhi || (rem_hi == bhi && rem_lo >= blo)) {
+            uint64_t old = rem_lo;
+            rem_lo -= blo;
+            if (old < blo) rem_hi--;
+            if (i < 64) qh |= (1ULL << (63 - i));
+            else        ql |= (1ULL << (127 - i));
+        }
+    }
+    *qlo = ql; *qhi = qh; *rlo = rem_lo; *rhi = rem_hi;
 }
 
 static inline ZCConstVal zc_cv_div(ZCConstVal a, ZCConstVal b) {
@@ -150,7 +270,55 @@ static inline ZCConstVal zc_cv_div(ZCConstVal a, ZCConstVal b) {
         double br = (b.kind == ZC_CV_INT) ? (double)b.i : b.r;
         return zc_cv_float(br != 0.0 ? ar / br : 0.0);
     }
+    if (a.w128 || b.w128) {  /* 128-bit div (Sprint 109) */
+        a = zc_cv_promote128(a); b = zc_cv_promote128(b);
+        uint64_t blo = (uint64_t)b.i, bhi = b.hi;
+        if (blo == 0 && bhi == 0) {
+            ZCConstVal r = zc_cv_int(0);
+            r.w128 = true; r.hi = 0;
+            return r;
+        }
+        bool aneg = zc_cv128_negative(a), bneg = zc_cv128_negative(b);
+        ZCConstVal aa = aneg ? zc_cv128_neg(a) : a;
+        ZCConstVal bb = bneg ? zc_cv128_neg(b) : b;
+        uint64_t qlo, qhi;
+        zc_udiv128((uint64_t)aa.i, aa.hi, (uint64_t)bb.i, bb.hi, &qlo, &qhi, NULL, NULL);
+        ZCConstVal r = zc_cv_int((int64_t)qlo);
+        r.hi = qhi;
+        r.w128 = true;
+        if (aneg != bneg) r = zc_cv128_neg(r);
+        r.signed_ = a.signed_ && b.signed_;
+        return r;
+    }
     return zc_cv_int(b.i != 0 ? a.i / b.i : 0);
+}
+
+static inline ZCConstVal zc_cv_mod(ZCConstVal a, ZCConstVal b) {
+    if (a.kind == ZC_CV_FLOAT || b.kind == ZC_CV_FLOAT) {
+        /* Mirror the historical int-based float mod path. */
+        return zc_cv_int(b.i != 0 ? a.i % b.i : 0);
+    }
+    if (a.w128 || b.w128) {  /* 128-bit mod, C99 truncation semantics (Sprint 109) */
+        a = zc_cv_promote128(a); b = zc_cv_promote128(b);
+        uint64_t blo = (uint64_t)b.i, bhi = b.hi;
+        if (blo == 0 && bhi == 0) {
+            ZCConstVal r = zc_cv_int(0);
+            r.w128 = true; r.hi = 0;
+            return r;
+        }
+        bool aneg = zc_cv128_negative(a), bneg = zc_cv128_negative(b);
+        ZCConstVal aa = aneg ? zc_cv128_neg(a) : a;
+        ZCConstVal bb = bneg ? zc_cv128_neg(b) : b;
+        uint64_t qlo, qhi, rlo, rhi;
+        zc_udiv128((uint64_t)aa.i, aa.hi, (uint64_t)bb.i, bb.hi, &qlo, &qhi, &rlo, &rhi);
+        ZCConstVal r = zc_cv_int((int64_t)rlo);
+        r.hi = rhi;
+        r.w128 = true;
+        if (aneg) r = zc_cv128_neg(r);  /* sign follows the dividend */
+        r.signed_ = a.signed_ && b.signed_;
+        return r;
+    }
+    return zc_cv_int(b.i != 0 ? a.i % b.i : 0);
 }
 
 static inline ZCConstVal zc_cv_eq(ZCConstVal a, ZCConstVal b) {
@@ -165,6 +333,10 @@ static inline ZCConstVal zc_cv_eq(ZCConstVal a, ZCConstVal b) {
         double ar = (a.kind == ZC_CV_INT) ? (double)a.i : a.r;
         double br = (b.kind == ZC_CV_INT) ? (double)b.i : b.r;
         return zc_cv_int(ar == br ? 1 : 0);
+    }
+    if (a.w128 || b.w128) {  /* 128-bit (Sprint 109) */
+        a = zc_cv_promote128(a); b = zc_cv_promote128(b);
+        return zc_cv_int((a.i == b.i && a.hi == b.hi) ? 1 : 0);
     }
     return zc_cv_int(a.i == b.i ? 1 : 0);
 }
@@ -183,6 +355,27 @@ static inline ZCConstVal zc_cv_cmp(ZeroCCTokType op, ZCConstVal a, ZCConstVal b)
         else if (op == TK_GT) res = (ar > br);
         else if (op == TK_LE) res = (ar <= br);
         else if (op == TK_GE) res = (ar >= br);
+        return zc_cv_int(res);
+    }
+    if (a.w128 || b.w128) {  /* 128-bit relational (Sprint 109) */
+        a = zc_cv_promote128(a); b = zc_cv_promote128(b);
+        bool aneg = zc_cv128_negative(a), bneg = zc_cv128_negative(b);
+        int res = 0;
+        if (aneg != bneg) {
+            /* Opposite signs: order follows the sign. */
+            int cmp = aneg ? -1 : 1;
+            if (op == TK_LT) res = (cmp < 0);
+            else if (op == TK_GT) res = (cmp > 0);
+            else if (op == TK_LE) res = (cmp <= 0);
+            else if (op == TK_GE) res = (cmp >= 0);
+        } else {
+            /* Same sign (or unsigned): two's-complement order == unsigned order. */
+            int cmp = (a.hi < b.hi) ? -1 : (a.hi > b.hi) ? 1 : (a.i < b.i ? -1 : (a.i > b.i ? 1 : 0));
+            if (op == TK_LT) res = (cmp < 0);
+            else if (op == TK_GT) res = (cmp > 0);
+            else if (op == TK_LE) res = (cmp <= 0);
+            else if (op == TK_GE) res = (cmp >= 0);
+        }
         return zc_cv_int(res);
     }
     int64_t left = a.i, right = b.i;
@@ -678,7 +871,15 @@ static inline ZCConstVal parse_bitor(ZeroCCCompiler *c, size_t *pos)
     while (*pos < c->token_count && c->tokens[*pos].type == TK_PIPE) {
         (*pos)++;
         ZCConstVal right = parse_bitxor(c, pos);
-        left = zc_cv_int(left.i | right.i);
+        if (left.w128 || right.w128) {  /* 128-bit (Sprint 109) */
+            left = zc_cv_promote128(left);
+            right = zc_cv_promote128(right);
+            left.i = left.i | right.i;
+            left.hi = left.hi | right.hi;
+            left.signed_ = left.signed_ && right.signed_;
+        } else {
+            left = zc_cv_int(left.i | right.i);
+        }
     }
     return left;
 }
@@ -689,7 +890,15 @@ static inline ZCConstVal parse_bitxor(ZeroCCCompiler *c, size_t *pos)
     while (*pos < c->token_count && c->tokens[*pos].type == TK_CARET) {
         (*pos)++;
         ZCConstVal right = parse_bitand(c, pos);
-        left = zc_cv_int(left.i ^ right.i);
+        if (left.w128 || right.w128) {  /* 128-bit (Sprint 109) */
+            left = zc_cv_promote128(left);
+            right = zc_cv_promote128(right);
+            left.i = left.i ^ right.i;
+            left.hi = left.hi ^ right.hi;
+            left.signed_ = left.signed_ && right.signed_;
+        } else {
+            left = zc_cv_int(left.i ^ right.i);
+        }
     }
     return left;
 }
@@ -700,7 +909,15 @@ static inline ZCConstVal parse_bitand(ZeroCCCompiler *c, size_t *pos)
     while (*pos < c->token_count && c->tokens[*pos].type == TK_AMP) {
         (*pos)++;
         ZCConstVal right = parse_equality(c, pos);
-        left = zc_cv_int(left.i & right.i);
+        if (left.w128 || right.w128) {  /* 128-bit (Sprint 109) */
+            left = zc_cv_promote128(left);
+            right = zc_cv_promote128(right);
+            left.i = left.i & right.i;
+            left.hi = left.hi & right.hi;
+            left.signed_ = left.signed_ && right.signed_;
+        } else {
+            left = zc_cv_int(left.i & right.i);
+        }
     }
     return left;
 }
@@ -749,24 +966,45 @@ static inline ZCConstVal parse_shift(ZeroCCCompiler *c, size_t *pos)
         if (op == TK_SHL || op == TK_SHR) {
             (*pos)++;
             ZCConstVal right = parse_additive(c, pos);
-            unsigned long ul = (unsigned long)left.i;
-            unsigned long ur = (unsigned long)right.i;
-            if (ur >= 64) ur = 0; /* avoid UB; C99 leaves it undefined anyway */
-            if (op == TK_SHL) {
-                left = zc_cv_int((int64_t)(ul << ur));
-            } else {
-                /* C99 6.5.7: >> on a SIGNED operand is an arithmetic (sign-
-                 * extending) shift; on unsigned it is logical. The evaluator
-                 * has no operand types, so use the literal's suffix when the
-                 * left operand is a bare integer literal (bit0 of
-                 * int_suffix = U) and default to arithmetic - the signed
-                 * case, matching GCC for `0x...LL >> n` initializers. */
-                bool l_unsigned = (c->tokens[left_begin].type == TK_INT) &&
-                    (c->tokens[left_begin].int_suffix & 0x1);
-                if (l_unsigned) {
-                    left = zc_cv_int((int64_t)(ul >> ur));
+            unsigned n = (unsigned)right.i;
+            if (left.w128 && left.kind == ZC_CV_INT) {
+                /* 128-bit shift: counts up to 127 are meaningful (Sprint 109) */
+                uint64_t lo = (uint64_t)left.i, hi = left.hi;
+                if (n >= 128) { lo = 0; hi = 0; }
+                else if (op == TK_SHL) {
+                    if (n >= 64) { hi = lo << (n - 64); lo = 0; }
+                    else { hi = (hi << n) | (lo >> (64 - n)); lo <<= n; }
                 } else {
-                    left = zc_cv_int((int64_t)left.i >> ur);
+                    bool neg = left.signed_ && (hi >> 63) != 0;
+                    uint64_t fill = neg ? ~0ULL : 0;
+                    if (n >= 64) { lo = hi >> (n - 64); hi = fill; }
+                    else { lo = (lo >> n) | (hi << (64 - n)); hi = (hi >> n) | (neg ? ~0ULL : 0); }
+                }
+                ZCConstVal r = zc_cv_int((int64_t)lo);
+                r.hi = hi;
+                r.w128 = true;
+                r.signed_ = left.signed_;
+                left = r;
+            } else {
+                unsigned long ul = (unsigned long)left.i;
+                unsigned long ur = (unsigned long)right.i;
+                if (ur >= 64) ur = 0; /* avoid UB; C99 leaves it undefined anyway */
+                if (op == TK_SHL) {
+                    left = zc_cv_int((int64_t)(ul << ur));
+                } else {
+                    /* C99 6.5.7: >> on a SIGNED operand is an arithmetic (sign-
+                     * extending) shift; on unsigned it is logical. The evaluator
+                     * has no operand types, so use the literal's suffix when the
+                     * left operand is a bare integer literal (bit0 of
+                     * int_suffix = U) and default to arithmetic - the signed
+                     * case, matching GCC for `0x...LL >> n` initializers. */
+                    bool l_unsigned = (c->tokens[left_begin].type == TK_INT) &&
+                        (c->tokens[left_begin].int_suffix & 0x1);
+                    if (l_unsigned) {
+                        left = zc_cv_int((int64_t)(ul >> ur));
+                    } else {
+                        left = zc_cv_int((int64_t)left.i >> ur);
+                    }
                 }
             }
         } else {
@@ -808,7 +1046,7 @@ static inline ZCConstVal parse_multiplicative(ZeroCCCompiler *c, size_t *pos)
             else if (op == TK_SLASH)
                 left = zc_cv_div(left, right);
             else
-                left = zc_cv_int(right.i != 0 ? left.i % right.i : 0);
+                left = zc_cv_mod(left, right);
         } else {
             break;
         }
@@ -828,11 +1066,17 @@ static inline ZCConstVal parse_unary(ZeroCCCompiler *c, size_t *pos)
         ZCConstVal v = parse_unary(c, pos);
         if (v.kind == ZC_CV_COMPLEX) return zc_cv_complex(-v.r, -v.im);
         if (v.kind == ZC_CV_FLOAT) return zc_cv_float(-v.r);
-        return zc_cv_int(-v.i);
+        return zc_cv128_neg(v);
     }
     if (t == TK_TILDE) {
         (*pos)++;
-        return zc_cv_int(~parse_unary(c, pos).i);
+        ZCConstVal v = parse_unary(c, pos);
+        if (v.kind == ZC_CV_INT && v.w128) {  /* 128-bit (Sprint 109) */
+            v.i = ~v.i;
+            v.hi = ~v.hi;
+            return v;
+        }
+        return zc_cv_int(~v.i);
     }
     if (t == TK_BANG) {
         (*pos)++;
@@ -1203,6 +1447,16 @@ static inline int64_t zero_cc_eval_const_expr(ZeroCCCompiler *c)
     ZCConstVal result = parse_conditional(c, &pos);
     c->token_pos = pos;
     return result.i;
+}
+
+/* Like zero_cc_eval_const_expr but returns the full value, so 128-bit
+ * initializers can read the high half (Sprint 109). */
+static inline ZCConstVal zero_cc_eval_const_expr_val(ZeroCCCompiler *c)
+{
+    size_t pos = c->token_pos;
+    ZCConstVal result = parse_conditional(c, &pos);
+    c->token_pos = pos;
+    return result;
 }
 
 /* Probe whether the array dimension starting at token index `start` (up

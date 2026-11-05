@@ -48,7 +48,8 @@ void emit_prologue_asm(ZeroCCCompiler *c, size_t frame_size) {
  * ========================================================================= */
 
 static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, size_t idx, size_t func_idx,
-                                      int phys_dst, int phys_src1, int phys_src2, FILE *out) {
+                                      int phys_dst, int phys_src1, int phys_src2,
+                                      int g128_dhi, int g128_s1hi, int g128_s2hi, FILE *out) {
     switch (instr->op) {
         /* Trap (__builtin_trap / __builtin_unreachable) */
         case OP_TRAP:
@@ -1175,6 +1176,67 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             }
             return;
 
+        /* GNU __int128 (Sprint 109): 128-bit ops on a (lo,hi) GPR128 pair.
+         * phys_dst/phys_src1/phys_src2 are the low halves and g128_*hi the
+         * high halves, both spill-aware (see asm_emit_instruction). */
+        case OP_ADD128:
+            if (BE(c)->emit_add128_asm) BE(c)->emit_add128_asm(c, phys_dst, g128_dhi, phys_src1, g128_s1hi, phys_src2, g128_s2hi, out);
+            return;
+        case OP_SUB128:
+            if (BE(c)->emit_sub128_asm) BE(c)->emit_sub128_asm(c, phys_dst, g128_dhi, phys_src1, g128_s1hi, phys_src2, g128_s2hi, out);
+            return;
+        case OP_MUL128:
+            if (BE(c)->emit_mul128_asm) BE(c)->emit_mul128_asm(c, phys_dst, g128_dhi, phys_src1, g128_s1hi, phys_src2, g128_s2hi, out);
+            return;
+        case OP_AND128:
+            if (BE(c)->emit_and128_asm) BE(c)->emit_and128_asm(c, phys_dst, g128_dhi, phys_src1, g128_s1hi, phys_src2, g128_s2hi, out);
+            return;
+        case OP_OR128:
+            if (BE(c)->emit_or128_asm) BE(c)->emit_or128_asm(c, phys_dst, g128_dhi, phys_src1, g128_s1hi, phys_src2, g128_s2hi, out);
+            return;
+        case OP_XOR128:
+            if (BE(c)->emit_xor128_asm) BE(c)->emit_xor128_asm(c, phys_dst, g128_dhi, phys_src1, g128_s1hi, phys_src2, g128_s2hi, out);
+            return;
+        case OP_NOT128:
+            if (BE(c)->emit_not128_asm) BE(c)->emit_not128_asm(c, phys_dst, g128_dhi, phys_src1, g128_s1hi, out);
+            return;
+        case OP_NEG128:
+            if (BE(c)->emit_neg128_asm) BE(c)->emit_neg128_asm(c, phys_dst, g128_dhi, phys_src1, g128_s1hi, out);
+            return;
+        case OP_MOV128:
+            if (BE(c)->emit_mov128_asm) BE(c)->emit_mov128_asm(c, phys_dst, g128_dhi, phys_src1, g128_s1hi, out);
+            return;
+        case OP_MOV128_IMM:
+            if (BE(c)->emit_mov128_imm_asm) BE(c)->emit_mov128_imm_asm(c, phys_dst, g128_dhi, instr->imm64, out);
+            return;
+        case OP_LOAD128:
+            if (BE(c)->emit_load128_asm) BE(c)->emit_load128_asm(c, phys_dst, g128_dhi, phys_src1, 0, out);
+            return;
+        case OP_STORE128:
+            if (BE(c)->emit_store128_asm) BE(c)->emit_store128_asm(c, phys_src1, g128_s1hi, phys_src2, 0, out);
+            return;
+        case OP_ZEXT64_128:
+            if (BE(c)->emit_zext64_128_asm) BE(c)->emit_zext64_128_asm(c, phys_dst, g128_dhi, phys_src1, out);
+            return;
+        case OP_SEXT64_128:
+            if (BE(c)->emit_sext64_128_asm) BE(c)->emit_sext64_128_asm(c, phys_dst, g128_dhi, phys_src1, out);
+            return;
+        case OP_TRUNC128_64:
+            if (BE(c)->emit_trunc128_64_asm) BE(c)->emit_trunc128_64_asm(c, phys_dst, phys_src1, out);
+            return;
+        case OP_LO128:
+            if (BE(c)->emit_mov_reg_asm) BE(c)->emit_mov_reg_asm(c, phys_dst, phys_src1, out);  /* dest = src1.lo */
+            return;
+        case OP_HI128:
+            if (BE(c)->emit_mov_reg_asm) BE(c)->emit_mov_reg_asm(c, phys_dst, g128_s1hi, out);  /* dest = src1.hi */
+            return;
+        case OP_MK128:
+            if (BE(c)->emit_mov_reg_asm) {
+                BE(c)->emit_mov_reg_asm(c, phys_dst, phys_src1, out);  /* dest.lo = src1 */
+                BE(c)->emit_mov_reg_asm(c, g128_dhi, phys_src2, out);  /* dest.hi = src2 */
+            }
+            return;
+
         default:
             /* Unknown opcode - emit comment */
             fprintf(out, "\t# UNKNOWN: %s\n", ir_opcode_name(instr->op));
@@ -1212,10 +1274,228 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
     int spill_src2 = (instr->op == OP_CALL) ? -1 : regalloc_get_spill_slot_for_temp(&c->regalloc, instr->temp_src2);
     int spill_dst  = (instr->op == OP_CALL) ? -1 : regalloc_get_spill_slot_for_temp(&c->regalloc, instr->temp_dest);
 
+    /* --- 128-bit (GPR128) spill handling (mirrors ast_lowering_mc.c) ---
+     * A spilled REG_CLASS_GPR128 temp must reload BOTH halves (slot and
+     * slot+8) into a reserved (lo,hi) scratch pair, and a spilled dst must
+     * store BOTH halves back. The scratch pairs are reserved (excluded from
+     * the 64-bit and GPR128 value pools) so they never hold a live value.
+     * Assignment order: src1 -> pair0, src2 -> pair1, dst -> pair0 if free
+     * else pair1, else reuse src1's pair in-place (the 128-bit emits
+     * tolerate d==a aliasing). */
+    bool op128 = (instr->op == OP_ADD128 || instr->op == OP_SUB128 ||
+                  instr->op == OP_MUL128 || instr->op == OP_AND128 ||
+                  instr->op == OP_OR128  || instr->op == OP_XOR128 ||
+                  instr->op == OP_NOT128 || instr->op == OP_NEG128 ||
+                  instr->op == OP_MOV128 || instr->op == OP_MOV128_IMM ||
+                  instr->op == OP_ZEXT64_128 || instr->op == OP_SEXT64_128 ||
+                  instr->op == OP_TRUNC128_64 ||
+                  instr->op == OP_LO128 || instr->op == OP_HI128 ||
+                  instr->op == OP_MK128 ||
+                  instr->op == OP_SHL128 || instr->op == OP_SHR128 || instr->op == OP_SAR128 ||
+                  instr->op == OP_CMP128 ||
+                  instr->op == OP_LOAD128 || instr->op == OP_STORE128);
+    /* Operand widths are decided by the op's semantics, not the temp's
+     * allocated class: temp IDs are reused and the live-range class array is
+     * last-write-wins, so a 64-bit operand (MK128 halves, cast sources, shift
+     * counts, memory base pointers) can wear a stale REG_CLASS_GPR128.
+     * Mirrors ast_lowering_mc.c. (Sprint 109.) */
+    bool d_is_128 = op128 && !
+        (instr->op == OP_LO128 || instr->op == OP_HI128 || instr->op == OP_TRUNC128_64);
+    bool s1_is_128 = instr->op == OP_ADD128 || instr->op == OP_SUB128 ||
+        instr->op == OP_MUL128 || instr->op == OP_AND128 ||
+        instr->op == OP_OR128  || instr->op == OP_XOR128 ||
+        instr->op == OP_NOT128 || instr->op == OP_NEG128 ||
+        instr->op == OP_MOV128 || instr->op == OP_SHL128 ||
+        instr->op == OP_SHR128 || instr->op == OP_SAR128 ||
+        instr->op == OP_LO128  || instr->op == OP_HI128 ||
+        instr->op == OP_CMP128 || instr->op == OP_STORE128 ||
+        instr->op == OP_TRUNC128_64;
+    bool s2_is_128 = instr->op == OP_ADD128 || instr->op == OP_SUB128 ||
+        instr->op == OP_MUL128 || instr->op == OP_AND128 ||
+        instr->op == OP_OR128  || instr->op == OP_XOR128 ||
+        instr->op == OP_CMP128;
+    bool d128_sp = d_is_128 && spill_dst >= 0;
+    bool s128_sp = op128 && s1_is_128 && spill_src1 >= 0;
+    bool s228_sp = op128 && s2_is_128 && spill_src2 >= 0;
+    int g128_np = BE(c)->g128_scratch_pair_count;
+    int pair_s1 = -1, pair_s2 = -1, pair_dst = -1;
+    if (s128_sp && g128_np > 0) pair_s1 = 0;
+    if (s228_sp && g128_np > 1) pair_s2 = 1;
+    if (d128_sp) {
+        if (g128_np > 0 && pair_s1 < 0) pair_dst = 0;
+        else if (g128_np > 1 && pair_s2 < 0) pair_dst = 1;
+        else pair_dst = pair_s1;  /* all three spilled: in-place into src1's pair */
+    }
+    int g128_dlo = phys_dst, g128_dhi = regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_dest);
+    int g128_s1lo = phys_src1, g128_s1hi = regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_src1);
+    int g128_s2lo = phys_src2, g128_s2hi = regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_src2);
+    /* MUL128 with the dst AND both sources spilled: compute directly between
+     * the spill slots (mirrors ast_lowering_mc.c). The register-form emit
+     * writes d partway through the sequence, so d may not alias a source,
+     * and on a single-scratch-pair ISA no pair remains for the third value. */
+    if (instr->op == OP_MUL128 && d128_sp && s128_sp && s228_sp &&
+        BE(c)->emit_mul128_spilled_asm) {
+        int32_t off_d = spill_base_offset + (spill_dst + 1) * 8;
+        int32_t off_a = spill_base_offset + (spill_src1 + 1) * 8;
+        int32_t off_b = spill_base_offset + (spill_src2 + 1) * 8;
+        BE(c)->emit_mul128_spilled_asm(c,
+            zero_cc_frame_disp(c, -off_d), zero_cc_frame_disp(c, -off_d - 8),
+            zero_cc_frame_disp(c, -off_a), zero_cc_frame_disp(c, -off_a - 8),
+            zero_cc_frame_disp(c, -off_b), zero_cc_frame_disp(c, -off_b - 8), out);
+        return;
+    }
+    /* The 5 two-step 128-bit emits are NOT d==b alias-safe. When BOTH the
+     * dst and src2 are spilled on a 1-scratch-pair ISA, compute directly
+     * between frame slots (mirrors ast_lowering_mc.c). */
+    if ((instr->op == OP_ADD128 || instr->op == OP_SUB128 ||
+         instr->op == OP_AND128 || instr->op == OP_OR128 ||
+         instr->op == OP_XOR128) &&
+        d128_sp && s228_sp && g128_np <= 1 &&
+        BE(c)->emit_bin128_sp_asm) {
+        int32_t off_d = spill_base_offset + (spill_dst + 1) * 8;
+        int32_t off_a = spill_base_offset + (spill_src1 + 1) * 8;
+        int32_t off_b = spill_base_offset + (spill_src2 + 1) * 8;
+        BE(c)->emit_bin128_sp_asm(c, (int)instr->op,
+            s128_sp ? 1 : 0,
+            s128_sp ? (int)zero_cc_frame_disp(c, -off_a) : phys_src1,
+            s128_sp ? (int)zero_cc_frame_disp(c, -off_a - 8)
+                    : regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_src1),
+            zero_cc_frame_disp(c, -off_b), zero_cc_frame_disp(c, -off_b - 8),
+            zero_cc_frame_disp(c, -off_d), zero_cc_frame_disp(c, -off_d - 8), out);
+        return;
+    }
+    /* STORE128 with both the 128-bit value and the 64-bit base spilled:
+     * the generic base reload targets scratch_reg2, which on x86-64 (r11)
+     * and RISC-V (t1) aliases a half of the GPR128 pair the value reloads
+     * into. Stream instead (mirrors ast_lowering_mc.c, Sprint 109). */
+    if (instr->op == OP_STORE128 && s128_sp && spill_src2 >= 0) {
+        int32_t off_v = spill_base_offset + (spill_src1 + 1) * 8;
+        int32_t off_b = spill_base_offset + (spill_src2 + 1) * 8;
+        int base_r = BE(c)->scratch_reg2, tmp_r = BE(c)->scratch_reg1;
+        BE(c)->emit_load_asm(c, base_r, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_b), out);
+        BE(c)->emit_load_asm(c, tmp_r, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_v), out);
+        BE(c)->emit_store_asm(c, tmp_r, base_r, 0, out);
+        BE(c)->emit_load_asm(c, tmp_r, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_v - 8), out);
+        BE(c)->emit_store_asm(c, tmp_r, base_r, 8, out);
+        return;
+    }
+    /* MK128 with a spilled 128-bit dst: stream each half from its home
+     * (register or slot) straight into the dst slots (mirrors MC). */
+    if (instr->op == OP_MK128 && d128_sp) {
+        int32_t off_d = spill_base_offset + (spill_dst + 1) * 8;
+        int tmp = BE(c)->scratch_reg1;
+        if (spill_src1 >= 0) {
+            int32_t off_s1 = spill_base_offset + (spill_src1 + 1) * 8;
+            BE(c)->emit_load_asm(c, tmp, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_s1), out);
+        }
+        BE(c)->emit_store_asm(c, spill_src1 >= 0 ? tmp : phys_src1, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_d), out);
+        if (spill_src2 >= 0) {
+            int32_t off_s2 = spill_base_offset + (spill_src2 + 1) * 8;
+            BE(c)->emit_load_asm(c, tmp, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_s2), out);
+        }
+        BE(c)->emit_store_asm(c, spill_src2 >= 0 ? tmp : phys_src2, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_d - 8), out);
+        return;
+    }
+    /* MUL128 with a MIX of spilled/register operands on a 1-scratch-pair
+     * ISA (Sprint 109, mirrors ast_lowering_mc.c): the pair logic below
+     * cannot express these. Each operand keeps its natural home. */
+    if (instr->op == OP_MUL128 && g128_np <= 1 &&
+        (d128_sp || s128_sp || s228_sp) &&
+        !(d128_sp && s128_sp && s228_sp) &&
+        BE(c)->emit_mul128_mixed_asm) {
+        int32_t off_d = spill_base_offset + (spill_dst + 1) * 8;
+        int32_t off_a = spill_base_offset + (spill_src1 + 1) * 8;
+        int32_t off_b = spill_base_offset + (spill_src2 + 1) * 8;
+        int d_lo = phys_dst, d_hi = regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_dest);
+        int a_lo = phys_src1, a_hi = regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_src1);
+        int b_lo = phys_src2, b_hi = regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_src2);
+        BE(c)->emit_mul128_mixed_asm(c,
+            d128_sp ? 1 : 0,
+            d128_sp ? (int)zero_cc_frame_disp(c, -off_d) : d_lo,
+            d128_sp ? (int)zero_cc_frame_disp(c, -off_d - 8) : d_hi,
+            s128_sp ? 1 : 0,
+            s128_sp ? (int)zero_cc_frame_disp(c, -off_a) : a_lo,
+            s128_sp ? (int)zero_cc_frame_disp(c, -off_a - 8) : a_hi,
+            s228_sp ? 1 : 0,
+            s228_sp ? (int)zero_cc_frame_disp(c, -off_b) : b_lo,
+            s228_sp ? (int)zero_cc_frame_disp(c, -off_b - 8) : b_hi, out);
+        return;
+    }
+    if (s128_sp && pair_s1 >= 0) {
+        int32_t off = spill_base_offset + (spill_src1 + 1) * 8;
+        if (BE(c)->emit_load_asm) {
+            BE(c)->emit_load_asm(c, BE(c)->g128_scratch_lo[pair_s1], zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off), out);
+            BE(c)->emit_load_asm(c, BE(c)->g128_scratch_hi[pair_s1], zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off - 8), out);
+        }
+        g128_s1lo = BE(c)->g128_scratch_lo[pair_s1];
+        g128_s1hi = BE(c)->g128_scratch_hi[pair_s1];
+    }
+    if (s228_sp && pair_s2 >= 0) {
+        int32_t off = spill_base_offset + (spill_src2 + 1) * 8;
+        if (BE(c)->emit_load_asm) {
+            BE(c)->emit_load_asm(c, BE(c)->g128_scratch_lo[pair_s2], zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off), out);
+            BE(c)->emit_load_asm(c, BE(c)->g128_scratch_hi[pair_s2], zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off - 8), out);
+        }
+        g128_s2lo = BE(c)->g128_scratch_lo[pair_s2];
+        g128_s2hi = BE(c)->g128_scratch_hi[pair_s2];
+    } else if (s228_sp && !d128_sp && g128_np <= 1 && pair_s2 < 0 &&
+               (instr->op == OP_ADD128 || instr->op == OP_SUB128 ||
+                instr->op == OP_AND128 || instr->op == OP_OR128 ||
+                instr->op == OP_XOR128)) {
+        /* 1-pair ISA, dst register-resident, src2 spilled: the two-step
+         * emits are d==b unsafe, so src2 goes to pair0 instead of the dst
+         * pair. If src1 is also spilled it owns pair0, so relocate src1
+         * into the dst's register pair (d==a IS safe: the initial mov is
+         * skipped and every source read precedes the destination write).
+         * (Mirrors ast_lowering_mc.c, Sprint 109.) */
+        int32_t off = spill_base_offset + (spill_src2 + 1) * 8;
+        if (spill_src1 < 0) {
+            if (BE(c)->emit_load_asm) {
+                BE(c)->emit_load_asm(c, BE(c)->g128_scratch_lo[0], zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off), out);
+                BE(c)->emit_load_asm(c, BE(c)->g128_scratch_hi[0], zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off - 8), out);
+            }
+            g128_s2lo = BE(c)->g128_scratch_lo[0];
+            g128_s2hi = BE(c)->g128_scratch_hi[0];
+        } else {
+            int dhi_r = regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_dest);
+            int32_t off_s1 = spill_base_offset + (spill_src1 + 1) * 8;
+            BE(c)->emit_load_asm(c, phys_dst, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_s1), out);
+            BE(c)->emit_load_asm(c, dhi_r, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_s1 - 8), out);
+            g128_s1lo = phys_dst;
+            g128_s1hi = dhi_r;
+            BE(c)->emit_load_asm(c, BE(c)->g128_scratch_lo[0], zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off), out);
+            BE(c)->emit_load_asm(c, BE(c)->g128_scratch_hi[0], zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off - 8), out);
+            g128_s2lo = BE(c)->g128_scratch_lo[0];
+            g128_s2hi = BE(c)->g128_scratch_hi[0];
+        }
+    } else if (s228_sp && !d128_sp && pair_s1 < 0 && spill_src1 < 0 && g128_np > 0) {
+        /* 1-pair ISA fallback for the remaining ops (MUL128, CMP128):
+         * reload src2 into pair0; safe when src1 is fully register-resident.
+         * (Mirrors ast_lowering_mc.c.) */
+        int32_t off = spill_base_offset + (spill_src2 + 1) * 8;
+        if (BE(c)->emit_load_asm) {
+            BE(c)->emit_load_asm(c, BE(c)->g128_scratch_lo[0], zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off), out);
+            BE(c)->emit_load_asm(c, BE(c)->g128_scratch_hi[0], zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off - 8), out);
+        }
+        g128_s2lo = BE(c)->g128_scratch_lo[0];
+        g128_s2hi = BE(c)->g128_scratch_hi[0];
+    }
+    if (d128_sp) {
+        if (pair_dst >= 0 && pair_dst != pair_s1) {
+            g128_dlo = BE(c)->g128_scratch_lo[pair_dst];
+            g128_dhi = BE(c)->g128_scratch_hi[pair_dst];
+        } else if (pair_dst == pair_s1) {
+            g128_dlo = g128_s1lo; g128_dhi = g128_s1hi;  /* in-place */
+        }
+    }
+    if (op128) {
+        phys_dst = g128_dlo; phys_src1 = g128_s1lo; phys_src2 = g128_s2lo;
+    }
+
     /* Reload spilled sources into scratch registers. FP-class values use
      * the FP scratch XMMs (emit_load_fp_asm); GPR values use the GPR
-     * scratches (C8). */
-    if (spill_src1 >= 0) {
+     * scratches (C8). GPR128 operands are handled above (skipped here). */
+    if (spill_src1 >= 0 && !s128_sp) {
         int32_t slot_off = spill_base_offset + (spill_src1 + 1) * 8;
         if (regalloc_get_class_for_temp(&c->regalloc, instr->temp_src1) == REG_CLASS_XMM) {
             if (BE(c)->emit_load_fp_asm) {
@@ -1229,7 +1509,7 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
             phys_src1 = BE(c)->scratch_reg1;
         }
     }
-    if (spill_src2 >= 0) {
+    if (spill_src2 >= 0 && !s228_sp) {
         int32_t slot_off = spill_base_offset + (spill_src2 + 1) * 8;
         if (regalloc_get_class_for_temp(&c->regalloc, instr->temp_src2) == REG_CLASS_XMM) {
             if (BE(c)->emit_load_fp_asm) {
@@ -1243,7 +1523,7 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
             phys_src2 = BE(c)->scratch_reg2;
         }
     }
-    if (spill_dst >= 0) {
+    if (spill_dst >= 0 && !d128_sp) {
         if (regalloc_get_class_for_temp(&c->regalloc, instr->temp_dest) == REG_CLASS_XMM) {
             phys_dst = BE(c)->fp_scratch_reg1;
         } else {
@@ -1251,7 +1531,8 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
         }
     }
 
-    asm_emit_instruction_core(c, instr, idx, func_idx, phys_dst, phys_src1, phys_src2, out);
+    asm_emit_instruction_core(c, instr, idx, func_idx, phys_dst, phys_src1, phys_src2,
+                              g128_dhi, g128_s1hi, g128_s2hi, out);
 
     /* C99 width semantics: if the op produced a narrow-int result,
      * extend it to full 64-bit width now (sign or zero per the mark),
@@ -1262,10 +1543,16 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
     }
 
     /* If destination temp was spilled, store the scratch register back to
-     * the frame spill slot (FP scratch for FP-class). */
+     * the frame spill slot (FP scratch for FP-class). A spilled GPR128 dst
+     * stores BOTH halves to the two slots. */
     if (spill_dst >= 0) {
         int32_t slot_off = spill_base_offset + (spill_dst + 1) * 8;
-        if (regalloc_get_class_for_temp(&c->regalloc, instr->temp_dest) == REG_CLASS_XMM) {
+        if (d128_sp) {
+            if (BE(c)->emit_store_asm) {
+                BE(c)->emit_store_asm(c, g128_dlo, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off), out);
+                BE(c)->emit_store_asm(c, g128_dhi, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off - 8), out);
+            }
+        } else if (regalloc_get_class_for_temp(&c->regalloc, instr->temp_dest) == REG_CLASS_XMM) {
             if (BE(c)->emit_store_fp_asm) {
                 BE(c)->emit_store_fp_asm(c, BE(c)->fp_scratch_reg1, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off), out);
             }

@@ -325,7 +325,7 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                             int s_hi = c->next_temp_id++; ir_emit_hi128(c, s_hi, lv);
                             int dlo = c->next_temp_id++, dhi = c->next_temp_id++;
                             if (N <= 0) { ir_emit_mov_reg(c, dlo, s_lo); ir_emit_mov_reg(c, dhi, s_hi); }
-                            else zc_emit_128_shift(c, dlo, dhi, s_lo, s_hi, N, cop);
+                            else zc_emit_128_shift(c, dlo, dhi, s_lo, s_hi, N, cop, !unsigned_);
                             val = c->next_temp_id++; ir_emit_mk128(c, val, dlo, dhi);
                             val_is128 = 1;
                         } else {

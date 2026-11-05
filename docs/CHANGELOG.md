@@ -1,3 +1,25 @@
+## [Sprint 109] - 2026-11-05 - `__int128` Cross-ISA Stabilization & Register Allocation Fixes
+
+Full cross-ISA stabilization of the `__int128` pipeline across x86-64, AArch64, and RISC-V64 in both JIT and AOT modes:
+
+- **AArch64 Scratch & Framing Isolation** (`isa/aarch64.c`, `isa/aarch64_asm.c`, `ir/regalloc.h`):
+  - Reserved `x16` (IP0) exclusively for large frame offset address calculations across both MC and ASM backends, eliminating collisions where `sub x9, x29, #offset` clobbered source/spill values residing in `x9`.
+  - Updated GPR128 spill scratch register pairs to `(x8, x17)` and `(x15, x18)`; reserved `x15` in `regalloc.h` and removed it from `aarch64_pool`.
+- **RISC-V Large-Offset Scratch & Borrow Fixes** (`isa/riscv.c`, `isa/riscv_asm.c`):
+  - Reserved `t5` (`x30`) as dedicated scratch for large immediate/offset address computation, removing it from allocatable pool and syscall clobber lists.
+  - Fixed borrow calculation for multi-word subtraction (`sltu` borrow with operands properly ordered) across MC and text assembly.
+- **Register Allocation & Live Range Invariants** (`ir/live_range.h`, `ir/ast_lowering_mc.c`):
+  - Fixed `live_range_compute` caller copy-window interval protection: removed erroneous `live_range_add_use` with precolored `VREG_0`/`VREG_2` IDs from `live_range_scan_ir` (which was corrupting temporary 0 definitions in functions like `gofast.c`), replacing it with explicit hardware interval reservations for `VREG_0` and `VREG_2`.
+  - Fixed GPR128 dual-slot stack spilling (`spill_slot` and `spill_slot - 8`) so spilled 128-bit values preserve both low and high halves across deep call chains.
+- **Full Verification**:
+  - `make test` (173/173 passed).
+  - `make test-opt` (135/135 tests ok across -O0..-O3 in JIT and AOT).
+  - `make test-isa-qemu` (59/59 ok across x86-64, aarch64, riscv64, riscv32).
+  - `tools/torture_run.py` (3671 passed, 0 bad vs baseline).
+  - Cross-ISA early-return (`rt128v.c`) and comprehensive dump (`rt128dump.c`) test suites pass cleanly across all optimization levels on x86-64, AArch64, and RISC-V64.
+
+---
+
 ## [Sprint 109] - 2026-11-05 - `__int128` add/sub/neg high-half on all ISAs (carry/borrow/negation)
 
 The 128-bit arithmetic **high half** (carry / borrow / sign extension) was wrong across ISAs. Each `(lo,hi)` decomposition computed the low half correctly but propagated the wrong borrow/carry into the high half.

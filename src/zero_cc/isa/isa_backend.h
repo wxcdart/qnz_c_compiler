@@ -194,6 +194,52 @@ typedef struct ZeroCCISABackend {
     void (*emit_add128)(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi);
     void (*emit_sub128)(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi);
     void (*emit_mul128)(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi);
+    /* MUL128 with dst AND both sources spilled (Sprint 109): compute the low
+     * 128 bits of a*b directly between frame slots, reading/writing memory
+     * throughout. Required because MUL128 writes d partway through the
+     * sequence (so d may not alias a source half) and on ISAs with a single
+     * 128-bit scratch pair (x86-64) no register pair remains for the third
+     * value. Implementations must use only the working registers reserved
+     * around OP_MUL128 by the VREG_0/VREG_2 pseudo-intervals (rax/rdx on
+     * x86-64, x0/x1 on aarch64, a0/a1 on riscv64). Offsets are frame-relative
+     * (already frame-disp adjusted). NULL where unsupported. */
+    void (*emit_mul128_spilled)(ZeroCCCompiler *c,
+                                int32_t d_lo_off, int32_t d_hi_off,
+                                int32_t a_lo_off, int32_t a_hi_off,
+                                int32_t b_lo_off, int32_t b_hi_off);
+    /* MUL128 with a MIX of register-pair and frame-slot operands (Sprint 109
+     * 1-scratch-pair fix): needed when exactly one or two of (d, a, b) are
+     * spilled and the ISA has a single 128-bit scratch pair. Each operand is
+     * either REG (physical register pair in *_lo / *_hi) or MEM (frame-relative
+     * displacements of the lo/hi slots), selected by the *_mem flags. */
+    void (*emit_mul128_mixed)(ZeroCCCompiler *c,
+                              int d_mem, int d_lo, int d_hi,
+                              int a_mem, int a_lo, int a_hi,
+                              int b_mem, int b_lo, int b_hi);
+    /* ADD128/SUB128/AND128/OR128/XOR128 with src2 AND dst in frame slots,
+     * src1 register-resident or spilled (Sprint 109 1-scratch-pair fix):
+     * d = a OP b computed through a single working register (rax on
+     * x86-64), b and d read/written directly from frame slots. The x86-64
+     * register-form emits are two-step (`mov d, a; alu d, b`), which is NOT
+     * d==b alias-safe, so the spilled-dst + spilled-src2 combination cannot
+     * reuse a scratch pair in place. a_mem selects a's home (0: physical
+     * registers in a_lo/a_hi; 1: frame displacements). The b/d offsets are
+     * frame displacements. NULL where the backend's two scratch pairs already
+     * cover these cases. */
+    void (*emit_bin128_sp)(ZeroCCCompiler *c, int op, int a_mem,
+                           int a_lo, int a_hi,
+                           int32_t b_lo, int32_t b_hi,
+                           int32_t d_lo, int32_t d_hi);
+    /* Same as emit_bin128_sp for the -S assembly-text path (Sprint 109). */
+    void (*emit_bin128_sp_asm)(ZeroCCCompiler *c, int op, int a_mem,
+                               int a_lo, int a_hi,
+                               int32_t b_lo, int32_t b_hi,
+                               int32_t d_lo, int32_t d_hi, FILE *out);
+    /* -S twin of emit_mul128_mixed (Sprint 109): reg/mem per operand. */
+    void (*emit_mul128_mixed_asm)(ZeroCCCompiler *c,
+                                  int d_mem, int d_lo, int d_hi,
+                                  int a_mem, int a_lo, int a_hi,
+                                  int b_mem, int b_lo, int b_hi, FILE *out);
     void (*emit_and128)(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi);
     void (*emit_or128)(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi);
     void (*emit_xor128)(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi);
@@ -210,6 +256,31 @@ typedef struct ZeroCCISABackend {
     void (*emit_sext64_128)(ZeroCCCompiler *c, int dlo, int dhi, int src);
     void (*emit_trunc128_64)(ZeroCCCompiler *c, int dst, int s_lo);
     void (*emit_mov128_imm)(ZeroCCCompiler *c, int dlo, int dhi, int64_t imm);
+
+    /* GNU __int128 -S (assembly-text) counterparts of the MC emitters above.
+     * NULL on backends without 128-bit support; asm_emitter.c dispatches the
+     * OP_*128 ops through these so `zerocc -S` emits real code instead of the
+     * `# UNKNOWN` fallback (Sprint 109 128-bit ALU fix). */
+    void (*emit_add128_asm)(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi, FILE *out);
+    void (*emit_sub128_asm)(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi, FILE *out);
+    void (*emit_mul128_asm)(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi, FILE *out);
+    /* ASM-text version of emit_mul128_spilled (Sprint 109). */
+    void (*emit_mul128_spilled_asm)(ZeroCCCompiler *c,
+                                    int32_t d_lo_off, int32_t d_hi_off,
+                                    int32_t a_lo_off, int32_t a_hi_off,
+                                    int32_t b_lo_off, int32_t b_hi_off, FILE *out);
+    void (*emit_and128_asm)(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi, FILE *out);
+    void (*emit_or128_asm)(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi, FILE *out);
+    void (*emit_xor128_asm)(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi, FILE *out);
+    void (*emit_not128_asm)(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi, FILE *out);
+    void (*emit_neg128_asm)(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi, FILE *out);
+    void (*emit_mov128_asm)(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi, FILE *out);
+    void (*emit_mov128_imm_asm)(ZeroCCCompiler *c, int dlo, int dhi, int64_t imm, FILE *out);
+    void (*emit_load128_asm)(ZeroCCCompiler *c, int dlo, int dhi, int base, int32_t offset, FILE *out);
+    void (*emit_store128_asm)(ZeroCCCompiler *c, int s_lo, int s_hi, int base, int32_t offset, FILE *out);
+    void (*emit_zext64_128_asm)(ZeroCCCompiler *c, int dlo, int dhi, int src, FILE *out);
+    void (*emit_sext64_128_asm)(ZeroCCCompiler *c, int dlo, int dhi, int src, FILE *out);
+    void (*emit_trunc128_64_asm)(ZeroCCCompiler *c, int dst, int s_lo, FILE *out);
 
     /* Vector operations for binary JIT emission */
     void (*emit_vload)(ZeroCCCompiler *c, int dst, int base, int32_t offset);
@@ -354,6 +425,15 @@ typedef struct ZeroCCISABackend {
     int scratch_reg2;  /* Second scratch register (e.g., r11 on x86, x10 on AArch64, t1 on RISC-V) */
     int fp_scratch_reg1; /* FP scratch for spilled FP src1/dest (outside the 0-7 XMM pool) */
     int fp_scratch_reg2; /* FP scratch for spilled FP src2 */
+
+    /* 128-bit spill scratch (Sprint 109 GPR128 spill fix): up to 2 pairs of GPRs,
+     * each (g128_scratch_lo[k], g128_scratch_hi[k]). These are RESERVED -- excluded
+     * from both the 64-bit GPR pool and the GPR128 value pool -- so they never hold a
+     * live value. A spilled REG_CLASS_GPR128 temp is reloaded into one of these (lo,hi)
+     * pairs so the high half is not lost (and stored back on both slots). */
+    int g128_scratch_lo[2];
+    int g128_scratch_hi[2];
+    int g128_scratch_pair_count;
 
     /* Callee-save frame reserve in bytes (ISA-specific: 48 for x86, 96 for AArch64/RISC-V) */
     int callee_save_frame_reserve;

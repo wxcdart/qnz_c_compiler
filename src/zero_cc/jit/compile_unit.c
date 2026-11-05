@@ -2112,6 +2112,7 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                  * pointer evaluator first (returns 2 for a
                                  * pointer-pointer difference). */
                                 int64_t init_val;
+                                uint64_t init_hi = 0;
                                 {
                                     ZCPAddr cpa2;
                                     int64_t cdiff2 = 0;
@@ -2121,12 +2122,37 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                         init_val = cdiff2;
                                     } else {
                                         c->token_pos = cpe_save;
-                                        init_val = zero_cc_eval_const_expr(c);
+                                        ZCConstVal cv = zero_cc_eval_const_expr_val(c);
+                                        init_val = cv.i;
+                                        /* 128-bit initializer: the constant
+                                         * evaluator tracks the high half (Sprint
+                                         * 109), so `X + (Y << 64)` keeps Y in
+                                         * the high 64 bits instead of folding
+                                         * the shift away. */
+                                        if (cv.w128) init_hi = cv.hi;
                                     }
                                 }
-                                zero_cc_emit_scalar_bytes(&c->data_section, elem_size > 8 ? 8 : elem_size, (uint64_t)init_val);
-                                for (size_t i = elem_size; i < size; i++) {
-                                    zero_cc_emit_u8(&c->data_section, 0);
+                                if (elem_size == 16 &&
+                                    (gtype.tag == TYPE_INT128 || gtype.tag == TYPE_UINT128)) {
+                                    /* GNU __int128 scalar: the 64-bit constant
+                                     * extends to the high half - zero for
+                                     * unsigned __int128, sign-extended for
+                                     * signed (e.g. `__int128 v = -5;` must
+                                     * store lo=0xFFFFFFFFFFFFFFFB, hi=~0, not
+                                     * a zero high half). A 128-bit constant
+                                     * expression supplies the high half
+                                     * directly. */
+                                    bool u128 = (gtype.tag == TYPE_UINT128);
+                                    if (init_hi == 0 && !u128 && init_val < 0) {
+                                        init_hi = ~0ULL;  /* sign extension */
+                                    }
+                                    zero_cc_emit_scalar_bytes(&c->data_section, 8, (uint64_t)init_val);
+                                    zero_cc_emit_scalar_bytes(&c->data_section, 8, init_hi);
+                                } else {
+                                    zero_cc_emit_scalar_bytes(&c->data_section, elem_size > 8 ? 8 : elem_size, (uint64_t)init_val);
+                                    for (size_t i = elem_size; i < size; i++) {
+                                        zero_cc_emit_u8(&c->data_section, 0);
+                                    }
                                 }
                             }
                             /* `((T) x)` initializer: the operand's trailing

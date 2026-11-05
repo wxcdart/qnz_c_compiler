@@ -90,6 +90,40 @@ static void x86_rm(ZeroCCCompiler *c, uint8_t op, int reg, int base, int32_t dis
     else if (mod == 2) me_emit_u32(c, (uint32_t)disp);
 }
 
+/* F7 /4: mul [base+disp] -- rdx:rax = rax * [base+disp]. Used by the
+ * spilled-MUL128 path where one factor lives in a frame slot. */
+static void x86_mul_mem(ZeroCCCompiler *c, int base, int32_t disp) {
+    x86_rm(c, 0xF7, 4, base, disp);
+}
+
+/* 01 /00: add [base+disp], reg. Used by the spilled-MUL128 path to
+ * accumulate partial products into the d_hi frame slot. */
+static void x86_add_mem(ZeroCCCompiler *c, int reg, int base, int32_t disp) {
+    x86_rm(c, 0x01, reg, base, disp);
+}
+
+/* Spilled MUL128 (Sprint 109): all three operands live in frame slots.
+ * Only rax/rdx are used as working registers (both are reserved around
+ * OP_MUL128 by the VREG_0/VREG_2 pseudo-intervals, so no live value can
+ * be in them). */
+static void x86_emit_mul128_spilled(ZeroCCCompiler *c,
+                                    int32_t d_lo, int32_t d_hi,
+                                    int32_t a_lo, int32_t a_hi,
+                                    int32_t b_lo, int32_t b_hi) {
+    int base = zero_cc_frame_base_reg(c);
+    int rax = 0, rdx = 2;
+    x86_rm(c, 0x8B, rax, base, a_lo);   /* rax = a_lo */
+    x86_mul_mem(c, base, b_lo);         /* rdx:rax = a_lo * b_lo (P0) */
+    x86_rm(c, 0x89, rax, base, d_lo);   /* [d_lo] = P0.lo */
+    x86_rm(c, 0x89, rdx, base, d_hi);   /* [d_hi] = P0.hi */
+    x86_rm(c, 0x8B, rax, base, a_lo);   /* rax = a_lo */
+    x86_mul_mem(c, base, b_hi);         /* rdx:rax = a_lo * b_hi (P1) */
+    x86_add_mem(c, rax, base, d_hi);    /* [d_hi] += P1.lo */
+    x86_rm(c, 0x8B, rax, base, a_hi);   /* rax = a_hi */
+    x86_mul_mem(c, base, b_lo);         /* rdx:rax = a_hi * b_lo (P2) */
+    x86_add_mem(c, rax, base, d_hi);    /* [d_hi] += P2.lo */
+}
+
 /* mov dst, src */
 static void x86_mov_rr(ZeroCCCompiler *c, int dst, int src) {
     static const uint8_t op[] = {0x89};  /* mov r/m64, r64 */
@@ -108,6 +142,65 @@ static void x86_alu3_comm(ZeroCCCompiler *c, uint8_t opcode, int dst, int src1, 
     }
     x86_mov_rr(c, dst, src1);
     x86_alu(c, opcode, dst, src2);
+}
+
+/* MUL128 with an arbitrary mix of register-pair / frame-slot operands
+ * (Sprint 109 1-scratch-pair fix). Each of d/a/b is either REG (physical
+ * registers in *_lo/*_hi) or MEM (frame displacements in *_lo/*_hi, selected
+ * by the corresponding *_mem flag). Only rax/rdx are used as working
+ * registers (both reserved around OP_MUL128), so d may alias a or b: every
+ * source half is re-read from its home before being consumed. */
+static void x86_emit_mul128_mixed(ZeroCCCompiler *c,
+                                  int d_mem, int d_lo, int d_hi,
+                                  int a_mem, int a_lo, int a_hi,
+                                  int b_mem, int b_lo, int b_hi) {
+    int base = zero_cc_frame_base_reg(c);
+    int rax = 0, rdx = 2;
+    static const uint8_t mul_op[] = {0xFF};  /* 0xFF /4: mul r/m64 */
+    static const uint8_t add_op[] = {0x01};  /* 0x01 /r: add r/m64, r64 */
+    /* P0 = a_lo * b_lo */
+    if (a_mem) x86_rm(c, 0x8B, rax, base, a_lo); else x86_mov_rr(c, rax, a_lo);
+    if (b_mem) x86_mul_mem(c, base, b_lo);      else x86_rr(c, mul_op, 1, 4, b_lo);
+    if (d_mem) { x86_rm(c, 0x89, rax, base, d_lo); x86_rm(c, 0x89, rdx, base, d_hi); }
+    else       { x86_mov_rr(c, d_lo, rax);         x86_mov_rr(c, d_hi, rdx); }
+    /* P1 = a_lo * b_hi; d_hi += P1.lo */
+    if (a_mem) x86_rm(c, 0x8B, rax, base, a_lo); else x86_mov_rr(c, rax, a_lo);
+    if (b_mem) x86_mul_mem(c, base, b_hi);      else x86_rr(c, mul_op, 1, 4, b_hi);
+    if (d_mem) x86_add_mem(c, rax, base, d_hi); else x86_rr(c, add_op, 1, rax, d_hi);
+    /* P2 = a_hi * b_lo; d_hi += P2.lo */
+    if (a_mem) x86_rm(c, 0x8B, rax, base, a_hi); else x86_mov_rr(c, rax, a_hi);
+    if (b_mem) x86_mul_mem(c, base, b_lo);      else x86_rr(c, mul_op, 1, 4, b_lo);
+    if (d_mem) x86_add_mem(c, rax, base, d_hi); else x86_rr(c, add_op, 1, rax, d_hi);
+}
+
+/* Spilled ADD128/SUB128/AND128/OR128/XOR128 (Sprint 109 1-scratch-pair
+ * fix): b and d live in frame slots, a in registers (or a slot). Uses only
+ * the reserved 128-bit scratch pair (r10/r11 on x86-64 - rax/rdx are NOT
+ * reserved around these ops). The hi half of add/sub chains the
+ * carry/borrow from the lo half. */
+static void x86_emit_bin128_sp(ZeroCCCompiler *c, int op, int a_mem,
+                               int a_lo, int a_hi,
+                               int32_t b_lo, int32_t b_hi,
+                               int32_t d_lo, int32_t d_hi) {
+    int base = zero_cc_frame_base_reg(c);
+    int plo = BE(c)->g128_scratch_lo[0], phi = BE(c)->g128_scratch_hi[0];
+    uint8_t lo_op, hi_op;
+    switch (op) {
+        case OP_SUB128: lo_op = 0x29; hi_op = 0x19; break;  /* sub /r, sbb /r */
+        case OP_AND128: lo_op = 0x21; hi_op = 0x21; break;  /* and /r */
+        case OP_OR128:  lo_op = 0x09; hi_op = 0x09; break;  /* or  /r */
+        case OP_XOR128: lo_op = 0x31; hi_op = 0x31; break;  /* xor /r */
+        case OP_ADD128:
+        default:        lo_op = 0x01; hi_op = 0x11; break;  /* add /r, adc /r */
+    }
+    if (a_mem) x86_rm(c, 0x8B, plo, base, a_lo); else x86_mov_rr(c, plo, a_lo);
+    x86_rm(c, 0x8B, phi, base, b_lo);             /* phi = b_lo */
+    x86_rr(c, &lo_op, 1, phi, plo);               /* plo = a_lo OP b_lo (CF) */
+    x86_rm(c, 0x89, plo, base, d_lo);             /* [d_lo] = plo */
+    if (a_mem) x86_rm(c, 0x8B, plo, base, a_hi); else x86_mov_rr(c, plo, a_hi);
+    x86_rm(c, 0x8B, phi, base, b_hi);             /* phi = b_hi */
+    x86_rr(c, &hi_op, 1, phi, plo);               /* plo = a_hi OP b_hi (+CF) */
+    x86_rm(c, 0x89, plo, base, d_hi);             /* [d_hi] = plo */
 }
 
 /* x86-64 backend implementation */
@@ -2303,8 +2396,18 @@ static void x86_emit_mov128(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s
     x86_mov_rr(c, dhi, s_hi);
 }
 static void x86_emit_load128(ZeroCCCompiler *c, int dlo, int dhi, int base, int32_t offset) {
-    x86_rm(c, 0x8B, dlo, base, offset);      /* mov dlo, [base+offset]   */
-    x86_rm(c, 0x8B, dhi, base, offset + 8);  /* mov dhi, [base+offset+8] */
+    /* Aliasing: when dlo == base (e.g. the base is a spilled pointer reloaded
+     * into the same scratch register as the spilled 128-bit dst's lo half),
+     * the lo load would clobber the base before the hi load. Load the hi half
+     * first; the self-referential lo load (d == base) is safe - the base is
+     * read before it is written. */
+    if (dlo == base) {
+        x86_rm(c, 0x8B, dhi, base, offset + 8);  /* mov dhi, [base+offset+8] */
+        x86_rm(c, 0x8B, dlo, base, offset);      /* mov dlo, [base+offset]   */
+    } else {
+        x86_rm(c, 0x8B, dlo, base, offset);      /* mov dlo, [base+offset]   */
+        x86_rm(c, 0x8B, dhi, base, offset + 8);  /* mov dhi, [base+offset+8] */
+    }
 }
 static void x86_emit_store128(ZeroCCCompiler *c, int s_lo, int s_hi, int base, int32_t offset) {
     x86_rm(c, 0x89, s_lo, base, offset);      /* mov [base+offset], s_lo   */
@@ -2344,6 +2447,13 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .scratch_reg2 = 11,                        /* r11 (non-argument/return register) */
     .fp_scratch_reg1 = REGALLOC_FP_SCRATCH1,  /* xmm15 - outside XMM pool 0-7 */
     .fp_scratch_reg2 = REGALLOC_FP_SCRATCH2,   /* xmm14 - outside XMM pool 0-7 */
+    /* 128-bit spill scratch (reserved; excluded from the 64-bit and GPR128 pools):
+     * pair0 = (r10, r11). Only ONE pair is safe on x86-64 -- the only GPRs outside both
+     * the 64-bit and GPR128 value pools are r10/r11; freeing more (e.g. r8/r9) from the
+     * 64-bit pool regresses TLS register allocation at -O1+ (test/jit/tls.c). */
+    .g128_scratch_lo = {10, 8},
+    .g128_scratch_hi = {11, 9},
+    .g128_scratch_pair_count = 1,
     .callee_save_frame_reserve = 48,           /* 5 callee-saved regs: rbx, r12-r15 */
 
     .emit_prologue = x86_emit_prologue,
@@ -2379,6 +2489,9 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_add128 = x86_emit_add128,
     .emit_sub128 = x86_emit_sub128,
     .emit_mul128 = x86_emit_mul128,
+    .emit_mul128_spilled = x86_emit_mul128_spilled,
+    .emit_mul128_mixed = x86_emit_mul128_mixed,
+    .emit_bin128_sp = x86_emit_bin128_sp,
     .emit_and128 = x86_emit_and128,
     .emit_or128 = x86_emit_or128,
     .emit_xor128 = x86_emit_xor128,

@@ -61,7 +61,13 @@ static void aarch64_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
         fprintf(out, "\tand\tx16, x16, #-%zu\n", N);
         fprintf(out, "\tsub\tx16, x29, x16\n");
         fprintf(out, "\tsub\tsp, sp, x16\n");
-        fprintf(out, "\tsub\tsp, sp, #%zu\n", (size_t)c->lowering.frame_delta);
+        if ((size_t)c->lowering.frame_delta > 4095) {
+            /* Immediate SUB caps at 4095 (12-bit << 12). */
+            fprintf(out, "\tmov\tx16, #0x%zX\n", (size_t)c->lowering.frame_delta);
+            fprintf(out, "\tsub\tsp, sp, x16\n");
+        } else {
+            fprintf(out, "\tsub\tsp, sp, #%zu\n", (size_t)c->lowering.frame_delta);
+        }
 
         const int *callee_saved = BE(c)->conv->callee_saved_gpr;
         int count = BE(c)->conv->callee_saved_gpr_count;
@@ -120,7 +126,12 @@ static void aarch64_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
     /* Frame setup with x29 at top of local frame so negative offsets [x29, #-off] lie above sp */
     fprintf(out, "\tstp\tx29, x30, [sp, #-16]!\n");
     fprintf(out, "\tmov\tx29, sp\n");
-    if (aligned_sz > 0) {
+    if (aligned_sz > 4095) {
+        /* Immediate SUB caps at 4095 (12-bit << 12); large frames (many
+         * spilled 128-bit temps) need the register form. (Sprint 109) */
+        fprintf(out, "\tmov\tx16, #0x%zX\n", aligned_sz);
+        fprintf(out, "\tsub\tsp, sp, x16\n");
+    } else if (aligned_sz > 0) {
         fprintf(out, "\tsub\tsp, sp, #%zu\n", aligned_sz);
     }
 
@@ -231,11 +242,11 @@ static void aarch64_emit_load_asm(ZeroCCCompiler *c, int dst, int base, int32_t 
     const char *base_name = BE(c)->get_hw_reg_name(base);
     if (offset < -256 || (offset > 255 && (offset % 8 != 0 || offset > 32760))) {
         if (offset < 0) {
-            fprintf(out, "\tsub\tx9, %s, #%d\n", base_name, -offset);
+            fprintf(out, "\tsub\tx16, %s, #%d\n", base_name, -offset);
         } else {
-            fprintf(out, "\tadd\tx9, %s, #%d\n", base_name, offset);
+            fprintf(out, "\tadd\tx16, %s, #%d\n", base_name, offset);
         }
-        fprintf(out, "\tldr\t%s, [x9]\n", dst_name);
+        fprintf(out, "\tldr\t%s, [x16]\n", dst_name);
     } else {
         fprintf(out, "\tldr\t%s, [%s, #%d]\n", dst_name, base_name, offset);
     }
@@ -247,11 +258,11 @@ static void aarch64_emit_store_asm(ZeroCCCompiler *c, int src, int base, int32_t
     const char *base_name = BE(c)->get_hw_reg_name(base);
     if (offset < -256 || (offset > 255 && (offset % 8 != 0 || offset > 32760))) {
         if (offset < 0) {
-            fprintf(out, "\tsub\tx9, %s, #%d\n", base_name, -offset);
+            fprintf(out, "\tsub\tx16, %s, #%d\n", base_name, -offset);
         } else {
-            fprintf(out, "\tadd\tx9, %s, #%d\n", base_name, offset);
+            fprintf(out, "\tadd\tx16, %s, #%d\n", base_name, offset);
         }
-        fprintf(out, "\tstr\t%s, [x9]\n", src_name);
+        fprintf(out, "\tstr\t%s, [x16]\n", src_name);
     } else {
         fprintf(out, "\tstr\t%s, [%s, #%d]\n", src_name, base_name, offset);
     }
@@ -728,11 +739,11 @@ static void aarch64_emit_load_fp_asm(ZeroCCCompiler *c, int dst, int base, int32
     const char *base_name = BE(c)->get_hw_reg_name(base);
     if (offset < -256 || (offset > 255 && (offset % 8 != 0 || offset > 32760))) {
         if (offset < 0) {
-            fprintf(out, "\tsub\tx9, %s, #%d\n", base_name, -offset);
+            fprintf(out, "\tsub\tx16, %s, #%d\n", base_name, -offset);
         } else {
-            fprintf(out, "\tadd\tx9, %s, #%d\n", base_name, offset);
+            fprintf(out, "\tadd\tx16, %s, #%d\n", base_name, offset);
         }
-        fprintf(out, "\tldr\td%s, [x9]\n", dst_name + 1);
+        fprintf(out, "\tldr\td%s, [x16]\n", dst_name + 1);
     } else {
         fprintf(out, "\tldr\td%s, [%s, #%d]\n", dst_name + 1, base_name, offset);
     }
@@ -744,11 +755,11 @@ static void aarch64_emit_store_fp_asm(ZeroCCCompiler *c, int src, int base, int3
     const char *base_name = BE(c)->get_hw_reg_name(base);
     if (offset < -256 || (offset > 255 && (offset % 8 != 0 || offset > 32760))) {
         if (offset < 0) {
-            fprintf(out, "\tsub\tx9, %s, #%d\n", base_name, -offset);
+            fprintf(out, "\tsub\tx16, %s, #%d\n", base_name, -offset);
         } else {
-            fprintf(out, "\tadd\tx9, %s, #%d\n", base_name, offset);
+            fprintf(out, "\tadd\tx16, %s, #%d\n", base_name, offset);
         }
-        fprintf(out, "\tstr\td%s, [x9]\n", src_name + 1);
+        fprintf(out, "\tstr\td%s, [x16]\n", src_name + 1);
     } else {
         fprintf(out, "\tstr\td%s, [%s, #%d]\n", src_name + 1, base_name, offset);
     }
@@ -1119,6 +1130,152 @@ static void aarch64_emit_vcmpsd_asm(ZeroCCCompiler *c, int dst, int src1, int sr
     fprintf(out, "\tfcmp\td%s, d%s\n", src1_name + 1, src2_name + 1);
 }
 
+/* =========================================================================
+ * GNU __int128 (Sprint 109): 128-bit ops, AArch64 text forms. Mirrors the raw
+ * emitters in aarch64.c. NOTE: in AArch64 assembly the plain `add`/`sub`
+ * mnemonics assemble with S=0 (NO flags) - the carry/borrow chains must use
+ * the flag-setting `adds`/`subs` (gcc emits e.g. `adds`+`adc` for a 128-bit
+ * add and `negs`+`sbc` for negation). mul128 uses the x9/x10
+ * intra-procedural scratch pair (never a GPR128 half, never a 64-bit value
+ * register).
+ * ========================================================================= */
+static void aarch64_emit_add128_asm(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi, FILE *out) {
+    const char *dlo_n = BE(c)->get_hw_reg_name(dlo), *dhi_n = BE(c)->get_hw_reg_name(dhi);
+    const char *alo_n = BE(c)->get_hw_reg_name(alo), *ahi_n = BE(c)->get_hw_reg_name(ahi);
+    const char *blo_n = BE(c)->get_hw_reg_name(blo), *bhi_n = BE(c)->get_hw_reg_name(bhi);
+    fprintf(out, "\tadds\t%s, %s, %s\n", dlo_n, alo_n, blo_n);
+    fprintf(out, "\tadc\t%s, %s, %s\n", dhi_n, ahi_n, bhi_n);
+}
+static void aarch64_emit_sub128_asm(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi, FILE *out) {
+    const char *dlo_n = BE(c)->get_hw_reg_name(dlo), *dhi_n = BE(c)->get_hw_reg_name(dhi);
+    const char *alo_n = BE(c)->get_hw_reg_name(alo), *ahi_n = BE(c)->get_hw_reg_name(ahi);
+    const char *blo_n = BE(c)->get_hw_reg_name(blo), *bhi_n = BE(c)->get_hw_reg_name(bhi);
+    fprintf(out, "\tsubs\t%s, %s, %s\n", dlo_n, alo_n, blo_n);
+    fprintf(out, "\tsbc\t%s, %s, %s\n", dhi_n, ahi_n, bhi_n);
+}
+static void aarch64_emit_mul128_asm(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi, FILE *out) {
+    const char *dlo_n = BE(c)->get_hw_reg_name(dlo), *dhi_n = BE(c)->get_hw_reg_name(dhi);
+    const char *alo_n = BE(c)->get_hw_reg_name(alo), *ahi_n = BE(c)->get_hw_reg_name(ahi);
+    const char *blo_n = BE(c)->get_hw_reg_name(blo), *bhi_n = BE(c)->get_hw_reg_name(bhi);
+    const char *t1_n = BE(c)->get_hw_reg_name(BE(c)->scratch_reg1);
+    const char *t2_n = BE(c)->get_hw_reg_name(BE(c)->scratch_reg2);
+    fprintf(out, "\tmul\t%s, %s, %s\n", dlo_n, alo_n, blo_n);
+    fprintf(out, "\tumulh\t%s, %s, %s\n", dhi_n, alo_n, blo_n);
+    fprintf(out, "\tmul\t%s, %s, %s\n", t1_n, alo_n, bhi_n);
+    fprintf(out, "\tadd\t%s, %s, %s\n", dhi_n, dhi_n, t1_n);
+    fprintf(out, "\tmul\t%s, %s, %s\n", t2_n, ahi_n, blo_n);
+    fprintf(out, "\tadd\t%s, %s, %s\n", dhi_n, dhi_n, t2_n);
+}
+static void aarch64_emit_mul128_spilled_asm(ZeroCCCompiler *c,
+                                            int32_t d_lo, int32_t d_hi,
+                                            int32_t a_lo, int32_t a_hi,
+                                            int32_t b_lo, int32_t b_hi, FILE *out) {
+    /* Spilled MUL128 (Sprint 109): all operands in frame slots. Uses only the
+     * reserved 128-bit scratch pair registers (never hold a live value). */
+    int plo = BE(c)->g128_scratch_lo[0], phi = BE(c)->g128_scratch_hi[0];
+    int b1 = BE(c)->g128_scratch_lo[1];
+    int base = zero_cc_frame_base_reg(c);
+    const char *plo_n = BE(c)->get_hw_reg_name(plo), *phi_n = BE(c)->get_hw_reg_name(phi);
+    const char *b1_n = BE(c)->get_hw_reg_name(b1);
+    /* P0 = a_lo * b_lo: umulh first (the mul below overwrites plo=a_lo) */
+    aarch64_emit_load_asm(c, plo, base, a_lo, out);
+    aarch64_emit_load_asm(c, b1, base, b_lo, out);
+    fprintf(out, "\tumulh\t%s, %s, %s\n", phi_n, plo_n, b1_n);
+    fprintf(out, "\tmul\t%s, %s, %s\n", plo_n, plo_n, b1_n);
+    aarch64_emit_store_asm(c, plo, base, d_lo, out);
+    aarch64_emit_store_asm(c, phi, base, d_hi, out);
+    /* P1 = a_lo * b_hi; dhi += P1.lo */
+    aarch64_emit_load_asm(c, plo, base, a_lo, out);
+    aarch64_emit_load_asm(c, b1, base, b_hi, out);
+    fprintf(out, "\tmul\t%s, %s, %s\n", plo_n, plo_n, b1_n);
+    aarch64_emit_load_asm(c, b1, base, d_hi, out);
+    fprintf(out, "\tadd\t%s, %s, %s\n", b1_n, b1_n, plo_n);
+    aarch64_emit_store_asm(c, b1, base, d_hi, out);
+    /* P2 = a_hi * b_lo; dhi += P2.lo */
+    aarch64_emit_load_asm(c, plo, base, a_hi, out);
+    aarch64_emit_load_asm(c, b1, base, b_lo, out);
+    fprintf(out, "\tmul\t%s, %s, %s\n", plo_n, plo_n, b1_n);
+    aarch64_emit_load_asm(c, b1, base, d_hi, out);
+    fprintf(out, "\tadd\t%s, %s, %s\n", b1_n, b1_n, plo_n);
+    aarch64_emit_store_asm(c, b1, base, d_hi, out);
+}
+static void aarch64_emit_and128_asm(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi, FILE *out) {
+    const char *dlo_n = BE(c)->get_hw_reg_name(dlo), *dhi_n = BE(c)->get_hw_reg_name(dhi);
+    const char *alo_n = BE(c)->get_hw_reg_name(alo), *ahi_n = BE(c)->get_hw_reg_name(ahi);
+    const char *blo_n = BE(c)->get_hw_reg_name(blo), *bhi_n = BE(c)->get_hw_reg_name(bhi);
+    fprintf(out, "\tand\t%s, %s, %s\n", dlo_n, alo_n, blo_n);
+    fprintf(out, "\tand\t%s, %s, %s\n", dhi_n, ahi_n, bhi_n);
+}
+static void aarch64_emit_or128_asm(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi, FILE *out) {
+    const char *dlo_n = BE(c)->get_hw_reg_name(dlo), *dhi_n = BE(c)->get_hw_reg_name(dhi);
+    const char *alo_n = BE(c)->get_hw_reg_name(alo), *ahi_n = BE(c)->get_hw_reg_name(ahi);
+    const char *blo_n = BE(c)->get_hw_reg_name(blo), *bhi_n = BE(c)->get_hw_reg_name(bhi);
+    fprintf(out, "\torr\t%s, %s, %s\n", dlo_n, alo_n, blo_n);
+    fprintf(out, "\torr\t%s, %s, %s\n", dhi_n, ahi_n, bhi_n);
+}
+static void aarch64_emit_xor128_asm(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi, FILE *out) {
+    const char *dlo_n = BE(c)->get_hw_reg_name(dlo), *dhi_n = BE(c)->get_hw_reg_name(dhi);
+    const char *alo_n = BE(c)->get_hw_reg_name(alo), *ahi_n = BE(c)->get_hw_reg_name(ahi);
+    const char *blo_n = BE(c)->get_hw_reg_name(blo), *bhi_n = BE(c)->get_hw_reg_name(bhi);
+    fprintf(out, "\teor\t%s, %s, %s\n", dlo_n, alo_n, blo_n);
+    fprintf(out, "\teor\t%s, %s, %s\n", dhi_n, ahi_n, bhi_n);
+}
+static void aarch64_emit_not128_asm(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi, FILE *out) {
+    const char *dlo_n = BE(c)->get_hw_reg_name(dlo), *dhi_n = BE(c)->get_hw_reg_name(dhi);
+    const char *slo_n = BE(c)->get_hw_reg_name(slo), *shi_n = BE(c)->get_hw_reg_name(shi);
+    fprintf(out, "\tmvn\t%s, %s\n", dlo_n, slo_n);
+    fprintf(out, "\tmvn\t%s, %s\n", dhi_n, shi_n);
+}
+static void aarch64_emit_neg128_asm(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi, FILE *out) {
+    const char *dlo_n = BE(c)->get_hw_reg_name(dlo), *dhi_n = BE(c)->get_hw_reg_name(dhi);
+    const char *slo_n = BE(c)->get_hw_reg_name(slo), *shi_n = BE(c)->get_hw_reg_name(shi);
+    /* -x = 0 - x. The low half must SET the C flag (borrow) for the high sbc:
+     * `negs` is the flag-setting form (plain `sub dlo, xzr, slo` would not set
+     * C, leaving the sbc to read a stale carry). */
+    fprintf(out, "\tnegs\t%s, %s\n", dlo_n, slo_n);
+    fprintf(out, "\tsbc\t%s, xzr, %s\n", dhi_n, shi_n);
+}
+static void aarch64_emit_mov128_asm(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi, FILE *out) {
+    const char *dlo_n = BE(c)->get_hw_reg_name(dlo), *dhi_n = BE(c)->get_hw_reg_name(dhi);
+    const char *slo_n = BE(c)->get_hw_reg_name(slo), *shi_n = BE(c)->get_hw_reg_name(shi);
+    if (dlo != slo) fprintf(out, "\tmov\t%s, %s\n", dlo_n, slo_n);
+    if (dhi != shi) fprintf(out, "\tmov\t%s, %s\n", dhi_n, shi_n);
+}
+static void aarch64_emit_mov128_imm_asm(ZeroCCCompiler *c, int dlo, int dhi, int64_t imm, FILE *out) {
+    if (BE(c)->emit_mov_imm_asm) BE(c)->emit_mov_imm_asm(c, dlo, imm, out);
+    fprintf(out, "\tmov\t%s, #0\n", BE(c)->get_hw_reg_name(dhi));
+}
+static void aarch64_emit_load128_asm(ZeroCCCompiler *c, int dlo, int dhi, int base, int32_t offset, FILE *out) {
+    /* Aliasing: if dlo == base, load the hi half first (see aarch64_emit_load128). */
+    if (BE(c)->emit_load_asm) {
+        if (dlo == base) {
+            BE(c)->emit_load_asm(c, dhi, base, offset + 8, out);
+            BE(c)->emit_load_asm(c, dlo, base, offset, out);
+        } else {
+            BE(c)->emit_load_asm(c, dlo, base, offset, out);
+            BE(c)->emit_load_asm(c, dhi, base, offset + 8, out);
+        }
+    }
+}
+static void aarch64_emit_store128_asm(ZeroCCCompiler *c, int slo, int shi, int base, int32_t offset, FILE *out) {
+    if (BE(c)->emit_store_asm) {
+        BE(c)->emit_store_asm(c, slo, base, offset, out);
+        BE(c)->emit_store_asm(c, shi, base, offset + 8, out);
+    }
+}
+static void aarch64_emit_zext64_128_asm(ZeroCCCompiler *c, int dlo, int dhi, int src, FILE *out) {
+    fprintf(out, "\tmov\t%s, %s\n", BE(c)->get_hw_reg_name(dlo), BE(c)->get_hw_reg_name(src));
+    fprintf(out, "\tmov\t%s, #0\n", BE(c)->get_hw_reg_name(dhi));
+}
+static void aarch64_emit_sext64_128_asm(ZeroCCCompiler *c, int dlo, int dhi, int src, FILE *out) {
+    fprintf(out, "\tmov\t%s, %s\n", BE(c)->get_hw_reg_name(dlo), BE(c)->get_hw_reg_name(src));
+    fprintf(out, "\tasr\t%s, %s, #63\n", BE(c)->get_hw_reg_name(dhi), BE(c)->get_hw_reg_name(src));
+}
+static void aarch64_emit_trunc128_64_asm(ZeroCCCompiler *c, int dst, int slo, FILE *out) {
+    if (dst != slo)
+        fprintf(out, "\tmov\t%s, %s\n", BE(c)->get_hw_reg_name(dst), BE(c)->get_hw_reg_name(slo));
+}
+
 /* Initialize AArch64 assembly emission functions in backend */
 void aarch64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_prologue_asm = aarch64_emit_prologue_asm;
@@ -1150,6 +1307,22 @@ void aarch64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_inc_asm = aarch64_emit_inc_asm;
     be->emit_dec_asm = aarch64_emit_dec_asm;
     be->emit_not_asm = aarch64_emit_not_asm;
+    be->emit_add128_asm = aarch64_emit_add128_asm;
+    be->emit_sub128_asm = aarch64_emit_sub128_asm;
+    be->emit_mul128_asm = aarch64_emit_mul128_asm;
+    be->emit_mul128_spilled_asm = aarch64_emit_mul128_spilled_asm;
+    be->emit_and128_asm = aarch64_emit_and128_asm;
+    be->emit_or128_asm = aarch64_emit_or128_asm;
+    be->emit_xor128_asm = aarch64_emit_xor128_asm;
+    be->emit_not128_asm = aarch64_emit_not128_asm;
+    be->emit_neg128_asm = aarch64_emit_neg128_asm;
+    be->emit_mov128_asm = aarch64_emit_mov128_asm;
+    be->emit_mov128_imm_asm = aarch64_emit_mov128_imm_asm;
+    be->emit_load128_asm = aarch64_emit_load128_asm;
+    be->emit_store128_asm = aarch64_emit_store128_asm;
+    be->emit_zext64_128_asm = aarch64_emit_zext64_128_asm;
+    be->emit_sext64_128_asm = aarch64_emit_sext64_128_asm;
+    be->emit_trunc128_64_asm = aarch64_emit_trunc128_64_asm;
     be->emit_lea_asm = aarch64_emit_lea_asm;
     be->emit_deref_asm = aarch64_emit_deref_asm;
     be->emit_call_asm = aarch64_emit_call_asm;

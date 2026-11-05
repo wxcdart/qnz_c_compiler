@@ -9,6 +9,12 @@
  * zerocc-specific 128-bit codegen. */
 __uint128_t gval = 1000;
 __int128_t  gsign = -5;
+__int128_t  gneg = -1024;      /* negative initializer: hi must be 0xFFFF..FF */
+__int128_t  gbig = 0;
+
+static __int128 mkbig(void) {   /* return-ABI pressure: -(2^70) + 4096 */
+    return (-((__int128)1 << 70)) + 4096;
+}
 int main(void) {
     __uint128_t a = 1000, b = 500;
     __uint128_t c = a + b;          /* 1500 */
@@ -70,6 +76,85 @@ int main(void) {
     if ((int)(gval * 2) != 3000) ok = 0;
     if ((int)(gval > 1000) != 1) ok = 0;
     if (sizeof(gval) != 16) ok = 0;
+
+    /* ============ Sprint 109 phase 2: high-half correctness (hi != 0) ============
+     * These caught: (a) signed >> emitted a logical shift (hi not sign-filled),
+     * (b) AArch64 NEG128 register-field encoding, (c) global int128 negative
+     * initializers stored only the low 8 bytes.  Expected values verified
+     * against gmc / 128-bit two's-complement math. */
+    __int128 v = -1024;                       /* lo=mfmffc00, hi=mfmf...mf */
+    if ((int)(v >> 10) != -1) ok = 0;         /* was: hi left 0 by lsr path */
+    if ((int)(v >> 64) != -1) ok = 0;
+    if ((int)(v >> 70) != -1) ok = 0;
+    v >>= 10;                                 /* compound shift, signed */
+    if (v != -1) ok = 0;
+
+    __int128 w = mkbig();                     /* lo=1000, hi=mfmfmf...fc0 */
+    if ((unsigned long long)w != 0x0000000000001000ULL) ok = 0;
+    if (((__uint128_t)w >> 64) != 0xFFFFFFFFFFFFFFC0ULL) ok = 0;
+    if ((unsigned long long)(w >> 10) != 0xF000000000000004ULL) ok = 0;
+    if (((__uint128_t)(w >> 10) >> 64) != 0xFFFFFFFFFFFFFFFFULL) ok = 0;
+    if ((unsigned long long)(w >> 64) != 0xFFFFFFFFFFFFFFC0ULL) ok = 0;
+    if (((__uint128_t)(w >> 64) >> 64) != 0xFFFFFFFFFFFFFFFFULL) ok = 0;
+    if ((int)(w >> 70) != -1) ok = 0;
+
+    __int128 big2 = ((__int128)2) + ((__int128)1 << 64);   /* (2, 1) */
+    __int128 nb2 = -big2;                                  /* (fe, fe) */
+    if ((unsigned long long)nb2 != 0xFFFFFFFFFFFFFFFEULL) ok = 0;
+    if (((__uint128_t)nb2 >> 64) != 0xFFFFFFFFFFFFFFFEULL) ok = 0;
+
+    /* mul with hi != 0 in one or both operands */
+    __uint128_t ma = ((__uint128_t)0x1111111111111111ULL) + (((__uint128_t)0x2222222222222222ULL) << 64);
+    __uint128_t mb = 0x3333333333333333ULL;
+    __uint128_t mc = ((__uint128_t)0x4444444444444444ULL) + (((__uint128_t)0x5555555555555555ULL) << 64);
+    if ((unsigned long long)(ma * mb) != 0x2FC962FC962FC963ULL) ok = 0;
+    if (((ma * mb) >> 64) != 0x62FC962FC962FC96ULL) ok = 0;
+    if ((unsigned long long)(ma * mc) != 0x3FB72EA61D950C84ULL) ok = 0;
+    if (((ma * mc) >> 64) != 0xD3A06D3A06D3A06DULL) ok = 0;
+    __uint128_t md = ((__uint128_t)0x6789ABCDEF012345ULL) + (((__uint128_t)0xABCDEF0123456789ULL) << 64);
+    if ((unsigned long long)(md * 2) != 0xCF13579BDE02468AULL) ok = 0;
+    if (((md * 2) >> 64) != 0x579BDE02468ACF12ULL) ok = 0;
+    __int128 sn = -((__int128)1 << 64) - 7;   /* (f9, fe) */
+    if ((unsigned long long)((__uint128_t)(sn * 10)) != 0xFFFFFFFFFFFFFFBAULL) ok = 0;
+    if ((((__uint128_t)(sn * 10)) >> 64) != 0xFFFFFFFFFFFFFFF5ULL) ok = 0;
+
+    /* add / sub with hi != 0 both sides */
+    __uint128_t me = ((__uint128_t)0x123456789ABCDEF0ULL) + (((__uint128_t)0xFEDCBA0987654321ULL) << 64);
+    __uint128_t mf = ((__uint128_t)0x0FEDCBA987654321ULL) + (((__uint128_t)0x0123456789ABCDEFULL) << 64);
+    if ((unsigned long long)(me + mf) != 0x2222222222222211ULL) ok = 0;
+    if (((me + mf) >> 64) != 0xFFFFFF7111111110ULL) ok = 0;
+    if ((unsigned long long)(me - mf) != 0x02468ACF13579BCFULL) ok = 0;
+    if (((me - mf) >> 64) != 0xFDB974A1FDB97532ULL) ok = 0;
+
+    /* bitwise with hi != 0 */
+    if ((unsigned long long)(ma & mc) != 0) ok = 0;
+    if (((ma & mc) >> 64) != 0) ok = 0;
+    if ((unsigned long long)(ma | mc) != 0x5555555555555555ULL) ok = 0;
+    if (((ma | mc) >> 64) != 0x7777777777777777ULL) ok = 0;
+    if ((unsigned long long)(ma ^ mc) != 0x5555555555555555ULL) ok = 0;
+    if (((ma ^ mc) >> 64) != 0x7777777777777777ULL) ok = 0;
+    if ((unsigned long long)((__uint128_t)~ma) != 0xEEEEEEEEEEEEEEEEULL) ok = 0;
+    if ((((__uint128_t)~ma) >> 64) != 0xDDDDDDDDDDDDDDDDULL) ok = 0;
+
+    /* unsigned shifts with hi != 0 */
+    if ((unsigned long long)(me >> 10) != 0xC8448D159E26AF37ULL) ok = 0;
+    if (((me >> 10) >> 64) != 0x003FB72E8261D950ULL) ok = 0;
+    if ((unsigned long long)(me >> 64) != 0xFEDCBA0987654321ULL) ok = 0;
+    if (((me >> 64) >> 64) != 0) ok = 0;
+    if ((unsigned long long)(me >> 70) != 0x03FB72E8261D950CULL) ok = 0;
+    if (((me >> 70) >> 64) != 0) ok = 0;
+    if ((unsigned long long)(me << 10) != 0xD159E26AF37BC000ULL) ok = 0;
+    if (((me << 10) >> 64) != 0x72E8261D950C8448ULL) ok = 0;
+    if ((unsigned long long)(me << 70) != 0) ok = 0;
+    if (((me << 70) >> 64) != 0x8D159E26AF37BC00ULL) ok = 0;
+
+    /* global negative initializer: high half must be sign-extended */
+    if ((unsigned long long)gneg != 0xFFFFFFFFFFFFFC00ULL) ok = 0;
+    if (((__uint128_t)gneg >> 64) != 0xFFFFFFFFFFFFFFFFULL) ok = 0;
+    /* global store with hi != 0, then reload */
+    gbig = nb2;
+    if ((unsigned long long)gbig != 0xFFFFFFFFFFFFFFFEULL) ok = 0;
+    if (((__uint128_t)gbig >> 64) != 0xFFFFFFFFFFFFFFFEULL) ok = 0;
 
     return ok ? 0 : 1;
 }

@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-05T05:04:35Z
+timestamp: 2026-11-05T16:33:41Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -942,3 +942,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-05 — Updated `isa-backends.md`
 - Sprint 109: __int128 add/sub/neg high-half (carry/borrow/negation) fixed on x86-64/AArch64/RISC-V64; division now verified cross-ISA; remaining gaps = return-ABI/arg-ABI/GPR128-spill
+
+## 2026-11-05 — Updated `isa-backends.md`
+- Sprint 109: complete __int128 support across x86-64, AArch64, RISC-V64; reserve x16 (AArch64) and t5 (RISC-V) address scratches; fix return ABI and GPR128 dual-slot spills

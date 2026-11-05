@@ -371,17 +371,42 @@ static void live_range_compute(LiveRangeAnalyzer *lra, RegAllocator *ra, ZeroCCC
         }
     }
 
-    /* On x86-64, idiv/div instructions implicitly read/write RAX (phys 0)
-     * and RDX (phys 2). Register intervals at [i, i] for VREG_0 and VREG_2
-     * so that the register allocator never assigns RAX or RDX to any temp
-     * that is live across or used at an OP_DIV or OP_MOD. */
+    /* On x86-64, idiv/div and 128-bit multiply implicitly read/write RAX (phys 0)
+     * and RDX (phys 2). Register intervals at [i, i] for VREG_0 and VREG_2 so that
+     * the register allocator never assigns RAX or RDX to any temp that is live
+     * across or used at an OP_DIV, OP_MOD, or OP_MUL128 (the 128-bit mul uses
+     * rdx:rax as its working product, so a live 64-bit value in rax/rdx would be
+     * silently clobbered -- Sprint 109 GPR128 spill fix). */
     if (ra->target_isa == ISA_X86_64) {
         for (size_t i = 0; i < instr_count; i++) {
             Instr *ins = ir_get(c, i);
-            if (ins && (ins->op == OP_DIV || ins->op == OP_MOD)) {
+            if (ins && (ins->op == OP_DIV || ins->op == OP_MOD || ins->op == OP_MUL128)) {
                 regalloc_add_interval(ra, VREG_0, i, i, REG_CLASS_GPR);
                 regalloc_add_interval(ra, VREG_2, i, i, REG_CLASS_GPR);
             }
+        }
+    }
+
+    /* Protect return registers across post-call reads (Sprint 109 return fix):
+     * A call returning a 128-bit value or 9-16B struct produces result halves in
+     * VREG_0 and VREG_2 (rdx on x86, x1 on aarch64, a1 on riscv).  If the caller
+     * reads them in subsequent instructions (e.g. lo = VREG_0; hi = VREG_2), the
+     * allocator must not assign the high return register to `lo` or any other temp
+     * live during the copy window, which would overwrite the high half before it
+     * is read. */
+    for (size_t i = 0; i < instr_count; i++) {
+        Instr *ins = ir_get(c, i);
+        if (ins && (ins->op == OP_CALL || ins->op == OP_SYSCALL)) {
+            size_t end0 = i, end2 = i;
+            for (size_t k = i + 1; k < instr_count && k <= i + 6; k++) {
+                Instr *nxt = ir_get(c, k);
+                if (!nxt) break;
+                if (nxt->op == OP_CALL || nxt->op == OP_SYSCALL) break;
+                if (nxt->temp_src1 == VREG_0 || nxt->temp_src2 == VREG_0) end0 = k;
+                if (nxt->temp_src1 == VREG_2 || nxt->temp_src2 == VREG_2) end2 = k;
+            }
+            if (end0 > i) regalloc_add_interval(ra, VREG_0, i, end0, REG_CLASS_GPR);
+            if (end2 > i) regalloc_add_interval(ra, VREG_2, i, end2, REG_CLASS_GPR);
         }
     }
 

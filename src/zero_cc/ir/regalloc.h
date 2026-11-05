@@ -174,6 +174,7 @@ static void regalloc_set_isa(RegAllocator *ra, ZeroCCISA isa) {
         ra->gpr_free[8] = false;  /* x8 reserved for indirect result location (sret) */
         ra->gpr_free[9] = false;  /* x9 reserved for scratch_reg1 */
         ra->gpr_free[10] = false; /* x10 reserved for scratch_reg2 */
+        ra->gpr_free[15] = false; /* x15 reserved for g128 scratch */
         ra->gpr_free[16] = false; /* x16 (IP0) reserved for linker/scratch */
         ra->gpr_free[17] = false; /* x17 (IP1) reserved for linker/scratch */
         ra->gpr_free[18] = false; /* x18 reserved platform register */
@@ -189,6 +190,8 @@ static void regalloc_set_isa(RegAllocator *ra, ZeroCCISA isa) {
         ra->gpr_free[5] = false;  /* t0 (scratch_reg1) */
         ra->gpr_free[6] = false;  /* t1 (scratch_reg2) */
         ra->gpr_free[8] = false;  /* s0 / fp */
+        ra->gpr_free[30] = false; /* t5: large-immediate/offset address scratch
+                                    (Sprint 109) - never holds a live value */
     } else {
         ra->gpr_free[1] = false;  /* RCX is reserved for shift count (CL) on x86-64 */
         ra->gpr_free[4] = false;  /* RSP is reserved for stack pointer */
@@ -476,7 +479,7 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
             /* AArch64 general pool: x0-x7, x11-x15, x19-x28 */
             static const int aarch64_pool[] = {
                 0, 1, 2, 3, 4, 5, 6, 7,
-                11, 12, 13, 14, 15,
+                11, 12, 13, 14,
                 19, 20, 21, 22, 23, 24, 25, 26, 27, 28
             };
             for (size_t pool_idx = 0; pool_idx < sizeof(aarch64_pool)/sizeof(aarch64_pool[0]); pool_idx++) {
@@ -490,10 +493,19 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
                 }
             }
         } else if (is_riscv) {
-            /* RISC-V general pool: a0-a7 (10-17), t2-t6 (7, 28-31), s1-s11 (9, 18-27) */
+            /* RISC-V general pool: a0-a7 (10-17), t2 (7), s1-s11 (9, 18-27).
+             * NOTE: t0/t1 (5,6), t3/t4 (28,29) and t6 (31) are reserved for 128-bit
+             * spill scratch (Sprint 109 GPR128 spill fix) so they hold no 64-bit value
+             * (t0 is also the RISC-V 128-bit add/sub/neg/mul carry scratch). t5 (30)
+             * is the large-immediate/offset address scratch (Sprint 109): li/add
+             * address materialization for out-of-range 12-bit displacements must
+             * never use a register that can hold a live reloaded value (t0/t1 hold
+             * 64-bit spill reloads, t3/t4/t6 hold 128-bit halves), or it clobbers
+             * the operand (FAIL 45: src2's address li overwrote src1's reload in t0).
+             * It is therefore not allocatable. */
             static const int riscv_pool[] = {
                 10, 11, 12, 13, 14, 15, 16, 17,
-                7, 28, 29, 30, 31,
+                7,
                 9, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27
             };
             for (size_t pool_idx = 0; pool_idx < sizeof(riscv_pool)/sizeof(riscv_pool[0]); pool_idx++) {
@@ -507,7 +519,8 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
                 }
             }
         } else {
-            /* x86-64 general pool: prefer caller-saved argument/return registers before callee-saved */
+            /* x86-64 general pool (TEMP DIAG: original order to isolate tls.c -O1
+             * regression). */
             static const int pool_to_phys[] = {7, 6, 2, 8, 9, 0, 3, 12, 13, 14, 15};
             for (size_t pool_idx = 0; pool_idx < sizeof(pool_to_phys)/sizeof(pool_to_phys[0]); pool_idx++) {
                 int phys_reg = pool_to_phys[pool_idx];
@@ -763,6 +776,19 @@ static void regalloc_allocate(RegAllocator *ra) {
                 opt_profile_count_regalloc_spill(ra->use_cost_based);
                 spill_interval(ra, spill);
                 current->assigned_reg = spill->assigned_reg;
+                if (current->reg_class == REG_CLASS_GPR128 &&
+                    spill->reg_class == REG_CLASS_GPR128) {
+                    /* Hand over the FULL (lo,hi) pair: the 128-bit value model
+                     * needs both halves, and the spilled interval must release
+                     * its claim on the hi register so its expiry (which only
+                     * releases when assigned_reg >= 0) and any later lookup
+                     * cannot treat it as still owned. (Sprint 109 GPR128
+                     * steal fix: a stolen-lo-only interval left hi = -1, and
+                     * the MC emitter then received register -1 for the high
+                     * half, miscompiling under register pressure.) */
+                    current->assigned_reg_hi = spill->assigned_reg_hi;
+                    spill->assigned_reg_hi = -1;
+                }
                 if (current->reg_class == REG_CLASS_GPR &&
                     regalloc_is_callee_saved_gpr(ra, current->assigned_reg)) {
                     ra->used_callee_saved_gpr_mask |= (1u << current->assigned_reg);

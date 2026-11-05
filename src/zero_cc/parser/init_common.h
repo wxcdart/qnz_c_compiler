@@ -1540,6 +1540,14 @@ static inline void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType 
                 }
             } else {
                 int64_t iv = zero_cc_eval_const_expr(c);
+                /* GNU __int128 scalar: extend the 64-bit constant to the
+                 * high half (sign for __int128, zero for __uint128_t).
+                 * wfull is the full object width (16) with w clamped to 8.
+                 * Long double (also 16 bytes) must keep its zero high half. */
+                bool is128 = (tgt.val_type.tag == TYPE_INT128 ||
+                              tgt.val_type.tag == TYPE_UINT128);
+                bool u128 = (tgt.val_type.tag == TYPE_UINT128);
+                int64_t hi_ext = (u128 || iv >= 0) ? 0 : ~0LL;
                 for (int64_t k = 0; k <= (is_range ? (desig_hi - desig_lo) : 0); k++) {
                     size_t eo = off + (size_t)k * step;
                     if (is_bf) {
@@ -1561,6 +1569,11 @@ static inline void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType 
                     } else {
                         for (size_t i = 0; i < w && i < 8 && eo + i < buf_cap; i++) {
                             buf[eo + i] = (uint8_t)((uint64_t)iv >> (8 * i));
+                        }
+                        if (is128 && wfull == 16) {
+                            for (size_t i = 8; i < wfull && eo + i < buf_cap; i++) {
+                                buf[eo + i] = (uint8_t)((uint64_t)hi_ext >> (8 * (i - 8)));
+                            }
                         }
                     }
                 }

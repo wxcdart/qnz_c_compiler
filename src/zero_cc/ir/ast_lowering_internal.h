@@ -35,9 +35,12 @@ void lower_node(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
 int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
 
 /* GNU __int128 (Sprint 109): emit a constant-count 128-bit shift of the
- * (lo,hi) pair (s_lo,s_hi) into (dlo,dhi). op is TK_SHL or TK_SHR. Defined
- * in ast_lowering_binop.c; shared with the compound-assignment path. */
-void zc_emit_128_shift(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi, int64_t N, uint32_t op);
+ * (lo,hi) pair (s_lo,s_hi) into (dlo,dhi). op is TK_SHL or TK_SHR.  A TK_SHR
+ * is logical (unsigned) or arithmetic (signed_ - sign-filling) per the
+ * operand type. Defined in ast_lowering_binop.c; shared with the
+ * compound-assignment path. */
+void zc_emit_128_shift(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi,
+                       int64_t N, uint32_t op, bool signed_);
 
 void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset);
 
