@@ -1,3 +1,17 @@
+## [Sprint 110] - 2026-11-05 - `__int128` pass-by-value argument ABI (all 3 64-bit ISAs)
+
+A by-value `__int128`/`__uint128_t` **function argument** now occupies two consecutive integer-arg units (low half in unit N, high half in unit N+1 — `rdi:rsi`/`rdx:rcx`/`r8:r9` on x86-64, `xN:xN+1`, `aN:aN+1`), matching the 9–16 B struct chunk rule. Before this, a 128-bit argument silently dropped its high half and the register unit after it.
+
+- **Caller (`ir/ast_lowering_call.c`)**: the int-arg branch normalizes the value to the parameter's width — a narrow argument is converted to 128 bits via `ZEXT64_128`/`SEXT64_128` (signedness from the *argument*'s `TypeInfo`), and a 128-bit value passed to a 64-bit parameter truncates via `TRUNC128_64`. It then records **two** int-arg entries: the low temp and a fresh `HI128` temp for the high half, each consuming one GP unit (or one caller-stack slot past the register window, so a pair may straddle the boundary).
+- **Callee (`ir/ast_lowering.c`)**: 128-bit parameters are routed through the multi-chunk parameter-save path (chunk 0 → `stack_offset`, chunk 1 → `stack_offset - 8`), and 128-bit parameters disable frameless param promotion (the promoted-vreg model has no (lo,hi) pair form).
+- **Parser prerequisites (`jit/compile.h`, `zero_cc_parse_fn_param_block`)** — two latent misparses surfaced by the first 128-bit-argument test:
+  - `f(__int128 a)` was read as a **K&R two-name list** (the 128-bit base names are tokenized as identifiers), registering `__int128` and `a` as two `int` parameters. The bare-name K&R shape scan now treats `zc_name_int128_kind` names as type names.
+  - A bare 128-bit base name in parameter position (`__uint128_t a`) fell through to the `int64` default; it now maps to `zero_cc_type_int128`/`zero_cc_type_uint128`.
+- **Regression**: new `test/jit/int128_args.c` (first/second/third arg position, adjacent narrow args, two 128-bit args at once, signed/unsigned, narrow conversions, 64-bit truncation, compound-expr args, globals, register-window overflow, and the register/stack **straddle** case) is picked up by the cross-ISA `make test-isa128` gate (now 4 tests → **96/96** runs) and by `make test-opt` (136 tests).
+- **Remaining**: function pointers whose *signatures* involve `__int128` are still rejected by the type checker ("incompatible types"); direct calls with 128-bit params/returns work.
+
+---
+
 ## [Sprint 109] - 2026-11-05 - Cross-ISA `__int128` differential gate (`make test-isa128`)
 
 New permanent regression gate for the 128-bit (lo,hi) GPR128 value model: `tools/isa128_diff.py` compiles every `test/jit/int128_*.c` test (arith, return-ABI, type/sizeof) for x86-64 (native), aarch64, and riscv64 at `-O0..-O3` in **both** AOT paths (raw-binary link and `-S` + cross-assembler + static link), runs each under `qemu-*-static`, and diffs `(stdout, exit)` against a host `gcc -static -O2` reference. Every Sprint 109 128-bit bug (RISC-V `t5`/AArch64 `x16` large-offset scratch clobbers, multiword borrow ordering, spilled MUL128, mul/umulh ordering, 128-bit call-return high-half protection) was cross-ISA only and invisible to the x86-64-only `make test-opt` sweep — this gate is its permanent differential guard. Current state: 72/72 runs pass (3 tests x 3 ISAs x 4 levels x 2 paths). Wire-up: `make test-isa128` (Makefile), documented in `docs/okf/build-and-verification.md`.

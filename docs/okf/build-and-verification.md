@@ -186,7 +186,7 @@ prints the `setup_musl_cross.sh` command to build each reference.
 ### Cross-ISA __int128 Differential Gate (`make test-isa128`)
 
 `tools/isa128_diff.py` is the differential guard for the 128-bit (lo,hi) GPR128
-value model. For every `test/jit/int128_*.c` test (arith, return-ABI, type/
+value model. For every `test/jit/int128_*.c` test (arith, return-ABI, arg-ABI, type/
 sizeof) and each ISA (`x86-64` native, `aarch64`, `riscv64`) it compiles at
 `-O0..-O3` in **both** AOT paths — the raw-binary link and `-S` +
 cross-assembler + static link — runs under `qemu-*-static` (x86-64 runs
@@ -197,7 +197,9 @@ regression — the RISC-V `t5`/AArch64 `x16` large-offset scratch clobbers,
 the multiword borrow `sltu`/carry ordering, all-spilled and mixed MUL128, the
 AArch64 mul-before-umulh ordering, and the 128-bit call-return high-half
 protection — was cross-ISA only and invisible to `make test-opt` (x86-64
-only). Current state: **72/72 runs pass** (3 tests x 3 ISAs x 4 levels x 2
+only). Sprint 110's `__int128` **argument** ABI (two-unit register pairs,
+caller-stack overflow, register/stack straddle) is guarded here too.
+Current state: **96/96 runs pass** (4 tests x 3 ISAs x 4 levels x 2
 paths).
 
 **Dependency (required, preflighted):** `build/bin/zerocc`, host `gcc`

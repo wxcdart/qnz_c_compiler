@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-05T16:54:29Z
+timestamp: 2026-11-05T17:20:45Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -948,3 +948,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-05 — Updated `build-and-verification.md`
 - Added cross-ISA __int128 differential gate (make test-isa128): tools/isa128_diff.py diffs test/jit/int128_*.c across x86-64/aarch64/riscv64, -O0..-O3, both AOT paths (raw + -S cross-as) under QEMU, against a gcc -static -O2 reference (72/72 green). Permanent guard for Sprint 109 cross-ISA 128-bit codegen.
+
+## 2026-11-05 — Updated `isa-backends.md`
+- Sprint 110: __int128 pass-by-value argument ABI (two consecutive int-arg units, lo/hi) on x86-64/aarch64/riscv64. Caller normalizes width + records two int entries (HI128); callee reuses multi-chunk param-save; 128-bit params disable frameless promotion. Fixed two parser misparses (K&R two-name list, bare-128-name defaulting to int64). New test/jit/int128_args.c; isa128 gate now 96/96.
+
+## 2026-11-05 — Updated `abi-sysv-x86_64.md`
+- Sprint 110: documented __int128 scalar argument rule (two consecutive integer-arg units, low unit at lower address on stack, register/stack straddle).

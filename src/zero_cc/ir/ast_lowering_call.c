@@ -1063,15 +1063,79 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                         temp = val0;
                     }
 
+                    /* GNU 128-bit (lo,hi) integer argument: the ABI unit
+                     * count is TWO consecutive GP units (low half in the
+                     * first register, high half in the second; on stack
+                     * overflow the 16 bytes ride in argument order, low
+                     * unit at the lower address). Normalize the value to
+                     * the parameter's width first: a narrow int argument
+                     * is converted to 128 bits (zero/sign-extended per the
+                     * ARGUMENT's signedness, C 6.3.1.3); a 128-bit value
+                     * passed to a 64-bit parameter truncates to the low
+                     * half. `last_expr_is_128` says whether `temp` is a
+                     * GPR128 pair after lower_expr + the conversions
+                     * above. */
+                    bool p128 = (eff_param_count > 0 && (param_idx - 1) < eff_param_count &&
+                                 (eff_params[param_idx - 1].tag == TYPE_INT128 ||
+                                  eff_params[param_idx - 1].tag == TYPE_UINT128));
+                    bool t128 = c->last_expr_is_128;
+                    c->last_expr_is_128 = 0;
+                    if (p128 && !t128) {
+                        int t128_new = c->next_temp_id++;
+                        bool src_signed = false;
+                        TypeInfo *ati128 = arg_node ? ast_node_get_typeinfo(c, arg_node) : NULL;
+                        if (ati128) {
+                            int k = ati128->kind;
+                            src_signed = (k == TYPE_KIND_CHAR || k == TYPE_KIND_SHORT ||
+                                          k == TYPE_KIND_INT || k == TYPE_KIND_LONG) &&
+                                         !(ati128->modifiers & TYPE_MOD_UNSIGNED);
+                        }
+                        if (src_signed) ir_emit_sext64_128(c, t128_new, temp);
+                        else ir_emit_zext64_128(c, t128_new, temp);
+                        temp = t128_new;
+                        t128 = true;
+                    } else if (!p128 && t128) {
+                        int t64 = c->next_temp_id++;
+                        ir_emit_trunc128_64(c, t64, temp);
+                        temp = t64;
+                        if (eff_param_count > 0 && (param_idx - 1) < eff_param_count) {
+                            zero_cc_emit_int_extend(c, temp, &eff_params[param_idx - 1]);
+                        }
+                        t128 = false;
+                    }
+
                     /* Integer or struct argument: spill to stack slot(s) */
-                    int_spill_stack_pos[int_arg_idx] = (gp_stream < gp_regs_avail) ? 255 : (uint8_t)(stack_arg_count++);
-                    gp_stream++;
-                    if (int_arg_idx < IR_CALL_MAX_ARGS) {
-                        c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
-                        c->current_stack_frame += 8;
-                        int_spill_offsets[int_arg_idx] = c->current_stack_frame;
-                        ir_emit_store(c, temp, BE(c)->fp_reg, -int_spill_offsets[int_arg_idx]);
-                        int_arg_idx++;
+                    if (t128) {
+                        int hi_temp = c->next_temp_id++;
+                        ir_emit_hi128(c, hi_temp, temp);
+                        int_spill_stack_pos[int_arg_idx] = (gp_stream < gp_regs_avail) ? 255 : (uint8_t)(stack_arg_count++);
+                        gp_stream++;
+                        if (int_arg_idx < IR_CALL_MAX_ARGS) {
+                            c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                            c->current_stack_frame += 8;
+                            int_spill_offsets[int_arg_idx] = c->current_stack_frame;
+                            ir_emit_store(c, temp, BE(c)->fp_reg, -int_spill_offsets[int_arg_idx]);
+                            int_arg_idx++;
+                        }
+                        int_spill_stack_pos[int_arg_idx] = (gp_stream < gp_regs_avail) ? 255 : (uint8_t)(stack_arg_count++);
+                        gp_stream++;
+                        if (int_arg_idx < IR_CALL_MAX_ARGS) {
+                            c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                            c->current_stack_frame += 8;
+                            int_spill_offsets[int_arg_idx] = c->current_stack_frame;
+                            ir_emit_store(c, hi_temp, BE(c)->fp_reg, -int_spill_offsets[int_arg_idx]);
+                            int_arg_idx++;
+                        }
+                    } else {
+                        int_spill_stack_pos[int_arg_idx] = (gp_stream < gp_regs_avail) ? 255 : (uint8_t)(stack_arg_count++);
+                        gp_stream++;
+                        if (int_arg_idx < IR_CALL_MAX_ARGS) {
+                            c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                            c->current_stack_frame += 8;
+                            int_spill_offsets[int_arg_idx] = c->current_stack_frame;
+                            ir_emit_store(c, temp, BE(c)->fp_reg, -int_spill_offsets[int_arg_idx]);
+                            int_arg_idx++;
+                        }
                     }
                     /* By-value struct/union argument larger than one 8-byte
                      * unit: the remaining 8-byte units travel in the

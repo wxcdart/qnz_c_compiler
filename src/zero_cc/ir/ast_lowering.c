@@ -369,6 +369,14 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                 for (size_t p = 0; p < fn->param_count && p < (size_t)c->local_count; p++) {
                     ZeroCCSym *sym = &c->locals[p];
                     if (!sym->is_param) continue;
+                    /* GNU 128-bit parameters consume TWO consecutive GP
+                     * argument units and the promoted-vreg model has no
+                     * (lo,hi) pair form - use the frame path (chunked
+                     * PARAM_SAVE_INT x2), which handles both the register
+                     * window and the caller-stack overflow. */
+                    if (sym->type.tag == TYPE_INT128 || sym->type.tag == TYPE_UINT128) {
+                        can_promote_params = false; break;
+                    }
                     /* C99 complex parameters consume TWO consecutive FP
                      * argument registers and need an addressable frame
                      * object (address-form value) - no promotion. */
@@ -523,6 +531,10 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
             bool is_fp = !cap_byref && (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE);
             bool is_multi_chunk_struct = (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION ||
                                           (sym->type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&sym->type))) && sym->type.size > 8;
+            /* GNU 128-bit integer parameter: TWO consecutive GP units (lo
+             * then hi), exactly the 16-byte struct chunk pattern. */
+            bool is_128_scalar = (sym->type.tag == TYPE_INT128 || sym->type.tag == TYPE_UINT128);
+            if (is_128_scalar) is_multi_chunk_struct = true;
 
             if (!cap_byref && (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) &&
                 zc_type_is_vla_struct_obj(&sym->type)) {

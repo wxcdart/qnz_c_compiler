@@ -79,6 +79,14 @@ static bool zero_cc_parse_fn_param_block(ZeroCCCompiler *c, SemContext *ctx,
                 kr_shape = false;
                 break;
             }
+            /* GNU 128-bit base types (`__int128`/`__int128_t`/`__uint128_t`)
+             * are type names tokenized as identifiers: `f(__int128 a)` is a
+             * one-parameter prototype, NOT a two-name K&R list (which would
+             * register `__int128` and `a` as two int parameters). */
+            if (zc_name_int128_kind(c->tokens[q].str_val)) {
+                kr_shape = false;
+                break;
+            }
             bare_count++;
         }
         else { kr_shape = false; break; }
@@ -344,6 +352,10 @@ if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
         ZeroCCType pt;
         if (is_typeof_param) {
             pt = typeof_pt;
+        } else if (ptt == TK_IDENT && !pfound && zc_name_int128_kind(ptname) > 0) {
+            /* GNU 128-bit base type in parameter position (`__int128 a` /
+             * `__uint128_t a`): tokenized as identifiers, not typedefs. */
+            pt = (zc_name_int128_kind(ptname) == 2) ? zero_cc_type_uint128() : zero_cc_type_int128();
         } else if (pfound) {
             pt = *pfound;
             /* An explicit `struct`/`union` keyword means ptname IS the tag
