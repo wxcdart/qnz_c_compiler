@@ -1483,6 +1483,20 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                 return call_res_temp;
             }
 
+            /* GNU 128-bit return: the (rax, rdx) = (VREG_0, VREG_2) pair holds
+             * the (lo, hi) result; form a GPR128 temp from it. */
+            if (call_ret_type.tag == TYPE_INT128 || call_ret_type.tag == TYPE_UINT128) {
+                int lo = c->next_temp_id++;
+                ir_emit_mov_reg(c, lo, VREG_0);
+                int hi = c->next_temp_id++;
+                ir_emit_mov_reg(c, hi, VREG_2);
+                int res = c->next_temp_id++;
+                ir_emit_mk128(c, res, lo, hi);
+                c->last_expr_is_float = 0;
+                c->last_expr_is_128 = 1;
+                return res;
+            }
+
             int call_res_temp = c->next_temp_id++;
             ir_emit_mov_reg(c, call_res_temp, VREG_0);
             zero_cc_emit_int_extend(c, call_res_temp, &call_ret_type);

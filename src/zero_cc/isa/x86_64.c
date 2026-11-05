@@ -2315,7 +2315,15 @@ static void x86_emit_zext64_128(ZeroCCCompiler *c, int dlo, int dhi, int src) {
 }
 static void x86_emit_sext64_128(ZeroCCCompiler *c, int dlo, int dhi, int src) {
     x86_mov_rr(c, dlo, src);
-    x86_rr(c, (const uint8_t[]){0x63}, 1, dhi, src);  /* movsx dhi, src */
+    /* Sign-extend the 64-bit source to the 128-bit high half: copy src then
+     * `sar dhi, 63` -> 0 (src >= 0) or -1 (src < 0).  (movsxd alone is wrong:
+     * it only sign-extends the low 32 bits, so a positive 64-bit value such as
+     * 0x1234 would wrongly yield hi = 0x1234 instead of 0. */
+    x86_mov_rr(c, dhi, src);
+    x86_rex(c, 1, 0, 0, (dhi >> 3) & 1);
+    me_emit_u8(c, 0xC1);
+    x86_modrm(c, 3, 5, dhi & 7);  /* SAR r64, imm8 (mod=11 = register) */
+    me_emit_u8(c, 63);
 }
 static void x86_emit_trunc128_64(ZeroCCCompiler *c, int dst, int s_lo) {
     x86_mov_rr(c, dst, s_lo);

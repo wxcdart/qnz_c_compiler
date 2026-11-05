@@ -825,6 +825,25 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
             ir_emit_jmp(c, c->lowering.epilogue_label);
             return;
         }
+        /* GNU 128-bit return: a __int128/__uint128_t result is returned across
+         * the (VREG_0, VREG_2) = (rax, rdx) pair, low then high (System V AMD64
+         * ABI, same pair as the 9-16 byte struct return). */
+        if (cur_fn2 && (cur_fn2->return_type.tag == TYPE_INT128 ||
+                        cur_fn2->return_type.tag == TYPE_UINT128)) {
+            int res = lower_expr(c, arena, node->left);
+            if (!c->last_expr_is_128) {
+                int d = c->next_temp_id++;
+                if (zero_cc_type_is_unsigned(&cur_fn2->return_type)) ir_emit_zext64_128(c, d, res);
+                else ir_emit_sext64_128(c, d, res);
+                res = d;
+            }
+            ir_emit_mov_reg(c, VREG_0, res);   /* lo -> rax */
+            ir_emit_hi128(c, VREG_2, res);     /* hi -> rdx */
+            c->last_expr_is_float = 0;
+            c->last_expr_is_128 = 0;
+            ir_emit_jmp(c, c->lowering.epilogue_label);
+            return;
+        }
         bool ret_cx_type = (cur_fn2 && zero_cc_type_is_complex(&cur_fn2->return_type));
         if (ret_cx_type) {
             bool ret_cx_is_fp = (cur_fn2->return_type.base &&

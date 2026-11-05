@@ -858,6 +858,15 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
             fn_ret_type = zero_cc_type_enum(NULL);
         }
     } else if (c->tokens[c->token_pos].type == TK_IDENT) {
+        const char *rtname = c->tokens[c->token_pos].str_val;
+        if (rtname && (strcmp(rtname, "__int128") == 0 || strcmp(rtname, "__int128_t") == 0 ||
+                       strcmp(rtname, "__uint128_t") == 0)) {
+            /* GNU 128-bit return type. __uint128_t is always unsigned;
+             * __int128/__int128_t are signed here (a leading unsigned/signed
+             * keyword would have routed to the basic-specifier window). */
+            fn_ret_type = (strcmp(rtname, "__uint128_t") == 0) ? zero_cc_type_uint128() : zero_cc_type_int128();
+            c->token_pos++;
+        } else {
         ZeroCCType *tdef = zero_cc_find_typedef(c, c->tokens[c->token_pos].str_val);
         if (!tdef) tdef = zero_cc_find_struct(c, c->tokens[c->token_pos].str_val);
         if (!tdef) tdef = zero_cc_find_enum(c, c->tokens[c->token_pos].str_val);
@@ -884,6 +893,7 @@ static inline void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, 
         } else {
             /* Unknown type name: legacy lenient behavior (default int, skip). */
             c->token_pos++;
+        }
         }
     } else if (c->tokens[c->token_pos].type == TK_CHAR ||
                c->tokens[c->token_pos].type == TK_BOOL_KW) {
