@@ -33,6 +33,7 @@ Before scanning the 80+ historical files in `docs/`, **always consult the Open K
   make test
   make test-opt            # optimizer sweep: -O0..-O3, JIT + AOT, via zerocc itself
   make test-torture        # GCC c-torture conformance gate (ratcheted against test/torture/baseline.json)
+  make asan                # host-side ASan/UBSan rebuild of the compiler itself — run after core-pipeline (parser/semantic/IR/optimizer) changes to catch the compiler's own memory bugs before they become user-facing crashes
   python3 tools/sret_verifier.py --verify-all
   python3 tools/style_check.py   # C style/convention checker (docs/coding_style.md rules)
   python3 tools/okf.py lint

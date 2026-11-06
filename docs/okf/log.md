@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-06T13:44:33Z
+timestamp: 2026-11-06T15:34:10Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1029,3 +1029,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-06 — Updated `frontend-and-types.md`
 - Sprint 115l: C99 conj/creal/cimag builtins (both spellings) expanded inline; esz must be the element size (float _Complex = 4); known residual: float _Complex external call ABI.
+
+## 2026-11-06 — Updated `sanitizer-roadmap.md`
+- Re-evaluated zero_san gating: Phase 1 (signed-integer-overflow) promoted to Current Priorities in the development plan under clause (a) (architecture de-risking); int128 gate green (144/144), conformance 0 REJECT / 0 MISCOMPILE (PASS 3,740); real-project differential gate remains an open parallel prerequisite. Companion canary-stack work added as Current Priorities #2.
+
+## 2026-11-06 — Updated `frontend-and-types.md`
+- Corrected stale __int128 'Remaining phases' note: Sprints 110-113 implemented all former remaining phases (arithmetic/codegen, two-unit arg ABI, fnptr signatures + inliner, __float128, wide bitfields + v2ti vector lanes + struct members); SKIP-TARGET:int128 eliminated, make test-isa128 144/144.

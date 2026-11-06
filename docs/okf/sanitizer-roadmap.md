@@ -4,7 +4,7 @@ title: Target-Side Sanitizer (zero_san) Design & Roadmap
 description: Analysis and phased roadmap for an optional, parked target-side safety-check feature (zero_san) — a codegen-first UBSan-lite signed-overflow check, with bounds, leaks, and ASan/LSan scoped out and justified.
 resource: sanitizer/roadmap
 tags: [sanitizer, zero_san, codegen, ubsan, overflow, bounds, asan, lsan, leak, roadmap, design, safety]
-timestamp: 2026-11-05T02:19:30Z
+timestamp: 2026-11-06T15:21:29Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -12,9 +12,9 @@ status: active
 
 # Target-Side Sanitizer (`zero_san`) — Design & Roadmap
 
-> **Status: analysis / planned, PARKED.** This is a design-and-roadmap artifact, not live
-> architecture. **No code exists yet.** It is deliberately *not* on the critical path (see
-> [§6 Gating](#6-gating-when-this-actually-starts)). Written to preserve the traced
+> **Status: analysis / planned — Phase 1 promoted to a current priority (development plan).** This is still a design-and-roadmap artifact, not live
+> architecture: **no code exists yet.** Phase 1 (signed-integer-overflow) is being implemented under
+> §6 clause (a) (architecture de-risking); see [§6 Gating](#6-gating-when-this-actually-starts). Written to preserve the traced
 > invariants and cost analysis so the decision can be revisited without re-deriving them.
 
 ZeroCC today has **host-side** sanitizers only — `make asan` builds the *compiler* with
@@ -136,11 +136,13 @@ ASan-class and stays out of scope.
 ## 6. Gating — when this actually starts
 
 `zero_san` was originally parked behind three prerequisites, two of which are now **complete**:
-1. ✅ **Conformance `REJECT` burn-down (Completed in Sprint 89):** `REJECT` is now **0** and `MISCOMPILE` is **0** across the entire 3,940-test `c-torture` corpus (**3,676 `PASS`** as of Sprint 109; see [c-torture Conformance Gate](./c-torture-gate.md)).
+1. ✅ **Conformance `REJECT` burn-down (Completed in Sprint 89):** `REJECT` is now **0** and `MISCOMPILE` is **0** across the entire 3,940-test `c-torture` corpus (**3,676 `PASS`** as of Sprint 109; see [c-torture Conformance Gate](./c-torture-gate.md) — since raised to **3,740 `PASS`** at Sprint 115l, still 0/0).
 2. ✅ **Header-monolith modularization (Completed in Sprints 76–83):** `preprocessor.h` (`preprocessor.c` + `virtual_headers.h`), `definitions.h` (`decl_struct.c`, `decl_local.h`, `type_parser.h`), `compile_unit.h` (`compile_unit.c`), and `ast_lowering_expr.c` (`ast_lowering_{expr,call,builtins,assign,binop}.c`) are now split into dedicated translation units (see [Architecture](./architecture-pipeline.md)).
-3. **Remaining priority before `zero_san`:** closing out the `SKIP-TARGET:int128` bucket (Sprint 109) and the "compile a real project" differential gate (a higher-value miscompile oracle than target-side sanitizers).
+3. **Remaining priority before `zero_san`:** the `SKIP-TARGET:int128` item is effectively closed — the cross-ISA `__int128` gate (`make test-isa128`) is green (144/144) and the residual c-torture `SKIP-TARGET` entries are explicit DejaGnu target/extension skips. The remaining listed prerequisite is the "compile a real project" differential gate (a higher-value miscompile oracle than target-side sanitizers).
 
 **Entry condition for Phase 1:** after `int128` and the real-project gate, *and* only if the team wants (a) the small, safe, conformant piece that de-risks the `zero_san` architecture, or (b) a freestanding-debug differentiator. **v1 is optional and niche** — worth doing as a bounded, conformant, architecture-de-risking step, *not* as a strategic priority.
+
+> **Re-evaluated (promoted):** `zero_san` Phase 1 (signed-integer-overflow) is now **Current Priorities #1** in [`docs/ZEROCC_Development_Plan.md`](../../docs/ZEROCC_Development_Plan.md), started under clause (a) above (architecture de-risking) — the real-project differential gate remains open in parallel and is no longer a hard blocker. The companion canary-stack work (`-fstack-protector`) is Current Priorities #2 and follows this page’s *runtime-follows-link-mode* pattern (cookie/`__stack_chk_fail` in `zero_rt` for the freestanding path).
 
 ## 7. Open decisions
 

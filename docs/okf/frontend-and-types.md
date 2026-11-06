@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-11-06T13:44:33Z
+timestamp: 2026-11-06T15:34:10Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -487,7 +487,7 @@ In `src/zero_cc/types/type_system.h`, `ZeroCCFunction` stores parameter metadata
 - **16-byte scalar type** (`types/type_system.h` `TYPE_INT128`/`TYPE_UINT128`, `semantic/type.h` `TYPE_KIND_INT128`): `__int128` / `__int128_t` / `__uint128_t` / `unsigned __int128` are now a real **16-byte, 16-aligned** integer (GCC `sizeof`/`_Alignof` = 16/16). Before this, `__int128` was silently typed as a 4-byte `int` (`sizeof` = 4), a latent miscompile.
 - **Every type-resolution path** recognizes the three base-type names: `zc_parse_basic_type_spec` (the `unsigned __int128` window), the bare-identifier branch of `zero_cc_parse_type_name_at_pos`, the main declaration parser (`parser/definitions.h`), and `zero_cc_tok_is_type_start` (`parser/const_eval.h`, so `sizeof(__int128)`/`_Alignof` treat it as a type). `__uint128_t` is always unsigned; `__int128`/`__int128_t` follow the `unsigned`/`signed` specifier.
 - **`__SIZEOF_INT128__` is deliberately NOT defined**, so the 12 c-torture tests that guard `__int128` behind `#ifdef __SIZEOF_INT128__` keep their `long long` fallback (unaffected); only the 7 direct-use `SKIP-TARGET:int128` tests see the new type.
-- **Remaining phases** (128-bit arithmetic, software division, two-register ABI, codegen, 124-bit bitfields, 128-bit vectors, `__builtin_mul_overflow`) are not yet implemented — the 7 `int128` c-torture tests stay skipped until they land.
+- **Status (Sprints 110–113): all former remaining phases are implemented** — 128-bit arithmetic + codegen (110), the two-unit argument ABI (110), function-pointer signatures + O2-inliner 128-bit fixes (111), the `__float128` object model (112), wide `__int128` bitfields (124-bit) + 128-bit vector lanes `v2ti` + struct members (113). The `SKIP-TARGET:int128` c-torture bucket is eliminated (all 7 tests PASS; cross-ISA `make test-isa128` 144/144). `__builtin_mul_overflow` is implemented (`add`/`sub`/`mul` + `overflow_p`).
 
 ## Flexible-Array-Member Initializers (C99 6.7.2.1, Sprint 64)
 
