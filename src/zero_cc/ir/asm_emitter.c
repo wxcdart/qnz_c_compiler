@@ -1105,7 +1105,55 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             return;
         }
 
-        /* Floating-point Literals and Operations */
+        /* Sprint 115m: raw 4-byte ABI-float access - the register's low 32
+         * bits ARE the float pattern (no widen/narrow through the
+         * double-width scalar model). Used at external call boundaries. */
+        case OP_VLOADSS_RAW: {
+            const char *dst_name = BE(c)->get_vec_reg_name(phys_dst);
+            const char *addr_name = BE(c)->get_hw_reg_name(phys_src1);
+            if (c->isa == ISA_AARCH64) {
+                if (instr->imm != 0) fprintf(out, "\tldr\ts%s, [%s, #%d]\n", dst_name + 1, addr_name, instr->imm);
+                else fprintf(out, "\tldr\ts%s, [%s]\n", dst_name + 1, addr_name);
+            } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
+                const char *fp_name = (phys_dst >= 0 && phys_dst < 32) ? BE(c)->regs->fp_regs[phys_dst] : "fa0";
+                fprintf(out, "\tflw\t%s, %d(%s)\n", fp_name, instr->imm, addr_name);
+            } else {
+                fprintf(out, "\tmovss\t%d(%%%s),%%%s\n", instr->imm, addr_name, dst_name);
+            }
+            return;
+        }
+
+        case OP_VSTORESS_RAW: {
+            const char *val_name = BE(c)->get_vec_reg_name(phys_src2);
+            const char *addr_name = BE(c)->get_hw_reg_name(phys_src1);
+            if (c->isa == ISA_AARCH64) {
+                if (instr->imm != 0) fprintf(out, "\tstr\ts%s, [%s, #%d]\n", val_name + 1, addr_name, instr->imm);
+                else fprintf(out, "\tstr\ts%s, [%s]\n", val_name + 1, addr_name);
+            } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
+                const char *fp_name = (phys_src2 >= 0 && phys_src2 < 32) ? BE(c)->regs->fp_regs[phys_src2] : "fa0";
+                fprintf(out, "\tfsw\t%s, %d(%s)\n", fp_name, instr->imm, addr_name);
+            } else {
+                fprintf(out, "\tmovss\t%%%s,%d(%%%s)\n", val_name, instr->imm, addr_name);
+            }
+            return;
+        }
+
+        case OP_CVTTSD2SS: {
+            /* Model double -> ABI float (in-register narrow). */
+            const char *dst_name = BE(c)->get_vec_reg_name(phys_dst);
+            const char *src_name = BE(c)->get_vec_reg_name(phys_src1);
+            if (c->isa == ISA_AARCH64) {
+                fprintf(out, "\tfcvt\ts%d, d%d\n", dst_name + 1, src_name + 1);
+            } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
+                const char *d = (phys_dst >= 0 && phys_dst < 32) ? BE(c)->regs->fp_regs[phys_dst] : "ft8";
+                const char *s = (phys_src1 >= 0 && phys_src1 < 32) ? BE(c)->regs->fp_regs[phys_src1] : "fa0";
+                fprintf(out, "\tfcvt.s.d\t%s, %s\n", d, s);
+            } else {
+                fprintf(out, "\tcvtsd2ss\t%%%s,%%%s\n", src_name, dst_name);
+            }
+            return;
+        }
+
         case OP_FMOV_IMM: {
             size_t rodata_offset = (size_t)instr->imm64;
             const char *dst_name = BE(c)->get_vec_reg_name(phys_dst);

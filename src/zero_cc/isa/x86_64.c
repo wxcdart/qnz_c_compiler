@@ -474,6 +474,53 @@ static void x86_emit_vstoress(ZeroCCCompiler *c, int src, int base, int32_t offs
     else if (mod == 2) me_emit_u32(c, (uint32_t)offset);
 }
 
+/* Sprint 115m: raw 4-byte ABI-float access - the FP register's low 32 bits
+ * ARE the float pattern (no cvtss2sd widen / cvttsd2ss narrow). x86's
+ * movss zero-extends the upper bits on load, so VLOADSS_RAW leaves a clean
+ * low-32 float in the register, exactly the SysV float-return/param form. */
+
+/* Scalar 4-byte float load WITHOUT widen: movss xmm, [base + offset] */
+static void x86_emit_vloadss_raw(ZeroCCCompiler *c, int dst, int base, int32_t offset) {
+    me_emit_u8(c, 0xF3);
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (base >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x10);  /* movss */
+    int mod;
+    if (offset == 0 && (base & 7) != X86_RBP) mod = 0;
+    else if (offset >= -128 && offset <= 127) mod = 1;
+    else mod = 2;
+    x86_modrm(c, mod, dst & 7, base & 7);
+    if ((base & 7) == X86_RSP) me_emit_u8(c, 0x24);
+    if (mod == 1) me_emit_u8(c, (uint8_t)(int8_t)offset);
+    else if (mod == 2) me_emit_u32(c, (uint32_t)offset);
+}
+
+/* Scalar 4-byte float store WITHOUT narrow: movss [base + offset], xmm */
+static void x86_emit_vstoress_raw(ZeroCCCompiler *c, int src, int base, int32_t offset) {
+    me_emit_u8(c, 0xF3);
+    x86_rex(c, 0, (src >> 3) & 1, 0, (base >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x11);  /* movss (mem <- reg) */
+    int mod;
+    if (offset == 0 && (base & 7) != X86_RBP) mod = 0;
+    else if (offset >= -128 && offset <= 127) mod = 1;
+    else mod = 2;
+    x86_modrm(c, mod, src & 7, base & 7);
+    if ((base & 7) == X86_RSP) me_emit_u8(c, 0x24);
+    if (mod == 1) me_emit_u8(c, (uint8_t)(int8_t)offset);
+    else if (mod == 2) me_emit_u32(c, (uint32_t)offset);
+}
+
+/* In-register model double -> ABI float: cvttsd2ss dst, src (F2 0F 5A /r). */
+static void x86_emit_cvttsd2ss(ZeroCCCompiler *c, int dst, int src) {
+    me_emit_u8(c, 0xF2);
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x5A);  /* cvttsd2ss */
+    x86_modrm(c, 3, dst & 7, src & 7);
+}
+
+
 /* Scalar 8-byte float store: movsd [base + offset], xmm - F2 0F 11 /r */
 static void x86_emit_vstoredsd(ZeroCCCompiler *c, int src, int base, int32_t offset) {
     me_emit_u8(c, 0xF2);
@@ -1987,7 +2034,13 @@ static void x86_emit_param_save_fp(ZeroCCCompiler *c, int reg_idx, int32_t offse
     int base = zero_cc_frame_base_reg(c);
     int32_t disp = zero_cc_frame_disp(c, -offset);
     if (is_single) {
-        x86_emit_vstoress(c, reg_idx, base, disp);
+        /* Sprint 115m: single-precision params are saved RAW - the low 32
+         * bits of the incoming register ARE the ABI float pattern. x86 keeps
+         * scalar floats as doubles in registers, so the old narrowing store
+         * (vstoress = cvttsd2ss + movss) interpreted the low-32 float as a
+         * model double and destroyed the value an external caller (glibc
+         * csinf/sinf) placed in the register. */
+        x86_emit_vstoress_raw(c, reg_idx, base, disp);
     } else {
         x86_emit_store_fp(c, reg_idx, base, disp);
     }
@@ -2611,6 +2664,9 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
 
     .emit_param_save_int = x86_emit_param_save_int,
     .emit_param_save_fp = x86_emit_param_save_fp,
+    .emit_vloadss_raw = x86_emit_vloadss_raw,
+    .emit_vstoress_raw = x86_emit_vstoress_raw,
+    .emit_cvttsd2ss = x86_emit_cvttsd2ss,
     .emit_variadic_spill = x86_emit_variadic_spill,
     .emit_variadic_al_setup = x86_emit_variadic_al_setup,
     .emit_lea_rip = x86_emit_lea_rip,

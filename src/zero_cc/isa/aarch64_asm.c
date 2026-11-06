@@ -467,11 +467,11 @@ static void aarch64_emit_param_save_fp_asm(ZeroCCCompiler *c, int reg_idx, int32
     if (reg_idx < 0 || reg_idx >= 8) return;
     int32_t disp = zero_cc_frame_disp(c, -offset);
     if (is_single) {
+        /* Sprint 115m: raw low-32 store - the incoming register's low 32
+         * bits ARE the ABI float pattern (no fcvt narrow). */
         const char *base_name = BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c));
-        int s = BE(c)->fp_scratch_reg1;
-        fprintf(out, "\tfcvt\ts%d, d%d\n", s, reg_idx);
-        if (disp != 0) fprintf(out, "\tstr\ts%d, [%s, #%d]\n", s, base_name, (int)disp);
-        else fprintf(out, "\tstr\ts%d, [%s]\n", s, base_name);
+        if (disp != 0) fprintf(out, "\tstr\ts%d, [%s, #%d]\n", reg_idx, base_name, (int)disp);
+        else fprintf(out, "\tstr\ts%d, [%s]\n", reg_idx, base_name);
     } else {
         aarch64_emit_store_fp_asm(c, reg_idx, zero_cc_frame_base_reg(c), disp, out);
     }

@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-06T15:34:10Z
+timestamp: 2026-11-06T16:44:19Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1035,3 +1035,15 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-06 — Updated `frontend-and-types.md`
 - Corrected stale __int128 'Remaining phases' note: Sprints 110-113 implemented all former remaining phases (arithmetic/codegen, two-unit arg ABI, fnptr signatures + inliner, __float128, wide bitfields + v2ti vector lanes + struct members); SKIP-TARGET:int128 eliminated, make test-isa128 144/144.
+
+## 2026-11-06 — Updated `abi-sysv-x86_64.md`
+- Sprint 115m: external float/float-Complex call ABI — raw 32-bit boundary ops, one-register _Complex float, %al variadic FP-count in both emitters
+
+## 2026-11-06 — Updated `ir-and-regalloc.md`
+- Sprint 115m: raw FP ABI-boundary ops (OP_VLOADSS_RAW/OP_VSTORESS_RAW/OP_CVTTSD2SS); opcode count 166
+
+## 2026-11-06 — Updated `frontend-and-types.md`
+- Sprint 115m: function-pointer parameter prototypes (fn_params) kept by both param parsers via declarator re-parse; typeinfo_to_zero_cc_type rebuild
+
+## 2026-11-06 — Updated `c-torture-gate.md`
+- Sprint 115m: PASS 3740 held (in-sprint float-funcptr regressions fixed; 115l float-Complex external residual resolved)

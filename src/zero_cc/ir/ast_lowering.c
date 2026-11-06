@@ -597,30 +597,48 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                     }
                 }
             } else if (is_fp && zero_cc_type_is_complex(&sym->type)) {
-                /* C99 complex parameter: real then imaginary in TWO
-                 * consecutive FP argument slots.  Each half consumes one
-                 * slot: xmm0..5 first, then the shared caller-stack
-                 * stream in argument order (8-byte bit-pattern copy for
-                 * the stack halves).  A half beyond the register window
-                 * must advance the shared stack stream. */
+                /* C99 complex parameter.
+                 * psABI (x86-64/AArch64/RV64): _Complex float arrives in
+                 * ONE FP register - real in the low 32 bits, imaginary in
+                 * the HIGH 32 bits - and the 8-byte bit pattern matches the
+                 * {real, imag} object layout, so one 8-byte param save
+                 * captures both halves. _Complex double (and RV32
+                 * _Complex float) use TWO consecutive FP slots, one per
+                 * half: registers first, then the shared caller-stack
+                 * stream in argument order. */
                 int32_t esz = (sym->type.base && sym->type.base->size == 4) ? 4 : 8;
                 bool is_flt = (esz == 4);
-                for (int half = 0; half < 2; half++) {
-                    int32_t half_off = sym->stack_offset - (int32_t)half * esz;
+                if (is_flt && c->isa != ISA_RISCV32) {
                     if (xmm_idx < BE(c)->conv->fp_arg_reg_count) {
-                        ir_emit_param_save_fp(c, xmm_idx, half_off, is_flt);
+                        ir_emit_param_save_fp(c, xmm_idx, sym->stack_offset, 0);
                     } else {
-                        /* Stack half: defer the load until after the
-                         * variadic spill (see fpstack_* above). */
                         if (fpstack_copy_count < 64) {
                             fpstack_src_off[fpstack_copy_count] = 16 + 8 * stack_idx;
-                            fpstack_dst_off[fpstack_copy_count] = half_off;
-                            fpstack_is_flt[fpstack_copy_count] = is_flt ? 1 : 0;
+                            fpstack_dst_off[fpstack_copy_count] = sym->stack_offset;
+                            fpstack_is_flt[fpstack_copy_count] = 0;
                             fpstack_copy_count++;
                         }
                         stack_idx++;
                     }
                     xmm_idx++;
+                } else {
+                    for (int half = 0; half < 2; half++) {
+                        int32_t half_off = sym->stack_offset - (int32_t)half * esz;
+                        if (xmm_idx < BE(c)->conv->fp_arg_reg_count) {
+                            ir_emit_param_save_fp(c, xmm_idx, half_off, is_flt);
+                        } else {
+                            /* Stack half: defer the load until after the
+                             * variadic spill (see fpstack_* above). */
+                            if (fpstack_copy_count < 64) {
+                                fpstack_src_off[fpstack_copy_count] = 16 + 8 * stack_idx;
+                                fpstack_dst_off[fpstack_copy_count] = half_off;
+                                fpstack_is_flt[fpstack_copy_count] = is_flt ? 1 : 0;
+                                fpstack_copy_count++;
+                            }
+                            stack_idx++;
+                        }
+                        xmm_idx++;
+                    }
                 }
             } else if (!is_fp && zero_cc_type_is_complex(&sym->type)) {
                 /* Integer complex parameter:

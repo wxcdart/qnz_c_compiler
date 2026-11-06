@@ -555,6 +555,22 @@ static void riscv64_emit_vloadss(ZeroCCCompiler *c, int dst, int base, int32_t o
     riscv_emit_u32(c, rv64_FP(RV_REG(dst), RV_REG(dst), 0, 0x21, 0));
 }
 
+/* Sprint 115m: raw 4-byte ABI-float access - the register's low 32 bits ARE
+ * the float pattern; no fcvt through the double-width scalar model. flw
+ * zero-extends into the 64-bit F register (FLEN=64 on RV64D and RV32D). */
+
+/* flw without the trailing fcvt.d.s widen. */
+static void riscv64_emit_vloadss_raw(ZeroCCCompiler *c, int dst, int base, int32_t offset) {
+    if (offset >= -2048 && offset <= 2047) {
+        riscv_emit_u32(c, rv64_I(RV_REG(dst), RV_REG(base), 2, (int16_t)offset, 0x07));
+    } else {
+        int scratch = (base != RV64_T5) ? RV64_T5 : ((base != RV64_T0) ? RV64_T0 : RV64_T1);
+        riscv64_emit_mov_imm(c, scratch, offset);
+        riscv_emit_u32(c, rv64_R(scratch, RV_REG(base), scratch, 0, 0));
+        riscv_emit_u32(c, rv64_I(RV_REG(dst), scratch, 2, 0, 0x07));
+    }
+}
+
 static void riscv64_emit_vstoress(ZeroCCCompiler *c, int src, int base, int32_t offset) {
     /* fcvt.s.d f15, fs then fsw f15, offset(base) - narrow WITH ROUNDING
      * before the 32-bit store (a raw fsw truncates the low 32 bits of the
@@ -570,6 +586,19 @@ static void riscv64_emit_vstoress(ZeroCCCompiler *c, int src, int base, int32_t 
         riscv64_emit_mov_imm(c, scratch_gpr, offset);
         riscv_emit_u32(c, rv64_R(scratch_gpr, RV_REG(base), scratch_gpr, 0, 0));
         riscv_emit_u32(c, rv64_S(scratch_gpr, scratch, 2, 0, 0x27));
+    }
+}
+
+/* Sprint 115m: fsw without the leading fcvt.s.d narrow - stores the
+ * register's low 32 bits (the ABI float pattern). */
+static void riscv64_emit_vstoress_raw(ZeroCCCompiler *c, int src, int base, int32_t offset) {
+    if (offset >= -2048 && offset <= 2047) {
+        riscv_emit_u32(c, rv64_S(RV_REG(base), RV_REG(src), 2, (int16_t)offset, 0x27));
+    } else {
+        int scratch_gpr = (base != RV64_T5) ? RV64_T5 : ((base != RV64_T0) ? RV64_T0 : RV64_T1);
+        riscv64_emit_mov_imm(c, scratch_gpr, offset);
+        riscv_emit_u32(c, rv64_R(scratch_gpr, RV_REG(base), scratch_gpr, 0, 0));
+        riscv_emit_u32(c, rv64_S(scratch_gpr, RV_REG(src), 2, 0, 0x27));
     }
 }
 
@@ -637,6 +666,14 @@ static void riscv64_emit_fp_cvtss2sd(ZeroCCCompiler *c, int dst, int src) {
     /* fcvt.d.s fd, fs (rm=0) - widen single to double (GNU vector per-lane) */
     riscv_emit_u32(c, rv64_FP(RV_REG(dst), RV_REG(src), 0, 0x21, 0));
 }
+
+static void riscv64_emit_fp_cvttsd2ss(ZeroCCCompiler *c, int dst, int src) {
+    /* fcvt.s.d fd, fs (rm=7) - model double -> ABI float (in-register
+     * narrow; Sprint 115m float return epilogue). */
+    riscv_emit_u32(c, rv64_FP(RV_REG(dst), RV_REG(src), 1, 0x20, 7));
+}
+
+
 
 static void riscv64_emit_fp_cvtsd2ss(ZeroCCCompiler *c, int dst, int src) {
     /* fcvt.s.d fd, fs (rs2=1, rm=7) - narrow double to single (GNU vector
@@ -1069,7 +1106,10 @@ static void riscv64_emit_param_save_fp(ZeroCCCompiler *c, int reg_idx, int slot,
     int base = zero_cc_frame_base_reg(c);
     int32_t disp = zero_cc_frame_disp(c, -slot);
     if (is_single && c->isa != ISA_RISCV32) {
-        riscv64_emit_vstoress(c, src_reg, base, disp);
+        /* Sprint 115m: raw low-32 store - an external caller's float param
+         * arrives as a float pattern in the low 32; the old fcvt-narrowing
+         * store destroyed it. */
+        riscv64_emit_vstoress_raw(c, src_reg, base, disp);
     } else {
         riscv64_emit_store_fp(c, src_reg, base, disp);
     }
@@ -1735,6 +1775,8 @@ ZeroCCISABackend riscv64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_vloadsd = riscv64_emit_load_fp,
     .emit_vstoress = riscv64_emit_vstoress,
     .emit_vstoredsd = riscv64_emit_store_fp,
+    .emit_vloadss_raw = riscv64_emit_vloadss_raw,
+    .emit_vstoress_raw = riscv64_emit_vstoress_raw,
     .emit_vaddps = riscv64_emit_vaddps,
     .emit_vsubps = riscv64_emit_vsubps,
     .emit_vmulps = riscv64_emit_vmulps,
@@ -1748,6 +1790,7 @@ ZeroCCISABackend riscv64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_vpmulld = riscv64_emit_mul,
     .emit_vmovaps = riscv64_emit_vmovaps,
     .emit_cvtss2sd = riscv64_emit_fp_cvtss2sd,
+    .emit_cvttsd2ss = riscv64_emit_fp_cvttsd2ss,
     .emit_cvtsi2ss = riscv64_emit_fp_cvtsi2ss,
     .emit_cvtsd2ss = riscv64_emit_fp_cvtsd2ss,
     .emit_deref = riscv64_emit_deref,

@@ -553,15 +553,14 @@ static void riscv_emit_param_save_fp_asm(ZeroCCCompiler *c, int reg_idx, int32_t
     const char *base_name = BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c));
     int32_t disp = zero_cc_frame_disp(c, -offset);
     if (is_single && c->isa != ISA_RISCV32) {
-        int s = BE(c)->fp_scratch_reg1;
-        const char *s_name = (s >= 0 && s < 32) ? BE(c)->regs->fp_regs[s] : "ft7";
-        fprintf(out, "\tfcvt.s.d\t%s, fa%d\n", s_name, reg_idx);
+        /* Sprint 115m: raw low-32 store - the incoming register's low 32
+         * bits ARE the ABI float pattern (no fcvt.s.d narrow). */
         if (disp >= -2048 && disp <= 2047) {
-            fprintf(out, "\tfsw\t%s, %d(%s)\n", s_name, (int)disp, base_name);
+            fprintf(out, "\tfsw\tfa%d, %d(%s)\n", reg_idx, (int)disp, base_name);
         } else {
             fprintf(out, "\tli\tt0, %d\n", (int)disp);
             fprintf(out, "\tadd\tt0, %s, t0\n", base_name);
-            fprintf(out, "\tfsw\t%s, 0(t0)\n", s_name);
+            fprintf(out, "\tfsw\tfa%d, 0(t0)\n", reg_idx);
         }
     } else {
         const char *s = (c->isa == ISA_RISCV32) ? "fsw" : "fsd";

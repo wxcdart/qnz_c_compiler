@@ -755,8 +755,21 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
     }
 
     if (indirect_reg_name) {
+        /* System V AMD64 ABI: for calls passing FP register arguments,
+         * %al must hold the number of SSE registers used so that glibc's
+         * variadic callees (printf et al.) save the XMM arg registers into
+         * their frame for va_arg. Mirrors x86_emit_variadic_al_setup on the
+         * MC (AOT) path; without it the -S output loses FP args to
+         * variadic callees (pre-existing: even `printf("%f", sin(1.0))`
+         * printed 0.000000). */
+        if (fp_arg_idx > 0) {
+            fprintf(out, "\tmovb\t$%d, %%al\n", fp_arg_idx);
+        }
         fprintf(out, "\tcall\t*%%r11\n");
     } else {
+        if (fp_arg_idx > 0) {
+            fprintf(out, "\tmovb\t$%d, %%al\n", fp_arg_idx);
+        }
         fprintf(out, "\tcall\t%s\n", func_name);
     }
 
@@ -960,9 +973,9 @@ static void x86_emit_param_save_fp_asm(ZeroCCCompiler *c, int reg_idx, int32_t o
         const char *base_name = BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c));
         int32_t disp = zero_cc_frame_disp(c, -offset);
         if (is_single) {
-            const char *s_name = BE(c)->get_vec_reg_name(BE(c)->fp_scratch_reg1);
-            fprintf(out, "\tcvtsd2ss\t%%xmm%d,%%%s\n", reg_idx, s_name);
-            fprintf(out, "\tmovss\t%%%s,%d(%%%s)\n", s_name, (int)disp, base_name);
+            /* Sprint 115m: raw low-32 store - the incoming register's low
+             * 32 bits ARE the ABI float pattern (no cvtsd2ss narrow). */
+            fprintf(out, "\tmovss\t%%xmm%d,%d(%%%s)\n", reg_idx, (int)disp, base_name);
         } else {
             fprintf(out, "\tmovsd\t%%xmm%d,%d(%%%s)\n", reg_idx, (int)disp, base_name);
         }

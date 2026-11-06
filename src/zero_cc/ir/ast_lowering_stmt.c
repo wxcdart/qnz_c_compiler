@@ -890,7 +890,13 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                 if (c->last_expr_is_float) {
                     /* Scalar float operand */
                     if (ret_cx_is_fp) {
-                        ir_emit_fmov(c, (uint16_t)VREG_F0, (uint16_t)cval);
+                        /* Sprint 115m: float-complex return narrows the
+                         * model double into the low 32 bits of xmm0 (the
+                         * ABI float pattern) instead of a raw fmov. */
+                        if (ret_esz == 4)
+                            ir_emit_cvttsd2ss(c, (uint16_t)VREG_F0, (uint16_t)cval);
+                        else
+                            ir_emit_fmov(c, (uint16_t)VREG_F0, (uint16_t)cval);
                         int rz = c->next_temp_id++;
                         ir_emit_fmov_imm(c, (uint16_t)rz, (int64_t)zc_rodata_double_offset(c, 0.0));
                         ir_emit_fmov(c, (uint16_t)VREG_F1, (uint16_t)rz);
@@ -909,7 +915,10 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                     if (ret_cx_is_fp) {
                         int fv = c->next_temp_id++;
                         ir_emit_cvtsi2sd(c, (uint16_t)fv, (uint16_t)cval);
-                        ir_emit_fmov(c, (uint16_t)VREG_F0, (uint16_t)fv);
+                        if (ret_esz == 4)
+                            ir_emit_cvttsd2ss(c, (uint16_t)VREG_F0, (uint16_t)fv);
+                        else
+                            ir_emit_fmov(c, (uint16_t)VREG_F0, (uint16_t)fv);
                         int rz = c->next_temp_id++;
                         ir_emit_fmov_imm(c, (uint16_t)rz, (int64_t)zc_rodata_double_offset(c, 0.0));
                         ir_emit_fmov(c, (uint16_t)VREG_F1, (uint16_t)rz);
@@ -927,9 +936,18 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
             if (ret_cx_is_fp) {
                 int o2 = c->next_temp_id++; ir_emit_mov_imm(c, o2, (int)ret_esz);
                 int a2 = c->next_temp_id++; ir_emit_add(c, a2, caddr, o2);
-                if (ret_esz == 4) {
-                    ir_emit_vloadss(c, (uint16_t)VREG_F0, (uint16_t)caddr);
-                    ir_emit_vloadss(c, (uint16_t)VREG_F1, (uint16_t)a2);
+                if (ret_esz == 4 && c->isa != ISA_RISCV32) {
+                    /* psABI: a _Complex float return is ONE register - real
+                     * in the low 32 bits, imaginary in the HIGH 32 bits.
+                     * The stack object already holds that exact 8-byte bit
+                     * pattern ({real @+0, imag @+4}), so one raw 8-byte
+                     * load (vloadsd = movsd/ldr d/fld) builds the register;
+                     * gcc does the same memory round-trip. */
+                    ir_emit_vloadsd(c, (uint16_t)VREG_F0, (uint16_t)caddr);
+                } else if (ret_esz == 4) {
+                    /* RV32: two registers, float in each low 32. */
+                    ir_emit_vloadss_raw(c, (uint16_t)VREG_F0, (uint16_t)caddr);
+                    ir_emit_vloadss_raw(c, (uint16_t)VREG_F1, (uint16_t)a2);
                 } else {
                     ir_emit_vloadsd(c, (uint16_t)VREG_F0, (uint16_t)caddr);
                     ir_emit_vloadsd(c, (uint16_t)VREG_F1, (uint16_t)a2);
@@ -973,7 +991,13 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                     ir_emit_fload(c, rt, TEMP_NONE, -sym->stack_offset);
                 }
                 if (ret_float) {
-                    ir_emit_fmov(c, VREG_0, (uint16_t)rt);
+                    /* Sprint 115m: a `float` return narrows the real part to
+                     * the ABI float pattern in the low 32 of xmm0. */
+                    if (cur_fn2->return_type.tag == TYPE_FLOAT) {
+                        ir_emit_cvtsd2ss(c, (uint16_t)VREG_0, (uint16_t)rt);
+                    } else {
+                        ir_emit_fmov(c, VREG_0, (uint16_t)rt);
+                    }
                     c->last_expr_is_float = 1;
                 } else {
                     ir_emit(c, (Instr){.op = OP_CVTTSD2SI, .temp_dest = VREG_0,
@@ -988,8 +1012,14 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                 else ir_emit_deref(c, rt, caddr2);
 
                 if (ret_float) {
-                    ir_emit_cvtsi2sd(c, (uint16_t)VREG_0, (uint16_t)rt);
-                    c->last_expr_is_float = 1;
+                    if (cur_fn2->return_type.tag == TYPE_FLOAT)
+                        ir_emit_cvttsd2ss(c, (uint16_t)VREG_0, (uint16_t)VREG_0);
+                    else
+                        ir_emit_cvtsi2sd(c, (uint16_t)VREG_0, (uint16_t)rt);
+                    if (cur_fn2->return_type.tag != TYPE_FLOAT)
+                        c->last_expr_is_float = 1;
+                    else
+                        c->last_expr_is_float = 0;
                 } else {
                     ir_emit_mov_reg(c, VREG_0, rt);
                     c->last_expr_is_float = 0;
@@ -1161,7 +1191,13 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                 if (r_esz == 4) ir_emit_vloadss(c, (uint16_t)rt, (uint16_t)result_temp);
                 else ir_emit_vloadsd(c, (uint16_t)rt, (uint16_t)result_temp);
                 if (ret_float) {
-                    ir_emit_fmov(c, VREG_0, (uint16_t)rt);
+                    /* Sprint 115m: a `float` return narrows the real part to
+                     * the ABI float pattern in the low 32 of xmm0. */
+                    if (cur_fn->return_type.tag == TYPE_FLOAT) {
+                        ir_emit_cvtsd2ss(c, (uint16_t)VREG_0, (uint16_t)rt);
+                    } else {
+                        ir_emit_fmov(c, VREG_0, (uint16_t)rt);
+                    }
                     c->last_expr_is_float = 1;
                 } else {
                     ir_emit(c, (Instr){.op = OP_CVTTSD2SI, .temp_dest = VREG_0,
@@ -1175,8 +1211,14 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                 else if (r_esz == 4) ir_emit_load_32(c, rt, result_temp);
                 else ir_emit_deref(c, rt, result_temp);
                 if (ret_float) {
-                    ir_emit_cvtsi2sd(c, (uint16_t)VREG_0, (uint16_t)rt);
-                    c->last_expr_is_float = 1;
+                    if (cur_fn->return_type.tag == TYPE_FLOAT)
+                        ir_emit_cvttsd2ss(c, (uint16_t)VREG_0, (uint16_t)VREG_0);
+                    else
+                        ir_emit_cvtsi2sd(c, (uint16_t)VREG_0, (uint16_t)rt);
+                    if (cur_fn->return_type.tag != TYPE_FLOAT)
+                        c->last_expr_is_float = 1;
+                    else
+                        c->last_expr_is_float = 0;
                 } else {
                     ir_emit_mov_reg(c, VREG_0, rt);
                     c->last_expr_is_float = 0;
@@ -1351,8 +1393,15 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
          * VREG_F0 (temp 0) always maps to physical register 0, which the FP
          * emitters treat as the FP return register, so move the result there
          * when the computed value lives in another FP temp. */
-        if (c->last_expr_is_float && final_float_temp != VREG_F0) {
-            ir_emit_fmov(c, (uint8_t)VREG_F0, (uint16_t)final_float_temp);
+        if (c->last_expr_is_float) {
+            if (fn_ret_type.tag == TYPE_FLOAT) {
+                /* Sprint 115m: `float` return - narrow the model double into
+                 * the low 32 bits of xmm0 (the ABI float pattern). Valid
+                 * in-place (final_float_temp == VREG_F0) too. */
+                ir_emit_cvttsd2ss(c, (uint16_t)VREG_F0, (uint16_t)final_float_temp);
+            } else if (final_float_temp != VREG_F0) {
+                ir_emit_fmov(c, (uint8_t)VREG_F0, (uint16_t)final_float_temp);
+            }
         }
     } else {
         /* Bare `return;`. In a void function this is the normal shape. In a

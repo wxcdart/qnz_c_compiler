@@ -499,6 +499,7 @@ static void aarch64_emit_lnot(ZeroCCCompiler *c, int dst, int src) {
 static void aarch64_emit_store(ZeroCCCompiler *c, int src_reg, int base_reg, int32_t offset);
 static void aarch64_emit_store_fp(ZeroCCCompiler *c, int src_reg, int base_reg, int32_t offset);
 static void aarch64_emit_store_single_fp(ZeroCCCompiler *c, int src_reg, int base_reg, int32_t offset);
+static void aarch64_emit_store_single_fp_raw(ZeroCCCompiler *c, int src_reg, int base_reg, int32_t offset);  /* Sprint 115m */
 
 /* param_save_int - save integer parameter (or x8 sret when param_idx == 8) */
 static void aarch64_emit_param_save_int(ZeroCCCompiler *c, int param_idx, int32_t offset) {
@@ -516,7 +517,10 @@ static void aarch64_emit_param_save_fp(ZeroCCCompiler *c, int param_idx, int32_t
     int base = zero_cc_frame_base_reg(c);
     int32_t imm = zero_cc_frame_disp(c, -offset); /* [base, #imm] */
     if (is_single) {
-        aarch64_emit_store_single_fp(c, src_reg, base, imm);
+        /* Sprint 115m: raw low-32 store - an external caller's float param
+         * arrives as a float pattern in the low 32 of the register; the old
+         * fcvt-narrowing store destroyed it. */
+        aarch64_emit_store_single_fp_raw(c, src_reg, base, imm);
     } else {
         aarch64_emit_store_fp(c, src_reg, base, imm);
     }
@@ -947,6 +951,42 @@ static void aarch64_emit_store_single_fp(ZeroCCCompiler *c, int src_reg, int bas
         arm64_emit_u32(c, 0xBC206800u | (16u << 16) | ((base_reg & 0x1F) << 5) | tmp_fp);
     }
 }
+
+/* Sprint 115m: raw 4-byte ABI-float access - the register's low 32 bits ARE
+ * the float pattern; no fcvt through the double-width scalar model. */
+
+/* LDR S without the trailing fcvt widen. */
+static void aarch64_emit_load_single_fp_raw(ZeroCCCompiler *c, int dst_reg, int base_reg, int32_t offset) {
+    if (offset >= 0 && offset <= 4095 && (offset % 4) == 0) {
+        arm64_emit_u32(c, 0xBD400000 | (((offset / 4) & 0xFFF) << 10) | ((base_reg & 0x1F) << 5) | (dst_reg & 0x1F));
+    } else if (offset >= -256 && offset <= 255) {
+        uint32_t imm9 = ((uint32_t)offset) & 0x1FF;
+        arm64_emit_u32(c, 0xBC400000 | (imm9 << 12) | ((base_reg & 0x1F) << 5) | (dst_reg & 0x1F));
+    } else {
+        aarch64_emit_mov_imm(c, 16, offset);
+        arm64_emit_u32(c, 0xBC606800u | (16u << 16) | ((base_reg & 0x1F) << 5) | (dst_reg & 0x1F));
+    }
+}
+
+/* STR S without the leading fcvt narrow (stores the register's low 32). */
+static void aarch64_emit_store_single_fp_raw(ZeroCCCompiler *c, int src_reg, int base_reg, int32_t offset) {
+    if (offset >= 0 && offset <= 4095 && (offset % 4) == 0) {
+        arm64_emit_u32(c, 0xBD000000 | (((offset / 4) & 0xFFF) << 10) | ((base_reg & 0x1F) << 5) | (src_reg & 0x1F));
+    } else if (offset >= -256 && offset <= 255) {
+        uint32_t imm9 = ((uint32_t)offset) & 0x1FF;
+        arm64_emit_u32(c, 0xBC000000 | (imm9 << 12) | ((base_reg & 0x1F) << 5) | (src_reg & 0x1F));
+    } else {
+        aarch64_emit_mov_imm(c, 16, offset);
+        arm64_emit_u32(c, 0xBC206800u | (16u << 16) | ((base_reg & 0x1F) << 5) | (src_reg & 0x1F));
+    }
+}
+
+/* fcvt s<dst>, d<src> - model double -> ABI float (in-register narrow). */
+static void aarch64_emit_fp_cvttsd2ss(ZeroCCCompiler *c, int dst, int src) {
+    arm64_emit_u32(c, 0x1E624000 | ((src & 0x1F) << 5) | (dst & 0x1F));
+}
+
+
 
 static void aarch64_emit_fp_add(ZeroCCCompiler *c, int dst, int src1, int src2) {
     /* fadd dD, dN, dM - scalar double-precision */
@@ -1884,6 +1924,9 @@ ZeroCCISABackend aarch64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_vstoredsd = aarch64_emit_store_fp,
     .emit_vloadss = aarch64_emit_load_single_fp,
     .emit_vstoress = aarch64_emit_store_single_fp,
+    .emit_vloadss_raw = aarch64_emit_load_single_fp_raw,
+    .emit_vstoress_raw = aarch64_emit_store_single_fp_raw,
+    .emit_cvttsd2ss = aarch64_emit_fp_cvttsd2ss,
     .emit_vaddps = aarch64_emit_vaddps,
     .emit_vsubps = aarch64_emit_vsubps,
     .emit_vmulps = aarch64_emit_vmulps,

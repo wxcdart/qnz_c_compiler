@@ -432,6 +432,7 @@ if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
             c->token_pos + 1 < c->token_count &&
             c->tokens[c->token_pos + 1].type == TK_STAR) {
             /* Function-pointer parameter: `ret_type (*name)(params...)` */
+            size_t fp_decl_start = c->token_pos; /* '(*' - declarator re-parse anchor */
             c->token_pos++; /* ( */
             while (c->tokens[c->token_pos].type == TK_STAR) c->token_pos++;
             /* Qualifier between `*` and the name: `(*const f)(...)` - a const
@@ -480,24 +481,6 @@ if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
                 fp_name = c->tokens[c->token_pos].str_val;
                 c->token_pos++; /* name */
             }
-            {
-                zero_cc_ensure_param_cap(ctx, param_types, param_names, param_cap, *param_count + 1);
-                (*param_names)[*param_count] = zero_cc_intern_string(c, fp_name);
-                /* ABI: an 8-byte pointer in a register.  The pointee
-                 * carries the function's RETURN type (the declared
-                 * base type `ret` in `ret (*name)(params)`) so an
-                 * indirect call `(*name)(args)` knows whether the
-                 * result arrives in XMM0 (float/double) or RAX
-                 * (c-torture execute/921208-1, pr42231). */
-                ZeroCCType fpt = zero_cc_type_ptr(&pt);
-                fpt.is_func_ptr = true;
-                (*param_types)[*param_count] = fpt;
-                if (fp_name[0] != '\0' && *param_count < ZERO_CC_MAX_PARAMS) {
-                    zero_cc_add_local(c, (*param_names)[*param_count], fpt);
-                }
-                (*param_count)++;
-                fn_ptr_param_done = true; /* the named branch must not re-record */
-            }
             if (c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++; /* ) */
             /* Skip the parameter list (depth-counted) */
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
@@ -516,6 +499,44 @@ if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
                 c->tokens[c->token_pos].type == TK_RPAREN) {
                 c->token_pos++;
             }
+            /* ABI: an 8-byte pointer in a register.  The pointee
+             * carries the function's RETURN type (the declared
+             * base type `ret` in `ret (*name)(params)`) so an
+             * indirect call `(*name)(args)` knows whether the
+             * result arrives in XMM0 (float/double) or RAX
+             * (c-torture execute/921208-1, pr42231). */
+            ZeroCCType fpt = zero_cc_type_ptr(&pt);
+            fpt.is_func_ptr = true;
+            /* The quick scan above DROPS the function suffix's parameter
+             * types, so re-parse the declarator with the declarator-stack
+             * parser to keep the pointee prototype (fn_params) on the
+             * pointer's base.  Without it, an indirect call through this
+             * function-pointer parameter marshals arguments against no
+             * signature: `void t(void (*f)(float, float)); f(1.0f, 2.0f)`
+             * passed the floats as model doubles (the callee read 0.0f)
+             * because the SysV float-arg narrowing is driven by the
+             * declared parameter types.  The re-parse starts at
+             * fp_decl_start and must stop where the quick scan left off;
+             * any failure or position mismatch keeps the legacy type. */
+            if (ctx && c->tu_ast_arena) {
+                size_t saved_pos = c->token_pos;
+                c->token_pos = fp_decl_start;
+                ZeroCCDeclarator dp;
+                bool reparse_ok = zero_cc_parse_declarator(c, c->tu_ast_arena, ctx, &dp) &&
+                                  (c->token_pos == saved_pos);
+                c->token_pos = saved_pos;
+                if (reparse_ok) {
+                    fpt = zero_cc_declarator_apply(&dp, pt);
+                }
+            }
+            zero_cc_ensure_param_cap(ctx, param_types, param_names, param_cap, *param_count + 1);
+            (*param_names)[*param_count] = zero_cc_intern_string(c, fp_name);
+            (*param_types)[*param_count] = fpt;
+            if (fp_name[0] != '\0' && *param_count < ZERO_CC_MAX_PARAMS) {
+                zero_cc_add_local(c, (*param_names)[*param_count], fpt);
+            }
+            (*param_count)++;
+            fn_ptr_param_done = true; /* the named branch must not re-record */
             /* fall through to the comma/stuck-token handling below */
         } else if (c->token_pos + 1 < c->token_count &&
                    c->tokens[c->token_pos].type == TK_LPAREN &&

@@ -336,6 +336,33 @@ static inline ZeroCCType typeinfo_to_zero_cc_type(const TypeInfo *ti) {
                 ZeroCCType ret_t = typeinfo_to_zero_cc_type(ti->details.pointer.base->details.function.ret);
                 t = zero_cc_type_ptr(&ret_t);
                 t.is_func_ptr = true;
+                /* Rebuild the pointee's declared prototype when the
+                 * TypeInfo carries one. Function PARAMETERS reach the
+                 * lowering stage through this conversion (the parser sets
+                 * nf->param_types[pi] = typeinfo_to_zero_cc_type(
+                 * fc->param_tis[pi])), so without the prototype an indirect
+                 * call through a function-pointer parameter marshals
+                 * arguments against no signature: `void t(void (*f)
+                 * (float, float)); f(1.0f, 2.0f)` stored the floats as
+                 * model doubles instead of 32-bit floats (the SysV
+                 * float-arg form) and the callee read 0.0f. Mirrors the
+                 * declarator-stack path (zero_cc_chunk_apply FUNCTION
+                 * chunk) and the reverse conversion in
+                 * zero_cc_type_to_typeinfo above. */
+                if (t.base && ti->details.pointer.base->details.function.param_cnt > 0) {
+                    const TypeInfo *pfn = ti->details.pointer.base;
+                    size_t pc = pfn->details.function.param_cnt;
+                    ZeroCCType *params = (ZeroCCType *)malloc(pc * sizeof(ZeroCCType));
+                    if (params) {
+                        for (size_t i = 0; i < pc; i++)
+                            params[i] = typeinfo_to_zero_cc_type(pfn->details.function.params[i]);
+                        t.base->is_func = true;
+                        t.base->fn_params = (const ZeroCCType *)params;
+                        t.base->fn_param_count = pc;
+                        t.base->fn_has_prototype = pfn->details.function.is_prototype;
+                        t.base->fn_is_variadic = pfn->details.function.is_variadic;
+                    }
+                }
             } else if (ti->details.pointer.base) {
                 ZeroCCType base_t = typeinfo_to_zero_cc_type(ti->details.pointer.base);
                 t = zero_cc_type_ptr(&base_t);

@@ -275,6 +275,18 @@ typedef enum {
     OP_LO128,          /* dest (64) = low 64 bits of src1 (128) */
     OP_HI128,          /* dest (64) = high 64 bits of src1 (128) */
     OP_MK128,          /* dest (128) = {hi64 = src2, lo64 = src1} */
+
+    /* Sprint 115m: raw 4-byte (single-precision) FP access for the real
+     * SysV/AArch64/RISC-V ABI float boundary: the LOW 32 bits of the FP
+     * register hold the float pattern (upper bits undefined), with NO
+     * double-width scalar-model conversion - unlike OP_VLOADSS/OP_VSTORESS,
+     * which widen/narrow to/from the model double (x86/RV64 hold every
+     * scalar float as a 64-bit double in the register). Used at external
+     * call boundaries for plain `float` params/returns and `float _Complex`
+     * halves (csinf(1.0F+2.0iF) was mis-marshaled as doubles). */
+    OP_VLOADSS_RAW,    /* dest (low32) = *(32-bit *)src1, zero-extended (no widen) */
+    OP_VSTORESS_RAW,   /* *(32-bit *)src2 (address) = low 32 bits of src1 (no narrow) */
+    OP_CVTTSD2SS,      /* dest (ss, low32) = (float) src1 (sd): model double -> ABI float */
 } Opcode;
 
 /* Condition codes for OP_COND_SET */
@@ -453,6 +465,9 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_LO128: return "LO128";
         case OP_HI128: return "HI128";
         case OP_MK128: return "MK128";
+        case OP_VLOADSS_RAW: return "VLOADSS_RAW";
+        case OP_VSTORESS_RAW: return "VSTORESS_RAW";
+        case OP_CVTTSD2SS: return "CVTTSD2SS";
         default: return "UNKNOWN";
     }
 }
@@ -474,6 +489,8 @@ static inline bool ir_opcode_is_float(Opcode op) {
         case OP_CVTSD2SS:  /* double -> single (vector float-lane lowering) */
         case OP_VLOADSS:   /* scalar 4-byte load: result is a float temp (XMM pool) */
         case OP_VLOADSD:   /* scalar 8-byte load: result is a float temp (XMM pool) */
+        case OP_VLOADSS_RAW: /* raw 4-byte float load (ABI boundary, XMM pool) */
+        case OP_CVTTSD2SS:   /* double -> single (ABI float boundary) */
             return true;
         default:
             return false;
@@ -848,6 +865,20 @@ static inline void ir_emit_vloadsd(ZeroCCCompiler *c, uint16_t temp_dest, uint16
 }
 static inline void ir_emit_vstoress(ZeroCCCompiler *c, uint16_t temp_addr, uint16_t temp_src) {
     ir_emit(c, (Instr){.op = OP_VSTORESS, .temp_dest= TEMP_NONE, .temp_src1 = temp_addr, .temp_src2 = temp_src, .imm = 0, .label_idx = 0});
+}
+
+/* Sprint 115m: raw 4-byte ABI-float access (no double-width scalar-model
+ * conversion; the FP register carries the float pattern in its low 32 bits). */
+static inline void ir_emit_vloadss_raw(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_addr) {
+    ir_emit(c, (Instr){.op = OP_VLOADSS_RAW, .temp_dest = temp_dest, .temp_src1 = temp_addr, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
+}
+
+static inline void ir_emit_vstoress_raw(ZeroCCCompiler *c, uint16_t temp_addr, uint16_t temp_src) {
+    ir_emit(c, (Instr){.op = OP_VSTORESS_RAW, .temp_dest= TEMP_NONE, .temp_src1 = temp_addr, .temp_src2 = temp_src, .imm = 0, .label_idx = 0});
+}
+
+static inline void ir_emit_cvttsd2ss(ZeroCCCompiler *c, uint16_t temp_dest, uint16_t temp_src) {
+    ir_emit(c, (Instr){.op = OP_CVTTSD2SS, .temp_dest = temp_dest, .temp_src1 = temp_src, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
 }
 static inline void ir_emit_vstoresd(ZeroCCCompiler *c, uint16_t temp_addr, uint16_t temp_src) {
     ir_emit(c, (Instr){.op = OP_VSTORESD, .temp_dest= TEMP_NONE, .temp_src1 = temp_addr, .temp_src2 = temp_src, .imm = 0, .label_idx = 0});

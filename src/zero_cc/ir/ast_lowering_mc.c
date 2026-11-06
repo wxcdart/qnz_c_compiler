@@ -1094,6 +1094,27 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 }
                 break;
 
+            /* Sprint 115m: raw 4-byte ABI-float access (no scalar-model
+             * conversion) - JIT machine-code path only; the -S path is in
+             * asm_emitter.c. */
+            case OP_VLOADSS_RAW:
+                if (!c->emit_asm && BE(c)->emit_vloadss_raw) {
+                    BE(c)->emit_vloadss_raw(c, phys_dst, phys_src1, instr->imm);
+                }
+                break;
+
+            case OP_VSTORESS_RAW:
+                if (!c->emit_asm && BE(c)->emit_vstoress_raw) {
+                    BE(c)->emit_vstoress_raw(c, phys_src2, phys_src1, instr->imm);
+                }
+                break;
+
+            case OP_CVTTSD2SS:
+                if (!c->emit_asm && BE(c)->emit_cvttsd2ss) {
+                    BE(c)->emit_cvttsd2ss(c, phys_dst, phys_src1);
+                }
+                break;
+
             case OP_VCMPSS:
                 if (BE(c)->emit_vcmpss_asm) {
                     BE(c)->emit_vcmpss_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, c->asm_out);

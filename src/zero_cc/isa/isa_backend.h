@@ -292,6 +292,12 @@ typedef struct ZeroCCISABackend {
     void (*emit_vloadsd)(ZeroCCCompiler *c, int dst, int base, int32_t offset);
     void (*emit_vstoress)(ZeroCCCompiler *c, int src, int base, int32_t offset);
     void (*emit_vstoredsd)(ZeroCCCompiler *c, int src, int base, int32_t offset);
+    /* Sprint 115m: raw 4-byte ABI-float access (low 32 bits = float pattern,
+     * no double-width scalar-model conversion). Used at external call
+     * boundaries: float param entry, float/float-complex return capture,
+     * and float returns. */
+    void (*emit_vloadss_raw)(ZeroCCCompiler *c, int dst, int base, int32_t offset);
+    void (*emit_vstoress_raw)(ZeroCCCompiler *c, int src, int base, int32_t offset);
     void (*emit_vaddps)(ZeroCCCompiler *c, int dst, int src1, int src2);
     void (*emit_vsubps)(ZeroCCCompiler *c, int dst, int src1, int src2);
     void (*emit_vmulps)(ZeroCCCompiler *c, int dst, int src1, int src2);
@@ -307,6 +313,7 @@ typedef struct ZeroCCISABackend {
     /* Scalar single<->double conversions (GNU vector per-lane lowering),
      * raw byte-emitter form (JIT / raw AOT). */
     void (*emit_cvtss2sd)(ZeroCCCompiler *c, int dst, int src);
+    void (*emit_cvttsd2ss)(ZeroCCCompiler *c, int dst, int src);  /* Sprint 115m: model double -> ABI float (in-register narrow) */
     void (*emit_cvtsi2ss)(ZeroCCCompiler *c, int dst, int src);
     void (*emit_cvtsd2ss)(ZeroCCCompiler *c, int dst, int src);
 

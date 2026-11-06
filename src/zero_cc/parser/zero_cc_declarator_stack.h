@@ -134,6 +134,14 @@ static inline bool zero_cc_parse_asm_label(ZeroCCCompiler *c, char *out, size_t 
     return true;
 }
 
+/* Forward declarations (defined further down in this header): the
+ * function-pointer parameter branch below re-parses `(*f)(...)`
+ * declarators with the full declarator-stack machinery. */
+static inline bool zero_cc_parse_declarator(
+    ZeroCCCompiler *c, ZeroCCASTArena *arena, SemContext *ctx, ZeroCCDeclarator *d);
+static inline ZeroCCType zero_cc_declarator_apply(
+    const ZeroCCDeclarator *d, ZeroCCType base_type);
+
 /* Parse parameter list of a function suffix: (type param, ...) */
 static inline void zero_cc_parse_param_list(
     ZeroCCCompiler *c, ZeroCCASTArena *arena, SemContext *ctx, ZeroCCDeclaratorChunk *fn_chunk)
@@ -296,12 +304,14 @@ static inline void zero_cc_parse_param_list(
         bool param_ptr_is_volatile = false;
         bool param_ptr_is_restrict = false;
         bool is_param_func_ptr = false;
+        bool ptype_full = false; /* set when the declarator re-parse rebuilt ptype */
 
         const char *pname = NULL;
         if (c->token_pos + 1 < c->token_count &&
             c->tokens[c->token_pos].type == TK_LPAREN &&
             c->tokens[c->token_pos + 1].type == TK_STAR) {
             is_param_func_ptr = true;
+            size_t decl_start = c->token_pos; /* '(*' - declarator re-parse anchor */
             c->token_pos += 2;
             while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STAR) c->token_pos++;
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
@@ -319,6 +329,31 @@ static inline void zero_cc_parse_param_list(
                 }
             }
             param_ptr_depth = 1;
+            /* The quick scan above records only the pointer depth and
+             * DROPS the function suffix's parameter types, so re-parse
+             * the full declarator with the declarator-stack parser to
+             * rebuild ptype with the pointee prototype (fn_params)
+             * intact.  Without it, an indirect call through this
+             * function-pointer parameter marshals arguments against no
+             * signature: `void t(void (*f)(float, float)); f(1.0f,
+             * 2.0f)` passed the floats as model doubles (the callee
+             * read 0.0f) because the SysV float-arg narrowing is driven
+             * by the declared parameter types.  The re-parse starts at
+             * decl_start and must stop where the quick scan left off;
+             * any failure or position mismatch falls back to the legacy
+             * quick-built type below. */
+            {
+                size_t saved_pos = c->token_pos;
+                c->token_pos = decl_start;
+                ZeroCCDeclarator dp;
+                bool reparse_ok = zero_cc_parse_declarator(c, arena, ctx, &dp) &&
+                                  (c->token_pos == saved_pos);
+                c->token_pos = saved_pos;
+                if (reparse_ok) {
+                    ptype = zero_cc_declarator_apply(&dp, param_base);
+                    ptype_full = true;
+                }
+            }
         } else if (c->token_pos + 1 < c->token_count &&
                    c->tokens[c->token_pos].type == TK_LPAREN &&
                    c->tokens[c->token_pos + 1].type == TK_LPAREN) {
@@ -458,22 +493,24 @@ static inline void zero_cc_parse_param_list(
         }
         if (pname == NULL) pname = "";
 
-        for (int pd = 0; pd < param_ptr_depth; pd++) {
-            ptype = zero_cc_type_ptr(&ptype);
-            if (pd == param_ptr_depth - 1) {
-                ptype.is_const = param_ptr_is_const;
-                ptype.is_volatile = param_ptr_is_volatile;
-                ptype.is_restrict = param_ptr_is_restrict;
+        if (!ptype_full) {
+            for (int pd = 0; pd < param_ptr_depth; pd++) {
+                ptype = zero_cc_type_ptr(&ptype);
+                if (pd == param_ptr_depth - 1) {
+                    ptype.is_const = param_ptr_is_const;
+                    ptype.is_volatile = param_ptr_is_volatile;
+                    ptype.is_restrict = param_ptr_is_restrict;
+                }
             }
-        }
-        if (is_param_func_ptr) {
-            ptype.is_func_ptr = true;
-        } else if (ptype.tag == TYPE_ARRAY) {
-            /* C99 6.7.6.3p7: array parameter (via typedef/typeof) decays to pointer */
-            ZeroCCType elem = ptype.base ? *ptype.base : zero_cc_type_int64();
-            ptype = zero_cc_type_ptr(&elem);
-            ptype.is_const = param_base.is_const;
-            ptype.is_volatile = param_base.is_volatile;
+            if (is_param_func_ptr) {
+                ptype.is_func_ptr = true;
+            } else if (ptype.tag == TYPE_ARRAY) {
+                /* C99 6.7.6.3p7: array parameter (via typedef/typeof) decays to pointer */
+                ZeroCCType elem = ptype.base ? *ptype.base : zero_cc_type_int64();
+                ptype = zero_cc_type_ptr(&elem);
+                ptype.is_const = param_base.is_const;
+                ptype.is_volatile = param_base.is_volatile;
+            }
         }
 
         ASTRef p_ref = zero_cc_ast_alloc_node(arena, NODE_DECL);

@@ -619,9 +619,19 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                     continue;
                 }
                 int temp = lower_expr(c, arena, arg);
+                bool abi_float_arg = false; /* Sprint 115m: set below */
                 if (eff_param_count > 0 && param_idx < eff_param_count) {
                     const ZeroCCType *pt = &eff_params[param_idx];
                     bool param_is_fp = (pt->tag == TYPE_FLOAT || pt->tag == TYPE_DOUBLE);
+                    /* Sprint 115m: a NON-variadic `float` parameter must be
+                     * marshalled as a real 32-bit float in the low half of
+                     * the FP register (the SysV float ABI). ZeroCC keeps
+                     * scalar floats as doubles in registers, so the spill
+                     * below must NARROW (vstoress) instead of storing the
+                     * model double (fstore) - otherwise glibc sinf(1.0F)
+                     * reads a double bit pattern as a float. Variadic floats
+                     * are default-promoted to double and stay fstore. */
+                    abi_float_arg = (pt->tag == TYPE_FLOAT);
                     if (pt->is_complex) {
                         /* complex argument: temp is the object's address;
                              * marshaling happens below (two FP slots). */
@@ -685,12 +695,34 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                         }
                         temp = real_val;
                     } else if (param_is_cx || arg_is_cx) {
-                        bool el_is_fp = (cx_ati && cx_ati->details.array.base) ? type_is_floating(cx_ati->details.array.base) :
-                                        (param_is_cx && callee_fn->param_types[param_idx - 1].base) ?
+                        /* Sprint 115m: the callee's DECLARED parameter type
+                         * is the ABI truth for the marshalled width - an
+                         * external callee (glibc csinf) and a zerocc callee
+                         * both expect the parameter's element width in the
+                         * low half of each FP register. The argument's own
+                         * element type is the fallback for no-prototype
+                         * calls. (Before this, the argument's element won,
+                         * so `float _Complex` args were always marshalled as
+                         * 4-byte floats even when the callee declared
+                         * `double _Complex` - and vice versa.) */
+                        size_t cesz = 8;
+                        if (param_is_cx && callee_fn->param_types[param_idx - 1].base &&
+                            callee_fn->param_types[param_idx - 1].base->size > 0) {
+                            cesz = callee_fn->param_types[param_idx - 1].base->size;
+                        } else if (cx_ati && cx_ati->details.array.base) {
+                            cesz = type_size(cx_ati->details.array.base);
+                        }
+                        /* Reading the halves out of the argument object must
+                         * use the argument's own element width (a float
+                         * complex object is 8 bytes even when the callee
+                         * declared double complex - no OOB read). */
+                        size_t read_esz = cesz;
+                        if (arg_is_cx && cx_ati && cx_ati->details.array.base)
+                            read_esz = type_size(cx_ati->details.array.base);
+                        bool el_is_fp = (param_is_cx && callee_fn->param_types[param_idx - 1].base) ?
                                         (callee_fn->param_types[param_idx - 1].base->tag == TYPE_FLOAT ||
-                                         callee_fn->param_types[param_idx - 1].base->tag == TYPE_DOUBLE) : true;
-                        size_t cesz = (cx_ati && cx_ati->details.array.base) ? type_size(cx_ati->details.array.base) :
-                                       (param_is_cx && callee_fn->param_types[param_idx - 1].base) ? callee_fn->param_types[param_idx - 1].base->size : 8;
+                                         callee_fn->param_types[param_idx - 1].base->tag == TYPE_DOUBLE) :
+                                        ((cx_ati && cx_ati->details.array.base) ? type_is_floating(cx_ati->details.array.base) : true);
                         if (el_is_fp && cesz != 4 && cesz != 8) cesz = 8;
                         if (!el_is_fp && cesz != 1 && cesz != 2 && cesz != 4 && cesz != 8) cesz = 4;
                         size_t csz = cesz * 2;
@@ -705,36 +737,58 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                                 }
                                 i_val = c->next_temp_id++;
                                 ir_emit_fmov_imm(c, (uint16_t)i_val, (int64_t)zc_rodata_double_offset(c, 0.0));
+                            } else {
+                                /* Read both halves out of the argument object
+                                 * (read_esz = the argument's own element
+                                 * width; no OOB read on mixed-width calls). */
+                                r_val = c->next_temp_id++;
+                                if (read_esz == 4) ir_emit_vloadss(c, (uint16_t)r_val, (uint16_t)temp);
+                                else ir_emit_vloadsd(c, (uint16_t)r_val, (uint16_t)temp);
+                                int o2 = c->next_temp_id++;
+                                ir_emit_mov_imm(c, o2, (int)read_esz);
+                                int la = c->next_temp_id++;
+                                ir_emit_add(c, la, temp, o2);
+                                i_val = c->next_temp_id++;
+                                if (read_esz == 4) ir_emit_vloadss(c, (uint16_t)i_val, (uint16_t)la);
+                                else ir_emit_vloadsd(c, (uint16_t)i_val, (uint16_t)la);
                             }
-                            for (int half = 0; half < 2; half++) {
-                                int hv;
-                                if (!arg_is_cx) {
-                                    hv = (half == 0) ? r_val : i_val;
-                                } else {
-                                    hv = c->next_temp_id++;
-                                    int la = temp;
-                                    if (half == 1) {
-                                        int o2 = c->next_temp_id++;
-                                        ir_emit_mov_imm(c, o2, (int)cesz);
-                                        la = c->next_temp_id++;
-                                        ir_emit_add(c, la, temp, o2);
-                                    }
-                                    if (cesz == 4) ir_emit_vloadss(c, (uint16_t)hv, (uint16_t)la);
-                                    else ir_emit_vloadsd(c, (uint16_t)hv, (uint16_t)la);
-                                }
+                            if (cesz == 4 && c->isa != ISA_RISCV32) {
+                                /* psABI: _Complex float travels in ONE FP
+                                 * slot - the register's low 32 bits hold the
+                                 * real half and the HIGH 32 bits the
+                                 * imaginary half (an 8-byte bit pattern that
+                                 * matches the {real, imag} object layout).
+                                 * The preamble's 8-byte load puts the whole
+                                 * pattern in one XMM (glibc csinf reads the
+                                 * imag from the high 32 of xmm0). */
                                 fp_spill_stack_pos[fp_arg_idx] = (fp_stream < fp_regs_avail) ? 255 : (uint8_t)(stack_arg_count++);
                                 fp_stream++;
                                 c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
                                 c->current_stack_frame += 8;
                                 fp_spill_offsets[fp_arg_idx] = c->current_stack_frame;
-                                if (cesz == 4 && fp_spill_stack_pos[fp_arg_idx] < 255) {
-                                    int sa = c->next_temp_id++;
-                                    ir_emit_lea(c, sa, BE(c)->fp_reg, -fp_spill_offsets[fp_arg_idx]);
-                                    ir_emit_vstoress(c, (uint16_t)sa, (uint16_t)hv);
-                                } else {
-                                    ir_emit_fstore(c, (uint16_t)hv, TEMP_NONE, -fp_spill_offsets[fp_arg_idx]);
-                                }
+                                int sa = c->next_temp_id++;
+                                ir_emit_lea(c, sa, BE(c)->fp_reg, -fp_spill_offsets[fp_arg_idx]);
+                                ir_emit_vstoress(c, (uint16_t)sa, (uint16_t)r_val); /* lo32 = real */
+                                int o4 = c->next_temp_id++;
+                                ir_emit_mov_imm(c, o4, 4);
+                                int sa2 = c->next_temp_id++;
+                                ir_emit_add(c, sa2, sa, o4);
+                                ir_emit_vstoress(c, (uint16_t)sa2, (uint16_t)i_val); /* hi32 = imag */
                                 fp_arg_idx++;
+                            } else {
+                                /* _Complex double (and RV32 _Complex float,
+                                 * which the psABI passes in TWO registers):
+                                 * one 8-byte slot per half, model doubles. */
+                                for (int half = 0; half < 2; half++) {
+                                    int hv = (half == 0) ? r_val : i_val;
+                                    fp_spill_stack_pos[fp_arg_idx] = (fp_stream < fp_regs_avail) ? 255 : (uint8_t)(stack_arg_count++);
+                                    fp_stream++;
+                                    c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                                    c->current_stack_frame += 8;
+                                    fp_spill_offsets[fp_arg_idx] = c->current_stack_frame;
+                                    ir_emit_fstore(c, (uint16_t)hv, TEMP_NONE, -fp_spill_offsets[fp_arg_idx]);
+                                    fp_arg_idx++;
+                                }
                             }
                         } else {
                             /* Integer complex argument in GPR(s) */
@@ -912,13 +966,24 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                     /* Float argument: spill it to a stack slot via IR. The first
                      * fp_regs_avail go into FP registers (stream order); the rest
                      * are stack-passed in argument order (stack_pos) - the call
-                     * site pushes them from this same spill slot. */
+                     * site pushes them from this same spill slot.
+                     * Sprint 115m: a non-variadic `float` parameter is
+                     * marshalled as a real 32-bit float (vstoress narrows the
+                     * model double into the low 4 bytes of the slot; the
+                     * preamble's 8-byte load puts the float pattern in the
+                     * low half of the register, the SysV float-arg form). */
                     fp_spill_stack_pos[fp_arg_idx] = (fp_stream < fp_regs_avail) ? 255 : (uint8_t)(stack_arg_count++);
                     fp_stream++;
                     c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
                     c->current_stack_frame += 8;
                     fp_spill_offsets[fp_arg_idx] = c->current_stack_frame;
-                    ir_emit_fstore(c, (uint16_t)temp, TEMP_NONE, -fp_spill_offsets[fp_arg_idx]);
+                    if (abi_float_arg && !is_var_arg) {
+                        int sa = c->next_temp_id++;
+                        ir_emit_lea(c, sa, BE(c)->fp_reg, -fp_spill_offsets[fp_arg_idx]);
+                        ir_emit_vstoress(c, (uint16_t)sa, (uint16_t)temp);
+                    } else {
+                        ir_emit_fstore(c, (uint16_t)temp, TEMP_NONE, -fp_spill_offsets[fp_arg_idx]);
+                    }
                     fp_arg_idx++;
                 } else {
                     size_t arg_struct_sz = 0;
@@ -1551,11 +1616,19 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                         Instr *li = (Instr*)&ir_get_buffer(c)[ir_get_count(c) - 1];
                         li->label_idx = 0x0100 | (csz & 0xFF);
                     }
-                    if (cesz == 4) {
-                        ir_emit_vstoress(c, (uint16_t)caddr, (uint16_t)VREG_F0);
+                    if (cesz == 4 && c->isa != ISA_RISCV32) {
+                        /* psABI: a _Complex float return arrives in ONE
+                         * register: real in the low 32 bits, imaginary in
+                         * the HIGH 32 bits. The 8-byte bit pattern matches
+                         * the {real, imag} object layout, so one 8-byte
+                         * store captures both halves. */
+                        ir_emit_vstoresd(c, (uint16_t)caddr, (uint16_t)VREG_F0);
+                    } else if (cesz == 4) {
+                        /* RV32: two registers, float in each low 32. */
+                        ir_emit_vstoress_raw(c, (uint16_t)caddr, (uint16_t)VREG_F0);
                         int o2 = c->next_temp_id++; ir_emit_mov_imm(c, o2, 4);
                         int a2 = c->next_temp_id++; ir_emit_add(c, a2, caddr, o2);
-                        ir_emit_vstoress(c, (uint16_t)a2, (uint16_t)VREG_F1);
+                        ir_emit_vstoress_raw(c, (uint16_t)a2, (uint16_t)VREG_F1);
                     } else {
                         ir_emit_vstoresd(c, (uint16_t)caddr, (uint16_t)VREG_F0);
                         int o2 = c->next_temp_id++; ir_emit_mov_imm(c, o2, 8);
@@ -1599,7 +1672,16 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                  * expression) to xmm0 and clobber the result before it
                  * is consumed. */
                 int fp_res = c->next_temp_id++;
-                ir_emit_fmov(c, (uint16_t)fp_res, (uint16_t)VREG_F0);
+                if (call_ret_type.tag == TYPE_FLOAT) {
+                    /* Sprint 115m: a `float` return arrives with the float
+                     * pattern in the LOW 32 bits of xmm0 (upper bits
+                     * undefined); cvtss2sd reinterprets that low half as a
+                     * single and widens it to the model double. A plain
+                     * fmov (movsd) would keep the stale upper half. */
+                    ir_emit_cvtss2sd(c, (uint16_t)fp_res, (uint16_t)VREG_F0);
+                } else {
+                    ir_emit_fmov(c, (uint16_t)fp_res, (uint16_t)VREG_F0);
+                }
                 return fp_res;
             }
 

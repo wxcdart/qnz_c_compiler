@@ -4,7 +4,7 @@ title: Two-Pass IR & Linear Scan Register Allocation
 description: IR instruction format, call-argument tracking table, virtual register conventions, and linear scan register allocation constraints.
 resource: middleend/ir-and-regalloc
 tags: [ir, regalloc, ssa, registers, calling-convention]
-timestamp: 2026-11-04T16:35:33Z
+timestamp: 2026-11-06T16:44:19Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -17,7 +17,7 @@ ZeroCC lowers AST nodes into an ISA-agnostic Two-Pass Intermediate Representatio
 ## Instruction Representation (`Instr`)
 
 Each `Instr` in `c->ir_arena` has:
-- `op` (`Opcode`): One of 141 opcodes (data movement, arithmetic, bitwise, comparison, control flow, calls, frame management, atomic ops, OS syscall, scalar FP incl. `OP_CVTSS2SD`/`OP_CVTSD2SS` lane-width conversions, 128-bit SIMD vector ops, computed goto `OP_LEA_LABEL`/`OP_JMP_INDIRECT`, inline non-local jumps `OP_SETJMP`/`OP_LONGJMP`, and cross-scope nonlocal goto `OP_NONLOCAL_GOTO` - restore the hidden `(fp, sp-snapshot)` pair then jump to the ancestor label).
+- `op` (`Opcode`): One of 166 opcodes (data movement, arithmetic, bitwise, comparison, control flow, calls, frame management, atomic ops, OS syscall, scalar FP incl. `OP_CVTSS2SD`/`OP_CVTSD2SS` lane-width conversions and the Sprint 115m ABI-boundary raw FP ops `OP_VLOADSS_RAW`/`OP_VSTORESS_RAW`/`OP_CVTTSD2SS`, 128-bit SIMD vector ops, computed goto `OP_LEA_LABEL`/`OP_JMP_INDIRECT`, inline non-local jumps `OP_SETJMP`/`OP_LONGJMP`, and cross-scope nonlocal goto `OP_NONLOCAL_GOTO` - restore the hidden `(fp, sp-snapshot)` pair then jump to the ancestor label).
 - `temp_dest`, `temp_src1`, `temp_src2` (`uint16_t`): Virtual register IDs, `TEMP_NONE` (0xFFFF) when unused. User temp IDs start at `VREG_USER_START` (16); `0`–`15` are fixed ABI/scratch vregs and `0xFFFF` is the no-temp sentinel (see Temp-Id Space below). 16-bit since Sprint 24 (C2b); the packed struct is 24 bytes, in-memory only.
 - `imm` (`int16_t`) and `imm64` (`int64_t`): Immediate constants, stack frame offsets, or symbol name pointers (for `OP_CALL` and `OP_MOV_GLOBAL`).
 - `width` (`uint8_t`): C99 narrow-int width mark (0 = none; 1/2/4 = signed byte/halfword/word; 8+1/2/4 = unsigned). When set, the MC layer (`ir/ast_lowering_mc.c`, after the op's own emission) extends `temp_dest` in place to 64-bit with the proper sign, giving true N-bit wrap semantics. Set via `ir_mark_last_width` from the lowering's usual-arithmetic-conversion analysis — and **never** for pointer results: `&expr` operands report no width, so pointer arithmetic keeps its full 64-bit value (a stray width mark here would SEXT32 a pointer and truncate it — see the pointer-exclusion note in the Frontend & Types concept).
@@ -60,6 +60,15 @@ Both `<setjmp.h>` (`setjmp` / `_setjmp` / `sigsetjmp` and `longjmp` / `_longjmp`
    - Setting `c->regalloc.used_callee_saved_gpr_mask` to the full ISA callee-saved mask forces the `has_setjmp` function's prologue (`OP_CALLEE_SAVE_STORES`) and epilogue (`OP_CALLEE_SAVE_LOADS`) to save and restore all architectural CSRs (`%rbx, %r12–%r15` on x86-64; `x19–x28` on AArch64; `s1–s11` on RISC-V) in its own stack frame, protecting the *caller* of the `setjmp`-using function when it returns after a `longjmp`.
 3. **Branchless `val == 0 ? 1 : val` Normalization**:
    - Lowering normalizes the `longjmp` status value in IR via `cmp_zero + cond_set(CC_EQ) + or` before `OP_LONGJMP(buf_temp, val_temp)`, avoiding branchy clamp patterns at `-O1..-O3`.
+
+### Raw FP ABI-Boundary Ops (Sprint 115m)
+
+ZeroCC keeps scalar floats **and** doubles as double-width 64-bit patterns in the FP registers on all three ISAs; the psABI's non-variadic `float` traffic is a 32-bit pattern in the register's low half. The model is never changed globally — the conversion happens at call boundaries with three dedicated ops (each present in both emitters: MC dispatch in `ast_lowering_mc.c`, text in `asm_emitter.c`, vtable slots `emit_vloadss_raw`/`emit_vstoress_raw`/`emit_cvttsd2ss`):
+- `OP_VLOADSS_RAW` (`ir_emit_vloadss_raw`): a **raw 4-byte** float load with no model conversion — `movss` (no `cvtss2sd`), `LDR S` (no `fcvt d,s`), `flw` (no `fcvt.d.s`).
+- `OP_VSTORESS_RAW` (`ir_emit_vstoress_raw`): a raw 4-byte float store — `movss` (no `cvttsd2ss`), `STR S`, `fsw`. This is what the callee prologue uses for `float` parameters (`emit_param_save_fp`, `is_single` form) and what the `_Complex float` return epilogue's predecessor uses for the two halves.
+- `OP_CVTTSD2SS` (`ir_emit_cvttsd2ss`): in-register model double → ABI float (`cvttsd2ss` / `fcvt s,d` / `fcvt.s.d`), emitted by the `float` return epilogue before `ret`.
+
+(Their complements for the *capture* direction already existed: a `float` return is pulled back into the model with `OP_CVTSS2SD`; the caller-side float-arg *narrowing* store is `ir_emit_vstoress`, the converting `vstoress`.) See `abi-sysv-x86_64.md` §1 for the boundary rules and the one-register `_Complex float` convention.
 
 ## Temp-Id Space (16-bit, C2b) & the Exhaustion Guard
 
