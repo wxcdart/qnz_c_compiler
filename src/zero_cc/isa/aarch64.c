@@ -281,6 +281,19 @@ static void aarch64_emit_extend(ZeroCCCompiler *c, int dst, int src, int width, 
      * for every (dst,src) in 0..30 (Sprint 41). The SXTB/SXTH/SXTW/UXTB/UXTH forms
      * place the source (Rn) at bits[9:5]; UXTW is the MOV(Xd,Wn) form with Rn at
      * bits[20:16] (writing a 32-bit value zero-extends it into the 64-bit dest). */
+    if (width >= 8 || width == 0) {
+        /* Not a narrow extension (width 0 = "no mark" per the Instr.width
+         * encoding; 8+ = zero-extend flag): at most a move is needed
+         * (they previously fell through to the byte-extension path and
+         * truncated the value). */
+        if (dst != src) {
+            if ((dst & 0x1F) == 31 || (src & 0x1F) == 31)
+                arm64_emit_u32(c, 0x91000000u | (((uint32_t)src & 0x1Fu) << 5) | (uint32_t)(dst & 0x1Fu));
+            else
+                arm64_emit_u32(c, 0xAA0003E0u | ((uint32_t)(src & 0x1F) << 16) | (uint32_t)(dst & 0x1F));
+        }
+        return;
+    }
     uint32_t insn;
     if (width == 4) {
         if (sign)

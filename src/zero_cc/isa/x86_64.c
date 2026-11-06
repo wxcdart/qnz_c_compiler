@@ -937,6 +937,19 @@ static void x86_emit_neg(ZeroCCCompiler *c, int dst, int src) {
  * sext16: movsx r32, r/m16 (0F BF) then movsxd r64, r32 (REX.W 63)
  * sext8:  movsx r32, r/m8  (0F BE) then movsxd r64, r32 (REX.W 63) */
 static void x86_emit_extend(ZeroCCCompiler *c, int dst, int src, int width, int sign) {
+    if (width >= 8 || width == 0) {
+        /* Not a narrow extension: width 0 means "no mark" per the
+         * Instr.width encoding (ir.h) and 8+ the zero-extend flag; the
+         * value already fills the register, so at most a move is needed
+         * (they previously fell through to the 16-bit path and truncated
+         * the value). */
+        if (dst != src) {
+            x86_rex(c, 1, (src >> 3) & 1, 0, (dst >> 3) & 1);
+            me_emit_u8(c, 0x89);
+            x86_modrm(c, 3, src, dst);
+        }
+        return;
+    }
     if (width == 4) {
         if (sign) {
             /* MOVSXD r64, r/m32: destination in the REG field, source in the

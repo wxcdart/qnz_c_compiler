@@ -1,6 +1,7 @@
 /* AST Lowering - IR to Machine Code Emission */
 
 #include "zero_cc/ir/ast_lowering_internal.h"
+#include "zero_cc/ir/machine_emitter.h"
 
 /* Emit function prologue directly (without IR instruction) */
 void emit_prologue_mc(ZeroCCCompiler *c, size_t frame_size) {
@@ -420,6 +421,72 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
             case OP_SUB:
                 BE(c)->emit_sub(c, phys_dst, phys_src1, phys_src2);
                 break;
+
+            /* zero_san v1 (x86-64): signed-integer-overflow trap after signed
+             * add/sub/mul. The preceding op set the CPU flags; we check whether
+             * the raw 64-bit result fits in `width` signed bits and trap (ud2)
+             * if not. All inline, no labels/fixups needed. */
+            case OP_OVF_TRAP: {
+                /* v1: x86-64 only. Lowering skips other ISAs, but this
+                 * guard keeps the shared raw-emitter loop safe (cross-ISA
+                 * raw AOT would otherwise embed x86 check bytes). */
+                if (c->isa != ISA_X86_64) break;
+                int width = instr->width;
+                bool is_spilled = (spill_dst >= 0);
+                int phys = phys_dst;          /* register holding the result */
+                int scratch = is_spilled ? BE(c)->scratch_reg2 : BE(c)->scratch_reg1;
+
+                /* REX prefix: 0100WRAB.
+                 * W=1 (64-bit). R (bit 2, val 0x04) extends the reg field.
+                 * B (bit 0, val 0x01) extends the r/m field. */
+                uint8_t rex_mov  = 0x48 | ((phys  >= 8) ? 0x04 : 0) | ((scratch >= 8) ? 0x01 : 0);
+                uint8_t rex_alu  = 0x48 | ((scratch >= 8) ? 0x01 : 0);   /* reg field hardcoded (4=SHL,7=SAR) */
+                uint8_t rex_cmp  = 0x48 | ((scratch >= 8) ? 0x04 : 0) | ((phys  >= 8) ? 0x01 : 0);
+
+                if (width >= 8) {
+                    /* 64-bit: jno rel8,+2 skips ud2 when no overflow (OF=0).
+                     * Overflow (OF=1) falls through to ud2 → SIGILL. */
+                    me_emit_u8(c, 0x71);  /* jno rel8 */
+                    me_emit_u8(c, 0x02);  /* +2: skip ud2 */
+                    me_emit_u8(c, 0x0F);
+                    me_emit_u8(c, 0x0B);  /* ud2 */
+                } else {
+                    /* Narrow: sign-extension round-trip check.
+                     * scratch = (phys << (64-N)) >> (64-N) [arithmetic].
+                     * If scratch == phys, value fits in N bits → skip trap.
+                     * Otherwise → overflow → trap. */
+                    int shift = 64 - width * 8;
+                    /* movq %phys, %scratch  (REX + 0x89 /r, mod=11, reg=phys, r/m=scratch) */
+                    me_emit_u8(c, rex_mov);
+                    me_emit_u8(c, 0x89);
+                    me_emit_u8(c, 0xC0 | ((phys & 7) << 3) | (scratch & 7));
+
+                    /* shq $shift, %scratch  (REX + C1 /4 ib, mod=11, reg=4=SHL, r/m=scratch) */
+                    me_emit_u8(c, rex_alu);
+                    me_emit_u8(c, 0xC1);
+                    me_emit_u8(c, 0xC0 | (4 << 3) | (scratch & 7));
+                    me_emit_u8(c, (uint8_t)shift);
+
+                    /* sarq $shift, %scratch  (REX + C1 /7 ib, mod=11, reg=7=SAR, r/m=scratch) */
+                    me_emit_u8(c, rex_alu);
+                    me_emit_u8(c, 0xC1);
+                    me_emit_u8(c, 0xC0 | (7 << 3) | (scratch & 7));
+                    me_emit_u8(c, (uint8_t)shift);
+
+                    /* cmp %scratch, %phys  (REX + 0x39 /r, mod=11, reg=scratch, r/m=phys;
+                     * computes phys - scratch) */
+                    me_emit_u8(c, rex_cmp);
+                    me_emit_u8(c, 0x39);
+                    me_emit_u8(c, 0xC0 | ((scratch & 7) << 3) | (phys & 7));
+
+                    /* je rel8,+2 : if equal (fits), skip ud2 */
+                    me_emit_u8(c, 0x74);  /* je rel8 */
+                    me_emit_u8(c, 0x02);  /* +2: skip ud2 */
+                    me_emit_u8(c, 0x0F);
+                    me_emit_u8(c, 0x0B);  /* ud2 */
+                }
+                break;
+            }
 
             case OP_NEG:
                 if (BE(c)->emit_neg) {
@@ -1853,16 +1920,27 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
 
         /* C99 width semantics: if the op produced a narrow-int result,
          * extend it to full 64-bit width now (sign or zero per the mark),
-         * before any spill-back so the stored value is the extended one. */
-        if (instr->width != 0 && instr->temp_dest!= TEMP_NONE && BE(c)->emit_extend) {
+         * before any spill-back so the stored value is the extended one.
+         * `width & 7` strips the zero-extend flag (Instr.width encodes
+         * sign-extend as 1/2/4 and zero-extend as 8+1/2/4 - see ir.h);
+         * the sign arg below does the same. OP_OVF_TRAP is excluded:
+         * its width is CHECK metadata (4 or 8), not a value mark - with
+         * 8 the mask would yield 0 and the emitter would fall through to
+         * the 16-bit path, truncating the 64-bit sum (the preceding
+         * add/sub/mul already left a canonical value in the destination). */
+        if (instr->width != 0 && instr->op != OP_OVF_TRAP && instr->temp_dest!= TEMP_NONE && BE(c)->emit_extend) {
             BE(c)->emit_extend(c, phys_dst, phys_dst,
                                (int)(instr->width & 7), (instr->width < 8) ? 1 : 0);
         }
 
         /* If destination temp was spilled, store the scratch register back
          * to the frame spill slot (FP scratch + movsd for FP-class). A spilled
-         * GPR128 dst stores BOTH halves to the two slots (Sprint 109 spill fix). */
-        if (spill_dst >= 0) {
+         * GPR128 dst stores BOTH halves to the two slots (Sprint 109 spill fix).
+         * OP_OVF_TRAP is a pure check: the preceding op's own store-back
+         * already persisted the value, so re-storing here would overwrite
+         * the slot with scratch-register garbage on ISAs where the check
+         * is skipped. */
+        if (spill_dst >= 0 && instr->op != OP_OVF_TRAP) {
             int32_t slot_off = spill_base_offset + (spill_dst + 1) * 8;
             if (d128_sp) {
                 if (BE(c)->emit_store) {

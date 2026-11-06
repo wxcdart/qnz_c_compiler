@@ -617,6 +617,41 @@ bool zc_node_is_int128(ZeroCCCompiler *c, const ZeroCCASTNode *node) {  /* Sprin
     return false;
 }
 
+/* zero_san v1 (-fsanitize=undefined): emit a signed-integer-overflow trap
+ * immediately after a signed binary +,-,* (x86-64 only in v1).
+ *
+ * The check width is the width of the CONVERSION result (C99 6.3.1.8
+ * usual arithmetic conversions) — the op computes in 64-bit registers on
+ * sign-extended operands, so the narrower operand is promoted: checking
+ * at the narrower operand's width would trap on valid mixed-width code
+ * (an `int + long` sum that fits in `long` but not in `int`). When the
+ * widths are equal the op is signed only if BOTH operands are signed
+ * (mixed equal-width converts to unsigned -> defined wrap, no check).
+ * Only widths the register model expresses (4, 8) are checked; exotic
+ * widths (bit-fields, sub-byte, __int128) are skipped, not mis-checked.
+ * Pointer operands are excluded (pointer arithmetic has no signed-overflow
+ * semantics here; array operands read as unsigned via int_info). */
+static void zc_maybe_emit_ovf_trap(ZeroCCCompiler *c, ZeroCCASTArena *arena,
+                                   ZeroCCASTNode *node, uint16_t result_temp) {
+    if (!c->sanitize_overflow || c->isa != ISA_X86_64) return;
+    ZeroCCASTNode *ln = zero_cc_ast_get(arena, node->left);
+    ZeroCCASTNode *rn = zero_cc_ast_get(arena, node->right);
+    TypeInfo *lti = ln ? ast_node_get_typeinfo(c, ln) : NULL;
+    TypeInfo *rti = rn ? ast_node_get_typeinfo(c, rn) : NULL;
+    if ((lti && type_is_pointer(lti)) || (rti && type_is_pointer(rti))) return;
+    int lu = 0, ru = 0;
+    int lw = zero_cc_expr_int_info(c, arena, node->left, &lu);
+    int rw = zero_cc_expr_int_info(c, arena, node->right, &ru);
+    int w;
+    if (lw > rw)      w = (lu == 0) ? lw : 0;
+    else if (rw > lw) w = (ru == 0) ? rw : 0;
+    else              w = (lu == 0 && ru == 0) ? lw : 0;
+    if (w != 4 && w != 8) return;
+    ir_emit(c, (Instr){.op = OP_OVF_TRAP, .temp_dest = result_temp,
+        .temp_src1 = TEMP_NONE, .temp_src2 = TEMP_NONE, .imm = 0,
+        .label_idx = 0, .width = (uint8_t)w});
+}
+
 int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
         /* C99 6.5.5 complex arithmetic: both operands are complex
          * (an address-form 2-part object: real half first) or scalar
@@ -1664,14 +1699,17 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
         switch (node->aux.op) {
             case TK_PLUS:
                 ir_emit_add(c, result_temp, left_temp, right_temp);
+                zc_maybe_emit_ovf_trap(c, arena, node, (uint16_t)result_temp);
                 result_temp = zc_binop_bitfield_reduce(c, arena, node->left, node->right, result_temp);
                 break;
             case TK_MINUS:
                 ir_emit_sub(c, result_temp, left_temp, right_temp);
+                zc_maybe_emit_ovf_trap(c, arena, node, (uint16_t)result_temp);
                 result_temp = zc_binop_bitfield_reduce(c, arena, node->left, node->right, result_temp);
                 break;
             case TK_STAR:
                 ir_emit_mul(c, result_temp, left_temp, right_temp);
+                zc_maybe_emit_ovf_trap(c, arena, node, (uint16_t)result_temp);
                 result_temp = zc_binop_bitfield_reduce(c, arena, node->left, node->right, result_temp);
                 break;
             case TK_SLASH: {

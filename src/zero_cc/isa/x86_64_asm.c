@@ -461,6 +461,13 @@ static const char *x86_reg32_name(int r) {
  * they coincide only for in-place extensions. */
 static void x86_emit_extend_asm(ZeroCCCompiler *c, int dst, int src, int width, int sign, FILE *out) {
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
+    if (width >= 8 || width == 0) {
+        /* Not a narrow extension (width 0 = "no mark" per the Instr.width
+         * encoding; 8+ = zero-extend flag): at most a move is needed. */
+        if (dst != src)
+            fprintf(out, "\tmovq\t%%%s,%%%s\n", BE(c)->get_hw_reg_name(src), dst_name);
+        return;
+    }
     if (width == 4) {
         if (sign) fprintf(out, "\tmovslq\t%%%s,%%%s\n", x86_reg32_name(src), dst_name);
         else fprintf(out, "\tmovl\t%%%s,%%%s\n", x86_reg32_name(src), x86_reg32_name(dst));

@@ -394,6 +394,13 @@ static void riscv_emit_sar_asm(ZeroCCCompiler *c, int dst, int src, int shift, F
 static void riscv_emit_extend_asm(ZeroCCCompiler *c, int dst, int src, int width, int sign, FILE *out) {
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
     const char *src_name = BE(c)->get_hw_reg_name(src);
+    if (width >= 8 || width == 0) {
+        /* Not a narrow extension (width 0 = "no mark"; 8+ = zero-extend
+         * flag): at most a move is needed. */
+        if (dst != src)
+            fprintf(out, "\tmv\t%s, %s\n", dst_name, src_name);
+        return;
+    }
     int shamt = (width == 1) ? 56 : (width == 2) ? 48 : 32;
     if (c->isa == ISA_RISCV32 && width == 4) {
         /* 32-bit values already fill a RV32 register: extension is a no-op

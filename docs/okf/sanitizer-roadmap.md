@@ -4,7 +4,7 @@ title: Target-Side Sanitizer (zero_san) Design & Roadmap
 description: Analysis and phased roadmap for an optional, parked target-side safety-check feature (zero_san) — a codegen-first UBSan-lite signed-overflow check, with bounds, leaks, and ASan/LSan scoped out and justified.
 resource: sanitizer/roadmap
 tags: [sanitizer, zero_san, codegen, ubsan, overflow, bounds, asan, lsan, leak, roadmap, design, safety]
-timestamp: 2026-11-06T15:21:29Z
+timestamp: 2026-11-06T19:51:15Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -12,10 +12,57 @@ status: active
 
 # Target-Side Sanitizer (`zero_san`) — Design & Roadmap
 
-> **Status: analysis / planned — Phase 1 promoted to a current priority (development plan).** This is still a design-and-roadmap artifact, not live
-> architecture: **no code exists yet.** Phase 1 (signed-integer-overflow) is being implemented under
-> §6 clause (a) (architecture de-risking); see [§6 Gating](#6-gating-when-this-actually-starts). Written to preserve the traced
-> invariants and cost analysis so the decision can be revisited without re-deriving them.
+> **Status: Phase 1 IMPLEMENTED (Sprint 116, x86-64, both emitters, `-fsanitize=undefined`).**
+> Sections below preserve the traced invariants and cost analysis; **§4-as-built** records the
+> shipped mechanism and the traps found while landing it. Phases 2–3 (bounds, leaks) remain
+> parked; ASan/LSan remain out of scope per §8.
+
+## 4-as-built. Phase 1 as shipped (Sprint 116)
+
+- **Flag:** `-fsanitize=undefined` (GCC-compatible name; parsed in `driver_opts.h`, propagated to
+  `ZeroCCCompiler.sanitize_overflow` in both the JIT and AOT paths of `main.c`). Only the
+  signed-integer-overflow check is implemented under it (GCC's full UBSan is not claimed).
+- **Emission:** `ast_lowering_binop.c` (`zc_maybe_emit_ovf_trap`), immediately after
+  `ir_emit_add/sub/mul` for `TK_PLUS`/`TK_MINUS`/`TK_STAR`, x86-64 only (lowering guard +
+  defensive guard in the shared raw-emitter loop + AOT-asm skip). **Check width = the usual-
+  arithmetic-conversion result width** (wider operand wins; equal widths require both signed):
+  `int + long` checks 64-bit, not 32-bit — checking at the narrower operand's width false-traps
+  on valid code (caught in review before it shipped). Pointers/arrays excluded; widths the
+  register model can't express (bit-fields, sub-byte, `__int128`) are skipped, not mis-checked.
+- **Trap:** `ud2` (SIGILL), fully inline in **both** emitters — `ast_lowering_mc.c` (raw bytes,
+  `jno +2; ud2` for width 8 via the CPU OF flag; sign-extension round-trip via scratch regs for
+  width 4) and `asm_emitter.c` (text asm with self-contained `.Lovf_N` labels). This resolved
+  §7 open decision 1 in a third way: no `__zerocsan_trap` builtin and no `zero_san.a` — the trap
+  is a bare instruction, which is strictly more portable (JIT + host AOT + `--zerocc-link`)
+  and costs one check site instead of a call. Report is op-level only (decision 4: no DWARF).
+- **Emitter post-pass exclusions:** both emitters' generic width-extension + spill store-back
+  post-passes skip `OP_OVF_TRAP` (its `width` is check metadata, not a value mark — with 8 the
+  post-pass's `width & 7` mask yields 0 and the extend emitters' 16-bit default truncated the
+  64-bit sum; the ALU op's own store-back already persisted the value). The extend emitters on
+  all four ISAs were hardened so `width >= 8 || width == 0` is a no-op/move instead of falling
+  through to a narrow path.
+- **Pass interaction (verified, not assumed):** `opt_run_passes` runs on the IR after lowering,
+  so the adjacency contract depends on pass conservatism — confirmed structurally (OP_OVF_TRAP
+  is in none of the LICM/CSE/GVN pure-op whitelists; DCE shares the checked op's dest liveness)
+  *and* empirically (`san_trap_loop.c` traps at -O0..-O3, JIT + AOT).
+- **Gate:** `make test-san` (decision 3: yes — `tools/san_sweep.py` over `test/san/`: `san_ok_*`
+  = valid code must exit 0 with the flag at -O0..-O3 in JIT + AOT *and* behave identically
+  without it; `san_trap_*` = real overflow must SIGILL at every level; `san_ok_cross_smoke.c`
+  compiled raw-AOT for aarch64/riscv64/riscv32 and run under qemu guards "no x86 check bytes
+  leak into other ISAs"). c-torture + `make test-opt` with the flag OFF stay the conformance
+  backstop; the sweep is the flag-ON soundness gate.
+- **Pre-existing issues found while landing (separate follow-ups, not zero_san bugs):**
+  1. RISC-V (both) miscompile of `int * long` mixed-width multiply: the sign-extension copy
+     clobbers the long operand's register (computes `i * i`); the IR is correct (`SEXT32 r16`
+     in-place, then `MUL r18, r16, r17`), so the defect is in the RISC-V register-alloc/emit
+     layer. Wrong with or without the flag.
+  2. ~~`(unsigned long)0xFFFFFFFFFFFFFFF0UL + (-100)` yields 140~~ — **retracted, not a bug**
+     (the correct 2^64−116 is what zerocc computes, verified byte-discriminating against gcc;
+     the original "repro" could only observe the low 8 bits, identical for both candidates).
+  3. A 32-bit `mov %reg32,%reg32` **zero-extends** (writes clear bits 32–63) — the width-4
+     "sign" post-extension must be `movslq`/MOVSXD, never `movl` (a c-torture 1-bit-bitfield
+     test, `execute/pr49123.c`, regressed for one iteration when the post-pass's `width & 7`
+     zero-extend-flag strip was mistaken for a bug and the mask removed).
 
 ZeroCC today has **host-side** sanitizers only — `make asan` builds the *compiler* with
 `-fsanitize=address,undefined`, which finds bugs in ZeroCC's own C, not in compiled programs.
@@ -146,12 +193,16 @@ ASan-class and stays out of scope.
 
 ## 7. Open decisions
 
-1. **Trap:** zerocc builtin (current lean — one lowering, works everywhere) vs a `zero_san.a`.
-2. **Flag name:** `-fsanitize=undefined` (GCC drop-in) vs a custom `-fsafety-checks`.
-3. **Persistent checks-on test config:** add to the harness (lean *yes* — it is the ongoing
-   soundness guarantee; see [Build & Verification](./build-and-verification.md)).
-4. **Report:** accept op-level for v1, defer DWARF (lean *yes* — don't scope-creep into a
-   DWARF emitter).
+1. ~~**Trap:** zerocc builtin vs a `zero_san.a`.~~ **Resolved (Sprint 116): neither** — a bare
+   `ud2` inline in both emitters (see §4-as-built): no symbol, no archive, works everywhere.
+2. ~~**Flag name:** `-fsanitize=undefined` vs a custom `-fsafety-checks`.~~ **Resolved:
+   `-fsanitize=undefined`** (GCC drop-in; only the overflow check is implemented under it).
+3. ~~**Persistent checks-on test config.**~~ **Resolved: yes** — `make test-san`
+   (`tools/san_sweep.py`, `test/san/`), the flag-ON soundness gate; c-torture + test-opt stay
+   the flag-OFF conformance backstop.
+4. ~~**Report:** op-level for v1, defer DWARF.~~ **Resolved: op-level** (the trap is a bare
+   `ud2` — no diagnostic at all in v1; a reporting hook would need the runtime shim this design
+   deliberately avoids).
 
 ## 8. Why ASan/LSan is out of scope (cost decomposition)
 

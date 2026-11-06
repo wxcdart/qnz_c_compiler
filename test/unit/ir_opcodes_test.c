@@ -31,7 +31,7 @@ int main(void) {
     assert(OP_MOV_IMM == 1);
     assert(OP_ADD == 10);
     assert(OP_SUB == 11);
-    assert(OP_RET == 38);
+    assert(OP_RET == 39);
     printf("  Opcode values: OK\n");
     
     /* Test 2: Opcode names */

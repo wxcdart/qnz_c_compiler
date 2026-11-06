@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-06T16:44:19Z
+timestamp: 2026-11-06T20:22:39Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1047,3 +1047,15 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-06 — Updated `c-torture-gate.md`
 - Sprint 115m: PASS 3740 held (in-sprint float-funcptr regressions fixed; 115l float-Complex external residual resolved)
+
+## 2026-11-06 — Updated `sanitizer-roadmap.md`
+- Phase 1 (signed-integer-overflow) IMPLEMENTED: -fsanitize=undefined, OP_OVF_TRAP, x86-64 both emitters, bare ud2 trap, UAC check width, make test-san gate; open decisions resolved; three width-encoding bugs + two pre-existing follow-ups recorded (4-as-built)
+
+## 2026-11-06 — Updated `ir-and-regalloc.md`
+- OP_OVF_TRAP added (167th opcode): check-metadata width usage, adjacency/emitter-exclusion contract, pass conservatism, x86-only scope guard; width-field note updated
+
+## 2026-11-06 — Updated `build-and-verification.md`
+- Added make test-san (tools/san_sweep.py, test/san/): zero_san flag-ON soundness gate -O0..-O3 JIT+AOT + cross-ISA qemu smoke
+
+## 2026-11-06 — Updated `sanitizer-roadmap.md`
+- Retracted pre-existing issue 2 (unsigned long + negative sum): verified not a bug against gcc (correct 2^64-116 computed in all modes); issue 1 attribution refined (IR correct, RISC-V regalloc/emit layer)

@@ -65,6 +65,7 @@ typedef enum {
     OP_ADD,            /* add two registers */
     OP_SUB,            /* subtract two registers */
     OP_MUL,            /* signed multiply two registers */
+    OP_OVF_TRAP,       /* zero_san v1: signed-integer-overflow trap after signed add/sub/mul */
     OP_DIV,            /* signed divide by register */
     OP_MOD,            /* signed modulo (remainder of division) */
     OP_NEG,            /* negate register */
@@ -322,6 +323,7 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_ADD: return "ADD";
         case OP_SUB: return "SUB";
         case OP_MUL: return "MUL";
+        case OP_OVF_TRAP: return "OVF_TRAP";
         case OP_DIV: return "DIV";
         case OP_MOD: return "MOD";
         case OP_NEG: return "NEG";

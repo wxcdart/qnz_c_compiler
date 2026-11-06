@@ -255,6 +255,14 @@ static void riscv64_emit_neg(ZeroCCCompiler *c, int dst, int src) {
  * zext8: andi rd, rs, 0xff
  * zext16/32: slli rd, rs, N; srli rd, rd, N */
 static void riscv64_emit_extend(ZeroCCCompiler *c, int dst, int src, int width, int sign) {
+    if (width >= 8 || width == 0) {
+        /* Not a narrow extension (width 0 = "no mark" per the Instr.width
+         * encoding; 8+ = zero-extend flag): at most a move is needed
+         * (they previously fell through to the 32-bit path and truncated
+         * the value). */
+        if (dst != src) riscv64_emit_mov_reg(c, dst, src);
+        return;
+    }
     if (c->isa == ISA_RISCV32) {
         if (sign) {
             int shamt = (width == 1) ? 24 : (width == 2) ? 16 : 0;

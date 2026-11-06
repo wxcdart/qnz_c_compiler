@@ -263,6 +263,7 @@ typedef struct ZeroCCCompiler {
     bool no_builtin_all;          /* -fno-builtin */
     int no_builtin_count;         /* -fno-builtin-<name> entries */
     char no_builtin_names[16][32];
+    int sanitize_overflow;        /* -fsanitize=undefined: emit OP_OVF_TRAP after signed add/sub/mul */
 
     /* IR arena - dynamic instruction buffer */
     IRArena ir_arena;              /* IR instruction arena */

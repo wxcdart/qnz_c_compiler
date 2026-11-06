@@ -23,8 +23,11 @@ TEST_BIN_DIR ?= $(BUILD_DIR)/test
 # test binary glob.  test/jit/builtin_apply.c uses __builtin_apply, which
 # host gcc miscompiles on x86-64 (garbage int/FP results; only the
 # void-return shape works) - it is exercised by the zerocc-only
-# test-opt sweep instead.
-TEST_SRCS = $(filter-out test/diag/% test/driver/% test/linker/% test/jit/builtin_apply.c,$(wildcard test/*/*.c))
+# test-opt sweep instead.  test/san/*.c is the zero_san (-fsanitize=undefined)
+# corpus: san_trap_* tests DIE with SIGILL by design, so they cannot run
+# through the host-gcc suite; tools/san_sweep.py (make test-san) drives them
+# with zerocc directly at -O0..-O3 in JIT + AOT.
+TEST_SRCS = $(filter-out test/diag/% test/driver/% test/linker/% test/san/% test/jit/builtin_apply.c,$(wildcard test/*/*.c))
 TESTS = $(patsubst test/%.c,$(TEST_BIN_DIR)/%,$(TEST_SRCS))
 
 LEXER_OBJ = $(OBJ_DIR)/src/zero_cc/lexer/lexer.o
@@ -196,6 +199,13 @@ test: all
 # never exercises zerocc's optimization passes).
 test-opt: all
 	@python3 tools/opt_sweep.py
+
+# zero_san v1 (-fsanitize=undefined) regression sweep: compiles test/san/*.c
+# with zerocc at -O0..-O3 in JIT + AOT, asserting trap (SIGILL) vs clean
+# exit per the san_ok_/san_trap_ name contract, plus a cross-ISA raw-AOT
+# qemu smoke (no x86 check bytes leak into aarch64/riscv binaries).
+test-san: build/bin/zerocc
+	@python3 tools/san_sweep.py
 
 # Multi-file driver tests (T1): run build/bin/zerocc on multiple .c inputs
 # (JIT --run, AOT -o, per-input -c/-S, duplicate-def / missing-main errors).

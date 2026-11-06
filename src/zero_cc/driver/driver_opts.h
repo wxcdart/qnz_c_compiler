@@ -35,6 +35,7 @@ typedef struct {
     int no_builtin_count;
     int no_builtin_all;   /* -fno-builtin (all) */
     int profile_opts;     /* --profile-opts */
+    int sanitize_overflow; /* -fsanitize=undefined */
     int link_mode;        /* Link with system linker (default when -o specified) */
     int zerocc_link;      /* --zerocc-link: link with ZeroCC's own linker (T2) */
     int no_zerocc_rt;     /* --no-zerocc-rt: don't auto-link zero_rt.a */
@@ -172,6 +173,9 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
             /* GCC: disable all builtin function recognition - the
              * abs/labs lowering (c-torture execute/builtins) consults it. */
             opts->no_builtin_all = 1;
+        }
+        else if (strcmp(arg, "-fsanitize=undefined") == 0) {
+            opts->sanitize_overflow = 1;
         }
         else if (strncmp(arg, "-fno-builtin-", 13) == 0 && arg[13]) {
             if (opts->no_builtin_count < 16) {

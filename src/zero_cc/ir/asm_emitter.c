@@ -225,6 +225,50 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             }
             return;
 
+        /* zero_san v1 (x86-64): signed-integer-overflow trap after signed
+         * add/sub/mul. The preceding op set the CPU flags; we check whether
+         * the raw 64-bit result fits in `width` signed bits and emit ud2
+         * if not. All inline, self-contained labels. */
+        case OP_OVF_TRAP: {
+            if (c->isa != ISA_X86_64) {
+                /* Not yet implemented for other ISAs - skip silently */
+                return;
+            }
+            int width = instr->width;
+            int spill_dst_local = regalloc_get_spill_slot_for_temp(&c->regalloc, instr->temp_dest);
+            bool is_spilled = (spill_dst_local >= 0);
+            const char *reg = BE(c)->get_hw_reg_name(phys_dst);
+            int scratch = is_spilled ? BE(c)->scratch_reg2 : BE(c)->scratch_reg1;
+            const char *scratch_name = BE(c)->get_hw_reg_name(scratch);
+
+            /* Unique label for the trap target (no IR OP_LABEL needed). */
+            uint16_t trap_lbl = c->ir_next_label++;
+            char lbl[32];
+            snprintf(lbl, sizeof(lbl), ".Lovf_%u", (unsigned)trap_lbl);
+
+            if (width >= 8) {
+                /* 64-bit: jno skips ud2 when no overflow (OF=0).
+                 * Overflow (OF=1) falls through to ud2 -> SIGILL. */
+                fprintf(out, "\tjno\t%s\n", lbl);
+                fprintf(out, "\tud2\n");
+                fprintf(out, "%s:\n", lbl);
+            } else {
+                /* Narrow: sign-extension round-trip check.
+                 * scratch = (reg << (64-N)) >> (64-N) [arithmetic].
+                 * If scratch == reg, value fits in N bits -> skip trap.
+                 * Otherwise -> overflow -> trap. */
+                int shift = 64 - width * 8;
+                fprintf(out, "\tmovq\t%%%s,%%%s\n", reg, scratch_name);
+                fprintf(out, "\tshl\t$%d,%%%s\n", shift, scratch_name);
+                fprintf(out, "\tsar\t$%d,%%%s\n", shift, scratch_name);
+                fprintf(out, "\tcmp\t%%%s,%%%s\n", scratch_name, reg);
+                fprintf(out, "\tje\t%s\n", lbl);   /* equal (fits): skip trap */
+                fprintf(out, "\tud2\n");            /* trap on overflow */
+                fprintf(out, "%s:\n", lbl);
+            }
+            return;
+        }
+
         case OP_MUL:
             if (BE(c)->emit_mul_asm) {
                 BE(c)->emit_mul_asm(c, phys_dst, phys_src1, phys_src2, out);
@@ -1584,16 +1628,25 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
 
     /* C99 width semantics: if the op produced a narrow-int result,
      * extend it to full 64-bit width now (sign or zero per the mark),
-     * before any spill-back so the stored value is the extended one. */
-    if (instr->width != 0 && instr->temp_dest != TEMP_NONE && BE(c)->emit_extend_asm) {
+     * before any spill-back so the stored value is the extended one.
+     * `width & 7` strips the zero-extend flag (Instr.width encodes
+     * sign-extend as 1/2/4 and zero-extend as 8+1/2/4 - see ir.h);
+     * the sign arg below does the same. OP_OVF_TRAP is excluded: its
+     * width is CHECK metadata (4 or 8), not a value mark - with 8 the
+     * mask would yield 0 and the emitter would fall through to the
+     * 16-bit path, truncating the 64-bit sum. */
+    if (instr->width != 0 && instr->op != OP_OVF_TRAP && instr->temp_dest != TEMP_NONE && BE(c)->emit_extend_asm) {
         BE(c)->emit_extend_asm(c, phys_dst, phys_dst,
                                (int)(instr->width & 7), (instr->width < 8) ? 1 : 0, out);
     }
 
     /* If destination temp was spilled, store the scratch register back to
      * the frame spill slot (FP scratch for FP-class). A spilled GPR128 dst
-     * stores BOTH halves to the two slots. */
-    if (spill_dst >= 0) {
+     * stores BOTH halves to the two slots.
+     * OP_OVF_TRAP is a pure check: the preceding op's own store-back
+     * already persisted the value, so re-storing here would overwrite the
+     * slot with scratch-register garbage on ISAs where the check is skipped. */
+    if (spill_dst >= 0 && instr->op != OP_OVF_TRAP) {
         int32_t slot_off = spill_base_offset + (spill_dst + 1) * 8;
         if (d128_sp) {
             if (BE(c)->emit_store_asm) {

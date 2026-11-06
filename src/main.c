@@ -253,6 +253,7 @@ static ZeroCCCompiler *jit_compile_tu(CompileOptions *opts, const char *input) {
         snprintf(comp->no_builtin_names[nb], sizeof(comp->no_builtin_names[nb]),
                  "%s", opts->no_builtin[nb]);
     }
+    comp->sanitize_overflow = opts->sanitize_overflow != 0;
 
     char *prep = preprocess_with_options(source, opts, input, opts->dep_target);
     free(source);
@@ -509,6 +510,7 @@ static int compile_object_single(CompileOptions *opts, const char *input,
         snprintf(comp->no_builtin_names[nb], sizeof(comp->no_builtin_names[nb]),
                  "%s", opts->no_builtin[nb]);
     }
+    comp->sanitize_overflow = opts->sanitize_overflow != 0;
 
     /* Preprocess (with -I include dirs, -D defines, and -MMD/-MF/-MT) */
     char *prep = preprocess_with_options(source, opts, input, dep_target);

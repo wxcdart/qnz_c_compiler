@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 165-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-11-05T19:19:02Z
+timestamp: 2026-11-06T19:51:15Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -79,6 +79,21 @@ python3 tools/opt_sweep.py --timeout 20 --json > /tmp/sweep.json
 
 Any change to an optimization pass, LICM, mem2reg, DCE, CSE/GVN, copy propagation, or register allocation **must** pass `make test-opt`. A `-O1`-only pass is not sufficient: later passes at `-O2`/`-O3` transform `-O1` output into code none of the earlier passes saw. Tests that are timing- or nondeterminism-sensitive are flagged `NONDET`/`skipped` rather than hard-failed.
 
+### zero_san regression sweep (`make test-san`)
+
+`make test` builds test binaries with the host `gcc` and `make test-opt` runs without the sanitizer flag, so neither exercises `-fsanitize=undefined` at all. `make test-san` (`tools/san_sweep.py`, `test/san/`) is the flag-ON soundness gate for the zero_san v1 signed-overflow check (see [zero_san roadmap](./sanitizer-roadmap.md) and [Two-Pass IR & Register Allocation](./ir-and-regalloc.md), `OP_OVF_TRAP`):
+
+- `san_ok_*.c` — valid C that must **never** false-trap: run with `-fsanitize=undefined` at `-O0..-O3` in both JIT (`--run`) and AOT (`-o`), expecting exit 0 — and also run **without** the flag to prove the instrumentation is behavior-preserving on defined code. Covers mixed-width usual arithmetic conversions (`int + long` must not check at 32-bit), unsigned wrap, 64-bit values beyond the 16-bit range, register-pressure/spill cases, loops, and CSE-shaped duplicate adds.
+- `san_trap_*.c` — a real signed overflow that must **SIGILL (rc 132)** at every `-O` level in both modes — guards the pass interaction (a hoisted/dropped/orphaned check would let the program exit 0 instead).
+- Cross-ISA smoke: `san_ok_cross_smoke.c` compiled with the flag for aarch64/riscv64/riscv32 (raw-AOT default object path) and run under `qemu-*-static` (skipped, not failed, when qemu is missing) — guards the invariant that x86 check bytes never leak into other ISAs' binaries.
+
+```bash
+make test-san
+python3 tools/san_sweep.py --no-cross --json > /tmp/san.json
+```
+
+Any change to `OP_OVF_TRAP` lowering/emission, the width-extension post-passes, or the extend emitters **must** pass `make test-san` in addition to the usual gates (the c-torture gate and `make test-opt` run without the flag, so a flag-only miscompile is invisible to them).
+
 ## 3. Verifying Individual C Files with ZeroCC Directly
 
 Note that `build/test/abi/*` binaries built by `make all` are compiled by the host `$(CC)` (`gcc`), whereas `test/jit/*` and `tools/sret_verifier.py` invoke `./build/bin/zerocc`. **Always test new ABI features directly with `./build/bin/zerocc` in both AOT and JIT modes**:
@@ -101,6 +116,10 @@ Active verification suites live at the top level of `tools/` (historical one-off
 ```bash
 # Optimizer regression sweep: -O0..-O3 x {JIT, AOT} via zerocc itself (126 tests)
 make test-opt
+
+# zero_san (-fsanitize=undefined) flag-ON soundness sweep: test/san san_ok_*/san_trap_*
+# at -O0..-O3 x {JIT, AOT} + cross-ISA qemu smoke (see the test-san section above)
+make test-san
 
 # Verify the CFG layer (-dump-cfg) against an independent Python recomputation
 # of blocks/loops from -dump-ir: tiling, jump targets, pred/succ consistency,
