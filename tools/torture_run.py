@@ -135,6 +135,7 @@ SKIP_OPTION_SUBSTR = ("-mfpmath=", "-ffast-math", "-finstrument-functions", "-fs
 TRAMPOLINES_BLOCKED = set()
 
 RE_DG_DO = re.compile(r"\{\s*dg-do\s+([a-z-]+)")
+RE_DG_DO_TARGET = re.compile(r"\{\s*dg-do\s+[a-z-]+\s+\{\s*target\s+([^}]*?)\s*\}")
 RE_DG_REQ = re.compile(r"\{\s*dg-require-effective-target\s+([^}]*?)\s*\}")
 RE_DG_OPTS = re.compile(r'\{\s*(?:dg-options|dg-additional-options)\s+"([^"]*)"')
 RE_DG_BOGUS = re.compile(r"\{\s*dg-bogus")
@@ -156,6 +157,7 @@ def parse_directives(path):
     d = {
         "do": None,
         "requires": [],
+        "do_targets": [],
         "options": "",
         "bogus": False,
         "expects_error": False,
@@ -168,6 +170,8 @@ def parse_directives(path):
     for m in RE_DG_REQ.finditer(blob):
         d["requires"].extend(
             t for t in re.split(r"[^A-Za-z0-9_]+", m.group(1)) if t)
+    for m in RE_DG_DO_TARGET.finditer(blob):
+        d["do_targets"].append(m.group(1).strip())
     for m in RE_DG_OPTS.finditer(blob):
         d["options"] = (d["options"] + " " + m.group(1)).strip()
     d["bogus"] = bool(RE_DG_BOGUS.search(blob))
@@ -200,6 +204,14 @@ def skip_reason(path, d):
             continue
         if t in UNSUPPORTED_TARGETS:
             return "SKIP-TARGET:%s" % t
+    # dg-do/dg-require `{ target <arch>... }` for a non-host architecture:
+    # the test's content is arch-specific (ia64/mips asm and calling
+    # conventions) and cannot be validated on x86-64. (pr29201: ia64;
+    # mipscop-{2,3,4}: mips.) powerpc-ibm-aix targets are left alone -
+    # those tests' content is portable and passes on x86.
+    for tgt in d["do_targets"] + d["requires"]:
+        if re.fullmatch(r"(?:ia64|mips)[\w*-]*", tgt):
+            return "SKIP-TARGET:%s" % re.split(r"[*-]", tgt)[0]
     if rel.as_posix() in TRAMPOLINES_BLOCKED:
         return "SKIP-TARGET:trampolines"
     # indirect_jumps is now supported (computed goto + &&label tables),

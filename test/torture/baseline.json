@@ -1,6 +1,6 @@
 {
  "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
- "generated": "2026-11-05T23:59:38Z",
+ "generated": "2026-11-06T00:44:45Z",
  "tests": {
   "compile/103818.c": {
    "class": "PASS",
@@ -6245,12 +6245,12 @@
   "compile/attr-retain-1.c": {
    "class": "NO-REF",
    "configs": {},
-   "note": "gcc: error: unrecognized command-line option \u2018-G0\u2019"
+   "note": "gcc-14: error: unrecognized command-line option \u2018-G0\u2019"
   },
   "compile/attr-retain-2.c": {
    "class": "NO-REF",
    "configs": {},
-   "note": "gcc: error: unrecognized command-line option \u2018-G0\u2019"
+   "note": "gcc-14: error: unrecognized command-line option \u2018-G0\u2019"
   },
   "compile/attr-used-retain-1.c": {
    "class": "PASS",
@@ -7698,24 +7698,24 @@
    "note": ""
   },
   "compile/mipscop-1.c": {
-   "class": "NO-REF",
+   "class": "SKIP-TARGET:mips",
    "configs": {},
-   "note": "      | ^"
+   "note": ""
   },
   "compile/mipscop-2.c": {
-   "class": "NO-REF",
+   "class": "SKIP-TARGET:mips",
    "configs": {},
-   "note": "      | ^"
+   "note": ""
   },
   "compile/mipscop-3.c": {
-   "class": "NO-REF",
+   "class": "SKIP-TARGET:mips",
    "configs": {},
-   "note": "      | ^"
+   "note": ""
   },
   "compile/mipscop-4.c": {
-   "class": "NO-REF",
+   "class": "SKIP-TARGET:mips",
    "configs": {},
-   "note": "      |            %ld"
+   "note": ""
   },
   "compile/miscomp.c": {
    "class": "PASS",
@@ -8246,9 +8246,12 @@
    "note": ""
   },
   "compile/pr106537-2.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "gcc: error: unrecognized command-line option \u2018-Wcompare-distinct-pointer-types\u2019; did you mean \u2018-Wincompatible-pointer-types\u2019?"
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
+   "note": ""
   },
   "compile/pr106537-3.c": {
    "class": "PASS",
@@ -8491,29 +8494,44 @@
    "note": ""
   },
   "compile/pr111059-1.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "See <file:///usr/share/doc/gcc-13/README.Bugs> for instructions."
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
+   "note": ""
   },
   "compile/pr111059-10.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "gcc: error: unrecognized command-line option \u2018-std=gnu23\u2019; did you mean \u2018-std=gnu2x\u2019?"
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
+   "note": ""
   },
   "compile/pr111059-11.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "gcc: error: unrecognized command-line option \u2018-std=gnu23\u2019; did you mean \u2018-std=gnu2x\u2019?"
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
+   "note": ""
   },
   "compile/pr111059-12.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "gcc: error: unrecognized command-line option \u2018-std=gnu23\u2019; did you mean \u2018-std=gnu2x\u2019?"
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
+   "note": ""
   },
   "compile/pr111059-2.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "See <file:///usr/share/doc/gcc-13/README.Bugs> for instructions."
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
+   "note": ""
   },
   "compile/pr111059-3.c": {
    "class": "PASS",
@@ -8548,19 +8566,28 @@
    "note": ""
   },
   "compile/pr111059-7.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "gcc: error: unrecognized command-line option \u2018-std=gnu23\u2019; did you mean \u2018-std=gnu2x\u2019?"
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
+   "note": ""
   },
   "compile/pr111059-8.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "gcc: error: unrecognized command-line option \u2018-std=gnu23\u2019; did you mean \u2018-std=gnu2x\u2019?"
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
+   "note": ""
   },
   "compile/pr111059-9.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "gcc: error: unrecognized command-line option \u2018-std=gnu23\u2019; did you mean \u2018-std=gnu2x\u2019?"
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
+   "note": ""
   },
   "compile/pr111414-1.c": {
    "class": "PASS",
@@ -8595,14 +8622,20 @@
    "note": ""
   },
   "compile/pr111911-1.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "See <file:///usr/share/doc/gcc-13/README.Bugs> for instructions."
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
+   "note": ""
   },
   "compile/pr111911-2.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "gcc: error: unrecognized command-line option \u2018-std=gnu23\u2019; did you mean \u2018-std=gnu2x\u2019?"
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
+   "note": ""
   },
   "compile/pr112303.c": {
    "class": "PASS",
@@ -8775,7 +8808,7 @@
   "compile/pr117449.c": {
    "class": "NO-REF",
    "configs": {},
-   "note": "cc1: note: valid arguments to \u2018-march=\u2019 switch are: nocona core2 nehalem corei7 westmere sandybridge corei7-avx ivybridge core-avx-i haswell core-avx2 broadwell skylake skylake-avx512 cannonlake icelake-client rocketlake icelake-server cascadelake tigerlake cooperlake sapphirerapids emeraldrapids alderlake raptorlake meteorlake graniterapids graniterapids-d bonnell atom silvermont slm goldmont goldmont-plus tremont gracemont sierraforest grandridge knl knm x86-64 x86-64-v2 x86-64-v3 x86-64-v4 eden-x2 nano nano-1000 nano-2000 nano-3000 nano-x2 eden-x4 nano-x4 lujiazui k8 k8-sse3 opteron opteron-sse3 athlon64 athlon64-sse3 athlon-fx amdfam10 barcelona bdver1 bdver2 bdver3 bdver4 znver1 znver2 znver3 znver4 btver1 btver2 native"
+   "note": "cc1: note: valid arguments to \u2018-march=\u2019 switch are: nocona core2 nehalem corei7 westmere sandybridge corei7-avx ivybridge core-avx-i haswell core-avx2 broadwell skylake skylake-avx512 cannonlake icelake-client rocketlake icelake-server cascadelake tigerlake cooperlake sapphirerapids emeraldrapids alderlake raptorlake meteorlake graniterapids graniterapids-d arrowlake arrowlake-s lunarlake pantherlake bonnell atom silvermont slm goldmont goldmont-plus tremont gracemont sierraforest grandridge clearwaterforest knl knm x86-64 x86-64-v2 x86-64-v3 x86-64-v4 eden-x2 nano nano-1000 nano-2000 nano-3000 nano-x2 eden-x4 nano-x4 lujiazui yongfeng k8 k8-sse3 opteron opteron-sse3 athlon64 athlon64-sse3 athlon-fx amdfam10 barcelona bdver1 bdver2 bdver3 bdver4 znver1 znver2 znver3 znver4 znver5 btver1 btver2 native"
   },
   "compile/pr118362.c": {
    "class": "PASS",
@@ -8852,7 +8885,7 @@
   "compile/pr123365.c": {
    "class": "NO-REF",
    "configs": {},
-   "note": "See <file:///usr/share/doc/gcc-13/README.Bugs> for instructions."
+   "note": "See <file:///usr/share/doc/gcc-14/README.Bugs> for instructions."
   },
   "compile/pr123386.c": {
    "class": "PASS",
@@ -8865,7 +8898,7 @@
   "compile/pr123703.c": {
    "class": "NO-REF",
    "configs": {},
-   "note": "See <file:///usr/share/doc/gcc-13/README.Bugs> for instructions."
+   "note": "See <file:///usr/share/doc/gcc-14/README.Bugs> for instructions."
   },
   "compile/pr124250.c": {
    "class": "PASS",
@@ -8878,7 +8911,7 @@
   "compile/pr124280.c": {
    "class": "NO-REF",
    "configs": {},
-   "note": "cc1: note: valid arguments to \u2018-mtune=\u2019 switch are: nocona core2 nehalem corei7 westmere sandybridge corei7-avx ivybridge core-avx-i haswell core-avx2 broadwell skylake skylake-avx512 cannonlake icelake-client rocketlake icelake-server cascadelake tigerlake cooperlake sapphirerapids emeraldrapids alderlake raptorlake meteorlake graniterapids graniterapids-d bonnell atom silvermont slm goldmont goldmont-plus tremont gracemont sierraforest grandridge knl knm intel x86-64 eden-x2 nano nano-1000 nano-2000 nano-3000 nano-x2 eden-x4 nano-x4 lujiazui k8 k8-sse3 opteron opteron-sse3 athlon64 athlon64-sse3 athlon-fx amdfam10 barcelona bdver1 bdver2 bdver3 bdver4 znver1 znver2 znver3 znver4 btver1 btver2 generic native"
+   "note": "cc1: note: valid arguments to \u2018-mtune=\u2019 switch are: nocona core2 nehalem corei7 westmere sandybridge corei7-avx ivybridge core-avx-i haswell core-avx2 broadwell skylake skylake-avx512 cannonlake icelake-client rocketlake icelake-server cascadelake tigerlake cooperlake sapphirerapids emeraldrapids alderlake raptorlake meteorlake graniterapids graniterapids-d arrowlake arrowlake-s lunarlake pantherlake bonnell atom silvermont slm goldmont goldmont-plus tremont gracemont sierraforest grandridge clearwaterforest knl knm intel x86-64 eden-x2 nano nano-1000 nano-2000 nano-3000 nano-x2 eden-x4 nano-x4 lujiazui yongfeng k8 k8-sse3 opteron opteron-sse3 athlon64 athlon64-sse3 athlon-fx amdfam10 barcelona bdver1 bdver2 bdver3 bdver4 znver1 znver2 znver3 znver4 znver5 btver1 btver2 generic native"
   },
   "compile/pr124643.c": {
    "class": "PASS",
@@ -9726,11 +9759,8 @@
    "note": ""
   },
   "compile/pr29201.c": {
-   "class": "PASS",
-   "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
-   },
+   "class": "SKIP-TARGET:ia64",
+   "configs": {},
    "note": ""
   },
   "compile/pr29241.c": {
@@ -13783,7 +13813,7 @@
   "compile/pr78748.c": {
    "class": "NO-REF",
    "configs": {},
-   "note": "cc1: note: valid arguments to \u2018-march=\u2019 switch are: nocona core2 nehalem corei7 westmere sandybridge corei7-avx ivybridge core-avx-i haswell core-avx2 broadwell skylake skylake-avx512 cannonlake icelake-client rocketlake icelake-server cascadelake tigerlake cooperlake sapphirerapids emeraldrapids alderlake raptorlake meteorlake graniterapids graniterapids-d bonnell atom silvermont slm goldmont goldmont-plus tremont gracemont sierraforest grandridge knl knm x86-64 x86-64-v2 x86-64-v3 x86-64-v4 eden-x2 nano nano-1000 nano-2000 nano-3000 nano-x2 eden-x4 nano-x4 lujiazui k8 k8-sse3 opteron opteron-sse3 athlon64 athlon64-sse3 athlon-fx amdfam10 barcelona bdver1 bdver2 bdver3 bdver4 znver1 znver2 znver3 znver4 btver1 btver2 native"
+   "note": "cc1: note: valid arguments to \u2018-march=\u2019 switch are: nocona core2 nehalem corei7 westmere sandybridge corei7-avx ivybridge core-avx-i haswell core-avx2 broadwell skylake skylake-avx512 cannonlake icelake-client rocketlake icelake-server cascadelake tigerlake cooperlake sapphirerapids emeraldrapids alderlake raptorlake meteorlake graniterapids graniterapids-d arrowlake arrowlake-s lunarlake pantherlake bonnell atom silvermont slm goldmont goldmont-plus tremont gracemont sierraforest grandridge clearwaterforest knl knm x86-64 x86-64-v2 x86-64-v3 x86-64-v4 eden-x2 nano nano-1000 nano-2000 nano-3000 nano-x2 eden-x4 nano-x4 lujiazui yongfeng k8 k8-sse3 opteron opteron-sse3 athlon64 athlon64-sse3 athlon-fx amdfam10 barcelona bdver1 bdver2 bdver3 bdver4 znver1 znver2 znver3 znver4 znver5 btver1 btver2 native"
   },
   "compile/pr78883.c": {
    "class": "PASS",
@@ -14326,7 +14356,7 @@
   "compile/pr88347.c": {
    "class": "NO-REF",
    "configs": {},
-   "note": "cc1: note: valid arguments to \u2018-mtune=\u2019 switch are: nocona core2 nehalem corei7 westmere sandybridge corei7-avx ivybridge core-avx-i haswell core-avx2 broadwell skylake skylake-avx512 cannonlake icelake-client rocketlake icelake-server cascadelake tigerlake cooperlake sapphirerapids emeraldrapids alderlake raptorlake meteorlake graniterapids graniterapids-d bonnell atom silvermont slm goldmont goldmont-plus tremont gracemont sierraforest grandridge knl knm intel x86-64 eden-x2 nano nano-1000 nano-2000 nano-3000 nano-x2 eden-x4 nano-x4 lujiazui k8 k8-sse3 opteron opteron-sse3 athlon64 athlon64-sse3 athlon-fx amdfam10 barcelona bdver1 bdver2 bdver3 bdver4 znver1 znver2 znver3 znver4 btver1 btver2 generic native"
+   "note": "cc1: note: valid arguments to \u2018-mtune=\u2019 switch are: nocona core2 nehalem corei7 westmere sandybridge corei7-avx ivybridge core-avx-i haswell core-avx2 broadwell skylake skylake-avx512 cannonlake icelake-client rocketlake icelake-server cascadelake tigerlake cooperlake sapphirerapids emeraldrapids alderlake raptorlake meteorlake graniterapids graniterapids-d arrowlake arrowlake-s lunarlake pantherlake bonnell atom silvermont slm goldmont goldmont-plus tremont gracemont sierraforest grandridge clearwaterforest knl knm intel x86-64 eden-x2 nano nano-1000 nano-2000 nano-3000 nano-x2 eden-x4 nano-x4 lujiazui yongfeng k8 k8-sse3 opteron opteron-sse3 athlon64 athlon64-sse3 athlon-fx amdfam10 barcelona bdver1 bdver2 bdver3 bdver4 znver1 znver2 znver3 znver4 znver5 btver1 btver2 generic native"
   },
   "compile/pr88423.c": {
    "class": "NO-REF",
@@ -21926,7 +21956,7 @@
   "execute/20101011-1.c": {
    "class": "NO-REF",
    "configs": {},
-   "note": "gcc: error: unrecognized command-line option \u2018-mcheck-zero-division\u2019"
+   "note": "gcc-14: error: unrecognized command-line option \u2018-mcheck-zero-division\u2019"
   },
   "execute/20101013-1.c": {
    "class": "PASS",
@@ -27387,12 +27417,12 @@
   "execute/builtins/lib/bfill.c": {
    "class": "NO-REF",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": "/home/ubuntu/dev/qnz_c_compiler/third_party/vendor/c-torture/execute/builtins/lib/bfill.c:14:5: note: include \u2018<stdlib.h>\u2019 or provide a declaration of \u2018abort\u2019"
   },
   "execute/builtins/lib/bzero.c": {
    "class": "NO-REF",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": "/home/ubuntu/dev/qnz_c_compiler/third_party/vendor/c-torture/execute/builtins/lib/bzero.c:14:5: note: include \u2018<stdlib.h>\u2019 or provide a declaration of \u2018abort\u2019"
   },
   "execute/builtins/lib/chk.c": {
    "class": "NO-REF",
@@ -28017,7 +28047,7 @@
   "execute/builtins/uabs-3.c": {
    "class": "NO-REF",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": "      |       __builtin_imaxabs"
   },
   "execute/builtins/vsnprintf-chk-lib.c": {
    "class": "NO-REF",
@@ -30589,7 +30619,7 @@
   "execute/nest-align-1.c": {
    "class": "NO-REF",
    "configs": {},
-   "note": "gcc: error: unrecognized command-line option \u2018-mno-eabi\u2019; did you mean \u2018-Wno-abi\u2019?"
+   "note": "gcc-14: error: unrecognized command-line option \u2018-mno-eabi\u2019; did you mean \u2018-Wno-abi\u2019?"
   },
   "execute/nest-stdar-1.c": {
    "class": "PASS",
@@ -31657,18 +31687,18 @@
    "note": ""
   },
   "execute/pr115033.c": {
-   "class": "REF-BUG",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REFBUG",
-    "O0-jit": "REFBUG",
-    "O1-aot": "REFBUG",
-    "O1-jit": "REFBUG",
-    "O2-aot": "REFBUG",
-    "O2-jit": "REFBUG",
-    "O3-aot": "REFBUG",
-    "O3-jit": "REFBUG"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": " [reference gcc -O1 binary crashes rc=-4; test encodes behavior fixed after the reference GCC version]"
+   "note": ""
   },
   "execute/pr115277.c": {
    "class": "PASS",
@@ -41428,14 +41458,16 @@
  },
  "totals": {
   "EXPECTED-REJECT": 4,
-  "NO-REF": 184,
-  "PASS": 3684,
-  "REF-BUG": 3,
+  "NO-REF": 169,
+  "PASS": 3695,
+  "REF-BUG": 2,
   "SKIP-BOGUS": 1,
   "SKIP-C89": 45,
   "SKIP-PTR": 1,
   "SKIP-REFSEM": 16,
   "SKIP-TARGET:arm": 1,
+  "SKIP-TARGET:ia64": 1,
+  "SKIP-TARGET:mips": 4,
   "SKIP-UB": 1
  }
 }

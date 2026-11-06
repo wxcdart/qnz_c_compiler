@@ -24,6 +24,16 @@ Continues the Sprint 114 refactor into the header monoliths that were being comp
   - `main.c` used `zero_cc_parse_struct_body` transitively via the old chain; it now includes `parser/decl_struct.h` directly.
 - **Verification**: `make test` (176/176), `make test-opt` (138 ok), `make test-isa128` (144/144), `make test-isa-qemu` (59/59, all 4 ISAs), c-torture gate (PASS 3,679, 0 bad), `diag_battery` (baseline OK), `style_check` (0 errors), `okf lint`; K&R / nested-function / local-static / aggregate-init probes match GCC in JIT + AOT.
 
+## [Sprint 115b] - 2026-11-05 - c-torture gate moves to gcc-14 references (+11 PASS → 3,695)
+
+The gate's reference compiler is now **gcc-14** (`TORTURE_GCC=gcc-14`, the refcache key includes the compiler name so gcc-13 caches never mix). Audit of the full per-test diff (gcc-13 → gcc-14 baseline) showed a clean upgrade:
+
+- **NO-REF → PASS: 11** — the 9 C23 `dg-options "-std=gnu23"` tests (`pr111059-{1,2,7,8,9,10,11,12}.c`, `pr111911-{1,2}.c`; fixed-enum underlying types, now implemented in ZeroCC) plus `compile/pr106537-2.c` (gcc-14 reference fix) and `execute/pr115033.c` (gcc-13 REF-BUG reference crash fixed → now differential-PASS).
+- **NO-REF → SKIP-TARGET:mips: 4** (`mipscop-{1..4}.c`) and **PASS → SKIP-TARGET:ia64: 1** (`pr29201.c`): the gate now parses `dg-do ... { target <arch> }` and skips ia64/mips-arch tests whose content cannot be validated on x86. (powerpc-ibm-aix targets are deliberately left alone - those tests are portable and pass.)
+- **PASS → REJECT/MISCOMPILE: 0** — zero regressions from the reference switch.
+
+New baseline: **PASS 3,695**, NO-REF 169, REF-BUG 2, no REJECT/MISCOMPILE/TIMEOUT.
+
 ## [Sprint 115] - 2026-11-05 - C23 fixed enum underlying types + c-torture heavy-test sub-sweep
 
 **C23 6.2.5/6.7.2.2: `enum e : <fixed-type> { ... }`** (the feature behind the 7 `dg-options "-std=gnu23"` c-torture tests, e.g. `compile/pr111059-*.c`):

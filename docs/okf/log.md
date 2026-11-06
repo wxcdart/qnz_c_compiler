@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-06T00:31:03Z
+timestamp: 2026-11-06T00:45:07Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -987,3 +987,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-06 — Updated `c-torture-gate.md`
 - Sprint 115: C23 fixed enum underlying types; heavy-test sub-sweep (run_expensive_tests) + TORTURE_GCC reference override
+
+## 2026-11-06 — Updated `c-torture-gate.md`
+- Sprint 115b: gate reference compiler moved to gcc-14 (TORTURE_GCC); +11 PASS (3,695); SKIP-TARGET:mips/ia64 classifications
