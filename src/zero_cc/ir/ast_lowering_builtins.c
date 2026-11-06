@@ -350,6 +350,67 @@ static int64_t zc_objsize_value(const ZcObjInfo *o) {
     return (o->cont_start + o->cont_size) - o->off;
 }
 
+/* Sprint 115l: classify C99 complex builtins. Returns 1 for conj*,
+ * 2 for creal*, 3 for cimag*, 0 otherwise. Matches both the
+ * __builtin_-prefixed and the bare C99/GNU names - GCC attaches matching
+ * user declarations to these builtins, so `conj`/`creal`/`cimag` (without
+ * the prefix) are the same builtins. */
+static int zc_cx_builtin_kind(const char *name) {
+    if (!name) return 0;
+    const char *b = (strncmp(name, "__builtin_", 10) == 0) ? name + 10 : name;
+    if (strcmp(b, "conj") == 0 || strcmp(b, "conjf") == 0 || strcmp(b, "conjl") == 0) return 1;
+    if (strcmp(b, "creal") == 0 || strcmp(b, "crealf") == 0 || strcmp(b, "creall") == 0) return 2;
+    if (strcmp(b, "cimag") == 0 || strcmp(b, "cimagf") == 0 || strcmp(b, "cimagl") == 0) return 3;
+    return 0;
+}
+
+/* Sprint 115l: resolve the element (half) type of a complex argument for
+ * the C99 conj/creal/cimag builtins. Prefers the semantic TypeInfo, then
+ * the local/global symbol table; without type information the name suffix
+ * decides (`f` -> 4 bytes, else 8). *out_known reports whether the element
+ * came from a real complex type (gates the bare-name forms: a user-defined
+ * `int conj(int)` must stay an ordinary call). */
+static void zc_cx_elem_info(ZeroCCCompiler *c, const ZeroCCASTNode *cx_node,
+                            const char *name, size_t *out_esz,
+                            bool *out_fp, bool *out_u, bool *out_known) {
+    *out_known = false;
+    TypeInfo *cx_ti = cx_node ? ast_node_get_typeinfo(c, cx_node) : NULL;
+    const TypeInfo *el_ti = (cx_ti && cx_ti->kind == TYPE_KIND_COMPLEX) ? cx_ti->details.array.base : NULL;
+    const ZeroCCType *el_zt = NULL;
+    if (!el_ti && cx_node && cx_node->tag == NODE_IDENT) {
+        ZeroCCSym *sym = zero_cc_find_local(c, cx_node->s.str);
+        if (sym && zero_cc_type_is_complex(&sym->type)) el_zt = sym->type.base;
+        else {
+            ZeroCCGlobalVar *gv = find_global_var(c, cx_node->s.str);
+            if (gv && zero_cc_type_is_complex(&gv->type)) el_zt = gv->type.base;
+        }
+    }
+    size_t esz;
+    bool is_fp, is_u;
+    if (el_ti) {
+        esz = type_size(el_ti);
+        is_fp = type_is_floating(el_ti);
+        is_u = type_is_unsigned(el_ti);
+        *out_known = true;
+    } else if (el_zt) {
+        esz = el_zt->size;
+        is_fp = (el_zt->tag == TYPE_FLOAT || el_zt->tag == TYPE_DOUBLE);
+        is_u = zero_cc_type_is_unsigned(el_zt);
+        *out_known = true;
+    } else {
+        size_t n = strlen(name);
+        esz = (n > 0 && name[n - 1] == 'f') ? 4 : 8;
+        is_fp = true;
+        is_u = false;
+    }
+    if (esz == 0) esz = 8;
+    if (is_fp && esz != 4 && esz != 8) esz = 8; /* long double: double model */
+    if (!is_fp && esz != 1 && esz != 2 && esz != 4 && esz != 8) esz = 4;
+    *out_esz = esz;
+    *out_fp = is_fp;
+    *out_u = is_u;
+}
+
 bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
                         ZeroCCASTNode *node, const char *name,
                         int *out_temp) {
@@ -835,58 +896,85 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
             return true;
         }
 
-        if (callee_is_ident && callee->s.str &&
-            (strcmp(callee->s.str, "__builtin_conj") == 0 ||
-             strcmp(callee->s.str, "__builtin_conjf") == 0 ||
-             strcmp(callee->s.str, "__builtin_conjl") == 0)) {
-            ZeroCCASTNode *cx_node = zero_cc_ast_get(arena, node->right);
-            TypeInfo *cx_ti = cx_node ? ast_node_get_typeinfo(c, cx_node) : NULL;
-            const TypeInfo *el_ti = (cx_ti && cx_ti->kind == TYPE_KIND_COMPLEX) ? cx_ti->details.array.base : NULL;
-            const ZeroCCType *el_zt = NULL;
-            if (!el_ti && cx_node && cx_node->tag == NODE_IDENT) {
-                ZeroCCSym *sym = zero_cc_find_local(c, cx_node->s.str);
-                if (sym && zero_cc_type_is_complex(&sym->type)) el_zt = sym->type.base;
-                else {
-                    ZeroCCGlobalVar *gv = find_global_var(c, cx_node->s.str);
-                    if (gv && zero_cc_type_is_complex(&gv->type)) el_zt = gv->type.base;
+        /* C99 complex builtins (Sprint 115l): conj/conjf/conjl,
+         * creal/crealf/creall, cimag/cimagf/cimagl - with or without the
+         * __builtin_ prefix. GCC attaches matching user declarations to
+         * these builtins and expands them inline (even at -O0): conj
+         * negates the imaginary half, creal/cimag extract a half - no libm
+         * call is emitted, so user-defined trap functions (and any host
+         * math library) are never referenced. The bare names require a
+         * known-complex argument, so a user-defined `int conj(int)` still
+         * lowers as an ordinary call. */
+        {
+            int cx_kind = zc_cx_builtin_kind(name);
+            if (cx_kind) {
+                bool has_prefix = strncmp(name, "__builtin_", 10) == 0;
+                ZeroCCASTNode *cx_node = zero_cc_ast_get(arena, node->right);
+                size_t esz = 8;
+                bool is_elem_fp = true, is_elem_u = false, cx_known = false;
+                zc_cx_elem_info(c, cx_node, name, &esz, &is_elem_fp, &is_elem_u, &cx_known);
+                if (!has_prefix && !cx_known) return false; /* not complex: ordinary call */
+                int addr = lower_expr(c, arena, node->right);
+                if (cx_kind != 1) {
+                    /* creal/cimag: the requested half is a scalar result.
+                     * Load only that half (the object may be volatile). */
+                    int res = c->next_temp_id++;
+                    int base = addr;
+                    if (cx_kind == 3) {
+                        int off = c->next_temp_id++;
+                        ir_emit_mov_imm(c, off, (int)esz);
+                        base = c->next_temp_id++;
+                        ir_emit_add(c, base, addr, off);
+                    }
+                    if (is_elem_fp) {
+                        if (esz == 4) ir_emit_vloadss(c, (uint16_t)res, (uint16_t)base);
+                        else ir_emit_vloadsd(c, (uint16_t)res, (uint16_t)base);
+                        c->last_expr_is_float = 1;
+                    } else {
+                        if (esz == 1) ir_emit_load_byte(c, res, base);
+                        else if (esz == 2) ir_emit_load_16(c, res, base);
+                        else if (esz == 4) ir_emit_load_32(c, res, base);
+                        else ir_emit_deref(c, res, base);
+                        if (!is_elem_u) {
+                            if (esz == 1) ir_emit_sext(c, res, 8);
+                            else if (esz == 2) ir_emit_sext(c, res, 16);
+                            else if (esz == 4) ir_emit_sext(c, res, 32);
+                        }
+                        c->last_expr_is_float = 0;
+                    }
+                    *out_temp = res;
+                    return true;
                 }
-            }
-            size_t esz = el_ti ? type_size(el_ti) : (el_zt ? el_zt->size :
-                         (strcmp(callee->s.str, "__builtin_conjf") == 0 ? 4 : 8));
-            if (esz == 0) esz = 8;
-            bool is_elem_fp = el_ti ? type_is_floating(el_ti) :
-                              (el_zt ? (el_zt->tag == TYPE_FLOAT || el_zt->tag == TYPE_DOUBLE) : true);
-            if (is_elem_fp && esz != 4 && esz != 8) esz = 8;
-            int addr = lower_expr(c, arena, node->right);
-            int rh = c->next_temp_id++, li = c->next_temp_id++;
-            int off = c->next_temp_id++;
-            ir_emit_mov_imm(c, off, (int)esz);
-            int la = c->next_temp_id++;
-            ir_emit_add(c, la, addr, off);
-            if (is_elem_fp) {
-                if (esz == 4) {
-                    ir_emit_vloadss(c, (uint16_t)rh, (uint16_t)addr);
-                    ir_emit_vloadss(c, (uint16_t)li, (uint16_t)la);
+                /* conj: load both halves, negate the imaginary, store pair. */
+                int rh = c->next_temp_id++, li = c->next_temp_id++;
+                int off = c->next_temp_id++;
+                ir_emit_mov_imm(c, off, (int)esz);
+                int la = c->next_temp_id++;
+                ir_emit_add(c, la, addr, off);
+                if (is_elem_fp) {
+                    if (esz == 4) {
+                        ir_emit_vloadss(c, (uint16_t)rh, (uint16_t)addr);
+                        ir_emit_vloadss(c, (uint16_t)li, (uint16_t)la);
+                    } else {
+                        ir_emit_vloadsd(c, (uint16_t)rh, (uint16_t)addr);
+                        ir_emit_vloadsd(c, (uint16_t)li, (uint16_t)la);
+                    }
                 } else {
-                    ir_emit_vloadsd(c, (uint16_t)rh, (uint16_t)addr);
-                    ir_emit_vloadsd(c, (uint16_t)li, (uint16_t)la);
+                    if (esz == 1) {
+                        ir_emit_load_byte(c, rh, addr);
+                        ir_emit_load_byte(c, li, la);
+                    } else if (esz == 2) {
+                        ir_emit_load_16(c, rh, addr);
+                        ir_emit_load_16(c, li, la);
+                    } else if (esz == 4) {
+                        ir_emit_load_32(c, rh, addr);
+                        ir_emit_load_32(c, li, la);
+                    } else {
+                        ir_emit_deref(c, rh, addr);
+                        ir_emit_deref(c, li, la);
+                    }
                 }
-            } else {
-                if (esz == 1) {
-                    ir_emit_load_byte(c, rh, addr);
-                    ir_emit_load_byte(c, li, la);
-                } else if (esz == 2) {
-                    ir_emit_load_16(c, rh, addr);
-                    ir_emit_load_16(c, li, la);
-                } else if (esz == 4) {
-                    ir_emit_load_32(c, rh, addr);
-                    ir_emit_load_32(c, li, la);
-                } else {
-                    ir_emit_deref(c, rh, addr);
-                    ir_emit_deref(c, li, la);
-                }
-            }
-            int neg_li = c->next_temp_id++;
+                int neg_li = c->next_temp_id++;
             if (is_elem_fp) {
                 int zero_i = c->next_temp_id++;
                 ir_emit_mov_imm(c, zero_i, 0);
@@ -933,6 +1021,7 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
             c->last_expr_is_float = 0;
             *out_temp = res_addr;
             return true;
+            }
         }
 
         /* __builtin_expect(cond, val) is a branch-hint builtin: it

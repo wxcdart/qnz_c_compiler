@@ -699,21 +699,43 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                         if (g && zero_cc_type_is_complex(&g->type)) { r_zt = g->type.base; right_cx = true; }
                     }
                 }
-                bool l_is_fp = left_cx ? (l_el ? type_is_floating(l_el) : (l_zt ? (l_zt->tag == TYPE_FLOAT || l_zt->tag == TYPE_DOUBLE) : true)) : left_is_float;
-                size_t l_esz = left_cx ? (l_el ? type_size(l_el) : (l_zt ? l_zt->size : 8)) : (left_is_float ? 8 : 4);
+                bool l_is_fp = left_cx ? (l_el ? type_is_floating(l_el) : (l_zt ? (l_zt->tag == TYPE_FLOAT || l_zt->tag == TYPE_DOUBLE) : true)) :
+                               (cl_ti ? type_is_floating(cl_ti) : left_is_float);
+                size_t l_esz = left_cx ? (l_el ? type_size(l_el) : (l_zt ? l_zt->size : 8)) :
+                               (cl_ti ? type_size(cl_ti) :
+                                (cl_node && cl_node->tag == NODE_FLOAT ? ((cl_node->flags & 1) ? 4 : 8) :
+                                 (left_is_float ? 8 : 4)));
                 if (l_esz == 0) l_esz = 8;
                 if (l_is_fp && l_esz != 4 && l_esz != 8) l_esz = 8;
 
-                bool r_is_fp = right_cx ? (r_el ? type_is_floating(r_el) : (r_zt ? (r_zt->tag == TYPE_FLOAT || r_zt->tag == TYPE_DOUBLE) : true)) : right_is_float;
-                size_t r_esz = right_cx ? (r_el ? type_size(r_el) : (r_zt ? r_zt->size : 8)) : (right_is_float ? 8 : 4);
+                bool r_is_fp = right_cx ? (r_el ? type_is_floating(r_el) : (r_zt ? (r_zt->tag == TYPE_FLOAT || r_zt->tag == TYPE_DOUBLE) : true)) :
+                               (cr_ti ? type_is_floating(cr_ti) : right_is_float);
+                size_t r_esz = right_cx ? (r_el ? type_size(r_el) : (r_zt ? r_zt->size : 8)) :
+                               (cr_ti ? type_size(cr_ti) :
+                                (cr_node && cr_node->tag == NODE_FLOAT ? ((cr_node->flags & 1) ? 4 : 8) :
+                                 (right_is_float ? 8 : 4)));
                 if (r_esz == 0) r_esz = 8;
                 if (r_is_fp && r_esz != 4 && r_esz != 8) r_esz = 8;
 
-                bool cflt = l_is_fp || r_is_fp;
-                size_t cesz = (cflt) ? ((l_is_fp && l_esz == 8) || (r_is_fp && r_esz == 8) ? 8 : 4) :
-                                       ((l_esz > r_esz) ? l_esz : r_esz);
-                if (cflt && cesz != 4 && cesz != 8) cesz = 8;
-                if (!cflt && cesz != 1 && cesz != 2 && cesz != 4 && cesz != 8) cesz = 4;
+                bool cflt;
+                size_t cesz;
+                if (cel) {
+                    cflt = type_is_floating(cel);
+                    cesz = type_size(cel);
+                    if (cflt && cesz != 4 && cesz != 8) cesz = 8;
+                    if (!cflt && cesz != 1 && cesz != 2 && cesz != 4 && cesz != 8) cesz = 4;
+                } else if (czt) {
+                    cflt = (czt->tag == TYPE_FLOAT || czt->tag == TYPE_DOUBLE);
+                    cesz = czt->size;
+                    if (cflt && cesz != 4 && cesz != 8) cesz = 8;
+                    if (!cflt && cesz != 1 && cesz != 2 && cesz != 4 && cesz != 8) cesz = 4;
+                } else {
+                    cflt = l_is_fp || r_is_fp;
+                    cesz = (cflt) ? ((l_is_fp && l_esz == 8) || (r_is_fp && r_esz == 8) ? 8 : 4) :
+                                    ((l_esz > r_esz) ? l_esz : r_esz);
+                    if (cflt && cesz != 4 && cesz != 8) cesz = 8;
+                    if (!cflt && cesz != 1 && cesz != 2 && cesz != 4 && cesz != 8) cesz = 4;
+                }
 
                 int zero_f_off = zc_rodata_double_offset(c, 0.0);
                 int ar = c->next_temp_id++, ai = c->next_temp_id++;

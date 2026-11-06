@@ -463,12 +463,24 @@ TypeInfo *promote_binary(uint32_t op, const TypeInfo *l, const TypeInfo *r, Aren
                 return type_int(perm);
             }
             if (is_plus || is_minus || is_mult_div) {
-                const TypeInfo *cx = lp_cx ? lp : rp;
+                const TypeInfo *l_base = (lp->kind == TYPE_KIND_COMPLEX) ? lp->details.array.base : lp;
+                const TypeInfo *r_base = (rp->kind == TYPE_KIND_COMPLEX) ? rp->details.array.base : rp;
+                TypeInfo *base = NULL;
+                if ((l_base && type_is_floating(l_base) && type_size(l_base) == 8) ||
+                    (r_base && type_is_floating(r_base) && type_size(r_base) == 8)) {
+                    base = type_double(perm);
+                } else if ((l_base && type_is_floating(l_base) && type_size(l_base) == 4) ||
+                           (r_base && type_is_floating(r_base) && type_size(r_base) == 4)) {
+                    base = type_float(perm);
+                } else {
+                    const TypeInfo *cx = lp_cx ? lp : rp;
+                    base = (TypeInfo *)cx->details.array.base;
+                }
                 TypeInfo *r = type_new(perm);
                 if (r) {
                     r->kind = TYPE_KIND_COMPLEX;
                     r->modifiers = TYPE_MOD_NONE;
-                    r->details.array.base = cx->details.array.base;
+                    r->details.array.base = base;
                     r->details.array.count = 2;
                 }
                 return r;

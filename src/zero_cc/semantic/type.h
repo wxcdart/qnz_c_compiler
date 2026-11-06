@@ -202,6 +202,11 @@ static inline TypeInfo *type_builtin_libc_return(Arena *perm, const char *name) 
     if (strcmp(base, "sqrt") == 0) return type_double(perm);
     if (strcmp(base, "conjf") == 0) return type_complex(perm, type_float(perm));
     if (strcmp(base, "conj") == 0 || strcmp(base, "conjl") == 0) return type_complex(perm, type_double(perm));
+    /* C99 complex part extractors: expanded inline (real/imag half load),
+     * return the element type. `l` variants use the double model. */
+    if (strcmp(base, "crealf") == 0 || strcmp(base, "cimagf") == 0) return type_float(perm);
+    if (strcmp(base, "creal") == 0 || strcmp(base, "creall") == 0 ||
+        strcmp(base, "cimag") == 0 || strcmp(base, "cimagl") == 0) return type_double(perm);
     /* libm math builtins: double family returns double, `f` variants float.
      * The lowering maps __builtin_<m> -> <m> (see the NODE_CALL builtin
      * table), so the call result must be read from XMM0, not RAX. */

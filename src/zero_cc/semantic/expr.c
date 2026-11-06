@@ -103,6 +103,8 @@ TypeInfo *expr_handle_literal(SemContext *ctx, ZeroCCASTNode *node) {
                     res->details.array.base = el;
                     res->details.array.count = 2;
                 }
+            } else if (fsuf & 1) {
+                res = type_float(ctx->perm_arena);
             } else {
                 res = type_double(ctx->perm_arena);
             }

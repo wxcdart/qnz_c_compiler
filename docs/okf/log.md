@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-06T05:00:37Z
+timestamp: 2026-11-06T13:44:33Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1023,3 +1023,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-06 — Updated `frontend-and-types.md`
 - Sprint 115k: documented the __asm function symbol rename (ZeroCCFunction.asm_name, zero_cc_fn_emit_symbol) and the preprocessor empty-arg stringification rules
+
+## 2026-11-06 — Updated `c-torture-gate.md`
+- Sprint 115l: m5 eliminated - execute/builtins/complex-1.c fixed (C99 conj*/creal*/cimag* builtins expanded inline, both spellings; float _Complex element sizes). MISCOMPILE 1 -> 0, PASS 3,740 (all-time high).
+
+## 2026-11-06 — Updated `frontend-and-types.md`
+- Sprint 115l: C99 conj/creal/cimag builtins (both spellings) expanded inline; esz must be the element size (float _Complex = 4); known residual: float _Complex external call ABI.
