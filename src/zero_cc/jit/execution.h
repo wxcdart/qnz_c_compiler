@@ -59,12 +59,21 @@ static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
             /* Absolute call (JIT external call to a far target, e.g. a function
              * in the main executable or a shared library >2GB from the mmap'd
              * image): patch the 8-byte imm64 with the resolved target address. */
-            ZeroCCFunction *target_fn = zero_cc_find_function_by_symbol(c, c->relocs[i].target_symbol);
+            const char *sym = c->relocs[i].target_symbol;
+            /* GCC __builtin_X -> X alias: the lowering only rewrites the
+             * alias when X is visible in the same TU; a cross-TU target
+             * (another input file, or a libc symbol such as the FORTIFY
+             * __X_chk family) is only visible here, after the TU merge. */
+            const char *alias = (strncmp(sym, "__builtin_", 10) == 0) ? sym + 10 : NULL;
+            ZeroCCFunction *target_fn = zero_cc_find_function_by_symbol(c, sym);
+            if ((!target_fn || target_fn->is_prototype) && alias)
+                target_fn = zero_cc_find_function_by_symbol(c, alias);
             if (target_fn && !target_fn->is_prototype) {
                 void *addr = (void *)((uintptr_t)mem + target_fn->text_offset);
                 memcpy(c->text_section.data + c->relocs[i].text_patch_offset, &addr, 8);
             } else {
-                void *host_fn = zero_cc_resolve_symbol(c->relocs[i].target_symbol);
+                void *host_fn = zero_cc_resolve_symbol(sym);
+                if (!host_fn && alias) host_fn = zero_cc_resolve_symbol(alias);
                 if (host_fn) {
                     memcpy(c->text_section.data + c->relocs[i].text_patch_offset, &host_fn, 8);
                 } else {
@@ -79,12 +88,17 @@ static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
                 }
             }
         } else if (c->relocs[i].is_call) {
-            ZeroCCFunction *target_fn = zero_cc_find_function_by_symbol(c, c->relocs[i].target_symbol);
+            const char *sym = c->relocs[i].target_symbol;
+            const char *alias = (strncmp(sym, "__builtin_", 10) == 0) ? sym + 10 : NULL;
+            ZeroCCFunction *target_fn = zero_cc_find_function_by_symbol(c, sym);
+            if ((!target_fn || target_fn->is_prototype) && alias)
+                target_fn = zero_cc_find_function_by_symbol(c, alias);
             if (target_fn && !target_fn->is_prototype) {
                 int32_t rel = (int32_t)(target_fn->text_offset - (c->relocs[i].text_patch_offset + 4));
                 memcpy(c->text_section.data + c->relocs[i].text_patch_offset, &rel, 4);
             } else {
-                void *host_fn = zero_cc_resolve_symbol(c->relocs[i].target_symbol);
+                void *host_fn = zero_cc_resolve_symbol(sym);
+                if (!host_fn && alias) host_fn = zero_cc_resolve_symbol(alias);
                 if (host_fn) {
                     uintptr_t call_site = (uintptr_t)mem + c->relocs[i].text_patch_offset + 4;
                     intptr_t delta = (intptr_t)host_fn - (intptr_t)call_site;

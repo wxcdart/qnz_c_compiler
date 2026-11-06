@@ -149,20 +149,23 @@ Known genuine hard-limit `REJECT`s (do not chase): `compile/20001226-1.c`
 
 ## Burn-down chunks (`--chunk <name>`)
 
-Baseline-derived chunks for the known bad families (Sprint 115f state):
+Baseline-derived chunks for the known bad families (Sprint 115g state):
 
 - **m2** (16): the partial MISCOMPILE tests (wrong `(rc, out)` on a subset
   of configs).
 - **m3** (12): the `printf`/`scanf` runtime-IO family.
 - **m4** — **burned down in Sprint 115f (REJECT 4 → 0)**: `execute/builtins/{fputs,memmove-2,sprintf,strpbrk}.c` — fixed by parenthesized function declarators (`int (sprintf)(...)`), file-scope pointer-init arithmetic (`char *q = p + 4`), per-level pointer qualifiers in the parameter star-loop, the general `__builtin_X`→`X` alias fallback, and `vsprintf`/`vsnprintf` prototypes in the stdio virtual header (the prototype is what engages the glibc-layout va_list shadow when a wrapper forwards its va_list to glibc's `vsprintf`).
-- **m5** (23 MISCOMPILE, was 34): the remaining `execute/builtins`
-  string/printf/`_Complex` builtin-lowering bugs (11 cleared by the m4
-  work) + `execute/20021127-1.c`. The `_Complex` cluster's root cause: float-precision complex arithmetic is computed in a
-  **double**-precision temporary (scalar-float operands of a complex op are
-  treated as doubles in `lower_expr_binop`'s complex path), and complex
-  stores to a narrower complex type lack the component-wise `double→float`
-  conversion (unhandled `rhs_is_fp && lhs_is_fp && rhs_esz != lhs_esz` case
-  in `ast_lowering_assign.c`; no `cvtss2sd`/`cvtsd2ss` IR op exists yet).
+- **m5** (7 MISCOMPILE, was 23; the 16 `*-chk.c` tests burned down in
+  **Sprint 115g**): the `*-chk.c` family's root cause was the missing
+  `__builtin_object_size` lowering (JIT undefined-symbol failure; AOT dead
+  `call 0` stubs) — fixed by a gcc-14-calibrated compile-time object-size
+  walker, the `__builtin___X_chk(..., -1)`→plain-`X` rewrite, and the
+  `__builtin_X`→`X` alias at symbol-resolution time (cross-TU). Remaining:
+  `complex-1.c` (`_Complex` float-precision cluster: double-precision
+  temporaries, no `cvtss2sd`/`cvtsd2ss` IR op yet), `20021127-1.c` (llabs
+  builtin-substitution rule: GCC inlines the builtin `llabs` even with a
+  user definition present), `mempcpy-2.c` (SIGSEGV), `strncmp.c`/`strncmp-2.c`,
+  `strstr-asm.c`, `memops-asm.c` (GNU `__asm` function tests).
 
 ## Unskip Protocol (removing a `SKIP-TARGET:<feature>`)
 

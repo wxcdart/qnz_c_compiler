@@ -214,6 +214,65 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                     n3 = zero_cc_ast_get(arena, a3);
                     if (n1 && n3) n1->next = n3->next;
                 }
+            } else if (base_fn[0] == '_' && base_fn[1] == '_') {
+                /* FORTIFY-family __builtin___X_chk(args..., bos): when bos
+                 * (the LAST argument of this fixed-arity family) folds to
+                 * the constant -1, GCC rewrites the call to the plain
+                 * X(args...) - no object-size checking is possible. The bos
+                 * argument is the __builtin_object_size placeholder and is
+                 * dropped unevaluated (GCC computes bos from the dst
+                 * argument itself, so the placeholder's side effects do
+                 * not run twice - c-torture execute/builtins *chk.c). When
+                 * bos is a known size the chk call is kept. The printf
+                 * family keeps its existing handling (the __snprintf_chk
+                 * branch above; the rest via the general alias below). */
+                static const char *const chk_names[] = {
+                    "__memcpy_chk", "__mempcpy_chk", "__memmove_chk",
+                    "__memset_chk", "__strcpy_chk", "__stpcpy_chk",
+                    "__strcat_chk", "__strncpy_chk", "__stpncpy_chk",
+                    "__strncat_chk",
+                };
+                bool is_chk = false;
+                for (size_t ci = 0; ci < sizeof(chk_names) / sizeof(chk_names[0]); ci++) {
+                    if (strcmp(base_fn, chk_names[ci]) == 0) { is_chk = true; break; }
+                }
+                if (is_chk) {
+                    char plain_name[128];
+                    snprintf(plain_name, sizeof(plain_name), "%s", base_fn + 2);
+                    plain_name[strlen(plain_name) - 4] = '\0'; /* strip _chk */
+                    /* The plain name must be a known function (declared or
+                     * defined); its function-table entry provides STABLE
+                     * name storage - the call IR records the name pointer
+                     * during lowering and only copies it into the reloc at
+                     * codegen time, so a stack-local would dangle. */
+                    ZeroCCFunction *plain_fn = zero_cc_find_function(c, plain_name);
+                    ZeroCCASTNode *prev_n = NULL;
+                    ASTRef last_ref = AST_NULL;
+                    ASTRef a0 = node->right;
+                    ZeroCCASTNode *n0 = (a0 != AST_NULL) ? zero_cc_ast_get(arena, a0) : NULL;
+                    prev_n = n0;
+                    ASTRef cur_ref = n0 ? n0->next : AST_NULL;
+                    while (cur_ref != AST_NULL) {
+                        ZeroCCASTNode *cur = zero_cc_ast_get(arena, cur_ref);
+                        if (!cur) break;
+                        if (cur->next == AST_NULL) { last_ref = cur_ref; break; }
+                        prev_n = cur;
+                        cur_ref = cur->next;
+                    }
+                    int64_t bos = -2;
+                    if (last_ref != AST_NULL && prev_n &&
+                        zc_ast_const_eval(c, arena, last_ref, &bos) &&
+                        bos == -1 && plain_fn) {
+                        prev_n->next = AST_NULL; /* drop the bos placeholder */
+                        name = plain_fn->name;
+                    } else if (zero_cc_find_function(c, base_fn)) {
+                        name = base_fn;
+                    }
+                } else {
+                    if (zero_cc_find_function(c, base_fn)) {
+                        name = base_fn;
+                    }
+                }
             } else {
                 /* General __builtin_X alias: when the base name X is a
                  * known function (declared or defined), the builtin alias

@@ -42,6 +42,13 @@ int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
 void zc_emit_128_shift(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi,
                        int64_t N, uint32_t op, bool signed_);
 
+/* Evaluate an AST node as a compile-time integer constant (NODE_INT/BOOL,
+ * casts, constant unops/binops/ternaries, __builtin_choose_expr,
+ * __builtin_object_size, bitop builtins). Returns false when the node is
+ * not a compile-time constant. Defined in ast_lowering_builtins.c. */
+bool zc_ast_const_eval(ZeroCCCompiler *c, ZeroCCASTArena *arena,
+                       ASTRef ref, int64_t *out);
+
 void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset);
 
 /* C99 6.3.1.5: integer -> floating conversion. cvtsi2sd reads 64-bit

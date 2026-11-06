@@ -10,6 +10,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <limits.h>
+#include <dlfcn.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
@@ -1025,6 +1026,30 @@ static int compile_object_single(CompileOptions *opts, const char *input,
             if (strcmp(elf_ctx.strtab + elf_ctx.symbols[j].name_offset, r->target_symbol) == 0) {
                 symbol_idx = j + 1;
                 break;
+            }
+        }
+        /* GCC __builtin_X -> X call alias: at lowering time the alias target
+         * may not have been visible yet (cross-TU: X is defined in another
+         * input file, or is a libc symbol - the FORTIFY __X_chk family).
+         * Without this the call keeps the __builtin_X name, matches no
+         * object symbol, and the binary carries a `call +0` stub that
+         * segfaults if executed (c-torture execute/builtins *chk.c). The
+         * dlsym probe keeps unknown __builtin_X names on the legacy stub
+         * path rather than inventing phantom undefined symbols that could
+         * break static cross links. */
+        if (symbol_idx == 0 && r->is_call &&
+            strncmp(r->target_symbol, "__builtin_", 10) == 0) {
+            const char *alias = r->target_symbol + 10;
+            for (int j = 0; j < elf_ctx.symbol_count; j++) {
+                if (strcmp(elf_ctx.strtab + elf_ctx.symbols[j].name_offset, alias) == 0) {
+                    symbol_idx = j + 1;
+                    break;
+                }
+            }
+            if (symbol_idx == 0 && dlsym(RTLD_DEFAULT, alias)) {
+                elf_writer_add_symbol(&elf_ctx, alias, ELF_STB_GLOBAL,
+                                      ELF_STT_FUNC, SHN_UNDEF, 0, 0);
+                symbol_idx = (int)elf_ctx.symbol_count;
             }
         }
         if (r->is_call) {

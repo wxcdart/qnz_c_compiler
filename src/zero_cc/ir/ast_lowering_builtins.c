@@ -61,13 +61,62 @@ static bool zc_node_is_const_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTR
     }
 }
 
+/* --- __builtin_object_size compile-time object-size walker --------------
+ *
+ * GCC never emits a call to __builtin_object_size: it folds the builtin to
+ * a compile-time constant. Calibrated against gcc-14 (-O1, the level the
+ * c-torture reference binaries are built at):
+ *   - a pointer into a known local/global array/scalar/struct reports the
+ *     distance from the pointer to the END OF THE ENCLOSING OBJECT: the
+ *     whole array, the whole struct (member sub-objects do NOT create
+ *     nearer boundaries - &a.member[i] measures to the struct end), or a
+ *     single struct/union element of an array-of-structs;
+ *   - &arr[i] / &a.b / &a.b[i] / ptr+N / ptr-N combine constant offsets
+ *     exactly (pointer step = pointed-to element size);
+ *   - a pointer variable (no statically known origin) yields -1
+ *     (SIZE_MAX, the "unknown size" sentinel FORTIFY callers check);
+ *   - an out-of-range pointer (before the start or at/past the end)
+ *     yields 0.
+ * Modes 0/1/2 all reduce to the enclosing-object distance in the shapes
+ * the walker supports. Unknown shapes (runtime offsets, calls, unknown
+ * pointer bases, flexible members) fall back to -1.
+ */
+typedef struct {
+    int64_t cont_start;    /* enclosing-object start (outer-object frame)  */
+    int64_t cont_size;     /* enclosing-object size                        */
+    int64_t off;           /* pointer offset in the same frame             */
+    int64_t ptr_esz;       /* pointee size for further ptr-arith/index     */
+    const ZeroCCType *elem;      /* current array element type (NULL)      */
+    const ZeroCCType *cont_struct; /* enclosing struct/union type for a
+                                    * further member lookup (NULL)         */
+} ZcObjInfo;
+
+static bool zc_objsize_walk(ZeroCCCompiler *c, ZeroCCASTArena *arena,
+                            ZeroCCASTNode *n, ZcObjInfo *o);
+static int64_t zc_objsize_value(const ZcObjInfo *o);
+
+/* Evaluate a `__builtin_object_size(ptr, mode)` call node as a constant:
+ * the folded size, or -1 when the object is unknown. Always succeeds
+ * (the builtin is a compile-time constant by definition). */
+static bool zc_objsize_fold(ZeroCCCompiler *c, ZeroCCASTArena *arena,
+                            ZeroCCASTNode *call, int64_t *out) {
+    ZeroCCASTNode *p_node = (call->right != AST_NULL)
+        ? zero_cc_ast_get(arena, call->right) : NULL;
+    ZcObjInfo o;
+    if (p_node && zc_objsize_walk(c, arena, p_node, &o))
+        *out = zc_objsize_value(&o);
+    else
+        *out = -1;
+    return true;
+}
+
 /* Evaluate an AST node as a compile-time integer constant, recognizing
  * the __builtin_constant_p / __builtin_choose_expr builtins (which are
  * themselves constant expressions).  Returns 1 (with *out set) when the
  * node is a constant, 0 otherwise.  Used by __builtin_choose_expr's
  * runtime lowering to decide which operand to evaluate. */
-static bool zc_ast_const_eval(ZeroCCCompiler *c, ZeroCCASTArena *arena,
-                              ASTRef ref, int64_t *out) {
+bool zc_ast_const_eval(ZeroCCCompiler *c, ZeroCCASTArena *arena,
+                       ASTRef ref, int64_t *out) {
     (void)c;
     if (ref == AST_NULL) return false;
     ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
@@ -144,6 +193,9 @@ static bool zc_ast_const_eval(ZeroCCCompiler *c, ZeroCCASTArena *arena,
                 if (!zc_ast_const_eval(c, arena, r1, &cond)) return false;
                 return zc_ast_const_eval(c, arena, cond ? r2 : r3, out);
             }
+            if (strcmp(cal->s.str, "__builtin_object_size") == 0) {
+                return zc_objsize_fold(c, arena, n, out);
+            }
             if (zc_is_bitop_builtin_name(cal->s.str)) {
                 int64_t arg_v = 0;
                 if (!zc_ast_const_eval(c, arena, n->right, &arg_v)) return false;
@@ -158,6 +210,146 @@ static bool zc_ast_const_eval(ZeroCCCompiler *c, ZeroCCASTArena *arena,
     }
 }
 
+static bool zc_objsize_walk(ZeroCCCompiler *c, ZeroCCASTArena *arena,
+                            ZeroCCASTNode *n, ZcObjInfo *o) {
+    if (!n) return false;
+    switch (n->tag) {
+        case NODE_IDENT: {
+            const ZeroCCType *t = NULL;
+            ZeroCCSym *sym = lowering_local_sym(c, n, n->s.str);
+            if (sym && !sym->is_extern && !sym->is_vla && !sym->is_vla_struct &&
+                !sym->is_label_value && !sym->is_capture_mirror) {
+                t = &sym->type;
+            } else {
+                ZeroCCGlobalVar *gv = find_global_var(c, n->s.str);
+                if (gv && !gv->is_tls) t = &gv->type;
+            }
+            if (!t) return false;
+            o->off = 0;
+            o->cont_start = 0;
+            o->elem = NULL;
+            o->cont_struct = NULL;
+            switch (t->tag) {
+                case TYPE_ARRAY: {
+                    if (!t->base || t->array_len == 0 || t->base->size == 0)
+                        return false;
+                    int64_t esz = (int64_t)t->base->size;
+                    bool elem_agg = (t->base->tag == TYPE_STRUCT ||
+                                     t->base->tag == TYPE_UNION);
+                    o->cont_size = elem_agg ? esz : esz * (int64_t)t->array_len;
+                    o->ptr_esz = esz;
+                    o->elem = t->base;
+                    return true;
+                }
+                case TYPE_STRUCT:
+                case TYPE_UNION:
+                    if (t->size == 0) return false;
+                    o->cont_size = (int64_t)t->size;
+                    o->ptr_esz = (int64_t)t->size;
+                    o->cont_struct = t;
+                    return true;
+                default:
+                    if (t->size == 0) return false;
+                    o->cont_size = (int64_t)t->size;
+                    o->ptr_esz = (int64_t)t->size;
+                    return true;
+            }
+        }
+        case NODE_UNOP:
+            if (n->aux.op != TK_AMP) return false;
+            return zc_objsize_walk(c, arena, zero_cc_ast_get(arena, n->left), o);
+        case NODE_CAST:
+            return zc_objsize_walk(c, arena, zero_cc_ast_get(arena, n->left), o);
+        case NODE_INDEX: {
+            ZcObjInfo b;
+            if (!zc_objsize_walk(c, arena, zero_cc_ast_get(arena, n->left), &b))
+                return false;
+            if (!b.elem || b.ptr_esz <= 0) return false;
+            int64_t i;
+            if (!zc_ast_const_eval(c, arena, n->right, &i)) return false;
+            o->cont_start = b.cont_start;
+            o->cont_size = b.cont_size;
+            o->cont_struct = b.cont_struct;
+            o->off = b.off + i * b.ptr_esz;
+            const ZeroCCType *e = b.elem;
+            if (e->tag == TYPE_STRUCT || e->tag == TYPE_UNION) {
+                /* a struct/union element IS the enclosing object */
+                o->cont_start = o->off;
+                o->cont_size = b.ptr_esz;
+                o->ptr_esz = b.ptr_esz;
+                o->elem = NULL;
+                o->cont_struct = e;
+            } else if (e->tag == TYPE_ARRAY) {
+                if (!e->base || e->base->size == 0) return false;
+                o->ptr_esz = (int64_t)e->base->size;
+                o->elem = e->base;
+            } else {
+                o->ptr_esz = (int64_t)e->size;
+                o->elem = NULL;
+            }
+            return true;
+        }
+        case NODE_MEMBER: {
+            ZcObjInfo b;
+            if (!zc_objsize_walk(c, arena, zero_cc_ast_get(arena, n->left), &b))
+                return false;
+            if (!b.cont_struct || !b.cont_struct->members) return false;
+            int64_t m_off = (int32_t)n->aux.alt;
+            const ZeroCCStructMember *m = NULL;
+            for (size_t i = 0; i < b.cont_struct->member_count; i++) {
+                if ((int64_t)b.cont_struct->members[i].offset == m_off) {
+                    m = &b.cont_struct->members[i];
+                    break;
+                }
+            }
+            if (!m || m->is_flexible || m->size == 0) return false;
+            o->cont_start = b.cont_start;
+            o->cont_size = b.cont_size;
+            o->cont_struct = NULL; /* a member's own table is unreachable */
+            o->off = b.off + m_off;
+            if (m->tag == TYPE_ARRAY && m->base && m->base->size) {
+                o->ptr_esz = (int64_t)m->base->size;
+                o->elem = m->base;
+            } else {
+                o->ptr_esz = (int64_t)m->size;
+                o->elem = NULL;
+            }
+            return true;
+        }
+        case NODE_BINOP: {
+            if (n->aux.op != TK_PLUS && n->aux.op != TK_MINUS) return false;
+            ZcObjInfo b;
+            int64_t k;
+            bool base_left;
+            if (zc_objsize_walk(c, arena, zero_cc_ast_get(arena, n->left), &b) &&
+                zc_ast_const_eval(c, arena, n->right, &k)) {
+                base_left = true;
+            } else if (zc_objsize_walk(c, arena, zero_cc_ast_get(arena, n->right), &b) &&
+                       zc_ast_const_eval(c, arena, n->left, &k)) {
+                base_left = false;
+            } else {
+                return false;
+            }
+            if (b.ptr_esz <= 0) return false;
+            *o = b;
+            int64_t step = b.ptr_esz * k;
+            if (n->aux.op == TK_PLUS) o->off += base_left ? step : -step;
+            else o->off += base_left ? -step : step;
+            return true;
+        }
+        default:
+            return false;
+    }
+}
+
+/* Final size from a successful walk: 0 for out-of-range pointers (gcc
+ * behavior), the distance to the enclosing-object end otherwise. */
+static int64_t zc_objsize_value(const ZcObjInfo *o) {
+    if (o->off < o->cont_start || o->off >= o->cont_start + o->cont_size)
+        return 0;
+    return (o->cont_start + o->cont_size) - o->off;
+}
+
 bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
                         ZeroCCASTNode *node, const char *name,
                         int *out_temp) {
@@ -165,6 +357,42 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
     ZeroCCASTNode *callee = zero_cc_ast_get(arena, node->left);
     bool callee_is_ident = (callee && callee->tag == NODE_IDENT);
     (void)callee_is_ident;
+
+        /* __builtin_object_size(ptr, mode) - folded to a compile-time
+         * constant (see the walker above). Without this the builtin stayed
+         * an external call: the JIT failed symbol resolution ("undefined
+         * reference to __builtin_object_size") and the AOT link left dead
+         * `call 0 <link_error>` stubs (c-torture execute/builtins *chk.c).
+         * Non-constant arguments are still lowered for side effects. */
+        if (callee_is_ident && callee->s.str &&
+            strcmp(callee->s.str, "__builtin_object_size") == 0) {
+            int64_t sz = -1;
+            ASTRef ptr_ref = node->right;
+            ZeroCCASTNode *p0 = (ptr_ref != AST_NULL) ? zero_cc_ast_get(arena, ptr_ref) : NULL;
+            bool folded = false;
+            if (p0) {
+                ZcObjInfo o;
+                if (zc_objsize_walk(c, arena, p0, &o)) {
+                    sz = zc_objsize_value(&o);
+                    folded = true;
+                }
+            }
+            if (!folded) {
+                /* side effects in an unknown-shape pointer argument */
+                if (ptr_ref != AST_NULL) (void)lower_expr(c, arena, ptr_ref);
+            }
+            ASTRef mode_ref = p0 ? p0->next : AST_NULL;
+            int64_t mode_dummy;
+            if (mode_ref != AST_NULL &&
+                !zc_ast_const_eval(c, arena, mode_ref, &mode_dummy)) {
+                (void)lower_expr(c, arena, mode_ref); /* side effects */
+            }
+            int res = c->next_temp_id++;
+            ir_emit_mov_imm(c, res, (uint64_t)sz);
+            c->last_expr_is_float = 0;
+            *out_temp = res;
+            return true;
+        }
 
         /* __builtin_return_address(level) / __builtin_frame_address(level) */
         if (callee_is_ident && callee->s.str &&

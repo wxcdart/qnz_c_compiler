@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-06T02:36:24Z
+timestamp: 2026-11-06T03:19:11Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -996,3 +996,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-06 — Updated `c-torture-gate.md`
 - Sprint 115f: m4 burn-down complete - REJECT 4 -> 0, +16 PASS (3,723); parenthesized declarators, ptr-init arithmetic, per-level quals, __builtin_X alias, vsprintf prototype
+
+## 2026-11-06 — Updated `c-torture-gate.md`
+- Sprint 115g: m5 *-chk.c family burned down - __builtin_object_size compile-time walker (gcc-14-calibrated), __builtin___X_chk(-1)->plain-X rewrite, __builtin_X alias at symbol-resolution time (JIT+AOT cross-TU); MISCOMPILE 23->7, PASS 3733
+
+## 2026-11-06 — Updated `frontend-and-types.md`
+- Sprint 115g: __builtin_object_size typed unsigned long in type_builtin_libc_return (folded 64-bit size end-to-end)

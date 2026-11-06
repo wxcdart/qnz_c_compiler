@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-11-05T19:19:02Z
+timestamp: 2026-11-06T03:19:11Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -52,7 +52,7 @@ All C int types carry an explicit signedness tag end-to-end, and every narrow-in
 Any unrecognized `__builtin_*` / `__sync_*` / `__atomic_*` / `__zerocc_*` identifier is treated as an implicit function declaration (K&R), but its **return type** is resolved by `type_builtin_libc_return()` (`src/zero_cc/semantic/type.h`, called from both identifier-typing sites: `semantic/expr.c` `expr_handle_identifier` and `semantic/visitor.c` `NODE_IDENT`):
 
 - `void *`: `malloc`, `calloc`, `realloc`, `memcpy`, `memmove`, `memchr`, `memset`, `return_address`, `frame_address`
-- `unsigned long` (size_t on LP64): `strlen`
+- `unsigned long` (size_t on LP64): `strlen`, `object_size` (Sprint 115g: `__builtin_object_size` is folded to a compile-time constant by `zc_objsize_walk` in `ir/ast_lowering_builtins.c`; the `unsigned long` typing keeps the folded value 64-bit end-to-end)
 - `char *`: `strcpy`, `strncpy`, `strcat`, `strchr`, `strrchr`, `strstr`
 - `void`: `abort`, `exit`, `free`
 - `float` / `double`: `sqrtf` / `sqrt`

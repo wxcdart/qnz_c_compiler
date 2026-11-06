@@ -185,7 +185,7 @@ static inline TypeInfo *type_builtin_libc_return(Arena *perm, const char *name) 
         strcmp(base, "return_address") == 0 || strcmp(base, "frame_address") == 0) {
         return type_pointer_to(perm, type_void(perm));
     }
-    if (strcmp(base, "strlen") == 0) {
+    if (strcmp(base, "strlen") == 0 || strcmp(base, "object_size") == 0) {
         return type_ulong(perm); /* size_t on LP64 */
     }
     if (strcmp(base, "strcpy") == 0 || strcmp(base, "strncpy") == 0 ||
