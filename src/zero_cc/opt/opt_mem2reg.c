@@ -381,6 +381,40 @@ static void opt_promote_loop_carried(ZeroCCCompiler *c) {
             }
             if (head_temp_conflict) continue;
 
+            /* Snapshot-use check: pre-promotion, head_temp is the immutable
+             * value loaded from the slot at load_idx (V_{k-1} in iteration
+             * k) - every use reads that snapshot, even uses textually after
+             * the in-loop store (the store writes the slot, not the temp).
+             * The promotion turns head_temp into the LIVE variable register
+             * (the store becomes `MOV_REG head_temp, update_temp`), so a use
+             * after store_idx in the same iteration would read V_k instead
+             * of V_{k-1}, and a post-loop use would read V_n instead of the
+             * final snapshot V_{n-1}.  C `*u1++` lowers exactly this way:
+             * the dereference's ADDRESS operand is the snapshot temp, used
+             * after the `u1 = u1+1` store (c-torture execute/builtins/
+             * strncmp.c: `c1 = *u1++, c2 = *u2++` read the second character
+             * at -O1).  Uses between load_idx and store_idx (and the store's
+             * own update_temp src) still see V_{k-1}: safe. */
+            bool head_temp_use_conflict = false;
+            for (size_t k = (size_t)hdr_idx;
+                 k <= (size_t)back_idx && !head_temp_use_conflict; k++) {
+                if (k == (size_t)load_idx || k == (size_t)store_idx) continue;
+                Instr *chk = ir_get(c, k);
+                if (!chk) continue;
+                if (chk->temp_src1 != head_temp && chk->temp_src2 != head_temp)
+                    continue;
+                if (k < (size_t)load_idx || k > (size_t)store_idx)
+                    head_temp_use_conflict = true;
+            }
+            for (size_t k = (size_t)back_idx + 1;
+                 k < count && !head_temp_use_conflict; k++) {
+                Instr *chk = ir_get(c, k);
+                if (!chk) continue;
+                if (chk->temp_src1 == head_temp || chk->temp_src2 == head_temp)
+                    head_temp_use_conflict = true;
+            }
+            if (head_temp_use_conflict) continue;
+
             /* Transformation:
              * 1. Change preheader store: init_temp -> head_temp
              * 2. Remove loop load: load_ins becomes OP_NOP

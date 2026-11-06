@@ -426,9 +426,9 @@ void ir_dump(const ZeroCCCompiler *c, FILE *f) {
                                 break;
             case OP_STORE_16: fprintf(f, "STORE_16 [fp%+d], r%u", (int)instr->imm, instr->temp_src1);
                               break;
-            case OP_LOAD_BYTE: fprintf(f, "LOAD_BYTE r%u, [fp%+d]", instr->temp_dest, (int)instr->imm);
+            case OP_LOAD_BYTE: fprintf(f, "LOAD_BYTE r%u, [r%d+fp%+d]", instr->temp_dest, (int)instr->temp_src1, (int)instr->imm);
                                break;
-            case OP_LOAD_16: fprintf(f, "LOAD_16 r%u, [fp%+d]", instr->temp_dest, (int)instr->imm);
+            case OP_LOAD_16: fprintf(f, "LOAD_16 r%u, [r%d+fp%+d]", instr->temp_dest, (int)instr->temp_src1, (int)instr->imm);
                              break;
             case OP_CMP_ZERO: fprintf(f, "CMP_ZERO r%u", instr->temp_src1);
                               break;

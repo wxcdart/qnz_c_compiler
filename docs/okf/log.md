@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-06T03:45:19Z
+timestamp: 2026-11-06T04:32:23Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1011,3 +1011,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-06 — Updated `global-data-relocs.md`
 - Sprint 115i: constant pointer initializer expressions documented - CPE accepts (arr + N) primaries (no &), integer-scalar branch emits data reloc on pointer CPE result (mempcpy-2 fix)
+
+## 2026-11-06 — Updated `c-torture-gate.md`
+- Sprint 115j: m5 strncmp.c/strncmp-2.c fixed (strncmp n==0 builtin fold + mem2reg loop-promotion snapshot-use guard); MISCOMPILE 5->3, PASS 3,737
+
+## 2026-11-06 — Updated `optimization-passes.md`
+- Sprint 115j: documented the loop-promotion snapshot-use guard invariant (head_temp uses after the in-loop store / before the load / post-loop disqualify promotion)

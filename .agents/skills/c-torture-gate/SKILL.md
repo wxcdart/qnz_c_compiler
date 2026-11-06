@@ -149,15 +149,16 @@ Known genuine hard-limit `REJECT`s (do not chase): `compile/20001226-1.c`
 
 ## Burn-down chunks (`--chunk <name>`)
 
-Baseline-derived chunks for the known bad families (Sprint 115i state):
+Baseline-derived chunks for the known bad families (Sprint 115j state):
 
 - **m2** (16): the partial MISCOMPILE tests (wrong `(rc, out)` on a subset
   of configs).
 - **m3** (12): the `printf`/`scanf` runtime-IO family.
 - **m4** — **burned down in Sprint 115f (REJECT 4 → 0)**: `execute/builtins/{fputs,memmove-2,sprintf,strpbrk}.c` — fixed by parenthesized function declarators (`int (sprintf)(...)`), file-scope pointer-init arithmetic (`char *q = p + 4`), per-level pointer qualifiers in the parameter star-loop, the general `__builtin_X`→`X` alias fallback, and `vsprintf`/`vsnprintf` prototypes in the stdio virtual header (the prototype is what engages the glibc-layout va_list shadow when a wrapper forwards its va_list to glibc's `vsprintf`).
-- **m5** (5 MISCOMPILE, was 23; the 16 `*-chk.c` tests burned down in
+- **m5** (3 MISCOMPILE, was 23; the 16 `*-chk.c` tests burned down in
   **Sprint 115g**, `20021127-1.c` in **Sprint 115h**, `mempcpy-2.c` in
-  **Sprint 115i**): the `*-chk.c` family's root cause was the missing
+  **Sprint 115i**, `strncmp.c`/`strncmp-2.c` in **Sprint 115j**): the
+  `*-chk.c` family's root cause was the missing
   `__builtin_object_size` lowering (JIT undefined-symbol failure; AOT dead
   `call 0` stubs) — fixed by a gcc-14-calibrated compile-time object-size
   walker, the `__builtin___X_chk(..., -1)`→plain-`X` rewrite, and the
@@ -172,10 +173,18 @@ Baseline-derived chunks for the known bad families (Sprint 115i state):
   constant address expressions were not recognized by the constant pointer
   evaluator; the array name const-eval'd to 0) — the CPE now accepts
   `(arr + N)` primaries and the initializer dispatch emits a data reloc on
-  a pointer CPE result. The remaining 5: `complex-1.c` (`_Complex`
-  float-precision cluster: double-precision temporaries, no
-  `cvtss2sd`/`cvtsd2ss` IR op yet), `strncmp.c`/`strncmp-2.c`,
-  `strstr-asm.c`, `memops-asm.c` (GNU `__asm` function tests).
+  a pointer CPE result. `strncmp.c`/`strncmp-2.c` needed (a) the
+  `strncmp(a, b, 0)` → `0` builtin fold (GCC folds constant `n == 0` at
+  every -O level without a call; the c-torture user `strncmp`'s `n == 0`
+  path returns uninitialized `c1 - c2`) and (b) the mem2reg loop-promotion
+  **snapshot-use guard**: `opt_promote_loop_carried` turned the in-loop
+  load's dest temp into the live variable register, but `*u1++`'s
+  dereference uses that snapshot temp as its ADDRESS operand after the
+  `u1 = u1+1` store — the promotion now disqualifies head-temp uses after
+  the in-loop store / before the in-loop load / post-loop. The remaining
+  3: `complex-1.c` (`_Complex` float-precision cluster: double-precision
+  temporaries, no `cvtss2sd`/`cvtsd2ss` IR op yet), `strstr-asm.c`,
+  `memops-asm.c` (GNU `__asm` function tests).
 
 ## Unskip Protocol (removing a `SKIP-TARGET:<feature>`)
 

@@ -394,6 +394,35 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
             return true;
         }
 
+        /* strncmp() / __builtin_strncmp() with n == 0: GCC folds the result
+         * to 0 at every -O level without emitting a call (calibrated against
+         * gcc-14 at -O0: `movl $0,%eax`, no strncmp call). The c-torture
+         * user strncmp (lib/strncmp.c) returns the *uninitialized* c1 - c2
+         * when n == 0, so a real call is UB-dependent - execute/builtins/
+         * strncmp.c aborted on its first `strncmp (++s2, ++s3, 0)`. The
+         * string arguments are still lowered for their side effects
+         * (`++s2`); the result is the int constant 0. -fno-builtin-strncmp
+         * (or -fno-builtin) keeps the real call, like the abs family. */
+        if (callee_is_ident && callee->s.str &&
+            (strcmp(callee->s.str, "strncmp") == 0 ||
+             strcmp(callee->s.str, "__builtin_strncmp") == 0) &&
+            !zero_cc_no_builtin(c, "strncmp")) {
+            ZeroCCASTNode *sa0 = (node->right != AST_NULL) ? zero_cc_ast_get(arena, node->right) : NULL;
+            ZeroCCASTNode *sa1 = (sa0 && sa0->next != AST_NULL) ? zero_cc_ast_get(arena, sa0->next) : NULL;
+            if (sa0 && sa1 && sa1->next != AST_NULL) {
+                int64_t snval = 0;
+                if (zc_ast_const_eval(c, arena, sa1->next, &snval) && snval == 0) {
+                    (void)lower_expr(c, arena, node->right); /* side effects */
+                    (void)lower_expr(c, arena, sa0->next);
+                    int res = c->next_temp_id++;
+                    ir_emit_mov_imm(c, res, 0);
+                    c->last_expr_is_float = 0;
+                    *out_temp = res;
+                    return true;
+                }
+            }
+        }
+
         /* __builtin_return_address(level) / __builtin_frame_address(level) */
         if (callee_is_ident && callee->s.str &&
             (strcmp(callee->s.str, "__builtin_return_address") == 0 ||
