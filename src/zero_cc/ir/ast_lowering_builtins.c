@@ -1262,7 +1262,15 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
             return true;
         }
 
-        /* llabs() / labs() / imaxabs() / abs() - integer absolute value */
+        /* llabs() / labs() / imaxabs() / abs() - integer absolute value.
+         *
+         * GCC semantics (c-torture execute/builtins/*-lib.c family):
+         * when the program declares/defines the function itself, the call
+         * goes to the user's function - except that GCC folds a constant
+         * argument (which this inline lowering reproduces) - and
+         * -fno-builtin-<name> / -fno-builtin forces the real call in every
+         * case. Without a user declaration the self-contained builtin
+         * lowering below matches GCC's fold/inline behavior. */
         if (callee_is_ident && callee->s.str &&
             (strcmp(callee->s.str, "__builtin_llabs") == 0 ||
              strcmp(callee->s.str, "llabs") == 0 ||
@@ -1272,6 +1280,17 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
              strcmp(callee->s.str, "imaxabs") == 0 ||
              strcmp(callee->s.str, "__builtin_abs") == 0 ||
              strcmp(callee->s.str, "abs") == 0)) {
+            const char *bname = callee->s.str;
+            const char *bplain =
+                (strncmp(bname, "__builtin_", 10) == 0) ? bname + 10 : bname;
+            bool b_builtin_form = (bname != bplain);
+            bool b_user_fn = !b_builtin_form &&
+                             zero_cc_find_function(c, bplain) != NULL;
+            bool b_arg_const =
+                zc_node_is_const_expr(c, arena, node->right); /* GCC folds const args */
+            bool b_builtin = !(b_user_fn &&
+                               (zero_cc_no_builtin(c, bplain) || !b_arg_const));
+            if (b_builtin) {
             bool is_32bit = (strcmp(callee->s.str, "__builtin_abs") == 0 ||
                              strcmp(callee->s.str, "abs") == 0);
             int arg_temp = lower_expr(c, arena, node->right);
@@ -1300,6 +1319,7 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
             c->last_expr_is_float = 0;
             *out_temp = res_temp;
             return true;
+            } /* b_builtin */
         }
 
         /* __builtin_fabs() / __builtin_fabsf() - absolute value.

@@ -21,7 +21,29 @@ previously-rejected file compile silently. `MISCOMPILE`, segfaults, and
 python3 tools/torture_run.py --parallel 4              # gate on baseline
 python3 tools/torture_run.py --parallel 4 --update-baseline   # re-record (only when green)
 python3 tools/torture_run.py --timeout 30 --parallel 4        # override per-test timeout
+make test-torture    # = main sweep + sequential heavy sub-sweep
 ```
+
+Mechanics that are easy to forget:
+- Reference compiler: `TORTURE_GCC` env overrides; otherwise **gcc-14 is
+  auto-detected** when installed (falls back to `gcc`). The refcache key
+  includes the compiler name so gcc-13/14 caches never mix.
+- `dg-timeout N` (absolute) / `dg-timeout-factor N` (× the 5 s base, DejaGnu
+  semantics) are honored; `--parallel` defaults to `cpu_count()+2`.
+- The 6 `dg-require-effective-target run_expensive_tests` tests run in a
+  separate sequential `--chunk heavy` sub-sweep (`make test-torture` runs
+  both; heavy merges into `last_run.json`). Re-record: main
+  `--update-baseline`, then `--chunk heavy --update-baseline`.
+- **`execute/builtins` 2-file family**: `<test>.c` defines `main_test`;
+  `<test>-lib.c` holds the builtin under test; GCC's harness supplies `main`
+  (sets `inside_main=1`, calls `main_test()`). The gate compiles the source
+  set (test + `-lib.c` companion + a synthesized wrapper when no `main`
+  exists) for the reference **and** zerocc (JIT + AOT); `.x` sidecars'
+  `additional_flags` are parsed (e.g. `-fno-builtin-abs`, `-std=c2y`); the
+  85 support files (`-lib.c`, `execute/builtins/lib/*`) are **`SKIP-SUPPORT`**.
+- **`-fno-builtin` / `-fno-builtin-<name>`** are honored by zerocc: builtin
+  substitution of `abs`/`labs`/`llabs`/`imaxabs` happens only when the
+  function is user-undefined or the arg is a compile-time constant.
 
 Baseline: `test/torture/baseline.json` (`tests` map + `totals`). Commit the
 baseline **together with** the source/harness change that caused the movement.
@@ -64,6 +86,7 @@ python3 tools/isa_qemu_diff.py --isa riscv64  # one ISA
 | `SKIP-REFSEM` / `SKIP-UB` / `SKIP-BOGUS` / `SKIP-PTR` / `SKIP-TARGET:arm` | intentional skips | out of scope |
 | `EXPECTED-REJECT` | ZeroCC correctly rejects invalid C that GCC (mis)accepts | not bad |
 | `REF-BUG` | GCC reference binary itself crashes | not a ZeroCC failure |
+| `SKIP-SUPPORT` | c-torture family support files (`-lib.c`, `execute/builtins/lib/*`) - not standalone tests | out of scope |
 
 **Reference rule:** `gcc -std=c99/-c11 -pedantic-errors` is the reference for
 deciding `SKIP-C89`. If GCC rejects the file pedantically, it is out of scope —
@@ -123,6 +146,24 @@ Known genuine hard-limit `REJECT`s (do not chase): `compile/20001226-1.c`
 `compile/pr110386-2.c` (missing `immintrin.h`), `execute/va-arg-pack-1.c` +
 `compile/pr37669.c` (intentional `__builtin_va_arg_pack` rejects),
 `execute/990413-2.c` (intentional non-empty GNU asm reject).
+
+## Burn-down chunks (`--chunk <name>`)
+
+Baseline-derived chunks for the known bad families (Sprint 115e state):
+
+- **m2** (16): the partial MISCOMPILE tests (wrong `(rc, out)` on a subset
+  of configs).
+- **m3** (12): the `printf`/`scanf` runtime-IO family.
+- **m4** (4 REJECT): `execute/builtins/{fputs,memmove-2,sprintf,strpbrk}.c` —
+  parser/semantic gaps surfaced by the 2-file family.
+- **m5** (34 MISCOMPILE): 33 `execute/builtins` string/printf/`_Complex`
+  builtin-lowering bugs + `execute/20021127-1.c`. The `_Complex` cluster's
+  root cause: float-precision complex arithmetic is computed in a
+  **double**-precision temporary (scalar-float operands of a complex op are
+  treated as doubles in `lower_expr_binop`'s complex path), and complex
+  stores to a narrower complex type lack the component-wise `double→float`
+  conversion (unhandled `rhs_is_fp && lhs_is_fp && rhs_esz != lhs_esz` case
+  in `ast_lowering_assign.c`; no `cvtss2sd`/`cvtsd2ss` IR op exists yet).
 
 ## Unskip Protocol (removing a `SKIP-TARGET:<feature>`)
 

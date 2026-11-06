@@ -31,6 +31,9 @@ typedef struct {
     int force_include_count;
     int dump_ir;          /* -dump-ir */
     int dump_cfg;         /* -dump-cfg */
+    char *no_builtin[16]; /* -fno-builtin-<name> function names */
+    int no_builtin_count;
+    int no_builtin_all;   /* -fno-builtin (all) */
     int profile_opts;     /* --profile-opts */
     int link_mode;        /* Link with system linker (default when -o specified) */
     int zerocc_link;      /* --zerocc-link: link with ZeroCC's own linker (T2) */
@@ -164,6 +167,16 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
         }
         else if (strcmp(arg, "-fno-omit-frame-pointer") == 0) {
             opts->omit_frame_pointer = 0;
+        }
+        else if (strcmp(arg, "-fno-builtin") == 0) {
+            /* GCC: disable all builtin function recognition - the
+             * abs/labs lowering (c-torture execute/builtins) consults it. */
+            opts->no_builtin_all = 1;
+        }
+        else if (strncmp(arg, "-fno-builtin-", 13) == 0 && arg[13]) {
+            if (opts->no_builtin_count < 16) {
+                opts->no_builtin[opts->no_builtin_count++] = strdup(arg + 13);
+            }
         }
         else if (strcmp(arg, "--target") == 0 && i + 1 < argc) {
             opts->target_arch = argv[++i];

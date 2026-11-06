@@ -257,6 +257,13 @@ typedef struct ZeroCCCompiler {
      *  1 = always omit when the frame is static. */
     int omit_frame_pointer;
 
+    /* -fno-builtin control (c-torture execute/builtins: the abs/labs
+     * builtin lowering must fall back to a real call when the flag is set
+     * and the user declares the function). */
+    bool no_builtin_all;          /* -fno-builtin */
+    int no_builtin_count;         /* -fno-builtin-<name> entries */
+    char no_builtin_names[16][32];
+
     /* IR arena - dynamic instruction buffer */
     IRArena ir_arena;              /* IR instruction arena */
     IRCallArgsArena ir_call_args;  /* Call argument tracking arena */

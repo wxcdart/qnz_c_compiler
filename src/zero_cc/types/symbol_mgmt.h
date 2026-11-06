@@ -283,6 +283,17 @@ static inline ZeroCCFunction* zero_cc_find_function(ZeroCCCompiler *c, const cha
     return proto;
 }
 
+/* -fno-builtin-<name> lookup (c-torture execute/builtins): true when the
+ * builtin recognition for `name` is disabled. */
+static inline bool zero_cc_no_builtin(const ZeroCCCompiler *c, const char *name) {
+    if (!c || !name) return false;
+    if (c->no_builtin_all) return true;
+    for (int i = 0; i < c->no_builtin_count; i++) {
+        if (strcmp(c->no_builtin_names[i], name) == 0) return true;
+    }
+    return false;
+}
+
 /* Resolve a CALL target name that may be either a source name or a
  * nested function's mangled emission symbol. Nested functions are block-
  * scoped and may share source names in different enclosing functions, so

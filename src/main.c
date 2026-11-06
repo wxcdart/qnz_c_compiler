@@ -246,6 +246,12 @@ static ZeroCCCompiler *jit_compile_tu(CompileOptions *opts, const char *input) {
     zero_cc_init_compiler_with_target(comp, target_isa);
     comp->opt_level = (OptLevel)opts->opt_level;
     comp->omit_frame_pointer = opts->omit_frame_pointer;
+    comp->no_builtin_all = opts->no_builtin_all != 0;
+    comp->no_builtin_count = opts->no_builtin_count;
+    for (int nb = 0; nb < opts->no_builtin_count; nb++) {
+        snprintf(comp->no_builtin_names[nb], sizeof(comp->no_builtin_names[nb]),
+                 "%s", opts->no_builtin[nb]);
+    }
 
     char *prep = preprocess_with_options(source, opts, input, opts->dep_target);
     free(source);
@@ -496,6 +502,12 @@ static int compile_object_single(CompileOptions *opts, const char *input,
     /* Store optimization level in compiler for use by ast_lowering */
     comp->opt_level = (OptLevel)opts->opt_level;
     comp->omit_frame_pointer = opts->omit_frame_pointer;
+    comp->no_builtin_all = opts->no_builtin_all != 0;
+    comp->no_builtin_count = opts->no_builtin_count;
+    for (int nb = 0; nb < opts->no_builtin_count; nb++) {
+        snprintf(comp->no_builtin_names[nb], sizeof(comp->no_builtin_names[nb]),
+                 "%s", opts->no_builtin[nb]);
+    }
 
     /* Preprocess (with -I include dirs, -D defines, and -MMD/-MF/-MT) */
     char *prep = preprocess_with_options(source, opts, input, dep_target);

@@ -1,6 +1,6 @@
 {
  "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
- "generated": "2026-11-06T00:44:45Z",
+ "generated": "2026-11-06T01:34:54Z",
  "tests": {
   "compile/103818.c": {
    "class": "PASS",
@@ -18860,18 +18860,18 @@
    "note": ""
   },
   "execute/20021127-1.c": {
-   "class": "PASS",
+   "class": "MISCOMPILE",
    "configs": {
-    "O0-aot": "OK",
-    "O0-jit": "OK",
-    "O1-aot": "OK",
-    "O1-jit": "OK",
-    "O2-aot": "OK",
-    "O2-jit": "OK",
-    "O3-aot": "OK",
-    "O3-jit": "OK"
+    "O0-aot": "MISCOMPILE",
+    "O0-jit": "MISCOMPILE",
+    "O1-aot": "MISCOMPILE",
+    "O1-jit": "MISCOMPILE",
+    "O2-aot": "MISCOMPILE",
+    "O2-jit": "MISCOMPILE",
+    "O3-aot": "MISCOMPILE",
+    "O3-jit": "MISCOMPILE"
    },
-   "note": ""
+   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20021204-1.c": {
    "class": "PASS",
@@ -27340,734 +27340,1238 @@
    "note": "                                                  ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/builtins/20010124-1-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/20010124-1.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
+   "note": ""
   },
   "execute/builtins/abs-1-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/abs-1.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
+   "note": ""
   },
   "execute/builtins/abs-2-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/abs-2.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
+   "note": ""
   },
   "execute/builtins/abs-3-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/abs-3.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
+   "note": ""
   },
   "execute/builtins/complex-1-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/complex-1.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "MISCOMPILE",
+   "configs": {
+    "O0-aot": "MISCOMPILE",
+    "O0-jit": "MISCOMPILE",
+    "O1-aot": "MISCOMPILE",
+    "O1-jit": "MISCOMPILE",
+    "O2-aot": "MISCOMPILE",
+    "O2-jit": "MISCOMPILE",
+    "O3-aot": "MISCOMPILE",
+    "O3-jit": "MISCOMPILE"
+   },
+   "note": "ref(rc=0 out='') O0 got rc=255 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/builtins/fprintf-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/fprintf.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "MISCOMPILE",
+   "configs": {
+    "O0-aot": "MISCOMPILE",
+    "O0-jit": "MISCOMPILE",
+    "O1-aot": "MISCOMPILE",
+    "O1-jit": "MISCOMPILE",
+    "O2-aot": "MISCOMPILE",
+    "O2-jit": "MISCOMPILE",
+    "O3-aot": "MISCOMPILE",
+    "O3-jit": "MISCOMPILE"
+   },
+   "note": "ref(rc=0 out='hello\\nhello worldhello worldhello world\\n') O0 got rc=255 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/builtins/fputs-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/fputs.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "REJECT",
+   "configs": {
+    "O0-aot": "REJECT",
+    "O0-jit": "REJECT",
+    "O1-aot": "REJECT",
+    "O1-jit": "REJECT",
+    "O2-aot": "REJECT",
+    "O2-jit": "REJECT",
+    "O3-aot": "REJECT",
+    "O3-jit": "REJECT"
+   },
+   "note": "                    ^; Compile error: expected identifier in extern declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/builtins/lib/abs.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/lib/bfill.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "/home/ubuntu/dev/qnz_c_compiler/third_party/vendor/c-torture/execute/builtins/lib/bfill.c:14:5: note: include \u2018<stdlib.h>\u2019 or provide a declaration of \u2018abort\u2019"
+   "note": ""
   },
   "execute/builtins/lib/bzero.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "/home/ubuntu/dev/qnz_c_compiler/third_party/vendor/c-torture/execute/builtins/lib/bzero.c:14:5: note: include \u2018<stdlib.h>\u2019 or provide a declaration of \u2018abort\u2019"
+   "note": ""
   },
   "execute/builtins/lib/chk.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/lib/fprintf.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/lib/main.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/lib/memchr.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/lib/memcmp.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/lib/memmove.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/lib/mempcpy.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/lib/memset.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/lib/printf.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/lib/sprintf.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/lib/stpcpy.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/lib/strcat.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/lib/strchr.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/lib/strcmp.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/lib/strcpy.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/lib/strcspn.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/lib/strlen.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/lib/strncat.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/lib/strncmp.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/lib/strncpy.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/lib/strnlen.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/lib/strpbrk.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/lib/strrchr.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/lib/strspn.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/lib/strstr.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/memchr-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/memchr.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
+   "note": ""
   },
   "execute/builtins/memcmp-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/memcmp.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
+   "note": ""
   },
   "execute/builtins/memcpy-chk-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/memcpy-chk.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "MISCOMPILE",
+   "configs": {
+    "O0-aot": "REFBUG",
+    "O0-jit": "MISCOMPILE",
+    "O1-aot": "REFBUG",
+    "O1-jit": "MISCOMPILE",
+    "O2-aot": "REFBUG",
+    "O2-jit": "MISCOMPILE",
+    "O3-aot": "REFBUG",
+    "O3-jit": "MISCOMPILE"
+   },
+   "note": "ref(rc=-6 out='') O0 got rc=255 out='' | cfgs: O0-jit,O1-jit,O2-jit,O3-jit"
   },
   "execute/builtins/memmove-2-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/memmove-2.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "REJECT",
+   "configs": {
+    "O0-aot": "REJECT",
+    "O0-jit": "REJECT",
+    "O1-aot": "REJECT",
+    "O1-jit": "REJECT",
+    "O2-aot": "REJECT",
+    "O2-jit": "REJECT",
+    "O3-aot": "REJECT",
+    "O3-jit": "REJECT"
+   },
+   "note": "                   ^; Compile error: unexpected token at file scope [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/builtins/memmove-chk-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/memmove-chk.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "MISCOMPILE",
+   "configs": {
+    "O0-aot": "REFBUG",
+    "O0-jit": "MISCOMPILE",
+    "O1-aot": "REFBUG",
+    "O1-jit": "MISCOMPILE",
+    "O2-aot": "REFBUG",
+    "O2-jit": "MISCOMPILE",
+    "O3-aot": "REFBUG",
+    "O3-jit": "MISCOMPILE"
+   },
+   "note": "ref(rc=-6 out='') O0 got rc=255 out='' | cfgs: O0-jit,O1-jit,O2-jit,O3-jit"
   },
   "execute/builtins/memmove-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/memmove.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "MISCOMPILE",
+   "configs": {
+    "O0-aot": "MISCOMPILE",
+    "O0-jit": "MISCOMPILE",
+    "O1-aot": "MISCOMPILE",
+    "O1-jit": "MISCOMPILE",
+    "O2-aot": "MISCOMPILE",
+    "O2-jit": "MISCOMPILE",
+    "O3-aot": "MISCOMPILE",
+    "O3-jit": "MISCOMPILE"
+   },
+   "note": "ref(rc=0 out='') O0 got rc=255 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/builtins/memops-asm-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/memops-asm.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "MISCOMPILE",
+   "configs": {
+    "O0-aot": "MISCOMPILE",
+    "O0-jit": "MISCOMPILE",
+    "O1-aot": "MISCOMPILE",
+    "O1-jit": "MISCOMPILE",
+    "O2-aot": "MISCOMPILE",
+    "O2-jit": "MISCOMPILE",
+    "O3-aot": "MISCOMPILE",
+    "O3-jit": "MISCOMPILE"
+   },
+   "note": "ref(rc=0 out='') O0 got rc=255 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/builtins/mempcpy-2-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/mempcpy-2.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "MISCOMPILE",
+   "configs": {
+    "O0-aot": "MISCOMPILE",
+    "O0-jit": "MISCOMPILE",
+    "O1-aot": "MISCOMPILE",
+    "O1-jit": "MISCOMPILE",
+    "O2-aot": "MISCOMPILE",
+    "O2-jit": "MISCOMPILE",
+    "O3-aot": "MISCOMPILE",
+    "O3-jit": "MISCOMPILE"
+   },
+   "note": "ref(rc=0 out='') O0 got rc=255 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/builtins/mempcpy-chk-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/mempcpy-chk.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "MISCOMPILE",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "MISCOMPILE",
+    "O1-aot": "OK",
+    "O1-jit": "MISCOMPILE",
+    "O2-aot": "OK",
+    "O2-jit": "MISCOMPILE",
+    "O3-aot": "OK",
+    "O3-jit": "MISCOMPILE"
+   },
+   "note": "ref(rc=0 out='') O0 got rc=255 out='' | cfgs: O0-jit,O1-jit,O2-jit,O3-jit"
   },
   "execute/builtins/mempcpy-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/mempcpy.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "MISCOMPILE",
+   "configs": {
+    "O0-aot": "MISCOMPILE",
+    "O0-jit": "MISCOMPILE",
+    "O1-aot": "MISCOMPILE",
+    "O1-jit": "MISCOMPILE",
+    "O2-aot": "MISCOMPILE",
+    "O2-jit": "MISCOMPILE",
+    "O3-aot": "MISCOMPILE",
+    "O3-jit": "MISCOMPILE"
+   },
+   "note": "ref(rc=0 out='') O0 got rc=255 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/builtins/memset-chk-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/memset-chk.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "MISCOMPILE",
+   "configs": {
+    "O0-aot": "REFBUG",
+    "O0-jit": "MISCOMPILE",
+    "O1-aot": "REFBUG",
+    "O1-jit": "MISCOMPILE",
+    "O2-aot": "REFBUG",
+    "O2-jit": "MISCOMPILE",
+    "O3-aot": "REFBUG",
+    "O3-jit": "MISCOMPILE"
+   },
+   "note": "ref(rc=-6 out='') O0 got rc=255 out='' | cfgs: O0-jit,O1-jit,O2-jit,O3-jit"
   },
   "execute/builtins/memset-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/memset.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
+   "note": ""
   },
   "execute/builtins/pr22237-1-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/pr22237-1.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
+   "note": ""
   },
   "execute/builtins/pr22237-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/pr22237.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
+   "note": ""
   },
   "execute/builtins/pr23484-chk-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/pr23484-chk.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "MISCOMPILE",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "MISCOMPILE",
+    "O1-aot": "OK",
+    "O1-jit": "MISCOMPILE",
+    "O2-aot": "OK",
+    "O2-jit": "MISCOMPILE",
+    "O3-aot": "OK",
+    "O3-jit": "MISCOMPILE"
+   },
+   "note": "ref(rc=0 out='') O0 got rc=255 out='' | cfgs: O0-jit,O1-jit,O2-jit,O3-jit"
   },
   "execute/builtins/pr93262-chk-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/pr93262-chk.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "MISCOMPILE",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "MISCOMPILE",
+    "O1-aot": "OK",
+    "O1-jit": "MISCOMPILE",
+    "O2-aot": "OK",
+    "O2-jit": "MISCOMPILE",
+    "O3-aot": "OK",
+    "O3-jit": "MISCOMPILE"
+   },
+   "note": "ref(rc=0 out='') O0 got rc=255 out='' | cfgs: O0-jit,O1-jit,O2-jit,O3-jit"
   },
   "execute/builtins/printf-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/printf.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "MISCOMPILE",
+   "configs": {
+    "O0-aot": "MISCOMPILE",
+    "O0-jit": "MISCOMPILE",
+    "O1-aot": "MISCOMPILE",
+    "O1-jit": "MISCOMPILE",
+    "O2-aot": "MISCOMPILE",
+    "O2-jit": "MISCOMPILE",
+    "O3-aot": "MISCOMPILE",
+    "O3-jit": "MISCOMPILE"
+   },
+   "note": "ref(rc=0 out='hello\\nhello world\\nhello world\\n\\nhh\\n\\nhello') O0 got rc=255 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/builtins/snprintf-chk-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/snprintf-chk.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "MISCOMPILE",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "MISCOMPILE",
+    "O1-aot": "OK",
+    "O1-jit": "MISCOMPILE",
+    "O2-aot": "OK",
+    "O2-jit": "MISCOMPILE",
+    "O3-aot": "OK",
+    "O3-jit": "MISCOMPILE"
+   },
+   "note": "ref(rc=0 out='') O0 got rc=255 out='' | cfgs: O0-jit,O1-jit,O2-jit,O3-jit"
   },
   "execute/builtins/sprintf-chk-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/sprintf-chk.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "MISCOMPILE",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "MISCOMPILE",
+    "O1-aot": "OK",
+    "O1-jit": "MISCOMPILE",
+    "O2-aot": "OK",
+    "O2-jit": "MISCOMPILE",
+    "O3-aot": "OK",
+    "O3-jit": "MISCOMPILE"
+   },
+   "note": "ref(rc=0 out='') O0 got rc=255 out='' | cfgs: O0-jit,O1-jit,O2-jit,O3-jit"
   },
   "execute/builtins/sprintf-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/sprintf.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "REJECT",
+   "configs": {
+    "O0-aot": "REJECT",
+    "O0-jit": "REJECT",
+    "O1-aot": "REJECT",
+    "O1-jit": "REJECT",
+    "O2-aot": "REJECT",
+    "O2-jit": "REJECT",
+    "O3-aot": "REJECT",
+    "O3-jit": "REJECT"
+   },
+   "note": "     ^; Compile error: expected identifier in declaration [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/builtins/stpcpy-chk-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/stpcpy-chk.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "MISCOMPILE",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "MISCOMPILE",
+    "O1-aot": "OK",
+    "O1-jit": "MISCOMPILE",
+    "O2-aot": "OK",
+    "O2-jit": "MISCOMPILE",
+    "O3-aot": "OK",
+    "O3-jit": "MISCOMPILE"
+   },
+   "note": "ref(rc=0 out='') O0 got rc=255 out='' | cfgs: O0-jit,O1-jit,O2-jit,O3-jit"
   },
   "execute/builtins/stpncpy-chk-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/stpncpy-chk.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "MISCOMPILE",
+   "configs": {
+    "O0-aot": "REFBUG",
+    "O0-jit": "MISCOMPILE",
+    "O1-aot": "REFBUG",
+    "O1-jit": "MISCOMPILE",
+    "O2-aot": "REFBUG",
+    "O2-jit": "MISCOMPILE",
+    "O3-aot": "REFBUG",
+    "O3-jit": "MISCOMPILE"
+   },
+   "note": "ref(rc=-6 out='') O0 got rc=255 out='' | cfgs: O0-jit,O1-jit,O2-jit,O3-jit"
   },
   "execute/builtins/strcat-chk-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/strcat-chk.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "MISCOMPILE",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "MISCOMPILE",
+    "O1-aot": "OK",
+    "O1-jit": "MISCOMPILE",
+    "O2-aot": "OK",
+    "O2-jit": "MISCOMPILE",
+    "O3-aot": "OK",
+    "O3-jit": "MISCOMPILE"
+   },
+   "note": "ref(rc=0 out='') O0 got rc=255 out='' | cfgs: O0-jit,O1-jit,O2-jit,O3-jit"
   },
   "execute/builtins/strcat-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/strcat.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
+   "note": ""
   },
   "execute/builtins/strchr-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/strchr.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "MISCOMPILE",
+   "configs": {
+    "O0-aot": "MISCOMPILE",
+    "O0-jit": "MISCOMPILE",
+    "O1-aot": "MISCOMPILE",
+    "O1-jit": "MISCOMPILE",
+    "O2-aot": "MISCOMPILE",
+    "O2-jit": "MISCOMPILE",
+    "O3-aot": "MISCOMPILE",
+    "O3-jit": "MISCOMPILE"
+   },
+   "note": "ref(rc=0 out='') O0 got rc=255 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/builtins/strcmp-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/strcmp.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
+   "note": ""
   },
   "execute/builtins/strcpy-2-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/strcpy-2.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
+   "note": ""
   },
   "execute/builtins/strcpy-chk-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/strcpy-chk.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "MISCOMPILE",
+   "configs": {
+    "O0-aot": "REFBUG",
+    "O0-jit": "MISCOMPILE",
+    "O1-aot": "REFBUG",
+    "O1-jit": "MISCOMPILE",
+    "O2-aot": "REFBUG",
+    "O2-jit": "MISCOMPILE",
+    "O3-aot": "REFBUG",
+    "O3-jit": "MISCOMPILE"
+   },
+   "note": "ref(rc=-6 out='') O0 got rc=255 out='' | cfgs: O0-jit,O1-jit,O2-jit,O3-jit"
   },
   "execute/builtins/strcpy-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/strcpy.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
+   "note": ""
   },
   "execute/builtins/strcspn-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/strcspn.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "MISCOMPILE",
+   "configs": {
+    "O0-aot": "MISCOMPILE",
+    "O0-jit": "MISCOMPILE",
+    "O1-aot": "MISCOMPILE",
+    "O1-jit": "MISCOMPILE",
+    "O2-aot": "MISCOMPILE",
+    "O2-jit": "MISCOMPILE",
+    "O3-aot": "MISCOMPILE",
+    "O3-jit": "MISCOMPILE"
+   },
+   "note": "ref(rc=0 out='') O0 got rc=255 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/builtins/strlen-2-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/strlen-2.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
+   "note": ""
   },
   "execute/builtins/strlen-3-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/strlen-3.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
+   "note": ""
   },
   "execute/builtins/strlen-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/strlen.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
+   "note": ""
   },
   "execute/builtins/strncat-chk-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/strncat-chk.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "MISCOMPILE",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "MISCOMPILE",
+    "O1-aot": "OK",
+    "O1-jit": "MISCOMPILE",
+    "O2-aot": "OK",
+    "O2-jit": "MISCOMPILE",
+    "O3-aot": "OK",
+    "O3-jit": "MISCOMPILE"
+   },
+   "note": "ref(rc=0 out='') O0 got rc=255 out='' | cfgs: O0-jit,O1-jit,O2-jit,O3-jit"
   },
   "execute/builtins/strncat-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/strncat.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "MISCOMPILE",
+   "configs": {
+    "O0-aot": "MISCOMPILE",
+    "O0-jit": "MISCOMPILE",
+    "O1-aot": "MISCOMPILE",
+    "O1-jit": "MISCOMPILE",
+    "O2-aot": "MISCOMPILE",
+    "O2-jit": "MISCOMPILE",
+    "O3-aot": "MISCOMPILE",
+    "O3-jit": "MISCOMPILE"
+   },
+   "note": "ref(rc=0 out='') O0 got rc=255 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/builtins/strncmp-2-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/strncmp-2.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "MISCOMPILE",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "MISCOMPILE",
+    "O1-jit": "MISCOMPILE",
+    "O2-aot": "MISCOMPILE",
+    "O2-jit": "MISCOMPILE",
+    "O3-aot": "MISCOMPILE",
+    "O3-jit": "MISCOMPILE"
+   },
+   "note": "ref(rc=0 out='') O1 got rc=-6 out='' | cfgs: O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/builtins/strncmp-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/strncmp.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "MISCOMPILE",
+   "configs": {
+    "O0-aot": "MISCOMPILE",
+    "O0-jit": "MISCOMPILE",
+    "O1-aot": "MISCOMPILE",
+    "O1-jit": "MISCOMPILE",
+    "O2-aot": "MISCOMPILE",
+    "O2-jit": "MISCOMPILE",
+    "O3-aot": "MISCOMPILE",
+    "O3-jit": "MISCOMPILE"
+   },
+   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/builtins/strncpy-chk-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/strncpy-chk.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "MISCOMPILE",
+   "configs": {
+    "O0-aot": "REFBUG",
+    "O0-jit": "MISCOMPILE",
+    "O1-aot": "REFBUG",
+    "O1-jit": "MISCOMPILE",
+    "O2-aot": "REFBUG",
+    "O2-jit": "MISCOMPILE",
+    "O3-aot": "REFBUG",
+    "O3-jit": "MISCOMPILE"
+   },
+   "note": "ref(rc=-6 out='') O0 got rc=255 out='' | cfgs: O0-jit,O1-jit,O2-jit,O3-jit"
   },
   "execute/builtins/strncpy-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/strncpy.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
+   "note": ""
   },
   "execute/builtins/strnlen-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/strnlen.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
+   "note": ""
   },
   "execute/builtins/strpbrk-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/strpbrk.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "REJECT",
+   "configs": {
+    "O0-aot": "REJECT",
+    "O0-jit": "REJECT",
+    "O1-aot": "REJECT",
+    "O1-jit": "REJECT",
+    "O2-aot": "REJECT",
+    "O2-jit": "REJECT",
+    "O3-aot": "REJECT",
+    "O3-jit": "REJECT"
+   },
+   "note": "<stdin>: error: cannot modify const-qualified operand; Compile error: cannot modify const-qualified operand [clean -std=c11] | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/builtins/strpcpy-2-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/strpcpy-2.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "MISCOMPILE",
+   "configs": {
+    "O0-aot": "MISCOMPILE",
+    "O0-jit": "MISCOMPILE",
+    "O1-aot": "MISCOMPILE",
+    "O1-jit": "MISCOMPILE",
+    "O2-aot": "MISCOMPILE",
+    "O2-jit": "MISCOMPILE",
+    "O3-aot": "MISCOMPILE",
+    "O3-jit": "MISCOMPILE"
+   },
+   "note": "ref(rc=0 out='') O0 got rc=255 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/builtins/strpcpy-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/strpcpy.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "MISCOMPILE",
+   "configs": {
+    "O0-aot": "MISCOMPILE",
+    "O0-jit": "MISCOMPILE",
+    "O1-aot": "MISCOMPILE",
+    "O1-jit": "MISCOMPILE",
+    "O2-aot": "MISCOMPILE",
+    "O2-jit": "MISCOMPILE",
+    "O3-aot": "MISCOMPILE",
+    "O3-jit": "MISCOMPILE"
+   },
+   "note": "ref(rc=0 out='') O0 got rc=255 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/builtins/strrchr-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/strrchr.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "MISCOMPILE",
+   "configs": {
+    "O0-aot": "MISCOMPILE",
+    "O0-jit": "MISCOMPILE",
+    "O1-aot": "MISCOMPILE",
+    "O1-jit": "MISCOMPILE",
+    "O2-aot": "MISCOMPILE",
+    "O2-jit": "MISCOMPILE",
+    "O3-aot": "MISCOMPILE",
+    "O3-jit": "MISCOMPILE"
+   },
+   "note": "ref(rc=0 out='') O0 got rc=255 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/builtins/strspn-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/strspn.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "MISCOMPILE",
+   "configs": {
+    "O0-aot": "MISCOMPILE",
+    "O0-jit": "MISCOMPILE",
+    "O1-aot": "MISCOMPILE",
+    "O1-jit": "MISCOMPILE",
+    "O2-aot": "MISCOMPILE",
+    "O2-jit": "MISCOMPILE",
+    "O3-aot": "MISCOMPILE",
+    "O3-jit": "MISCOMPILE"
+   },
+   "note": "ref(rc=0 out='') O0 got rc=255 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/builtins/strstr-asm-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/strstr-asm.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "MISCOMPILE",
+   "configs": {
+    "O0-aot": "MISCOMPILE",
+    "O0-jit": "MISCOMPILE",
+    "O1-aot": "MISCOMPILE",
+    "O1-jit": "MISCOMPILE",
+    "O2-aot": "MISCOMPILE",
+    "O2-jit": "MISCOMPILE",
+    "O3-aot": "MISCOMPILE",
+    "O3-jit": "MISCOMPILE"
+   },
+   "note": "ref(rc=0 out='') O0 got rc=-6 out='' | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/builtins/strstr-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/strstr.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
+   "note": ""
   },
   "execute/builtins/uabs-1-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/uabs-1.c": {
    "class": "NO-REF",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": "gcc-14: error: unrecognized command-line option \u2018-std=c2y\u2019; did you mean \u2018-std=c23\u2019?"
   },
   "execute/builtins/uabs-2-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/uabs-2.c": {
    "class": "NO-REF",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": "gcc-14: error: unrecognized command-line option \u2018-std=c2y\u2019; did you mean \u2018-std=c23\u2019?"
   },
   "execute/builtins/uabs-3-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/uabs-3.c": {
    "class": "NO-REF",
    "configs": {},
-   "note": "      |       __builtin_imaxabs"
+   "note": "gcc-14: error: unrecognized command-line option \u2018-std=c2y\u2019; did you mean \u2018-std=c23\u2019?"
   },
   "execute/builtins/vsnprintf-chk-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/vsnprintf-chk.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "MISCOMPILE",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "MISCOMPILE",
+    "O1-aot": "OK",
+    "O1-jit": "MISCOMPILE",
+    "O2-aot": "OK",
+    "O2-jit": "MISCOMPILE",
+    "O3-aot": "OK",
+    "O3-jit": "MISCOMPILE"
+   },
+   "note": "ref(rc=0 out='') O0 got rc=255 out='' | cfgs: O0-jit,O1-jit,O2-jit,O3-jit"
   },
   "execute/builtins/vsprintf-chk-lib.c": {
-   "class": "NO-REF",
+   "class": "SKIP-SUPPORT",
    "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "note": ""
   },
   "execute/builtins/vsprintf-chk.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "MISCOMPILE",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "MISCOMPILE",
+    "O1-aot": "OK",
+    "O1-jit": "MISCOMPILE",
+    "O2-aot": "OK",
+    "O2-jit": "MISCOMPILE",
+    "O3-aot": "OK",
+    "O3-jit": "MISCOMPILE"
+   },
+   "note": "ref(rc=0 out='') O0 got rc=255 out='' | cfgs: O0-jit,O1-jit,O2-jit,O3-jit"
   },
   "execute/call-trap-1.c": {
    "class": "PASS",
@@ -41458,13 +41962,16 @@
  },
  "totals": {
   "EXPECTED-REJECT": 4,
-  "NO-REF": 169,
-  "PASS": 3695,
+  "MISCOMPILE": 34,
+  "NO-REF": 26,
+  "PASS": 3713,
   "REF-BUG": 2,
+  "REJECT": 4,
   "SKIP-BOGUS": 1,
   "SKIP-C89": 45,
   "SKIP-PTR": 1,
   "SKIP-REFSEM": 16,
+  "SKIP-SUPPORT": 87,
   "SKIP-TARGET:arm": 1,
   "SKIP-TARGET:ia64": 1,
   "SKIP-TARGET:mips": 4,

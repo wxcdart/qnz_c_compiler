@@ -160,6 +160,7 @@ def parse_directives(path):
         "requires": [],
         "do_targets": [],
         "options": "",
+        "x_flags": "",
         "bogus": False,
         "expects_error": False,
         "timeout": RUN_TIMEOUT,
@@ -189,6 +190,15 @@ def parse_directives(path):
         if m:
             d["timeout"] = max(1, RUN_TIMEOUT * int(m.group(1)))
             d["timeout_factor"] = int(m.group(1))
+    # The .x (Tcl) sidecar may set additional_flags for the test (c-torture
+    # execute/builtins family: -fno-builtin-*, -std=c2y, ...).
+    xfile = path.with_name(path.stem + ".x")
+    if xfile.exists():
+        for l in xfile.read_text(errors="replace").splitlines():
+            m = re.search(r"additional_flags\s+(\"[^\"]*\"|\S+)", l)
+            if m:
+                d["x_flags"] = m.group(1).strip('"')
+                break
     d["ptr_output"] = bool(RE_PCT_P.search(full_text))
     d["setjmp"] = bool(re.search(r"setjmp|longjmp", full_text))
     return d
@@ -198,6 +208,13 @@ def skip_reason(path, d):
     rel = path.relative_to(CORPUS)
     if d["bogus"]:
         return "SKIP-BOGUS"
+    # c-torture execute/builtins support files: `<stem>-lib.c` companions
+    # and the shared execute/builtins/lib/ helpers are not standalone tests
+    # (they carry no main of their own; the framework links them into the
+    # main test) - running them as tests is a false NO-REF.
+    if rel.name.endswith("-lib.c") or \
+            rel.as_posix().startswith("execute/builtins/lib/"):
+        return "SKIP-SUPPORT"
     for t in d["requires"]:
         if t == "trampolines":
             # Implemented; only the specific blocked tests stay skipped
@@ -258,11 +275,37 @@ def keep_or_unlink(p):
     p.unlink(missing_ok=True)
 
 
-def gcc_ref(path, d, is_run):
+def test_sources(rel_path):
+    """Sources for a test: the main file plus, for the c-torture
+    execute/builtins family, the `<stem>-lib.c` companion and - when the
+    family's `main_test` convention is in play (neither file defines
+    main) - a synthesized main wrapper providing `inside_main`, like GCC's
+    c-torture harness does."""
+    path = CORPUS / rel_path
+    src = path.read_text(errors="replace")
+    extra = []
+    lib = path.with_name(path.stem + "-lib.c")
+    if lib.exists():
+        extra.append(str(lib))
+        src += "\n" + lib.read_text(errors="replace")
+    if "main_test" in src and not re.search(r"\bmain\s*\(", src):
+        WORK.mkdir(parents=True, exist_ok=True)
+        w = WORK / ("wrap_%s.c" % hashlib.sha1(rel_path.encode()).hexdigest()[:10])
+        if not w.exists():
+            w.write_text(
+                "int inside_main;\n"
+                "int main_test(void);\n"
+                "int main(void) { inside_main = 1; main_test(); return 0; }\n")
+        extra.append(str(w))
+    return str(path), extra
+
+
+def gcc_ref(path, d, is_run, extra=None):
     """Build (or reuse) the gcc reference. Returns (ok, artifact, detail)."""
     opt = d["options"]
     key = hashlib.sha1(
-        (GCC + str(path.relative_to(CORPUS)) + opt + ("run" if is_run else "c")
+        (GCC + str(path) + opt + d.get("x_flags", "")
+         + ("run" if is_run else "c") + ("x%d" % len(extra or []))
          ).encode()).hexdigest()
     REFCACHE.mkdir(parents=True, exist_ok=True)
     art = REFCACHE / (key + (".bin" if is_run else ".o"))
@@ -271,10 +314,13 @@ def gcc_ref(path, d, is_run):
     base = [GCC, "-O1"]
     if opt:
         base += opt.split()
+    if d.get("x_flags"):
+        base += d["x_flags"].split()
+    srcs = [str(path)] + list(extra or [])
     if is_run:
-        cmd = base + [str(path), "-o", str(art), "-lm"]
+        cmd = base + srcs + ["-o", str(art), "-lm"]
     else:
-        cmd = base + [str(path), "-c", "-o", str(art)]
+        cmd = base + srcs + ["-c", "-o", str(art)]
     # Heavy tests get a factor-scaled build budget (their ~2,000-function
     # reference builds bust the bare 10 s cap under any real load).
     rc, _out, err = run(cmd, BUILD_TIMEOUT * d.get("timeout_factor", 1))
@@ -285,9 +331,10 @@ def gcc_ref(path, d, is_run):
 
 
 def zc_flags(d, level):
-    """dg-options minus the flags that would fight the sweep level/mode."""
+    """dg-options (plus the .x additional_flags) minus the flags that would
+    fight the sweep level/mode."""
     out, skip_next = [], False
-    for tok in d["options"].split():
+    for tok in (d["options"] + " " + d.get("x_flags", "")).split():
         if skip_next:
             skip_next = False
             continue
@@ -325,8 +372,12 @@ def run_one(rel_path):
     do = d["do"]
     # dg-do overrides the directory's default semantics
     is_run = (do == "run") if do else in_execute
+    # execute/builtins family: companion -lib.c + main_test wrapper.
+    extra = []
+    if is_run:
+        path, extra = test_sources(rel_path)
 
-    ok, art, detail = gcc_ref(path, d, is_run)
+    ok, art, detail = gcc_ref(path, d, is_run, extra)
     if d["expects_error"]:
         if not ok:
             res["class"] = "EXPECTED-REJECT"
@@ -368,7 +419,7 @@ def run_one(rel_path):
             tag = "O%d-%s" % (lvl, mode)
             if mode == "jit":
                 rc, outp, err = run(
-                    [str(ZEROC), *fl, "--run", str(path)], d["timeout"])
+                    [str(ZEROC), *fl, "--run", path, *extra], d["timeout"])
                 if rc == 1 and ("Compile error:" in err or "error:" in err):
                     res["configs"][tag] = "REJECT"
                     if not res["note"]:
@@ -378,7 +429,7 @@ def run_one(rel_path):
             else:
                 binp = WORK / ("bin_%s_O%d" % (tid, lvl))
                 rc, _o, err = run(
-                    [str(ZEROC), *fl, str(path), "-o", str(binp)], BUILD_TIMEOUT)
+                    [str(ZEROC), *fl, path, *extra, "-o", str(binp)], BUILD_TIMEOUT)
                 if rc == "TIMEOUT":
                     keep_or_unlink(binp)
                     res["configs"][tag] = "TIMEOUT"
