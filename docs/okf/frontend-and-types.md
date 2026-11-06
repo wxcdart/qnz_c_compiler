@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-11-06T03:19:11Z
+timestamp: 2026-11-06T05:00:37Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -249,6 +249,15 @@ ZeroCC employs a C-only declarator state machine in `src/zero_cc/parser/zero_cc_
 - **Integration**:
   - Local block declarations in `src/zero_cc/parser/ast_stmt.h` use `zero_cc_parse_declarator`, unifying pointer prefixes, function pointer declarations, array dimensions, VLAs, and comma-separated multi-declarator statements (`int *m1, m_arr[5] = {10, 20}, *m2;`).
   - Standalone regression test: `test/expr/declarator_stack.c` and `test/jit/declarator_stack.c`.
+
+## GNU `__asm("sym")` Symbol Rename on Functions & Preprocessor Stringification (Sprint 115k)
+
+`extern char *strstr(const char *, const char *) __asm("my_strstr");` renames the **emitted symbol**: calls, address-of, and the definition all use `my_strstr` (c-torture `execute/builtins/{strstr,memops}-asm.c` — the builtins are renamed and the user library defines the `my_X` bodies plus plain-named wrappers that abort when called):
+
+- **Storage**: `ZeroCCFunction.asm_name` (empty = plain name). `zero_cc_fn_set_asm_name` applies a label to **every record** with the function name (prototype AND definition entries can both exist; the first label wins; trampoline stubs are excluded). Capture sites: `zero_cc_compile_function` (both the parenthesized-declarator path — `zero_cc_parse_declarator` already consumes the label into `d->asm_name` — and the plain-name path, which parses it after the param block; single-declarator only, since in a comma list the label attaches to the last declarator) plus the local/prototype paths in `decl_local.c`. The label is applied to pre-existing records AND inherited by the record created at the `;`/`{` branch (the record does not exist when the label is parsed).
+- **Emission**: `zero_cc_fn_emit_symbol` returns `asm_name` first, then the nested mangling, then the plain name — every name-resolution site (the call emitter, the .o symbol writer, address-of) must go through it. `zero_cc_find_function_by_symbol` maps a renamed symbol back to its record so same-TU calls are classified internal (direct offset) instead of falling to dlsym. `__builtin_X` → `X` normalization happens before callee lookup, so `__builtin_strstr` follows the same rename.
+- **`__USER_LABEL_PREFIX__` is a predefined macro, defined EMPTY** (`preprocessor.c` `zero_cc_cpp_define_builtin_macros`; empty on all supported Linux ISAs, `_` on macOS). The tests build the name via `ASMNAME2(__USER_LABEL_PREFIX__, cname)` = `STRING(prefix) cname`: `prefix` is not used via `#`/`##` at the `ASMNAME2` level, so C99 6.10.3.3 requires the argument to be **fully macro-replaced before substitution** — the empty prefix vanishes. Undefined, the identifier survives into the stringification and the symbol becomes `__USER_LABEL_PREFIX__my_X`.
+- **Too-few-argument function-macro calls pad empty (GCC behavior)**: after the prefix empties, the rescan sees `STRING ()` (0 args, 1 param). GCC/cpp expands with the missing trailing arguments empty (`#define S(x) #x` + `S()` → `""`); a strict C99 6.10.3p2 "any mismatch → not an invocation" reading left `STRING ()` literal and the parse failed. The preprocessor now rejects only **too many** args (c-torture `compile/921227-1`: `k(1,2)` for `#define k(a) #a` must stay literal) and pads `args[64]` with empty strings when too few (≤ 64 params).
 
 ## Type-Identity Invariants (Sprint 70)
 

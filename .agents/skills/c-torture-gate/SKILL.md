@@ -149,16 +149,17 @@ Known genuine hard-limit `REJECT`s (do not chase): `compile/20001226-1.c`
 
 ## Burn-down chunks (`--chunk <name>`)
 
-Baseline-derived chunks for the known bad families (Sprint 115j state):
+Baseline-derived chunks for the known bad families (Sprint 115k state):
 
 - **m2** (16): the partial MISCOMPILE tests (wrong `(rc, out)` on a subset
   of configs).
 - **m3** (12): the `printf`/`scanf` runtime-IO family.
 - **m4** — **burned down in Sprint 115f (REJECT 4 → 0)**: `execute/builtins/{fputs,memmove-2,sprintf,strpbrk}.c` — fixed by parenthesized function declarators (`int (sprintf)(...)`), file-scope pointer-init arithmetic (`char *q = p + 4`), per-level pointer qualifiers in the parameter star-loop, the general `__builtin_X`→`X` alias fallback, and `vsprintf`/`vsnprintf` prototypes in the stdio virtual header (the prototype is what engages the glibc-layout va_list shadow when a wrapper forwards its va_list to glibc's `vsprintf`).
-- **m5** (3 MISCOMPILE, was 23; the 16 `*-chk.c` tests burned down in
+- **m5** (1 MISCOMPILE, was 23; the 16 `*-chk.c` tests burned down in
   **Sprint 115g**, `20021127-1.c` in **Sprint 115h**, `mempcpy-2.c` in
-  **Sprint 115i**, `strncmp.c`/`strncmp-2.c` in **Sprint 115j**): the
-  `*-chk.c` family's root cause was the missing
+  **Sprint 115i**, `strncmp.c`/`strncmp-2.c` in **Sprint 115j**, and
+  `strstr-asm.c`/`memops-asm.c` in **Sprint 115k**): the `*-chk.c`
+  family's root cause was the missing
   `__builtin_object_size` lowering (JIT undefined-symbol failure; AOT dead
   `call 0` stubs) — fixed by a gcc-14-calibrated compile-time object-size
   walker, the `__builtin___X_chk(..., -1)`→plain-`X` rewrite, and the
@@ -181,10 +182,18 @@ Baseline-derived chunks for the known bad families (Sprint 115j state):
   load's dest temp into the live variable register, but `*u1++`'s
   dereference uses that snapshot temp as its ADDRESS operand after the
   `u1 = u1+1` store — the promotion now disqualifies head-temp uses after
-  the in-loop store / before the in-loop load / post-loop. The remaining
-  3: `complex-1.c` (`_Complex` float-precision cluster: double-precision
-  temporaries, no `cvtss2sd`/`cvtsd2ss` IR op yet), `strstr-asm.c`,
-  `memops-asm.c` (GNU `__asm` function tests).
+  the in-loop store / before the in-loop load / post-loop.
+  `strstr-asm.c`/`memops-asm.c` needed the GNU `__asm("my_X")` symbol
+  rename on function declarators (calls + definitions + address-of all
+  emitted under the renamed symbol via `zero_cc_fn_emit_symbol`), the
+  `__USER_LABEL_PREFIX__` predefined macro (empty — the `ASMNAME`
+  macro chain stringifies it, and an undefined identifier survives into
+  the stringified symbol), and too-few-arg function-macro calls padding
+  empty before stringification (GCC: `S()` → `""` for `#define S(x) #x`
+  — the chain reduces to `STRING ()` after the prefix empties; too-MANY
+  args still stay literal, c-torture compile/921227-1). The remaining 1:
+  `complex-1.c` (`_Complex` float-precision cluster: double-precision
+  temporaries, no `cvtss2sd`/`cvtsd2ss` IR op yet).
 
 ## Unskip Protocol (removing a `SKIP-TARGET:<feature>`)
 

@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-06T04:32:23Z
+timestamp: 2026-11-06T05:00:37Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1017,3 +1017,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-06 — Updated `optimization-passes.md`
 - Sprint 115j: documented the loop-promotion snapshot-use guard invariant (head_temp uses after the in-loop store / before the load / post-loop disqualify promotion)
+
+## 2026-11-06 — Updated `c-torture-gate.md`
+- Sprint 115k: m5 strstr-asm.c/memops-asm.c fixed (GNU __asm symbol rename + __USER_LABEL_PREFIX__ + too-few-arg macro padding); MISCOMPILE 3->1, PASS 3,739
+
+## 2026-11-06 — Updated `frontend-and-types.md`
+- Sprint 115k: documented the __asm function symbol rename (ZeroCCFunction.asm_name, zero_cc_fn_emit_symbol) and the preprocessor empty-arg stringification rules

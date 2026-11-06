@@ -859,9 +859,9 @@ static int compile_object_single(CompileOptions *opts, const char *input,
         ZeroCCFunction *fn = &comp->functions[i];
         /* Nested functions may share source names across enclosing
          * functions; they are emitted (and referenced by call relocs) under
-         * their unique mangled name. */
-        const char *fn_sym = (fn->is_nested && fn->nested_sym_name[0])
-                                 ? fn->nested_sym_name : fn->name;
+         * their unique mangled name. `__asm`-labeled functions are renamed
+         * the same way (zero_cc_fn_emit_symbol covers both). */
+        const char *fn_sym = zero_cc_fn_emit_symbol(fn);
         if (fn->name[0]) {
             if (fn->is_prototype) {
                 /* Skip forward prototype if a real definition exists in this TU */

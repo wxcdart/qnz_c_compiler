@@ -269,6 +269,7 @@ typedef struct ZeroCCFunction {
     size_t ret_struct_sz;
     int32_t sret_stack_offset;              /* Stack offset (positive, below rbp) for hidden sret ptr */
     char nested_sym_name[128];              /* Unique AOT symbol name for nested fns (they can share source names in different enclosing fns) */
+    char asm_name[64];                      /* GNU `__asm("sym")` / `__attribute__((asm("sym")))` label on the declarator: the symbol emitted for the definition and targeted by calls (empty = plain name) */
     bool is_variadic;
     bool noreturn;
     bool is_prototype;                    /* True for external prototypes (no body) */

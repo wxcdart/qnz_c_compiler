@@ -238,6 +238,13 @@ void zero_cc_cpp_define_builtin_macros(ZeroCCPreprocessor *cpp) {
     zero_cc_cpp_define_obj(cpp, "__GNUC_MINOR__", "2");
     zero_cc_cpp_define_obj(cpp, "__linux__", "1");
     zero_cc_cpp_define_obj(cpp, "__unix__", "1");
+    /* GNU predefined: the assembler label prefix for this target (empty on
+     * all supported Linux ISAs; `_` on macOS). Empty replacement: expands
+     * to nothing. c-torture execute/builtins/{strstr,memops}-asm build the
+     * `__asm("...")` symbol with ASMNAME(__USER_LABEL_PREFIX__, name) -
+     * undefined, the identifier survives stringification and the symbol
+     * becomes "__USER_LABEL_PREFIX__my_X". */
+    zero_cc_cpp_define_obj(cpp, "__USER_LABEL_PREFIX__", "");
     zero_cc_cpp_define_obj(cpp, "NULL", "((void*)0)");
     /* C99 6.10.3.2 / 6.10.8 + GCC-style double-underscore predefined
      * macros (LP64 Linux, signed char). Literal values, not recursive:
@@ -1614,17 +1621,42 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                         }
                     }
 
-                    /* C99 6.10.3p2: a function-like macro with the wrong
-                     * number of arguments is NOT an invocation - the name
+                    /* C99 6.10.3p2: a function-like macro with too MANY
+                     * arguments is NOT an invocation - the name
                      * is not replaced.  Without this, `k(1,2)` for
                      * `#define k(a) #a` silently expands on the first arg
                      * (c-torture compile/921227-1: gcc leaves the text
                      * as-is so the outer stringification yields
-                     * "k(1,2)"). */
-                    if (!m->is_variadic && arg_count != m->param_count) {
+                     * "k(1,2)").
+                     *
+                     * Too FEW: GCC/cpp treats the missing trailing
+                     * arguments as empty (strictly UB; the de facto
+                     * behavior is what real code relies on): `#define
+                     * S(x) #x` + `S()` -> `""`.  c-torture
+                     * execute/builtins {strstr,memops}-asm build their
+                     * `__asm` symbol names via ASMNAME2(prefix, cname) =
+                     * STRING(prefix) cname with prefix =
+                     * __USER_LABEL_PREFIX__ (empty macro) - the argument
+                     * pre-expansion above empties it, the substitution
+                     * yields `STRING ()`, and the rescan must stringify
+                     * the empty argument to `""` (or the symbol becomes
+                     * "__USER_LABEL_PREFIX__my_X"). */
+                    if (!m->is_variadic && arg_count > m->param_count) {
                         for (int k = 0; k < arg_count; k++) free(args[k]);
                         for (const char *q = ident_at; q < p; q++) zero_cc_buf_putc(out, *q);
                         continue;
+                    }
+                    if (!m->is_variadic && arg_count < m->param_count) {
+                        if (m->param_count > 64) {
+                            for (int k = 0; k < arg_count; k++) free(args[k]);
+                            for (const char *q = ident_at; q < p; q++) zero_cc_buf_putc(out, *q);
+                            continue;
+                        }
+                        for (int k = arg_count; k < m->param_count; k++) {
+                            char *e = (char *)malloc(1);
+                            if (e) { e[0] = 0; args[k] = e; }
+                        }
+                        arg_count = m->param_count;
                     }
 
                     /* Token pasting buffer */

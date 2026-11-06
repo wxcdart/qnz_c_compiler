@@ -1018,6 +1018,8 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
      *   (*name(params))(params2)   - parenthesized declarator (a function
      *                                 returning a (function) pointer) */
     char fn_name[128];
+    char fn_asm[64] = {0}; /* GNU `__asm("sym")` label on the declarator */
+    bool multi_decl = false; /* comma-separated declarator list */
     /* Parse Parameters in signature */
     size_t param_cap = 16;
     ZeroCCType *param_types = (ZeroCCType *)arena_alloc(ctx->tmp_arena, param_cap * sizeof(ZeroCCType));
@@ -1050,6 +1052,10 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
             return;
         }
         snprintf(fn_name, sizeof(fn_name), "%s", d.name);
+        if (d.asm_name[0]) {
+            /* zero_cc_parse_declarator consumed the trailing asm label */
+            snprintf(fn_asm, sizeof(fn_asm), "%s", d.asm_name);
+        }
         fn_ret_type = zero_cc_declarator_apply_return(&d, fn_ret_type);
         if (fn_ret_type.is_func) {
             diag_report_error_at_token(c, "function '%s' cannot return a function", d.name);
@@ -1104,6 +1110,7 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
          * parameter list; variable declarators get their own storage. */
         first_param_count = param_count;
         while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) {
+            multi_decl = true;
             size_t save = c->token_pos;
             c->token_pos++; /* ',' */
             {
@@ -1228,6 +1235,23 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
      * (preprocessor marker __zc_aligned__(N)).  Kept on the function record
      * so `__alignof__(f)` sees it (c-torture execute/align-3).  A later
      * definition without the attribute inherits the prototype's value. */
+    /* GNU asm label: `int f(void) __asm("g");` - the label trails the
+     * complete (single) declarator and renames the emitted symbol; call
+     * sites and the definition emission both follow it (c-torture
+     * execute/builtins/{strstr,memops}-asm.c).  The parenthesized-declarator
+     * path already consumed it into d.asm_name; the plain-name path parses
+     * it here.  Multi-declarator lists are left alone (the label would
+     * attach to the last declarator, which may be a variable).  fn_asm is
+     * applied to pre-existing records now AND inherited by the record
+     * created below (prototype or definition). */
+    if (!fn_asm[0] && !multi_decl &&
+        c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
+        (void)zero_cc_parse_asm_label(c, fn_asm, sizeof(fn_asm));
+    }
+    if (fn_asm[0]) {
+        zero_cc_fn_set_asm_name(c, fn_name, fn_asm);
+    }
+
     size_t fn_align = 0;
     {
         size_t probe = 0;
@@ -1257,6 +1281,9 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
             ZeroCCFunction *fn = &c->functions[c->function_count++];
             memset(fn, 0, sizeof(*fn));
             snprintf(fn->name, sizeof(fn->name), "%s", fn_name);
+            if (fn_asm[0]) {
+                snprintf(fn->asm_name, sizeof(fn->asm_name), "%s", fn_asm);
+            }
             fn->text_offset = 0;
             fn->param_count = first_param_count;
             fn->return_type = fn_ret_type;
@@ -1294,6 +1321,9 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
          * (following nested_enclosing_fn_idx) loop on index 0 forever. */
         fn->nested_enclosing_fn_idx = (size_t)-1;
         snprintf(fn->name, sizeof(fn->name), "%s", fn_name);
+        if (fn_asm[0]) {
+            snprintf(fn->asm_name, sizeof(fn->asm_name), "%s", fn_asm);
+        }
         /* Record text_offset BEFORE emitting any prologue bytes for this function */
         fn->text_offset = c->text_section.length;
         /* Sprint 108: GNU __attribute__((section("name"))) on a function.  The

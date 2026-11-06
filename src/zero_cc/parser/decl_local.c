@@ -1259,6 +1259,7 @@ bool zero_cc_parse_local_decl(ZeroCCCompiler *c,  /* Sprint 114: defined in decl
                             ZeroCCFunction *nf = &c->functions[c->function_count++];
                             memset(nf, 0, sizeof(*nf));
                             snprintf(nf->name, sizeof(nf->name), "%s", vname);
+                            zero_cc_fn_set_asm_name(c, vname, decl.asm_name);
                             nf->text_offset = 0;       /* set when compiled */
                             nf->return_type = ret_type;
                             nf->returns_struct = (ret_type.tag == TYPE_STRUCT || ret_type.tag == TYPE_UNION ||
@@ -1697,6 +1698,10 @@ bool zero_cc_parse_local_decl(ZeroCCCompiler *c,  /* Sprint 114: defined in decl
                         fn->ret_struct_sz = ret_type.size;
                         fn->is_prototype = true;
                     }
+                    /* GNU `__asm("sym")` label on this declarator: rename the
+                     * emitted symbol for every record of that name (a later
+                     * definition may have registered the record first). */
+                    zero_cc_fn_set_asm_name(c, vname, decl.asm_name);
                     /* C89 mixed declarator list: `float fx (), inita (), a, b, c;`
                      * - function declarators and variables share one
                      * declaration.  When more declarators follow the `)`,
@@ -1742,6 +1747,7 @@ bool zero_cc_parse_local_decl(ZeroCCCompiler *c,  /* Sprint 114: defined in decl
                                     mfn->ret_struct_sz = mret.size;
                                     mfn->is_prototype = true;
                                 }
+                                zero_cc_fn_set_asm_name(c, md.name, md.asm_name);
                                 ZeroCCASTNode *tn = zero_cc_ast_get(arena, list_tail);
                                 if (tn) tn->next = mref;
                                 list_tail = mref;

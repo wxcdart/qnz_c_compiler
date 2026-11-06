@@ -1491,12 +1491,12 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
             int total_int_args = int_arg_idx + ((callee_uses_sret && c->isa != ISA_AARCH64) ? 1 : 0);
 
             /* Emit IR call (NULL name for indirect calls) */
-            /* Nested callees are emitted under their unique mangled symbol
-             * (see zero_cc_resolve_callee); the call must target the same
-             * name or the AOT relocation resolves to the wrong function. */
-            const char *emit_name = (callee_fn && callee_fn->is_nested &&
-                                     callee_fn->nested_sym_name[0])
-                                        ? callee_fn->nested_sym_name : name;
+            /* The emitted symbol is the function's actual emission name:
+             * nested callees are mangled (zero_cc_resolve_callee resolved
+             * them), and `__asm`-labeled callees are renamed (c-torture
+             * execute/builtins/{strstr,memops}-asm.c). Unknown callees
+             * (function pointers by other names) keep the raw name. */
+            const char *emit_name = callee_fn ? zero_cc_fn_emit_symbol(callee_fn) : name;
             ir_emit_call(c, is_indirect_call ? NULL : emit_name);
 
             /* Pack argument info into the instruction.

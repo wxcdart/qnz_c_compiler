@@ -304,11 +304,33 @@ static inline bool zero_cc_no_builtin(const ZeroCCCompiler *c, const char *name)
  * (dlsym/PLT). */
 /* The symbol actually emitted for a function: nested functions are
  * block-scoped and may share source names, so they are emitted under
- * fn->nested_sym_name; every name-resolution site (calls, address-of,
- * the .o writer) must use this, or it loads/patches the wrong symbol. */
+ * fn->nested_sym_name; a GNU `__asm("sym")` declarator label renames the
+ * symbol (fn->asm_name); every name-resolution site (calls, address-of,
+ * the .o writer) must use this, or it loads/patches the wrong symbol.
+ * (c-torture execute/builtins/{strstr,memops}-asm.c: the builtins are
+ * declared `__asm("my_X")` and the user library defines the `my_X`
+ * symbols - calls must target the renamed symbol.) */
 static inline const char *zero_cc_fn_emit_symbol(const ZeroCCFunction *fn) {
+    if (fn->asm_name[0]) return fn->asm_name;
     if (fn->is_nested && fn->nested_sym_name[0]) return fn->nested_sym_name;
     return fn->name;
+}
+
+/* GNU `__asm("sym")` label on a function declarator: apply it to every
+ * record with that name (prototype AND definition entries) so call
+ * sites, address-of, and the definition emission all use the same
+ * symbol. The first label wins; a conflicting label on a later
+ * declaration is ignored (GCC diagnostics it; we stay lenient).
+ * Synthetic trampoline stubs keep their mangled names. */
+static inline void zero_cc_fn_set_asm_name(ZeroCCCompiler *c, const char *fn_name,
+                                           const char *asm_name) {
+    if (!c || !fn_name || !asm_name || !asm_name[0]) return;
+    for (size_t i = 0; i < c->function_count; i++) {
+        ZeroCCFunction *fn = &c->functions[i];
+        if (fn->is_tramp_stub || strcmp(fn->name, fn_name) != 0) continue;
+        if (fn->asm_name[0] && strcmp(fn->asm_name, asm_name) != 0) continue;
+        snprintf(fn->asm_name, sizeof(fn->asm_name), "%s", asm_name);
+    }
 }
 
 static inline ZeroCCFunction* zero_cc_find_function_by_symbol(ZeroCCCompiler *c, const char *name) {
@@ -323,7 +345,20 @@ static inline ZeroCCFunction* zero_cc_find_function_by_symbol(ZeroCCCompiler *c,
             }
         }
     }
-    return NULL;
+    /* `__asm`-renamed internal functions: calls are emitted under the
+     * renamed symbol and must map back to the record so the emitter
+     * classifies them as internal (direct offset), not external dlsym.
+     * A source name may collide with another function's asm label, so
+     * prefer a record whose plain name matches over an asm-name match. */
+    ZeroCCFunction *asm_match = NULL;
+    for (size_t i = 0; i < c->function_count; i++) {
+        const ZeroCCFunction *f = &c->functions[i];
+        if (f->asm_name[0] && strcmp(f->asm_name, name) == 0) {
+            asm_match = (ZeroCCFunction *)f;
+            break;
+        }
+    }
+    return asm_match;
 }
 
 /* Dynamic Symbol Lookup for JIT Mode */
