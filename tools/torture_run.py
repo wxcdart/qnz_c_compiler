@@ -77,11 +77,12 @@ RUN_MODES = ["jit", "aot"]
 COMPILE_LEVELS = [0, 2]
 RUN_TIMEOUT = 5
 BUILD_TIMEOUT = 10
-# Reference compiler: override with TORTURE_GCC (e.g. gcc-14 for C23
-# `dg-options "-std=gnu23"` tests the host gcc-13 cannot build).
-# The refcache key includes the compiler name so cached references never
-# mix across reference-compiler switches.
-GCC = os.environ.get("TORTURE_GCC", "gcc")
+# Reference compiler: override with TORTURE_GCC. Default: gcc-14 when
+# installed (C23 `dg-options "-std=gnu23"` tests need it; the baseline is
+# recorded against gcc-14), else the plain `gcc`. The refcache key includes
+# the compiler name so cached references never mix across switches.
+GCC = os.environ.get("TORTURE_GCC") or (
+    shutil.which("gcc-14") if shutil.which("gcc-14") else "gcc")
 KEEP = False  # --keep: retain work artifacts instead of unlinking
 
 # dg-require-effective-target tokens zerocc cannot satisfy (GNU extensions /
