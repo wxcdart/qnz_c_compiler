@@ -28,7 +28,7 @@ ZeroCC is a multi-ISA C99/C11/C23 compiler targeting x86-64, AArch64, and RISC-V
   - Early parameter scope registration enabling dependent parameter type deduction (`typeof(int) add(typeof(int) a, typeof(a) b)`)
   - Empty `{}` initializers (C23 6.7.10) for automatic locals, static locals, compound literals, and globals
   - `[[attribute-list]]` skipping (e.g. `[[nodiscard]]`, `[[maybe_unused]]`)
-  - Predefined object macro `__STDC_NO_COMPLEX__ 1` formally signaling complex number type non-support (C11/C23)
+  - `__STDC_NO_COMPLEX__` is **not defined** — the complex number types are implemented (the macro was stale from before the complex work and removed; see the C99/GNU `_Complex` feature below)
   - Predefined compiler identification macros `__zerocc__ 1` and `__ZEROCC__ 1`
 - **C11 Support**:
   - `_Alignas` & `_Alignof` on types, struct fields, and local variables
@@ -36,9 +36,12 @@ ZeroCC is a multi-ISA C99/C11/C23 compiler targeting x86-64, AArch64, and RISC-V
   - `_Generic` type-based selection (6.5.1.1 compatibility) & `_Static_assert`
   - `_Atomic` qualifiers, `__sync_*` / `__atomic_*` builtins (incl. bitwise RMW `__atomic_fetch_or/and/xor`), C11 `<stdatomic.h>`, and hardware atomic IR opcodes (`OP_ATOMIC_XADD`, `OP_ATOMIC_CMPXCHG`, `OP_ATOMIC_XCHG`, `OP_MFENCE`)
   - `<threads.h>` (`thrd_t`, `mtx_t`) mapped to pthreads; `_Thread_local` (`__thread`) static TLS end-to-end on x86-64 (initial-exec, `.tdata`/`.tbss`, JIT + AOT + `-S`, OKF: `tls-static.md`)
+- **C99/GNU `_Complex` (Sprints 85, 94, 104, 115l)**: first-class complex arithmetic for `_Complex float/double` and GNU integer complex (`_Complex int/long/short/char/unsigned`); all three specifier spellings (prefix/suffix/`__complex__`); standalone `_Complex` = `_Complex double` (GNU mode); address-form value model with element-size discipline (the Sprint 115l `esz` fix); per-half arithmetic, algebraic division (`__divdc3` for complex double, integer complex inline), `__real__`/`__imag__` lvalues; C99 TS 18661 `conj`/`creal`/`cimag` builtins in **both** `__builtin_`-prefixed and bare spellings, expanded inline even at `-O0` (GCC declaration-attachment semantics — no libm call, verified `nm`-clean); complex struct/union members, arrays, and `csinf`-family libm calls; complex ABI (consecutive FP registers for float complex, GPR pairs for integer complex).
+- **`__int128` / `__uint128_t` / `__float128` (Sprints 109–113)**: real 16-byte/16-aligned types (previously `__int128` was silently a 4-byte `int`); full arithmetic, shifts, comparisons, casts, and `__builtin_{add,sub,mul}_overflow` incl. 128-bit; zero_rt-owned software 64/128-bit division (Knuth multiword in `zero_rt/core/int128.c` — no libgcc dependency); two-unit argument ABI (low/high register pair, register/stack straddle) and two-register return ABI with post-call caller protection; `__int128` in function-pointer signatures, struct members, arrays, pointers, and wide (124-bit) bitfields; `v2ti` 128-bit vector lanes; O2-inliner high-half safety; `__float128` object model (double value + zeroed top 8 bytes); `make test-isa128` **144/144** cross-ISA gate.
 - **GNU/Clang Extensions (Sprint 43)**: `__builtin_offsetof`, case ranges, designated-initializer ranges, statement expressions `({ ... })`, verified differentially against GCC (`tools/extension_verifier.py` 14/14).
+- **GNU C dialect & nested functions (Sprints 84–108)**: GNU nested function definitions with closure capture (by-value, by-reference mirrors, runtime VLA parameter dimensions) and real trampolines on all three 64-bit ISAs (Sprint 97+, OKF: `architecture-pipeline.md`); nonlocal `goto` to ancestor `__label__`s (Sprint 99); K&R old-style definitions (Sprint 98); gnu89/implicit-`int` leniencies calibrated against `gcc -std=gnu89` (Sprints 99–101 — unblocked the `SKIP-C89` bucket); labels-as-values `&&l` + computed `goto *p` with label dispatch tables (Sprint 84); `__builtin_apply`/`__builtin_apply_args` (Sprint 103); GNU asm labels (Sprint 102); `scalar_storage_order` bitfields + GCC-compatible mixed-base bitfield packing (Sprint 102); `__attribute__((aligned/section/alias/vector_size))` (Sprints 102–108 — the `named_sections` c-torture bucket eliminated); `__builtin_return_address`/`__builtin_frame_address` (Sprint 86); empty structs/unions (Sprint 86); VLA struct/union members with runtime layout + by-value two-unit ABI (Sprint 100); `__builtin_bswap64`, `__builtin_convertvector`; digit separators `1'000'000`.
 - **IR & Optimization Pipeline (`opt_pass.c`)**:
-  - 140-opcode `Instr` IR with `IRCallArgs` side table (opcode count grew 51 → 140 across Sprints 18-105: atomics, `OP_SYSCALL`, `OP_TLS_LEA`, `OP_PARAM_LOAD`, SIMD, `OP_NONLOCAL_GOTO`, `OP_SETJMP`/`OP_LONGJMP`, etc.)
+  - 166-opcode `Instr` IR with `IRCallArgs` side table (opcode count grew 51 → 166 across Sprints 18–113: atomics, `OP_SYSCALL`, `OP_TLS_LEA`, `OP_PARAM_LOAD`, SIMD, `OP_NONLOCAL_GOTO`, `OP_SETJMP`/`OP_LONGJMP`, the GPR128 128-bit family, etc.)
   - Optimization levels (`-O0`..`-O3`, **default `-O1`**; `src/main.c`). Registered passes (`g_opt_passes` in `opt_pass.c`, priority order, each tagged with `min_level`):
     - **`-O1`**: `constant_fold`, `flag_dce`, `dce`, `copy_prop`, `mem2reg` (local + cross-block loop-carried promotion)
     - **`-O2`**: `cse`, `gvn`, `licm` (Two-Pass Rebuild, call-spanning guard, multi-def guard, stack-load hoisting); plus AST-level small-function inlining (`ast_lowering_expr.c`, checks `c->opt_level >= OPT_LEVEL_O2`)
@@ -105,7 +108,7 @@ Arena AST Parser (src/zero_cc/parser/definitions.h, ast_stmt.h, ast_expr.h)
     ↓
 Semantic Analyzer (src/zero_cc/semantic/visitor.c, TypeInfo)
     ↓
-AST-to-IR Lowering (src/zero_cc/ir/ast_lowering*.c -> 140-opcode Instr)
+AST-to-IR Lowering (src/zero_cc/ir/ast_lowering*.c -> 166-opcode Instr)
     ↓
 Optimization Pipeline (src/zero_cc/opt/opt_*.c + opt/cfg.{h,c} CFG view; -O0 none, default -O1: ConstantFold/FlagDCE/DCE/CopyProp/Mem2Reg, -O2: +CSE/GVN/LICM/inlining, -O3: +Branchless/StrengthReduction/BranchSimplify/Vectorize)
     ↓
