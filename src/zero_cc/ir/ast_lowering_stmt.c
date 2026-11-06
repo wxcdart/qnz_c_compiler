@@ -1486,7 +1486,7 @@ void lower_stmt_if(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node
         lower_node(c, arena, node->aux.alt);
     }
     ir_emit_label(c, end_label);
-    if (saved_temp_id > 1024 && c->lowering.vla.loop_depth == 0) {
+    if (saved_temp_id > 32768 && c->lowering.vla.loop_depth == 0) {
         c->next_temp_id = saved_temp_id;
     }
 }

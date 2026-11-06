@@ -150,6 +150,21 @@ void opt_fold_constants(ZeroCCCompiler *c) {
                 instr->temp_src2= TEMP_NONE;
                 instr->label_idx = 0;
 
+                /* Sprint 118: a zero_san OP_OVF_TRAP rides on the folded op
+                 * (its width-8 check reads the CPU OF flag set by the
+                 * immediately-preceding addq/subq/imulq, its narrow check
+                 * re-reads this op's result temp).  The op is gone at
+                 * runtime, so the check must go with it: a stranded trap
+                 * reads a stale OF flag and false-traps on valid constant
+                 * code (non-deterministically, per caller flag state). */
+                if (i + 1 < count) {
+                    Instr *next = ir_get(c, i + 1);
+                    if (next && next->op == OP_OVF_TRAP &&
+                        next->temp_dest == (uint16_t)dest) {
+                        next->op = OP_DEAD;
+                    }
+                }
+
                 // Mark the result as constant for future folding only if uniquely defined
                 if (dest >= 0 && dest < CONST_MAP_SIZE && g_def_count[dest] == 1) {
                     mark_constant(dest, result);

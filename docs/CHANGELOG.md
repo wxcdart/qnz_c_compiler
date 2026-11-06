@@ -1,3 +1,28 @@
+## [Sprint 118] - 2026-11-06 - Type tags on IR (Slice 1: emission + type-tag verifier gate) + preprocessor multi-line #define comment fix & OVF constant-folding fix
+
+Landed Slice 1 of the Type System Hardening track (type tags on the IR — emission + persistent verifier gate, zero behavior change). Also resolved two bugs surfaced by the gate: orphaned `OP_OVF_TRAP` on constant fold, and preprocessor multi-line comments inside macro definitions.
+
+- **Per-Temp Value-Type Tag Table (`symbols.h`, `ir.h`, `ir.c`)**:
+  - `ZeroCCCompiler.temp_type_tags[65536]`: lazily allocated per function, indexed directly by temporary ID (0..65534), reset in `ir_reset()`.
+  - Type tag encoding: 4-bit class (`NONE`, `INT`, `UINT`, `FLOAT`, `INT128`, `UINT128`, `PTR`) + 3-bit width code (1B, 2B, 4B, 8B, 16B).
+  - API: `zc_temp_tag(c, id)`, `zc_temp_tag_set(c, id, tag)`, `zc_temp_tags_reset(c)`.
+- **Single-Site Emission & Rate-Limited Mismatch Check (`ast_lowering_expr.c`)**:
+  - `lower_expr` wraps `lower_expr_body`, stamping each newly produced temp with its frontend semantic `TypeInfo` (`zc_tag_from_typeinfo`).
+  - At every expression boundary, `zc_temp_tag_check_flags` cross-checks `c->last_expr_is_float` and `c->last_expr_is_128` against the stamped class, logging mismatches on a log-scale (1, 10, 100...) without affecting compilation.
+- **IR Dump Extensions (`ir.c`)**:
+  - Instructions annotate C99 width marks `[w=N]`, unsigned DIV/MOD with `[u]`, and real names for `OP_OVF_TRAP`.
+  - Functions output a `# temp tags:` line listing all tagged virtual registers.
+- **Type-Tag Verifier Gate (`tools/type_tag_verifier.py`)**:
+  - Differential verification gate running across 148 corpus files at `-O0`, `-O2`, `-O3` checking 8 invariants (I1 width mark ↔ tag, I2 `OP_OVF_TRAP` check width & ALU adjacency, I3 FP ops, I4 128-bit ops, I5 in-place extends, I6 tag ↔ defining op, I7 `COND_SET`, I8 unsigned div).
+- **Bug Fix 1 — Orphaned `OP_OVF_TRAP` in Constant Folding (`opt_constant_fold.c`)**:
+  - Constant folding of `ADD`/`SUB`/`MUL` now marks any immediately-following `OP_OVF_TRAP` on the same dest as `OP_DEAD`, preventing false SIGILL traps from reading stale CPU overflow flags. Verified with regression test `test/san/san_ok_cfold.c`.
+- **Bug Fix 2 — Preprocessor Multi-Line Comments in `#define` (`preprocessor.c`)**:
+  - Fixed preprocessor comment handling so block comments spanning multiple lines inside `#define` directives are replaced with a single space without leaking continuation lines as code or breaking header parsing. Verified with `test/jit/cpp_comment_define.c` and clean preprocessing of `src/zero_cc/parser/parser.h`.
+- **Bug Fix 3 — 128-bit Comparison `last_expr_is_128` & Cast Truncation (`ast_lowering_binop.c`, `ast_lowering_cast.c`)**:
+  - Fixed `zc_lower_binop128` to clear `c->last_expr_is_128 = 0` on comparison operators (`==`, `!=`, `<`, etc.) whose results are boolean integers.
+  - Fixed narrowing casts from 128-bit values in `ast_lowering_cast.c` to emit `OP_TRUNC128_64` and clear `c->last_expr_is_128 = 0`.
+- **Verification**: `make test` (178/178), `make test-opt` (140 ok), `make test-san` (91 ok, 0 fail), `make test-torture` (3,740 PASS / 0 regressions), `make asan` (178/178), `make test-isa-qemu` (59/59), `make test-isa128` (144/144), `tools/type_tag_verifier.py --verify-all` (PASS), `tools/diag_battery.py` (baseline OK), `tools/style_check.py` (0 errors).
+
 ## [Sprint 117] - 2026-11-06 - RISC-V `int * long` mixed-multiply miscompile fixed — ABI parameter pre-coloring in the register allocator (all ISAs)
 
 Fixed the pre-existing RISC-V `int * long` mixed-width multiply bug found while landing Sprint 116 (computed `i * i`): the sign-extension of the `int` argument was emitted into the register that still held the `long` argument's value.

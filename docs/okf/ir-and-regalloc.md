@@ -4,7 +4,7 @@ title: Two-Pass IR & Linear Scan Register Allocation
 description: IR instruction format, call-argument tracking table, virtual register conventions, and linear scan register allocation constraints.
 resource: middleend/ir-and-regalloc
 tags: [ir, regalloc, ssa, registers, calling-convention]
-timestamp: 2026-11-06T20:22:39Z
+timestamp: 2026-11-06T21:46:32Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -78,6 +78,23 @@ ZeroCC keeps scalar floats **and** doubles as double-width 64-bit patterns in th
 - `OP_CVTTSD2SS` (`ir_emit_cvttsd2ss`): in-register model double → ABI float (`cvttsd2ss` / `fcvt s,d` / `fcvt.s.d`), emitted by the `float` return epilogue before `ret`.
 
 (Their complements for the *capture* direction already existed: a `float` return is pulled back into the model with `OP_CVTSS2SD`; the caller-side float-arg *narrowing* store is `ir_emit_vstoress`, the converting `vstoress`.) See `abi-sysv-x86_64.md` §1 for the boundary rules and the one-register `_Complex float` convention.
+
+### Per-Temp Value-Type Tags (Sprint 118, Slice 1)
+
+ZeroCC IR historically carried type information only through side-channels (C99 width marks on defining instructions, `last_expr_is_float` / `last_expr_is_128` producer flags, `OP_OVF_TRAP` check-width metadata). Sprint 118 (Slice 1) introduces explicit per-temp value-type tags (`temp_type_tags[65536]` in `ZeroCCCompiler`, `src/zero_cc/types/symbols.h`), indexed directly by temporary ID (0..65534) and cleared per function in `ir_reset()`.
+
+- **Encoding (`src/zero_cc/ir/ir.h`)**:
+  - Class (low 4 bits): `ZC_TAGCLS_NONE` (0), `ZC_TAGCLS_INT` (1), `ZC_TAGCLS_UINT` (2), `ZC_TAGCLS_FLOAT` (3), `ZC_TAGCLS_INT128` (4), `ZC_TAGCLS_UINT128` (5), `ZC_TAGCLS_PTR` (6).
+  - Width code (bits 4..6): 1B (0), 2B (1), 4B (2), 8B (3), 16B (4).
+  - Accessors: `zc_temp_tag(c, id)`, `zc_temp_tag_set(c, id, tag)`, `zc_temp_tags_reset(c)`.
+- **Emission site (`src/zero_cc/ir/ast_lowering_expr.c`)**:
+  - `lower_expr` wraps `lower_expr_body`, stamping each newly produced temp with its frontend semantic `TypeInfo` (`zc_tag_from_typeinfo`). Address-form rvalues (complex, vectors, structs, decaying arrays) and pointers take `ZC_TAG_PTR`; scalar integers and floats encode exact byte width.
+  - At every expression boundary, `zc_temp_tag_check_flags` validates that `c->last_expr_is_float` and `c->last_expr_is_128` match the semantic class (log-rate-limited warning on mismatch, non-fatal).
+- **IR Dump Extensions (`src/zero_cc/ir/ir.c`)**:
+  - Instructions annotate C99 width marks `[w=N]`, unsigned DIV/MOD `[u]`, and real opcode names (`OP_OVF_TRAP`).
+  - Functions print a `# temp tags:` summary line recording all non-zero tagged virtual registers.
+- **Verification Gate (`tools/type_tag_verifier.py`)**:
+  - Cross-checks 148 corpus files at `-O0`, `-O2`, `-O3` across 8 invariants: I1 (width mark ↔ tag), I2 (`OP_OVF_TRAP` check width & ALU adjacency), I3 (FP ops & operands), I4 (128-bit ops & scalar views), I5 (in-place SEXT/ZEXT class consistency), I6 (tag ↔ defining-op class), I7 (`COND_SET` 0/1 int dest), I8 (unsigned DIV/MOD `[u]`).
 
 ## Temp-Id Space (16-bit, C2b) & the Exhaustion Guard
 

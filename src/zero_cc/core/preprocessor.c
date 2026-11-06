@@ -983,6 +983,55 @@ int64_t zero_cc_cpp_eval_expr(ZeroCCPreprocessor *cpp, const char *expr) {
     return result;
 }
 
+/* Capture a #define value up to end-of-line (splicing backslash-newline
+ * continuations, C99 phase 1/2), with comment handling: a `//` comment
+ * ends the value, and a block comment is replaced by a single space
+ * - including comments that START on the #define line and CONTINUE on
+ * following lines.  Without the multi-line case, the comment's
+ * continuation lines leak into the token stream as code and the macro
+ * body keeps an unterminated block-comment fragment (Sprint 118: blocked
+ * compiling the project's own headers, e.g. parser.h's
+ * NODE_DECL_VLA_STRUCT_DEF).  Returns the value (malloc'd) with *pp left
+ * at the line end, or NULL on OOM. */
+static char *zero_cc_cpp_capture_define_value(ZeroCCPreprocessor *cpp, const char **pp) {
+    const char *p = *pp;
+    char *val = (char *)malloc(1024);
+    if (!val) return NULL;
+    size_t vlen = 0, vcap = 1024;
+    while (*p && *p != '\n') {
+        if (*p == '\\' && p[1] == '\n') { p += 2; cpp->line_num++; continue; }
+        if (*p == '/' && p[1] == '/') break;  /* line comment ends the value */
+        if (*p == '/' && p[1] == '*') {
+            p += 2;
+            while (*p && !(*p == '*' && p[1] == '/')) {
+                if (*p == '\n') cpp->line_num++;
+                p++;
+            }
+            if (*p) p += 2;
+            if (vlen > 0 && val[vlen - 1] != ' ') {
+                if (vlen + 2 > vcap) {
+                    size_t nc = (vlen + 2) * 2;
+                    char *nv = (char *)realloc(val, nc);
+                    if (!nv) { free(val); *pp = p; return NULL; }
+                    val = nv; vcap = nc;
+                }
+                val[vlen++] = ' ';
+            }
+            continue;
+        }
+        if (vlen + 2 > vcap) {
+            size_t nc = (vlen + 2) * 2;
+            char *nv = (char *)realloc(val, nc);
+            if (!nv) { free(val); *pp = p; return NULL; }
+            val = nv; vcap = nc;
+        }
+        val[vlen++] = *p++;
+    }
+    val[vlen] = '\0';
+    *pp = p;
+    return val;
+}
+
 void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBuffer *out) {
     if (!src) return;
     const char *p = src;
@@ -1095,21 +1144,14 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                         }
                         if (*p == ')') p++;
                         while (*p && isspace((unsigned char)*p) && *p != '\n') p++;
-                        /* Build the body, splicing backslash-newline
-                         * continuations (phase 2) out of the stored text. */
-                        char *body = (char *)malloc(1024); size_t blen = 0;
-                        while (*p && *p != '\n') {
-                            if (*p == '\\' && p[1] == '\n') { p += 2; cpp->line_num++; continue; }
-                            if (blen + 2 > 1024) {
-                                size_t nc = (blen + 2) * 2;
-                                char *nb = (char *)malloc(nc);
-                                memcpy(nb, body, blen);
-                                free(body);
-                                body = nb;
-                            }
-                            body[blen++] = *p++;
+                        /* Build the body (phase-2 comment + continuation
+                         * splicing - see the helper). */
+                        char *body = zero_cc_cpp_capture_define_value(cpp, &p);
+                        if (!body) {  /* OOM */
+                            body = (char *)malloc(1);
+                            if (!body) { fprintf(stderr, "Out of memory\n"); exit(1); }
+                            body[0] = '\0';
                         }
-                        body[blen] = '\0';
 
                         if (cpp->macro_count < ZERO_CC_MAX_MACROS) {
                             size_t idx = cpp->macro_count++;
@@ -1127,21 +1169,14 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                         }
                     } else {
                         while (*p && isspace((unsigned char)*p) && *p != '\n') p++;
-                        /* Object-macro value: splice backslash-newline
-                         * continuations out (phase 2). */
-                        char *val = (char *)malloc(1024); size_t vlen = 0;
-                        while (*p && *p != '\n') {
-                            if (*p == '\\' && p[1] == '\n') { p += 2; cpp->line_num++; continue; }
-                            if (vlen + 2 > 1024) {
-                                size_t nc = (vlen + 2) * 2;
-                                char *nv = (char *)malloc(nc);
-                                memcpy(nv, val, vlen);
-                                free(val);
-                                val = nv;
-                            }
-                            val[vlen++] = *p++;
+                        /* Object-macro value (phase-2 comment + continuation
+                         * splicing - see the helper). */
+                        char *val = zero_cc_cpp_capture_define_value(cpp, &p);
+                        if (!val) {  /* OOM */
+                            val = (char *)malloc(1);
+                            if (!val) { fprintf(stderr, "Out of memory\n"); exit(1); }
+                            val[0] = '\0';
                         }
-                        val[vlen] = '\0';
                         zero_cc_cpp_define_obj(cpp, macro_name, val);
                         free(val);
                     }

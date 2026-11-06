@@ -462,10 +462,13 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                             if (c->last_expr_is_float) {
                                 if (pesz == 4) ir_emit_vstoress(c, (uint16_t)paddr, (uint16_t)prv);
                                 else ir_emit_vstoresd(c, (uint16_t)paddr, (uint16_t)prv);
+                                return prv;
                             } else {
                                 int pdv = zc_emit_int_to_double(c, prv, rhs_ti_a);
                                 if (pesz == 4) ir_emit_vstoress(c, (uint16_t)paddr, (uint16_t)pdv);
                                 else ir_emit_vstoresd(c, (uint16_t)paddr, (uint16_t)pdv);
+                                c->last_expr_is_float = 1;
+                                return pdv;
                             }
                         } else {
                             int piv = prv;
@@ -478,11 +481,9 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                             else if (pesz == 2) ir_emit_store_16(c, piv, paddr);
                             else if (pesz == 4) ir_emit_store_32(c, piv, paddr);
                             else ir_emit_store_64(c, piv, paddr);
+                            c->last_expr_is_float = 0;
+                            return piv;
                         }
-                        c->last_expr_is_float = 0;
-                        int pz = c->next_temp_id++;
-                        ir_emit_mov_imm(c, pz, 0);
-                        return pz;
                     }
                 }
             }

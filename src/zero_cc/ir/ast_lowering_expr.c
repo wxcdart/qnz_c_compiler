@@ -692,7 +692,97 @@ static bool zc_type_offset_is_float(const ZeroCCType *t, size_t off) {
     return false;
 }
 
+static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
+
+/* Sprint 118 (type-system hardening #1, slice 1): per-temp type tags.
+ *
+ * The value every expression produces is stamped with the semantic type of
+ * its AST node (the frontend's verdict, independent of the lowering's own
+ * UAC/width analysis). The tags let the width marks, OP_OVF_TRAP metadata,
+ * the last_expr_is_float/last_expr_is_128 flags, and the FP/128-bit op
+ * choices become CHECKABLE invariants (tools/type_tag_verifier.py + the
+ * flag check below) instead of conventions enforced by memory. Slice 1:
+ * emission + checks only - no codegen consumes the tags yet.
+ */
+
+/* Map the semantic TypeInfo to a temp tag. Address-form rvalues (complex,
+ * vectors, structs, decaying arrays) and pointers are PTR; structs/unions
+ * that are *values* are not stamped (no claim) since the IR materializes
+ * them through VREG_0/VREG_2 or sret buffers, not a plain value temp. */
+static inline uint8_t zc_tag_from_typeinfo(const TypeInfo *ti) {
+    if (!ti) return ZC_TAG_NONE;
+    bool uns = (ti->modifiers & TYPE_MOD_UNSIGNED) != 0;
+    switch (ti->kind) {
+        case TYPE_KIND_BOOL:   return ZC_TAG_INT(ZC_TAGW_1);
+        case TYPE_KIND_CHAR:   return uns ? ZC_TAG_UINT(ZC_TAGW_1) : ZC_TAG_INT(ZC_TAGW_1);
+        case TYPE_KIND_SHORT:  return uns ? ZC_TAG_UINT(ZC_TAGW_2) : ZC_TAG_INT(ZC_TAGW_2);
+        case TYPE_KIND_INT:    return uns ? ZC_TAG_UINT(ZC_TAGW_4) : ZC_TAG_INT(ZC_TAGW_4);
+        case TYPE_KIND_LONG:   return uns ? ZC_TAG_UINT(ZC_TAGW_8) : ZC_TAG_INT(ZC_TAGW_8);
+        case TYPE_KIND_INT128: return uns ? ZC_TAG_UINT128 : ZC_TAG_INT128;
+        case TYPE_KIND_FLOAT:  return ZC_TAG_FLOAT(ZC_TAGW_4);
+        case TYPE_KIND_DOUBLE: return ZC_TAG_FLOAT(ti->is_float128 || ti->is_long_double
+                                                   ? ZC_TAGW_16 : ZC_TAGW_8);
+        case TYPE_KIND_ENUM:   return uns ? ZC_TAG_UINT(ZC_TAGW_4) : ZC_TAG_INT(ZC_TAGW_4);
+        case TYPE_KIND_POINTER:
+        case TYPE_KIND_FUNCTION:
+        case TYPE_KIND_ARRAY:
+        case TYPE_KIND_COMPLEX:
+        case TYPE_KIND_VECTOR:
+            return ZC_TAG_PTR;
+        case TYPE_KIND_STRUCT:
+        case TYPE_KIND_UNION:
+            return ZC_TAG_NONE;  /* value-form struct: no claim (slice 1) */
+        default:
+            return ZC_TAG_NONE;
+    }
+}
+
+/* Flag/tag agreement check at every expression boundary: the producer-side
+ * invariant that the side-channel flags match the semantic type of the temp
+ * just produced. Mismatches are the "consumer must remember the producer's
+ * type" bug class - slice 1 reports them, slice 2 makes the tags the source
+ * of truth. Never fatal (no behavior change); the hard gate is
+ * tools/type_tag_verifier.py. */
+static void zc_temp_tag_check_flags(ZeroCCCompiler *c, uint16_t t) {
+    uint8_t cls = zc_tag_class(zc_temp_tag(c, t));
+    bool bad = c->last_expr_is_float
+               ? cls != ZC_TAGCLS_FLOAT
+               : c->last_expr_is_128
+                 ? !(cls == ZC_TAGCLS_INT128 || cls == ZC_TAGCLS_UINT128)
+                 : (cls == ZC_TAGCLS_FLOAT || cls == ZC_TAGCLS_INT128 ||
+                    cls == ZC_TAGCLS_UINT128);
+    if (!bad) return;
+    size_t n = ++c->type_tag_mismatches;
+    /* Report at 1st, 10th, 100th, ... mismatch (log-rate-limited). */
+    size_t p = 1;
+    while (p < n) p *= 10;
+    if (p == n) {
+        fprintf(stderr,
+            "type-tag check: %zu flag/type mismatches so far "
+            "(temp r%u: class=%u float=%d t128=%d)\n",
+            n, (unsigned)t, (unsigned)cls, (int)c->last_expr_is_float,
+            (int)c->last_expr_is_128);
+    }
+}
+
 int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
+    if (ref == AST_NULL) return TEMP_NONE;
+    int t = lower_expr_body(c, arena, ref);
+    if (t != TEMP_NONE) {
+        ZeroCCASTNode *node = zero_cc_ast_get(arena, ref);
+        /* Stamp only untagged temps: a ternary/comma returns a branch temp
+         * already stamped by the inner call with the branch's type (the
+         * value that is actually in the temp). */
+        if (zc_temp_tag(c, (uint16_t)t) == ZC_TAG_NONE) {
+            zc_temp_tag_set(c, (uint16_t)t,
+                            zc_tag_from_typeinfo(ast_node_get_typeinfo(c, node)));
+        }
+        zc_temp_tag_check_flags(c, (uint16_t)t);
+    }
+    return t;
+}
+
+static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
     if (ref == AST_NULL) return TEMP_NONE;
     ZeroCCASTNode *node = zero_cc_ast_get(arena, ref);
     if (!node) return TEMP_NONE;

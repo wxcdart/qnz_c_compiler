@@ -557,6 +557,7 @@ int zc_lower_binop128(ZeroCCCompiler *c, ZeroCCASTArena *arena,
     int rl = c->next_temp_id++; ir_emit_lo128(c, rl, r);
     int hi_cc_lt = unsigned_ ? CC_FLT_LT : CC_LT;
     int hi_cc_gt = unsigned_ ? CC_FLT_GT : CC_GT;
+    c->last_expr_is_128 = 0;
     switch (op) {
     case TK_EQ: {
         int eh = zc_cmp64_bool(c, lh, rh, CC_EQ);

@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-06T20:22:39Z
+timestamp: 2026-11-06T21:46:32Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1065,3 +1065,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-06 — Updated `sanitizer-roadmap.md`
 - Sprint 117: pre-existing issue 1 (RISC-V int*long multiply) resolved via parameter pre-coloring; mul_il case restored in cross-ISA smoke
+
+## 2026-11-06 — Updated `ir-and-regalloc.md`
+- Sprint 118: Type tags on IR (Slice 1)
+
+## 2026-11-06 — Updated `build-and-verification.md`
+- Sprint 118: Type-tag verifier gate

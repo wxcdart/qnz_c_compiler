@@ -33,6 +33,30 @@ const Instr *ir_get_buffer(const ZeroCCCompiler *c) {
     return c ? c->ir_arena.buffer : NULL;
 }
 
+/* Sprint 118: per-temp type-tag table (lazy 64 KiB; indexed by temp id). */
+uint8_t zc_temp_tag(const ZeroCCCompiler *c, uint16_t id) {
+    if (!c || !c->temp_type_tags || id >= 65535) return 0;
+    return c->temp_type_tags[id];
+}
+
+void zc_temp_tag_set(ZeroCCCompiler *c, uint16_t id, uint8_t tag) {
+    if (!c || id >= 65535) return;
+    if (!c->temp_type_tags) {
+        c->temp_type_tags = (uint8_t *)calloc(1, 65536);
+        if (!c->temp_type_tags) return;  /* table is advisory; never fatal */
+        c->temp_type_tags_hi = 0;
+    }
+    c->temp_type_tags[id] = tag;
+    if (id + 1 > c->temp_type_tags_hi) c->temp_type_tags_hi = id + 1;
+}
+
+void zc_temp_tags_reset(ZeroCCCompiler *c) {
+    if (!c || !c->temp_type_tags) return;
+    uint32_t hi = c->temp_type_tags_hi < 65536 ? c->temp_type_tags_hi : 65536;
+    memset(c->temp_type_tags, 0, hi);
+    c->temp_type_tags_hi = 0;
+}
+
 /* Reset IR buffer for next function - resets arena count (reuses memory) */
 void ir_reset(ZeroCCCompiler *c) {
     if (!c) return;
@@ -43,6 +67,9 @@ void ir_reset(ZeroCCCompiler *c) {
     if (c->ir_call_args.table) {
         c->ir_call_args.count = 0;
     }
+
+    /* Sprint 118: temp ids restart at VREG_USER_START; clear the tag table. */
+    zc_temp_tags_reset(c);
 
     /* A new function's IR invalidates any cached CFG (Sprint 35 Phase 2). */
     c->cfg_version++;
@@ -214,6 +241,8 @@ void ir_dump(const ZeroCCCompiler *c, FILE *f) {
                          break;
             case OP_MUL: fprintf(f, "MUL r%u, r%u, r%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);
                          break;
+            case OP_OVF_TRAP: fprintf(f, "OVF_TRAP r%u", instr->temp_dest);
+                              break;
             case OP_DIV: fprintf(f, "DIV r%u, r%u, r%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);
                          break;
             case OP_MOD: fprintf(f, "MOD r%u, r%u, r%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);
@@ -447,6 +476,36 @@ void ir_dump(const ZeroCCCompiler *c, FILE *f) {
         fprintf(f, "] [flags_in=");
         if (instr->flags_in == REG_FLAGS) fprintf(f, "r0");
         else fprintf(f, "r%u", instr->flags_in);
-        fprintf(f, "]\n");
+        fprintf(f, "]");
+
+        /* Sprint 118: C99 width mark (type-tag verifier input). The mark's
+         * logical width is `w` (signed, w in {1,2,4,8}) or `w-8` (unsigned,
+         * w in {9,10,12}); exotic bit-field marks (e.g. 40/48) are printed
+         * raw. OP_OVF_TRAP reuses the field as CHECK metadata. */
+        if (instr->width != 0) fprintf(f, " [w=%u]", instr->width);
+        if ((instr->op == OP_DIV || instr->op == OP_MOD) && instr->cond != 0)
+            fprintf(f, " [u]");
+        fprintf(f, "\n");
+    }
+
+    /* Sprint 118: per-temp value-type tag table (type-tag verifier input).
+     * Only tagged temps are listed; NONE (0) is omitted. */
+    if (c->temp_type_tags && c->temp_type_tags_hi > 0) {
+        fprintf(f, "# temp tags:");
+        for (uint32_t id = 0; id < c->temp_type_tags_hi && id < 65535; id++) {
+            uint8_t tag = c->temp_type_tags[id];
+            if (tag == 0) continue;
+            const char *cls = zc_tag_class(tag) == ZC_TAGCLS_INT ? "int" :
+                              zc_tag_class(tag) == ZC_TAGCLS_UINT ? "uint" :
+                              zc_tag_class(tag) == ZC_TAGCLS_FLOAT ? "float" :
+                              zc_tag_class(tag) == ZC_TAGCLS_INT128 ? "int128" :
+                              zc_tag_class(tag) == ZC_TAGCLS_UINT128 ? "uint128" :
+                              zc_tag_class(tag) == ZC_TAGCLS_PTR ? "ptr" : "?";
+            if (zc_tag_class(tag) == ZC_TAGCLS_PTR)
+                fprintf(f, " r%u=%s", (unsigned)id, cls);
+            else
+                fprintf(f, " r%u=%s,%d", (unsigned)id, cls, zc_tag_width_bytes(tag));
+        }
+        fprintf(f, "\n");
     }
 }

@@ -152,6 +152,15 @@ typedef struct ZeroCCCompiler {
     RegAllocator regalloc;                /* Linear-scan register allocator */
     int next_temp_id;                     /* Next temporary variable ID */
     uint16_t ir_next_label;               /* Next IR label index */
+    /* Sprint 118 (type-system hardening #1): per-temp value-type tag table,
+     * indexed by temp id (0..65534); lazily allocated, reset in ir_reset.
+     * Stamped at lowering from the AST node's semantic TypeInfo (the
+     * frontend's verdict) and cross-checked against the backend width marks
+     * by tools/type_tag_verifier.py + the per-expression flag check in
+     * lower_expr. Slice 1: emitted, NOT consumed by codegen. */
+    uint8_t *temp_type_tags;
+    uint32_t temp_type_tags_hi;           /* High-water mark of tagged ids */
+    size_t type_tag_mismatches;           /* flag/tag disagreement count (Sprint 118) */
     SemContext *sem_ctx;                  /* Semantic context for type info */
 
     /* Label resolution for jump patching */

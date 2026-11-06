@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 165-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-11-06T19:51:15Z
+timestamp: 2026-11-06T21:46:32Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -120,6 +120,11 @@ make test-opt
 # zero_san (-fsanitize=undefined) flag-ON soundness sweep: test/san san_ok_*/san_trap_*
 # at -O0..-O3 x {JIT, AOT} + cross-ISA qemu smoke (see the test-san section above)
 make test-san
+
+# Type-tag verifier (Sprint 118, Slice 1): cross-checks frontend semantic type tags
+# against lowered IR side-channel width marks, OP_OVF_TRAP invariants, FP/128-bit ops,
+# extend ops, COND_SET, and unsigned division across 148 corpus files at -O0/2/3
+python3 tools/type_tag_verifier.py --verify-all
 
 # Verify the CFG layer (-dump-cfg) against an independent Python recomputation
 # of blocks/loops from -dump-ir: tiling, jump targets, pred/succ consistency,

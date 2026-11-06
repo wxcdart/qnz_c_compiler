@@ -512,6 +512,12 @@ int lower_expr_cast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
          * c-torture execute/pr59014-2). */
         if (cast_ti) {
             size_t ctsz = type_size(cast_ti);
+            if (c->last_expr_is_128 && (ctsz <= 8 && cast_ti->kind != TYPE_KIND_INT128)) {
+                int trunc_t = c->next_temp_id++;
+                ir_emit_trunc128_64(c, trunc_t, result);
+                result = trunc_t;
+                c->last_expr_is_128 = 0;
+            }
             if (ctsz == 1 || ctsz == 2 || ctsz == 4) {
                 bool ctsu = (cast_ti->modifiers & TYPE_MOD_UNSIGNED) != 0;
                 int cast_t = c->next_temp_id++;

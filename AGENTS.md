@@ -36,6 +36,7 @@ Before scanning the 80+ historical files in `docs/`, **always consult the Open K
   make test-torture        # GCC c-torture conformance gate (ratcheted against test/torture/baseline.json)
   make asan                # host-side ASan/UBSan rebuild of the compiler itself — run after core-pipeline (parser/semantic/IR/optimizer) changes to catch the compiler's own memory bugs before they become user-facing crashes
   python3 tools/sret_verifier.py --verify-all
+  python3 tools/type_tag_verifier.py --verify-all
   python3 tools/style_check.py   # C style/convention checker (docs/coding_style.md rules)
   python3 tools/okf.py lint
   ```
@@ -43,6 +44,10 @@ Before scanning the 80+ historical files in `docs/`, **always consult the Open K
   ```bash
   python3 tools/diag_battery.py                # gate on baseline
   python3 tools/diag_battery.py --update-baseline  # re-record after an intentional improvement (e.g. multi-error recovery)
+  ```
+- **Type-Tag Verifier (`tools/type_tag_verifier.py`)**: cross-checks frontend semantic type tags against backend IR conventions (C99 width marks, OP_OVF_TRAP check width and adjacency, FP value ops, 128-bit operations, in-place extends, COND_SET, unsigned DIV/MOD) across 148 corpus files compiled at `-O0`, `-O2`, `-O3`:
+  ```bash
+  python3 tools/type_tag_verifier.py --verify-all
   ```
 - **Cross-ISA Raw-Emitter QEMU Gate (`make test-isa-qemu`)**: differential-tests **every** target ISA's *raw* binary emitter under QEMU (`test/isa_qemu/` battery; raw path via `ZC_RAW_AOT=1`, diffed against a **static-musl** reference, both run under `qemu-*-static`). **Dependency:** `qemu-user-static` + a per-ISA static-musl reference wrapper (`musl-gcc-<arch>`) built by `tools/setup_musl_cross.sh` (uniform musl-static baseline across all 4 ISAs; riscv32 also gets a small rv32 libgcc shim) — the harness preflights these and prints the setup command. **Status:** **All 4 target ISAs (44/44)** are fully green: **x86-64 (11/11)**, **aarch64 (11/11)**, **riscv64 (11/11)**, and **riscv32 (11/11)** pass cleanly under QEMU. Run one ISA: `python3 tools/isa_qemu_diff.py --isa riscv32`.
 - **Cross-ISA `__int128` Gate (`make test-isa128`)**: differential-tests the 128-bit (lo,hi) GPR128 emitters and the `__float128` object model — every `test/jit/int128_*.c` test (arith, return-ABI, type/sizeof, argument ABI, function-pointer signatures, float128) compiled at `-O0..-O3` in **both** AOT paths (raw-binary link and `-S` + cross-assembler) for x86-64 (native), aarch64, and riscv64, run under `qemu-*-static` and diffed against a host `gcc -static -O2` reference. Guards the cross-ISA-only 128-bit bugs (large-offset scratch clobbers, multiword borrow ordering, spilled MUL128, call-return high-half protection, the Sprint 110 two-unit **argument** ABI incl. register/stack straddle, the Sprint 111 128-bit function-pointer signatures + O2 inliner high-half loss, and the Sprint 112 `__float128` type/ABI + >64-call FP-arg MC bug) that the x86-64-only `make test-opt` cannot see. **Dependency:** `qemu-{aarch64,riscv64}-static` + `aarch64-linux-gnu-gcc`/`riscv64-linux-gnu-gcc` (same toolchains as `test-isa-qemu`; no musl wrappers). **Status:** **144/144** runs green (6 tests). Subset: `python3 tools/isa128_diff.py --isa aarch64 --levels 0 2 --paths asm`.

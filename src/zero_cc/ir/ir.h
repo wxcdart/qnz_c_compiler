@@ -583,6 +583,67 @@ static inline void ir_mark_last_unsigned(ZeroCCCompiler *c, uint8_t u) {
     if (n > 0) ir_get(c, n - 1)->cond = u;
 }
 
+/* Sprint 118 (type-system hardening #1, slice 1): per-temp value-type tags.
+ *
+ * The IR is untyped: type currently flows through side channels (the C99
+ * width marks on defining instructions, `last_expr_is_float`,
+ * `last_expr_is_128`). Each temp id carries a tag recording the semantic
+ * type of the value it holds, stamped at lowering from the AST node's
+ * TypeInfo (the frontend's verdict - independent of the lowering's own UAC
+ * analysis) so the side-channel conventions become CHECKABLE invariants:
+ *   - tools/type_tag_verifier.py (persistent gate) cross-checks width
+ *     marks, OP_OVF_TRAP metadata, FP ops and 128-bit ops against the tags;
+ *   - lower_expr() asserts flag/tag agreement per expression.
+ * Slice 1 is emission + verification only: no codegen or optimizer reads
+ * the tags (slice 2 converts the side channels to read them).
+ *
+ * Keyed by temp id (not instruction index) so optimizer passes that insert,
+ * remove, or move instructions never need to remap the table - each temp
+ * id is allocated exactly once per function and its value type is fixed at
+ * allocation. */
+enum {
+    ZC_TAGCLS_NONE   = 0, /* no claim: untyped temp (address, flag, fixed vreg,
+                             or the node carried no TypeInfo) */
+    ZC_TAGCLS_INT    = 1, /* signed integer, width in the width bits */
+    ZC_TAGCLS_UINT   = 2, /* unsigned integer, width in the width bits */
+    ZC_TAGCLS_FLOAT  = 3, /* double-width FP model (float, double, __float128) */
+    ZC_TAGCLS_INT128 = 4, /* GNU __int128 (lo,hi) GPR128 pair */
+    ZC_TAGCLS_UINT128= 5, /* unsigned __int128 */
+    ZC_TAGCLS_PTR    = 6, /* pointer / address-form value (incl. decays,
+                             complex/vector/struct rvalues, function addrs) */
+};
+enum { /* width bits (tag >> 4) & 0x7 */
+    ZC_TAGW_1  = 0,
+    ZC_TAGW_2  = 1,
+    ZC_TAGW_4  = 2,
+    ZC_TAGW_8  = 3,
+    ZC_TAGW_16 = 4,
+};
+
+#define ZC_TAG_NONE   0u
+#define ZC_TAG_INT(w)  ((uint8_t)(ZC_TAGCLS_INT  | ((w) << 4)))
+#define ZC_TAG_UINT(w) ((uint8_t)(ZC_TAGCLS_UINT | ((w) << 4)))
+#define ZC_TAG_FLOAT(w) ((uint8_t)(ZC_TAGCLS_FLOAT | ((w) << 4)))
+#define ZC_TAG_INT128  ((uint8_t)(ZC_TAGCLS_INT128  | (ZC_TAGW_16 << 4)))
+#define ZC_TAG_UINT128 ((uint8_t)(ZC_TAGCLS_UINT128| (ZC_TAGW_16 << 4)))
+#define ZC_TAG_PTR     (uint8_t)(ZC_TAGCLS_PTR)
+
+static inline uint8_t zc_tag_class(uint8_t tag) { return (uint8_t)(tag & 0xFu); }
+static inline uint8_t zc_tag_width_code(uint8_t tag) { return (uint8_t)((tag >> 4) & 0x7u); }
+/* Bytes for the width code (0 = not a byte-width class). */
+static inline int zc_tag_width_bytes(uint8_t tag) {
+    static const int zc_tag_wb[8] = {1, 2, 4, 8, 16, 0, 0, 0};
+    return zc_tag_wb[(tag >> 4) & 0x7u];
+}
+
+/* Read the tag for temp id (0 for untagged). ids >= 65535 have no tag. */
+uint8_t zc_temp_tag(const ZeroCCCompiler *c, uint16_t id);
+/* Stamp temp id with a tag (no-op for id >= 65535; keeps the high-water
+ * mark for the -dump-ir table). */
+void zc_temp_tag_set(ZeroCCCompiler *c, uint16_t id, uint8_t tag);
+/* Reset the table for the next function (called from ir_reset). */
+void zc_temp_tags_reset(ZeroCCCompiler *c);
+
 /* Insert instruction at specific index (shifts existing instructions) */
 void ir_insert_at(ZeroCCCompiler *c, size_t idx, Instr instr);
 
