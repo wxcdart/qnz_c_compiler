@@ -115,7 +115,8 @@ Optimization Pipeline (src/zero_cc/opt/opt_*.c + opt/cfg.{h,c} CFG view; -O0 non
 Live Range Analysis & Linear Scan RegAlloc (src/zero_cc/ir/live_range.h, regalloc.h)
     ↓
     ├─→ [JIT Path] src/zero_cc/ir/ast_lowering_mc.c → W^X CodeBuffer (execution.h)
-    └─→ [AOT Path] src/zero_cc/ir/asm_emitter.c / elf_writer.c → .s / .o / Executable
+    └─→ [AOT Path] src/zero_cc/ir/asm_emitter.c / elf_writer.c → .s / .o
+            └─→ [Link] system linker (default) | own linker src/zero_cc/linker/ + zero_rt.a → static ET_EXEC (--zerocc-link)
 ```
 
 For detailed architectural invariants, consult the OKF Knowledge Graph in [`docs/okf/index.md`](./okf/index.md):
@@ -134,6 +135,7 @@ For detailed architectural invariants, consult the OKF Knowledge Graph in [`docs
 - [`docs/okf/scalar-float-x86.md`](./okf/scalar-float-x86.md) — scalar float pipeline & WSL2 RX-page limitation
 - [`docs/okf/build-and-verification.md`](./okf/build-and-verification.md) — build targets & verifiers
 - [`docs/okf/c-torture-gate.md`](./okf/c-torture-gate.md) — GCC `c-torture` conformance gate & ratcheting baseline
+- [`docs/okf/sanitizer-roadmap.md`](./okf/sanitizer-roadmap.md) — `zero_san` scope & phase plan (Phase 1 promoted to a Current Priority)
 
 ---
 
@@ -147,7 +149,7 @@ For detailed architectural invariants, consult the OKF Knowledge Graph in [`docs
    - **Trap**: zerocc builtin `__zerocsan_trap` (print + abort) — one lowering, works in JIT + host AOT + freestanding `--zerocc-link` with no separate `.a` to link.
    - **Validation = soundness proof**: run the c-torture gate and `make test-opt` with the flag **ON** — any spurious abort on a valid test is an unsound check. Add as a persistent harness config.
    - **Later phases (per OKF, sequenced)**: bounds (large, cross-cutting, array-lvalue-only and inherently partial — parked unless v1 proves out + demand), leaks (cheap at-exit report in `zero_rt/heap.c`, no codegen, freestanding-only), **ASan/LSan out of scope** (shadow memory + ~49 per-access sites × 4 ISAs + a DWARF emitter; re-enter only if the goal shifts to production toolchain).
-   - **Entry conditions (OKF §6)**: conformance ✅ (0 REJECT / 0 MISCOMPILE), header modularization ✅, int128 gate ✅ (144/144). The OKF lists a “compile a real project” differential gate as the remaining higher-value prerequisite — Phase 1 may start now as the small, safe, architecture-de-risking step the OKF sanctions.
+   - **Entry conditions (OKF §6)**: conformance ✅ (0 REJECT / 0 MISCOMPILE), header modularization ✅, int128 gate ✅ (144/144). The remaining higher-value prerequisite — the “compile a real project” differential gate — is now owned as Verification & Scale track item 1; Phase 1 may start in parallel as the small, safe, architecture-de-risking step the OKF sanctions.
 
 2. **Canary stack (`-fstack-protector` / `-fstack-protector-all`)** — stack-smashing protection, independent of `zero_san`:
    - Canary word in the prologue before the saved FP/RA (x86-64) and the equivalent slot on AArch64/RISC-V; `-fstack-protector` (frames with pointer locals or ≥ N bytes) and `-fstack-protector-all` (every non-leaf frame).
@@ -176,7 +178,7 @@ For detailed architectural invariants, consult the OKF Knowledge Graph in [`docs
 8. **Loop analysis: dominators now, full SSA parked (re-evaluated).**
    - **8a — Dominator/post-dominator dataflow (small, do it).** `opt_loop.c`'s loop state already carries `dominators`/`post_dominators` fields, currently NULL scaffolding. Implement the Cooper–Harvey–Kennedy dataflow over the existing CFG view (~100 lines, no IR change). Payoff: LICM invariants and the mem2reg audits can reason with dominance instead of per-instruction `is_invariant` scans; loop unrolling (item 3) and zero_san's control-flow reasoning get it for free.
    - **8b — Full SSA rewrite: PARKED with explicit triggers.** The flat IR is **not** rewritten. Rationale: (1) the temp model is **already SSA at the value level** — every temp is defined exactly once (immutable; lowering emits a fresh temp per operation), so an SSA construction buys essentially only phi nodes + a dominator tree, and the dominator tree is 8a; (2) merges — the classic phi motivation — are already handled by the memory model + mem2reg loop promotion, which is *manual phi introduction* hardened by Sprint 35/115j audits; (3) the item's own entry condition ("only if CFG-based passes demonstrably hit a wall") has **never triggered** — LICM/CSE/GVN/mem2reg/auto_vectorize all pass the 3,740-test c-torture corpus × 8 configs on the flat IR; (4) the rewrite cost is disproportionately high — both emitters (JIT MC + AOT asm), the linear-scan allocator (128-bit pairs, sret, FP class, call-spanning spills), and every pass — while SSA phis would *reduce* the readability of `ir_dump`, the tool that made the Sprint-115j-class bug hunts tractable.
-   - **Revisit triggers (any one re-opens 7b as an active item):** LICM guard proliferation as the pass becomes more aggressive (two-pass rebuild, shared-header union, call-spanning + multi-def guards are the visible cost of doing loop analysis without phis); a specific conformance/perf corpus class that CSE/GVN demonstrably fail on the flat IR; register-pressure/quality complaints at the allocator; or a new pass that genuinely needs phis (SCCP-class global propagation, PRE).
+   - **Revisit triggers (any one re-opens 8b as an active item):** LICM guard proliferation as the pass becomes more aggressive (two-pass rebuild, shared-header union, call-spanning + multi-def guards are the visible cost of doing loop analysis without phis); a specific conformance/perf corpus class that CSE/GVN demonstrably fail on the flat IR; register-pressure/quality complaints at the allocator; or a new pass that genuinely needs phis (SCCP-class global propagation, PRE).
 
 9. **Temp-ID recycling by liveness (register/ID budget)** — per the OKF `ir-and-regalloc.md` smell analysis, the 16-bit temp-ID budget is charged against **total allocation churn** (~22,000 `t = t + 1` statements in one function — 3 temps each), not peak-live: a per-function limit that realistic trippers actually hit (an interpreter `switch(opcode)` dispatch, bison `yyparse`, hand-unrolled DSP/SIMD kernels, macro explosion). The ranked #1 fix (highest leverage; no SSA rewrite needed): a post-lowering **renumbering pass** over the `live_range.h` live ranges — walk the instruction stream, push a temp's ID onto a free list when its live range ends, and reuse freed IDs for later definitions; sound because temps are immutable (a consistent 1:1 relabel). Keeps the packed 24-byte `Instr` (width stays 16-bit; the existing hard error remains the final backstop). ~90k churn → ~3 live. Related open defect in the same subsystem (root-cause with or before this): the -O1+ branchy compute/clamp/restore LRA flaw (OKF: the restore move gets elided/merged and a value is clobbered — the `vprintf-1` class; currently worked around by branch-free algebra).
 
