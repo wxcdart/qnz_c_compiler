@@ -46,6 +46,100 @@ static inline ZeroCCType zero_cc_type_of_unary(ZeroCCCompiler *c, size_t *pos);
 static inline ZeroCCType zero_cc_type_of_primary(ZeroCCCompiler *c, size_t *pos);
 
 static inline ZeroCCType zero_cc_type_find_member(ZeroCCCompiler *c, ZeroCCType base, const char *member_name);
+/* C23 6.2.5: fixed underlying type for enums (`enum e : unsigned int`).
+ * Parsed immediately after the enum tag (or after `enum` for anonymous
+ * enums), i.e. the `: <type>` between the tag and the body.
+ * size == 0 means "no fixed type" (traditional enum, int-sized). */
+typedef struct {
+    size_t size;        /* 1, 2, 4, 8; 0 = absent */
+    bool is_bool;       /* underlying type is _Bool */
+    bool is_unsigned;   /* underlying type is unsigned (wraps modulo 2^bits) */
+} ZCEnumUnderlying;
+
+/* Parse `: <fixed-type>` if present at c->token_pos (consuming the colon).
+ * Accepts the ordinary integer type specifiers in any order
+ * (_Bool|bool, char, short, int, long [long], signed/unsigned, with
+ * const/volatile qualifiers); diagnoses anything else. */
+static inline ZCEnumUnderlying zero_cc_parse_enum_underlying(ZeroCCCompiler *c) {
+    ZCEnumUnderlying u; memset(&u, 0, sizeof(u));
+    if (c->token_pos >= c->token_count ||
+        c->tokens[c->token_pos].type != TK_COLON) return u;
+    c->token_pos++;
+    bool is_bool = false, is_char = false, is_short = false;
+    int long_count = 0;
+    int signedness = 0; /* 0 none, +1 signed, -1 unsigned */
+    bool saw_any = false;
+    while (c->token_pos < c->token_count) {
+        ZeroCCTokType t = c->tokens[c->token_pos].type;
+        const char *s = c->tokens[c->token_pos].str_val;
+        if (t == TK_BOOL_KW || (t == TK_IDENT && strcmp(s, "bool") == 0)) {
+            is_bool = true; saw_any = true; c->token_pos++;
+        } else if (t == TK_CHAR) {
+            is_char = true; saw_any = true; c->token_pos++;
+        } else if (t == TK_SHORT) {
+            is_short = true; saw_any = true; c->token_pos++;
+        } else if (t == TK_INT) {
+            saw_any = true; c->token_pos++;
+        } else if (t == TK_LONG) {
+            long_count++; saw_any = true; c->token_pos++;
+        } else if (t == TK_SIGNED) {
+            if (signedness == -1)
+                diag_report_error_at_token(c, "conflicting signedness in enum underlying type");
+            signedness = 1; saw_any = true; c->token_pos++;
+        } else if (t == TK_UNSIGNED) {
+            if (signedness == 1)
+                diag_report_error_at_token(c, "conflicting signedness in enum underlying type");
+            signedness = -1; saw_any = true; c->token_pos++;
+        } else if (t == TK_CONST || t == TK_VOLATILE) {
+            c->token_pos++; /* qualifier: accepted, no effect on width */
+        } else {
+            break;
+        }
+    }
+    if (!saw_any) {
+        diag_report_error_at_token(c, "expected fixed integer type in enum declaration");
+        return u;
+    }
+    if (is_bool) {
+        u.size = 1; u.is_bool = true; return u;
+    }
+    u.is_unsigned = (signedness == -1);
+    /* Width: long [long] > char > short > int (bare signed/unsigned = int). */
+    if (long_count >= 1) u.size = 8;
+    else if (is_char) u.size = 1;
+    else if (is_short) u.size = 2;
+    else u.size = 4;
+    return u;
+}
+
+/* Convert a member value to the fixed underlying type (C23 6.7.2.2:
+ * out-of-range values are implementation-defined; both GCC and ZeroCC
+ * wrap two's-complement / modulo). */
+static inline int64_t zc_enum_wrap_value(int64_t v, const ZCEnumUnderlying *u) {
+    if (!u || u->size == 0) return v;
+    if (u->is_bool) return v != 0;
+    if (u->is_unsigned) {
+        if (u->size == 1) return (int64_t)((uint64_t)v & 0xFFu);
+        if (u->size == 2) return (int64_t)((uint64_t)v & 0xFFFFu);
+        if (u->size == 4) return (int64_t)((uint64_t)v & 0xFFFFFFFFu);
+        return v;
+    }
+    if (u->size == 1) return (int64_t)(int8_t)((uint8_t)v);
+    if (u->size == 2) return (int64_t)(int16_t)((uint16_t)v);
+    if (u->size == 4) return (int64_t)(int32_t)((uint32_t)v);
+    return v;
+}
+
+/* Apply the fixed underlying type to an enum ZeroCCType (size + scalar
+ * alignment); a traditional enum stays 4/4. */
+static inline void zc_enum_apply_underlying(ZeroCCType *et, const ZCEnumUnderlying *u) {
+    if (u && u->size) {
+        et->size = u->size;
+        et->align = u->size; /* scalar int alignment == size on all targets */
+    }
+}
+
+
 static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_t *pos);
 static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c);
 
@@ -250,6 +344,10 @@ static inline ZeroCCType zero_cc_type_of_primary(ZeroCCCompiler *c, size_t *pos)
         if (c->tokens[*pos].type == TK_IDENT) {
             const char *name = c->tokens[*pos].str_val;
             (*pos)++;
+            /* C23: consume `: <fixed-type>` after the enum tag if present */
+            size_t save = c->token_pos; c->token_pos = *pos;
+            (void)zero_cc_parse_enum_underlying(c); *pos = c->token_pos;
+            c->token_pos = save;
             ZeroCCType *et = zero_cc_find_enum(c, name);
             if (!et) et = zero_cc_find_typedef(c, name);
             if (et) return *et;
@@ -675,8 +773,15 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
             if (et) ty = *et;
             else ty = zero_cc_type_enum(name);
             (*pos)++;
+            /* C23: consume `: <fixed-type>` after the enum tag if present */
+            size_t save = c->token_pos; c->token_pos = *pos;
+            (void)zero_cc_parse_enum_underlying(c); *pos = c->token_pos;
+            c->token_pos = save;
         } else {
             ty = zero_cc_type_enum(NULL);
+            size_t save = c->token_pos; c->token_pos = *pos;
+            (void)zero_cc_parse_enum_underlying(c); *pos = c->token_pos;
+            c->token_pos = save;
         }
     } else if (t == TK_IDENT) {
         const char *name = c->tokens[*pos].str_val;
@@ -1004,8 +1109,11 @@ static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c) {
             if (et) ty = *et;
             else ty = zero_cc_type_enum(name);
             c->token_pos++;
+            /* C23: consume `: <fixed-type>` after the enum tag if present */
+            (void)zero_cc_parse_enum_underlying(c);
         } else {
             ty = zero_cc_type_enum(NULL);
+            (void)zero_cc_parse_enum_underlying(c);
         }
     } else if (c->tokens[c->token_pos].type == TK_IDENT) {
         const char *name = c->tokens[c->token_pos].str_val;

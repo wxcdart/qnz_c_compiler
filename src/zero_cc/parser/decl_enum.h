@@ -17,8 +17,11 @@
  *       `enum { false, true }` — compile/pr94238.c); and
  *   (2) a progress guard: any token that neither member nor comma parsing
  *       consumes is diagnosed and skipped, so a malformed body
- *       (e.g. `enum { 1, 2 }`) can never spin the parser forever. */
-static inline void zero_cc_parse_enum_members(ZeroCCCompiler *c) {
+ *       (e.g. `enum { 1, 2 }`) can never spin the parser forever.
+ * `und` (C23 fixed underlying type, NULL = traditional) wraps each member
+ * value into the fixed width. */
+static inline void zero_cc_parse_enum_members(ZeroCCCompiler *c,
+                                              const ZCEnumUnderlying *und) {
     int64_t enum_val = 0;
     while (c->token_pos < c->token_count &&
            c->tokens[c->token_pos].type != TK_RBRACE &&
@@ -34,6 +37,7 @@ static inline void zero_cc_parse_enum_members(ZeroCCCompiler *c) {
                 c->token_pos++;
                 enum_val = zero_cc_eval_const_expr(c);
             }
+            enum_val = zc_enum_wrap_value(enum_val, und);
             zero_cc_register_enum_const(c, ename, enum_val);
             if (enum_val == INT64_MAX) {
                 diag_report_error_at_token(c, "overflow in enumeration values");
@@ -67,6 +71,8 @@ static inline void zero_cc_stmt_typedef_enum(ZeroCCCompiler *c) {
             snprintf(en_name, sizeof(en_name), "%s", c->tokens[c->token_pos].str_val);
             c->token_pos++;
         }
+        /* C23: `typedef enum e : <type> { ... }` / `typedef enum : <type> {...}` */
+        ZCEnumUnderlying und = zero_cc_parse_enum_underlying(c);
         if (c->tokens[c->token_pos].type == TK_LBRACE) {
             c->token_pos++;
             ZeroCCType et; memset(&et, 0, sizeof(et));
@@ -74,7 +80,8 @@ static inline void zero_cc_stmt_typedef_enum(ZeroCCCompiler *c) {
             et.size = 4;
             et.align = 4;
             snprintf(et.struct_name, sizeof(et.struct_name), "%s", en_name);
-            zero_cc_parse_enum_members(c);
+            zc_enum_apply_underlying(&et, &und);
+            zero_cc_parse_enum_members(c, &und);
             if (en_name[0] != '\0') {
                 zero_cc_register_enum(c, en_name, et);
             }
@@ -93,6 +100,13 @@ static inline void zero_cc_stmt_typedef_enum(ZeroCCCompiler *c) {
         } else if (en_name[0] != '\0') {
             ZeroCCType *existing = zero_cc_find_enum(c, en_name);
             ZeroCCType et = existing ? *existing : zero_cc_type_enum(en_name);
+            /* C23 redeclaration: `typedef enum e : <type> E;` - the
+             * underlying type must match the definition (if one exists). */
+            if (und.size && existing && existing->size != und.size) {
+                diag_report_error_at_token(c, "conflicting underlying type for enum");
+            }
+            zc_enum_apply_underlying(&et, &und);
+            zero_cc_register_enum(c, en_name, et);
             zero_cc_skip_mode_attr(c);
             if (c->tokens[c->token_pos].type == TK_IDENT) {
                 char alias[128];
@@ -115,6 +129,8 @@ static inline void zero_cc_stmt_enum(ZeroCCCompiler *c) {
         snprintf(en_name, sizeof(en_name), "%s", c->tokens[c->token_pos].str_val);
         c->token_pos++;
     }
+    /* C23: `enum e : <type> { ... }` / `enum e : <type> x;` */
+    ZCEnumUnderlying und = zero_cc_parse_enum_underlying(c);
     if (c->tokens[c->token_pos].type == TK_LBRACE) {
         c->token_pos++;
         ZeroCCType et; memset(&et, 0, sizeof(et));
@@ -122,7 +138,8 @@ static inline void zero_cc_stmt_enum(ZeroCCCompiler *c) {
         et.size = 4;
         et.align = 4;
         snprintf(et.struct_name, sizeof(et.struct_name), "%s", en_name);
-        zero_cc_parse_enum_members(c);
+        zc_enum_apply_underlying(&et, &und);
+        zero_cc_parse_enum_members(c, &und);
         if (en_name[0] != '\0') {
             zero_cc_register_enum(c, en_name, et);
         }
@@ -150,9 +167,14 @@ static inline void zero_cc_stmt_enum(ZeroCCCompiler *c) {
         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
         return;
     } else if (en_name[0] != '\0') {
-        if (!zero_cc_find_enum(c, en_name)) {
+        /* C23 redeclaration: `enum e : <type> x;` */
+        ZeroCCType *existing = zero_cc_find_enum(c, en_name);
+        if (!existing) {
             ZeroCCType et = zero_cc_type_enum(en_name);
+            zc_enum_apply_underlying(&et, &und);
             zero_cc_register_enum(c, en_name, et);
+        } else if (und.size && existing->size != und.size) {
+            diag_report_error_at_token(c, "conflicting underlying type for enum");
         }
     }
     if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;

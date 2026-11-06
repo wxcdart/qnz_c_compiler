@@ -24,6 +24,19 @@ Continues the Sprint 114 refactor into the header monoliths that were being comp
   - `main.c` used `zero_cc_parse_struct_body` transitively via the old chain; it now includes `parser/decl_struct.h` directly.
 - **Verification**: `make test` (176/176), `make test-opt` (138 ok), `make test-isa128` (144/144), `make test-isa-qemu` (59/59, all 4 ISAs), c-torture gate (PASS 3,679, 0 bad), `diag_battery` (baseline OK), `style_check` (0 errors), `okf lint`; K&R / nested-function / local-static / aggregate-init probes match GCC in JIT + AOT.
 
+## [Sprint 115] - 2026-11-05 - C23 fixed enum underlying types + c-torture heavy-test sub-sweep
+
+**C23 6.2.5/6.7.2.2: `enum e : <fixed-type> { ... }`** (the feature behind the 7 `dg-options "-std=gnu23"` c-torture tests, e.g. `compile/pr111059-*.c`):
+
+- New `ZCEnumUnderlying` + `zero_cc_parse_enum_underlying()` in `type_parser.h` (placed there because the three `enum <tag>` type-specifier sites live there and `decl_enum.h` only loads after them). Accepts the ordinary integer type specifiers in any order (`_Bool`/`bool`, `char`, `short`, `int`, `long [long]`, `signed`/`unsigned`, `const`/`volatile` qualifiers) and diagnoses invalid ones.
+- The fixed type sets the enum's `size`/`align` (GCC: `sizeof(enum e : bool) == 1`) and each member value is converted into the fixed width (two's-complement / modulo wrap, matching GCC: `enum : unsigned char { A = 300 }` → 44; the implicit next value continues from the *wrapped* value).
+- Wiring: definition paths (`zero_cc_stmt_enum`, `zero_cc_stmt_typedef_enum`, struct-member enums in `decl_struct.c`), the three type-specifier sites in `type_parser.h` (named + anonymous, including cast context via the `token_pos`-swap pattern), and the two top-level dispatch lookaheads that route `enum ...` to the enum statement parser (`zero_cc_compile_c99` + `zero_cc_compile_top_level_decl` in `compile_unit.c`, local decls in `decl_local.c`) - all extended to expect `: <type>` after the tag.
+- Verified differentially: wrap/sizeof/alignment probes match hand-computed C23 semantics (gcc-14 cross-check pending the host install); `make test` 176/176, `make test-opt` 138 ok, `make test-isa128` 144/144, `make test-isa-qemu` 59/59, c-torture gate green.
+
+**c-torture gate: heavy-test separation** (user-directed): the 6 tests carrying GCC's own `dg-require-effective-target run_expensive_tests` marker (memclr, memcpy-a{1,2,4,8}, limits-fnargs - all ~2,000-function files whose gcc reference builds bust the 10 s build cap under parallel load) now run in a **sequential sub-sweep**: the default full run excludes them, `make test-torture` runs them after the main sweep (`--chunk heavy`, forced `parallel=1`), their reference builds get a `dg-timeout-factor`-scaled build budget, and the sub-sweep *merges* into `last_run.json` so it keeps reflecting the whole corpus. Baseline re-records are now two steps: main `--update-baseline` then `--chunk heavy --update-baseline` (merge).
+
+**Gate reference compiler override**: `TORTURE_GCC` env (default `gcc`) selects the reference compiler; the refcache key includes the compiler name so cached references never mix across a switch. Staged for gcc-14 (C23) - the 7 gnu23 tests flip `NO-REF → PASS` once it's installed and the baseline is re-recorded.
+
 ## [Sprint 114d] - 2026-11-05 - c-torture gate: `dg-timeout-factor` support + adaptive `--parallel` default (TIMEOUT bucket eliminated, +5 PASS → 3,684)
 
 Two gate-infrastructure bugs made the 5 heaviest corpus tests (`memclr.c`, `memcpy-a{1,2,4,8}.c`) flap between `PASS` and `TIMEOUT` depending on host load:

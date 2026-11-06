@@ -759,9 +759,14 @@ bool zero_cc_parse_local_decl(ZeroCCCompiler *c,  /* Sprint 114: defined in decl
     /* Block-scoped enum definition / declaration */
     if (t == TK_ENUM && c->token_pos + 1 < c->token_count &&
         (c->tokens[c->token_pos + 1].type == TK_LBRACE ||
+         /* C23 anonymous fixed-enum: `enum : int { ... }` */
+         c->tokens[c->token_pos + 1].type == TK_COLON ||
          (c->tokens[c->token_pos + 1].type == TK_IDENT &&
           c->token_pos + 2 < c->token_count &&
-          (c->tokens[c->token_pos + 2].type == TK_LBRACE || c->tokens[c->token_pos + 2].type == TK_SEMI)))) {
+          (c->tokens[c->token_pos + 2].type == TK_LBRACE ||
+           /* C23 fixed underlying type: `enum e : int { ... }` */
+           c->tokens[c->token_pos + 2].type == TK_COLON ||
+           c->tokens[c->token_pos + 2].type == TK_SEMI)))) {
         zero_cc_stmt_enum(c);
         *out_ref = AST_NULL; return true;
     }

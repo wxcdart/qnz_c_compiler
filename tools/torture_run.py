@@ -77,6 +77,11 @@ RUN_MODES = ["jit", "aot"]
 COMPILE_LEVELS = [0, 2]
 RUN_TIMEOUT = 5
 BUILD_TIMEOUT = 10
+# Reference compiler: override with TORTURE_GCC (e.g. gcc-14 for C23
+# `dg-options "-std=gnu23"` tests the host gcc-13 cannot build).
+# The refcache key includes the compiler name so cached references never
+# mix across reference-compiler switches.
+GCC = os.environ.get("TORTURE_GCC", "gcc")
 KEEP = False  # --keep: retain work artifacts instead of unlinking
 
 # dg-require-effective-target tokens zerocc cannot satisfy (GNU extensions /
@@ -170,6 +175,7 @@ def parse_directives(path):
     # DejaGnu: `dg-timeout-factor N` multiplies the default timeout; an
     # absolute `dg-timeout N` overrides it (the two are mutually exclusive
     # in the corpus).
+    d["timeout_factor"] = 1
     m = RE_DG_TIMEOUT.search(blob)
     if m:
         d["timeout"] = max(1, int(m.group(1)))
@@ -177,6 +183,7 @@ def parse_directives(path):
         m = RE_DG_TIMEOUT_FACTOR.search(blob)
         if m:
             d["timeout"] = max(1, RUN_TIMEOUT * int(m.group(1)))
+            d["timeout_factor"] = int(m.group(1))
     d["ptr_output"] = bool(RE_PCT_P.search(full_text))
     d["setjmp"] = bool(re.search(r"setjmp|longjmp", full_text))
     return d
@@ -242,20 +249,22 @@ def gcc_ref(path, d, is_run):
     """Build (or reuse) the gcc reference. Returns (ok, artifact, detail)."""
     opt = d["options"]
     key = hashlib.sha1(
-        (str(path.relative_to(CORPUS)) + opt + ("run" if is_run else "c")
+        (GCC + str(path.relative_to(CORPUS)) + opt + ("run" if is_run else "c")
          ).encode()).hexdigest()
     REFCACHE.mkdir(parents=True, exist_ok=True)
     art = REFCACHE / (key + (".bin" if is_run else ".o"))
     if art.exists():
         return True, art, "cache"
-    base = ["gcc", "-O1"]
+    base = [GCC, "-O1"]
     if opt:
         base += opt.split()
     if is_run:
         cmd = base + [str(path), "-o", str(art), "-lm"]
     else:
         cmd = base + [str(path), "-c", "-o", str(art)]
-    rc, _out, err = run(cmd, BUILD_TIMEOUT)
+    # Heavy tests get a factor-scaled build budget (their ~2,000-function
+    # reference builds bust the bare 10 s cap under any real load).
+    rc, _out, err = run(cmd, BUILD_TIMEOUT * d.get("timeout_factor", 1))
     if rc != 0:
         lines = [l for l in err.strip().splitlines() if l.strip()]
         return False, None, lines[-1] if lines else "gcc rc=%s" % rc
@@ -277,6 +286,16 @@ def zc_flags(d, level):
             continue
         out.append(tok)
     return ["-O%d" % level] + out
+
+
+def is_heavy_test(path):
+    """True for tests marked `dg-require-effective-target run_expensive_tests`
+    (GCC's own "this test is expensive" marker). These run in a separate
+    sequential sub-sweep (`--chunk heavy`) instead of the parallel main
+    sweep - their ~2,000-function gcc reference builds are the corpus's
+    load-sensitive edge cases."""
+    d = parse_directives(path)
+    return "run_expensive_tests" in d["requires"]
 
 
 def run_one(rel_path):
@@ -597,11 +616,12 @@ def main():
     ap.add_argument("--only",
                     help="substring filter on test path (comma-separated for "
                          "multiple patterns, e.g. pr109386,mzero4,fp-cmp-7)")
-    ap.add_argument("--chunk", type=str.lower, choices=["m1", "m2", "m3"],
+    ap.add_argument("--chunk", type=str.lower, choices=["m1", "m2", "m3", "heavy"],
                     help="filter tests by burn-down chunk: "
                          "m1 = TIMEOUTs, "
                          "m2 = partial MISCOMPILEs (pass in >=1 config), "
-                         "m3 = all-config MISCOMPILEs")
+                         "m3 = all-config MISCOMPILEs, "
+                         "heavy = run_expensive_tests (sequential sub-sweep)")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--quick", action="store_true",
                     help="-O1/-O2, JIT only (dev iteration)")
@@ -652,7 +672,10 @@ def main():
         return
 
     is_partial = bool(args.only or args.limit or args.quick or args.only_class or args.chunk)
-    if args.update_baseline and is_partial:
+    # `--chunk heavy --update-baseline` is the second re-record step (it
+    # merges the 6 expensive tests into the main-run baseline).
+    is_heavy_update = is_partial and args.chunk == "heavy" and args.update_baseline
+    if args.update_baseline and is_partial and not is_heavy_update:
         sys.exit("--update-baseline requires a full run (no --only/--limit/--quick/--only-class/--chunk)")
 
     tests = sorted(
@@ -690,6 +713,16 @@ def main():
                 cfgs = b.get("configs", {})
                 return len(cfgs) > 0 and all(r != "OK" for r in cfgs.values())
             tests = [t for t in tests if is_m3(t)]
+        elif args.chunk == "heavy":
+            # The run_expensive_tests sub-sweep: sequential (their gcc
+            # reference builds need a quiet core); run by `make
+            # test-torture` after the main sweep.
+            tests = [t for t in tests if is_heavy_test(CORPUS / t)]
+            args.parallel = min(args.parallel, 1)
+    # The main (non-partial) sweep excludes the heavy tests - they run in
+    # the `--chunk heavy` sub-sweep so the parallel main gate stays stable.
+    if not is_partial:
+        tests = [t for t in tests if not is_heavy_test(CORPUS / t)]
     if args.limit:
         tests = tests[: args.limit]
 
@@ -741,17 +774,44 @@ def main():
     # with a subset — compare classes only for tests present in both.
     last_run_path = BASELINE_PATH.with_name("last_run.json")
     last_run_path.parent.mkdir(parents=True, exist_ok=True)
-    last_run_path.write_text(json.dumps({
-        "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
-        "generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "totals": totals,
-        "tests": compact,
-    }, indent=1, sort_keys=True))
+    if args.chunk == "heavy" and last_run_path.exists():
+        # Merge into the existing file so last_run.json keeps reflecting
+        # the whole corpus (the heavy run is a 6-test subset).
+        try:
+            prev = json.loads(last_run_path.read_text())
+            prev.setdefault("tests", {}).update(compact)
+            last_run_path.write_text(json.dumps(prev, indent=1, sort_keys=True))
+        except (json.JSONDecodeError, OSError):
+            pass
+    else:
+        last_run_path.write_text(json.dumps({
+            "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
+            "generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "totals": totals,
+            "tests": compact,
+        }, indent=1, sort_keys=True))
 
     is_partial = bool(args.only or args.limit or args.quick or args.only_class or args.chunk)
     if args.update_baseline or (not BASELINE_PATH.exists() and not is_partial):
-        if is_partial:
+        if is_partial and not is_heavy_update:
             sys.exit("--update-baseline requires a full run (no --only/--limit/--quick/--only-class/--chunk)")
+        if is_heavy_update:
+            # Second re-record step: merge the heavy subset into the
+            # baseline written by the main `--update-baseline` run.
+            if not BASELINE_PATH.exists():
+                sys.exit("heavy --update-baseline: run the main sweep with "
+                         "--update-baseline first")
+            prev = json.loads(BASELINE_PATH.read_text())
+            prev["tests"].update(compact)
+            tot = {}
+            for r in prev["tests"].values():
+                tot[r["class"]] = tot.get(r["class"], 0) + 1
+            prev["totals"] = tot
+            prev["generated"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            BASELINE_PATH.write_text(json.dumps(prev, indent=1, sort_keys=True))
+            print("\nbaseline heavy subset merged at %s" %
+                  BASELINE_PATH.relative_to(REPO))
+            return
         BASELINE_PATH.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",

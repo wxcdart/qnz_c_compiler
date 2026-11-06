@@ -147,9 +147,14 @@ static bool zero_cc_compile_top_level_decl(ZeroCCCompiler *c) {
     if (t == TK_ENUM) {
         if (c->token_pos + 1 < c->token_count &&
             (c->tokens[c->token_pos + 1].type == TK_LBRACE ||
+             /* C23 anonymous fixed-enum: `enum : int { ... }` */
+             c->tokens[c->token_pos + 1].type == TK_COLON ||
              (c->tokens[c->token_pos + 1].type == TK_IDENT &&
               c->token_pos + 2 < c->token_count &&
-              (c->tokens[c->token_pos + 2].type == TK_LBRACE || c->tokens[c->token_pos + 2].type == TK_SEMI)))) {
+              (c->tokens[c->token_pos + 2].type == TK_LBRACE ||
+               /* C23 fixed underlying type: `enum e : int { ... }` */
+               c->tokens[c->token_pos + 2].type == TK_COLON ||
+               c->tokens[c->token_pos + 2].type == TK_SEMI)))) {
             zero_cc_stmt_enum(c);
             return true;
         }
@@ -453,9 +458,14 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
             (c->tokens[c->token_pos].type == TK_ENUM &&
              (c->token_pos + 1 < c->token_count &&
               (c->tokens[c->token_pos + 1].type == TK_LBRACE ||
+               /* C23 anonymous fixed-enum: `enum : int { ... }` */
+               c->tokens[c->token_pos + 1].type == TK_COLON ||
                (c->tokens[c->token_pos + 1].type == TK_IDENT &&
                 c->token_pos + 2 < c->token_count &&
-                (c->tokens[c->token_pos + 2].type == TK_LBRACE || c->tokens[c->token_pos + 2].type == TK_SEMI))))) ||
+                (c->tokens[c->token_pos + 2].type == TK_LBRACE ||
+                 /* C23 fixed underlying type: `enum e : int { ... }` */
+                 c->tokens[c->token_pos + 2].type == TK_COLON ||
+                 c->tokens[c->token_pos + 2].type == TK_SEMI))))) ||
             zc_filescope_struct_def_at(c, c->token_pos)) {
             /* Sprint 65: `struct S { ... } name (params)` - a function
              * returning the struct (the `;` after the body is omitted when

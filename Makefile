@@ -213,6 +213,10 @@ test-linker: build/bin/zerocc
 # against the ratcheting baseline in test/torture/baseline.json.
 test-torture: build/bin/zerocc
 	@python3 tools/torture_run.py
+	@# Heavy sub-sweep: the 6 `run_expensive_tests` tests, sequential, merged
+	@# into last_run.json (kept out of the parallel main sweep - their gcc
+	@# reference builds are the corpus's load-sensitive edge cases).
+	@python3 tools/torture_run.py --chunk heavy
 
 # zero_rt: the ZeroCC-owned runtime (heap, minimal stdio, strings, exit).
 # Compiled by zerocc itself; the objects are archived with the system `ar`

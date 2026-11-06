@@ -4,7 +4,7 @@ title: GCC c-torture Conformance Gate
 description: Differential conformance gate against the vendored GCC gcc.c-torture corpus (~3,940 tests), sweeping execute tests across -O0..-O3 in JIT and AOT and compile tests at -O0/-O2 with a ratcheting baseline.
 resource: workflows/c-torture-gate
 tags: [testing, verification, conformance, c-torture, gcc, differential, baseline]
-timestamp: 2026-11-06T00:00:00Z
+timestamp: 2026-11-06T00:31:03Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -87,6 +87,21 @@ python3 tools/torture_run.py --only-class TIMEOUT             # re-run by baseli
 python3 tools/torture_run.py --only "execute/930529-1" --repro
 python3 tools/torture_run.py --keep                  # retain objects/binaries in /tmp/torture_work
 python3 tools/torture_run.py --timeout 30            # override run/build timeout (sec)
+
+# Heavy sub-sweep: the 6 tests marked `dg-require-effective-target
+# run_expensive_tests` (memclr, memcpy-a{1,2,4,8}, limits-fnargs) run
+# sequentially, separate from the parallel main sweep (their ~2,000-function
+# gcc reference builds are the corpus's load-sensitive edge cases). `make
+# test-torture` runs both; the heavy run merges into last_run.json and its
+# reference builds get a dg-timeout-factor-scaled build budget.
+make test-torture                                    # main sweep + heavy sub-sweep
+python3 tools/torture_run.py --chunk heavy           # heavy sub-sweep only
+
+# Reference compiler: TORTURE_GCC overrides `gcc` (the refcache key includes
+# the compiler name, so cached references never mix across switches) - e.g.
+# gcc-14 for the C23 `dg-options "-std=gnu23"` enum tests that gcc-13
+# cannot build.
+TORTURE_GCC=gcc-14 python3 tools/torture_run.py
 
 # Timeouts follow DejaGnu semantics: base run budget is 5 s; `dg-timeout N`
 # sets an absolute budget, `dg-timeout-factor N` multiplies the base

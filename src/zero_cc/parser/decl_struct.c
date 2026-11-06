@@ -275,10 +275,16 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
             if (inner_tag[0] != '\0') {
                 snprintf(inner_type.struct_name, sizeof(inner_type.struct_name), "%s", inner_tag);
             }
+            /* C23: `enum e : <type> { ... }` member - the fixed type
+             * (if any) sits between the tag and the body. */
+            ZCEnumUnderlying und;
+            memset(&und, 0, sizeof(und));
+            if (is_enum) und = zero_cc_parse_enum_underlying(c);
             if (c->tokens[c->token_pos].type == TK_LBRACE) {
                 if (is_enum) {
                     c->token_pos++;
-                    zero_cc_parse_enum_members(c);
+                    zc_enum_apply_underlying(&inner_type, &und);
+                    zero_cc_parse_enum_members(c, &und);
                     if (inner_tag[0] != '\0') {
                         zero_cc_register_enum(c, inner_tag, inner_type);
                     }
