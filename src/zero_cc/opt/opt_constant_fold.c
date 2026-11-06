@@ -137,7 +137,11 @@ void opt_fold_constants(ZeroCCCompiler *c) {
                 // Both operands are constants - fold them (64-bit)
                 int64_t left_val = ir_get_constant(instr->temp_src1);
                 int64_t right_val = ir_get_constant(instr->temp_src2);
-                int is_unsigned = (instr->cond != 0 || instr->width > 8);
+                /* Slice 2: DIV/MOD signedness from the dest temp's tag
+                 * (the C type of the quotient), mark-fallback - the
+                 * same source of truth the emitters use, so a folded
+                 * constant and the emitted op can never disagree. */
+                int is_unsigned = zc_div_is_unsigned(c, instr);
                 int64_t result = fold_binop(instr->op, is_unsigned, left_val, right_val);
 
                 // Replace with MOV_IMM - preserve dest, set src to 0xFF

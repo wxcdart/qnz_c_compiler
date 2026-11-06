@@ -31,6 +31,20 @@ the backend's type conventions against the frontend's tags:
       vector-lane bug class.
   I7  OP_COND_SET: 0/1 result - a tagged dest must be int-family.
   I8  unsigned DIV/MOD (the [u] cond mark): a tagged dest must be UINT.
+  I9  (slice 2) unmarked narrow-op population (coverage stat, no
+      failures): UNmarked narrow-class ALU ops (ADD/SUB/MUL/DIV/MOD/
+      AND/OR/XOR/NOT/NEG/SHL/SHR/SAR/ADD_IMM/SUB_IMM/INC/DEC) whose
+      dest is tagged int/uint of width 1/2/4, classified by how the
+      value is canonicalized: (a) OVF-adjacent - a same-temp
+      OP_OVF_TRAP follows, the tag drives a deferred extend after the
+      check (the slot-steal case); (b) pre-canonicalized - a same-temp
+      in-place SEXTn/ZEXTn of matching direction and width follows
+      (compound-assign / narrow-local-store pattern); (c) otherwise -
+      left raw by design, canonicalized by the narrow load/store
+      discipline (loads re-extend, stores truncate or 64-bit-slot
+      values are re-extended on the next load). The stat keeps the
+      population visible; (a) and (b) are the arrangements codegen
+      acts on directly.
 
 A tagged temp whose tag disagrees with the op that produced it is a
 violation; an UNtagged temp (the frontend attached no TypeInfo to the
@@ -118,6 +132,13 @@ OP_STORE128 = "STORE128"  # (value=S, addr=A)
 EXTEND_OPS = {
     "SEXT8": (1, True), "SEXT16": (2, True), "SEXT32": (4, True),
     "ZEXT8": (1, False), "ZEXT16": (2, False), "ZEXT32": (4, False),
+}
+
+# Slice 2: the ops codegen canonicalizes via the tag gap-fill when no
+# C99 width mark is present (mirrors zc_op_can_define_narrow_int in ir.h).
+NARROW_ALU_OPS = {
+    "ADD", "SUB", "MUL", "DIV", "MOD", "AND", "OR", "XOR", "NOT", "NEG",
+    "SHL", "SHR", "SAR", "ADD_IMM", "SUB_IMM", "INC", "DEC",
 }
 
 # Integer ops that DEFINE a value (for I6: a FLOAT-tagged temp must not be
@@ -368,6 +389,29 @@ def check_function(fn, ins, tags, stats):
                 v.append("I8 r%d: unsigned DIV/MOD dest tagged %s (want uint)"
                          % (dest, tag[0]))
 
+        # --- I9: unmarked narrow-op population (coverage stat, slice 2) -----
+        # No failures: unmarked narrow-class ALU ops on a narrow tagged dest
+        # are left unextended by codegen except the OVF-adjacent deferral;
+        # the stat keeps the population and its canonicalization arrangements
+        # visible (mirrors the slice-2 extend rule in ir.h).
+        if (op in NARROW_ALU_OPS and not wmark and dest is not None):
+            tag = tags.get(dest)
+            if tag is not None and is_int_family(cls_of(tag)) \
+                    and tag[1] in (1, 2, 4):
+                nxt = by_idx.get(idx + 1)
+                nxt_op = nxt[1] if nxt else None
+                m = FIRST_REG.search(FLAGS_ANN.split(nxt[2], 1)[0]) \
+                    if nxt else None
+                same_temp = bool(m) and int(m.group(1)) == dest
+                if nxt_op == "OVF_TRAP" and same_temp:
+                    stats["i9_deferred"] += 1
+                elif nxt_op in EXTEND_OPS and same_temp and \
+                        EXTEND_OPS[nxt_op][0] == tag[1] and \
+                        (EXTEND_OPS[nxt_op][1] == (cls_of(tag) == "int")):
+                    stats["i9_precan"] += 1
+                else:
+                    stats["i9_discipline"] += 1
+
     # --- I6: tag <-> defining op -------------------------------------------
     defined_by = {}
     for idx, op, rest, wmark, udiv in ins:
@@ -432,6 +476,7 @@ def main():
 
     stats = {"i1_marks": 0, "i1_untagged": 0,
              "i2_traps": 0, "i2_untagged": 0,
+             "i9_deferred": 0, "i9_precan": 0, "i9_discipline": 0,
              "fns": 0, "tags": 0}
     total_v = 0
     failed = 0
@@ -461,10 +506,13 @@ def main():
                     print("   ... and %d more" % (len(fviol) - 12))
     print("type-tag verifier: %d files x levels %s | %d functions, "
           "%d tagged temps, %d marks checked (%d untagged), "
-          "%d OVF_TRAPs (%d untagged)"
+          "%d OVF_TRAPs (%d untagged) | I9 unmarked narrow ops: %d "
+          "OVF-deferred, %d pre-canonicalized, %d load/store-discipline"
           % (len(files), levels, stats["fns"], stats["tags"],
              stats["i1_marks"], stats["i1_untagged"],
-             stats["i2_traps"], stats["i2_untagged"]))
+             stats["i2_traps"], stats["i2_untagged"],
+             stats["i9_deferred"], stats["i9_precan"],
+             stats["i9_discipline"]))
     if total_v:
         print("RESULT: FAIL (%d violations in %d file-runs)"
               % (total_v, failed))

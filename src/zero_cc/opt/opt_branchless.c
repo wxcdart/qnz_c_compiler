@@ -341,6 +341,16 @@ void opt_branchless_select(ZeroCCCompiler *c) {
             uint16_t m1   = (uint16_t)c->next_temp_id++;
             uint16_t diff = (uint16_t)c->next_temp_id++;
             uint16_t sel  = (uint16_t)c->next_temp_id++;
+            /* Slice 2: stamp the fresh select scratch with int tags so
+             * the tag is the single source of truth for these values at
+             * codegen time (64-bit register-domain scratch: the mask,
+             * the -1/1 constant, the XOR difference and the AND select
+             * all hold full-register patterns, not C99 N-bit values -
+             * width-8 extend is a no-op, so no wrap semantics apply). */
+            zc_temp_tag_set(c, t2, ZC_TAG_INT(ZC_TAGW_8));
+            zc_temp_tag_set(c, m1, ZC_TAG_INT(ZC_TAGW_8));
+            zc_temp_tag_set(c, diff, ZC_TAG_INT(ZC_TAGW_8));
+            zc_temp_tag_set(c, sel, ZC_TAG_INT(ZC_TAGW_8));
             /* mask = (t ? -1 : 0), built from -S-safe opcodes only
              * (asm_emitter has no OP_NOT / OP_SUB_INC / OP_ADD_INC /
              * OP_INC / OP_DEC). */

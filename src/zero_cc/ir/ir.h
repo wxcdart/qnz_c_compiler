@@ -644,6 +644,172 @@ void zc_temp_tag_set(ZeroCCCompiler *c, uint16_t id, uint8_t tag);
 /* Reset the table for the next function (called from ir_reset). */
 void zc_temp_tags_reset(ZeroCCCompiler *c);
 
+/* ------------------------------------------------------------------
+ * Sprint 119 (type-system hardening #1, slice 2): codegen-side tag
+ * readers. The temp tag is the frontend's verdict on the value's TYPE
+ * and is the single source of truth for type-derived codegen
+ * decisions; the legacy instruction side channels (C99 width mark,
+ * [u] div mark, OVF check-width field) are consulted only where the
+ * tag cannot answer:
+ *
+ *  - The C99 width mark is an op PARAMETER ("canonicalize this op's
+ *    result to N bits"), not a type claim: it also carries bitfield
+ *    bit widths (3..7) the byte-width tag format cannot express, and
+ *    it is fresher than a lifetime tag on a temp id reused past the
+ *    32768 threshold (lower_stmt_if). A PRESENT mark therefore always
+ *    wins for the extend decision. The tag drives the extend in exactly
+ *    one gap the mark leaves: the zero_san slot-steal, where the ALU
+ *    op's mark lands on the following OP_OVF_TRAP and the (unmarked)
+ *    ALU result is canonicalized from the tag, deferred PAST the check
+ *    (clean-value invariant: the check sees the raw 64-bit result and
+ *    the ALU-set flags; on values that survive the check the deferred
+ *    extend is a provable no-op). Other unmarked ops stay unextended:
+ *    canonicalization there is pre-canonicalized (an in-place
+ *    SEXTn/ZEXTn right after) or restored by the narrow load/store
+ *    discipline.
+ *  - DIV/MOD signedness is the UAC result type; the mark IS the UAC
+ *    verdict emitted at the producer site, so a present mark wins
+ *    (legacy behavior). The tag fills the silent-mark gap - and only
+ *    at width >= 4 (C promotion: a sub-int division is a signed int
+ *    division, and the LHS-type tag compound-assign stamps on its op
+ *    temp is the assignment type, not the division type).
+ *  - The OVF check width is the check's own metadata; the tag is
+ *    consulted only when it agrees with the field (I2), which is what
+ *    makes the tag a safe source there.
+ *
+ * Verifier invariants I1/I2/I8 (tools/type_tag_verifier.py) gate that
+ * the tag and the marks agree wherever both speak; I9 (slice 2)
+ * reports the unmarked narrow-op population (OVF-deferred /
+ * pre-canonicalized / load-store-discipline) as a coverage stat.
+ * ------------------------------------------------------------------ */
+
+/* Ops whose result can leave the C99 N-bit range and must be
+ * canonicalized (sign/zero-extended) to the dest's width. Copy,
+ * address, compare, COND_SET (0/1), already-canonizing ops (LOAD_16/
+ * 32/BYTE, LNOT, SEXTn/ZEXTn) and FP/128 ops are excluded. */
+static inline int zc_op_can_define_narrow_int(uint8_t op) {
+    switch (op) {
+        case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV: case OP_MOD:
+        case OP_AND: case OP_OR: case OP_XOR: case OP_NOT: case OP_NEG:
+        case OP_SHL: case OP_SHR: case OP_SAR:
+        case OP_ADD_IMM: case OP_SUB_IMM: case OP_INC: case OP_DEC:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+/* C99 wrap-extend decision for an instruction's result (slice 2).
+ * Returns 1 and sets *w_out (bytes or bit width) / *sign_out (1 =
+ * sign-extend) when the result must be canonicalized; 0 = no extend.
+ *
+ * Mark-first (see the note above); the tag fills exactly ONE gap the
+ * mark leaves: the zero_san slot-steal, where an unmarked narrow-class
+ * ALU op is immediately followed by an OP_OVF_TRAP on the same temp
+ * (the ALU's own mark landed on the trap instead). There the tag drives
+ * the extend, deferred past the check by the trap's frame. Other
+ * unmarked ops stay unextended - the lowering contract is that
+ * canonicalization is either marked, pre-canonicalized (an in-place
+ * SEXTn/ZEXTn right after), or restored by the narrow load/store
+ * discipline; widening the gap-fill beyond the trap case would emit
+ * redundant extends across the inlined-parameter population (see I9).
+ */
+
+/* The instruction's C99 width mark (a per-op parameter: byte widths
+ * 1/2/4 signed or 8+1/2/4 unsigned, plus bitfield bit widths 3..7).
+ * `w & 7` strips the zero-extend flag; w==0 (mark 8/16) is a width-8
+ * no-op the emitter absorbs. */
+static inline int zc_mark_extend(const Instr *instr, int *w_out, int *sign_out) {
+    if (!instr || instr->temp_dest == TEMP_NONE) return 0;
+    if (instr->width == 0) return 0;
+    *w_out = (int)(instr->width & 7);
+    *sign_out = (instr->width < 8) ? 1 : 0;
+    return 1;
+}
+
+/* The tag-driven extend for an UNmarked narrow-class ALU op on a
+ * tagged int/uint temp of width 1/2/4 (w==8 needs no extend). Used
+ * only for the OVF-adjacent deferral (see zc_mark_extend's note). */
+static inline int zc_tag_extend(const ZeroCCCompiler *c, const Instr *instr,
+                                int *w_out, int *sign_out) {
+    if (!instr || instr->temp_dest == TEMP_NONE || instr->width != 0) return 0;
+    if (!zc_op_can_define_narrow_int(instr->op)) return 0;
+    uint8_t tag = zc_temp_tag(c, instr->temp_dest);
+    uint8_t cls = zc_tag_class(tag);
+    if (cls != ZC_TAGCLS_INT && cls != ZC_TAGCLS_UINT) return 0;
+    int w = zc_tag_width_bytes(tag);
+    if (w != 1 && w != 2 && w != 4) return 0;
+    *w_out = w;
+    *sign_out = (cls == ZC_TAGCLS_INT) ? 1 : 0;
+    return 1;
+}
+
+/* Is this DIV/MOD unsigned? The UAC result type decides, and the mark
+ * is the UAC verdict emitted at the producer site - so a PRESENT mark
+ * (the [u] cond mark or the zero-extend width flag) always wins, exactly
+ * as in the legacy code. When the mark is silent (a compound-assign /
+ * desugared div whose operands the width inference couldn't classify),
+ * the dest tag decides - but only at width >= 4: C integer promotion
+ * means a sub-int division is a signed int division, and the LHS-type
+ * tag that compound-assign stamps on its op temp (e.g. UINT(1) for
+ * `unsigned char x; x /= y;`) is the assignment type, not the division
+ * type (c-torture execute/20030128-1.c). */
+static inline int zc_div_is_unsigned(const ZeroCCCompiler *c, const Instr *instr) {
+    if (instr->cond != 0 || instr->width != 0) {
+        return (instr->cond != 0 || instr->width > 8) ? 1 : 0;
+    }
+    uint8_t tag = zc_temp_tag(c, instr->temp_dest);
+    if (zc_tag_width_bytes(tag) < 4) return 0;
+    uint8_t cls = zc_tag_class(tag);
+    if (cls == ZC_TAGCLS_UINT) return 1;
+    if (cls == ZC_TAGCLS_INT) return 0;
+    return 0;
+}
+
+/* OP_OVF_TRAP check width (4 or 8): tag-first from the checked temp
+ * (invariant I2: it must be a signed int of exactly the check width),
+ * falling back to the instruction's check-width field. The tag is
+ * trusted only when it AGREES with the field: the checked temp can
+ * carry an assignment-expression stamp of a different width (a
+ * `long l = a + b;` where the int add's check is width 4 but the
+ * lvalue's tag says 8), and the field is the check width by
+ * construction - agreement (I2) is what makes the tag a safe source. */
+static inline int zc_ovf_trap_width(const ZeroCCCompiler *c, const Instr *instr) {
+    uint8_t tag = zc_temp_tag(c, instr->temp_dest);
+    if (zc_tag_class(tag) == ZC_TAGCLS_INT) {
+        int w = zc_tag_width_bytes(tag);
+        if ((w == 4 || w == 8) && w == (int)instr->width) return w;
+    }
+    return (int)instr->width;
+}
+
+/* Does `nx` (the instruction right after a narrow result op)
+ * canonicalize the same temp in-place via SEXTn/ZEXTn - the
+ * compound-assign / narrow-local-store pattern (unmarked ALU op +
+ * SEXT32 + 64-bit slot store)? Matches on temp, direction (SEXT <->
+ * INT tag, ZEXT <-> UINT tag) and width (n == tagged width): a wider,
+ * narrower or opposite-direction extend is not a canonicalization of
+ * this value. In-place extends set temp_dest == temp_src1 == temp. */
+static inline int zc_next_canonicalizes(const ZeroCCCompiler *c, const Instr *nx,
+                                        uint16_t temp) {
+    if (!nx || temp == TEMP_NONE) return 0;
+    if (nx->temp_dest != temp || nx->temp_src1 != temp) return 0;
+    int w = 0, sign = 0;
+    switch (nx->op) {
+        case OP_SEXT8:  w = 1; sign = 1; break;
+        case OP_SEXT16: w = 2; sign = 1; break;
+        case OP_SEXT32: w = 4; sign = 1; break;
+        case OP_ZEXT8:  w = 1; sign = 0; break;
+        case OP_ZEXT16: w = 2; sign = 0; break;
+        case OP_ZEXT32: w = 4; sign = 0; break;
+        default: return 0;
+    }
+    uint8_t tag = zc_temp_tag(c, temp);
+    return zc_tag_width_bytes(tag) == w &&
+           ((sign && zc_tag_class(tag) == ZC_TAGCLS_INT) ||
+            (!sign && zc_tag_class(tag) == ZC_TAGCLS_UINT));
+}
+
 /* Insert instruction at specific index (shifts existing instructions) */
 void ir_insert_at(ZeroCCCompiler *c, size_t idx, Instr instr);
 

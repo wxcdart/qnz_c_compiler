@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-06T21:46:32Z
+timestamp: 2026-11-06T23:18:37Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1071,3 +1071,12 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-06 — Updated `build-and-verification.md`
 - Sprint 118: Type-tag verifier gate
+
+## 2026-11-06 — Updated `ir-and-regalloc.md`
+- Sprint 119 (Slice 2): codegen-side tag readers - mark-first extend with tag-driven zero_san clean-value deferral, mark-first DIV/MOD signedness (tag fallback only silent-mark + width>=4, per C promotion; c-torture 20030128-1.c), OVF check width tag-confirmed, branchless scratch tag stamping, verifier I9 coverage stat
+
+## 2026-11-06 — Updated `optimization-passes.md`
+- Sprint 119 (Slice 2): branchless select scratch temps tagged INT(8); constant-fold DIV/MOD signedness via the shared tag reader
+
+## 2026-11-06 — Updated `build-and-verification.md`
+- Sprint 119 (Slice 2): type-tag verifier I9 unmarked-narrow-op population stat; corpus 152 files

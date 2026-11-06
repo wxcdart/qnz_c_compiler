@@ -234,7 +234,7 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
                 /* Not yet implemented for other ISAs - skip silently */
                 return;
             }
-            int width = instr->width;
+            int width = zc_ovf_trap_width(c, instr);
             int spill_dst_local = regalloc_get_spill_slot_for_temp(&c->regalloc, instr->temp_dest);
             bool is_spilled = (spill_dst_local >= 0);
             const char *reg = BE(c)->get_hw_reg_name(phys_dst);
@@ -277,7 +277,7 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
 
         case OP_DIV:
             if (BE(c)->emit_div_asm) {
-                c->lowering.div_is_unsigned = (instr->cond != 0 || instr->width > 8);
+                c->lowering.div_is_unsigned = zc_div_is_unsigned(c, instr);
                 BE(c)->emit_div_asm(c, phys_dst, phys_src1, phys_src2, out);
                 c->lowering.div_is_unsigned = 0;
             }
@@ -285,7 +285,7 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
 
         case OP_MOD:
             if (BE(c)->emit_mod_asm) {
-                c->lowering.div_is_unsigned = (instr->cond != 0 || instr->width > 8);
+                c->lowering.div_is_unsigned = zc_div_is_unsigned(c, instr);
                 BE(c)->emit_mod_asm(c, phys_dst, phys_src1, phys_src2, out);
                 c->lowering.div_is_unsigned = 0;
             }
@@ -1626,18 +1626,45 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
     asm_emit_instruction_core(c, instr, idx, func_idx, phys_dst, phys_src1, phys_src2,
                               g128_dhi, g128_s1hi, g128_s2hi, out);
 
-    /* C99 width semantics: if the op produced a narrow-int result,
-     * extend it to full 64-bit width now (sign or zero per the mark),
-     * before any spill-back so the stored value is the extended one.
-     * `width & 7` strips the zero-extend flag (Instr.width encodes
-     * sign-extend as 1/2/4 and zero-extend as 8+1/2/4 - see ir.h);
-     * the sign arg below does the same. OP_OVF_TRAP is excluded: its
-     * width is CHECK metadata (4 or 8), not a value mark - with 8 the
-     * mask would yield 0 and the emitter would fall through to the
-     * 16-bit path, truncating the 64-bit sum. */
-    if (instr->width != 0 && instr->op != OP_OVF_TRAP && instr->temp_dest != TEMP_NONE && BE(c)->emit_extend_asm) {
-        BE(c)->emit_extend_asm(c, phys_dst, phys_dst,
-                               (int)(instr->width & 7), (instr->width < 8) ? 1 : 0, out);
+    /* C99 width semantics (Sprint 119, slice 2): canonicalize a
+     * narrow-int result to its C width before any spill-back so the
+     * stored value is the extended one. Mark-first: a C99 width mark
+     * is a per-op parameter (byte widths 1/2/4 signed or 8+1/2/4
+     * unsigned, plus bitfield bit widths 3..7) and a marked op is
+     * never OVF-adjacent - the zero_san trap consumes the mark slot
+     * (see below). OP_OVF_TRAP is never extended itself: its width is
+     * CHECK metadata, not a value mark.
+     *
+     * Clean-value deferral: when the preceding ALU op's mark was
+     * stolen by this OP_OVF_TRAP, the check must see the raw 64-bit
+     * result and the flags the ALU op set. The trap frame therefore
+     * emits the ALU result's tag-driven C99 extend AFTER the check
+     * (same temp => same physical register). On values that survive
+     * the check that deferred extend is a provable no-op: the check
+     * traps exactly when the extension would change the value. An
+     * in-place SEXTn/ZEXTn on the same temp after the trap makes the
+     * deferred extend redundant too. */
+    {
+        const Instr *ext = NULL;
+        int ew = 0, esign = 0;
+        const Instr *buf = ir_get_buffer(c);
+        size_t n = ir_get_count(c);
+        if (instr->op == OP_OVF_TRAP && idx > 0) {
+            const Instr *pv = &buf[idx - 1];
+            if (pv->op != OP_OVF_TRAP && pv->temp_dest != TEMP_NONE &&
+                pv->temp_dest == instr->temp_dest &&
+                zc_tag_extend(c, pv, &ew, &esign) &&
+                !zc_next_canonicalizes(c, idx + 1 < n ? &buf[idx + 1] : NULL,
+                                       instr->temp_dest)) {
+                ext = pv;
+            }
+        } else if (instr->op != OP_OVF_TRAP && instr->temp_dest != TEMP_NONE &&
+                   zc_mark_extend(instr, &ew, &esign)) {
+            ext = instr;
+        }
+        if (ext && BE(c)->emit_extend_asm) {
+            BE(c)->emit_extend_asm(c, phys_dst, phys_dst, ew, esign, out);
+        }
     }
 
     /* If destination temp was spilled, store the scratch register back to

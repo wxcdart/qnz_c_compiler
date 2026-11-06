@@ -4,7 +4,7 @@ title: Two-Pass IR & Linear Scan Register Allocation
 description: IR instruction format, call-argument tracking table, virtual register conventions, and linear scan register allocation constraints.
 resource: middleend/ir-and-regalloc
 tags: [ir, regalloc, ssa, registers, calling-convention]
-timestamp: 2026-11-06T21:46:32Z
+timestamp: 2026-11-06T23:18:37Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -95,6 +95,19 @@ ZeroCC IR historically carried type information only through side-channels (C99 
   - Functions print a `# temp tags:` summary line recording all non-zero tagged virtual registers.
 - **Verification Gate (`tools/type_tag_verifier.py`)**:
   - Cross-checks 148 corpus files at `-O0`, `-O2`, `-O3` across 8 invariants: I1 (width mark ↔ tag), I2 (`OP_OVF_TRAP` check width & ALU adjacency), I3 (FP ops & operands), I4 (128-bit ops & scalar views), I5 (in-place SEXT/ZEXT class consistency), I6 (tag ↔ defining-op class), I7 (`COND_SET` 0/1 int dest), I8 (unsigned DIV/MOD `[u]`).
+
+### Codegen Tag Readers (Sprint 119, Slice 2)
+
+Slice 2 transitions the codegen-side consumers of the type side channels to read the tags, with the marks retained as the per-instruction authority where they carry information the tag cannot:
+
+- **The mark is an op PARAMETER, the tag is a VALUE TYPE** (`ir.h`, `zc_mark_extend` / `zc_tag_extend` / `zc_div_is_unsigned` / `zc_ovf_trap_width` / `zc_next_canonicalizes`, used by both emitters and `opt_constant_fold`):
+  - **Extend**: a present C99 width mark always wins (byte widths 1/2/4 signed, 8+1/2/4 unsigned, plus bitfield *bit* widths 3..7 the byte-width tag format cannot express, and the mark is fresher than a lifetime tag on a temp id reused past the 32768 threshold). An unmarked op is extended exactly in one tag-driven case: the **zero_san slot-steal**, where the ALU op's mark landed on the following `OP_OVF_TRAP` instead.
+  - **Clean-value deferral**: in that slot-steal case the trap's frame emits the ALU result's tag-driven C99 extend **after** the check (same temp ⇒ same physical register; skipped when an in-place `SEXTn`/`ZEXTn` of matching direction and width on the same temp already canonicalizes). The check must see the raw 64-bit ALU result and the ALU-set flags; on values that survive the check the deferred extend is a **provable no-op** (the check traps exactly when the extension would change the value: a narrow signed add/sub/mul result that fits already carries the sign extension in its upper bits, and width 8 needs no extend). A marked op is never OVF-adjacent (the trap consumes the mark slot), so the two paths are disjoint.
+  - **DIV/MOD signedness**: a present mark (`[u]` cond mark or zero-extend width flag — the UAC verdict emitted at the producer site) always wins, exactly the legacy behavior. When the mark is silent (compound-assign / desugared divs whose operands the width inference couldn't classify), the dest tag decides — **but only at width ≥ 4**: C integer promotion makes a sub-int division a *signed int* division, and the LHS-type tag that compound-assign stamps on its op temp (e.g. `UINT(1)` for `unsigned char x; x /= y;`) is the assignment type, not the division type (c-torture `execute/20030128-1.c` caught the naive tag-first version).
+  - **OVF check width**: the checked temp's tag is consulted only when it **agrees** with the instruction's check-width field (invariant I2) — an assignment-expression stamp of a different width on the same temp (a `long l = a + b;` where the int add's check is 4) would otherwise weaken the check.
+- **Branchless-select scratch temps are tagged** (`opt_branchless.c`): the 4 fresh temps per site (mask, ±1 constant, XOR difference, AND select) are stamped `INT(8)` — full-register-domain scratch, width-8 extend a no-op, no wrap semantics.
+- **Coverage stat I9** (verifier, no failures): classifies every unmarked narrow-class ALU op on a narrow tagged temp — OVF-deferred (tag-driven extend rides after the check) / pre-canonicalized (matching in-place `SEXTn`/`ZEXTn` follows — the compound-assign / narrow-local-store pattern) / load-store-discipline (left raw by design; narrow loads re-extend, stores truncate or 64-bit-slot values re-extend on next load). Baseline: 119 / 207 / 242 across the corpus.
+- **Deferred to Slice 3**: migrating the `last_expr_is_float` / `last_expr_is_128` producer flags (430 references, 15 files — a frontend-internal state machine) and per-use complex `esz` resolution to tag reads, and retiring the `Instr.width` mark once bit-width marks move into the tag format.
 
 ## Temp-Id Space (16-bit, C2b) & the Exhaustion Guard
 

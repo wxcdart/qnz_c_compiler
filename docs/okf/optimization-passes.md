@@ -4,7 +4,7 @@ title: Optimization Passes & Safety Invariants
 description: Active IR optimization pipeline (Constant Folding, CopyProp, CSE, GVN, DCE, Mem2Reg, LICM, Auto-Vectorization) and their correctness invariants.
 resource: middleend/optimization-passes
 tags: [optimizations, mem2reg, licm, vectorization, gvn, cse, dce]
-timestamp: 2026-11-06T04:32:23Z
+timestamp: 2026-11-06T23:18:37Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -18,6 +18,7 @@ Optimization passes are registered in `src/zero_cc/opt/opt_pass.c` (`g_opt_passe
 
 1. **Constant Folding (`opt_constant_fold.c`)**
    - Evaluates constant binary/unary operations at compile time and replaces instructions with `OP_MOV_IMM`.
+   - **DIV/MOD signedness from the shared tag reader (Sprint 119, Slice 2)**: the folded `is_unsigned` comes from `zc_div_is_unsigned` — the same source of truth the emitters use (present UAC mark wins; dest tag only when the mark is silent and width ≥ 4), so a folded constant and the emitted op can never disagree on signedness.
 2. **Copy Propagation (`opt_copy_prop.c`)**
    - Propagates `OP_MOV_REG` and constant definitions across basic blocks, invalidating mappings at labels and redefinitions.
    - **Generic definition rule (Sprint 39)**: `instr_defines_temp` treats **any instruction with `temp_dest != TEMP_NONE`** as a definition (matching DCE's liveness convention), with `OP_CALL`/`OP_CALL_INDIRECT` excluded (their `temp_dest` is not a temp ID since C2b). The previous explicit opcode list missed the in-place ops (`OP_ADD_IMM`, `OP_SUB_INC`, `OP_INC`, `OP_DEC`, `OP_SEXT*`, `OP_ZEXT*`, `OP_LEA`, …), so an in-place redefine of a copy-mapped temp was not invalidated and later uses were replaced with the stale copy source (e.g. `t2 = t; t2 = t2 - 1; r = ~t2` miscompiled as `r = ~t`). Latent before Sprint 39 because lowering only ever emitted 3-operand forms for `x += c`; the branchless-select pass was the first emitter of in-place `SUB_INC` on a copied temp and exposed it.
@@ -82,6 +83,7 @@ Optimization passes are registered in `src/zero_cc/opt/opt_pass.c` (`g_opt_passe
     - **Mask opcodes are -S-safe by construction**: `asm_emitter.c` (the `-S` path) originally had no emitters for `OP_NOT`/`OP_INC`/`OP_DEC`/`OP_ADD_IMM`/`OP_SUB_IMM`/`OP_LNOT` (it emitted a `# UNKNOWN` comment - since **Sprint 40** all six have emitters on every backend). The mask/select therefore use only `OP_MOV_IMM`, `OP_MUL`, `OP_SUB`, `OP_XOR`, `OP_AND`, `OP_CMP_ZERO`, `OP_COND_SET`, all supported by both code paths.
     - **Safety invariants** (all enforced in `try_match_site`): CFG predecessor checks via the shared CFG layer - `L_else`'s block has exactly the JE-block as predecessor, `L_end`'s block exactly `{then-block, else-block}`; `res` is not read anywhere in the replaced span; `res`/arm values `!= t`; both arm values provably GPR-resident (definition walk over GPR-producing opcodes; float/double locals load via `OP_FLOAD` into XMM class and are rejected, as is any frame slot whose local type is `float`/`double`); the condition temp stays live (it feeds the mask); 4 fresh temps per site with a 16-bit temp guard. The two-pass arena rebuild (LICM recipe) splices the hoisted arm plumbing + mask + select and remaps `ir_call_args`.
     - **Flags are safe to clobber at the merge point**: every jump in the IR is register-form (`JE t` = `test t, t; je`), and the only flag-reading opcode is `OP_COND_SET`, which lowering always places adjacent to its `OP_CMP`/`OP_CMP_ZERO` - no lowered flag reader can straddle the splice.
+    - **Select scratch temps are type-tagged (Sprint 119, Slice 2)**: the 4 fresh temps per site (mask, ±1 constant, XOR difference, AND select) are stamped `INT(8)` — full-register-domain scratch (the mask/select hold 64-bit bit patterns, not C99 N-bit values; a width-8 extend is a no-op, so no wrap semantics apply). The final select writes `sp->then.res`, the original lowering temp, which already carries the conditional's semantic tag — codegen's extend/DIV decisions on the select therefore ride on tags like any other value.
     - Verified by `test/jit/ternary_branchless.c` (part of `make test-opt`, all `-O` levels, JIT + AOT) and a gcc differential battery (plain/comparison conditions, negative/large values, pointer arms, SEXT arms, condition reuse, nested ternaries, loop-carried selects).
     - **Known non-matches (by design)**: ternaries whose arms are FP values (XMM guard), whose arms compute (e.g. `? -x :`), whose arms are bare immediates, and `char`/`short` *pointer* arms are fine but struct-by-value arms are out of scope (v2 candidates: immediate arms, struct chunks).
 
