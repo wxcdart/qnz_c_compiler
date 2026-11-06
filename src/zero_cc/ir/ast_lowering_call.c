@@ -214,6 +214,16 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                     n3 = zero_cc_ast_get(arena, a3);
                     if (n1 && n3) n1->next = n3->next;
                 }
+            } else {
+                /* General __builtin_X alias: when the base name X is a
+                 * known function (declared or defined), the builtin alias
+                 * calls X - GCC's behavior for the `__builtin_strpbrk` /
+                 * `__builtin_strcspn` / ... alias family (c-torture
+                 * execute/builtins).  Unknown base names keep the literal
+                 * `__builtin_X` symbol (implicit-declaration path). */
+                if (zero_cc_find_function(c, base_fn)) {
+                    name = base_fn;
+                }
             }
         }
 

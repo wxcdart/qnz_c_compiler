@@ -342,18 +342,27 @@ if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
             c->token_pos++;
         }
         int ptr_depth = 0;
-        bool p_ptr_is_const = false;
-        bool p_ptr_is_volatile = false;
-        bool p_ptr_is_restrict = false;
+        bool p_ptr_const[16], p_ptr_vol[16], p_ptr_restr[16];
+        /* Each star level carries its own qualifier: `const char *const
+         * *bar` is a pointer to (const pointer to const char) - the inner
+         * const must not leak onto bar's own type (strpbrk.c: `bar--` is
+         * legal there). */
         while (c->tokens[c->token_pos].type == TK_STAR) {
+            if (ptr_depth < 16) {
+                p_ptr_const[ptr_depth] = false;
+                p_ptr_vol[ptr_depth] = false;
+                p_ptr_restr[ptr_depth] = false;
+            }
             ptr_depth++;
             c->token_pos++;
             while (c->tokens[c->token_pos].type == TK_CONST ||
                    c->tokens[c->token_pos].type == TK_VOLATILE ||
                    c->tokens[c->token_pos].type == TK_RESTRICT) {
-                if (c->tokens[c->token_pos].type == TK_CONST) p_ptr_is_const = true;
-                if (c->tokens[c->token_pos].type == TK_VOLATILE) p_ptr_is_volatile = true;
-                if (c->tokens[c->token_pos].type == TK_RESTRICT) p_ptr_is_restrict = true;
+                if (ptr_depth <= 16) {
+                    if (c->tokens[c->token_pos].type == TK_CONST) p_ptr_const[ptr_depth - 1] = true;
+                    if (c->tokens[c->token_pos].type == TK_VOLATILE) p_ptr_vol[ptr_depth - 1] = true;
+                    if (c->tokens[c->token_pos].type == TK_RESTRICT) p_ptr_restr[ptr_depth - 1] = true;
+                }
                 c->token_pos++;
             }
         }
@@ -412,10 +421,10 @@ if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
         }
         for (int pd = 0; pd < ptr_depth; pd++) {
             pt = zero_cc_type_ptr(&pt);
-            if (pd == ptr_depth - 1) {
-                pt.is_const = p_ptr_is_const;
-                pt.is_volatile = p_ptr_is_volatile;
-                pt.is_restrict = p_ptr_is_restrict;
+            if (pd < 16) {
+                pt.is_const = p_ptr_const[pd];
+                pt.is_volatile = p_ptr_vol[pd];
+                pt.is_restrict = p_ptr_restr[pd];
             }
         }
         bool fn_ptr_param_done = false;

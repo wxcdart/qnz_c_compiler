@@ -149,16 +149,15 @@ Known genuine hard-limit `REJECT`s (do not chase): `compile/20001226-1.c`
 
 ## Burn-down chunks (`--chunk <name>`)
 
-Baseline-derived chunks for the known bad families (Sprint 115e state):
+Baseline-derived chunks for the known bad families (Sprint 115f state):
 
 - **m2** (16): the partial MISCOMPILE tests (wrong `(rc, out)` on a subset
   of configs).
 - **m3** (12): the `printf`/`scanf` runtime-IO family.
-- **m4** (4 REJECT): `execute/builtins/{fputs,memmove-2,sprintf,strpbrk}.c` —
-  parser/semantic gaps surfaced by the 2-file family.
-- **m5** (34 MISCOMPILE): 33 `execute/builtins` string/printf/`_Complex`
-  builtin-lowering bugs + `execute/20021127-1.c`. The `_Complex` cluster's
-  root cause: float-precision complex arithmetic is computed in a
+- **m4** — **burned down in Sprint 115f (REJECT 4 → 0)**: `execute/builtins/{fputs,memmove-2,sprintf,strpbrk}.c` — fixed by parenthesized function declarators (`int (sprintf)(...)`), file-scope pointer-init arithmetic (`char *q = p + 4`), per-level pointer qualifiers in the parameter star-loop, the general `__builtin_X`→`X` alias fallback, and `vsprintf`/`vsnprintf` prototypes in the stdio virtual header (the prototype is what engages the glibc-layout va_list shadow when a wrapper forwards its va_list to glibc's `vsprintf`).
+- **m5** (23 MISCOMPILE, was 34): the remaining `execute/builtins`
+  string/printf/`_Complex` builtin-lowering bugs (11 cleared by the m4
+  work) + `execute/20021127-1.c`. The `_Complex` cluster's root cause: float-precision complex arithmetic is computed in a
   **double**-precision temporary (scalar-float operands of a complex op are
   treated as doubles in `lower_expr_binop`'s complex path), and complex
   stores to a narrower complex type lack the component-wise `double→float`

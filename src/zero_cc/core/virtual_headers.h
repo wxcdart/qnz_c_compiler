@@ -358,6 +358,8 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "int puts(const char *s);\nint putchar(int c);\n"
             "void perror(const char *s);\n"
             "int vprintf(const char *format, va_list ap);\n"
+            "int vsprintf(char *str, const char *format, va_list ap);\n"
+            "int vsnprintf(char *str, size_t size, const char *format, va_list ap);\n"
             "int vfprintf(FILE *stream, const char *format, va_list ap);\n"
             "int vscanf(const char *format, va_list ap);\n"
             "int vfscanf(FILE *stream, const char *format, va_list ap);\n"

@@ -205,6 +205,46 @@ static bool zero_cc_compile_top_level_decl(ZeroCCCompiler *c) {
  * (including its semicolon) has been consumed. */
 #include "zero_cc/jit/const_ptr_eval.h"
 
+/* C89/GNU parenthesized declarator: `int (f) (int);`, `int (f);`,
+ * `int (f) (int x) { }` - the declarator is the identifier wrapped in
+ * redundant outer parentheses (C89 6.4.1 direct-declarator `(` declarator
+ * `)`).  When the token stream is in declarator position - the previous
+ * token is a type specifier / qualifier / storage class / pointer star -
+ * strip the parens in place so the downstream hand-rolled declarator
+ * parsing (and the function-parser handoff) sees the plain identifier.
+ * Expression contexts (`= (f)`, `{ (f)`, ...) are never at a declarator
+ * position, so the previous-token whitelist keeps casts intact. */
+static bool zc_unparen_declarator(ZeroCCCompiler *c) {
+    if (c->token_pos + 2 >= c->token_count) return false;
+    if (c->tokens[c->token_pos].type != TK_LPAREN) return false;
+    if (c->tokens[c->token_pos + 1].type != TK_IDENT) return false;
+    if (c->tokens[c->token_pos + 2].type != TK_RPAREN) return false;
+    if (c->token_pos == 0) return false;
+    ZeroCCTokType prev = c->tokens[c->token_pos - 1].type;
+    switch (prev) {
+        case TK_STAR: case TK_CONST: case TK_VOLATILE: case TK_RESTRICT:
+        case TK_ATOMIC:
+        case TK_INT: case TK_CHAR: case TK_SHORT: case TK_LONG:
+        case TK_SIGNED: case TK_UNSIGNED: case TK_FLOAT_KW: case TK_DOUBLE_KW:
+        case TK_VOID: case TK_BOOL_KW: case TK_STRUCT: case TK_UNION:
+        case TK_ENUM: case TK_STATIC: case TK_EXTERN: case TK_INLINE:
+        case TK_AUTO: case TK_REGISTER: case TK_TYPEDEF: case TK_NORETURN:
+        case TK_THREAD_LOCAL: case TK_IDENT: /* tag / typedef name */
+            break;
+        default:
+            return false;
+    }
+    /* Remove tokens[pos] '(' and tokens[pos+2] ')' (two non-adjacent
+     * deletions); the IDENT stays at token_pos. */
+    size_t a = c->token_pos;
+    memmove(&c->tokens[a], &c->tokens[a + 1],
+            (c->token_count - a - 1) * sizeof(c->tokens[0]));
+    c->token_count--;
+    memmove(&c->tokens[a + 1], &c->tokens[a + 2],
+            (c->token_count - a - 2) * sizeof(c->tokens[0]));
+    c->token_count--;
+    return true;
+}
 
 static void zero_cc_decl_thread_local(ZeroCCCompiler *c, SemContext *shared_ctx, Arena *perm, bool is_static_in) {
     bool is_static = is_static_in;
@@ -525,6 +565,8 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                    (c->tokens[c->token_pos].type == TK_CONST ||
                     c->tokens[c->token_pos].type == TK_VOLATILE ||
                     c->tokens[c->token_pos].type == TK_RESTRICT)) c->token_pos++;
+            /* C89 parenthesized declarator: `extern int (f) (int);` */
+            zc_unparen_declarator(c);
             ZeroCCType base_ext_type = (ext_type.tag == TYPE_PTR && ext_type.base) ? *ext_type.base : ext_type;
             if (c->tokens[c->token_pos].type == TK_IDENT && c->tokens[c->token_pos + 1].type == TK_LPAREN) {
                 /* Extern function declaration/prototype: let function parser handle it */
@@ -1191,6 +1233,10 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
             /* Expect identifier (skipped on function handoff); `true`/
              * `false` count as names for a function declaration (C: they
              * are identifiers unless <stdbool.h> is included). */
+            /* C89 parenthesized declarator: `int (f) (int);` /
+             * `int (f) (int x) { }` (sprintf-lib.c) - strip the redundant
+             * outer parens before the declarator-position checks. */
+            if (!pdecl_handoff_fn) zc_unparen_declarator(c);
             if (!pdecl_handoff_fn &&
                 (c->tokens[c->token_pos].type == TK_IDENT ||
                  c->tokens[c->token_pos].type == TK_TRUE ||
@@ -2065,6 +2111,24 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                         }
                                     }
                                 }
+                                /* Pointer arithmetic on the base address:
+                                 * `char *q = p + 4;` (memmove-2.c). Scale by
+                                 * the array element / pointee size. */
+                                int64_t ptr_arith_off = -1; /* < 0: none */
+                                if (ref_gv && c->token_pos < c->token_count &&
+                                    (c->tokens[c->token_pos].type == TK_PLUS ||
+                                     c->tokens[c->token_pos].type == TK_MINUS)) {
+                                    bool neg = (c->tokens[c->token_pos].type == TK_MINUS);
+                                    c->token_pos++;
+                                    int64_t n = zero_cc_eval_const_expr(c);
+                                    int64_t esz = 1;
+                                    ZeroCCType tt = ref_gv->type;
+                                    if (tt.tag == TYPE_ARRAY && tt.base && tt.base->size > 0)
+                                        esz = (int64_t)tt.base->size;
+                                    else if (tt.tag == TYPE_PTR && tt.base && tt.base->size > 0)
+                                        esz = (int64_t)tt.base->size;
+                                    ptr_arith_off = (neg ? -n : n) * esz;
+                                }
                                 zero_cc_emit_u64(&c->data_section, 0);
                                 if (ref_idx >= 0 || ref_fn) {
                                     if (c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
@@ -2080,8 +2144,12 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                              * data_offset at patch time -
                                              * the target's offset may not
                                              * be final yet, and 0 would
-                                             * mean "byte 0 of .data"). */
-                                            dr->target_data_offset = (size_t)-1;
+                                             * mean "byte 0 of .data").  A
+                                             * `+ N` offset is added to the
+                                             * parse-time base; the patcher
+                                             * re-subtracts the final base. */
+                                            dr->target_data_offset = (ptr_arith_off < 0) ? (size_t)-1 :
+                                                (size_t)((uint64_t)ref_gv->data_offset + (uint64_t)ptr_arith_off);
                                             dr->target_global_idx = ref_idx;
                                         } else {
                                             dr->target_kind = 3; /* function symbol */
