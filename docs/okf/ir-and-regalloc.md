@@ -4,7 +4,7 @@ title: Two-Pass IR & Linear Scan Register Allocation
 description: IR instruction format, call-argument tracking table, virtual register conventions, and linear scan register allocation constraints.
 resource: middleend/ir-and-regalloc
 tags: [ir, regalloc, ssa, registers, calling-convention]
-timestamp: 2026-11-06T19:51:15Z
+timestamp: 2026-11-06T20:22:39Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -135,6 +135,11 @@ All 9–16 byte value passing (struct returns, compound literal evaluation, by-v
   - `VREG_0` (`0`) maps to `%rax` (`x0`/`a0`) for primary return values and `sret` pointers.
   - `VREG_2` (`2`) maps to `%rdx` for the upper 8 bytes of 9–16 byte struct returns on x86-64.
   - **Epilogue hazard (Sprint 37)**: the return value sits in `VREG_0` from its materialization in the body until `ret`, but the allocator has no liveness for that physical register, so any code inserted *after* return materialization (e.g. the static-local mirror-out in the shared epilogue block) may have its temps allocated onto the return register and silently clobber it (observed: program exit status = `(uintptr_t)&static_var & 0xFF`). Such code must either shield `VREG_0` through a dedicated frame slot (`lowering.static_local_rt_off`, see the static-local section of `frontend-and-types.md`) or use only the reserved backend scratch registers.
+- **ABI Parameter Pre-Coloring (Sprint 117)**:
+  - An `OP_PARAM_LOAD` int-argument temp is **pinned to its ABI slot register** (`LiveInterval.fixed_reg`, slot from the backend's `ISACallingConvention.int_arg_regs`, recorded in `live_range.h`): the argument value is live in that register **from function entry**, so the interval starts at position 0, and `regalloc_reg_conflicts_fixed` (generalized from the VREG_0/VREG_2 return-register guards) keeps every other interval off the slot for the whole live window. The natural case needs no materialization move; when `home != slot` the existing `OP_PARAM_LOAD` move is only ever emitted into a register the allocator reserved for that parameter, so it can never clobber a live value.
+  - **Why it exists**: without entry liveness, a parameter's slot could be handed to another interval before the value was materialized out — the RISC-V `int * long` mixed-multiply miscompile (the first param's slot, `a1`, was allocated to a second interval; the sign-extension materialization `mv a1, a0` clobbered the live `long` operand and the product was `i * i`). The swap was commutatively invisible for `long * long` / `int * int` and only bit mixed widths; the latent shape exists on every ISA.
+  - **Escape hatches** (the slot may not be usable for the whole window): a parameter whose interval **spans a call** (a caller-saved slot is clobbered by the call) or one that **clashes** with another fixed interval on the same register (e.g. x86 int param #3 lives in `rdx` = VREG_2's pre-colored register) instead gets a normal allocation plus a short **guard interval** `[0, def_pos]` pinned to the slot, reserving it from entry until the `OP_PARAM_LOAD` moves the value out. The VREG_0/VREG_2 guard-interval registrations (x86 DIV/MOD/MUL128 scratch, post-call return-copy windows) therefore run **before** the per-temp interval loop in `live_range_compute` so the clash check can see them.
+  - **Scope**: int parameters only, all 4 ISAs. FP parameters keep the old behavior (XMM-class pre-coloring would need the FP-namespace treatment, e.g. RISC-V `fa0`–`fa7` = physical 10–17 outside the 0–7 XMM pool). Regression tests: `test/jit/wide_param_regs.c` (host, swept by `make test`/`make test-opt`) and `test/san/san_ok_cross_smoke.c`'s `mul_il` case (aarch64/riscv64/riscv32 under qemu via `make test-san`).
 - **Reserved x86-64 Physical Registers (Never Allocatable to General Temps)**:
   - `%rsp` (`4`) and `%rbp` (`5`): Stack and frame pointers.
   - `%rcx` (`1`): Reserved for variable shift counts (`shl`, `shr`, `sar`).

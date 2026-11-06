@@ -36,6 +36,8 @@ typedef struct LiveRangeAnalyzer {
     size_t *temp_def_pos;       /* Definition position per temp */
     size_t *temp_live_end;      /* Last use position per temp */
     RegClass *temp_reg_class;   /* Register class per temp (GPR or XMM) */
+    int *param_slot;            /* Sprint 117: ABI int-arg slot register for
+                                 * OP_PARAM_LOAD temps (-1 = not a parameter) */
     size_t temp_capacity;       /* Capacity of temp arrays */
 
     /* Clobber tracking per instruction */
@@ -61,6 +63,7 @@ static void live_range_init(LiveRangeAnalyzer *lra) {
     lra->temp_def_pos = NULL;
     lra->temp_live_end = NULL;
     lra->temp_reg_class = NULL;
+    lra->param_slot = NULL;
     lra->temp_capacity = 0;
 
     lra->rax_clobbered = NULL;
@@ -81,6 +84,7 @@ static void live_range_free(LiveRangeAnalyzer *lra) {
     free(lra->temp_def_pos);
     free(lra->temp_live_end);
     free(lra->temp_reg_class);
+    free(lra->param_slot);
     free(lra->rax_clobbered);
     free(lra->rdx_clobbered);
     free(lra->call_positions);
@@ -172,16 +176,26 @@ static void live_range_add_use(LiveRangeAnalyzer *lra, size_t instr_index, int t
             return;
         }
 
+        int *new_param_slot = realloc(lra->param_slot, new_cap * sizeof(int));
+        if (!new_param_slot) {
+            free(new_def_pos);
+            free(new_live_end);
+            free(new_reg_class);
+            return;
+        }
+
         /* Initialize new entries */
         for (size_t i = lra->temp_capacity; i < new_cap; i++) {
             new_def_pos[i] = SIZE_MAX;  /* Undefined */
             new_live_end[i] = 0;
             new_reg_class[i] = REG_CLASS_GPR;  /* Default to GPR */
+            new_param_slot[i] = -1;  /* Not a parameter */
         }
 
         lra->temp_def_pos = new_def_pos;
         lra->temp_live_end = new_live_end;
         lra->temp_reg_class = new_reg_class;
+        lra->param_slot = new_param_slot;
         lra->temp_capacity = new_cap;
     }
 
@@ -321,62 +335,15 @@ static void live_range_compute(LiveRangeAnalyzer *lra, RegAllocator *ra, ZeroCCC
         }
     }
 
-    /* Process each temp that was defined */
-    for (size_t temp_id = 0; temp_id < lra->temp_capacity; temp_id++) {
-        if (lra->temp_def_pos[temp_id] == SIZE_MAX) {
-            continue;  /* Temp was never defined */
-        }
-
-        size_t start = lra->temp_def_pos[temp_id];
-        size_t end = lra->temp_live_end[temp_id];
-
-        /* Extend end position across any loop that contains uses of this temp.
-         * Multiple nested loops may require fixed-point propagation (e.g. a
-         * constant hoisted before an outer loop that is only directly used inside
-         * an inner loop: first extends to the inner backedge, which is inside the
-         * outer loop, and then extends to the outer backedge). */
-        if (backedge_count > 0) {
-            bool changed = true;
-            while (changed) {
-                changed = false;
-                for (size_t b = 0; b < backedge_count; b++) {
-                    size_t hdr = backedges[b].hdr;
-                    size_t i = backedges[b].backedge;
-                    if (start < hdr && end >= hdr && end < i) {
-                        end = i;
-                        changed = true;
-                    }
-                }
-            }
-        }
-
-        /* Skip if start > end (shouldn't happen, but be safe) */
-        if (start > end) continue;
-
-        /* Determine register class from the defining instruction's opcode */
-        RegClass reg_class = lra->temp_reg_class[temp_id];
-
-        /* Add interval to register allocator */
-        int int_idx = regalloc_add_interval(ra, (int)temp_id, start, end, reg_class);
-
-        /* Check if this interval spans any function call */
-        if (int_idx >= 0 && lra->call_count > 0) {
-            for (size_t c = 0; c < lra->call_count; c++) {
-                size_t call_pos = lra->call_positions[c];
-                if (start < call_pos && end > call_pos) {
-                    regalloc_set_interval_spans_call(ra, int_idx, true);
-                    break;
-                }
-            }
-        }
-    }
-
     /* On x86-64, idiv/div and 128-bit multiply implicitly read/write RAX (phys 0)
      * and RDX (phys 2). Register intervals at [i, i] for VREG_0 and VREG_2 so that
      * the register allocator never assigns RAX or RDX to any temp that is live
      * across or used at an OP_DIV, OP_MOD, or OP_MUL128 (the 128-bit mul uses
      * rdx:rax as its working product, so a live 64-bit value in rax/rdx would be
-     * silently clobbered -- Sprint 109 GPR128 spill fix). */
+     * silently clobbered -- Sprint 109 GPR128 spill fix).
+     * NOTE: these fixed-interval registrations must run BEFORE the per-temp loop
+     * below so the Sprint 117 parameter pre-coloring clash check can see them
+     * (an x86 int param #3 lives in RDX = VREG_2's pre-colored register). */
     if (ra->target_isa == ISA_X86_64) {
         for (size_t i = 0; i < instr_count; i++) {
             Instr *ins = ir_get(c, i);
@@ -407,6 +374,107 @@ static void live_range_compute(LiveRangeAnalyzer *lra, RegAllocator *ra, ZeroCCC
             }
             if (end0 > i) regalloc_add_interval(ra, VREG_0, i, end0, REG_CLASS_GPR);
             if (end2 > i) regalloc_add_interval(ra, VREG_2, i, end2, REG_CLASS_GPR);
+        }
+    }
+
+    /* Process each temp that was defined */
+    for (size_t temp_id = 0; temp_id < lra->temp_capacity; temp_id++) {
+        if (lra->temp_def_pos[temp_id] == SIZE_MAX) {
+            continue;  /* Temp was never defined */
+        }
+
+        int param_slot = (lra->param_slot && lra->param_slot[temp_id] >= 0)
+                         ? lra->param_slot[temp_id] : -1;
+        size_t start = lra->temp_def_pos[temp_id];
+        size_t end = lra->temp_live_end[temp_id];
+        if (param_slot >= 0) {
+            /* Sprint 117: the ABI argument value already sits in its slot
+             * register at function entry — liveness starts there, not at the
+             * OP_PARAM_LOAD bookkeeping instruction. */
+            start = 0;
+        }
+
+        /* Extend end position across any loop that contains uses of this temp.
+         * Multiple nested loops may require fixed-point propagation (e.g. a
+         * constant hoisted before an outer loop that is only directly used inside
+         * an inner loop: first extends to the inner backedge, which is inside the
+         * outer loop, and then extends to the outer backedge). */
+        if (backedge_count > 0) {
+            bool changed = true;
+            while (changed) {
+                changed = false;
+                for (size_t b = 0; b < backedge_count; b++) {
+                    size_t hdr = backedges[b].hdr;
+                    size_t i = backedges[b].backedge;
+                    if (start < hdr && end >= hdr && end < i) {
+                        end = i;
+                        changed = true;
+                    }
+                }
+            }
+        }
+
+        /* Skip if start > end (shouldn't happen, but be safe) */
+        if (start > end) continue;
+
+        /* Determine register class from the defining instruction's opcode */
+        RegClass reg_class = lra->temp_reg_class[temp_id];
+
+        /* Does the value live across a call? For parameters `start` is the
+         * entry-extended position (a caller-saved slot is clobbered by any
+         * call in the window). */
+        bool spans_call = false;
+        if (lra->call_count > 0) {
+            for (size_t c = 0; c < lra->call_count; c++) {
+                size_t call_pos = lra->call_positions[c];
+                if (start < call_pos && end > call_pos) {
+                    spans_call = true;
+                    break;
+                }
+            }
+        }
+
+        /* Sprint 117 clash check: no other fixed interval (a VREG_0/VREG_2
+         * return/scratch guard, or an earlier parameter's slot) may overlap
+         * this parameter's window on the same register. If one does, the
+         * value cannot be pre-colored to the slot for the whole window. */
+        bool clash = false;
+        if (param_slot >= 0) {
+            for (size_t k = 0; k < ra->fixed_interval_count; k++) {
+                const LiveInterval *other = &ra->intervals[ra->fixed_interval_indices[k]];
+                if (other->reg_class != REG_CLASS_GPR) continue;
+                if (regalloc_fixed_reg_of(ra, other) != param_slot) continue;
+                if (!(end < other->start || start > other->end)) {
+                    clash = true;
+                    break;
+                }
+            }
+        }
+
+        /* Add interval to register allocator */
+        int int_idx = regalloc_add_interval(ra, (int)temp_id, start, end, reg_class);
+
+        if (int_idx >= 0 && spans_call) {
+            regalloc_set_interval_spans_call(ra, int_idx, true);
+        }
+
+        if (param_slot >= 0 && int_idx >= 0) {
+            if (!spans_call && !clash) {
+                /* Pre-color the whole interval to the ABI slot: no
+                 * materialization move is needed, and the conflict check keeps
+                 * every other interval off the slot during the live window. */
+                regalloc_set_fixed_reg(ra, int_idx, param_slot);
+            } else {
+                /* The value sits in the ABI slot from entry until the
+                 * OP_PARAM_LOAD moves it into the allocated register; reserve
+                 * the slot for that window only. */
+                int guard_idx = regalloc_add_interval(ra, (int)temp_id, 0,
+                                                      lra->temp_def_pos[temp_id],
+                                                      reg_class);
+                if (guard_idx >= 0) {
+                    regalloc_set_fixed_reg(ra, guard_idx, param_slot);
+                }
+            }
         }
     }
 
@@ -485,6 +553,17 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
                     lra->temp_reg_class[instr->temp_dest] = REG_CLASS_GPR;
                 } else if (instr->op == OP_PARAM_LOAD) {
                     lra->temp_reg_class[instr->temp_dest] = instr->cond ? REG_CLASS_XMM : REG_CLASS_GPR;
+                    if (instr->cond == 0) {
+                        /* Sprint 117: record the ABI int-arg slot so the
+                         * per-temp loop can pre-color the parameter interval
+                         * to it (the value is live in that register from
+                         * function entry). FP params keep the old behavior. */
+                        const ISACallingConvention *conv = BE(c)->conv;
+                        int ai = (int)instr->imm;
+                        lra->param_slot[instr->temp_dest] =
+                            (conv && ai >= 0 && ai < conv->int_arg_reg_count)
+                            ? conv->int_arg_regs[ai] : -1;
+                    }
                 } else if (ir_opcode_is_float(instr->op)) {
                     lra->temp_reg_class[instr->temp_dest] = REG_CLASS_XMM;
                 } else if (ir_opcode_is_simd(instr->op)) {

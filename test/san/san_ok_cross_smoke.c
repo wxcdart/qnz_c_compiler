@@ -4,10 +4,10 @@
  * binaries and that the check is cleanly skipped there (value preservation,
  * no crash). Run by tools/san_sweep.py under qemu-*-static.
  *
- * Note: this file intentionally omits the `int * long` mixed-width multiply
- * case - a pre-existing RISC-V backend miscompile (the sign-extension copy
- * clobbers the long operand's register; see CHANGELOG "known pre-existing
- * issues") makes that op wrong on riscv32/riscv64 with or without the flag.
+ * The `int * long` mixed-width multiply case (mul_il) also pins the
+ * Sprint 117 parameter pre-coloring fix: without it, RISC-V assigned the
+ * sign-extension a register that still held the long operand's ABI-slot
+ * value and computed i*i instead of i*l.
  */
 long f_mixed(int i, long l) { return i + l; }
 long g_mixed(long l, int i) { return l - i; }
@@ -16,6 +16,7 @@ unsigned long ulwrap(unsigned long a, unsigned long b) { return a + b; }
 long f64(long a, long b) { long x = a + b; return x; }
 long f64loop(int n) { long s = 0; for (int i = 0; i < n; i++) s = s + 12345L; return s; }
 long mul_ll(long a, long b) { return a * b; }
+long mul_il(int i, long l) { return (long)i * l; }
 int main(void) {
     if (f_mixed(2000000000, 2000000000L) != 4000000000L) return 1;
     if (g_mixed(2000000000L, 1) != 1999999999L) return 2;
@@ -25,5 +26,7 @@ int main(void) {
     if (f64(-100000L, -200000L) != -300000L) return 6;
     if (f64loop(10) != 123450L) return 7;
     if (mul_ll(2000000000L, 2L) != 4000000000L) return 8;
+    if (mul_il(-123456, 100000L) != -12345600000L) return 9;
+    if (mul_il(2000000000, 2L) != 4000000000L) return 10;
     return 0;
 }

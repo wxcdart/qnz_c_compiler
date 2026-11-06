@@ -4,7 +4,7 @@ title: Target-Side Sanitizer (zero_san) Design & Roadmap
 description: Analysis and phased roadmap for an optional, parked target-side safety-check feature (zero_san) — a codegen-first UBSan-lite signed-overflow check, with bounds, leaks, and ASan/LSan scoped out and justified.
 resource: sanitizer/roadmap
 tags: [sanitizer, zero_san, codegen, ubsan, overflow, bounds, asan, lsan, leak, roadmap, design, safety]
-timestamp: 2026-11-06T19:51:15Z
+timestamp: 2026-11-06T20:22:39Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -53,9 +53,13 @@ status: active
   backstop; the sweep is the flag-ON soundness gate.
 - **Pre-existing issues found while landing (separate follow-ups, not zero_san bugs):**
   1. RISC-V (both) miscompile of `int * long` mixed-width multiply: the sign-extension copy
-     clobbers the long operand's register (computes `i * i`); the IR is correct (`SEXT32 r16`
-     in-place, then `MUL r18, r16, r17`), so the defect is in the RISC-V register-alloc/emit
-     layer. Wrong with or without the flag.
+     clobbers the long operand's register (computes `i * i`). **Fixed in Sprint 117** —
+     the IR was correct all along; the allocator had no notion that an ABI argument is
+     live in its slot register from function entry, so a slot could be handed to another
+     interval and the `OP_PARAM_LOAD` materialization clobbered the live value. ABI
+     parameter pre-coloring (`LiveInterval.fixed_reg`, see `ir-and-regalloc.md` →
+     Register Allocation Rules) closes it on all 4 ISAs; pinned by `test/jit/wide_param_regs.c`
+     and the `mul_il` case now restored in this file's cross-ISA smoke.
   2. ~~`(unsigned long)0xFFFFFFFFFFFFFFF0UL + (-100)` yields 140~~ — **retracted, not a bug**
      (the correct 2^64−116 is what zerocc computes, verified byte-discriminating against gcc;
      the original "repro" could only observe the low 8 bits, identical for both candidates).

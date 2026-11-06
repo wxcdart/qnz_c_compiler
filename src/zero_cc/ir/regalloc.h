@@ -96,6 +96,8 @@ typedef struct LiveInterval {
     bool is_spilled;          /* Whether this interval is spilled */
     bool spans_call;          /* Whether this interval spans a function call */
     size_t spill_cost;        /* Spill cost (higher = more important to keep in reg) */
+    int fixed_reg;            /* Pre-colored physical register (ABI parameter slot
+                               * pre-coloring, Sprint 117); -1 = not pinned. */
 } LiveInterval;
 
 /* Register allocator state */
@@ -244,6 +246,7 @@ static int regalloc_add_interval(RegAllocator *ra, int temp_id, size_t start, si
     interval->is_spilled = false;
     interval->spans_call = false;
     interval->spill_cost = 1;  /* Default spill cost */
+    interval->fixed_reg = -1;
 
     size_t idx = ra->interval_count - 1;
     if (temp_id >= 0 && temp_id < 65536) {
@@ -263,6 +266,21 @@ static void regalloc_set_interval_spans_call(RegAllocator *ra, int interval_idx,
 static void regalloc_set_interval_spans_call(RegAllocator *ra, int interval_idx, bool spans_call) {
     if (ra && interval_idx >= 0 && (size_t)interval_idx < ra->interval_count) {
         ra->intervals[interval_idx].spans_call = spans_call;
+    }
+}
+
+/* Pre-color an interval to a fixed physical register (Sprint 117 parameter
+ * pre-coloring: an ABI argument value arrives in its slot register at function
+ * entry, so the parameter interval's natural home is the slot itself). The
+ * interval is also registered in fixed_interval_indices so
+ * regalloc_reg_conflicts_fixed keeps every other interval off that register
+ * for the whole overlap window. */
+static void regalloc_set_fixed_reg(RegAllocator *ra, int interval_idx, int reg) __attribute__((unused));
+static void regalloc_set_fixed_reg(RegAllocator *ra, int interval_idx, int reg) {
+    if (!ra || interval_idx < 0 || (size_t)interval_idx >= ra->interval_count) return;
+    ra->intervals[interval_idx].fixed_reg = reg;
+    if (ra->fixed_interval_count < 256) {
+        ra->fixed_interval_indices[ra->fixed_interval_count++] = (size_t)interval_idx;
     }
 }
 
@@ -358,35 +376,45 @@ static inline bool regalloc_is_callee_saved_gpr(const RegAllocator *ra, int phys
     }
 }
 
-/* Check if a physical GPR conflicts with a pre-colored fixed interval (VREG_0 / VREG_2) */
+/* Physical register an interval is pinned to: VREG_0/VREG_2 are the
+ * pre-colored return registers; other intervals are pinned via fixed_reg
+ * (ABI parameter slot pre-coloring). -1 = unpinned. */
+static inline int regalloc_fixed_reg_of(const RegAllocator *ra, const LiveInterval *other) {
+    if (other->temp_id == VREG_0) {
+        return (ra->target_isa == ISA_RISCV64 || ra->target_isa == ISA_RISCV32) ? 10 : 0;
+    }
+    if (other->temp_id == VREG_2) {
+        if (ra->target_isa == ISA_RISCV64 || ra->target_isa == ISA_RISCV32) return 11;
+        return (ra->target_isa == ISA_AARCH64) ? 1 : 2;
+    }
+    return other->fixed_reg;
+}
+
+/* Check if a physical GPR conflicts with a pre-colored fixed interval
+ * (VREG_0 / VREG_2 return registers, or an ABI parameter slot pinned via
+ * regalloc_set_fixed_reg). The pinned register must not be handed to a
+ * non-fixed interval whose live range overlaps the fixed interval's. */
 static inline bool regalloc_reg_conflicts_fixed(const RegAllocator *ra, int phys_reg,
                                                 const LiveInterval *interval) {
     if (!ra || !interval) return false;
-    bool is_aarch64 = (ra->target_isa == ISA_AARCH64);
-    bool is_riscv = (ra->target_isa == ISA_RISCV64 || ra->target_isa == ISA_RISCV32);
-    int ret_reg0 = is_riscv ? 10 : 0;
-    int ret_reg2 = is_riscv ? 11 : (is_aarch64 ? 1 : 2);
-    if (phys_reg != ret_reg0 && phys_reg != ret_reg2) {
-        return false;
-    }
-    int fixed_temp = (phys_reg == ret_reg0) ? VREG_0 : VREG_2;
     if (ra->fixed_interval_count < 256) {
         for (size_t k = 0; k < ra->fixed_interval_count; k++) {
             const LiveInterval *other = &ra->intervals[ra->fixed_interval_indices[k]];
-            if (other->temp_id == fixed_temp && other->reg_class == REG_CLASS_GPR) {
-                if (!(interval->end < other->start || interval->start > other->end)) {
-                    return true;
-                }
+            if (other->reg_class != REG_CLASS_GPR) continue;
+            if (regalloc_fixed_reg_of(ra, other) != phys_reg) continue;
+            if (!(interval->end < other->start || interval->start > other->end)) {
+                return true;
             }
         }
         return false;
     }
     for (size_t i = 0; i < ra->interval_count; i++) {
         const LiveInterval *other = &ra->intervals[i];
-        if (other->temp_id == fixed_temp && other->reg_class == REG_CLASS_GPR) {
-            if (!(interval->end < other->start || interval->start > other->end)) {
-                return true;
-            }
+        if (other->reg_class != REG_CLASS_GPR) continue;
+        if (other->temp_id != VREG_0 && other->temp_id != VREG_2 && other->fixed_reg < 0) continue;
+        if (regalloc_fixed_reg_of(ra, other) != phys_reg) continue;
+        if (!(interval->end < other->start || interval->start > other->end)) {
+            return true;
         }
     }
     return false;
@@ -676,6 +704,19 @@ static void regalloc_allocate(RegAllocator *ra) {
             reg = (ra->target_isa == ISA_RISCV64 || ra->target_isa == ISA_RISCV32) ? 11 :
                   (ra->target_isa == ISA_AARCH64 ? 1 : 2);
             ra->gpr_free[reg] = false;
+        } else if (current->fixed_reg >= 0) {
+            /* ABI parameter slot pre-coloring (Sprint 117): the argument value
+             * arrives in that register at function entry, so the interval's
+             * natural home is the slot itself — no materialization move is
+             * needed, and no other interval can hold the slot during the
+             * parameter's live range (conflict check). The LRA clash check
+             * guarantees no other fixed interval overlaps on this register;
+             * if the slot is somehow held, fall back to a normal register —
+             * the OP_PARAM_LOAD emission then moves the value in. */
+            reg = current->fixed_reg;
+            if (!ra->gpr_free[reg]) {
+                reg = alloc_reg(ra, current);
+            }
         } else {
             reg = alloc_reg(ra, current);
         }

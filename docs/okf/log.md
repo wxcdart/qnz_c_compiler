@@ -1059,3 +1059,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-06 — Updated `sanitizer-roadmap.md`
 - Retracted pre-existing issue 2 (unsigned long + negative sum): verified not a bug against gcc (correct 2^64-116 computed in all modes); issue 1 attribution refined (IR correct, RISC-V regalloc/emit layer)
+
+## 2026-11-06 — Updated `ir-and-regalloc.md`
+- Sprint 117: ABI parameter pre-coloring (LiveInterval.fixed_reg, entry-liveness, conflict-check generalization, spans/clash escape hatches with guard intervals) — fixes the RISC-V int*long slot-clobber miscompile on all 4 ISAs
+
+## 2026-11-06 — Updated `sanitizer-roadmap.md`
+- Sprint 117: pre-existing issue 1 (RISC-V int*long multiply) resolved via parameter pre-coloring; mul_il case restored in cross-ISA smoke
