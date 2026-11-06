@@ -4,7 +4,7 @@ title: GCC c-torture Conformance Gate
 description: Differential conformance gate against the vendored GCC gcc.c-torture corpus (~3,940 tests), sweeping execute tests across -O0..-O3 in JIT and AOT and compile tests at -O0/-O2 with a ratcheting baseline.
 resource: workflows/c-torture-gate
 tags: [testing, verification, conformance, c-torture, gcc, differential, baseline]
-timestamp: 2026-11-05T20:32:08Z
+timestamp: 2026-11-06T00:00:00Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -46,11 +46,11 @@ Recorded in [`test/torture/baseline.json`](../../test/torture/baseline.json) acr
 
 | Bucket | Count | Meaning |
 | :--- | ---: | :--- |
-| **`PASS`** | **3,679** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` — all-time high (Sprint 113: +8 — wide `__int128` bitfields, 128-bit vector lanes `v2ti`, and eliminating the entire `SKIP-TARGET:int128` bucket: `compile/bitfield-1.c`, `compile/bitfield-endian-1.c`, `compile/bitfield-endian-2.c`, `compile/pr70355.c`, `compile/pr99822.c`, `execute/pr84748.c`, `execute/pr93213.c`, `execute/pr105613.c`; Sprint 109: +1 — the `__int128` value model made the `(__int128)0` cast in `__builtin_sub_overflow_p` args compile, unblocking `compile/pr93335.c`; Sprint 108: +1 — `__attribute__((section("name")))` on functions, unblocking `compile/section.c` and eliminating the `named_sections` bucket; Sprint 107: +2 — the `named_sections` **object** tests `compile/pr23237.c`/`compile/pr61848.c`; Sprint 106: +2 — `__attribute__((section("name")))` on objects, unblocking `compile/pr23237.c` and `compile/pr61848.c`; Sprint 106: +2 — `freopen` declared in the stdio.h virtual header, unblocking the `SKIP-TARGET:unwrapped` file-I/O tests; Sprint 105: +3 — floating-literal suffix order, `1.0fi`/`1.0Fi` now lex like GCC, unblocking `execute/complex-5.c` and `compile/attr-complex-method{,-2}.c`; Sprint 104: +2 — standalone `_Complex` = `_Complex double`; Sprint 103: +39 — the entire `SKIP-TARGET:untyped_assembly` bucket unskipped) |
+| **`PASS`** | **3,684** | Every tested `(opt_level, mode)` configuration succeeded and matched GCC's `(rc, stdout)` — all-time high (Sprint 114: +5 — the `TIMEOUT` bucket eliminated after the gate learned `dg-timeout-factor` (see below); Sprint 113: +8 — wide `__int128` bitfields, 128-bit vector lanes `v2ti`, and eliminating the entire `SKIP-TARGET:int128` bucket: `compile/bitfield-1.c`, `compile/bitfield-endian-1.c`, `compile/bitfield-endian-2.c`, `compile/pr70355.c`, `compile/pr99822.c`, `execute/pr84748.c`, `execute/pr93213.c`, `execute/pr105613.c`; Sprint 109: +1 — the `__int128` value model made the `(__int128)0` cast in `__builtin_sub_overflow_p` args compile, unblocking `compile/pr93335.c`; Sprint 108: +1 — `__attribute__((section("name")))` on functions, unblocking `compile/section.c` and eliminating the `named_sections` bucket; Sprint 107: +2 — the `named_sections` **object** tests `compile/pr23237.c`/`compile/pr61848.c`; Sprint 106: +2 — `__attribute__((section("name")))` on objects, unblocking `compile/pr23237.c` and `compile/pr61848.c`; Sprint 106: +2 — `freopen` declared in the stdio.h virtual header, unblocking the `SKIP-TARGET:unwrapped` file-I/O tests; Sprint 105: +3 — floating-literal suffix order, `1.0fi`/`1.0Fi` now lex like GCC, unblocking `execute/complex-5.c` and `compile/attr-complex-method{,-2}.c`; Sprint 104: +2 — standalone `_Complex` = `_Complex double`; Sprint 103: +39 — the entire `SKIP-TARGET:untyped_assembly` bucket unskipped) |
 | **`REJECT`** | **0** | ZeroCC rejected a test that GCC accepts (must stay 0) |
 | **`MISCOMPILE`** | **0** | ZeroCC compiled+ran but produced wrong `(rc, stdout)` vs the GCC reference (must stay 0) |
 | **`SKIP-C89`** | **45** | ZeroCC rejected or skipped a C89/GNU-extension test that `gcc -std=c99/-c11 -pedantic-errors` also rejects |
-| **`TIMEOUT`** | **0** | 5 tests (`memclr.c`, `memcpy-a{1,2,4,8}.c`) can flip to TIMEOUT under parallel CPU load |
+| **`TIMEOUT`** | **0** | Bucket eliminated (Sprint 114): the former 5 `memclr.c`/`memcpy-a{1,2,4,8}.c` timeouts were a gate bug — `dg-timeout-factor` was ignored, so these tests ran on the bare 5 s budget and bust it under parallel load. The gate now applies the factor (5 s × factor, DejaGnu semantics) and defaults `--parallel` to `cpu_count()+2` instead of a fixed 16. |
 | **`REF-BUG`** | **3** | GCC reference binary itself crashes (differential comparison impossible; not a ZeroCC failure). Includes `execute/vfprintf-chk-1.c`. |
 | **`NO-REF`** | **184** | Host `gcc -O1 -w` rejected the file (32-bit/target-specific tests without explicit `dg-require-effective-target`) |
 | **`SKIP-TARGET:*`** | **1** | Explicit DejaGnu target/extension skips (`arm`: 1; **`int128` was fully eliminated in Sprint 113**; `named_sections` in Sprint 108; `unwrapped` in Sprint 106; `untyped_assembly` in Sprint 103) |
@@ -61,7 +61,7 @@ Recorded in [`test/torture/baseline.json`](../../test/torture/baseline.json) acr
 ### Ratcheting Invariants
 When `tools/torture_run.py` runs against `test/torture/baseline.json`:
 1. **Bad count may never increase**: `bad = MISCOMPILE + REJECT` tests; the current run's bad count must be ≤ the baseline's.
-2. **No per-test regression**: any test recorded as `PASS` in `baseline.json` that becomes `MISCOMPILE` or `REJECT` fails the gate immediately, even if aggregate counts improved elsewhere. `PASS → TIMEOUT` is *not* a gate failure (the 5 s budget is load-sensitive; `memclr.c` is the known borderline case) — verify a TIMEOUT against an idle machine before treating it as a real regression, using the `last_run.json` per-test diff.
+2. **No per-test regression**: any test recorded as `PASS` in `baseline.json` that becomes `MISCOMPILE` or `REJECT` fails the gate immediately, even if aggregate counts improved elsewhere. `PASS → TIMEOUT` is *not* a gate failure (per-config budgets are load-sensitive; see the `dg-timeout-factor` note in the TIMEOUT row) — verify a TIMEOUT against an idle machine before treating it as a real regression, using the `last_run.json` per-test diff.
 
 The aggregate `PASS` count is intentionally **not** enforced: a borderline JIT compile (e.g. `memclr.c`) can flip `PASS ⇄ TIMEOUT` between runs under load, and a strict count check would make the gate flaky.
 
@@ -70,7 +70,7 @@ The aggregate `PASS` count is intentionally **not** enforced: a borderline JIT c
 ## 3. Running the Gate
 
 ```bash
-# Full sweep (~4 minutes at --parallel 16), gated against test/torture/baseline.json
+# Full sweep (~3.5 minutes at the adaptive parallel default), gated against test/torture/baseline.json
 make test-torture
 
 # Quick dev sweep (-O1 AOT only on execute/, -O0 on compile/)
@@ -87,6 +87,11 @@ python3 tools/torture_run.py --only-class TIMEOUT             # re-run by baseli
 python3 tools/torture_run.py --only "execute/930529-1" --repro
 python3 tools/torture_run.py --keep                  # retain objects/binaries in /tmp/torture_work
 python3 tools/torture_run.py --timeout 30            # override run/build timeout (sec)
+
+# Timeouts follow DejaGnu semantics: base run budget is 5 s; `dg-timeout N`
+# sets an absolute budget, `dg-timeout-factor N` multiplies the base
+# (the memory-hog tests use factors 4-8). `--parallel` defaults to
+# cpu_count()+2 to avoid oversubscribing small hosts.
 python3 tools/torture_run.py --hang-debug "execute/930529-1"        # capture a hang under gdb
 python3 tools/torture_run.py --hang-debug T --hang-config O2-jit --hang-all
 

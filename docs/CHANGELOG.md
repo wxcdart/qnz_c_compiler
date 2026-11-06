@@ -24,6 +24,15 @@ Continues the Sprint 114 refactor into the header monoliths that were being comp
   - `main.c` used `zero_cc_parse_struct_body` transitively via the old chain; it now includes `parser/decl_struct.h` directly.
 - **Verification**: `make test` (176/176), `make test-opt` (138 ok), `make test-isa128` (144/144), `make test-isa-qemu` (59/59, all 4 ISAs), c-torture gate (PASS 3,679, 0 bad), `diag_battery` (baseline OK), `style_check` (0 errors), `okf lint`; K&R / nested-function / local-static / aggregate-init probes match GCC in JIT + AOT.
 
+## [Sprint 114d] - 2026-11-05 - c-torture gate: `dg-timeout-factor` support + adaptive `--parallel` default (TIMEOUT bucket eliminated, +5 PASS → 3,684)
+
+Two gate-infrastructure bugs made the 5 heaviest corpus tests (`memclr.c`, `memcpy-a{1,2,4,8}.c`) flap between `PASS` and `TIMEOUT` depending on host load:
+
+1. **`dg-timeout-factor` was ignored.** The directive parser only recognized absolute `dg-timeout N`; DejaGnu's `dg-timeout-factor N` (used by exactly the 5 memory-hog tests, factors 4-8) fell through, so those tests ran on the bare 5 s budget. A standalone JIT run takes ~2 s, but under the gate's parallel load it stretched past 5 s → TIMEOUT in the JIT configs. Fix: `RE_DG_TIMEOUT_FACTOR` applied as `RUN_TIMEOUT × factor` (absolute `dg-timeout` still overrides, per DejaGnu semantics).
+2. **Fixed `--parallel 16` on small hosts.** On the 4-core dev box, 16 CPU-bound gcc/zerocc subprocesses oversubscribe the cores 4× and starve heavy tests. The default is now `cpu_count()+2` (6 on the dev box); `--parallel` still overrides.
+
+With both fixes the 5 `TIMEOUT` tests pass in every configuration and the baseline was re-recorded: **PASS 3,684** (all-time high), `TIMEOUT 0`, `NO-REF 184` (unchanged), 0 bad. No compiler code changed — `make test` / `make test-opt` / `make test-isa128` / `make test-isa-qemu` were re-verified green against the clean-rebuilt binary.
+
 ## [Sprint 114c] - 2026-11-05 - Monolith split (Tier C): `const_eval.h`, `init_common.h`, `ast_expr.h` converted to translation units
 
 The last three multi-TU parser header monoliths - whose static-inline bodies were being compiled into **every** parser consumer TU (parser.c, main.c, compile_unit.c, decl_struct.c, decl_local.c) - are now real translation units with thin prototype headers.

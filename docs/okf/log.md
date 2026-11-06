@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-05T23:14:02Z
+timestamp: 2026-11-06T00:00:00Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -981,3 +981,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-05 — Updated `architecture-pipeline.md`
 - Sprint 114c: const_eval.h, init_common.h, ast_expr.h converted to translation units (Tier C) - Sprint 114 complete
+
+## 2026-11-06 — Updated `c-torture-gate.md`
+- Sprint 114d: gate learns dg-timeout-factor + adaptive parallel default; TIMEOUT bucket eliminated (PASS 3,684)

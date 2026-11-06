@@ -56,6 +56,7 @@ import argparse
 import concurrent.futures
 import hashlib
 import json
+import os
 import re
 import shutil
 import signal
@@ -134,6 +135,7 @@ RE_DG_OPTS = re.compile(r'\{\s*(?:dg-options|dg-additional-options)\s+"([^"]*)"'
 RE_DG_BOGUS = re.compile(r"\{\s*dg-bogus")
 RE_DG_ERROR = re.compile(r"\{\s*dg-error")
 RE_DG_TIMEOUT = re.compile(r"\{\s*dg-timeout\s+(\d+)")
+RE_DG_TIMEOUT_FACTOR = re.compile(r"\{\s*dg-timeout-factor\s+(\d+)")
 RE_PCT_P = re.compile(r'("%p|%p"|[^"%]%p)')
 
 
@@ -165,9 +167,16 @@ def parse_directives(path):
         d["options"] = (d["options"] + " " + m.group(1)).strip()
     d["bogus"] = bool(RE_DG_BOGUS.search(blob))
     d["expects_error"] = bool(RE_DG_ERROR.search(blob))
+    # DejaGnu: `dg-timeout-factor N` multiplies the default timeout; an
+    # absolute `dg-timeout N` overrides it (the two are mutually exclusive
+    # in the corpus).
     m = RE_DG_TIMEOUT.search(blob)
     if m:
         d["timeout"] = max(1, int(m.group(1)))
+    else:
+        m = RE_DG_TIMEOUT_FACTOR.search(blob)
+        if m:
+            d["timeout"] = max(1, RUN_TIMEOUT * int(m.group(1)))
     d["ptr_output"] = bool(RE_PCT_P.search(full_text))
     d["setjmp"] = bool(re.search(r"setjmp|longjmp", full_text))
     return d
@@ -596,7 +605,12 @@ def main():
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--quick", action="store_true",
                     help="-O1/-O2, JIT only (dev iteration)")
-    ap.add_argument("--parallel", type=int, default=16)
+    # Default: one worker per core plus two - each worker dispatches a
+    # CPU-bound gcc/zerocc subprocess, so oversubscribing the host (the old
+    # fixed default of 16 on a 4-core box) starves heavy tests past their
+    # dg-timeouts. Override with --parallel.
+    ap.add_argument("--parallel", type=int,
+                    default=max(1, (os.cpu_count() or 4) + 2))
     ap.add_argument("--show", type=int, default=25,
                     help="max issues to print in the report")
     ap.add_argument("--only-class", metavar="CLASS",
