@@ -77,11 +77,17 @@ static inline bool zc_cpe_primary(ZeroCCCompiler *c, ZCPAddr *a) {
          * struct-member global decays to its address (c-torture compile/
          * 930326-1: `long i = s.f - &s.b;`).  Only a known global
          * identifier is accepted, so ordinary constant expressions are
-         * not swallowed. */
+         * not swallowed.  A `(` primary is accepted too when the inside
+         * is a global address expression - `(arr + N)` / `((arr + N)->m)`
+         * (c-torture execute/builtins/mempcpy-2: `char *p = (char *)(arr
+         * + 32);` - the initializer dispatch strips the cast prefix
+         * before CPE runs). The LPAREN branch below validates the inside
+         * and restores token_pos on any mismatch. */
         if (c->token_pos < c->token_count &&
-            c->tokens[c->token_pos].type == TK_IDENT &&
-            find_global_var(c, c->tokens[c->token_pos].str_val)) {
-            /* fall through to the IDENT branch below */
+            (c->tokens[c->token_pos].type == TK_IDENT &&
+             find_global_var(c, c->tokens[c->token_pos].str_val) ||
+             c->tokens[c->token_pos].type == TK_LPAREN)) {
+            /* fall through to the IDENT / LPAREN branch below */
         } else {
             c->token_pos = save;
             return false;

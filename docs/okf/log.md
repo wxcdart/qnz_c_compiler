@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-06T03:31:03Z
+timestamp: 2026-11-06T03:45:19Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1005,3 +1005,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-06 — Updated `c-torture-gate.md`
 - Sprint 115h: m5 20021127-1.c fixed - abs/llabs substitution rule corrected to GCC's actual semantics (builtin at every recognized site; -fno-builtin[-name] forces real call; __builtin_ form always builtin); MISCOMPILE 7->6, PASS 3734
+
+## 2026-11-06 — Updated `c-torture-gate.md`
+- Sprint 115i: m5 mempcpy-2.c SIGSEGV fixed - cast-wrapped global pointer-arithmetic initializers (char *)(arr + 32) now constant-address-evaluated (CPE (expr) primary + data-reloc emission on pointer CPE result); MISCOMPILE 6->5, PASS 3735
+
+## 2026-11-06 — Updated `global-data-relocs.md`
+- Sprint 115i: constant pointer initializer expressions documented - CPE accepts (arr + N) primaries (no &), integer-scalar branch emits data reloc on pointer CPE result (mempcpy-2 fix)

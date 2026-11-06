@@ -149,28 +149,33 @@ Known genuine hard-limit `REJECT`s (do not chase): `compile/20001226-1.c`
 
 ## Burn-down chunks (`--chunk <name>`)
 
-Baseline-derived chunks for the known bad families (Sprint 115h state):
+Baseline-derived chunks for the known bad families (Sprint 115i state):
 
 - **m2** (16): the partial MISCOMPILE tests (wrong `(rc, out)` on a subset
   of configs).
 - **m3** (12): the `printf`/`scanf` runtime-IO family.
 - **m4** — **burned down in Sprint 115f (REJECT 4 → 0)**: `execute/builtins/{fputs,memmove-2,sprintf,strpbrk}.c` — fixed by parenthesized function declarators (`int (sprintf)(...)`), file-scope pointer-init arithmetic (`char *q = p + 4`), per-level pointer qualifiers in the parameter star-loop, the general `__builtin_X`→`X` alias fallback, and `vsprintf`/`vsnprintf` prototypes in the stdio virtual header (the prototype is what engages the glibc-layout va_list shadow when a wrapper forwards its va_list to glibc's `vsprintf`).
-- **m5** (6 MISCOMPILE, was 23; the 16 `*-chk.c` tests burned down in
-  **Sprint 115g**, `20021127-1.c` in **Sprint 115h**): the `*-chk.c`
-  family's root cause was the missing `__builtin_object_size` lowering
-  (JIT undefined-symbol failure; AOT dead `call 0` stubs) — fixed by a
-  gcc-14-calibrated compile-time object-size walker, the
-  `__builtin___X_chk(..., -1)`→plain-`X` rewrite, and the
+- **m5** (5 MISCOMPILE, was 23; the 16 `*-chk.c` tests burned down in
+  **Sprint 115g**, `20021127-1.c` in **Sprint 115h**, `mempcpy-2.c` in
+  **Sprint 115i**): the `*-chk.c` family's root cause was the missing
+  `__builtin_object_size` lowering (JIT undefined-symbol failure; AOT dead
+  `call 0` stubs) — fixed by a gcc-14-calibrated compile-time object-size
+  walker, the `__builtin___X_chk(..., -1)`→plain-`X` rewrite, and the
   `__builtin_X`→`X` alias at symbol-resolution time (cross-TU).
   `20021127-1.c`'s root cause was the Sprint-115e abs/llabs substitution
   rule ("call the user's function when it is defined and the argument is
   non-constant") — wrong: GCC uses the builtin at every builtin-recognized
   site (even with a user definition and non-const/volatile args, at all -O
-  levels); only `-fno-builtin[-name]` forces the real call. The remaining 6:
-  `complex-1.c` (`_Complex` float-precision cluster: double-precision
-  temporaries, no `cvtss2sd`/`cvtsd2ss` IR op yet), `mempcpy-2.c` (SIGSEGV),
-  `strncmp.c`/`strncmp-2.c`, `strstr-asm.c`, `memops-asm.c` (GNU `__asm`
-  function tests).
+  levels); only `-fno-builtin[-name]` forces the real call. `mempcpy-2.c`
+  SIGSEGV'd because the global pointer initializer `char *buf2 =
+  (char *)(buf1 + 32);` mis-folded to the bare offset 32 (cast-wrapped
+  constant address expressions were not recognized by the constant pointer
+  evaluator; the array name const-eval'd to 0) — the CPE now accepts
+  `(arr + N)` primaries and the initializer dispatch emits a data reloc on
+  a pointer CPE result. The remaining 5: `complex-1.c` (`_Complex`
+  float-precision cluster: double-precision temporaries, no
+  `cvtss2sd`/`cvtsd2ss` IR op yet), `strncmp.c`/`strncmp-2.c`,
+  `strstr-asm.c`, `memops-asm.c` (GNU `__asm` function tests).
 
 ## Unskip Protocol (removing a `SKIP-TARGET:<feature>`)
 

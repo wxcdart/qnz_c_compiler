@@ -1,3 +1,17 @@
+## [Sprint 115i] - 2026-11-06 - c-torture m5 burn-down: `mempcpy-2.c` SIGSEGV fixed (+1 PASS → 3,735; MISCOMPILE 6 → 5)
+
+`execute/builtins/mempcpy-2.c` segfaulted in all 8 configs because the global pointer initializer `char *buf2 = (char *)(buf1 + 32);` (with `buf1` a `long buf1[64]`) was mis-folded to the bare offset **32** instead of `&buf1 + 32*sizeof(long)`. The `.data` bytes showed `buf2 == 0x20`; the first `mempcpy(buf2, ...)` wrote to address 0x20 → SIGSEGV. Root cause chain (reproduced with a 3-line probe): the Sprint-65 cast-prefix stripper correctly dropped `(char *)`, leaving the bare `(buf1 + 32)`, which fell to the integer-scalar initializer branch there; the constant pointer evaluator (`jit/const_ptr_eval.h`, `zc_cpe_primary`) only accepted `&`-prefixed or bare-identifier primaries — a `(` primary was rejected; and the dispatcher discarded its `pr2 == 1` (pointer) result in favor of `zero_cc_eval_const_expr`, where the array name const-eval'd to 0 → `0 + 32`.
+
+Two coordinated fixes:
+
+- **`zc_cpe_primary` accepts a `(` primary** when the inside is a global address expression — the existing LPAREN branch (`(` IDENT `(+N|-N)* [->member] `)`, which already validated the inside (known-global base, element-scaled offsets, member chains) and restored `token_pos` on any mismatch. `(arr + N)` and `((arr + N)->m)` now evaluate to (global, absolute-offset) pairs like the `&`-forms.
+- **The integer-scalar global-initializer branch (`jit/compile_unit.c`) now emits a data reloc when the CPE yields a pointer result (`pr2 == 1`) on a pointer global** (rodata / global / extern target kinds, same convention as the `TK_AMP` branch), instead of const-eval'ing the expression. Non-pointer targets and CPE non-matches keep the existing path (the evaluator is non-consuming on failure).
+
+The plain `char *q = p + 4;` form (Sprint 115f) and the `&`-form (Sprint 65) are untouched; verified against a probe covering `.bss`/`.data` arrays of element sizes 1/8 with and without casts.
+
+- **Gate results**: `mempcpy-2.c` now PASS in all 8 configs. **MISCOMPILE 6 → 5** (remaining: `complex-1.c`, `strncmp.c`, `strncmp-2.c`, `strstr-asm.c`, `memops-asm.c`).
+- **Verification**: `make test` (176/176), `make test-opt` (138 ok), `make test-driver` (37/37), `diag_battery` (baseline OK), `style_check` (0 errors, warning count unchanged 77), `okf lint`. c-torture baseline re-recorded: **PASS 3,735** (all-time high), **MISCOMPILE 5**, 0 regressions.
+
 ## [Sprint 115h] - 2026-11-06 - c-torture m5 burn-down: `20021127-1.c` llabs builtin-substitution rule corrected (+1 PASS → 3,734; MISCOMPILE 7 → 6)
 
 `execute/20021127-1.c` (a user-defined `llabs` that aborts, called with a non-constant global argument) aborted because the Sprint-115e substitution rule sent such calls to the user's function: "call the user's function when it is defined and the argument is non-constant". Re-calibrating against gcc-14 (-O0/-O1/-O2 probe programs: user-defined `llabs` + non-const global, user-defined `abs` + volatile local, `-fno-builtin`/`-fno-builtin-abs` + const arg, `__builtin_`-prefixed forms under `-fno-builtin`) showed GCC's actual rule is simpler and stronger:

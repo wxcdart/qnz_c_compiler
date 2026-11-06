@@ -2188,9 +2188,17 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                  * c-torture compile/930326-1) is not a
                                  * constant expression - try the constant
                                  * pointer evaluator first (returns 2 for a
-                                 * pointer-pointer difference). */
+                                 * pointer-pointer difference).  A POINTER
+                                 * result (1) on a pointer global is a
+                                 * constant pointer initializer the earlier
+                                 * branches did not match - a cast prefix
+                                 * stripped by the dispatch above leaves a
+                                 * bare address expression: `char *p =
+                                 * (char *)(arr + 32);` (c-torture
+                                 * execute/builtins/mempcpy-2.c). */
                                 int64_t init_val;
                                 uint64_t init_hi = 0;
+                                bool ptr_reloc_emitted = false;
                                 {
                                     ZCPAddr cpa2;
                                     int64_t cdiff2 = 0;
@@ -2198,6 +2206,31 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                     int pr2 = zc_eval_const_ptr_expr(c, &cpa2, &cdiff2);
                                     if (pr2 == 2) {
                                         init_val = cdiff2;
+                                    } else if (pr2 == 1 &&
+                                               (gtype.tag == TYPE_PTR || ptr_depth > 0)) {
+                                        zero_cc_emit_u64(&c->data_section, 0);
+                                        if (c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
+                                            ZeroCCDataReloc *dr = &c->data_relocs[c->data_reloc_count++];
+                                            dr->data_patch_offset = var_offset;
+                                            if (cpa2.kind == 0) {
+                                                dr->target_kind = 0;
+                                                dr->rodata_offset = cpa2.ro_off;
+                                                dr->target_data_offset = (size_t)cpa2.off;
+                                                dr->target_global_idx = -1;
+                                            } else if (cpa2.kind == 1) {
+                                                dr->target_kind = 1;
+                                                dr->rodata_offset = 0;
+                                                dr->target_data_offset = (size_t)cpa2.off;
+                                                dr->target_global_idx = cpa2.gidx;
+                                            } else {
+                                                dr->target_kind = 2;
+                                                dr->target_data_offset = 0;
+                                                dr->target_global_idx = -1;
+                                                snprintf(dr->target_extern_name, sizeof(dr->target_extern_name), "%s", cpa2.ext_name);
+                                            }
+                                        }
+                                        size = 8;
+                                        ptr_reloc_emitted = true;
                                     } else {
                                         c->token_pos = cpe_save;
                                         ZCConstVal cv = zero_cc_eval_const_expr_val(c);
@@ -2210,6 +2243,7 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                         if (cv.w128) init_hi = cv.hi;
                                     }
                                 }
+                                if (!ptr_reloc_emitted) {
                                 if (elem_size == 16 &&
                                     (gtype.tag == TYPE_INT128 || gtype.tag == TYPE_UINT128)) {
                                     /* GNU __int128 scalar: the 64-bit constant
@@ -2231,6 +2265,7 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                     for (size_t i = elem_size; i < size; i++) {
                                         zero_cc_emit_u8(&c->data_section, 0);
                                     }
+                                }
                                 }
                             }
                             /* `((T) x)` initializer: the operand's trailing
