@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-06T03:19:11Z
+timestamp: 2026-11-06T03:31:03Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1002,3 +1002,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-06 — Updated `frontend-and-types.md`
 - Sprint 115g: __builtin_object_size typed unsigned long in type_builtin_libc_return (folded 64-bit size end-to-end)
+
+## 2026-11-06 — Updated `c-torture-gate.md`
+- Sprint 115h: m5 20021127-1.c fixed - abs/llabs substitution rule corrected to GCC's actual semantics (builtin at every recognized site; -fno-builtin[-name] forces real call; __builtin_ form always builtin); MISCOMPILE 7->6, PASS 3734

@@ -1,3 +1,16 @@
+## [Sprint 115h] - 2026-11-06 - c-torture m5 burn-down: `20021127-1.c` llabs builtin-substitution rule corrected (+1 PASS → 3,734; MISCOMPILE 7 → 6)
+
+`execute/20021127-1.c` (a user-defined `llabs` that aborts, called with a non-constant global argument) aborted because the Sprint-115e substitution rule sent such calls to the user's function: "call the user's function when it is defined and the argument is non-constant". Re-calibrating against gcc-14 (-O0/-O1/-O2 probe programs: user-defined `llabs` + non-const global, user-defined `abs` + volatile local, `-fno-builtin`/`-fno-builtin-abs` + const arg, `__builtin_`-prefixed forms under `-fno-builtin`) showed GCC's actual rule is simpler and stronger:
+
+- **the builtin is used at every builtin-recognized call site** — even when the program declares/defines the function itself and even for non-constant (volatile, global) arguments. GCC emits the inline abs sequence (`neg`/`cmovns`) at every -O level and never calls the user's definition from those sites (the user function still exists in the binary, just uncalled).
+- **`-fno-builtin` / `-fno-builtin-<name>`** forces the real call in every case, including constant arguments (the `abs-1.c` contract: `abs(0)` must reach the user's `abs` and set its flag, while `labs(0)` — not disabled — still inlines).
+- **The explicit `__builtin_<name>` form always uses the builtin**, even under `-fno-builtin`.
+
+`ir/ast_lowering_builtins.c` now implements exactly that: `b_builtin = b_builtin_form || !zero_cc_no_builtin(c, bplain)` (the `b_user_fn`/`b_arg_const` gating is gone). Verified no regression in the `abs-1/2/3.c`, `uabs-1/2/3.c` (NO-REF, `-std=c2y`), `ifcvt-*-abs`, and `20010124-1.c` families (all 8 configs, AOT + JIT).
+
+- **Gate results**: `20021127-1.c` now PASS in all 8 configs. **MISCOMPILE 7 → 6** (remaining: `complex-1.c`, `mempcpy-2.c`, `strncmp.c`, `strncmp-2.c`, `strstr-asm.c`, `memops-asm.c`).
+- **Verification**: `make test` (176/176), `make test-opt` (138 ok), `diag_battery` (baseline OK), `style_check` (0 errors, warning count unchanged 77), `okf lint`. c-torture baseline re-recorded: **PASS 3,734** (all-time high), **MISCOMPILE 6**, 0 regressions.
+
 ## [Sprint 115g] - 2026-11-05 - c-torture m5 burn-down: `*-chk.c` FORTIFY family cleared (+10 PASS → 3,733; MISCOMPILE 23 → 7; REF-BUG 2 → 8)
 
 The 16-test `*-chk.c` cluster (the bulk of m5) is eliminated with one shared root cause: zerocc never lowered `__builtin_object_size` — GCC folds it to a **compile-time constant** (it never emits a call), so the JIT hard-failed symbol resolution ("undefined reference to `__builtin_object_size`", exit 255 in every JIT config) while the AOT link silently left dead `call 0 <link_error>` stubs. Three coordinated fixes:

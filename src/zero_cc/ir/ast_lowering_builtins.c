@@ -1492,13 +1492,17 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
 
         /* llabs() / labs() / imaxabs() / abs() - integer absolute value.
          *
-         * GCC semantics (c-torture execute/builtins/*-lib.c family):
-         * when the program declares/defines the function itself, the call
-         * goes to the user's function - except that GCC folds a constant
-         * argument (which this inline lowering reproduces) - and
-         * -fno-builtin-<name> / -fno-builtin forces the real call in every
-         * case. Without a user declaration the self-contained builtin
-         * lowering below matches GCC's fold/inline behavior. */
+         * GCC semantics (calibrated against gcc-14 at -O0/-O1/-O2, 2026):
+         * the builtin is used at every builtin-recognized call site -
+         * even when the program declares/defines the function itself and
+         * even for non-constant (volatile, global) arguments - as long as
+         * it is not disabled with -fno-builtin / -fno-builtin-<name>.
+         * GCC emits the inline abs sequence (neg/cmovs) at every -O level
+         * and never calls the user's definition from those sites (the user
+         * function still exists in the binary; -fno-builtin[-name] forces
+         * the real call in every case, even for constant arguments). The
+         * explicit __builtin_<name> form always uses the builtin, even
+         * under -fno-builtin. */
         if (callee_is_ident && callee->s.str &&
             (strcmp(callee->s.str, "__builtin_llabs") == 0 ||
              strcmp(callee->s.str, "llabs") == 0 ||
@@ -1512,12 +1516,7 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
             const char *bplain =
                 (strncmp(bname, "__builtin_", 10) == 0) ? bname + 10 : bname;
             bool b_builtin_form = (bname != bplain);
-            bool b_user_fn = !b_builtin_form &&
-                             zero_cc_find_function(c, bplain) != NULL;
-            bool b_arg_const =
-                zc_node_is_const_expr(c, arena, node->right); /* GCC folds const args */
-            bool b_builtin = !(b_user_fn &&
-                               (zero_cc_no_builtin(c, bplain) || !b_arg_const));
+            bool b_builtin = b_builtin_form || !zero_cc_no_builtin(c, bplain);
             if (b_builtin) {
             bool is_32bit = (strcmp(callee->s.str, "__builtin_abs") == 0 ||
                              strcmp(callee->s.str, "abs") == 0);
