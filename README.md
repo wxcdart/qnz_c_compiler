@@ -1,21 +1,16 @@
-# zero_cc — Standalone Embeddable C99/C11 Compiler
+# zero_cc — Standalone Embeddable C99/C11/C23 Compiler
 
-ZeroCC is a lightweight, embeddable C99/C11 compiler (with C23 `[[...]]`
-attribute support) with a two-pass architecture: a flat 140-opcode IR that is
-lowered, optimized, register-allocated, and emitted to any of four target ISAs.
-It compiles to machine code for a JIT (`--run`, the default) or to assembly,
-ELF objects, and — via ZeroCC's own linker — directly-executable freestanding
-binaries linked against its own `zero_rt` runtime, with no host libc involved.
+ZeroCC is a lightweight, embeddable C99/C11/C23 compiler (with GNU extensions) with a two-pass architecture: a flat 140-opcode IR that is lowered, optimized, register-allocated, and emitted to any of four target ISAs. It compiles to machine code for a JIT (`--run`, the default) or to assembly, ELF objects, and — via ZeroCC's own linker — directly-executable freestanding binaries linked against its own `zero_rt` runtime, with no host libc involved.
 
 ## Features
 
-- **C99/C11** compiler, freestanding, with optional `zero_rt` standard library
+- **C99/C11/C23** compiler, freestanding, with optional `zero_rt` standard library
 - **Multi-ISA**: x86-64, AArch64, RISC-V 64, RISC-V 32 (`--target`)
 - **Multi-translation-unit driver**: multiple `.c` inputs per invocation
   (JIT image merge + per-input `-c`/`-S`)
 - **Own ELF linker** (`--zerocc-link`): static `ET_EXEC` output with no libc
   and no crt files, plus `zero_rt` freestanding runtime auto-linking
-- Preprocessor (`#include`, `#define`, `#if/#ifdef`, virtual C11 headers
+- Preprocessor (`#include`, `#define`, `#if/#ifdef`, virtual C11/C23 headers
   `<stdatomic.h>` / `<stdnoreturn.h>` / `<threads.h>`, `-E` preprocess-only)
 - Type system (structs/unions, bitfields, pointers, arrays, VLAs, enums,
   `_Atomic`, `_Generic`, designated/aggregate initializers)
@@ -23,6 +18,17 @@ binaries linked against its own `zero_rt` runtime, with no host libc involved.
 - GNU statement expressions (`({ ... })`)
 - System V AMD64 / AArch64 / RISC-V calling conventions, including by-value
   structs and hidden-pointer (`sret`) returns for `>16B` structs
+- `__int128` / `__uint128_t` support on all 64-bit ISAs (Sprint 109)
+- `__attribute__((section("name")))` on objects and functions (Sprints 107–108)
+- `__attribute__((aligned(N)))` with runtime SP realign for `N > 16` locals (Sprints 94–96)
+- `__builtin_apply` / `__builtin_apply_args` (Sprint 103)
+- GNU asm labels `register void *ptr asm ("name")` (Sprint 102)
+- C89 implicit-int and gnu89 tail leniency (Sprint 101)
+- GNU variably-modified struct/union members (Sprint 100)
+- GNU nested functions / trampolines with closure capture (Sprints 90–93)
+- `__builtin_return_address` / `__builtin_frame_address` (Sprint 86)
+- Computed goto (`goto *ptr`) and labels as values (`&&label`) (Sprint 84)
+- Inline `OP_SETJMP` / `OP_LONGJMP` (Sprint 88)
 - JIT execution via `mmap` + `dlsym` host symbol resolution
 - **Two-pass code generation**: IR → optimization → linear-scan register
   allocation → machine code
@@ -72,6 +78,8 @@ zerocc [options] <source.c> [more.c ...]
                 riscv64); auto-links zero_rt (opt out: --no-zerocc-rt)
   -MMD / -MF <file> / -MT <target>   Dependency-file generation
   -dump-ir      Dump IR before optimization
+  -dump-cfg     Dump control-flow graph
+  --profile-opts  Print per-pass optimization timings
   -v, --verbose   Verbose output
   --version     Print version
   -h, --help      Show help
@@ -112,7 +120,7 @@ zero_cc/
 ├─ third_party/vendor/     # Vendored deps (Ryū, gcc.c-torture corpus)
 ├─ test/                   # Regression suites (unit, semantic, abi, jit, aot,
 │                           # driver, linker, licm, inline_audit, isa_qemu,
-│                           # torture, diag, bench, ...)
+│                           # isa128, torture, diag, bench, ...)
 ├─ tools/                  # Verification & tooling (see tools/README.md)
 ├─ docs/                   # OKF knowledge graph (docs/okf/), archive, plan
 ├─ LICENSE                 # MIT license
@@ -230,26 +238,30 @@ Current status (verified against `make test` and friends):
 
 | Suite | Status | Count |
 |-------|--------|-------|
-| **Main regression suite** (`make test`: unit, semantic, ABI, JIT, AOT, LICM) | ✅ Pass | 170/170 |
+| **Main regression suite** (`make test`: unit, semantic, ABI, JIT, AOT, LICM) | ✅ Pass | 171/171 |
 | **Optimizer sweep** (`make test-opt`, `-O0..-O3` × JIT + AOT via zerocc) | ✅ Pass | 132/132 |
 | **Multi-file driver** (`make test-driver`, multi-TU JIT/AOT + per-input `-c`/`-S`) | ✅ Pass | 37/37 |
 | **Own linker** (`make test-linker`, `--zerocc-link` + gcc differential) | ✅ Pass | 21/21 |
 | **Cross-ISA raw-emitter QEMU gate** (`make test-isa-qemu`, vs static-musl reference) | ✅ Pass | 59/59 (all 4 ISAs) |
-| **GCC c-torture conformance gate** (`make test-torture`, ratcheted baseline) | ✅ Pass | 3,675 PASS / 3,940 corpus (MISCOMPILE 0, REJECT 0, TIMEOUT 0) |
+| **Cross-ISA `__int128` raw-emitter QEMU gate** (`make test-isa128`, vs static-musl reference) | ✅ Pass | 72/72 (all 3 ISAs × 3 variants × 4 levels × 2 paths) |
+| **GCC c-torture conformance gate** (`make test-torture`, ratcheted baseline) | ✅ Pass | 3,713 PASS / 3,940 corpus (MISCOMPILE 34, REJECT 4, SKIP-C89 45, SKIP-TARGET: arm/ia64/mips 6) |
 | **`sret` ABI verifier** (`tools/sret_verifier.py --verify-all`) | ✅ Pass | 6/6 |
 | **C11 verification suite** (`tools/c11/test_c11.py`) | ✅ Pass | 11/11 |
-| **VLA verification suite** (`tools/vla/test_vla.py`) | ✅ Pass | 9/9 JIT runtime (11 cases) |
+| **VLA verification suite** (`tools/vla/test_vla.py`) | ✅ Pass | 11/11 |
 | **Diagnostics battery** (`tools/diag_battery.py`, vs gcc) | ✅ Pass | 16 cases, 8/8 error categories |
-| **C style checker** (`tools/style_check.py`) | ✅ Pass | 159 files, 0 errors |
+| **C style checker** (`tools/style_check.py`) | ✅ Pass | 0 errors |
 
-## Compiler Diagnostics
+## C23 Support
 
-Diagnostics aim for gcc/clang-style quality:
+ZeroCC implements the following C23 features:
 
-- **Format**: `file:line:col: error: message` with source carets; macro-expansion `note:` chains
-- **C99 constraint checking**: call argument count vs. prototype (6.7.5.3, variadic-aware), `goto` target must be a defined label (6.8.4.3), struct/union member must exist (6.5.2.1), block closing `}` required (6.8) — no-prototype `f()` calls stay unconstrained per the standard
-- **"Did you mean" suggestions** for undeclared identifiers and unknown struct members (Levenshtein ≤ 2, unique-best only)
-- **Multi-error recovery** (clang-style error budget of ~20): one pass reports all faults in a broken file; further diagnostics are capped with a "too many errors emitted" note — gated by `tools/diag_battery.py`
+| Feature | Status | Notes |
+|---------|--------|-------|
+| `typeof` / `typeof_unqual` | ✅ | C23 6.7.2.5; also GNU `__typeof__` / `__typeof` |
+| Empty `{}` initializers | ✅ | C23 6.7.10 for all storage classes |
+| `[[attr]]` attributes | ✅ | Parser recognition via `skip_c23_attributes()` |
+| `__STDC_NO_COMPLEX__` | ❌ Not defined | `_Complex float/double` and GNU integer complex are supported; the macro is intentionally absent |
+| `__typeof__` / `__typeof` | ✅ | GNU spellings accepted everywhere `typeof` works |
 
 ## C11 Support
 
@@ -284,6 +296,7 @@ make test-opt  # Optimizer sweep at -O0..-O3, JIT + AOT, via zerocc itself
 make test-driver   # Multi-TU driver tests (tools/driver_tests.py)
 make test-linker   # Own-linker differential tests (tools/linker_tests.py)
 make test-isa-qemu # Raw-emitter QEMU gate for all 4 ISAs (needs qemu-user-static + tools/setup_musl_cross.sh)
+make test-isa128   # Cross-ISA __int128 raw-emitter QEMU gate
 make test-torture  # GCC c-torture conformance gate (tools/torture_run.py)
 make asan / make test-asan   # ASan+UBSan build / run
 make clean     # Clean build artifacts
@@ -306,7 +319,7 @@ ZeroCC maintains an **Open Knowledge Format (OKF v0.2)** knowledge graph in
 |----------|-------------|
 | [`docs/okf/index.md`](docs/okf/index.md) | Root knowledge-graph navigator |
 | [`docs/okf/architecture-pipeline.md`](docs/okf/architecture-pipeline.md) | Compilation pipeline & source file map |
-| [`docs/okf/frontend-and-types.md`](docs/okf/frontend-and-types.md) | Type system, structs, VLAs, C11 features, virtual headers |
+| [`docs/okf/frontend-and-types.md`](docs/okf/frontend-and-types.md) | Type system, structs, VLAs, C11/C23 features, virtual headers |
 | [`docs/okf/multi-tu.md`](docs/okf/multi-tu.md) | Multi-translation-unit driver & JIT image merge (T1) |
 | [`docs/okf/own-linker.md`](docs/okf/own-linker.md) | ZeroCC's own ELF linker & relocation set (T2) |
 | [`docs/okf/zero-rt.md`](docs/okf/zero-rt.md) | `zero_rt` freestanding runtime |
@@ -319,6 +332,7 @@ ZeroCC maintains an **Open Knowledge Format (OKF v0.2)** knowledge graph in
 | [`docs/okf/scalar-float-x86.md`](docs/okf/scalar-float-x86.md) | Scalar float pipeline (x86-64) |
 | [`docs/okf/c-torture-gate.md`](docs/okf/c-torture-gate.md) | GCC `c-torture` differential conformance gate |
 | [`docs/okf/perf-measurements.md`](docs/okf/perf-measurements.md) | Measured optimizer costs & JIT-vs-GCC data |
+| [`docs/okf/sanitizer-roadmap.md`](docs/okf/sanitizer-roadmap.md) | Optional target-side sanitizer roadmap (parked) |
 | [`docs/CHANGELOG.md`](docs/CHANGELOG.md) | Full release notes and changelog |
 | [`docs/ZEROCC_Development_Plan.md`](docs/ZEROCC_Development_Plan.md) | Project development roadmap |
 | [`docs/coding_style.md`](docs/coding_style.md) | C style & convention rules |
@@ -338,6 +352,7 @@ python3 tools/style_check.py               # C style/convention checker
 python3 tools/simd_regression_suite.py     # Auto-vectorization regression suite
 python3 tools/cross_isa_comparator.py test/aot/hello_world.c  # Multi-ISA asm comparison
 python3 tools/isa_qemu_diff.py --isa riscv64   # Raw-emitter QEMU differential gate
+python3 tools/isa_qemu_diff.py --isa riscv64 --vec   # SIMD vector raw-emitter QEMU gate
 python3 tools/okf.py lint && python3 tools/okf.py index  # Validate the OKF knowledge graph
 ```
 
