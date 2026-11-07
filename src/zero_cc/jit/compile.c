@@ -1192,11 +1192,16 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
                     /* Param-storage cap: the declarator chunk stores at most
                      * 16 param types; a prototype with more (c-torture
                      * compile/limits-fnargs.c: 10,000) must go through the
-                     * legacy parser, which grows param_types dynamically. */
+                     * legacy parser, which grows param_types dynamically.
+                     * A param list that did not stop on its ')' (anonymous
+                     * struct param c-torture compile/20020210-1, nested
+                     * fnptr-return params, ...) is a partial parse for the
+                     * same reason - the legacy parser is the reference. */
                     if (decl_ok) {
                         const ZeroCCDeclaratorChunk *fc2 =
                             zero_cc_declarator_get_function_chunk(&d);
-                        if (fc2 && fc2->param_total > 16) {
+                        if (fc2 && (fc2->param_total > 16 ||
+                                    !fc2->param_list_complete)) {
                             decl_ok = false;
                         }
                     }

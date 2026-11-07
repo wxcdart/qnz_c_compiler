@@ -51,6 +51,12 @@ typedef struct ZeroCCDeclaratorChunk {
     TypeInfo *param_tis[16];
     bool has_prototype;         /* true if prototype list or (void), false if K&R () */
     bool is_variadic;
+    /* The param list terminated on its closing ')' (a broken/early stop
+     * - e.g. an anonymous struct param `struct {int b[a];} c` the param
+     * parser cannot parse - leaves this false so callers fall back to
+     * the legacy parser; the terminal token after such a stop can still
+     * look like a valid function terminator, e.g. the struct body's '{'). */
+    bool param_list_complete;
 } ZeroCCDeclaratorChunk;
 
 typedef struct ZeroCCDeclaratorLevel {
@@ -661,6 +667,11 @@ static inline void zero_cc_parse_param_list(
             param_tail = p_ref;
         }
     }
+    /* The list is complete only when it stopped on the closing ')' -
+     * every other exit (missing comma, non-type token, EOF) means the
+     * declarator is a partial parse. */
+    fn_chunk->param_list_complete =
+        (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN);
     if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) {
         c->token_pos++;
     }
