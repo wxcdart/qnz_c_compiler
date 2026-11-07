@@ -49,13 +49,10 @@ static inline void zero_cc_ensure_param_cap(SemContext *ctx, ZeroCCType **types,
  * Returns false if parsing could not proceed (stream untouched or
  * advanced to an unrecoverable point - caller should give up).
  */
-bool zero_cc_parse_fn_param_block(ZeroCCCompiler *c, SemContext *ctx,  /* Sprint 114: extern, called from compile_unit.c */
-    const char *fn_name,
+static bool zero_cc_try_parse_fn_param_block_kr(
+    ZeroCCCompiler *c, SemContext *ctx, const char *fn_name,
     ZeroCCType **param_types, const char ***param_names, size_t *param_cap,
-    size_t *param_count, bool *is_variadic_fn, bool *has_prototype,
-    ZeroCCASTArena **dim_arena_out, ASTRef dim_exprs[]) {
-    bool kr_handled = false;
-    {
+    size_t *param_count, bool *has_prototype, bool *is_variadic_fn) {
     size_t q = c->token_pos;
     int depth = 1;
     int bare_count = 0;
@@ -183,10 +180,20 @@ bool zero_cc_parse_fn_param_block(ZeroCCCompiler *c, SemContext *ctx,  /* Sprint
                     }
                 }
             }
-            kr_handled = true;
+            return true;
         }
     }
+    return false;
 }
+
+bool zero_cc_parse_fn_param_block(ZeroCCCompiler *c, SemContext *ctx,  /* Sprint 114: extern, called from compile_unit.c */
+    const char *fn_name,
+    ZeroCCType **param_types, const char ***param_names, size_t *param_cap,
+    size_t *param_count, bool *is_variadic_fn, bool *has_prototype,
+    ZeroCCASTArena **dim_arena_out, ASTRef dim_exprs[]) {
+    bool kr_handled = zero_cc_try_parse_fn_param_block_kr(c, ctx, fn_name,
+        param_types, param_names, param_cap, param_count, has_prototype,
+        is_variadic_fn);
 
 if (!kr_handled) {
 while (c->tokens[c->token_pos].type != TK_RPAREN && c->tokens[c->token_pos].type != TK_EOF) {
@@ -1136,16 +1143,75 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
                (c->tokens[c->token_pos].type == TK_IDENT ||
                 c->tokens[c->token_pos].type == TK_TRUE ||
                 c->tokens[c->token_pos].type == TK_FALSE)) {
+        size_t name_pos = c->token_pos;  /* declarator start (Stage 2 rewind) */
         snprintf(fn_name, sizeof(fn_name), "%s", c->tokens[c->token_pos].str_val);
         c->token_pos++;
 
         if (c->tokens[c->token_pos].type != TK_LPAREN) return;
         c->token_pos++;
 
-        /* Sprint 65: parameter list (incl. K&R old-style). */
-        if (!zero_cc_parse_fn_param_block(c, ctx, fn_name,
-                &param_types, &param_names, &param_cap, &param_count,
-                &is_variadic_fn, &has_prototype, &dim_arena, dim_exprs)) return;
+        /* Sprint 122 Stage 2 (2b): route the common `name(params)` top-level
+         * function through the declarator stack.  The K&R old-style form
+         * (identifiers only, followed by a declaration block) is still handled
+         * by the legacy helper.  The declarator path now carries full type
+         * info (long double, __attribute__((mode(...))), (*const fnptr), etc.)
+         * and VLA parameter dim expressions (Stage 1). */
+        {
+            bool kr_handled = zero_cc_try_parse_fn_param_block_kr(
+                c, ctx, fn_name, &param_types, param_names, &param_cap,
+                &param_count, &has_prototype, &is_variadic_fn);
+            if (!kr_handled) {
+                c->token_pos = name_pos;  /* rewind to the function name */
+                ZeroCCASTArena darena;
+                ZeroCCDeclarator d;
+                zero_cc_ast_arena_init(&darena, 256);
+                if (!zero_cc_parse_declarator(c, &darena, ctx, &d) || !d.name ||
+                    !zero_cc_declarator_is_function(&d)) {
+                    zero_cc_ast_arena_free(&darena);
+                    return;
+                }
+                const ZeroCCDeclaratorChunk *fc =
+                    zero_cc_declarator_get_function_chunk(&d);
+                if (fc) {
+                    has_prototype = fc->has_prototype;
+                    is_variadic_fn = fc->is_variadic;
+                    param_count = 0;
+                    for (size_t pi = 0;
+                         pi < fc->param_count && pi < param_cap; pi++) {
+                        param_types[param_count] =
+                            (d.param_zt && d.param_zt_cap > pi)
+                                ? d.param_zt[pi]
+                                : typeinfo_to_zero_cc_type(fc->param_tis[pi]);
+                        /* Recover the param name from the AST param_list
+                         * (in darena, not c->arena). */
+                        ASTRef pn2 = fc->param_list;
+                        for (size_t k = 0; k < pi && pn2 != AST_NULL; k++) {
+                            ZeroCCASTNode *n = zero_cc_ast_get(&darena, pn2);
+                            if (!n) break;
+                            pn2 = n->next;
+                        }
+                        ZeroCCASTNode *pn_node = zero_cc_ast_get(&darena, pn2);
+                        param_names[param_count] =
+                            (pn_node && pn_node->tag == NODE_DECL && pn_node->s.str)
+                                ? pn_node->s.str : "";
+                        /* VLA dim expression capture (Stage 1). */
+                        if (pn_node && pn_node->tag == NODE_DECL &&
+                            pn_node->right != AST_NULL) {
+                            if (!dim_arena) {
+                                dim_arena = (ZeroCCASTArena *)calloc(1, sizeof(ZeroCCASTArena));
+                                if (dim_arena) zero_cc_ast_arena_init(dim_arena, 64);
+                            }
+                            if (dim_arena) {
+                                dim_exprs[param_count] = zero_cc_ast_clone(
+                                    &darena, pn_node->right, dim_arena);
+                            }
+                        }
+                        param_count++;
+                    }
+                }
+                zero_cc_ast_arena_free(&darena);
+            }
+        }
 
         /* C99 6.7.5: a declaration may introduce several declarators
          * (`void d0(void), d1(void);`, `double bar(void), c;`).  Each

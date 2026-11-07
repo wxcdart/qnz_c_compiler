@@ -74,6 +74,14 @@ typedef struct ZeroCCDeclarator {
      * but stores the object normally (c-torture asmgoto-5 / mangle-1 /
      * pr100278 / pr51447). */
     char asm_name[64];
+    /* Sprint 122 2b: canonical ZeroCCType for each function parameter, stored by
+     * zero_cc_parse_param_list so the caller can use it directly (avoiding the
+     * lossy TypeInfo -> ZeroCCType round-trip that drops struct members).
+     * Heap-allocated (NOT a per-chunk array: ZeroCCDeclarator is stack-allocated
+     * and a per-chunk ZeroCCType[16] bloats it to ~2 MB).  NULL when the
+     * declarator is not a function or has no parameters. */
+    ZeroCCType *param_zt;
+    size_t param_zt_cap;
 } ZeroCCDeclarator;
 
 /* Forward declarations */
@@ -144,7 +152,8 @@ static inline ZeroCCType zero_cc_declarator_apply(
 
 /* Parse parameter list of a function suffix: (type param, ...) */
 static inline void zero_cc_parse_param_list(
-    ZeroCCCompiler *c, ZeroCCASTArena *arena, SemContext *ctx, ZeroCCDeclaratorChunk *fn_chunk)
+    ZeroCCCompiler *c, ZeroCCASTArena *arena, SemContext *ctx, ZeroCCDeclaratorChunk *fn_chunk,
+    ZeroCCDeclarator *decl)
 {
     ASTRef param_head = AST_NULL;
     ASTRef param_tail = AST_NULL;
@@ -201,6 +210,23 @@ static inline void zero_cc_parse_param_list(
          * mode-on-parameter was unsupported before marker emission, so
          * skipping preserves the old behavior. */
         zero_cc_skip_mode_attr(c);
+        /* C99 6.9.1p5: storage-class specifiers in a param are not recognized
+         * and are ignored (`register T x`, `static T x`, ...). */
+        while (c->token_pos < c->token_count &&
+               (c->tokens[c->token_pos].type == TK_REGISTER ||
+                c->tokens[c->token_pos].type == TK_STATIC ||
+                c->tokens[c->token_pos].type == TK_AUTO ||
+                c->tokens[c->token_pos].type == TK_EXTERN)) {
+            c->token_pos++;
+        }
+        /* C99 6.7.2.3 prefix complex: `_Complex double x` / `__complex__ float x`.
+         * Consume the specifier; the real base type follows and gets wrapped. */
+        bool p_prefix_complex = false;
+        if (c->tokens[c->token_pos].type == TK_IDENT &&
+            zero_cc_tok_is_complex_spec(c->tokens[c->token_pos].str_val)) {
+            p_prefix_complex = true;
+            c->token_pos++;
+        }
         size_t ptype_pos = c->token_pos;
         ZeroCCTokType param_type_tok = c->tokens[c->token_pos].type;
         if (!is_type_specifier(c, param_type_tok)) {
@@ -294,6 +320,17 @@ static inline void zero_cc_parse_param_list(
         }
         const char *ptname = param_tag_name ? param_tag_name : c->tokens[ptype_pos].str_val;
         ZeroCCType param_base = param_has_typeof ? param_typeof_type : zero_cc_resolve_base_type(c, param_type_tok, ptname);
+        if (p_prefix_complex) {
+            param_base = zero_cc_type_complex(&param_base);
+        }
+        /* C99 6.7.2.3 suffix complex: `double _Complex x` / `float __complex__ x`.
+         * The complex spec follows the base type (before any pointer stars). */
+        if (!p_prefix_complex && c->token_pos < c->token_count &&
+            c->tokens[c->token_pos].type == TK_IDENT &&
+            zero_cc_tok_is_complex_spec(c->tokens[c->token_pos].str_val)) {
+            c->token_pos++;
+            param_base = zero_cc_type_complex(&param_base);
+        }
         if (param_is_unsigned) {
             if (param_base.tag == TYPE_INT8) param_base.tag = TYPE_UINT8;
             else if (param_base.tag == TYPE_INT16) param_base.tag = TYPE_UINT16;
@@ -331,7 +368,16 @@ static inline void zero_cc_parse_param_list(
                    (c->tokens[c->token_pos].type == TK_CONST ||
                     c->tokens[c->token_pos].type == TK_VOLATILE ||
                     c->tokens[c->token_pos].type == TK_RESTRICT)) c->token_pos++;
-            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
+                /* Nested parens around the name: `(*const (funcp))`. */
+                c->token_pos++;
+                while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STAR) c->token_pos++;
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
+                    pname = c->tokens[c->token_pos].str_val;
+                    c->token_pos++;
+                }
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
+            } else if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
                 pname = c->tokens[c->token_pos].str_val;
                 c->token_pos++;
             }
@@ -342,6 +388,18 @@ static inline void zero_cc_parse_param_list(
                 while (c->token_pos < c->token_count && pdepth > 0) {
                     if (c->tokens[c->token_pos].type == TK_LPAREN) pdepth++;
                     else if (c->tokens[c->token_pos].type == TK_RPAREN) pdepth--;
+                    c->token_pos++;
+                }
+            }
+            /* Trailing array dim on the parenthesized pointer: `(*p)[N]`
+             * (pointer to array), not a function pointee. Consume it so the
+             * declarator re-parse below stops where the quick scan left off. */
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACKET) {
+                int bdepth = 1;
+                c->token_pos++;
+                while (c->token_pos < c->token_count && bdepth > 0) {
+                    if (c->tokens[c->token_pos].type == TK_LBRACKET) bdepth++;
+                    else if (c->tokens[c->token_pos].type == TK_RBRACKET) bdepth--;
                     c->token_pos++;
                 }
             }
@@ -542,7 +600,15 @@ static inline void zero_cc_parse_param_list(
         decl_node_set_type(ctx, p_node, ptype_ti);
 
         if (fn_chunk->param_count < 16) {
-            fn_chunk->param_tis[fn_chunk->param_count++] = ptype_ti;
+            fn_chunk->param_tis[fn_chunk->param_count] = ptype_ti;
+            /* Sprint 122 2b: store the canonical ZeroCCType (heap-allocated on
+             * the top-level declarator, not the per-chunk struct). */
+            if (decl && decl->param_zt_cap < 16) {
+                decl->param_zt_cap = 16;
+                decl->param_zt = (ZeroCCType *)malloc(16 * sizeof(ZeroCCType));
+            }
+            if (decl) decl->param_zt[fn_chunk->param_count] = ptype;
+            fn_chunk->param_count++;
         }
 
         if (param_head == AST_NULL) {
@@ -749,7 +815,7 @@ static inline bool zero_cc_parse_declarator_internal(
             ZeroCCDeclaratorChunk fn_chunk;
             memset(&fn_chunk, 0, sizeof(fn_chunk));
             fn_chunk.kind = ZERO_CC_DECL_CHUNK_FUNCTION;
-            zero_cc_parse_param_list(c, arena, ctx, &fn_chunk);
+            zero_cc_parse_param_list(c, arena, ctx, &fn_chunk, d);
             if (lvl->suffix_count < ZERO_CC_DECLARATOR_MAX_ITEMS) {
                 lvl->suffixes[lvl->suffix_count++] = fn_chunk;
             }
