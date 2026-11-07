@@ -610,7 +610,12 @@ enum {
     ZC_TAGCLS_INT128 = 4, /* GNU __int128 (lo,hi) GPR128 pair */
     ZC_TAGCLS_UINT128= 5, /* unsigned __int128 */
     ZC_TAGCLS_PTR    = 6, /* pointer / address-form value (incl. decays,
-                             complex/vector/struct rvalues, function addrs) */
+                             struct rvalues, function addrs) */
+    ZC_TAGCLS_COMPLEX= 7, /* C99 _Complex: address-form (temp holds a pointer to
+                             the {re,im} storage), width bits = ELEMENT size in
+                             bytes (4 = float/32-bit element, 8 = double/64-bit) */
+    ZC_TAGCLS_VECTOR = 8, /* GNU __vector_size__: address-form, width bits =
+                             ELEMENT size in bytes (1/2/4/8/16 per lane) */
 };
 enum { /* width bits (tag >> 4) & 0x7 */
     ZC_TAGW_1  = 0,
@@ -627,6 +632,13 @@ enum { /* width bits (tag >> 4) & 0x7 */
 #define ZC_TAG_INT128  ((uint8_t)(ZC_TAGCLS_INT128  | (ZC_TAGW_16 << 4)))
 #define ZC_TAG_UINT128 ((uint8_t)(ZC_TAGCLS_UINT128| (ZC_TAGW_16 << 4)))
 #define ZC_TAG_PTR     (uint8_t)(ZC_TAGCLS_PTR)
+/* Address-form aggregate tags: the width bits carry the ELEMENT size so the
+ * tag records the element width the frontend resolved (Sprint 120, slice 3 -
+ * these were ZC_TAG_PTR, indistinguishable from a plain pointer, so the
+ * verifier could not check the Sprint 115l complex-esz / 113 vector-lane
+ * bug class). */
+#define ZC_TAG_COMPLEX(w) ((uint8_t)(ZC_TAGCLS_COMPLEX| ((w) << 4)))
+#define ZC_TAG_VECTOR(w)  ((uint8_t)(ZC_TAGCLS_VECTOR | ((w) << 4)))
 
 static inline uint8_t zc_tag_class(uint8_t tag) { return (uint8_t)(tag & 0xFu); }
 static inline uint8_t zc_tag_width_code(uint8_t tag) { return (uint8_t)((tag >> 4) & 0x7u); }

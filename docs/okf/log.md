@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-06T23:18:37Z
+timestamp: 2026-11-07T00:19:36Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1080,3 +1080,12 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-06 — Updated `build-and-verification.md`
 - Sprint 119 (Slice 2): type-tag verifier I9 unmarked-narrow-op population stat; corpus 152 files
+
+## 2026-11-07 — Updated `ir-and-regalloc.md`
+- Sprint 120 (Slice 3): address-form complex/vector tags carry the resolved element size (was PTR); verifier I10 checks a complex/vector temp is never the dest of a scalar FP/128 value op (115l/113 bug class). Re-scoped the remaining Slice-3 items (producer flags = frontend state machine codegen reads nowhere; complex esz = frontend-resolved, now recorded in the tag; retire Instr.width = retracted, per-op parameter + bit-width case)
+
+## 2026-11-07 — Updated `frontend-and-types.md`
+- Sprint 120 (Slice 3): complex/vector rvalue temps tagged complex/vector with element size; I10 enforces address-form (never a scalar FP/128 dest)
+
+## 2026-11-07 — Updated `build-and-verification.md`
+- Sprint 120 (Slice 3): type-tag verifier I10 (complex/vector address-form) + element-size tagging; 152 files

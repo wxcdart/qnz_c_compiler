@@ -45,6 +45,14 @@ the backend's type conventions against the frontend's tags:
       values are re-extended on the next load). The stat keeps the
       population visible; (a) and (b) are the arrangements codegen
       acts on directly.
+  I10 (slice 3) address-form aggregates: a temp tagged complex/vector
+      holds a POINTER to the value's {re,im} / lane storage, never a
+      scalar value - so it must never be the dest of a scalar FP or
+      128-bit value op (those would treat the aggregate as one scalar,
+      the Sprint 115l complex-esz / 113 vector-lane bug class). The
+      complex/vector tag also carries the element size the frontend
+      resolved (float complex = 4, double complex = 8, vector lane =
+      1/2/4/8/16), so the esz side channel is now a checkable tag.
 
 A tagged temp whose tag disagrees with the op that produced it is a
 violation; an UNtagged temp (the frontend attached no TypeInfo to the
@@ -168,6 +176,13 @@ NO_DEST_OPS = {
     "STORE_16", "STORE_32", "STORE_64", "STORE_BYTE", "STORE128",
     "MOV_MEM", "PUSH", "SETJMP", "LONGJMP", "NONLOCAL_GOTO", "OVF_TRAP",
 }
+
+# I10 (slice 3): ops that write a SCALAR FP or 128-bit VALUE to their dest.
+# A complex/vector temp is address-form (a pointer to {re,im}/lane storage),
+# so it must never be the dest of one - that would treat the aggregate as a
+# single scalar value (the Sprint 115l / 113 bug class).
+SCALAR_FP128_OPS = {op for op, (dk, _) in FP_VALUE_OPS.items() if dk == "F"}
+SCALAR_FP128_OPS |= {op for op, (dk, _) in OPS128.items() if dk == "S"}
 
 
 def parse_dump(text):
@@ -412,6 +427,18 @@ def check_function(fn, ins, tags, stats):
                 else:
                     stats["i9_discipline"] += 1
 
+        # --- I10: address-form aggregates (slice 3) -------------------------
+        # A complex/vector temp holds a pointer to the value's {re,im}/lane
+        # storage, never a scalar value. It must never be the dest of a
+        # scalar FP/128 value op (that would treat the aggregate as one
+        # scalar - the Sprint 115l esz / 113 vector-lane bug class).
+        if dest is not None and op in SCALAR_FP128_OPS:
+            tag = tags.get(dest)
+            if tag is not None and cls_of(tag) in ("complex", "vector"):
+                v.append("I10 r%d: %s temp is dest of scalar %s (address-"
+                         "form, not a scalar value)"
+                         % (dest, cls_of(tag), op))
+
     # --- I6: tag <-> defining op -------------------------------------------
     defined_by = {}
     for idx, op, rest, wmark, udiv in ins:
@@ -477,6 +504,7 @@ def main():
     stats = {"i1_marks": 0, "i1_untagged": 0,
              "i2_traps": 0, "i2_untagged": 0,
              "i9_deferred": 0, "i9_precan": 0, "i9_discipline": 0,
+             "i10_cxvec": 0,
              "fns": 0, "tags": 0}
     total_v = 0
     failed = 0
@@ -492,6 +520,8 @@ def main():
             for fn in fns:
                 stats["fns"] += 1
                 stats["tags"] += len(fn["tags"])
+                stats["i10_cxvec"] += sum(1 for t in fn["tags"].values()
+                                          if t[0] in ("complex", "vector"))
                 fviol += check_function(fn["fn"], fn["ins"], fn["tags"],
                                         stats)
             if fviol:
@@ -507,12 +537,13 @@ def main():
     print("type-tag verifier: %d files x levels %s | %d functions, "
           "%d tagged temps, %d marks checked (%d untagged), "
           "%d OVF_TRAPs (%d untagged) | I9 unmarked narrow ops: %d "
-          "OVF-deferred, %d pre-canonicalized, %d load/store-discipline"
+          "OVF-deferred, %d pre-canonicalized, %d load/store-discipline | "
+          "I10 complex/vector temps: %d"
           % (len(files), levels, stats["fns"], stats["tags"],
              stats["i1_marks"], stats["i1_untagged"],
              stats["i2_traps"], stats["i2_untagged"],
              stats["i9_deferred"], stats["i9_precan"],
-             stats["i9_discipline"]))
+             stats["i9_discipline"], stats["i10_cxvec"]))
     if total_v:
         print("RESULT: FAIL (%d violations in %d file-runs)"
               % (total_v, failed))

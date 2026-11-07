@@ -500,6 +500,8 @@ void ir_dump(const ZeroCCCompiler *c, FILE *f) {
                               zc_tag_class(tag) == ZC_TAGCLS_FLOAT ? "float" :
                               zc_tag_class(tag) == ZC_TAGCLS_INT128 ? "int128" :
                               zc_tag_class(tag) == ZC_TAGCLS_UINT128 ? "uint128" :
+                              zc_tag_class(tag) == ZC_TAGCLS_COMPLEX ? "complex" :
+                              zc_tag_class(tag) == ZC_TAGCLS_VECTOR ? "vector" :
                               zc_tag_class(tag) == ZC_TAGCLS_PTR ? "ptr" : "?";
             if (zc_tag_class(tag) == ZC_TAGCLS_PTR)
                 fprintf(f, " r%u=%s", (unsigned)id, cls);

@@ -4,7 +4,7 @@ title: Two-Pass IR & Linear Scan Register Allocation
 description: IR instruction format, call-argument tracking table, virtual register conventions, and linear scan register allocation constraints.
 resource: middleend/ir-and-regalloc
 tags: [ir, regalloc, ssa, registers, calling-convention]
-timestamp: 2026-11-06T23:18:37Z
+timestamp: 2026-11-07T00:19:36Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -107,7 +107,11 @@ Slice 2 transitions the codegen-side consumers of the type side channels to read
   - **OVF check width**: the checked temp's tag is consulted only when it **agrees** with the instruction's check-width field (invariant I2) — an assignment-expression stamp of a different width on the same temp (a `long l = a + b;` where the int add's check is 4) would otherwise weaken the check.
 - **Branchless-select scratch temps are tagged** (`opt_branchless.c`): the 4 fresh temps per site (mask, ±1 constant, XOR difference, AND select) are stamped `INT(8)` — full-register-domain scratch, width-8 extend a no-op, no wrap semantics.
 - **Coverage stat I9** (verifier, no failures): classifies every unmarked narrow-class ALU op on a narrow tagged temp — OVF-deferred (tag-driven extend rides after the check) / pre-canonicalized (matching in-place `SEXTn`/`ZEXTn` follows — the compound-assign / narrow-local-store pattern) / load-store-discipline (left raw by design; narrow loads re-extend, stores truncate or 64-bit-slot values re-extend on next load). Baseline: 119 / 207 / 242 across the corpus.
-- **Deferred to Slice 3**: migrating the `last_expr_is_float` / `last_expr_is_128` producer flags (430 references, 15 files — a frontend-internal state machine) and per-use complex `esz` resolution to tag reads, and retiring the `Instr.width` mark once bit-width marks move into the tag format.
+- **Address-form aggregates tagged distinctly (Sprint 120, Slice 3)**: complex and vector rvalues were stamped `PTR` (indistinguishable from a plain pointer), so the verifier could not check the Sprint 115l complex-`esz` / 113 vector-lane bug class. Two new tag classes — `ZC_TAGCLS_COMPLEX` / `ZC_TAGCLS_VECTOR` — carry the **element size** the frontend resolves (`details.array.base` → `type_size`: float complex = 4, double complex = 8, vector lane = 1/2/4/8/16) in the width bits. The tag records the `esz` side channel, making it a checkable invariant (verifier **I10**: a complex/vector temp is address-form — a pointer to the `{re,im}`/lane storage — so it must never be the dest of a scalar FP/128 value op; 279 such temps across the corpus). Codegen-behavior-neutral: the four Slice-2 readers return no-op for the new classes exactly as for `PTR`, so this is tagging + verification only.
+- **Re-scoped (not a codegen migration, Sprint 120)**: the remaining Slice-3 items were examined and **re-scoped** rather than executed as written, because they are frontend-internal, not codegen side channels:
+  - **Producer flags** (`last_expr_is_float` / `last_expr_is_128`, 430 refs): a *frontend* state machine — codegen (MC/asm/regalloc) reads them nowhere. The frontend already has the authoritative `TypeInfo` at every site; migrating it to read its own lossy tag projection would be a large 430-ref rewrite for zero codegen benefit. The mechanism that bounds them is Slice 1's per-expression flag↔tag agreement check (`zc_temp_tag_check_flags` in `lower_expr`), which reports 0 mismatches across the corpus.
+  - **Complex `esz`**: resolved from the authoritative element `TypeInfo` in the *frontend* (Sprint 115l); codegen does not consume the element size (complex/vector are address-form — the frontend bakes the offsets/widths into emitted immediates). The tag now *records* the resolved element size (above) so it is checkable (I10), which is the actual value.
+  - **Retire `Instr.width`**: **retracted**. The mark is a per-op *parameter* (Slice 2's rationale), and the bitfield bit-width case (3..7) is precisely what a per-temp tag cannot express. A temp id can carry different width marks across its lifetime (in-place ops, reuse past the 32768 threshold), so the per-op mark is architecturally required, not a side channel to eliminate.
 
 ## Temp-Id Space (16-bit, C2b) & the Exhaustion Guard
 

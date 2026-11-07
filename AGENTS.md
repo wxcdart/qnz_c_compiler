@@ -45,7 +45,7 @@ Before scanning the 80+ historical files in `docs/`, **always consult the Open K
   python3 tools/diag_battery.py                # gate on baseline
   python3 tools/diag_battery.py --update-baseline  # re-record after an intentional improvement (e.g. multi-error recovery)
   ```
-- **Type-Tag Verifier (`tools/type_tag_verifier.py`)**: cross-checks frontend semantic type tags against backend IR conventions (C99 width marks, OP_OVF_TRAP check width and adjacency, FP value ops, 128-bit operations, in-place extends, COND_SET, unsigned DIV/MOD) and reports the I9 unmarked-narrow-op population (the Sprint 119 tag-driven codegen arrangements: OVF-deferred / pre-canonicalized / load-store-discipline) across 152 corpus files compiled at `-O0`, `-O2`, `-O3`:
+- **Type-Tag Verifier (`tools/type_tag_verifier.py`)**: cross-checks frontend semantic type tags against backend IR conventions (C99 width marks, OP_OVF_TRAP check width and adjacency, FP value ops, 128-bit operations, in-place extends, COND_SET, unsigned DIV/MOD), reports the I9 unmarked-narrow-op population (Sprint 119 tag-driven codegen: OVF-deferred / pre-canonicalized / load-store-discipline), and checks I10 (Sprint 120 — complex/vector address-form temps are never the dest of a scalar FP/128 value op, the 115l esz / 113 vector-lane bug class) across 152 corpus files compiled at `-O0`, `-O2`, `-O3`:
   ```bash
   python3 tools/type_tag_verifier.py --verify-all
   ```

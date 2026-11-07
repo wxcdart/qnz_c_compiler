@@ -705,9 +705,25 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
  * emission + checks only - no codegen consumes the tags yet.
  */
 
+/* Map a byte width to the tag width code (ZC_TAGW_*); -1 if not a
+ * supported byte width (complex/vector elements are 1/2/4/8/16 bytes). */
+static int zc_width_code_from_bytes(int bytes) {
+    switch (bytes) {
+        case 1:  return ZC_TAGW_1;
+        case 2:  return ZC_TAGW_2;
+        case 4:  return ZC_TAGW_4;
+        case 8:  return ZC_TAGW_8;
+        case 16: return ZC_TAGW_16;
+        default: return -1;
+    }
+}
+
 /* Map the semantic TypeInfo to a temp tag. Address-form rvalues (complex,
- * vectors, structs, decaying arrays) and pointers are PTR; structs/unions
- * that are *values* are not stamped (no claim) since the IR materializes
+ * vectors, structs, decaying arrays) and pointers are address tags; complex
+ * and vector additionally carry the ELEMENT size the frontend resolved
+ * (Sprint 120, slice 3 - they were plain ZC_TAG_PTR, so the verifier could
+ * not check the Sprint 115l complex-esz / 113 vector-lane bug class). Structs/
+ * unions that are *values* are not stamped (no claim) since the IR materializes
  * them through VREG_0/VREG_2 or sret buffers, not a plain value temp. */
 static inline uint8_t zc_tag_from_typeinfo(const TypeInfo *ti) {
     if (!ti) return ZC_TAG_NONE;
@@ -726,9 +742,21 @@ static inline uint8_t zc_tag_from_typeinfo(const TypeInfo *ti) {
         case TYPE_KIND_POINTER:
         case TYPE_KIND_FUNCTION:
         case TYPE_KIND_ARRAY:
-        case TYPE_KIND_COMPLEX:
-        case TYPE_KIND_VECTOR:
             return ZC_TAG_PTR;
+        case TYPE_KIND_COMPLEX:
+        case TYPE_KIND_VECTOR: {
+            /* Address-form aggregate: carry the element size so the tag
+             * records the element width the frontend resolved (the esz
+             * side channel becomes a checkable invariant). A missing /
+             * unresolvable element falls back to the plain address tag
+             * (no element claim). */
+            const TypeInfo *el = ti->details.array.base;
+            int wc = el ? zc_width_code_from_bytes((int)type_size(el)) : -1;
+            if (wc < 0) return ZC_TAG_PTR;
+            return (ti->kind == TYPE_KIND_COMPLEX)
+                   ? ZC_TAG_COMPLEX((uint8_t)wc)
+                   : ZC_TAG_VECTOR((uint8_t)wc);
+        }
         case TYPE_KIND_STRUCT:
         case TYPE_KIND_UNION:
             return ZC_TAG_NONE;  /* value-form struct: no claim (slice 1) */
