@@ -96,6 +96,7 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 .PHONY: all test clean golden_test test-unit test-semantic test-abi test-jit test-tap benchmark \
 	asan asan-unit asan-semantic asan-abi asan-jit \
 	test-asan test-asan-unit test-asan-semantic test-asan-abi test-asan-jit \
+	test-project-diff \
 	test-isa-qemu test-driver test-linker \
 	valgrind test-valgrind
 
@@ -227,6 +228,12 @@ test-torture: build/bin/zerocc
 	@# into last_run.json (kept out of the parallel main sweep - their gcc
 	@# reference builds are the corpus's load-sensitive edge cases).
 	@python3 tools/torture_run.py --chunk heavy
+
+# Project-differential gate (Verification & Scale #1): real-world TUs
+# (cJSON, zlib, the sqlite amalgamation) must compile under zerocc at every
+# level, differential against host gcc acceptance of the same TU.
+test-project-diff: build/bin/zerocc
+	@python3 tools/project_diff.py
 
 # zero_rt: the ZeroCC-owned runtime (heap, minimal stdio, strings, exit).
 # Compiled by zerocc itself; the objects are archived with the system `ar`

@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 165-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-11-07T06:55:46Z
+timestamp: 2026-11-07T22:16:19Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -268,11 +268,19 @@ python3 tools/okf.py index
 # ratcheting test/torture/baseline.json; see c-torture-gate.md)
 make test-torture
 python3 tools/torture_run.py --quick
+
+# Project-differential gate (Verification & Scale #1): real-world TUs from
+# test/projects/ (cJSON, zlib, the sqlite3.c amalgamation) must compile
+# under zerocc at -O0/-O2, differential against host gcc acceptance
+# (54 TUs at -O0/-O2/-O3 as of Sprint 124).
+make test-project-diff
+python3 tools/project_diff.py --levels 0 2 3
 ```
 
 ## Related Concepts
 - Return to [Root Index](./index.md)
 - See [Bundle Log](./log.md)
+- See [Frontend, Type System & Semantic Analysis](./frontend-and-types.md) (fnptr member star topology, t2ti memo)
 - See [GCC c-torture Conformance Gate](./c-torture-gate.md)
 - See [System V AMD64 ABI & Struct Calling Conventions](./abi-sysv-x86_64.md)
 - See [Compilation Pipeline & Two-Pass Architecture](./architecture-pipeline.md)

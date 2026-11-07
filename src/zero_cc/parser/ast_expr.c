@@ -1328,6 +1328,8 @@ ASTRef parse_assignment_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
     ASTRef left = parse_ternary_ast(c, arena);
     if (c->token_pos < c->token_count && is_assign_op(c->tokens[c->token_pos].type)) {
         ZeroCCTokType op = c->tokens[c->token_pos].type;
+        uint32_t op_line = c->tokens[c->token_pos].line;
+        uint32_t op_col = c->tokens[c->token_pos].col;
         c->token_pos++;
         ASTRef right = parse_assignment_ast(c, arena);
         ASTRef assign_ref = zero_cc_ast_alloc_node(arena, NODE_ASSIGN);
@@ -1335,6 +1337,11 @@ ASTRef parse_assignment_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
         an->left = left;
         an->right = right;
         an->aux.op = (uint32_t)op;
+        /* Diagnostic location: the assignment operator's token (the left
+         * subtree often carries no position of its own, which left type
+         * errors like "incompatible types in assignment" unlocated). */
+        an->line = op_line;
+        an->col = op_col;
         return assign_ref;
     }
     return left;

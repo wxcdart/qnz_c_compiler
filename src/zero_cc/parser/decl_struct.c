@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "zero_cc/types/types.h"
@@ -86,6 +87,98 @@ static void zero_cc_member_wrap_ptr_levels(ZeroCCStructMember *m, int extra) {
         ZeroCCType pt = zero_cc_type_ptr(m->base);
         m->base = zero_cc_type_alloc_base(&pt);
     }
+}
+
+/* Parse an abstract parameter list `( ... )` (the token at c->token_pos is
+ * the opening '(') into a POOL-resident ZeroCCType array in fn_params form
+ * (the same representation the declarator stack stores on function types).
+ * Each parameter is an abstract declarator: its type via
+ * zero_cc_parse_type_name_at_pos (stars/qualifiers/array suffixes included),
+ * then an optional parameter name + declarator suffix.  `...` ->
+ * *out_variadic; `()`/`(void)` -> NULL/0 (the ZeroCCType->TypeInfo
+ * conversion reads NULL/0 fn_params as "no prototype" - the lenient
+ * pre-existing behavior for these members).
+ *
+ * Struct/union function-pointer members store the pointee's prototype on
+ * the member's RETURN-type base (m->base->fn_params, see
+ * zero_cc_member_attach_fn_params) so a struct reconstructed by
+ * zero_cc_type_to_typeinfo (e.g. the cast base `((struct V*)p)->f(...)` in
+ * sqlite3.c's memdbDlSym) keeps the member call's argument/return types
+ * instead of degrading to a no-prototype fnptr. */
+static void zc_parse_member_fn_params(ZeroCCCompiler *c, ZeroCCType **out_params,
+                                      size_t *out_count, bool *out_variadic)
+{
+    *out_params = NULL;
+    *out_count = 0;
+    *out_variadic = false;
+    if (c->token_pos >= c->token_count || c->tokens[c->token_pos].type != TK_LPAREN) return;
+    c->token_pos++; /* ( */
+    ZeroCCType *tmp = NULL;
+    size_t cap = 0, n = 0;
+    while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_RPAREN) {
+        if (n > 0 && c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++;
+        if (c->token_pos >= c->token_count) break;
+        if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
+            c->token_pos++;
+            *out_variadic = true;
+            break;
+        }
+        if (c->tokens[c->token_pos].type == TK_VOID &&
+            c->token_pos + 1 < c->token_count && c->tokens[c->token_pos + 1].type == TK_RPAREN) {
+            c->token_pos++; /* `void` alone = no parameters */
+            break;
+        }
+        size_t p = c->token_pos;
+        ZeroCCType pt = zero_cc_parse_type_name_at_pos(c, &p);
+        if (p == c->token_pos) p++; /* error recovery: never spin */
+        c->token_pos = p;
+        if (n >= cap) {
+            cap = cap ? cap * 2 : 8;
+            ZeroCCType *nt = (ZeroCCType *)realloc(tmp, cap * sizeof(ZeroCCType));
+            if (!nt) break;
+            tmp = nt;
+        }
+        tmp[n++] = pt;
+        /* Optional parameter name + declarator suffix (`x`, `x[4]`, `(args)`). */
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) c->token_pos++;
+        while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACKET) {
+            int d = 1;
+            c->token_pos++;
+            while (c->token_pos < c->token_count && d > 0) {
+                if (c->tokens[c->token_pos].type == TK_LBRACKET) d++;
+                else if (c->tokens[c->token_pos].type == TK_RBRACKET) d--;
+                c->token_pos++;
+            }
+        }
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
+            int d = 1;
+            c->token_pos++;
+            while (c->token_pos < c->token_count && d > 0) {
+                if (c->tokens[c->token_pos].type == TK_LPAREN) d++;
+                else if (c->tokens[c->token_pos].type == TK_RPAREN) d--;
+                c->token_pos++;
+            }
+        }
+    }
+    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
+    if (n > 0) {
+        *out_params = (ZeroCCType *)zero_cc_type_pool_alloc_fn_params(n);
+        if (*out_params) memcpy(*out_params, tmp, n * sizeof(ZeroCCType));
+        *out_count = n;
+    }
+    free(tmp);
+}
+
+/* Store a parsed pointee prototype on the member's (finalized) return-type
+ * base so zero_cc_type_to_typeinfo can rebuild the fnptr field's function
+ * signature (see zc_parse_member_fn_params). No-op for non-fnptr members. */
+static void zero_cc_member_attach_fn_params(ZeroCCStructMember *m, const ZeroCCType *params,
+                                            size_t count, bool variadic)
+{
+    if (!m->is_func_ptr || !m->base || !params) return;
+    m->base->fn_params = params;
+    m->base->fn_param_count = count;
+    m->base->fn_is_variadic = variadic;
 }
 
 /* `T *a[N]` is an array of N pointers.  The member parser builds the pointer
@@ -364,6 +457,10 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
              * returning the member's own type (`struct B *`). */
             bool dcl_is_fnptr = false;
             char mname[128] = "";
+            /* Pointee prototype for a fnptr member (dcl path). */
+            ZeroCCType *dcl_fnp = NULL;
+            size_t dcl_fnp_count = 0;
+            bool dcl_fnp_variadic = false;
             if (c->tokens[c->token_pos].type == TK_LPAREN &&
                 c->token_pos + 1 < c->token_count &&
                 c->tokens[c->token_pos + 1].type == TK_STAR) {
@@ -376,15 +473,10 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                     c->token_pos++;
                 }
                 if (c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
-                /* Skip the parameter list `( ... )` */
+                /* Parse the pointee's parameter list so the fnptr member
+                 * carries its prototype (see zc_parse_member_fn_params). */
                 if (c->tokens[c->token_pos].type == TK_LPAREN) {
-                    c->token_pos++;
-                    int paren_depth = 1;
-                    while (c->token_pos < c->token_count && paren_depth > 0) {
-                        if (c->tokens[c->token_pos].type == TK_LPAREN) paren_depth++;
-                        else if (c->tokens[c->token_pos].type == TK_RPAREN) paren_depth--;
-                        c->token_pos++;
-                    }
+                    zc_parse_member_fn_params(c, &dcl_fnp, &dcl_fnp_count, &dcl_fnp_variadic);
                 }
             } else if (c->tokens[c->token_pos].type == TK_IDENT) {
                 snprintf(mname, sizeof(mname), "%s", c->tokens[c->token_pos].str_val);
@@ -499,14 +591,20 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                         if (st_lead_volatile) pt.is_volatile = true;
                         if (dcl_is_fnptr) {
                             /* Function-pointer member: the member's base is
-                             * the function's RETURN type.  For
-                             * `struct B *(*f)()` the star belongs to the
-                             * return (`struct B *`), so wrap the pointee in
-                             * a pointer (c-torture 20010102-1: CALL_CHUNKFUN
-                             * assigned the call result to a
-                             * `struct _obstack_chunk *`). */
-                            ZeroCCType rt = zero_cc_type_ptr(&pt);
-                            m->base = zero_cc_type_alloc_base(&rt);
+                             * the function's RETURN type - the inner type
+                             * wrapped exactly once per STAR CONSUMED BEFORE
+                             * the `(*f)` group (that star run is the return
+                             * part; the group's own `*` is the fnptr itself,
+                             * not a return pointer).  `struct B *(*f)()`
+                             * returns `struct B *` (c-torture 20010102-1);
+                             * `void (*f)(void)` returns plain `void` - a
+                             * fixed single wrap corrupted the latter into
+                             * `void *`, breaking compatibility checks and
+                             * call typing on fnptr-returning functions. */
+                            m->base = zero_cc_type_alloc_base(&pt);
+                            zero_cc_member_wrap_ptr_levels(m, ptr_depth);
+                            zero_cc_member_attach_fn_params(m, dcl_fnp, dcl_fnp_count,
+                                                            dcl_fnp_variadic);
                         } else {
                             m->base = zero_cc_type_alloc_base(&pt);
                         }
@@ -625,10 +723,12 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                         if (st_lead_volatile) pt.is_volatile = true;
                         if (dcl_is_fnptr) {
                             /* Function-pointer member: base = the function's
-                             * RETURN type; `struct B *(*f)()` returns
-                             * `struct B *` (see the union branch above). */
-                            ZeroCCType rt = zero_cc_type_ptr(&pt);
-                            m->base = zero_cc_type_alloc_base(&rt);
+                             * RETURN type - the inner type wrapped once per
+                             * pre-group star (see the union branch above). */
+                            m->base = zero_cc_type_alloc_base(&pt);
+                            zero_cc_member_wrap_ptr_levels(m, ptr_depth);
+                            zero_cc_member_attach_fn_params(m, dcl_fnp, dcl_fnp_count,
+                                                            dcl_fnp_variadic);
                         } else {
                             m->base = zero_cc_type_alloc_base(&pt);
                         }
@@ -791,6 +891,11 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
             bool member_is_long_double = false;
             bool member_is_float128 = false;
             bool member_is_func_ptr = false;
+            /* Pointee prototype for a fnptr member (parsed in the scan
+             * below, attached to m->base at finalization). */
+            ZeroCCType *member_fnp = NULL;
+            size_t member_fnp_count = 0;
+            bool member_fnp_variadic = false;
             int member_int128_kind = 0; /* zc_name_int128_kind(): 1 signed, 2 __uint128_t */
             char type_ident[128] = "";
             if (mt == TK_IDENT) {
@@ -986,29 +1091,89 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
             if (effective_align > st.align) st.align = effective_align;
 
             char mname[128] = "";
-            /* Function-pointer member: `type (*name)(params);`
+            /* Function-pointer member: `type (*name)(params);` - and nested
+             * chains `type (*(*name)(p1))(p2)` (pointer to a function
+             * RETURNING a function pointer - C99 6.7.5/6.7.6; sqlite3_vfs
+             * .xDlSym). The whole chain is ONE outer `(* ... )` group whose
+             * content is a name or a further nested group, followed by the
+             * pointee's `(params)`. Each `*` inside is one fnptr level
+             * (member_fnptr_levels), used for the finalization wraps.
              * (previously the `(` after the `*` star was never handled and
-             * the member loop spun forever on it).  The declarator is
+             * the member loop spun forever on it). The declarator is
              * consumed here; the member is a plain 8-byte pointer. */
+            int member_fnptr_levels = 0;
+            int star_count = 0;
+            int star_group_depth[8] = {1, 1, 1, 1, 1, 1, 1, 1};
+            /* Per-level pointee prototypes for NESTED fnptr chains
+             * (`void (*(*f)(A))(B)`): level_fnp[k] = the k-th innermost
+             * function's parameter list. The deepest function's list sits
+             * at group-depth member_fnptr_levels-1, the outer's is parsed
+             * after the group (member_fnp). */
+            ZeroCCType *level_fnp[9] = {0};
+            size_t level_fnp_n[9] = {0};
+            bool level_fnp_var[9] = {0};
             if (c->tokens[c->token_pos].type == TK_LPAREN &&
                 c->token_pos + 1 < c->token_count &&
                 c->tokens[c->token_pos + 1].type == TK_STAR) {
-                c->token_pos++; /* ( */
-                c->token_pos++; /* * */
                 member_is_func_ptr = true;
-                if (c->tokens[c->token_pos].type == TK_IDENT) {
-                    snprintf(mname, sizeof(mname), "%s", c->tokens[c->token_pos].str_val);
-                    c->token_pos++;
+                c->token_pos++; /* ( */
+                int group_depth = 1;
+                int list_depth = 0;
+                int list_pos[9] = {-1, -1, -1, -1, -1, -1, -1, -1, -1};
+                while (group_depth > 0 && c->token_pos < c->token_count) {
+                    ZeroCCTokType t = c->tokens[c->token_pos].type;
+                    if (t == TK_STAR && list_depth == 0) {
+                        if (star_count < 8) star_group_depth[star_count] = group_depth;
+                        star_count++;
+                    }
+                    if (t == TK_IDENT && mname[0] == '\0') {
+                        snprintf(mname, sizeof(mname), "%s", c->tokens[c->token_pos].str_val);
+                    }
+                    if (t == TK_CONST) member_ptr_is_const = true;
+                    if (t == TK_VOLATILE) member_ptr_is_volatile = true;
+                    if (t == TK_LPAREN) {
+                        /* `(*` opens a nested fnptr group; a bare `(` is a
+                         * pointee's parameter list (stars inside it are
+                         * parameter pointers, not fnptr levels). */
+                        bool is_group = (c->token_pos + 1 < c->token_count &&
+                                         c->tokens[c->token_pos + 1].type == TK_STAR);
+                        if (is_group) {
+                            group_depth++;
+                        } else {
+                            list_depth++;
+                            if (list_depth == 1 && group_depth < 9) {
+                                list_pos[group_depth] = (int)c->token_pos;
+                            }
+                        }
+                    } else if (t == TK_RPAREN) {
+                        if (list_depth > 0) list_depth--;
+                        else group_depth--;
+                    }
+                    if (group_depth > 0) c->token_pos++;
                 }
-                if (c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
-                /* Skip the parameter list `( ... )` */
+                c->token_pos++; /* outer ) */
+                member_fnptr_levels = star_count > 0 ? star_count : 1;
+                /* Pointee's parameter list: PARSE it (abstract declarators)
+                 * so the fnptr member carries its prototype - a struct
+                 * reconstructed by zero_cc_type_to_typeinfo (cast bases,
+                 * compound literals) rebuilds the field's function type
+                 * from m->base->fn_params. (previously skipped - member
+                 * fnptrs had no recorded params). */
                 if (c->tokens[c->token_pos].type == TK_LPAREN) {
-                    c->token_pos++;
-                    int paren_depth = 1;
-                    while (c->token_pos < c->token_count && paren_depth > 0) {
-                        if (c->tokens[c->token_pos].type == TK_LPAREN) paren_depth++;
-                        else if (c->tokens[c->token_pos].type == TK_RPAREN) paren_depth--;
-                        c->token_pos++;
+                    zc_parse_member_fn_params(c, &member_fnp, &member_fnp_count,
+                                              &member_fnp_variadic);
+                }
+                /* Inner groups' lists (re-parse from the recorded positions;
+                 * level_fnp is keyed by the list's GROUP DEPTH: a list seen
+                 * while scanning group-depth G belongs to the function formed
+                 * by the group at depth G). */
+                for (int G = 2; G < 9; G++) {
+                    if (list_pos[G] >= 0) {
+                        size_t save = c->token_pos;
+                        c->token_pos = (size_t)list_pos[G];
+                        zc_parse_member_fn_params(c, &level_fnp[G], &level_fnp_n[G],
+                                                  &level_fnp_var[G]);
+                        c->token_pos = save;
                     }
                 }
                 is_ptr = true;
@@ -1168,8 +1333,62 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                         m->tag = TYPE_PTR;
                         if (m->is_func_ptr) {
                             /* Function-pointer member: base = the function's
-                             * RETURN type (declarator stars belong to it). */
+                             * RETURN type (declarator stars belong to it).
+                             *
+                             * Star topology (C99 6.7.5): every `(*` GROUP
+                             * forms a function; the group's INNERMOST star
+                             * is the pointer-to-function (is_func_ptr), and
+                             * any other star in the same group is a PLAIN
+                             * pointer layer above it.  So `void (*f)(void)`
+                             * and `int (*(*g)(A))(B)` flag one star per
+                             * group, while `void (**h)(void)` (double
+                             * pointer to function - sqlite3AutoExtList.aExt)
+                             * flags only the INNER star: h = PTR{ base =
+                             * PTR{is_func_ptr, base = void} }.  Flagging the
+                             * outer star made the ZeroCCType->TypeInfo
+                             * conversion read the inner pointer as the
+                             * function's RETURN type (ret = POINTER instead
+                             * of VOID), corrupting every compatibility check
+                             * and call through such members. */
+                            int last_star_of_depth[9];
+                            for (int G = 0; G < 9; G++) last_star_of_depth[G] = -1;
+                            for (int k = 0; k < star_count && k < 8; k++)
+                                last_star_of_depth[star_group_depth[k]] = k;
+                            int entry_fp_star = last_star_of_depth[1];
+                            m->is_func_ptr = (entry_fp_star == 0);
                             zero_cc_member_wrap_ptr_levels(m, ptr_depth);
+                            for (int k = 1; k < member_fnptr_levels && k < 8; k++) {
+                                zero_cc_member_wrap_ptr_levels(m, 1);
+                                if (m->base &&
+                                    last_star_of_depth[star_group_depth[k]] == k) {
+                                    /* Innermost star of its group: a true
+                                     * function-pointer level (flag + the
+                                     * prototype of the function its group
+                                     * forms). */
+                                    m->base->is_func_ptr = true;
+                                    ZeroCCType *lf = NULL;
+                                    size_t ln = 0;
+                                    bool lvar = false;
+                                    if (star_group_depth[k] == 1) {
+                                        lf = member_fnp;
+                                        ln = member_fnp_count;
+                                        lvar = member_fnp_variadic;
+                                    } else if (star_group_depth[k] < 9) {
+                                        lf = level_fnp[star_group_depth[k]];
+                                        ln = level_fnp_n[star_group_depth[k]];
+                                        lvar = level_fnp_var[star_group_depth[k]];
+                                    }
+                                    if (lf) {
+                                        m->base->fn_params = lf;
+                                        m->base->fn_param_count = ln;
+                                        m->base->fn_is_variadic = lvar;
+                                    }
+                                }
+                            }
+                            if (entry_fp_star == 0) {
+                                zero_cc_member_attach_fn_params(m, member_fnp, member_fnp_count,
+                                                                member_fnp_variadic);
+                            }
                         } else {
                             zero_cc_member_wrap_ptr_levels(m, ptr_depth - 1);
                         }
@@ -1368,13 +1587,47 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                             }
                             m->tag = TYPE_PTR;
                             if (m->is_func_ptr) {
-                                /* Function-pointer member: base = the
-                                 * function's RETURN type (see struct branch). */
-                                zero_cc_member_wrap_ptr_levels(m, ptr_depth);
+                                /* Function-pointer member: star topology
+                                 * (see the first declarator's site). */
+                                                            int last_star_of_depth[9];
+                            for (int G = 0; G < 9; G++) last_star_of_depth[G] = -1;
+                            for (int k = 0; k < star_count && k < 8; k++)
+                                last_star_of_depth[star_group_depth[k]] = k;
+                            int entry_fp_star = last_star_of_depth[1];
+                            m->is_func_ptr = (entry_fp_star == 0);
+                            zero_cc_member_wrap_ptr_levels(m, ptr_depth);
+                            for (int k = 1; k < member_fnptr_levels && k < 8; k++) {
+                                zero_cc_member_wrap_ptr_levels(m, 1);
+                                if (m->base &&
+                                    last_star_of_depth[star_group_depth[k]] == k) {
+                                    m->base->is_func_ptr = true;
+                                    ZeroCCType *lf = NULL;
+                                    size_t ln = 0;
+                                    bool lvar = false;
+                                    if (star_group_depth[k] == 1) {
+                                        lf = member_fnp;
+                                        ln = member_fnp_count;
+                                        lvar = member_fnp_variadic;
+                                    } else if (star_group_depth[k] < 9) {
+                                        lf = level_fnp[star_group_depth[k]];
+                                        ln = level_fnp_n[star_group_depth[k]];
+                                        lvar = level_fnp_var[star_group_depth[k]];
+                                    }
+                                    if (lf) {
+                                        m->base->fn_params = lf;
+                                        m->base->fn_param_count = ln;
+                                        m->base->fn_is_variadic = lvar;
+                                    }
+                                }
+                            }
+                            if (entry_fp_star == 0) {
+                                zero_cc_member_attach_fn_params(m, member_fnp, member_fnp_count,
+                                                                member_fnp_variadic);
+                            }
                             } else {
                                 zero_cc_member_wrap_ptr_levels(m, ptr_depth - 1);
                             }
-                        if (!is_bitfield && (is_array || is_flexible)) zero_cc_member_make_ptr_array(m);
+                            if (!is_bitfield && (is_array || is_flexible)) zero_cc_member_make_ptr_array(m);
                         } else if (is_array || is_flexible) {
                             ZeroCCType elem_t;
                             if (m->base) {
@@ -1567,6 +1820,8 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                                  * all c_ptr_depth stars - the member's own
                                  * PTR tag is the funcptr layer itself. */
                                 zero_cc_member_wrap_ptr_levels(m, c_ptr_depth);
+                                zero_cc_member_attach_fn_params(m, member_fnp, member_fnp_count,
+                                                                member_fnp_variadic);
                             } else {
                                 zero_cc_member_wrap_ptr_levels(m, c_ptr_depth - 1);
                             }
@@ -1735,6 +1990,8 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                                  * function's RETURN type (see the union
                                  * branch above). */
                                 zero_cc_member_wrap_ptr_levels(m, c_ptr_depth);
+                                zero_cc_member_attach_fn_params(m, member_fnp, member_fnp_count,
+                                                                member_fnp_variadic);
                             } else {
                                 zero_cc_member_wrap_ptr_levels(m, c_ptr_depth - 1);
                             }

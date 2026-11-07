@@ -140,6 +140,8 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "char* strchr(const char *s, int c);\n"
             "char* strrchr(const char *s, int c);\n"
             "char* strstr(const char *haystack, const char *needle);\n"
+            "size_t strspn(const char *s, const char *accept);\n"
+            "char* strpbrk(const char *s, const char *accept);\n"
             "#endif\n"
         );
     }
@@ -175,12 +177,19 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
         );
     }
     if (strcmp(name, "assert.h") == 0) {
-        /* Freestanding assert: evaluated in every build (no NDEBUG knob in
-         * Phase 0) - a failed assertion calls abort(). */
+        /* Freestanding assert: a failed assertion calls abort(). NDEBUG
+         * disables it (standard C behavior - real projects like sqlite3.c
+         * define NDEBUG and reference debug-only variables inside assert()
+         * that must then vanish; the old no-NDEBUG form left the argument
+         * live and broke such builds). */
         return strdup(
             "#ifndef _ASSERT_H\n#define _ASSERT_H 1\n"
             "#include <stdlib.h>\n"
+            "#ifdef NDEBUG\n"
+            "#define assert(expr) ((void)0)\n"
+            "#else\n"
             "#define assert(expr) ((expr) ? (void)0 : abort())\n"
+            "#endif\n"
             "#endif\n"
         );
     }
@@ -193,6 +202,7 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "#define EINVAL 22\n#define ENFILE 23\n#define EMFILE 24\n#define ENOSPC 28\n"
             "#define EPIPE 32\n#define EROFS 30\n#define ENOSYS 38\n#define ENOTDIR 20\n#define EISDIR 21\n"
             "#define ERANGE 34\n#define ENAMETOOLONG 36\n#define ETIMEDOUT 110\n#define ECONNREFUSED 111\n"
+            "#define EBUSY 16\n#define ENOTEMPTY 39\n#define ELOOP 40\n#define ENOLCK 125\n"
             "#endif\n"
         );
     }
@@ -256,6 +266,10 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "struct tm *gmtime(const time_t *t);\n"
             "struct tm *localtime(const time_t *t);\n"
             "char *ctime(const time_t *t);\n"
+            "struct timespec { long tv_sec; long tv_nsec; };\n"
+            "int nanosleep(const struct timespec *rq, struct timespec *rm);\n"
+            "struct tm *gmtime_r(const time_t *t, struct tm *buf);\n"
+            "struct tm *localtime_r(const time_t *t, struct tm *buf);\n"
             "#endif\n"
         );
     }
@@ -272,6 +286,10 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "int dup(int oldfd);\n"
             "int dup2(int oldfd, int newfd);\n"
             "void *sbrk(int incr);\n"
+            "int fsync(int fd);\n"
+            "int fdatasync(int fd);\n"
+            "long sysconf(int name);\n"
+            "#define _SC_PAGESIZE 30\n#define _SC_NPROCESSORS_CONF 84\n#define _SC_NPROCESSORS_ONLN 84\n"
             "#define F_OK 0\n#define R_OK 4\n#define W_OK 2\n#define X_OK 1\n"
             "#define STDIN_FILENO 0\n#define STDOUT_FILENO 1\n#define STDERR_FILENO 2\n"
             "#endif\n"
@@ -286,6 +304,12 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "#define O_RDONLY 0\n#define O_WRONLY 1\n#define O_RDWR 2\n"
             "#define O_CREAT 64\n#define O_EXCL 128\n#define O_TRUNC 512\n#define O_APPEND 1024\n"
             "#define O_NONBLOCK 2048\n"
+            /* glibc's fcntl.h also exposes the POSIX fcntl file-locking
+             * constants + struct flock (via sys/file.h) - sqlite3.c relies
+             * on this (it never includes sys/file.h on plain Linux). */
+            "#define F_RDLCK 5\n#define F_WRLCK 8\n#define F_UNLCK 0\n"
+            "#define F_GETLK 12\n#define F_SETLK 13\n#define F_SETLKW 14\n"
+            "#include <sys/file.h>\n"
             "#endif\n"
         );
     }
@@ -298,6 +322,8 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "typedef unsigned int gid_t;\n"
             "typedef long off_t;\n"
             "typedef unsigned int mode_t;\n"
+            "typedef unsigned long dev_t;\ntypedef unsigned long ino_t;\n"
+            "typedef unsigned long blkdev_t;\ntypedef long blksize_t;\n"
             "typedef long pid_t;\n"
             "#endif\n"
         );
@@ -306,16 +332,45 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
         return strdup(
             "#ifndef _SYS_STAT_H\n#define _SYS_STAT_H 1\n"
             "typedef unsigned long size_t;\n"
-            "struct stat { unsigned long st_mode; unsigned long st_size; long st_mtime; };\n"
+            /* glibc x86-64 struct stat layout (144 bytes) - the host stat()/
+             * fstat() fill this exact shape, so the field offsets must match
+             * (st_ino/st_nlink are read at runtime, e.g. by sqlite's
+             * os_unix.c; the old simplified {st_mode,st_size,st_mtime} layout
+             * had no test coverage for the field offsets). st_mtime keeps its
+             * historical name but now sits at the real mtime-seconds offset. */
+            "struct stat { unsigned long long st_dev; unsigned long long st_ino;\n"
+            "  unsigned long long st_nlink; unsigned int st_mode; unsigned int st_uid;\n"
+            "  unsigned int st_gid; int __pad0; unsigned long long st_rdev;\n"
+            "  long long st_size; int st_blksize; int __pad1; long long st_blocks;\n"
+            "  long long st_atime; long long __atime_nsec; long long st_mtime;\n"
+            "  long long __mtime_nsec; long long st_ctime; long long __ctime_nsec;\n"
+            "  int __unused[3]; };\n"
             "int stat(const char *path, struct stat *buf);\n"
             "int lstat(const char *path, struct stat *buf);\n"
+            "int fstat(int fd, struct stat *buf);\n"
             "int mkdir(const char *path, int mode);\n"
             "int chmod(const char *path, int mode);\n"
             "#define S_ISREG(m) (((m) & 61440) == 32768)\n"
             "#define S_ISDIR(m) (((m) & 61440) == 16384)\n"
+            "#define S_ISLNK(m) (((m) & 61440) == 40960)\n"
             "#define S_IRWXU 493\n#define S_IRUSR 256\n#define S_IWUSR 128\n#define S_IXUSR 64\n"
             "#define S_IRWXG 56\n#define S_IRGRP 32\n#define S_IWGRP 16\n#define S_IXGRP 8\n"
             "#define S_IRWXO 7\n#define S_IROTH 4\n#define S_IWOTH 2\n#define S_IXOTH 1\n"
+            "#endif\n"
+        );
+    }
+    if (strcmp(name, "sys/file.h") == 0) {
+        return strdup(
+            "#ifndef _SYS_FILE_H\n#define _SYS_FILE_H 1\n"
+            /* POSIX fcntl file-locking constants + struct flock (glibc
+             * x86-64 layout: short short [pad4] i64 i64 [pid i32 pad4] = 32
+             * bytes). The constants are #ifndef-guarded: fcntl.h defines
+             * them too (glibc exposes both). */
+            "#ifndef F_RDLCK\n#define F_RDLCK 5\n#define F_WRLCK 8\n#define F_UNLCK 0\n"
+            "#define F_GETLK 12\n#define F_SETLK 13\n#define F_SETLKW 14\n#endif\n"
+            "struct flock { short l_type; short l_whence; long long l_start;\n"
+            "  long long l_len; int l_pid; };\n"
+            "int flock(int fd, int operation);\n"
             "#endif\n"
         );
     }
@@ -326,6 +381,7 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "#define PROT_NONE 0\n#define PROT_READ 1\n#define PROT_WRITE 2\n#define PROT_EXEC 4\n"
             "#define MAP_PRIVATE 2\n#define MAP_SHARED 1\n#define MAP_ANONYMOUS 32\n#define MAP_ANON 32\n"
             "#define MAP_FAILED ((void*)-1)\n"
+            "#define MREMAP_MAYMOVE 1\n#define MREMAP_FIXED 2\n#define MREMAP_DONTUNMAP 4\n"
             "void *mmap(void *addr, size_t length, int prot, int flags, int fd, long offset);\n"
             "int munmap(void *addr, size_t length);\n"
             "int mprotect(void *addr, size_t len, int prot);\n"
@@ -335,7 +391,7 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
     if (strcmp(name, "dlfcn.h") == 0) {
         return strdup(
             "#ifndef _DLFCN_H\n#define _DLFCN_H 1\n"
-            "#define RTLD_LAZY 1\n#define RTLD_NOW 2\n#define RTLD_DEFAULT ((void*)0)\n"
+            "#define RTLD_LAZY 1\n#define RTLD_NOW 2\n#define RTLD_GLOBAL 0x100\n#define RTLD_LOCAL 0\n#define RTLD_DEFAULT ((void*)0)\n"
             "void* dlopen(const char *filename, int flags);\n"
             "void* dlsym(void *handle, const char *symbol);\n"
             "int dlclose(void *handle);\n"
@@ -348,6 +404,7 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "#ifndef _STDIO_H\n#define _STDIO_H 1\n"
             "#include <stdarg.h>\n"
             "typedef unsigned long size_t;\n"
+            "#define FILENAME_MAX 4096\n"
             "typedef struct FILE FILE;\n"
             "extern FILE *stdin, *stdout, *stderr;\n"
             "#define SEEK_SET 0\n#define SEEK_CUR 1\n#define SEEK_END 2\n#define EOF (-1)\n"
@@ -424,6 +481,7 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "#define PROT_READ 0x1\n#define PROT_WRITE 0x2\n#define PROT_EXEC 0x4\n#define PROT_NONE 0x0\n"
             "#define MAP_SHARED 0x01\n#define MAP_PRIVATE 0x02\n#define MAP_ANONYMOUS 0x20\n#define MAP_ANON 0x20\n"
             "#define MAP_FAILED ((void*)-1)\n"
+            "#define MREMAP_MAYMOVE 1\n#define MREMAP_FIXED 2\n#define MREMAP_DONTUNMAP 4\n"
             "void* mmap(void *addr, size_t length, int prot, int flags, int fd, long offset);\n"
             "int munmap(void *addr, size_t length);\nint mprotect(void *addr, size_t len, int prot);\n"
             "#endif\n"
@@ -466,13 +524,22 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "#ifndef _PTHREAD_H\n#define _PTHREAD_H 1\n"
             "typedef unsigned long pthread_t;\n"
             "typedef struct { int __lock; } pthread_mutex_t;\n"
+            "typedef struct { int __kind; } pthread_mutexattr_t;\n"
             "typedef struct { int __cond; } pthread_cond_t;\n"
+            "#define PTHREAD_MUTEX_NORMAL 0\n#define PTHREAD_MUTEX_RECURSIVE 1\n"
+            "#define PTHREAD_MUTEX_INITIALIZER { 0 }\n"
             "int pthread_create(pthread_t *thread, const void *attr, void *(*start_routine)(void *), void *arg);\n"
             "int pthread_join(pthread_t thread, void **retval);\n"
+            "int pthread_equal(pthread_t a, pthread_t b);\n"
+            "pthread_t pthread_self(void);\n"
             "int pthread_mutex_init(pthread_mutex_t *mutex, const void *attr);\n"
             "int pthread_mutex_lock(pthread_mutex_t *mutex);\n"
+            "int pthread_mutex_trylock(pthread_mutex_t *mutex);\n"
             "int pthread_mutex_unlock(pthread_mutex_t *mutex);\n"
             "int pthread_mutex_destroy(pthread_mutex_t *mutex);\n"
+            "int pthread_mutexattr_init(pthread_mutexattr_t *attr);\n"
+            "int pthread_mutexattr_settype(pthread_mutexattr_t *attr, int type);\n"
+            "int pthread_mutexattr_destroy(pthread_mutexattr_t *attr);\n"
             "int pthread_cond_init(pthread_cond_t *cond, const void *attr);\n"
             "int pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex);\n"
             "int pthread_cond_signal(pthread_cond_t *cond);\n"
@@ -506,6 +573,9 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
         return strdup(
             "#ifndef _SYS_TYPES_H\n#define _SYS_TYPES_H 1\n"
             "typedef long off_t;\ntypedef int pid_t;\ntypedef unsigned int mode_t;\ntypedef long ssize_t;\n"
+            "typedef unsigned long dev_t;\ntypedef unsigned long ino_t;\n"
+            "typedef unsigned int uid_t;\ntypedef unsigned int gid_t;\n"
+            "typedef unsigned long blkdev_t;\ntypedef long blksize_t;\n"
             "#endif\n"
         );
     }
@@ -514,6 +584,7 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "#ifndef _SYS_TIME_H\n#define _SYS_TIME_H 1\n"
             "struct timeval { long tv_sec; long tv_usec; };\n"
             "int gettimeofday(struct timeval *tv, void *tz);\n"
+            "int utimes(const char *file, const struct timeval *tv);\n"
             "#endif\n"
         );
     }

@@ -695,6 +695,70 @@ static inline ssize_t zc_consume_type_dim(ZeroCCCompiler *c, size_t *pos) {
     return numeric ? alen : -1;
 }
 
+/* One parenthesized abstract-declarator group: `(` stars [ nested group |
+ * array ] `)` optional `(params)` - applies the pointer/fnptr/array wraps
+ * to *ty. RECURSIVE: a nested group inside the parentheses is a complete
+ * deeper declarator layer (`(*(*f)(A))(B)` = function pointer returning a
+ * function pointer - the dlsym cast shape in sqlite3.c). The group's own
+ * stars wrap OUTSIDE the nested layer; the function flag lands on the
+ * innermost (leftmost) star layer, whose base is the return type. */
+static inline void zc_parse_paren_declarator(ZeroCCCompiler *c, size_t *pos, ZeroCCType *ty)
+{
+    if (*pos >= c->token_count || c->tokens[*pos].type != TK_LPAREN ||
+        *pos + 1 >= c->token_count || c->tokens[*pos + 1].type != TK_STAR) return;
+    (*pos)++; /* consume '(' */
+    int ptr_cnt = 0;
+    while (*pos < c->token_count && c->tokens[*pos].type == TK_STAR) {
+        ptr_cnt++;
+        (*pos)++;
+        while (*pos < c->token_count &&
+               (c->tokens[*pos].type == TK_CONST ||
+                c->tokens[*pos].type == TK_VOLATILE ||
+                c->tokens[*pos].type == TK_RESTRICT)) (*pos)++;
+    }
+    ssize_t inner_arr_len = -1;
+    while (*pos < c->token_count && c->tokens[*pos].type == TK_LBRACKET) {
+        ssize_t alen = zc_consume_type_dim(c, pos);
+        if (alen < 0) alen = 0;
+        inner_arr_len = (inner_arr_len < 0) ? alen : inner_arr_len * alen;
+    }
+    /* Nested group: parse the inner declarator FIRST (its wraps are the
+     * innermost), then apply this group's star wraps around it. */
+    if (*pos < c->token_count && c->tokens[*pos].type == TK_LPAREN) {
+        zc_parse_paren_declarator(c, pos, ty);
+    }
+    /* Parameter name inside the group (abstract declarator `(*name)` / `(**name)`
+     * - fnptr parameters like `void (**pxFunc)(...)` in struct members). */
+    if (*pos < c->token_count && c->tokens[*pos].type == TK_IDENT) (*pos)++;
+    if (*pos < c->token_count && c->tokens[*pos].type == TK_RPAREN) (*pos)++;
+    bool is_func = false;
+    if (*pos < c->token_count && c->tokens[*pos].type == TK_LPAREN) {
+        int pdepth = 1;
+        (*pos)++;
+        while (*pos < c->token_count && pdepth > 0) {
+            if (c->tokens[*pos].type == TK_LPAREN) pdepth++;
+            else if (c->tokens[*pos].type == TK_RPAREN) pdepth--;
+            (*pos)++;
+        }
+        is_func = true;
+    } else if (*pos < c->token_count && c->tokens[*pos].type == TK_LBRACKET) {
+        while (*pos < c->token_count && c->tokens[*pos].type == TK_LBRACKET) {
+            ssize_t arr_len = zc_consume_type_dim(c, pos);
+            if (arr_len < 0) arr_len = 0;
+            ZeroCCType elem_ty = *ty;
+            *ty = zero_cc_type_array(&elem_ty, arr_len);
+        }
+    }
+    for (int p = 0; p < ptr_cnt; p++) {
+        *ty = zero_cc_type_ptr(ty);
+        if (is_func && p == 0) ty->is_func_ptr = true;
+    }
+    if (inner_arr_len >= 0) {
+        ZeroCCType elem_ty = *ty;
+        *ty = zero_cc_type_array(&elem_ty, inner_arr_len);
+    }
+}
+
 static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_t *pos)
 {
     ZeroCCType ty;
@@ -913,6 +977,24 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
     if (vec_attr_size > 0 && !zero_cc_type_is_vector(&ty)) {
         ty = zero_cc_type_vector(&ty, vec_attr_size);
     }
+    /* Qualifiers may also TRAIL the base name: `u32 volatile *p`,
+     * `struct S const *s`, `enum E restrict *e` (C99 6.7.3 - the
+     * specifier list is order-insensitive). With a pointer declarator
+     * they still attach to the pointee. The keyword-base branch gets
+     * these for free (zc_parse_basic_type_spec's specifier window), but
+     * the typedef/struct/enum IDENT branch stopped at the name, leaving
+     * `u32 volatile *` unparseable (sqlite3.c's WAL casts). */
+    while (*pos < c->token_count &&
+           (c->tokens[*pos].type == TK_CONST || c->tokens[*pos].type == TK_VOLATILE ||
+            c->tokens[*pos].type == TK_RESTRICT)) {
+        if (c->tokens[*pos].type == TK_CONST) q_const = true;
+        else if (c->tokens[*pos].type == TK_VOLATILE) q_volatile = true;
+        else q_restrict = true;
+        (*pos)++;
+    }
+    if (q_const) ty.is_const = true;
+    if (q_volatile) ty.is_volatile = true;
+    if (q_restrict) ty.is_restrict = true;
     /* Declarator suffixes (C99 6.7.5): parenthesized abstract
      * declarators (`(*)(void)`, `(*)[4]`, `(*[3])(float)`) and pointer
      * stars may alternate in any order - `int *(*)(long)`,
@@ -923,49 +1005,7 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
     for (;;) {
         if (*pos < c->token_count && c->tokens[*pos].type == TK_LPAREN &&
             *pos + 1 < c->token_count && c->tokens[*pos + 1].type == TK_STAR) {
-        (*pos)++; /* consume '(' */
-        int ptr_cnt = 0;
-        bool is_func = false;
-        while (*pos < c->token_count && c->tokens[*pos].type == TK_STAR) {
-            ptr_cnt++;
-            (*pos)++;
-            while (*pos < c->token_count &&
-                   (c->tokens[*pos].type == TK_CONST ||
-                    c->tokens[*pos].type == TK_VOLATILE ||
-                    c->tokens[*pos].type == TK_RESTRICT)) (*pos)++;
-        }
-        ssize_t inner_arr_len = -1;
-        while (*pos < c->token_count && c->tokens[*pos].type == TK_LBRACKET) {
-            ssize_t alen = zc_consume_type_dim(c, pos);
-            if (alen < 0) alen = 0;
-            inner_arr_len = (inner_arr_len < 0) ? alen : inner_arr_len * alen;
-        }
-        if (*pos < c->token_count && c->tokens[*pos].type == TK_RPAREN) (*pos)++;
-        if (*pos < c->token_count && c->tokens[*pos].type == TK_LPAREN) {
-            int pdepth = 1;
-            (*pos)++;
-            while (*pos < c->token_count && pdepth > 0) {
-                if (c->tokens[*pos].type == TK_LPAREN) pdepth++;
-                else if (c->tokens[*pos].type == TK_RPAREN) pdepth--;
-                (*pos)++;
-            }
-            is_func = true;
-        } else if (*pos < c->token_count && c->tokens[*pos].type == TK_LBRACKET) {
-            while (*pos < c->token_count && c->tokens[*pos].type == TK_LBRACKET) {
-                ssize_t arr_len = zc_consume_type_dim(c, pos);
-                if (arr_len < 0) arr_len = 0;
-                ZeroCCType elem_ty = ty;
-                ty = zero_cc_type_array(&elem_ty, arr_len);
-            }
-        }
-        for (int p = 0; p < ptr_cnt; p++) {
-            ty = zero_cc_type_ptr(&ty);
-            if (is_func && p == 0) ty.is_func_ptr = true;
-        }
-        if (inner_arr_len >= 0) {
-            ZeroCCType elem_ty = ty;
-            ty = zero_cc_type_array(&elem_ty, inner_arr_len);
-        }
+            zc_parse_paren_declarator(c, pos, &ty);
         }
         int star_waits = 0;
         while (*pos < c->token_count && c->tokens[*pos].type == TK_STAR) {

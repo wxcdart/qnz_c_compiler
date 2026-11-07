@@ -620,6 +620,12 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
             param_count = pi;
         }
         zero_cc_ast_arena_free(&darena);
+        /* The prototype registration below keys off first_param_count,
+         * which is only synced after the plain-name branch - a
+         * parenthesized function declarator (`void (*f(a, b))(void);`)
+         * would register a 0-param prototype and shadow the real one
+         * (sqlite3OsDlSym: "expected 0, have 3"). */
+        first_param_count = param_count;
     } else if (c->token_pos < c->token_count &&
                (c->tokens[c->token_pos].type == TK_IDENT ||
                 c->tokens[c->token_pos].type == TK_TRUE ||

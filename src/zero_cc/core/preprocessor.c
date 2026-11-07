@@ -33,7 +33,7 @@ void zero_cc_cpp_init(ZeroCCPreprocessor *cpp) {
     cpp->cond_depth = 0;
     cpp->cond_true[0] = true;
     cpp->cond_seen_true[0] = true;
-    cpp->expanding_macro_index = -1;
+    cpp->expanding_top = -1;
     cpp->default_pack = 0;
     cpp->pack_stack_depth = 0;
     cpp->diagnostic_state.warning_as_error = false;
@@ -96,9 +96,11 @@ ZeroCCMacro* zero_cc_cpp_find_macro(ZeroCCPreprocessor *cpp, const char *name) {
     int32_t idx = cpp->hash_buckets[b];
     while (idx >= 0 && (size_t)idx < cpp->macro_count) {
         if (strcmp(cpp->macros[idx].name, name) == 0) {
-            if (cpp->expanding_macro_index == idx) {
-                /* Inhibit expansion of the macro currently being expanded */
-                return NULL;
+            /* Blue-paint (C99 6.10.3.4p2): inhibit expansion of ANY macro
+             * already on the expansion stack - the outer macro stays blue
+             * through nested expansions, not just the innermost one. */
+            for (int32_t i = cpp->expanding_top; i >= 0; i--) {
+                if (cpp->expanding_stack[i] == idx) return NULL;
             }
             return &cpp->macros[idx];
         }
@@ -1042,14 +1044,22 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
         /* Comments - process first */
         if (*p == '/' && p[1] == '/') {
             p += 2;
-            while (*p && *p != '\n') p++;
-            if (*p == '\n') { zero_cc_buf_putc(out, *p++); at_line_start = true; cpp->line_num++; }
+            for (;;) {
+                while (*p && *p != '\n') p++;
+                if (*p != '\n') break;
+                /* Phase-2 splice: a backslash before the newline joins the
+                 * next line into THIS comment (it is deleted before comment
+                 * recognition) - do not terminate or count a logical line. */
+                if (p[-1] == '\\') { p++; continue; }
+                zero_cc_buf_putc(out, *p++); at_line_start = true; cpp->line_num++;
+                break;
+            }
             continue;
         }
         if (*p == '/' && p[1] == '*') {
             p += 2;
             while (*p && !(*p == '*' && p[1] == '/')) {
-                if (*p == '\n') { zero_cc_buf_putc(out, '\n'); at_line_start = true; cpp->line_num++; }
+                if (*p == '\n' && p[-1] != '\\') { zero_cc_buf_putc(out, '\n'); at_line_start = true; cpp->line_num++; }
                 p++;
             }
             if (*p) p += 2;
@@ -1333,7 +1343,10 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
 
         if (cpp->cond_depth > 0 && !cpp->cond_true[cpp->cond_depth]) {
             while (*p && *p != '\n') p++;
-            if (*p == '\n') { p++; at_line_start = true; cpp->line_num++; }
+            if (*p == '\n') {
+                if (p > src && p[-1] == '\\') p++; /* spliced line: not a logical newline */
+                else { p++; at_line_start = true; cpp->line_num++; }
+            }
             continue;
         }
 
@@ -1345,6 +1358,10 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
             char quote = *p;
             zero_cc_buf_putc(out, *p++);
             while (*p && *p != quote) {
+                /* Phase-2 splice: backslash+newline is DELETED (the string
+                 * continues on the next physical line with no extra chars);
+                 * other escapes copy verbatim. */
+                if (*p == '\\' && p[1] == '\n') { p += 2; continue; }
                 if (*p == '\\' && p[1]) {
                     zero_cc_buf_putc(out, *p++);
                 }
@@ -1531,20 +1548,20 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
             ZeroCCMacro *m = zero_cc_cpp_find_macro(cpp, ident);
             if (m) {
                 if (cpp->expand_depth > 32) {
-                    /* Mutual-recursion guard (e.g. #define A(x) B(x) /
-                     * #define B(x) A(x)): the single blue-paint slot cannot
-                     * cut a mutual cycle, so cap the expansion nesting and
-                     * leave the macro name as a plain identifier. */
+                    /* Depth guard: cap the expansion nesting and leave the
+                     * macro name as a plain identifier. Mutual cycles are
+                     * normally cut by the blue-paint stack (the inner
+                     * occurrence finds the outer macro still blue); this
+                     * bounds pathologically deep but non-cyclic nesting. */
                     zero_cc_buf_puts(out, ident);
                     continue;
                 }
                 if (m->param_count < 0) {
-                    int prev_expanding = cpp->expanding_macro_index;
-                    cpp->expanding_macro_index = (int)(m - cpp->macros);
+                    if (cpp->expanding_top < 39) cpp->expanding_stack[++cpp->expanding_top] = (int)(m - cpp->macros);
                     cpp->expand_depth++;
                     zero_cc_cpp_process_text(cpp, m->replacement, out);
                     cpp->expand_depth--;
-                    cpp->expanding_macro_index = prev_expanding;
+                    if (cpp->expanding_top >= 0) cpp->expanding_top--;
                 } else {
                     const char *ws_skip = p;
                     size_t ws_newlines = 0;
@@ -1568,9 +1585,35 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                             if (!*p || *p == ')') break;
                             const char *arg_s = p;
                             int paren_nest = 0;
-                            while (*p && (paren_nest > 0 || (*p != ',' && *p != ')'))) {
-                                if (*p == '(') paren_nest++;
-                                else if (*p == ')') paren_nest--;
+                            bool in_str = false, in_chr = false;
+                            /* A comma INSIDE a string/char literal is not an
+                             * argument separator (c-torture-style F("a, b");
+                             * sqlite3.c's OpHelp("...NULL, goto P2")). The old
+                             * scan counted only parens, so the comma ended the
+                             * argument early, the arg count mismatched the
+                             * parameter count, and the invocation was left
+                             * unexpanded. The separator check must run BEFORE
+                             * the paren count is updated: the closing `)` of
+                             * the call drives a top-level nest from 0 to -1. */
+                            while (*p) {
+                                char ch = *p;
+                                if (in_str) {
+                                    if (ch == '\\' && p[1]) { p += 2; continue; }
+                                    if (ch == '"') in_str = false;
+                                    p++;
+                                    continue;
+                                }
+                                if (in_chr) {
+                                    if (ch == '\\' && p[1]) { p += 2; continue; }
+                                    if (ch == '\'') in_chr = false;
+                                    p++;
+                                    continue;
+                                }
+                                if (ch == '"') { in_str = true; p++; continue; }
+                                if (ch == '\'') { in_chr = true; p++; continue; }
+                                if (paren_nest == 0 && (ch == ',' || ch == ')')) break;
+                                if (ch == '(') paren_nest++;
+                                else if (ch == ')') paren_nest--;
                                 p++;
                             }
                             size_t arg_l = (size_t)(p - arg_s);
@@ -1843,8 +1886,10 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                     const char *b = m->replacement;
                     ZeroCCBuffer temp_buf;
                     zero_cc_buf_init(&temp_buf, 256);
-                    int prev_expanding = cpp->expanding_macro_index;
-                    cpp->expanding_macro_index = (int)(m - cpp->macros);
+                    /* Blue from here - AFTER argument pre-expansion, so
+                     * call-site arguments that mention M still expand -
+                     * through the rescan of the substituted result. */
+                    if (cpp->expanding_top < 39) cpp->expanding_stack[++cpp->expanding_top] = (int)(m - cpp->macros);
                     cpp->expand_depth++;
                     while (*b) {
                         /* Token pasting: ## (C11 6.10.3.3): whitespace on
@@ -2071,7 +2116,7 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                     zero_cc_cpp_process_text(cpp, temp_buf.data, out);
                     cpp->expand_depth--;
                     zero_cc_buf_free(&temp_buf);
-                        cpp->expanding_macro_index = prev_expanding;
+                        if (cpp->expanding_top >= 0) cpp->expanding_top--;
                         for (int k = 0; k < arg_count; k++) free(args[k]);
                     } else {
                         zero_cc_buf_puts(out, ident);
@@ -2085,10 +2130,15 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
             continue;
         }
 
+        /* Phase-2 splice: backslash+newline is deleted everywhere before
+         * tokenization (C99 5.1.1.2). A stray `\` in code - sqlite3.c has
+         * one in an inlined UTF8 writer - must not reach the lexer; the
+         * logical line continues without a newline (no line_num bump). */
+        if (*p == '\\' && p[1] == '\n') { p += 2; continue; }
+
         zero_cc_buf_putc(out, *p++);
     }
 }
-
 
 /* Full-control entry point with dependency generation support
  * (-MMD/-MF/-MT) and -include force-includes. */

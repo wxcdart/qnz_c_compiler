@@ -61,6 +61,7 @@ void *arena_alloc(Arena *arena, size_t size) {
     return ptr;
 }
 
+
 void arena_reset(Arena *arena) {
     if (arena && arena->first) {
         arena->cur = arena->first;
@@ -73,8 +74,9 @@ size_t arena_index_of(const Arena *arena, const void *ptr) {
     const uint8_t *p = (const uint8_t *)ptr;
     size_t running = 0;
     for (const ArenaBlock *b = arena->first; b; b = b->next) {
-        if (p >= b->data && p < b->data + b->size) {
-            return running + (size_t)(p - b->data);
+        if (p >= (const uint8_t *)b->data &&
+            p < (const uint8_t *)b->data + b->size) {
+            return running + (size_t)(p - (const uint8_t *)b->data);
         }
         running += b->size;
     }
@@ -83,9 +85,11 @@ size_t arena_index_of(const Arena *arena, const void *ptr) {
 
 void *arena_index_to_ptr(const Arena *arena, size_t index) {
     if (!arena) return NULL;
-    size_t running = 0; /* bytes in earlier blocks */
-    for (ArenaBlock *b = arena->first; b; b = b->next) {
-        if (index < running + b->size) return (void *)(b->data + (index - running));
+    size_t running = 0;
+    for (const ArenaBlock *b = arena->first; b; b = b->next) {
+        if (index < running + b->size) {
+            return (void *)((uint8_t *)b->data + (index - running));
+        }
         running += b->size;
     }
     return NULL;

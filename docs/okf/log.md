@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-07T18:48:41Z
+timestamp: 2026-11-07T22:16:19Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1116,3 +1116,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-07 — Updated `frontend-and-types.md`
 - Sprint 123: 115l float-Complex external residual verified resolved; arrow-on-array note updated (stale REJECT note cleared)
+
+## 2026-11-07 — Updated `frontend-and-types.md`
+- Sprint 124: fnptr-member star topology (innermost star of each (* group is the fnptr layer; void (**a)(void) fixed) + persistent zero_cc_type_to_typeinfo struct memo (4GB arena bloat / 32-bit annotation truncation Heisenbug fixed; sqlite3.c compiles clean)
+
+## 2026-11-07 — Updated `build-and-verification.md`
+- Sprint 124: project-differential compile gate (make test-project-diff / tools/project_diff.py; cJSON + zlib + sqlite3.c, 54/54 TU-levels at -O0..-O3)

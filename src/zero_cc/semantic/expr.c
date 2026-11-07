@@ -4,6 +4,7 @@
 #include <string.h>
 #include "zero_cc/semantic/stmt.h"
 #include "zero_cc/types/token.h"
+#include "zero_cc/jit/type_info.h"
 
 /* Token type constants for binary operators */
 #define TOK_SHL         TK_SHL
@@ -686,6 +687,31 @@ TypeInfo *expr_handle_member(SemContext *ctx, ZeroCCASTNode *node) {
         Symbol *sym = scope_lookup(ctx->current_scope, struct_t->details.record.tag);
         if (sym && sym->type) {
             member_t = sym->type;
+        }
+        /* Stale pre-completion snapshot: the pointer's pointee TypeInfo was
+         * materialized while the struct was still forward-declared, so it
+         * has no field table.  The semantic layer never re-runs the struct
+         * definition, so the snapshot stays fieldless forever and member
+         * access through such a pointer falls into the lenient int default
+         * (sqlite3.c: `Expr.pList` is declared before `struct ExprList` is
+         * defined; `pExpr->pList->a[i]` then REJECTed as "subscripted
+         * value is not an array or pointer").  The compiler's ZeroCCType
+         * struct table IS synced at definition time - convert it and merge
+         * the completed record in place (the snapshot is shared by every
+         * pointer base that references it, so one merge fixes all of them). */
+        if (struct_t->details.record.field_count == 0 &&
+            ctx->compiler) {
+            ZeroCCType *st_zc = zero_cc_find_struct(ctx->compiler,
+                                                    struct_t->details.record.tag);
+            if (st_zc && st_zc->member_count > 0) {
+                TypeInfo *complete_ti = zero_cc_type_to_typeinfo(
+                    ctx->perm_arena, *st_zc);
+                if (complete_ti &&
+                    complete_ti->details.record.field_count > 0) {
+                    struct_t->details = complete_ti->details;
+                    member_t = NULL;
+                }
+            }
         }
     }
 

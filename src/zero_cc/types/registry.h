@@ -79,7 +79,19 @@ static inline void zero_cc_type_sync_struct(ZeroCCType *t, const char *name, con
     if (!t || !name || !complete) return;
     if ((t->tag == TYPE_STRUCT || t->tag == TYPE_UNION) &&
         t->struct_name[0] != '\0' && strcmp(t->struct_name, name) == 0) {
-        *t = *complete;
+        /* Replace with the complete definition, but PRESERVE the qualifiers
+         * carried by this instance: a forward-reference pointee may be
+         * qualified per-use (`const struct S *p;` records is_const on the
+         * pointee base) and the definition itself never carries them -
+         * a bare `*t = *complete` would wipe the const and turn every
+         * later `->p = const_ptr` into a spurious qualifier-discard error
+         * (sqlite3_file.pMethods = `const struct sqlite3_io_methods *`). */
+        ZeroCCType merged = *complete;
+        merged.is_const = t->is_const;
+        merged.is_volatile = t->is_volatile;
+        merged.is_restrict = t->is_restrict;
+        merged.is_atomic = t->is_atomic;
+        *t = merged;
         return;
     }
     if (t->base) zero_cc_type_sync_struct(t->base, name, complete);

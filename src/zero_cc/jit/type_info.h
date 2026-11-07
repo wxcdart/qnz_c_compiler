@@ -15,6 +15,26 @@
 
 /* Parse and Compile a Top-Level Function */
 
+/* Memo table for zero_cc_type_to_typeinfo's struct/union conversions.
+ * Sized dynamically (grows as the type graph demands): a fixed 256-entry
+ * cap made large files (sqlite3.c: hundreds of structs + anonymous
+ * sub-structs) overflow the memo, after which EVERY top-level conversion
+ * re-expanded the whole shared struct DAG from scratch - quadratic
+ * TypeInfo bloat that pushed the perm arena past 4 GB and silently
+ * truncated the 32-bit AST type-annotation offsets (aux.extra), turning
+ * unrelated locals into "void type".  Entries are keyed by (perm, ...),
+ * so stale entries from a previous compilation never match. */
+typedef struct ZCT2TIMemo {
+    Arena      *perm;
+    const void *members;
+    char        struct_name[128];
+    size_t      size;
+    size_t      member_count;
+    uint8_t     tag;
+    uint32_t    modifiers;
+    TypeInfo   *ti;
+} ZCT2TIMemo;
+
 static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
     /* Recursion & cycle/DAG memoization guard: a self-referential struct
      * (`struct S { struct S *next, *prev; }`) or shared struct graph
@@ -22,21 +42,35 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
      * struct/union TypeInfo* records within each top-level call (and tie
      * recursive cycles directly to the in-progress TypeInfo* before
      * expanding members), turning O(B^d) into O(V + E). */
-    typedef struct {
-        Arena      *perm;
-        const void *members;
-        char        struct_name[128];
-        size_t      size;
-        size_t      member_count;
-        uint8_t     tag;
-        uint32_t    modifiers;
-        TypeInfo   *ti;
-    } ZCT2TIMemo;
     static int zc_t2ti_depth = 0;
-    static ZCT2TIMemo zc_t2ti_memo[256];
-    static int zc_t2ti_memo_cnt = 0;
+    static ZCT2TIMemo *zc_t2ti_memo = NULL;
+    static size_t zc_t2ti_memo_cap = 0;
+    static size_t zc_t2ti_memo_cnt = 0;
+    /* The memo must persist ACROSS top-level calls (across the whole
+     * compilation): every top-level conversion (each function parameter,
+     * local, member access) re-expanding the shared struct DAG allocated
+     * the entire graph again - O(N_toplevel x |graph|) perm-arena bloat
+     * (sqlite3.c: >4 GB, which truncated the 32-bit AST type-annotation
+     * offsets and corrupted local types).  Entries are keyed by (perm, ...)
+     * and the stored TypeInfo* lives in that same perm arena, so entries
+     * stay valid for the whole compilation.  A fresh perm arena signals a
+     * new compilation: reset the table (old entries reference a different
+     * arena and can never match). */
+    static Arena *zc_t2ti_perm_ring[16];
+    static int zc_t2ti_perm_cnt = 0;
     if (zc_t2ti_depth == 0) {
-        zc_t2ti_memo_cnt = 0;
+        int zc_t2ti_seen = 0;
+        for (int i = 0; i < zc_t2ti_perm_cnt; i++)
+            if (zc_t2ti_perm_ring[i] == perm) { zc_t2ti_seen = 1; break; }
+        if (!zc_t2ti_seen) {
+            zc_t2ti_memo_cnt = 0;
+            if (zc_t2ti_perm_cnt >= 16) {
+                for (int i = 1; i < 16; i++)
+                    zc_t2ti_perm_ring[i - 1] = zc_t2ti_perm_ring[i];
+                zc_t2ti_perm_cnt = 15;
+            }
+            zc_t2ti_perm_ring[zc_t2ti_perm_cnt++] = perm;
+        }
     }
     bool zc_t2ti_break = (zc_t2ti_depth >= 48);
     zc_t2ti_depth++;
@@ -138,17 +172,18 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
         case TYPE_STRUCT:
         case TYPE_UNION: {
             if (t.members != NULL || t.struct_name[0] != '\0') {
-                for (int m = 0; m < zc_t2ti_memo_cnt; m++) {
-                    if (zc_t2ti_memo[m].perm == perm &&
-                        zc_t2ti_memo[m].tag == (uint8_t)t.tag &&
-                        zc_t2ti_memo[m].modifiers == t_mods &&
-                        zc_t2ti_memo[m].size == t.size &&
-                        zc_t2ti_memo[m].member_count == t.member_count &&
-                        ((t.members != NULL && zc_t2ti_memo[m].members == t.members) ||
+                for (size_t m = 0; m < zc_t2ti_memo_cnt; m++) {
+                    const ZCT2TIMemo *me = &zc_t2ti_memo[m];
+                    if (me->perm == perm &&
+                        me->tag == (uint8_t)t.tag &&
+                        me->modifiers == t_mods &&
+                        me->size == t.size &&
+                        me->member_count == t.member_count &&
+                        ((t.members != NULL && me->members == t.members) ||
                          (t.struct_name[0] != '\0' &&
-                          strncmp(zc_t2ti_memo[m].struct_name, t.struct_name, sizeof(zc_t2ti_memo[m].struct_name) - 1) == 0))) {
+                          strncmp(me->struct_name, t.struct_name, sizeof(me->struct_name) - 1) == 0))) {
                         zc_t2ti_depth--;
-                        return zc_t2ti_memo[m].ti;
+                        return me->ti;
                     }
                 }
             }
@@ -170,8 +205,17 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
             ti->details.record.align = t.align;
             ti->details.record.is_vla_struct = t.is_vla_struct;
             ti->modifiers |= t_mods;
-            if ((t.members != NULL || t.struct_name[0] != '\0') && zc_t2ti_memo_cnt < 256) {
-                ZCT2TIMemo *me = &zc_t2ti_memo[zc_t2ti_memo_cnt++];
+            if (t.members != NULL || t.struct_name[0] != '\0') {
+                if (zc_t2ti_memo_cnt >= zc_t2ti_memo_cap) {
+                    size_t ncap = zc_t2ti_memo_cap ? zc_t2ti_memo_cap * 2 : 256;
+                    ZCT2TIMemo *nm = (ZCT2TIMemo *)realloc(zc_t2ti_memo, ncap * sizeof(ZCT2TIMemo));
+                    if (nm) {
+                        zc_t2ti_memo = nm;
+                        zc_t2ti_memo_cap = ncap;
+                    }
+                }
+                if (zc_t2ti_memo_cnt < zc_t2ti_memo_cap) {
+                    ZCT2TIMemo *me = &zc_t2ti_memo[zc_t2ti_memo_cnt++];
                 me->perm = perm;
                 me->members = t.members;
                 snprintf(me->struct_name, sizeof(me->struct_name), "%s", t.struct_name);
@@ -180,7 +224,8 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
                 me->tag = (uint8_t)t.tag;
                 me->modifiers = t_mods;
                 me->ti = ti;
-            }
+                    }
+                }
             if (zc_t2ti_break) break; /* cycle guard: no member expansion */
             for (size_t i = 0; i < t.member_count; i++) {
                 size_t nlen = strlen(t.members[i].name);
@@ -206,7 +251,12 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
                      * pointer→function, not pointer→(return type) - without
                      * it `arr[i].f()` through a struct member loses the
                      * return type and an FP return is read from RAX
-                     * (c-torture execute/ieee/fp-cmp-8). */
+                     * (c-torture execute/ieee/fp-cmp-8).  is_func_ptr is a
+                     * PARSER-STAMPED layer mark (the generic member path
+                     * flags exactly the layer whose pointee is a function:
+                     * `void (**a)(void)` keeps the flag on the INNER layer,
+                     * `void *(*a)(void *)` on the outer with a plain
+                     * pointer return type) - pass it through untouched. */
                     memset(&mt, 0, sizeof(mt));
                     mt.tag = TYPE_PTR;
                     mt.size = t.members[i].size ? t.members[i].size : 8;

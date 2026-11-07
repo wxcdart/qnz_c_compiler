@@ -68,8 +68,21 @@ typedef struct {
     bool cond_seen_true[64];
     char *filename;
     size_t line_num;
-    int expanding_macro_index; /* index of macro currently being expanded, -1 if none */
-    int expand_depth; /* macro expansion nesting (mutual-recursion guard) */
+    /* Blue-paint STACK (C99 6.10.3.4p2): the set of macros currently being
+     * expanded, outermost first. A macro is blue from the start of its
+     * expansion until the rescan of its replacement finishes - INCLUDING
+     * while nested macros expand - so a self-referencing body cannot
+     * re-expand the outer macro while an inner one expands (e.g.
+     * `#define GLOBAL(t,v) v` + `#define vfsList GLOBAL(t, vfsList)`: the
+     * vfsList in GLOBAL's substituted result is still blue and stays
+     * literal). A single slot (the old expanding_macro_index) lost the
+     * outer blue state as soon as a nested macro became blue, so such
+     * bodies re-expanded into unbounded mutual recursion until the depth
+     * guard fired (sqlite3.c's vfsList left 43 literal GLOBAL( calls).
+     * expanding_top is -1 when the stack is empty. */
+    int expanding_stack[40];
+    int expanding_top;
+    int expand_depth; /* macro expansion nesting (depth guard) */
     /* True while pre-expanding a macro argument (C99 6.10.3.4p3): a '#' at
      * line start in the argument text is a plain token (e.g. k(#),
      * k(#undef k) - c-torture compile/921227-1), NOT a directive. */

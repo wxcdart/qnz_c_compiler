@@ -971,6 +971,30 @@ bool zc_probe_cast_amp(ZeroCCCompiler *c) {
               c->tokens[cast_probe + 1].type == TK_IDENT)));
 }
 
+/* Probe `( <pointer type> ) "string"` - a cast of a string literal to a
+ * pointer at the start of a static-initializer element (e.g. `(u8 *)" "`).
+ * On success *out_close receives the index of the closing ')' and the
+ * string token follows it. */
+static bool zc_probe_cast_str_elem(ZeroCCCompiler *c, size_t start, size_t *out_close) {
+    if (start >= c->token_count || c->tokens[start].type != TK_LPAREN) return false;
+    if (start + 1 >= c->token_count || !zero_cc_tok_is_type_start(c, start + 1)) return false;
+    size_t p = start + 1;
+    ZeroCCType ct = zero_cc_parse_type_name_at_pos(c, &p);
+    while (p < c->token_count && c->tokens[p].type == TK_STAR) {
+        ct = zero_cc_type_ptr(&ct);
+        p++;
+    }
+    if (ct.tag != TYPE_PTR) return false; /* only pointer casts */
+    if (p + 1 >= c->token_count) return false;
+    if (c->tokens[p].type != TK_RPAREN || c->tokens[p + 1].type != TK_STRING) return false;
+    /* Reject `cast("s") + N` here - the plain string branch handles the
+     * offset form, and the cast+offset shape needs its own reloc offset. */
+    if (p + 2 < c->token_count &&
+        (c->tokens[p + 2].type == TK_PLUS || c->tokens[p + 2].type == TK_MINUS)) return false;
+    *out_close = p;
+    return true;
+}
+
 void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType obj_type,
                                                   uint8_t *buf, size_t buf_off, size_t buf_cap,
                                                   size_t data_patch_off, size_t *cursor,
@@ -978,6 +1002,7 @@ void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType obj_type,
     if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACE) c->token_pos++;
     while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_RBRACE) {
         size_t iter_start = c->token_pos;
+        size_t cast_str_close = 0;
         bool has_desig = false;
         bool is_range = false;
         int64_t desig_lo = 0, desig_hi = 0;
@@ -1453,6 +1478,33 @@ void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType obj_type,
                 dr->rodata_offset = 0;
                 dr->target_data_offset = anon_offset + extra_offset;
                 dr->target_global_idx = anon_idx;
+            }
+            if (cursor) {
+                if (has_desig) {
+                    size_t nc = tgt.leaf_idx + 1;
+                    if (nc > *cursor) *cursor = nc;
+                } else {
+                    *cursor += tgt.advance;
+                }
+            }
+        } else if (c->tokens[c->token_pos].type == TK_LPAREN &&
+                   zc_probe_cast_str_elem(c, c->token_pos, &cast_str_close)) {
+            /* Cast of a string literal to a pointer in a static aggregate
+             * initializer: `static unsigned char * const a[] = { (u8 *)" " };
+             * (sqlite3.c concatFunc). Same emission as the plain string
+             * element - rodata copy + data reloc for the pointer slot. */
+            const ZeroCCToken *str_t = &c->tokens[cast_str_close + 1];
+            const char *sv = str_t->allocated_str ? str_t->allocated_str : str_t->str_val;
+            size_t ro_off = c->rodata_section.length;
+            zero_cc_buf_put_bytes(&c->rodata_section, sv, zero_cc_token_str_len(str_t) + 1);
+            c->token_pos = cast_str_close + 2; /* past ')' + string */
+            if (c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
+                ZeroCCDataReloc *dr = &c->data_relocs[c->data_reloc_count++];
+                dr->data_patch_offset = data_patch_off + tgt.abs_off;
+                dr->target_kind = 0; /* .rodata target */
+                dr->rodata_offset = ro_off;
+                dr->target_data_offset = 0;
+                dr->target_global_idx = -1;
             }
             if (cursor) {
                 if (has_desig) {
