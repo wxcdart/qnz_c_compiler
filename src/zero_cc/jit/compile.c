@@ -1158,7 +1158,7 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
          * and VLA parameter dim expressions (Stage 1). */
         {
             bool kr_handled = zero_cc_try_parse_fn_param_block_kr(
-                c, ctx, fn_name, &param_types, param_names, &param_cap,
+                c, ctx, fn_name, &param_types, &param_names, &param_cap,
                 &param_count, &has_prototype, &is_variadic_fn);
             if (!kr_handled) {
                 c->token_pos = name_pos;  /* rewind to the function name */
