@@ -359,11 +359,11 @@ static inline void zero_cc_parse_param_list(
         }
 
         int param_ptr_depth = 0;
+        /* Per-star-level qualifiers (C99 6.7.3) for the plain-star branch
+         * below; the `(*`/`((` branches re-parse or carry no qualifiers. */
+        bool ppc_const[16] = {false}, ppc_vol[16] = {false}, ppc_restr[16] = {false};
         ZeroCCType ptype = param_base;  /* param type builder (dims/pointers apply on top) */
         ASTRef param_dim_expr = AST_NULL; /* VLA parameter dimension expr (C99 6.7.6.2) */
-        bool param_ptr_is_const = false;
-        bool param_ptr_is_volatile = false;
-        bool param_ptr_is_restrict = false;
         bool is_param_func_ptr = false;
         bool ptype_full = false; /* set when the declarator re-parse rebuilt ptype */
 
@@ -485,16 +485,26 @@ static inline void zero_cc_parse_param_list(
                 c->token_pos = close + 1;
             }
         } else {
-            while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STAR) {
+            /* Per-star-level qualifiers (C99 6.7.3): `const char *const
+             * *bar` is a pointer to (const pointer to const char) - the
+             * const between the stars belongs to THAT star's pointer and
+             * must not leak onto the outer one (strpbrk.c: `bar--` is
+             * legal there; a single flag applied to the outermost level
+             * made `bar` const and rejected the decrement). */
+            while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STAR &&
+                   param_ptr_depth < 16) {
+                ppc_const[param_ptr_depth] = false;
+                ppc_vol[param_ptr_depth] = false;
+                ppc_restr[param_ptr_depth] = false;
                 param_ptr_depth++;
                 c->token_pos++;
                 while (c->token_pos < c->token_count &&
                        (c->tokens[c->token_pos].type == TK_CONST ||
                         c->tokens[c->token_pos].type == TK_VOLATILE ||
                         c->tokens[c->token_pos].type == TK_RESTRICT)) {
-                    if (c->tokens[c->token_pos].type == TK_CONST) param_ptr_is_const = true;
-                    if (c->tokens[c->token_pos].type == TK_VOLATILE) param_ptr_is_volatile = true;
-                    if (c->tokens[c->token_pos].type == TK_RESTRICT) param_ptr_is_restrict = true;
+                    if (c->tokens[c->token_pos].type == TK_CONST) ppc_const[param_ptr_depth - 1] = true;
+                    if (c->tokens[c->token_pos].type == TK_VOLATILE) ppc_vol[param_ptr_depth - 1] = true;
+                    if (c->tokens[c->token_pos].type == TK_RESTRICT) ppc_restr[param_ptr_depth - 1] = true;
                     c->token_pos++;
                 }
             }
@@ -598,11 +608,9 @@ static inline void zero_cc_parse_param_list(
         if (!ptype_full) {
             for (int pd = 0; pd < param_ptr_depth; pd++) {
                 ptype = zero_cc_type_ptr(&ptype);
-                if (pd == param_ptr_depth - 1) {
-                    ptype.is_const = param_ptr_is_const;
-                    ptype.is_volatile = param_ptr_is_volatile;
-                    ptype.is_restrict = param_ptr_is_restrict;
-                }
+                ptype.is_const = (pd < 16) ? ppc_const[pd] : false;
+                ptype.is_volatile = (pd < 16) ? ppc_vol[pd] : false;
+                ptype.is_restrict = (pd < 16) ? ppc_restr[pd] : false;
             }
             if (is_param_func_ptr) {
                 ptype.is_func_ptr = true;

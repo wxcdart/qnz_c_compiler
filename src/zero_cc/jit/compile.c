@@ -1168,6 +1168,28 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
                 bool decl_ok =
                     zero_cc_parse_declarator(c, &darena, ctx, &d) && d.name &&
                     zero_cc_declarator_is_function(&d);
+                if (decl_ok) {
+                    /* Terminal-position sanity: the declarator must have
+                     * consumed exactly the function declarator, so the next
+                     * token is the declaration terminator (';'), the
+                     * definition body ('{'), or a trailing attribute/asm
+                     * label (an identifier).  Anything else means the
+                     * param-list parser stopped early and the leftover is
+                     * NOT a parameter - e.g. `T decl (T * (*) (T *), ..)`
+                     * leaves the `(*)` group (LPAREN), and the file-scope
+                     * `struct S {..} __attribute__((aligned(N)));` form
+                     * reaches here through zero_cc_struct_def_is_fn with the
+                     * preprocessor marker `__zc_aligned__(N)` masquerading
+                     * as `name(N)`, leaving the numeric argument (NUM) -
+                     * the legacy parser's stuck-token guard skips it and
+                     * recovers, so fall back to it for those shapes. */
+                    ZeroCCTokType next_tk = (c->token_pos < c->token_count)
+                        ? c->tokens[c->token_pos].type : TK_EOF;
+                    if (next_tk != TK_SEMI && next_tk != TK_LBRACE &&
+                        next_tk != TK_IDENT) {
+                        decl_ok = false;
+                    }
+                }
                 if (decl_ok && d.asm_name[0]) {
                     /* GNU `__asm("sym")` label: the declarator consumed it,
                      * so the later zero_cc_parse_asm_label call (which the
