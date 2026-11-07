@@ -1157,59 +1157,80 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
          * info (long double, __attribute__((mode(...))), (*const fnptr), etc.)
          * and VLA parameter dim expressions (Stage 1). */
         {
-            bool kr_handled = zero_cc_try_parse_fn_param_block_kr(
+            bool params_parsed = zero_cc_try_parse_fn_param_block_kr(
                 c, ctx, fn_name, &param_types, &param_names, &param_cap,
                 &param_count, &has_prototype, &is_variadic_fn);
-            if (!kr_handled) {
+            if (!params_parsed) {
                 c->token_pos = name_pos;  /* rewind to the function name */
                 ZeroCCASTArena darena;
                 ZeroCCDeclarator d;
                 zero_cc_ast_arena_init(&darena, 256);
-                if (!zero_cc_parse_declarator(c, &darena, ctx, &d) || !d.name ||
-                    !zero_cc_declarator_is_function(&d)) {
-                    zero_cc_ast_arena_free(&darena);
-                    return;
+                bool decl_ok =
+                    zero_cc_parse_declarator(c, &darena, ctx, &d) && d.name &&
+                    zero_cc_declarator_is_function(&d);
+                if (decl_ok && d.asm_name[0]) {
+                    /* GNU `__asm("sym")` label: the declarator consumed it,
+                     * so the later zero_cc_parse_asm_label call (which the
+                     * legacy plain-name path relies on) would see nothing
+                     * and the symbol alias would be dropped (c-torture
+                     * execute/builtins/memops-asm: `extern void *memcpy(..)
+                     * __asm("my_memcpy")` must redirect calls). */
+                    snprintf(fn_asm, sizeof(fn_asm), "%s", d.asm_name);
                 }
-                const ZeroCCDeclaratorChunk *fc =
-                    zero_cc_declarator_get_function_chunk(&d);
-                if (fc) {
-                    has_prototype = fc->has_prototype;
-                    is_variadic_fn = fc->is_variadic;
-                    param_count = 0;
-                    for (size_t pi = 0;
-                         pi < fc->param_count && pi < param_cap; pi++) {
-                        param_types[param_count] =
-                            (d.param_zt && d.param_zt_cap > pi)
-                                ? d.param_zt[pi]
-                                : typeinfo_to_zero_cc_type(fc->param_tis[pi]);
-                        /* Recover the param name from the AST param_list
-                         * (in darena, not c->arena). */
-                        ASTRef pn2 = fc->param_list;
-                        for (size_t k = 0; k < pi && pn2 != AST_NULL; k++) {
-                            ZeroCCASTNode *n = zero_cc_ast_get(&darena, pn2);
-                            if (!n) break;
-                            pn2 = n->next;
-                        }
-                        ZeroCCASTNode *pn_node = zero_cc_ast_get(&darena, pn2);
-                        param_names[param_count] =
-                            (pn_node && pn_node->tag == NODE_DECL && pn_node->s.str)
-                                ? pn_node->s.str : "";
-                        /* VLA dim expression capture (Stage 1). */
-                        if (pn_node && pn_node->tag == NODE_DECL &&
-                            pn_node->right != AST_NULL) {
-                            if (!dim_arena) {
-                                dim_arena = (ZeroCCASTArena *)calloc(1, sizeof(ZeroCCASTArena));
-                                if (dim_arena) zero_cc_ast_arena_init(dim_arena, 64);
+                if (decl_ok) {
+                    const ZeroCCDeclaratorChunk *fc =
+                        zero_cc_declarator_get_function_chunk(&d);
+                    if (fc) {
+                        has_prototype = fc->has_prototype;
+                        is_variadic_fn = fc->is_variadic;
+                        param_count = 0;
+                        for (size_t pi = 0;
+                             pi < fc->param_count && pi < param_cap; pi++) {
+                            param_types[param_count] =
+                                (d.param_zt && d.param_zt_cap > pi)
+                                    ? d.param_zt[pi]
+                                    : typeinfo_to_zero_cc_type(fc->param_tis[pi]);
+                            /* Recover the param name from the AST param_list
+                             * (in darena, not c->arena). */
+                            ASTRef pn2 = fc->param_list;
+                            for (size_t k = 0; k < pi && pn2 != AST_NULL; k++) {
+                                ZeroCCASTNode *n = zero_cc_ast_get(&darena, pn2);
+                                if (!n) break;
+                                pn2 = n->next;
                             }
-                            if (dim_arena) {
-                                dim_exprs[param_count] = zero_cc_ast_clone(
-                                    &darena, pn_node->right, dim_arena);
+                            ZeroCCASTNode *pn_node = zero_cc_ast_get(&darena, pn2);
+                            param_names[param_count] =
+                                (pn_node && pn_node->tag == NODE_DECL && pn_node->s.str)
+                                    ? pn_node->s.str : "";
+                            /* VLA dim expression capture (Stage 1). */
+                            if (pn_node && pn_node->tag == NODE_DECL &&
+                                pn_node->right != AST_NULL) {
+                                if (!dim_arena) {
+                                    dim_arena = (ZeroCCASTArena *)calloc(1, sizeof(ZeroCCASTArena));
+                                    if (dim_arena) zero_cc_ast_arena_init(dim_arena, 64);
+                                }
+                                if (dim_arena) {
+                                    dim_exprs[param_count] = zero_cc_ast_clone(
+                                        &darena, pn_node->right, dim_arena);
+                                }
                             }
+                            param_count++;
                         }
-                        param_count++;
+                        params_parsed = true;
                     }
                 }
                 zero_cc_ast_arena_free(&darena);
+                if (!params_parsed) {
+                    /* Legacy prototype parser fallback: the declarator
+                     * stack does not yet cover every prototype shape the
+                     * legacy hand-written parser handles; try it before
+                     * giving up on the function. */
+                    c->token_pos = name_pos + 2;  /* right after '(' */
+                    if (!zero_cc_parse_fn_param_block(c, ctx, fn_name,
+                            &param_types, &param_names, &param_cap,
+                            &param_count, &is_variadic_fn, &has_prototype,
+                            &dim_arena, dim_exprs)) return;
+                }
             }
         }
 

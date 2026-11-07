@@ -340,6 +340,18 @@ static inline void zero_cc_parse_param_list(
         param_base.is_const = param_is_const;
         param_base.is_volatile = param_is_volatile;
         param_base.is_long_double = param_is_long_double;
+        /* C99 long double: 16-byte object, 16-byte aligned (x86-64 SysV).
+         * The base was resolved through the 64-bit double value model
+         * (8/8); widen the object size to match zero_cc_type_long_double()
+         * - every other declaration path (locals, struct members, legacy
+         * prototype parser) registers long double as 16/16, and the frame
+         * layout / ABI marshalling keys off the registered size.  A wrong
+         * 8/8 size shifted local slots and let a spill clobber a by-value
+         * struct parameter (c-torture execute/20030914-1). */
+        if (param_is_long_double) {
+            param_base.size = 16;
+            param_base.align = 16;
+        }
         /* GNU vector parameter: the marker probed above wraps the scalar
          * element type in a vector type (pointers, if any, apply on top). */
         if (param_vec_size > 0) {
@@ -518,8 +530,23 @@ static inline void zero_cc_parse_param_list(
                      * OUTERMOST dim becomes the pointer, the INNER dims
                      * (incl. VLA exprs like `++N`) form the pointed-to
                      * array type and are evaluated at entry. */
-                    if (dim_start + 1 == dim_end &&
-                        c->tokens[dim_start].type == TK_NUM) {
+                    /* A constant dimension is exactly two tokens in
+                     * [dim_start, dim_end): the NUM literal followed by
+                     * the closing ']' (dim_end sits just past ']').  The
+                     * older `dim_start + 1 == dim_end` test could never
+                     * match - it routed every `a[N]` through the VLA
+                     * branch, building ARRAY{len=0, size=elem} with a
+                     * wrong static size (latent since Sprint 66; masked
+                     * on the parenthesized path by TypeInfo-based
+                     * registration, exposed by Sprint 122 Stage 2's
+                     * param_zt which uses the built ZeroCCType directly).
+                     * C99 6.7.6.3p7: the dimension is a constant
+                     * expression - a plain literal is the common case;
+                     * non-literal constants still take the VLA-expr path
+                     * below (evaluated at entry, same runtime result). */
+                    if (dim_end - dim_start == 2 &&
+                        c->tokens[dim_start].type == TK_NUM &&
+                        c->tokens[dim_end - 1].type == TK_RBRACKET) {
                         p_dims[n_suffs] = (ssize_t)c->tokens[dim_start].num_val;
                     } else {
                         /* VLA (or const-expr) dimension (C99 6.7.6.2):
