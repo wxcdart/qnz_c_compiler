@@ -183,6 +183,7 @@ static inline void zero_cc_parse_param_list(
     ASTRef param_head = AST_NULL;
     ASTRef param_tail = AST_NULL;
     bool first_param = true;
+    bool param_over_cap = false; /* more than ZERO_CC_MAX_PARAMS parsed */
     while (c->token_pos < c->token_count) {
         if (c->tokens[c->token_pos].type == TK_RPAREN) {
             break;
@@ -254,10 +255,21 @@ static inline void zero_cc_parse_param_list(
         }
         size_t ptype_pos = c->token_pos;
         ZeroCCTokType param_type_tok = c->tokens[c->token_pos].type;
-        if (!is_type_specifier(c, param_type_tok)) {
+        /* Standalone `_Complex` (C99 6.7.2.3 / GNU): with no real type
+         * following the specifier the real type defaults to double
+         * (`_Complex z` == `_Complex double z`).  The current token is then
+         * the declarator, not a type name. */
+        bool param_standalone_complex =
+            p_prefix_complex && !is_type_specifier(c, param_type_tok);
+        if (!is_type_specifier(c, param_type_tok) && !param_standalone_complex) {
             break;
         }
-        c->token_pos++;
+        if (!param_standalone_complex) {
+            c->token_pos++;
+        }
+        if (param_standalone_complex) {
+            param_type_tok = TK_DOUBLE_KW; /* virtual: base = double */
+        }
         ZeroCCType param_typeof_type;
         memset(&param_typeof_type, 0, sizeof(param_typeof_type));
         bool param_has_typeof = false;
@@ -334,6 +346,27 @@ static inline void zero_cc_parse_param_list(
             c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
             param_tag_name = c->tokens[c->token_pos].str_val;
             c->token_pos++;
+        } else if ((param_type_tok == TK_STRUCT || param_type_tok == TK_UNION) &&
+            c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACE) {
+            /* Anonymous struct/union parameter definition:
+             * `void f(int a, struct {int b[a];} c)` (C99 6.7.2.1,
+             * c-torture compile/20020210-1).  Skip the balanced body;
+             * the declarator name follows the closing brace.  The
+             * parameter keeps the int64 fallback base - the same
+             * (mis)type the legacy prototype parser recorded for this
+             * shape - and the function compiles with the body skipped
+             * rather than re-entering the top-level dispatch.  A
+             * semantically complete anonymous-aggregate parameter type
+             * (with member access) remains open work. */
+            int bdepth = 0;
+            while (c->token_pos < c->token_count) {
+                if (c->tokens[c->token_pos].type == TK_LBRACE) bdepth++;
+                else if (c->tokens[c->token_pos].type == TK_RBRACE) {
+                    bdepth--;
+                    if (bdepth == 0) { c->token_pos++; break; }
+                }
+                c->token_pos++;
+            }
         }
         while (c->token_pos < c->token_count &&
                (c->tokens[c->token_pos].type == TK_CONST ||
@@ -392,12 +425,39 @@ static inline void zero_cc_parse_param_list(
         bool is_param_func_ptr = false;
         bool ptype_full = false; /* set when the declarator re-parse rebuilt ptype */
 
+        /* Consume the plain star run FIRST so the function-pointer
+         * branches below are also reachable after pointer prefixes:
+         * `T * (*f)(params)` (a function pointer whose POINTEE RETURNS a
+         * pointer - c-torture 921208-1 shapes) used to record `T *` as an
+         * anonymous parameter and leave the `(*)` group behind, aborting
+         * the param list (incomplete) and forcing the legacy fallback.
+         * Mirrors the legacy prototype parser, which checks the `(*` shape
+         * after its own star loop. */
+        while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STAR &&
+               param_ptr_depth < 16) {
+            ppc_const[param_ptr_depth] = false;
+            ppc_vol[param_ptr_depth] = false;
+            ppc_restr[param_ptr_depth] = false;
+            param_ptr_depth++;
+            c->token_pos++;
+            while (c->token_pos < c->token_count &&
+                   (c->tokens[c->token_pos].type == TK_CONST ||
+                    c->tokens[c->token_pos].type == TK_VOLATILE ||
+                    c->tokens[c->token_pos].type == TK_RESTRICT)) {
+                if (c->tokens[c->token_pos].type == TK_CONST) ppc_const[param_ptr_depth - 1] = true;
+                if (c->tokens[c->token_pos].type == TK_VOLATILE) ppc_vol[param_ptr_depth - 1] = true;
+                if (c->tokens[c->token_pos].type == TK_RESTRICT) ppc_restr[param_ptr_depth - 1] = true;
+                c->token_pos++;
+            }
+        }
+
         const char *pname = NULL;
         if (c->token_pos + 1 < c->token_count &&
             c->tokens[c->token_pos].type == TK_LPAREN &&
             c->tokens[c->token_pos + 1].type == TK_STAR) {
             is_param_func_ptr = true;
             size_t decl_start = c->token_pos; /* '(*' - declarator re-parse anchor */
+            bool fp_wrapped_name = false;
             c->token_pos += 2;
             while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STAR) c->token_pos++;
             /* Qualifiers between the star run and the name: `(*const f)`. */
@@ -407,6 +467,7 @@ static inline void zero_cc_parse_param_list(
                     c->tokens[c->token_pos].type == TK_RESTRICT)) c->token_pos++;
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
                 /* Nested parens around the name: `(*const (funcp))`. */
+                fp_wrapped_name = true;
                 c->token_pos++;
                 while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STAR) c->token_pos++;
                 if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
@@ -419,7 +480,9 @@ static inline void zero_cc_parse_param_list(
                 c->token_pos++;
             }
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
+            bool fn_suffix_consumed = false;
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
+                fn_suffix_consumed = true;
                 int pdepth = 1;
                 c->token_pos++;
                 while (c->token_pos < c->token_count && pdepth > 0) {
@@ -440,7 +503,20 @@ static inline void zero_cc_parse_param_list(
                     c->token_pos++;
                 }
             }
-            param_ptr_depth = 1;
+            /* Wrapped-name form: `(* const (funcp)(time_t))` - the outer
+             * `(* ... )` group closes AFTER the pointee's parameter suffix,
+             * not right after the name.  Consume its ')' here (the legacy
+             * prototype parser's fp_wrapped_name handling); without it the
+             * quick scan stops one token early, the declarator re-parse
+             * mismatch fails, and the param list stops at the group's ')' -
+             * the following `,` then mis-enters the multi-declarator loop
+             * (c-torture compile/991213-2). */
+            if (fp_wrapped_name && fn_suffix_consumed &&
+                c->token_pos < c->token_count &&
+                c->tokens[c->token_pos].type == TK_RPAREN) {
+                c->token_pos++;
+            }
+            param_ptr_depth++; /* the fn-ptr star, on top of any leading run */
             /* The quick scan above records only the pointer depth and
              * DROPS the function suffix's parameter types, so re-parse
              * the full declarator with the declarator-stack parser to
@@ -453,7 +529,9 @@ static inline void zero_cc_parse_param_list(
              * by the declared parameter types.  The re-parse starts at
              * decl_start and must stop where the quick scan left off;
              * any failure or position mismatch falls back to the legacy
-             * quick-built type below. */
+             * quick-built type below.  The re-parse base carries the
+             * leading star run (the re-parse starts at `(*`, so its own
+             * declarator covers only the fn-ptr level and the pointee). */
             {
                 size_t saved_pos = c->token_pos;
                 c->token_pos = decl_start;
@@ -462,7 +540,14 @@ static inline void zero_cc_parse_param_list(
                                   (c->token_pos == saved_pos);
                 c->token_pos = saved_pos;
                 if (reparse_ok) {
-                    ptype = zero_cc_declarator_apply(&dp, param_base);
+                    ZeroCCType rebase = param_base;
+                    for (int pd = 0; pd < param_ptr_depth - 1; pd++) {
+                        rebase = zero_cc_type_ptr(&rebase);
+                        rebase.is_const = ppc_const[pd];
+                        rebase.is_volatile = ppc_vol[pd];
+                        rebase.is_restrict = ppc_restr[pd];
+                    }
+                    ptype = zero_cc_declarator_apply(&dp, rebase);
                     ptype_full = true;
                 }
                 /* dp is stack-local; no heap table (want_param_zt = false). */
@@ -512,28 +597,25 @@ static inline void zero_cc_parse_param_list(
                 c->token_pos = close + 1;
             }
         } else {
-            /* Per-star-level qualifiers (C99 6.7.3): `const char *const
-             * *bar` is a pointer to (const pointer to const char) - the
-             * const between the stars belongs to THAT star's pointer and
-             * must not leak onto the outer one (strpbrk.c: `bar--` is
-             * legal there; a single flag applied to the outermost level
-             * made `bar` const and rejected the decrement). */
-            while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STAR &&
-                   param_ptr_depth < 16) {
-                ppc_const[param_ptr_depth] = false;
-                ppc_vol[param_ptr_depth] = false;
-                ppc_restr[param_ptr_depth] = false;
-                param_ptr_depth++;
+            /* Plain declarator: the star run was consumed above. */
+            /* Abstract declarator: `int ( int foo )` - a parenthesized
+             * abstract declarator in parameter position is a pointer to
+             * a function (C99 6.7.6.1; c-torture compile/20010313-1:
+             * `int (__attribute__((__mode__(__SI__))) int foo)` - the
+             * preprocessor emits the mode marker INSIDE the group, so
+             * skip the whole balanced group, matching the legacy
+             * prototype parser's abstract-declarator branch). */
+            if (c->token_pos < c->token_count &&
+                c->tokens[c->token_pos].type == TK_LPAREN) {
+                int pdepth = 1;
                 c->token_pos++;
-                while (c->token_pos < c->token_count &&
-                       (c->tokens[c->token_pos].type == TK_CONST ||
-                        c->tokens[c->token_pos].type == TK_VOLATILE ||
-                        c->tokens[c->token_pos].type == TK_RESTRICT)) {
-                    if (c->tokens[c->token_pos].type == TK_CONST) ppc_const[param_ptr_depth - 1] = true;
-                    if (c->tokens[c->token_pos].type == TK_VOLATILE) ppc_vol[param_ptr_depth - 1] = true;
-                    if (c->tokens[c->token_pos].type == TK_RESTRICT) ppc_restr[param_ptr_depth - 1] = true;
+                while (c->token_pos < c->token_count && pdepth > 0) {
+                    if (c->tokens[c->token_pos].type == TK_LPAREN) pdepth++;
+                    else if (c->tokens[c->token_pos].type == TK_RPAREN) pdepth--;
                     c->token_pos++;
                 }
+                is_param_func_ptr = true;
+                param_ptr_depth++; /* the fn pointer is a pointer level */
             }
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
                 pname = c->tokens[c->token_pos].str_val;
@@ -663,16 +745,31 @@ static inline void zero_cc_parse_param_list(
 
         if (fn_chunk->param_count < 16) {
             fn_chunk->param_tis[fn_chunk->param_count] = ptype_ti;
-            /* Sprint 122 2b: store the canonical ZeroCCType (heap-allocated
-             * on the top-level declarator, only when the caller opted in). */
-            if (decl && want_param_zt) {
-                if (decl->param_zt_cap < 16) {
-                    decl->param_zt_cap = 16;
-                    decl->param_zt = (ZeroCCType *)malloc(16 * sizeof(ZeroCCType));
-                }
-                if (decl->param_zt) decl->param_zt[fn_chunk->param_count] = ptype;
+        }
+        /* Sprint 122 2b: store the canonical ZeroCCType (heap-allocated on
+         * the top-level declarator, only when the caller opted in).  The
+         * table grows to cover every parsed parameter up to
+         * ZERO_CC_MAX_PARAMS - the fixed param_tis[16] above stays the
+         * TypeInfo fallback for callers that did not opt in (c-torture
+         * compile/asmgoto-5 declares a 17-param function). */
+        if (decl && want_param_zt && fn_chunk->param_count < ZERO_CC_MAX_PARAMS) {
+            if (decl->param_zt_cap <= fn_chunk->param_count) {
+                size_t newcap = fn_chunk->param_count < 32 ? 32 : fn_chunk->param_count * 2;
+                if (newcap > ZERO_CC_MAX_PARAMS) newcap = ZERO_CC_MAX_PARAMS;
+                ZeroCCType *nz = (ZeroCCType *)realloc(decl->param_zt, newcap * sizeof(ZeroCCType));
+                if (!nz) return false;
+                decl->param_zt = nz;
+                decl->param_zt_cap = newcap;
             }
+            if (decl->param_zt) decl->param_zt[fn_chunk->param_count] = ptype;
+        }
+        if (fn_chunk->param_count < ZERO_CC_MAX_PARAMS) {
             fn_chunk->param_count++;
+        } else {
+            /* More than ZERO_CC_MAX_PARAMS parameters: the registration
+             * sites (legacy and 2b alike) cap at ZERO_CC_MAX_PARAMS, so
+             * mark the list incomplete and let the caller fall back. */
+            param_over_cap = true;
         }
         fn_chunk->param_total++;
 
@@ -685,14 +782,17 @@ static inline void zero_cc_parse_param_list(
             param_tail = p_ref;
         }
     }
-    /* The list is complete only when it stopped on the closing ')' -
-     * every other exit (missing comma, non-type token, EOF) means the
-     * declarator is a partial parse. */
-    fn_chunk->param_list_complete =
+    /* The list is complete only when it stopped on the closing ')' AND
+     * never exceeded ZERO_CC_MAX_PARAMS params - every other exit
+     * (missing comma, non-type token, EOF, over-cap) means the declarator
+     * is a partial parse for the 2b registration (the legacy fallback
+     * parser caps at ZERO_CC_MAX_PARAMS itself and stays lenient). */
+    bool param_stopped_at_rparen =
         (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN);
-    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) {
+    if (param_stopped_at_rparen) {
         c->token_pos++;
     }
+    fn_chunk->param_list_complete = param_stopped_at_rparen && !param_over_cap;
     fn_chunk->param_list = param_head;
     if (!first_param) {
         fn_chunk->has_prototype = true;

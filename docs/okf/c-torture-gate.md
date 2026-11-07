@@ -4,7 +4,7 @@ title: GCC c-torture Conformance Gate
 description: Differential conformance gate against the vendored GCC gcc.c-torture corpus (~3,940 tests), sweeping execute tests across -O0..-O3 in JIT and AOT and compile tests at -O0/-O2 with a ratcheting baseline.
 resource: workflows/c-torture-gate
 tags: [testing, verification, conformance, c-torture, gcc, differential, baseline]
-timestamp: 2026-11-06T16:44:19Z
+timestamp: 2026-11-07T12:10:51Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -363,6 +363,18 @@ Clustering [`test/torture/baseline.json`](../../test/torture/baseline.json) (`14
 | **Chunk R2** | **~210 tests** | `expected identifier in (extern) declaration` (**129**) + `unexpected token '<id>' in statement` (**80**) — Arbitrary declaration-specifier ordering (`int unsigned const`, `register`, `auto`, `__extension__`, `__inline__`) and parenthesized declarators (`int (x)`, `int (*p)[4]`). |
 | **Chunk R3** | **~60 tests** | `unexpected token in struct/union definition` (**27**) + `incompatible types in assignment/initializer` (**30**) — Unnamed bitfields (`int : 0;`, `int : 4;`), mixed struct declarator lists (`int a, *b, c[2];`), and function/array decay edge cases. |
 | **Chunk R4** | **~320+ tests** | `unexpected token at file scope` (**321**) + `expected expression in argument list` (**58**) — File-scope declarators returning function/array pointers, type-generic builtins (`__builtin_types_compatible_p`, `__builtin_choose_expr`), and K&R-compatible definitions accepted by `gcc -std=c11`. |
+
+---
+
+## Diagnostics: the 2b legacy-fallback sweep
+
+The 2b plain-name function path (`jit/compile.c`) falls back to the legacy `zero_cc_parse_fn_param_block` when the declarator stack cannot handle a prototype (see [frontend-and-types](./frontend-and-types.md)). To enumerate what the declarator stack still lacks — the input for burning down the fallback — run the full corpus with the env-gated trace:
+
+```bash
+ZC_FB_TRACE=1 ./build/bin/zerocc -O0 -c <file> -o /dev/null 2>&1 | grep '\[FB\]'
+```
+
+Each hit prints the triggering guard (`terminal` / `incomplete`) with the function name, line, and (for `incomplete`) the parsed param count. Sweeping all 3,940 vendored files takes a few minutes and is how the Sprint 122 Stage 3 burn-down was driven (51 hits → 3, all on SKIP-C89-baseline files). The trace is zero-cost when the env var is unset.
 
 ---
 

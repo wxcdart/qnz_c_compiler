@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-07T06:55:46Z
+timestamp: 2026-11-07T12:10:51Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1101,3 +1101,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-07 — Updated `build-and-verification.md`
 - make asan fully green (180/180): instance teardown frees, pool-resident fn_params, member-array ownership registry, LICM loop-table frees.
+
+## 2026-11-07 — Updated `frontend-and-types.md`
+- Stage 3 param-parser parity burn-down: 51 -> 5 legacy-fallback hits (zero on PASS-baseline files; 991213-2 wrapped-name quick-scan off-by-one fixed)
+
+## 2026-11-07 — Updated `c-torture-gate.md`
+- ZC_FB_TRACE fallback-sweep diagnostic documented

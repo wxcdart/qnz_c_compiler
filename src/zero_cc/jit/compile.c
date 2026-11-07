@@ -1170,39 +1170,59 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
                     zero_cc_declarator_is_function(&d);
                 if (decl_ok) {
                     /* Terminal-position sanity: the declarator must have
-                     * consumed exactly the function declarator, so the next
-                     * token is the declaration terminator (';'), the
-                     * definition body ('{'), or a trailing attribute/asm
-                     * label (an identifier).  Anything else means the
-                     * param-list parser stopped early and the leftover is
-                     * NOT a parameter - e.g. `T decl (T * (*) (T *), ..)`
-                     * leaves the `(*)` group (LPAREN), and the file-scope
-                     * `struct S {..} __attribute__((aligned(N)));` form
-                     * reaches here through zero_cc_struct_def_is_fn with the
-                     * preprocessor marker `__zc_aligned__(N)` masquerading
-                     * as `name(N)`, leaving the numeric argument (NUM) -
-                     * the legacy parser's stuck-token guard skips it and
-                     * recovers, so fall back to it for those shapes. */
+                     * consumed exactly the first function declarator, so the
+                     * next token is the declaration terminator (';'), the
+                     * definition body ('{'), a comma (multi-declarator list -
+                     * `double sqrt(double),fabs(double),sin(double);`; the
+                     * comma loop below re-parses each remaining declarator),
+                     * or a trailing attribute/asm label (an identifier).
+                     * Anything else means the param-list parser stopped early
+                     * and the leftover is NOT a parameter - e.g. `T decl
+                     * (T * (*) (T *), ..)` leaves the `(*)` group (LPAREN),
+                     * and the file-scope `struct S {..} __attribute__((
+                     * aligned(N)));` form reaches here through
+                     * zero_cc_struct_def_is_fn with the preprocessor marker
+                     * `__zc_aligned__(N)` masquerading as `name(N)`, leaving
+                     * the numeric argument (NUM) - the legacy parser's
+                     * stuck-token guard skips it and recovers, so fall back
+                     * to it for those shapes. */
                     ZeroCCTokType next_tk = (c->token_pos < c->token_count)
                         ? c->tokens[c->token_pos].type : TK_EOF;
                     if (next_tk != TK_SEMI && next_tk != TK_LBRACE &&
-                        next_tk != TK_IDENT) {
+                        next_tk != TK_IDENT && next_tk != TK_COMMA) {
                         decl_ok = false;
                     }
-                    /* Param-storage cap: the declarator chunk stores at most
-                     * 16 param types; a prototype with more (c-torture
-                     * compile/limits-fnargs.c: 10,000) must go through the
-                     * legacy parser, which grows param_types dynamically.
-                     * A param list that did not stop on its ')' (anonymous
-                     * struct param c-torture compile/20020210-1, nested
-                     * fnptr-return params, ...) is a partial parse for the
-                     * same reason - the legacy parser is the reference. */
+                    if (!decl_ok && getenv("ZC_FB_TRACE")) {
+                        fprintf(stderr, "[FB] terminal fn=%s line=%d next=%d\n",
+                                fn_name, (int)c->tokens[name_pos].line, (int)next_tk);
+                    }
+                    /* Param-list completeness: a param list that did not
+                     * stop on its ')' is a partial parse - the legacy parser
+                     * is the reference.  The residual shapes after the
+                     * Sprint 122 parity burn-down (fallback hits: 51 -> 3
+                     * across the c-torture corpus, all on SKIP-C89-baseline
+                     * files): multi-dim VLA pointer-array params
+                     * (`int (*)[f()][f()+1][f()+2]`, pr77754-6), named
+                     * anonymous-struct-definition params (`struct S {..} *`),
+                     * and the GCC-only `__GIMPLE` builtin (pr115143).  The
+                     * `param_total > 16` cap guard is gone: the 2b
+                     * param_zt table now grows to ZERO_CC_MAX_PARAMS
+                     * (c-torture compile/asmgoto-5 declares a 17-param
+                     * function; limits-fnargs's 10,000-param prototypes
+                     * parse fine and register the first 256, matching the
+                     * legacy path's own cap). */
                     if (decl_ok) {
                         const ZeroCCDeclaratorChunk *fc2 =
                             zero_cc_declarator_get_function_chunk(&d);
-                        if (fc2 && (fc2->param_total > 16 ||
-                                    !fc2->param_list_complete)) {
+                        if (fc2 && !fc2->param_list_complete) {
                             decl_ok = false;
+                        }
+                        if (!decl_ok && getenv("ZC_FB_TRACE")) {
+                            fprintf(stderr,
+                                    "[FB] incomplete fn=%s line=%d params=%zu complete=%d\n",
+                                    fn_name, (int)c->tokens[name_pos].line,
+                                    fc2 ? fc2->param_total : 0,
+                                    fc2 ? (int)fc2->param_list_complete : 0);
                         }
                     }
                 }
@@ -1223,11 +1243,20 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
                         is_variadic_fn = fc->is_variadic;
                         param_count = 0;
                         for (size_t pi = 0;
-                             pi < fc->param_count && pi < param_cap; pi++) {
+                             pi < fc->param_count && pi < ZERO_CC_MAX_PARAMS; pi++) {
+                            zero_cc_ensure_param_cap(ctx, &param_types,
+                                                     &param_names, &param_cap,
+                                                     pi + 1);
+                            /* param_zt covers every parsed param (up to
+                             * ZERO_CC_MAX_PARAMS); the param_tis[16]
+                             * TypeInfo table is the fallback for callers
+                             * that did not opt in. */
                             param_types[param_count] =
                                 (d.param_zt && d.param_zt_cap > pi)
                                     ? d.param_zt[pi]
-                                    : typeinfo_to_zero_cc_type(fc->param_tis[pi]);
+                                    : (pi < 16
+                                         ? typeinfo_to_zero_cc_type(fc->param_tis[pi])
+                                         : zero_cc_type_int());
                             /* Recover the param name from the AST param_list
                              * (in darena, not c->arena). */
                             ASTRef pn2 = fc->param_list;

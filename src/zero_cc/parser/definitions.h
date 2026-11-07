@@ -702,8 +702,8 @@ static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c, ZeroCCASTArena
         ZeroCCType inner = zero_cc_parse_type_name_at_pos(c, &c->token_pos);
         ttype = zero_cc_type_complex(&inner);
     }
-    else if (t == TK_INT) { ttype = is_unsigned ? zero_cc_type_uint32() : zero_cc_type_int(); c->token_pos++; }
-    else if (t == TK_CHAR) { ttype = is_unsigned ? zero_cc_type_uint8() : zero_cc_type_char(); c->token_pos++; }
+    else if (t == TK_INT) { c->token_pos++; ttype = zero_cc_type_int(); }  /* signedness applied below */
+    else if (t == TK_CHAR) { c->token_pos++; ttype = zero_cc_type_char(); }
     else if (t == TK_VOID) { ttype = zero_cc_type_void(); c->token_pos++; }
     else if (t == TK_FLOAT_KW) { ttype = zero_cc_type_float(); c->token_pos++; }
     else if (t == TK_DOUBLE_KW) { ttype = zero_cc_type_double(); c->token_pos++; }
@@ -711,13 +711,11 @@ static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c, ZeroCCASTArena
     else if (t == TK_SHORT) {
         c->token_pos++;
         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_INT) c->token_pos++;
-        ttype = is_unsigned ? zero_cc_type_uint16() : zero_cc_type_int16();
     }
     else if (t == TK_LONG) {
         c->token_pos++;
         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LONG) c->token_pos++;
         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_INT) c->token_pos++;
-        ttype = is_unsigned ? zero_cc_type_uint64() : zero_cc_type_int64();
     }
     else if (t == TK_IDENT) {
         const char *tname = c->tokens[c->token_pos].str_val;
@@ -759,6 +757,37 @@ static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c, ZeroCCASTArena
         }
     } else {
         ttype = is_unsigned ? zero_cc_type_uint32() : zero_cc_type_int();
+    }
+    /* C99 6.7.2.1: the order of type specifiers in a specifier sequence is
+     * free - `short unsigned int`, `long unsigned int`, `int unsigned`,
+     * `char signed` are all legal, but the leading signedness above caught
+     * only `unsigned <base>`.  Consume a trailing signedness here and apply
+     * it when finalizing the keyword base types.  Without this the typedef
+     * was silently dropped and the leftover `unsigned int W;` re-parsed as
+     * a global variable (c-torture compile/regs-arg-size: the file's own
+     * `typedef long unsigned int size_t;` vanished). */
+    if ((t == TK_INT || t == TK_CHAR || t == TK_SHORT || t == TK_LONG) &&
+        c->token_pos < c->token_count &&
+        (c->tokens[c->token_pos].type == TK_UNSIGNED ||
+         c->tokens[c->token_pos].type == TK_SIGNED)) {
+        if (c->tokens[c->token_pos].type == TK_UNSIGNED) is_unsigned = true;
+        else is_signed = true;
+        c->token_pos++;
+        /* `short unsigned int` / `long unsigned int`: the `int` follows
+         * the trailing signedness, not the base keyword. */
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_INT) {
+            c->token_pos++;
+        }
+    }
+    if (t == TK_SHORT) {
+        ttype = is_unsigned ? zero_cc_type_uint16() : zero_cc_type_int16();
+    } else if (t == TK_LONG) {
+        ttype = is_unsigned ? zero_cc_type_uint64() : zero_cc_type_int64();
+    } else if (is_unsigned) {
+        if (ttype.tag == TYPE_INT8) ttype.tag = TYPE_UINT8;
+        else if (ttype.tag == TYPE_INT16) ttype.tag = TYPE_UINT16;
+        else if (ttype.tag == TYPE_INT32) ttype.tag = TYPE_UINT32;
+        else if (ttype.tag == TYPE_INT64) ttype.tag = TYPE_UINT64;
     }
     (void)is_signed;
     if (is_atomic) ttype.is_atomic = true;

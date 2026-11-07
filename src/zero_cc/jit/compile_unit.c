@@ -37,8 +37,22 @@ static bool zero_cc_struct_def_is_fn(ZeroCCCompiler *c) {
         q++;
     }
     if (q >= c->token_count) return false;
-    return (c->tokens[q].type == TK_IDENT && q + 1 < c->token_count &&
-            c->tokens[q + 1].type == TK_LPAREN);
+    if (c->tokens[q].type == TK_IDENT && q + 1 < c->token_count &&
+            c->tokens[q + 1].type == TK_LPAREN) {
+        /* A trailing aligned attribute after the body is NOT a function
+         * declarator: `struct S { ... } __attribute__((aligned(N)));`
+         * (preprocessor marker `__zc_aligned__(N)`) - the identifier is
+         * followed by `( NUM )`, not a parameter list.  Routing it to the
+         * function parser mis-parses the marker (c-torture
+         * compile/20000405-3, packed-aligned-1). */
+        const char *idn = c->tokens[q].str_val;
+        if (idn && strcmp(idn, "__zc_aligned__") == 0 &&
+            q + 2 < c->token_count && c->tokens[q + 2].type == TK_NUM) {
+            return false;
+        }
+        return true;
+    }
+    return false;
 }
 
 static bool zero_cc_compile_top_level_decl(ZeroCCCompiler *c);
@@ -684,6 +698,17 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                             ZeroCCGlobalVar *tg = find_global_var(c, alias_tgt);
                             if (tg) agv->data_offset = tg->data_offset;
                         }
+                    }
+                    /* GNU asm label after an extern variable declarator:
+                     * `extern const T *name __asm__("prefix" "name");`
+                     * - consume it so the stream ends on the comma/semicolon
+                     * (c-torture compile/20031112-1: the unconsumed label
+                     * used to re-enter the top-level dispatch as a bogus
+                     * `__asm__(...)` function). */
+                    {
+                        char ext_asm_label[128];
+                        (void)zero_cc_parse_asm_label(c, ext_asm_label,
+                                                      sizeof(ext_asm_label));
                     }
                     if (c->tokens[c->token_pos].type == TK_COMMA) {
                         c->token_pos++;
