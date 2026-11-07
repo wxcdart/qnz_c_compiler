@@ -234,6 +234,7 @@ static inline void zero_cc_parse_param_list(
             }
         }
         bool param_is_unsigned = false;
+        bool param_is_long_double = false;
         if (param_type_tok == TK_UNSIGNED || param_type_tok == TK_SIGNED) {
             param_is_unsigned = (param_type_tok == TK_UNSIGNED);
             if (c->token_pos < c->token_count &&
@@ -255,11 +256,21 @@ static inline void zero_cc_parse_param_list(
             }
         } else if (param_type_tok == TK_LONG) {
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LONG) c->token_pos++;
-            if (c->token_pos < c->token_count && (c->tokens[c->token_pos].type == TK_UNSIGNED || c->tokens[c->token_pos].type == TK_SIGNED)) {
-                param_is_unsigned = (c->tokens[c->token_pos].type == TK_UNSIGNED);
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_DOUBLE_KW) {
+                /* C99 6.7.2.1: long double / long long double - the double
+                 * keyword follows the long run and becomes the base (modeled
+                 * through the double value model with the is_long_double
+                 * marker), matching the legacy prototype parser. */
+                param_type_tok = TK_DOUBLE_KW;
                 c->token_pos++;
+                param_is_long_double = true;
+            } else {
+                if (c->token_pos < c->token_count && (c->tokens[c->token_pos].type == TK_UNSIGNED || c->tokens[c->token_pos].type == TK_SIGNED)) {
+                    param_is_unsigned = (c->tokens[c->token_pos].type == TK_UNSIGNED);
+                    c->token_pos++;
+                }
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_INT) c->token_pos++;
             }
-            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_INT) c->token_pos++;
         } else if (param_type_tok == TK_SHORT) {
             if (c->token_pos < c->token_count && (c->tokens[c->token_pos].type == TK_UNSIGNED || c->tokens[c->token_pos].type == TK_SIGNED)) {
                 param_is_unsigned = (c->tokens[c->token_pos].type == TK_UNSIGNED);
@@ -291,6 +302,7 @@ static inline void zero_cc_parse_param_list(
         }
         param_base.is_const = param_is_const;
         param_base.is_volatile = param_is_volatile;
+        param_base.is_long_double = param_is_long_double;
         /* GNU vector parameter: the marker probed above wraps the scalar
          * element type in a vector type (pointers, if any, apply on top). */
         if (param_vec_size > 0) {
@@ -314,6 +326,11 @@ static inline void zero_cc_parse_param_list(
             size_t decl_start = c->token_pos; /* '(*' - declarator re-parse anchor */
             c->token_pos += 2;
             while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STAR) c->token_pos++;
+            /* Qualifiers between the star run and the name: `(*const f)`. */
+            while (c->token_pos < c->token_count &&
+                   (c->tokens[c->token_pos].type == TK_CONST ||
+                    c->tokens[c->token_pos].type == TK_VOLATILE ||
+                    c->tokens[c->token_pos].type == TK_RESTRICT)) c->token_pos++;
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
                 pname = c->tokens[c->token_pos].str_val;
                 c->token_pos++;
