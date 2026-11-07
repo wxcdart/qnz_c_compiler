@@ -621,29 +621,21 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
                 apply_callee_fn = zero_cc_find_function(c, a0n->s.str);
             }
             if (apply_callee_fn) {
-                if (apply_callee_fn->param_types && apply_callee_fn->param_count > 0) {
-                    npp = (int)apply_callee_fn->param_count;
-                    if (npp > IR_CALL_MAX_ARGS - 2) npp = IR_CALL_MAX_ARGS - 2;
-                    for (int j = 0; j < npp; j++) apply_pparams[j] = apply_callee_fn->param_types[j];
-                }
+                /* Single source of truth (Sprint 121): the function table is
+                 * authoritative for a known function. NULL callee_node disables
+                 * the TypeInfo fallback - a `()` callee marshals with 0 params.
+                 * (The semantic TypeInfo often carries no prototype - reading it
+                 * would silently yield param_cnt == 0 and stale-register garbage.) */
+                npp = zero_cc_effective_call_params(c, apply_callee_fn, NULL,
+                                                    apply_pparams, IR_CALL_MAX_ARGS - 2);
                 apply_ret = apply_callee_fn->return_type;
             } else {
-                TypeInfo *cal_ti = ast_node_get_typeinfo(c, a0n);
-                TypeInfo *pointee = NULL;
-                if (cal_ti && cal_ti->kind == TYPE_KIND_POINTER &&
-                    cal_ti->details.pointer.base &&
-                    cal_ti->details.pointer.base->kind == TYPE_KIND_FUNCTION)
-                    pointee = cal_ti->details.pointer.base;
-                else if (cal_ti && cal_ti->kind == TYPE_KIND_FUNCTION)
-                    pointee = cal_ti;
-                if (pointee) {
-                    npp = (int)pointee->details.function.param_cnt;
-                    if (npp > IR_CALL_MAX_ARGS - 2) npp = IR_CALL_MAX_ARGS - 2;
-                    for (int j = 0; j < npp; j++)
-                        apply_pparams[j] = typeinfo_to_zero_cc_type(pointee->details.function.params[j]);
-                    if (pointee->details.function.ret)
-                        apply_ret = typeinfo_to_zero_cc_type(pointee->details.function.ret);
-                }
+                npp = zero_cc_effective_call_params(c, NULL, a0n,
+                                                    apply_pparams, IR_CALL_MAX_ARGS - 2);
+                /* Return type from the pointee when recoverable. */
+                const TypeInfo *pointee = zc_call_pointee_typeinfo(c, a0n);
+                if (pointee && pointee->details.function.ret)
+                    apply_ret = typeinfo_to_zero_cc_type(pointee->details.function.ret);
                 /* else: no recoverable pointee signature (e.g. the function
                  * pointer was cast through void *).  Fall back to a
                  * K&R-style indirect call with no argument metadata -

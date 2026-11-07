@@ -434,6 +434,60 @@ static inline void ast_node_set_typeinfo(ZeroCCCompiler *c, ZeroCCASTNode *node,
     }
 }
 
+/* Sprint 121 (prototype unification): the function signature lives in three
+ * representations - ZeroCCFunction::param_types (function table; direct calls),
+ * TypeInfo.function (semantic; indirect calls), ZeroCCType.fn_params (fnptr
+ * pointee). The semantic TypeInfo of a known function OFTEN carries no
+ * prototype (param_cnt == 0) - reading it silently marshals a call against no
+ * signature (__builtin_apply first shipped broken this way, passing
+ * stale-register garbage). These helpers make the function table the single
+ * source of truth for a call's argument layout: the resolved callee's
+ * declared prototype wins, and the callee expression's pointee TypeInfo is
+ * the fallback (indirect calls through a function pointer). */
+
+/* The function TypeInfo a callee expression designates: the pointee for a
+ * pointer-to-function, the function type itself otherwise; NULL when none. */
+static inline const TypeInfo *zc_call_pointee_typeinfo(ZeroCCCompiler *c,
+                                                       const ZeroCCASTNode *callee_node) {
+    if (!callee_node) return NULL;
+    TypeInfo *cal_ti = ast_node_get_typeinfo(c, callee_node);
+    if (cal_ti && cal_ti->kind == TYPE_KIND_POINTER && cal_ti->details.pointer.base &&
+        cal_ti->details.pointer.base->kind == TYPE_KIND_FUNCTION)
+        return cal_ti->details.pointer.base;
+    if (cal_ti && cal_ti->kind == TYPE_KIND_FUNCTION)
+        return cal_ti;
+    return NULL;
+}
+
+/* The parameter types a call marshals arguments against (single source of
+ * truth for the call ABI's argument layout). The function table is
+ * authoritative when the resolved callee declares a prototype; otherwise the
+ * callee expression's pointee TypeInfo drives the layout. Pass callee_node ==
+ * NULL to disable the TypeInfo fallback - a known function with no declared
+ * prototype then marshals with 0 params and no fallback ( __builtin_apply's
+ * semantics). Fills params_out[0..max_params-1]; returns the count (0 =
+ * K&R-style: marshal without converting against declared types). */
+static inline int zero_cc_effective_call_params(ZeroCCCompiler *c,
+                                                ZeroCCFunction *callee_fn,
+                                                const ZeroCCASTNode *callee_node,
+                                                ZeroCCType *params_out, int max_params) {
+    if (callee_fn && callee_fn->param_types && callee_fn->param_count > 0) {
+        size_t n = callee_fn->param_count;
+        if (n > (size_t)max_params) n = (size_t)max_params;
+        for (size_t i = 0; i < n; i++) params_out[i] = callee_fn->param_types[i];
+        return (int)n;
+    }
+    int n = 0;
+    const TypeInfo *pf = zc_call_pointee_typeinfo(c, callee_node);
+    if (pf) {
+        size_t pc = pf->details.function.param_cnt;
+        n = (int)(pc < (size_t)max_params ? pc : (size_t)max_params);
+        for (int i = 0; i < n; i++)
+            params_out[i] = typeinfo_to_zero_cc_type(pf->details.function.params[i]);
+    }
+    return n;
+}
+
 /* Canonical base type resolver for declarations, parameters, and return types */
 static inline ZeroCCType zero_cc_resolve_base_type(ZeroCCCompiler *c, ZeroCCTokType type_tok, const char *type_name) {
     if (type_tok == TK_CHAR || type_tok == TK_BOOL_KW) return zero_cc_type_char();

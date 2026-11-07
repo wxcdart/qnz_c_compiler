@@ -578,28 +578,13 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
              * passes 33 in EDI instead of converting it to a double in
              * XMM0 (c-torture execute/930702-1). */
             ZeroCCType eff_params[IR_CALL_MAX_ARGS];
-            int eff_param_count = 0;
-            if (callee_fn && callee_fn->param_types && callee_fn->param_count > 0) {
-                eff_param_count = callee_fn->param_count < IR_CALL_MAX_ARGS ?
-                                  (int)callee_fn->param_count : IR_CALL_MAX_ARGS;
-                for (int i = 0; i < eff_param_count; i++)
-                    eff_params[i] = callee_fn->param_types[i];
-            } else {
-                TypeInfo *cal_ti = ast_node_get_typeinfo(c, zero_cc_ast_get(arena, node->left));
-                TypeInfo *pointee_fn = NULL;
-                if (cal_ti && cal_ti->kind == TYPE_KIND_POINTER &&
-                    cal_ti->details.pointer.base &&
-                    cal_ti->details.pointer.base->kind == TYPE_KIND_FUNCTION)
-                    pointee_fn = cal_ti->details.pointer.base;
-                else if (cal_ti && cal_ti->kind == TYPE_KIND_FUNCTION)
-                    pointee_fn = cal_ti;
-                if (pointee_fn) {
-                    for (size_t i = 0; i < pointee_fn->details.function.param_cnt &&
-                         i < IR_CALL_MAX_ARGS; i++)
-                        eff_params[eff_param_count++] =
-                            typeinfo_to_zero_cc_type(pointee_fn->details.function.params[i]);
-                }
-            }
+            /* Single source of truth for the call's argument layout (Sprint 121,
+             * prototype unification): the function table when the resolved
+             * callee declares a prototype, else the callee expression's pointee
+             * TypeInfo. */
+            int eff_param_count = zero_cc_effective_call_params(c, callee_fn,
+                                    zero_cc_ast_get(arena, node->left),
+                                    eff_params, IR_CALL_MAX_ARGS);
             int gp_regs_avail = BE(c)->conv->int_arg_reg_count;
             int fp_regs_avail = BE(c)->conv->fp_arg_reg_count;
             int gp_stream = 0, fp_stream = 0, stack_arg_count = 0;

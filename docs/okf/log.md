@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-07T00:19:36Z
+timestamp: 2026-11-07T01:02:08Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1089,3 +1089,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-07 — Updated `build-and-verification.md`
 - Sprint 120 (Slice 3): type-tag verifier I10 (complex/vector address-form) + element-size tagging; 152 files
+
+## 2026-11-07 — Updated `frontend-and-types.md`
+- Sprint 121 (prototype unification): direct-call and __builtin_apply parameter resolution consolidated into one canonical accessor zero_cc_effective_call_params (+ zc_call_pointee_typeinfo) in jit/type_info.h - the function table is the single source of truth for a call's argument layout, pointee TypeInfo the fallback (NULL node disables the fallback, preserving __builtin_apply's () => 0-params semantics). No TypeInfo/fn_params back-fill (shared-type mutation risk; value-flow back-fill deferred)
