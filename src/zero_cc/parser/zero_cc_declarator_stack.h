@@ -43,6 +43,11 @@ typedef struct ZeroCCDeclaratorChunk {
     /* Function */
     ASTRef param_list;          /* AST linked list of NODE_DECL */
     size_t param_count;
+    /* Total params parsed (uncapped).  param_count/param_tis are capped
+     * at 16; callers must fall back to the legacy parser when
+     * param_total exceeds the cap (c-torture compile/limits-fnargs.c
+     * declares a prototype with 10,000 parameters). */
+    size_t param_total;
     TypeInfo *param_tis[16];
     bool has_prototype;         /* true if prototype list or (void), false if K&R () */
     bool is_variadic;
@@ -645,6 +650,7 @@ static inline void zero_cc_parse_param_list(
             if (decl) decl->param_zt[fn_chunk->param_count] = ptype;
             fn_chunk->param_count++;
         }
+        fn_chunk->param_total++;
 
         if (param_head == AST_NULL) {
             param_head = p_ref;
