@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 165-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-11-07T00:19:36Z
+timestamp: 2026-11-07T06:55:46Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -56,9 +56,18 @@ make test-unit
 # the harnesses tear down via zero_cc_compiler_free, see types/symbols.h)
 make asan-semantic   # 17/17 as of Sprint 100
 
-# The full suite under ASan+UBSan — green (165/165) since the Sprint 42
-# teardown sweep; every in-process compile is destroyed via
-# zero_cc_compiler_free, so this gate also catches new per-compile leaks.
+# The full suite under ASan+UBSan+LeakSanitizer.  Green (180/180) as of
+# Sprint 122, which closed the last leak classes the instrumented driver
+# exposed: instance-teardown frees (temp_type_tags / fn_hash / tls section /
+# driver include-dirs + preprocessor defines), pool-resident fn_params
+# arrays (type-pool-owned, freed at end-of-compile), the struct/union
+# member-array ownership registry (recorded per-compile by
+# zero_cc_free_all_struct_arrays, released once in zero_cc_compiler_free -
+# the structs/typedefs tables persist across compiles, so per-compile frees
+# were wrong in both directions: dangle across compiles, or leak an array
+# retired by a redefinition overwrite), and the LICM per-loop work tables
+# (opt_loop.c loop_analysis_free).  Every in-process compile is destroyed
+# via zero_cc_compiler_free, so this gate also catches new per-compile leaks.
 make asan
 ```
 

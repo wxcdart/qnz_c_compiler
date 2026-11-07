@@ -529,7 +529,7 @@ if (c->tokens[c->token_pos].type == TK_ELLIPSIS) {
                 size_t saved_pos = c->token_pos;
                 c->token_pos = fp_decl_start;
                 ZeroCCDeclarator dp;
-                bool reparse_ok = zero_cc_parse_declarator(c, c->tu_ast_arena, ctx, &dp) &&
+                bool reparse_ok = zero_cc_parse_declarator(c, c->tu_ast_arena, ctx, &dp, false) &&
                                   (c->token_pos == saved_pos);
                 c->token_pos = saved_pos;
                 if (reparse_ok) {
@@ -1074,7 +1074,7 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
         ZeroCCASTArena darena;
         ZeroCCDeclarator d;
         zero_cc_ast_arena_init(&darena, 256);
-        if (!zero_cc_parse_declarator(c, &darena, ctx, &d) || !d.name ||
+        if (!zero_cc_parse_declarator(c, &darena, ctx, &d, false) || !d.name ||
             !zero_cc_declarator_is_function(&d)) {
             zero_cc_ast_arena_free(&darena);
             return;
@@ -1166,7 +1166,7 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
                 ZeroCCDeclarator d;
                 zero_cc_ast_arena_init(&darena, 256);
                 bool decl_ok =
-                    zero_cc_parse_declarator(c, &darena, ctx, &d) && d.name &&
+                    zero_cc_parse_declarator(c, &darena, ctx, &d, true) && d.name &&
                     zero_cc_declarator_is_function(&d);
                 if (decl_ok) {
                     /* Terminal-position sanity: the declarator must have
@@ -1258,6 +1258,10 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
                     }
                 }
                 zero_cc_ast_arena_free(&darena);
+                /* Free the heap param-type table (Sprint 122 2b): it is
+                 * stack-local to this declarator and the param_types[]
+                 * copies above already took the values. */
+                zero_cc_declarator_free(&d);
                 if (!params_parsed) {
                     /* Legacy prototype parser fallback: the declarator
                      * stack does not yet cover every prototype shape the

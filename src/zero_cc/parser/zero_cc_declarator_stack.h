@@ -89,8 +89,11 @@ typedef struct ZeroCCDeclarator {
      * zero_cc_parse_param_list so the caller can use it directly (avoiding the
      * lossy TypeInfo -> ZeroCCType round-trip that drops struct members).
      * Heap-allocated (NOT a per-chunk array: ZeroCCDeclarator is stack-allocated
-     * and a per-chunk ZeroCCType[16] bloats it to ~2 MB).  NULL when the
-     * declarator is not a function or has no parameters. */
+     * and a per-chunk ZeroCCType[16] bloats it to ~2 MB).  Allocated ONLY when
+     * the parse is requested with want_param_zt (the 2b plain-name block in
+     * jit/compile.c is the only consumer; every other parse site reads
+     * chunk->param_tis or zero_cc_declarator_apply and would leak the
+     * table - LeakSanitizer: `make asan`).  NULL otherwise. */
     ZeroCCType *param_zt;
     size_t param_zt_cap;
 } ZeroCCDeclarator;
@@ -103,6 +106,16 @@ static inline void zero_cc_declarator_init(ZeroCCDeclarator *d) {
     if (!d) return;
     memset(d, 0, sizeof(*d));
     d->num_levels = 1;
+}
+
+/* Free the heap allocations owned by a parsed declarator (the Sprint 122
+ * 2b param-type table, when want_param_zt was set and the parse was a
+ * function with params).  The rest of the struct is stack/arena-backed. */
+static inline void zero_cc_declarator_free(ZeroCCDeclarator *d) {
+    if (!d) return;
+    free(d->param_zt);
+    d->param_zt = NULL;
+    d->param_zt_cap = 0;
 }
 
 /* GNU asm label following a complete declarator:
@@ -157,14 +170,15 @@ static inline bool zero_cc_parse_asm_label(ZeroCCCompiler *c, char *out, size_t 
  * function-pointer parameter branch below re-parses `(*f)(...)`
  * declarators with the full declarator-stack machinery. */
 static inline bool zero_cc_parse_declarator(
-    ZeroCCCompiler *c, ZeroCCASTArena *arena, SemContext *ctx, ZeroCCDeclarator *d);
+    ZeroCCCompiler *c, ZeroCCASTArena *arena, SemContext *ctx, ZeroCCDeclarator *d,
+    bool want_param_zt);
 static inline ZeroCCType zero_cc_declarator_apply(
     const ZeroCCDeclarator *d, ZeroCCType base_type);
 
 /* Parse parameter list of a function suffix: (type param, ...) */
 static inline void zero_cc_parse_param_list(
     ZeroCCCompiler *c, ZeroCCASTArena *arena, SemContext *ctx, ZeroCCDeclaratorChunk *fn_chunk,
-    ZeroCCDeclarator *decl)
+    ZeroCCDeclarator *decl, bool want_param_zt)
 {
     ASTRef param_head = AST_NULL;
     ASTRef param_tail = AST_NULL;
@@ -444,13 +458,15 @@ static inline void zero_cc_parse_param_list(
                 size_t saved_pos = c->token_pos;
                 c->token_pos = decl_start;
                 ZeroCCDeclarator dp;
-                bool reparse_ok = zero_cc_parse_declarator(c, arena, ctx, &dp) &&
+                bool reparse_ok = zero_cc_parse_declarator(c, arena, ctx, &dp, false) &&
                                   (c->token_pos == saved_pos);
                 c->token_pos = saved_pos;
                 if (reparse_ok) {
                     ptype = zero_cc_declarator_apply(&dp, param_base);
                     ptype_full = true;
                 }
+                /* dp is stack-local; no heap table (want_param_zt = false). */
+                zero_cc_declarator_free(&dp);
             }
         } else if (c->token_pos + 1 < c->token_count &&
                    c->tokens[c->token_pos].type == TK_LPAREN &&
@@ -647,13 +663,15 @@ static inline void zero_cc_parse_param_list(
 
         if (fn_chunk->param_count < 16) {
             fn_chunk->param_tis[fn_chunk->param_count] = ptype_ti;
-            /* Sprint 122 2b: store the canonical ZeroCCType (heap-allocated on
-             * the top-level declarator, not the per-chunk struct). */
-            if (decl && decl->param_zt_cap < 16) {
-                decl->param_zt_cap = 16;
-                decl->param_zt = (ZeroCCType *)malloc(16 * sizeof(ZeroCCType));
+            /* Sprint 122 2b: store the canonical ZeroCCType (heap-allocated
+             * on the top-level declarator, only when the caller opted in). */
+            if (decl && want_param_zt) {
+                if (decl->param_zt_cap < 16) {
+                    decl->param_zt_cap = 16;
+                    decl->param_zt = (ZeroCCType *)malloc(16 * sizeof(ZeroCCType));
+                }
+                if (decl->param_zt) decl->param_zt[fn_chunk->param_count] = ptype;
             }
-            if (decl) decl->param_zt[fn_chunk->param_count] = ptype;
             fn_chunk->param_count++;
         }
         fn_chunk->param_total++;
@@ -741,7 +759,7 @@ static inline bool zero_cc_ast_eval_const(ZeroCCASTArena *arena, ASTRef ref, int
 /* Recursive declarator parse */
 static inline bool zero_cc_parse_declarator_internal(
     ZeroCCCompiler *c, ZeroCCASTArena *arena, SemContext *ctx,
-    ZeroCCDeclarator *d, size_t level)
+    ZeroCCDeclarator *d, size_t level, bool want_param_zt)
 {
     if (level >= ZERO_CC_DECLARATOR_MAX_LEVELS) {
         diag_report_error_at_token(c, "declarator nesting depth exceeds limit");
@@ -803,7 +821,7 @@ static inline bool zero_cc_parse_declarator_internal(
 
     if (is_paren) {
         c->token_pos++; /* consume '(' */
-        if (!zero_cc_parse_declarator_internal(c, arena, ctx, d, level + 1)) {
+        if (!zero_cc_parse_declarator_internal(c, arena, ctx, d, level + 1, want_param_zt)) {
             return false;
         }
         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) {
@@ -867,7 +885,7 @@ static inline bool zero_cc_parse_declarator_internal(
             ZeroCCDeclaratorChunk fn_chunk;
             memset(&fn_chunk, 0, sizeof(fn_chunk));
             fn_chunk.kind = ZERO_CC_DECL_CHUNK_FUNCTION;
-            zero_cc_parse_param_list(c, arena, ctx, &fn_chunk, d);
+            zero_cc_parse_param_list(c, arena, ctx, &fn_chunk, d, want_param_zt);
             if (lvl->suffix_count < ZERO_CC_DECLARATOR_MAX_ITEMS) {
                 lvl->suffixes[lvl->suffix_count++] = fn_chunk;
             }
@@ -907,12 +925,16 @@ static inline void zero_cc_declarator_flatten(ZeroCCDeclarator *d) {
     }
 }
 
-/* Parse a full declarator starting from level 0 */
+/* Parse a full declarator starting from level 0.
+ * want_param_zt: allocate d->param_zt for a function declarator's params
+ * (Sprint 122 2b; the only caller that needs it - the others must pass
+ * false or the table leaks, since d is stack-local to them). */
 static inline bool zero_cc_parse_declarator(
-    ZeroCCCompiler *c, ZeroCCASTArena *arena, SemContext *ctx, ZeroCCDeclarator *d)
+    ZeroCCCompiler *c, ZeroCCASTArena *arena, SemContext *ctx, ZeroCCDeclarator *d,
+    bool want_param_zt)
 {
     zero_cc_declarator_init(d);
-    if (!zero_cc_parse_declarator_internal(c, arena, ctx, d, 0)) {
+    if (!zero_cc_parse_declarator_internal(c, arena, ctx, d, 0, want_param_zt)) {
         return false;
     }
     zero_cc_declarator_flatten(d);
@@ -1105,7 +1127,11 @@ static inline ZeroCCType zero_cc_chunk_apply(const ZeroCCDeclaratorChunk *chunk,
         target.fn_is_variadic = chunk->is_variadic;
         if (chunk->has_prototype && chunk->param_count > 0 &&
             target.fn_params == NULL) {
-            ZeroCCType *params = (ZeroCCType *)malloc(chunk->param_count * sizeof(ZeroCCType));
+            /* Pool-resident (freed with the type pool at end of compile;
+             * the function table is reset with it - see
+             * zero_cc_type_pool_alloc_fn_params). */
+            ZeroCCType *params =
+                (ZeroCCType *)zero_cc_type_pool_alloc_fn_params(chunk->param_count);
             if (params) {
                 for (size_t p = 0; p < chunk->param_count; p++) {
                     params[p] = chunk->param_tis[p] ?

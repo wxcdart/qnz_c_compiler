@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-07T01:41:28Z
+timestamp: 2026-11-07T06:55:46Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1095,3 +1095,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-07 — Updated `frontend-and-types.md`
 - Sprint 122 Stage 1: parameter-parser consolidation — the parenthesized-declarator top-level path now captures a VLA parameter's dimension expression into the surviving dim_arena/param_dim_exprs (matching the legacy plain-name path), so sizeof(a[0]) yields the runtime row size. Conversion pattern Stage 2 reuses. Regression test/jit/vla_param_paren.c.
+
+## 2026-11-07 — Updated `frontend-and-types.md`
+- Stage 2 SHIPPED: plain-name functions route through the declarator stack (want_param_zt canonical param types, K&R pre-scan, legacy fallback on terminal-position/param_total>16/!param_list_complete); parity gaps burned down (long double 16/16, _Complex both positions, storage classes, per-star-level ptr qualifiers, const array dims vs VLA, struct/union param members). Full c-torture gate clean.
+
+## 2026-11-07 — Updated `build-and-verification.md`
+- make asan fully green (180/180): instance teardown frees, pool-resident fn_params, member-array ownership registry, LICM loop-table frees.

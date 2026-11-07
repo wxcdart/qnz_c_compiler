@@ -394,10 +394,10 @@ void zero_cc_type_pool_free(void) {
     g_type_pool_head = NULL;
 }
 
-/* Owner-set helpers for zero_cc_free_all_struct_arrays: collect distinct
+/* Member-array ownership (make asan / LeakSanitizer): collect distinct
  * member-array pointers; an array referenced by several types (the
  * canonical struct def + typedef aliases + locals/params of that type)
- * is freed exactly once. */
+ * is recorded exactly once. */
 #define ZC_STRUCT_OWNER_SET_CAP 1024 /* > any sane distinct-struct count */
 
 static void zc_struct_owner_add(ZeroCCStructMember **set, size_t *n,
@@ -406,7 +406,32 @@ static void zc_struct_owner_add(ZeroCCStructMember **set, size_t *n,
     for (size_t i = 0; i < *n; i++)
         if (set[i] == m) return;
     if (*n < ZC_STRUCT_OWNER_SET_CAP) set[(*n)++] = m;
-    /* Set full: skip — leaking one array beats risking a double free. */
+    /* Set full: skip - recording more is harmless, the per-compile sweep
+     * repeats and picks the rest up (see zero_cc_note_members_array). */
+}
+
+/* Single owner for every struct/union member array: append a distinct
+ * pointer to the compiler's members_arrays list (freed once in
+ * zero_cc_compiler_free).  Arrays are never freed per-compile - the
+ * structs/typedefs tables persist across compiles, so a per-compile free
+ * would dangle an array the next compile still reads; and an array
+ * retired by a zero_cc_register_struct overwrite is unreachable from the
+ * tables by the end of the compile, so a per-compile free would leak it
+ * (c-torture-style sibling redefinitions; LSan 1664 B in the
+ * vla_struct_diag_test WANT_ERROR case). */
+void zero_cc_note_members_array(ZeroCCCompiler *c, ZeroCCStructMember *m) {
+    if (!c || !m) return;
+    for (size_t i = 0; i < c->members_arrays_count; i++)
+        if (c->members_arrays[i] == m) return;
+    if (c->members_arrays_count == c->members_arrays_cap) {
+        size_t ncap = c->members_arrays_cap ? c->members_arrays_cap * 2 : 32;
+        ZeroCCStructMember **nl =
+            (ZeroCCStructMember **)realloc(c->members_arrays, ncap * sizeof(*nl));
+        if (!nl) return;
+        c->members_arrays = nl;
+        c->members_arrays_cap = ncap;
+    }
+    c->members_arrays[c->members_arrays_count++] = m;
 }
 
 void zero_cc_free_all_struct_arrays(ZeroCCCompiler *c) {
@@ -431,13 +456,16 @@ void zero_cc_free_all_struct_arrays(ZeroCCCompiler *c) {
             zc_struct_owner_add(owners, &n, c->thread_locals[i].type.members);
     }
     /* The pool nodes are the live holders of nested anonymous-struct
-     * member arrays — iterate the list directly (chasing `base` pointers
+     * member arrays - iterate the list directly (chasing `base` pointers
      * from the tables would dangle once the pool is freed). */
     for (ZeroCCTypeNode *node = g_type_pool_head; node; node = node->next)
         zc_struct_owner_add(owners, &n, node->type.members);
-    for (size_t i = 0; i < n; i++) free(owners[i]);
+    /* RECORD only (see zero_cc_note_members_array) - zero_cc_compiler_free
+     * is the single point of release. */
+    for (size_t i = 0; i < n; i++) zero_cc_note_members_array(c, owners[i]);
     /* The structs/typedefs tables persist past the compile: null the
-     * now-dangling owners so a stale entry can't be freed twice. */
+     * owners so a stale entry can't be misread as live (the arrays
+     * themselves stay owned by the compiler list). */
     if (c) {
         for (size_t i = 0; i < c->struct_count; i++) {
             c->structs[i].type.members = NULL;
@@ -458,6 +486,19 @@ ZeroCCType *zero_cc_type_alloc_base(const ZeroCCType *base) {
     node->next = g_type_pool_head;
     g_type_pool_head = node;
     return &node->type;
+}
+
+void *zero_cc_type_pool_alloc_fn_params(size_t n) {
+    ZeroCCTypePoolArrNode *node = (ZeroCCTypePoolArrNode *)calloc(
+        1, sizeof(*node) + (n > 0 ? n : 1) * sizeof(ZeroCCType));
+    if (!node) return NULL;
+    node->n_elems = n;
+    node->next = g_type_pool_head;
+    /* The node's first field is the pool-list link (same offset/type as
+     * ZeroCCTypeNode.next), so linking the node itself keeps pool_free's
+     * free(curr) on the original allocation pointer. */
+    g_type_pool_head = (ZeroCCTypeNode *)node;
+    return node->elems;
 }
 
 /* Build-integrity canary: lets the driver detect stale object files compiled

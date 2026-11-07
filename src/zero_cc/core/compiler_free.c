@@ -21,7 +21,14 @@
 
 /* NOTE: struct/union member arrays are freed per-compilation by
  * zero_cc_free_all_struct_arrays (compile_unit.h teardown) — they must go
- * while the type pool is still alive, so nothing here touches them. */
+ * while the type pool is still alive, so nothing here touches them.
+ *
+ * fn_params arrays (function-pointer prototypes carried inside the
+ * function table's by-value-copied ZeroCCTypes) are pool-resident:
+ * zero_cc_type_pool_alloc_fn_params allocates them behind a pool node, so
+ * the zero_cc_type_pool_free() at the end of each compilation releases
+ * them exactly when the function table is reset.  Nothing here touches
+ * them. */
 
 void zero_cc_compiler_free(ZeroCCCompiler *c) {
     if (!c) return;
@@ -45,6 +52,11 @@ void zero_cc_compiler_free(ZeroCCCompiler *c) {
     /* IR arenas (one-time init, per-instance) */
     ir_arena_free(&c->ir_arena);
     ir_call_args_arena_free(&c->ir_call_args);
+
+    /* Per-temp type-tag table (Sprint 118: lazy 64 KiB, indexed by temp id) */
+    free(c->temp_type_tags);
+    c->temp_type_tags = NULL;
+    c->temp_type_tags_hi = 0;
 
     /* Translation-unit AST arena (inlinable function bodies) */
     if (c->tu_ast_arena) {
@@ -70,6 +82,33 @@ void zero_cc_compiler_free(ZeroCCCompiler *c) {
     zero_cc_buf_free(&c->text_section);
     zero_cc_buf_free(&c->rodata_section);
     zero_cc_buf_free(&c->data_section);
+    zero_cc_buf_free(&c->tls_data_section);
+
+    /* Function-name hash table (append-only, persists across compiles on
+     * the same instance, so it is freed here rather than per-compile) */
+    if (c->fn_hash) {
+        free(c->fn_hash);
+        c->fn_hash = NULL;
+        c->fn_hash_cap = 0;
+    }
+    if (c->fn_hash_next) {
+        free(c->fn_hash_next);
+        c->fn_hash_next = NULL;
+    }
+    c->fn_hash_upto = 0;
+
+    /* Struct/union member arrays: recorded per-compile by
+     * zero_cc_free_all_struct_arrays (see ZeroCCCompiler.members_arrays),
+     * released here as the single point of ownership. */
+    if (c->members_arrays) {
+        for (size_t i = 0; i < c->members_arrays_count; i++) {
+            free(c->members_arrays[i]);
+        }
+        free(c->members_arrays);
+        c->members_arrays = NULL;
+        c->members_arrays_count = 0;
+        c->members_arrays_cap = 0;
+    }
 
     /* Global variable registry and name hash */
     if (c->global_vars) {

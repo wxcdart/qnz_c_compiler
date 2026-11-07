@@ -213,6 +213,13 @@ static char *preprocess_with_options(const char *source, const CompileOptions *o
     if (!out && include_err[0]) {
         fprintf(stderr, "%s\n", include_err);
     }
+
+    /* The defines are fully consumed by the preprocessor call above; free
+     * the strdup'd name/value strings (make asan: LeakSanitizer). */
+    for (size_t d = 0; d < defines.count; d++) {
+        free(defines.defs[d].name);
+        free(defines.defs[d].value);
+    }
     return out;
 }
 
@@ -1675,19 +1682,24 @@ int main(int argc, char **argv) {
 
     /* Determine mode: -E -> preprocess only, -c -> object file,
      * -S -> assembly, -o without -c -> executable, else JIT */
+    int rc;
     if (opts.emit_preproc) {
-        return compile_preprocess(&opts);
+        rc = compile_preprocess(&opts);
     } else if (opts.emit_object || opts.emit_asm) {
         /* When ZC_TEXT_AOT=1 is set for cross targets, route -c through the text
          * assembler escape hatch. Default is direct raw binary object generation. */
         if (opts.emit_object && getenv("ZC_TEXT_AOT") && parse_target_arch(opts.target_arch) != ISA_X86_64) {
-            return compile_object_cross(&opts);
+            rc = compile_object_cross(&opts);
+        } else {
+            rc = compile_object(&opts);
         }
-        return compile_object(&opts);
     } else if (opts.output_file) {
         /* Generate executable via system linker */
-        return compile_and_link(&opts);
+        rc = compile_and_link(&opts);
     } else {
-        return compile_jit(&opts);
+        rc = compile_jit(&opts);
     }
+    /* strdup'd -I directories (driver_opts.h) */
+    for (int d = 0; d < opts.include_count; d++) free(opts.include_dirs[d]);
+    return rc;
 }

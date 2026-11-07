@@ -42,6 +42,12 @@ static inline void zero_cc_register_struct(ZeroCCCompiler *c, const char *name, 
                     "redefinition of '%s %s' with a different layout is not supported",
                     type.tag == TYPE_UNION ? "union" : "struct", name);
             }
+            /* The overwritten array may no longer be referenced by any
+             * table or pool node (function-local struct definitions are
+             * not in c->locals) - record it in the compiler ownership
+             * list so zero_cc_compiler_free releases it (make asan / LSan:
+             * the redefinition-rejection path leaked 1664 B). */
+            zero_cc_note_members_array(c, prev->members);
             c->structs[i].type = type;
             return;
         }
@@ -90,6 +96,8 @@ static inline void zero_cc_sync_typedefs_with_struct(ZeroCCCompiler *c, const ch
 static inline void zero_cc_register_typedef(ZeroCCCompiler *c, const char *alias, ZeroCCType type) {
     for (size_t i = 0; i < c->typedef_count; i++) {
         if (strcmp(c->typedefs[i].alias, alias) == 0) {
+            /* Retired-array recording: see zero_cc_register_struct. */
+            zero_cc_note_members_array(c, c->typedefs[i].type.members);
             c->typedefs[i].type = type;
             return;
         }

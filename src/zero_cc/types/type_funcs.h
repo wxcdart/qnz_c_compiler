@@ -138,14 +138,36 @@ typedef struct ZeroCCTypeNode {
 
 void zero_cc_type_pool_free(void);
 
-/* Free every heap struct/union member array owned by `c` (registration
+/* Free every struct/union member array owned by `c` (registration
  * tables) plus the arrays held by the live type-pool nodes (nested
- * anonymous structs). Call at the end of a compilation, while the pool is
- * still alive — after zero_cc_type_pool_free those nested arrays are
- * unreachable. Distinct arrays are freed exactly once (aliases share one).
- * Implemented in parser.c (needs the pool list). */
+ * anonymous structs).  Call at the end of a compilation, while the pool is
+ * still alive - after zero_cc_type_pool_free those nested arrays are
+ * unreachable.  Distinct arrays are recorded (NOT freed) in the
+ * compiler's members_arrays list; zero_cc_compiler_free is the single
+ * point of release (the structs/typedefs tables persist across compiles,
+ * and an array retired by a redefinition overwrite is unreachable from
+ * the tables by end-of-compile).  Implemented in parser.c (needs the
+ * pool list). */
 void zero_cc_free_all_struct_arrays(ZeroCCCompiler *c);
+/* Record a distinct member-array pointer in the compiler's ownership
+ * list (see zero_cc_free_all_struct_arrays). */
+void zero_cc_note_members_array(ZeroCCCompiler *c, ZeroCCStructMember *m);
 ZeroCCType *zero_cc_type_alloc_base(const ZeroCCType *base);
+
+/* Pool-resident fn_params array (flexible member behind a pool node, so
+ * zero_cc_type_pool_free's free(curr) covers the whole allocation).
+ * fn_params arrays are carried inside ZeroCCType values that get copied
+ * by value into the function table (which outlives the pool) - a raw
+ * malloc would leak (LeakSanitizer: `make asan`) or dangle (freed early);
+ * the pool frees them at the end of the compilation, which is exactly
+ * when the function table is reset (function_count = 0 at the next
+ * compile).  Implemented in parser.c (needs the pool list). */
+typedef struct ZeroCCTypePoolArrNode {
+    struct ZeroCCTypeNode *next;
+    size_t n_elems;
+    ZeroCCType elems[];
+} ZeroCCTypePoolArrNode;
+void *zero_cc_type_pool_alloc_fn_params(size_t n);
 
 static inline ZeroCCType zero_cc_type_ptr(ZeroCCType *base) {
     ZeroCCType t; memset(&t, 0, sizeof(t));

@@ -334,8 +334,17 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                     }
                 }
                 /* The flattened anonymous struct's own members array is
-                 * now orphaned (entries were copied above) — release it. */
-                free(inner_type.members);
+                 * orphaned (entries were COPIES above) - but ONLY when the
+                 * inner aggregate is anonymous: a named inner tag was
+                 * registered in the struct registry (above) and its entry
+                 * still references the array, which the compiler's
+                 * members_arrays list then owns (zero_cc_compiler_free
+                 * releases it; the old unconditional free() was a latent
+                 * double free for named inners). */
+                if (inner_tag[0] == '\0' && inner_type.members &&
+                    !is_enum) {
+                    free(inner_type.members);
+                }
                 continue;
             }
 

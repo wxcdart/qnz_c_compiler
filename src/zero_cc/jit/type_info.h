@@ -352,7 +352,10 @@ static inline ZeroCCType typeinfo_to_zero_cc_type(const TypeInfo *ti) {
                 if (t.base && ti->details.pointer.base->details.function.param_cnt > 0) {
                     const TypeInfo *pfn = ti->details.pointer.base;
                     size_t pc = pfn->details.function.param_cnt;
-                    ZeroCCType *params = (ZeroCCType *)malloc(pc * sizeof(ZeroCCType));
+                    /* Pool-resident (freed with the type pool at end of
+                     * compile - see zero_cc_type_pool_alloc_fn_params). */
+                    ZeroCCType *params =
+                        (ZeroCCType *)zero_cc_type_pool_alloc_fn_params(pc);
                     if (params) {
                         for (size_t i = 0; i < pc; i++)
                             params[i] = typeinfo_to_zero_cc_type(pfn->details.function.params[i]);

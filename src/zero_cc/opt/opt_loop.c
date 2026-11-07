@@ -36,6 +36,14 @@ void loop_analysis_init(LoopAnalysisState *state) {
  * Free loop analysis resources
  */
 void loop_analysis_free(LoopAnalysisState *state) {
+    /* Per-loop work tables (detect_loops): indexed by instruction/byte,
+     * grown per loop - released here, not by the caller. */
+    for (size_t i = 0; i < state->loop_count; i++) {
+        free(state->loops[i].body_indices);
+        free(state->loops[i].is_invariant);
+        state->loops[i].body_indices = NULL;
+        state->loops[i].is_invariant = NULL;
+    }
     free(state->loops);
     free(state->dominators);
     free(state->post_dominators);

@@ -78,6 +78,19 @@ typedef struct ZeroCCCompiler {
     ZeroCCStructDef structs[ZERO_CC_MAX_STRUCTS];
     size_t struct_count;
 
+    /* Struct/union member-array ownership (make asan / LeakSanitizer):
+     * every member array reachable from the live tables or the type pool
+     * at the end of a compilation is RECORDED here (zero_cc_note_members_array)
+     * instead of being freed per-compile - the structs/typedefs tables
+     * persist across compiles, so a per-compile free would dangle an array
+     * the next compile still reads; and an array retired by a redefinition
+     * overwrite is unreachable from the tables by then, so a per-compile
+     * free would leak it.  The list is the single owner: freed exactly once
+     * in zero_cc_compiler_free. */
+    ZeroCCStructMember **members_arrays;
+    size_t members_arrays_count;
+    size_t members_arrays_cap;
+
     ZeroCCEnumDef enums[ZERO_CC_MAX_ENUM_DEFS];
     size_t enum_count;
 

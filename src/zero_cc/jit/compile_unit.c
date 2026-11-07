@@ -584,7 +584,7 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                 ZeroCCASTArena darena;
                 ZeroCCDeclarator d;
                 zero_cc_ast_arena_init(&darena, 256);
-                if (!zero_cc_parse_declarator(c, &darena, &shared_ctx, &d) || !d.name ||
+                if (!zero_cc_parse_declarator(c, &darena, &shared_ctx, &d, false) || !d.name ||
                     zero_cc_declarator_is_function(&d)) {
                     zero_cc_ast_arena_free(&darena);
                     c->token_pos = after_extern;
@@ -1010,7 +1010,7 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                     ZeroCCASTArena darena;
                     ZeroCCDeclarator d;
                     zero_cc_ast_arena_init(&darena, 256);
-                    if (!zero_cc_parse_declarator(c, &darena, &shared_ctx, &d) || !d.name ||
+                    if (!zero_cc_parse_declarator(c, &darena, &shared_ctx, &d, false) || !d.name ||
                         zero_cc_declarator_is_function(&d)) {
                         /* A function declarator (definition or prototype):
                          * back up and let the function parser handle it. */

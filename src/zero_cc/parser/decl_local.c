@@ -1114,7 +1114,7 @@ bool zero_cc_parse_local_decl(ZeroCCCompiler *c,  /* Sprint 114: defined in decl
             size_t probe = 0;
             if (zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) align_attr_val = probe;
         }
-        if (!zero_cc_parse_declarator(c, arena, ctx, &decl)) {
+        if (!zero_cc_parse_declarator(c, arena, ctx, &decl, false)) {
             *out_ref = AST_NULL; return true;
         }
         /* GNU aligned(N) trailing the declarator:
@@ -1714,7 +1714,7 @@ bool zero_cc_parse_local_decl(ZeroCCCompiler *c,  /* Sprint 114: defined in decl
                             c->token_pos++;
                             ZeroCCDeclarator md;
                             zero_cc_declarator_init(&md);
-                            if (!zero_cc_parse_declarator(c, arena, ctx, &md) || !md.name ||
+                            if (!zero_cc_parse_declarator(c, arena, ctx, &md, false) || !md.name ||
                                 !zero_cc_declarator_validate(c, &md)) {
                                 *out_ref = AST_NULL; return true;
                             }
@@ -2080,7 +2080,7 @@ bool zero_cc_parse_local_decl(ZeroCCCompiler *c,  /* Sprint 114: defined in decl
                     c->token_pos++; /* consume ',' */
                     ZeroCCDeclarator next_decl;
                     zero_cc_declarator_init(&next_decl);
-                    if (!zero_cc_parse_declarator(c, arena, ctx, &next_decl) || !next_decl.name) {
+                    if (!zero_cc_parse_declarator(c, arena, ctx, &next_decl, false) || !next_decl.name) {
                         break;
                     }
                     if (!zero_cc_declarator_validate(c, &next_decl)) {
