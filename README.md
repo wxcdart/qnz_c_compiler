@@ -242,19 +242,20 @@ against a static-musl reference). See
 
 ## Test Results
 
-Current status (verified 2026-11-06 at HEAD):
+Current status (verified 2026-11-06 at HEAD, Sprints 118–120):
 
 | Suite | Status | Count |
 |-------|--------|-------|
-| **Main regression suite** (`make test`: unit, semantic, ABI, JIT, AOT, LICM) | ✅ Pass | 177/177 |
-| **Optimizer sweep** (`make test-opt`, `-O0..-O3` × JIT + AOT via zerocc) | ✅ Pass | 139/139 |
-| **`zero_san` flag-ON sweep** (`make test-san`: `san_ok_*` clean + `san_trap_*` SIGILL at `-O0..-O3`, JIT + AOT, cross-ISA qemu smoke) | ✅ Pass | 81 ok + 3 cross |
+| **Main regression suite** (`make test`: unit, semantic, ABI, JIT, AOT, LICM) | ✅ Pass | 179/179 |
+| **Optimizer sweep** (`make test-opt`, `-O0..-O3` × JIT + AOT via zerocc) | ✅ Pass | 141/141 |
+| **`zero_san` flag-ON sweep** (`make test-san`: `san_ok_*` clean + `san_trap_*` SIGILL at `-O0..-O3`, JIT + AOT, cross-ISA qemu smoke) | ✅ Pass | 101 ok + 3 cross |
 | **Multi-file driver** (`make test-driver`, multi-TU JIT/AOT + per-input `-c`/`-S`) | ✅ Pass | 37/37 |
 | **Own linker** (`make test-linker`, `--zerocc-link` + gcc differential) | ✅ Pass | 21/21 |
 | **Cross-ISA raw-emitter QEMU gate** (`make test-isa-qemu`, vs static-musl reference) | ✅ Pass | 59/59 (all 4 ISAs) |
 | **Cross-ISA `__int128` raw-emitter QEMU gate** (`make test-isa128`, vs static-musl reference) | ✅ Pass | 144/144 (all 3 ISAs × 6 tests × 4 levels × 2 paths) |
 | **GCC c-torture conformance gate** (`make test-torture`, ratcheted baseline) | ✅ Pass | 3,740 PASS / 3,934 corpus (0 MISCOMPILE / 0 REJECT; SKIP-SUPPORT 87, SKIP-C89 44, SKIP-REFSEM 16, SKIP-TARGET: arm/ia64/mips 6, SKIP-UB/PTR/BOGUS 3, EXPECTED-REJECT 4, NO-REF 26, REF-BUG 8) |
-| **ASan/UBSan rebuild** (`make asan`) | ✅ Pass | 177/177 |
+| **Type-tag verifier** (`tools/type_tag_verifier.py --verify-all`, invariants I1–I10 at `-O0/2/3`) | ✅ Pass | 152 files, RESULT OK |
+| **ASan/UBSan rebuild** (`make asan`) | ✅ Pass | 179/179 |
 | **`sret` ABI verifier** (`tools/sret_verifier.py --verify-all`) | ✅ Pass | 6/6 |
 | **C11 verification suite** (`tools/c11/test_c11.py`) | ✅ Pass | 11/11 |
 | **VLA verification suite** (`tools/vla/test_vla.py`) | ✅ Pass | 11/11 (9 pass + 2 expected-reject) |
@@ -359,6 +360,7 @@ ZeroCC includes automated verification suites in [`tools/`](tools/)
 python3 tools/c11/test_c11.py --verbose    # C11 feature & concurrency suite
 python3 tools/vla/test_vla.py              # VLA & matrix VLA suite
 python3 tools/sret_verifier.py --verify-all  # sret ABI verifier
+python3 tools/type_tag_verifier.py --verify-all  # Per-temp IR type-tag invariants (Sprints 118–119)
 python3 tools/diag_battery.py              # Differential diagnostics vs gcc (ratchet baseline)
 python3 tools/style_check.py               # C style/convention checker
 python3 tools/simd_regression_suite.py     # Auto-vectorization regression suite
