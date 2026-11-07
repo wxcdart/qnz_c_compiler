@@ -1103,6 +1103,29 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
                     if (pti) param_types[pi] = typeinfo_to_zero_cc_type(pti);
                 }
                 param_names[pi] = zero_cc_intern_string(c, (pn->s.str && pn->s.str[0]) ? pn->s.str : "");
+                /* C99 6.7.6.2: a VLA parameter's dimension expression is
+                 * carried on the NODE_DECL's `right` field (parsed into
+                 * darena).  Clone it into the surviving heap dim_arena so
+                 * the function record owns it - it is evaluated at entry
+                 * to fill the per-param runtime size slot that sizeof(a[0])
+                 * reads, exactly like the legacy plain-name path.  Without
+                 * this, a parenthesized declarator such as
+                 * `int (*f(char a[2][N]))(int)` yields a definition-time
+                 * sizeof(a[0]) instead of the runtime row size.  (The
+                 * subscript *stride* is unaffected - it uses the param
+                 * type's vla_dim, set in zero_cc_parse_param_list.)
+                 * Sprint 122 Stage 1: capability parity for the
+                 * declarator-stack path; the plain-name path reuses this
+                 * in Stage 2. */
+                if (pn->right != AST_NULL) {
+                    if (!dim_arena) {
+                        dim_arena = (ZeroCCASTArena *)calloc(1, sizeof(ZeroCCASTArena));
+                        if (dim_arena) zero_cc_ast_arena_init(dim_arena, 64);
+                    }
+                    if (dim_arena) {
+                        dim_exprs[pi] = zero_cc_ast_clone(&darena, pn->right, dim_arena);
+                    }
+                }
                 pl = pn->next;
                 pi++;
             }

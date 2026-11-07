@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-07T01:02:08Z
+timestamp: 2026-11-07T01:41:28Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1092,3 +1092,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-07 — Updated `frontend-and-types.md`
 - Sprint 121 (prototype unification): direct-call and __builtin_apply parameter resolution consolidated into one canonical accessor zero_cc_effective_call_params (+ zc_call_pointee_typeinfo) in jit/type_info.h - the function table is the single source of truth for a call's argument layout, pointee TypeInfo the fallback (NULL node disables the fallback, preserving __builtin_apply's () => 0-params semantics). No TypeInfo/fn_params back-fill (shared-type mutation risk; value-flow back-fill deferred)
+
+## 2026-11-07 — Updated `frontend-and-types.md`
+- Sprint 122 Stage 1: parameter-parser consolidation — the parenthesized-declarator top-level path now captures a VLA parameter's dimension expression into the surviving dim_arena/param_dim_exprs (matching the legacy plain-name path), so sizeof(a[0]) yields the runtime row size. Conversion pattern Stage 2 reuses. Regression test/jit/vla_param_paren.c.
