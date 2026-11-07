@@ -1,11 +1,14 @@
 # zero_cc — Standalone Embeddable C99/C11/C23 Compiler
 
-ZeroCC is a lightweight, embeddable C99/C11/C23 compiler (with GNU extensions) with a two-pass architecture: a flat 140-opcode IR that is lowered, optimized, register-allocated, and emitted to any of four target ISAs. It compiles to machine code for a JIT (`--run`, the default) or to assembly, ELF objects, and — via ZeroCC's own linker — directly-executable freestanding binaries linked against its own `zero_rt` runtime, with no host libc involved.
+ZeroCC is a lightweight, embeddable C99/C11/C23 compiler (with GNU extensions) with a two-pass architecture: a flat 167-opcode IR that is lowered, optimized, register-allocated, and emitted to any of four target ISAs. It compiles to machine code for a JIT (`--run`, the default) or to assembly, ELF objects, and — via ZeroCC's own linker — directly-executable freestanding binaries linked against its own `zero_rt` runtime, with no host libc involved.
 
 ## Features
 
 - **C99/C11/C23** compiler, freestanding, with optional `zero_rt` standard library
 - **Multi-ISA**: x86-64, AArch64, RISC-V 64, RISC-V 32 (`--target`)
+- **`-fsanitize=undefined`** — target-side signed-integer-overflow trap (bare
+  `ud2`; x86-64, both emitters; check width follows the usual arithmetic
+  conversions — Sprints 116–117; `make test-san` flag-ON gate)
 - **Multi-translation-unit driver**: multiple `.c` inputs per invocation
   (JIT image merge + per-input `-c`/`-S`)
 - **Own ELF linker** (`--zerocc-link`): static `ET_EXEC` output with no libc
@@ -19,6 +22,9 @@ ZeroCC is a lightweight, embeddable C99/C11/C23 compiler (with GNU extensions) w
 - System V AMD64 / AArch64 / RISC-V calling conventions, including by-value
   structs and hidden-pointer (`sret`) returns for `>16B` structs
 - `__int128` / `__uint128_t` support on all 64-bit ISAs (Sprint 109)
+- 128-bit ABI completeness: two-unit `__int128` argument ABI, `__int128`
+  function-pointer signatures, `__float128` (Sprints 110–112)
+- `__builtin_{add,sub,mul}_overflow` real overflow detection (Sprint 61)
 - `__attribute__((section("name")))` on objects and functions (Sprints 107–108)
 - `__attribute__((aligned(N)))` with runtime SP realign for `N > 16` locals (Sprints 94–96)
 - `__builtin_apply` / `__builtin_apply_args` (Sprint 103)
@@ -39,7 +45,7 @@ ZeroCC is a lightweight, embeddable C99/C11/C23 compiler (with GNU extensions) w
 - **Compiler diagnostics** — gcc-style caret errors, C99 constraint checking,
   "did you mean" suggestions, multi-error recovery
 - **Conformance gate** ratcheted against GCC's `gcc.c-torture` corpus
-  (3,940 tests; see `make test-torture`)
+  (3,934 tests; 3,740 PASS / 0 bad at HEAD; see `make test-torture`)
 
 ## Quick Start
 
@@ -74,6 +80,8 @@ zerocc [options] <source.c> [more.c ...]
   -include <file>          Force-include a file before the main source
   -run, --run     Run in JIT mode (default)
   --target <arch> Target architecture (x86-64, aarch64, riscv64, riscv32)
+  -fsanitize=undefined  Target-side signed-integer-overflow trap after signed
+                       +,-,* (x86-64, both emitters; Sprints 116-117)
   --zerocc-link  With -o: link with ZeroCC's own linker (x86-64, aarch64,
                 riscv64); auto-links zero_rt (opt out: --no-zerocc-rt)
   -MMD / -MF <file> / -MT <target>   Dependency-file generation
@@ -106,7 +114,7 @@ zero_cc/
 │       ├─ lexer/          # Tokenizer (C99/C11/C23 keyword tables)
 │       ├─ parser/         # Arena-based AST parser, const eval, static assert
 │       ├─ semantic/       # Semantic analysis: types, scopes, diagnostics
-│       ├─ ir/             # 140-opcode Instr IR, AST→IR lowering,
+│       ├─ ir/             # 167-opcode Instr IR, AST→IR lowering,
 │       │                   # linear-scan regalloc, asm/machine emitters
 │       ├─ opt/            # IR passes: constant_fold, dce, copy_prop,
 │       │                   # mem2reg, cse, gvn, licm, branchless,
@@ -120,7 +128,7 @@ zero_cc/
 ├─ third_party/vendor/     # Vendored deps (Ryū, gcc.c-torture corpus)
 ├─ test/                   # Regression suites (unit, semantic, abi, jit, aot,
 │                           # driver, linker, licm, inline_audit, isa_qemu,
-│                           # isa128, torture, diag, bench, ...)
+│                           # isa128, torture, diag, san, bench, ...)
 ├─ tools/                  # Verification & tooling (see tools/README.md)
 ├─ docs/                   # OKF knowledge graph (docs/okf/), archive, plan
 ├─ LICENSE                 # MIT license
@@ -140,7 +148,7 @@ Source → Preprocessor → Lexer → Arena AST Parser → Semantic Analysis
 ```
 
 **IR design:**
-- 140-opcode `Instr` array (integer, float, SIMD, atomic, TLS, and call
+- 167-opcode `Instr` array (integer, float, SIMD, atomic, TLS, and call
   opcodes) with an `IRCallArgs` side table for call-site operands
 - Dynamic, growing `IRArena` buffer — O(1) emission, cheap reset per function
 - Flat, non-SSA with implicit control flow; a lazy versioned **CFG layer**
@@ -234,20 +242,22 @@ against a static-musl reference). See
 
 ## Test Results
 
-Current status (verified against `make test` and friends):
+Current status (verified 2026-11-06 at HEAD):
 
 | Suite | Status | Count |
 |-------|--------|-------|
-| **Main regression suite** (`make test`: unit, semantic, ABI, JIT, AOT, LICM) | ✅ Pass | 171/171 |
-| **Optimizer sweep** (`make test-opt`, `-O0..-O3` × JIT + AOT via zerocc) | ✅ Pass | 132/132 |
+| **Main regression suite** (`make test`: unit, semantic, ABI, JIT, AOT, LICM) | ✅ Pass | 177/177 |
+| **Optimizer sweep** (`make test-opt`, `-O0..-O3` × JIT + AOT via zerocc) | ✅ Pass | 139/139 |
+| **`zero_san` flag-ON sweep** (`make test-san`: `san_ok_*` clean + `san_trap_*` SIGILL at `-O0..-O3`, JIT + AOT, cross-ISA qemu smoke) | ✅ Pass | 81 ok + 3 cross |
 | **Multi-file driver** (`make test-driver`, multi-TU JIT/AOT + per-input `-c`/`-S`) | ✅ Pass | 37/37 |
 | **Own linker** (`make test-linker`, `--zerocc-link` + gcc differential) | ✅ Pass | 21/21 |
 | **Cross-ISA raw-emitter QEMU gate** (`make test-isa-qemu`, vs static-musl reference) | ✅ Pass | 59/59 (all 4 ISAs) |
-| **Cross-ISA `__int128` raw-emitter QEMU gate** (`make test-isa128`, vs static-musl reference) | ✅ Pass | 72/72 (all 3 ISAs × 3 variants × 4 levels × 2 paths) |
-| **GCC c-torture conformance gate** (`make test-torture`, ratcheted baseline) | ✅ Pass | 3,713 PASS / 3,940 corpus (MISCOMPILE 34, REJECT 4, SKIP-C89 45, SKIP-TARGET: arm/ia64/mips 6) |
+| **Cross-ISA `__int128` raw-emitter QEMU gate** (`make test-isa128`, vs static-musl reference) | ✅ Pass | 144/144 (all 3 ISAs × 6 tests × 4 levels × 2 paths) |
+| **GCC c-torture conformance gate** (`make test-torture`, ratcheted baseline) | ✅ Pass | 3,740 PASS / 3,934 corpus (0 MISCOMPILE / 0 REJECT; SKIP-SUPPORT 87, SKIP-C89 44, SKIP-REFSEM 16, SKIP-TARGET: arm/ia64/mips 6, SKIP-UB/PTR/BOGUS 3, EXPECTED-REJECT 4, NO-REF 26, REF-BUG 8) |
+| **ASan/UBSan rebuild** (`make asan`) | ✅ Pass | 177/177 |
 | **`sret` ABI verifier** (`tools/sret_verifier.py --verify-all`) | ✅ Pass | 6/6 |
 | **C11 verification suite** (`tools/c11/test_c11.py`) | ✅ Pass | 11/11 |
-| **VLA verification suite** (`tools/vla/test_vla.py`) | ✅ Pass | 11/11 |
+| **VLA verification suite** (`tools/vla/test_vla.py`) | ✅ Pass | 11/11 (9 pass + 2 expected-reject) |
 | **Diagnostics battery** (`tools/diag_battery.py`, vs gcc) | ✅ Pass | 16 cases, 8/8 error categories |
 | **C style checker** (`tools/style_check.py`) | ✅ Pass | 0 errors |
 
@@ -297,6 +307,7 @@ make test-driver   # Multi-TU driver tests (tools/driver_tests.py)
 make test-linker   # Own-linker differential tests (tools/linker_tests.py)
 make test-isa-qemu # Raw-emitter QEMU gate for all 4 ISAs (needs qemu-user-static + tools/setup_musl_cross.sh)
 make test-isa128   # Cross-ISA __int128 raw-emitter QEMU gate
+make test-san      # zero_san flag-ON soundness sweep (tools/san_sweep.py)
 make test-torture  # GCC c-torture conformance gate (tools/torture_run.py)
 make asan / make test-asan   # ASan+UBSan build / run
 make clean     # Clean build artifacts
@@ -323,8 +334,9 @@ ZeroCC maintains an **Open Knowledge Format (OKF v0.2)** knowledge graph in
 | [`docs/okf/multi-tu.md`](docs/okf/multi-tu.md) | Multi-translation-unit driver & JIT image merge (T1) |
 | [`docs/okf/own-linker.md`](docs/okf/own-linker.md) | ZeroCC's own ELF linker & relocation set (T2) |
 | [`docs/okf/zero-rt.md`](docs/okf/zero-rt.md) | `zero_rt` freestanding runtime |
-| [`docs/okf/ir-and-regalloc.md`](docs/okf/ir-and-regalloc.md) | 140-opcode `Instr` IR & linear-scan register allocation |
+| [`docs/okf/ir-and-regalloc.md`](docs/okf/ir-and-regalloc.md) | 167-opcode `Instr` IR & linear-scan register allocation |
 | [`docs/okf/optimization-passes.md`](docs/okf/optimization-passes.md) | Active IR optimization passes & safety invariants |
+| [`docs/okf/build-and-verification.md`](docs/okf/build-and-verification.md) | Build targets, direct compiler testing & ABI verifiers |
 | [`docs/okf/abi-sysv-x86_64.md`](docs/okf/abi-sysv-x86_64.md) | System V AMD64 ABI & `>16B` struct return (`sret`) rules |
 | [`docs/okf/isa-backends.md`](docs/okf/isa-backends.md) | Multi-ISA backend vtable, JIT vs AOT emission, relocations |
 | [`docs/okf/global-data-relocs.md`](docs/okf/global-data-relocs.md) | Data section, global initializers & pointer relocations |
@@ -332,7 +344,7 @@ ZeroCC maintains an **Open Knowledge Format (OKF v0.2)** knowledge graph in
 | [`docs/okf/scalar-float-x86.md`](docs/okf/scalar-float-x86.md) | Scalar float pipeline (x86-64) |
 | [`docs/okf/c-torture-gate.md`](docs/okf/c-torture-gate.md) | GCC `c-torture` differential conformance gate |
 | [`docs/okf/perf-measurements.md`](docs/okf/perf-measurements.md) | Measured optimizer costs & JIT-vs-GCC data |
-| [`docs/okf/sanitizer-roadmap.md`](docs/okf/sanitizer-roadmap.md) | Optional target-side sanitizer roadmap (parked) |
+| [`docs/okf/sanitizer-roadmap.md`](docs/okf/sanitizer-roadmap.md) | Target-side sanitizer roadmap — Phase 1 (signed-overflow) implemented in Sprint 116; later phases parked |
 | [`docs/CHANGELOG.md`](docs/CHANGELOG.md) | Full release notes and changelog |
 | [`docs/ZEROCC_Development_Plan.md`](docs/ZEROCC_Development_Plan.md) | Project development roadmap |
 | [`docs/coding_style.md`](docs/coding_style.md) | C style & convention rules |
