@@ -1395,7 +1395,7 @@ bool zero_cc_parse_local_decl(ZeroCCCompiler *c,  /* Sprint 114: defined in decl
                              * this function's body arena (freed at
                              * lowering), so clone them into a dedicated
                              * dim arena - same pattern as
-                             * zero_cc_parse_fn_param_block. */
+                             * zero_cc_parse_fn_declarator. */
                             {
                                 ASTRef pl2 = param_list;
                                 for (size_t ui = 0; ui < fc->param_count && pl2 != AST_NULL; ui++) {

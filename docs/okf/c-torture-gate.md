@@ -4,7 +4,7 @@ title: GCC c-torture Conformance Gate
 description: Differential conformance gate against the vendored GCC gcc.c-torture corpus (~3,940 tests), sweeping execute tests across -O0..-O3 in JIT and AOT and compile tests at -O0/-O2 with a ratcheting baseline.
 resource: workflows/c-torture-gate
 tags: [testing, verification, conformance, c-torture, gcc, differential, baseline]
-timestamp: 2026-11-07T12:10:51Z
+timestamp: 2026-11-07T12:50:52Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -366,15 +366,15 @@ Clustering [`test/torture/baseline.json`](../../test/torture/baseline.json) (`14
 
 ---
 
-## Diagnostics: the 2b legacy-fallback sweep
+## Diagnostics: the 2b legacy-fallback sweep (historical — Stage 3 tool, retired in Stage 4)
 
-The 2b plain-name function path (`jit/compile.c`) falls back to the legacy `zero_cc_parse_fn_param_block` when the declarator stack cannot handle a prototype (see [frontend-and-types](./frontend-and-types.md)). To enumerate what the declarator stack still lacks — the input for burning down the fallback — run the full corpus with the env-gated trace:
+*While the legacy prototype parser existed as a fallback (Stages 2–3), the 2b plain-name function path (`jit/compile.c`) emitted an env-gated `[FB]` trace at each fallback site:*
 
 ```bash
 ZC_FB_TRACE=1 ./build/bin/zerocc -O0 -c <file> -o /dev/null 2>&1 | grep '\[FB\]'
 ```
 
-Each hit prints the triggering guard (`terminal` / `incomplete`) with the function name, line, and (for `incomplete`) the parsed param count. Sweeping all 3,940 vendored files takes a few minutes and is how the Sprint 122 Stage 3 burn-down was driven (51 hits → 3, all on SKIP-C89-baseline files). The trace is zero-cost when the env var is unset.
+Each hit printed the triggering guard (`terminal` / `incomplete` / `fallback`) with the function name and line. Sweeping all 3,940 vendored files took a few minutes and is how the Stage 3 burn-down was driven (51 hits → 3, all on SKIP-C89-baseline files). **Stage 4 deleted the legacy `zero_cc_parse_fn_param_block` and the fallback with it** (the declarator stack is now the sole prototype parser — see [frontend-and-types](./frontend-and-types.md)), so the trace no longer exists; a declarator-stack failure now simply abandons the function declaration (the three shapes it cannot cover — pr77754-6, pr115143-2/3 — REJECT and are SKIP-C89-baseline, matching the pre-Stage-4 outcome). To enumerate what the declarator stack still lacks for future work, the equivalent experiment is a `param_list_complete` / terminal-check trace re-added behind an env var, or simply diffing a corpus compile against the baseline classes.
 
 ---
 

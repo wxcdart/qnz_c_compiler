@@ -183,7 +183,6 @@ static inline void zero_cc_parse_param_list(
     ASTRef param_head = AST_NULL;
     ASTRef param_tail = AST_NULL;
     bool first_param = true;
-    bool param_over_cap = false; /* more than ZERO_CC_MAX_PARAMS parsed */
     while (c->token_pos < c->token_count) {
         if (c->tokens[c->token_pos].type == TK_RPAREN) {
             break;
@@ -740,7 +739,13 @@ static inline void zero_cc_parse_param_list(
         p_node->s_len = strlen(pname);
         p_node->right = param_dim_expr; /* VLA dimension, evaluated at entry */
 
-        TypeInfo *ptype_ti = zero_cc_type_to_typeinfo(ctx->perm_arena, ptype);
+        /* Semantic stamping needs a ctx (the compile_unit extern/mixed
+         * path parses with ctx == NULL - ZeroCCType-only, no TypeInfo).
+         * The param_tis[16] slot stays NULL there; typeinfo_to_zero_cc_type
+         * is NULL-safe (falls back to int) and the want_param_zt callers
+         * never read it. */
+        TypeInfo *ptype_ti = ctx
+            ? zero_cc_type_to_typeinfo(ctx->perm_arena, ptype) : NULL;
         decl_node_set_type(ctx, p_node, ptype_ti);
 
         if (fn_chunk->param_count < 16) {
@@ -748,14 +753,15 @@ static inline void zero_cc_parse_param_list(
         }
         /* Sprint 122 2b: store the canonical ZeroCCType (heap-allocated on
          * the top-level declarator, only when the caller opted in).  The
-         * table grows to cover every parsed parameter up to
-         * ZERO_CC_MAX_PARAMS - the fixed param_tis[16] above stays the
-         * TypeInfo fallback for callers that did not opt in (c-torture
-         * compile/asmgoto-5 declares a 17-param function). */
-        if (decl && want_param_zt && fn_chunk->param_count < ZERO_CC_MAX_PARAMS) {
+         * table grows to cover every parsed parameter (no hard cap - the
+         * legacy prototype parser's buffers grew unbounded too, and
+         * c-torture compile/limits-fnargs declares 10,000-param
+         * prototypes that must register in full).  The fixed param_tis[16]
+         * above stays the TypeInfo fallback for callers that did not opt
+         * in (compile/asmgoto-5 declares a 17-param function). */
+        if (decl && want_param_zt) {
             if (decl->param_zt_cap <= fn_chunk->param_count) {
                 size_t newcap = fn_chunk->param_count < 32 ? 32 : fn_chunk->param_count * 2;
-                if (newcap > ZERO_CC_MAX_PARAMS) newcap = ZERO_CC_MAX_PARAMS;
                 ZeroCCType *nz = (ZeroCCType *)realloc(decl->param_zt, newcap * sizeof(ZeroCCType));
                 if (!nz) return false;
                 decl->param_zt = nz;
@@ -763,14 +769,7 @@ static inline void zero_cc_parse_param_list(
             }
             if (decl->param_zt) decl->param_zt[fn_chunk->param_count] = ptype;
         }
-        if (fn_chunk->param_count < ZERO_CC_MAX_PARAMS) {
-            fn_chunk->param_count++;
-        } else {
-            /* More than ZERO_CC_MAX_PARAMS parameters: the registration
-             * sites (legacy and 2b alike) cap at ZERO_CC_MAX_PARAMS, so
-             * mark the list incomplete and let the caller fall back. */
-            param_over_cap = true;
-        }
+        fn_chunk->param_count++;
         fn_chunk->param_total++;
 
         if (param_head == AST_NULL) {
@@ -782,17 +781,15 @@ static inline void zero_cc_parse_param_list(
             param_tail = p_ref;
         }
     }
-    /* The list is complete only when it stopped on the closing ')' AND
-     * never exceeded ZERO_CC_MAX_PARAMS params - every other exit
-     * (missing comma, non-type token, EOF, over-cap) means the declarator
-     * is a partial parse for the 2b registration (the legacy fallback
-     * parser caps at ZERO_CC_MAX_PARAMS itself and stays lenient). */
+    /* The list is complete only when it stopped on the closing ')';
+     * every other exit (missing comma, non-type token, EOF) means the
+     * declarator is a partial parse. */
     bool param_stopped_at_rparen =
         (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN);
     if (param_stopped_at_rparen) {
         c->token_pos++;
     }
-    fn_chunk->param_list_complete = param_stopped_at_rparen && !param_over_cap;
+    fn_chunk->param_list_complete = param_stopped_at_rparen;
     fn_chunk->param_list = param_head;
     if (!first_param) {
         fn_chunk->has_prototype = true;

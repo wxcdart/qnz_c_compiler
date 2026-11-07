@@ -12,6 +12,10 @@
  *   - typedef signedness ordering (`short unsigned int`, `int unsigned`)
  *   - multi-declarator function prototypes (`double f(int), g(int);`)
  *   - anonymous `struct {..}` parameter bodies (skipped, legacy parity)
+ *   - >256 parameter prototypes (Stage 4: the 256 cap is retired -
+ *     limits-fnargs's 10,000-param prototypes parse and register in full)
+ *   - pointer-returning multi-declarator fn lists (`int *f1(void), *f2(void);`)
+ *   - extern/mixed declarations with a fn declarator (`int r, fn3(int, ...);`)
  *
  * All shapes compile and (where defined) run identically under host gcc.
  */
@@ -94,6 +98,78 @@ void fanon(int a, struct { int b[a]; } c) {
     (void)c;
 }
 
+/* Stage 4: >256-parameter prototype - the declarator path must register
+ * all 300 params (no cap) so the 300-argument call type-checks and the
+ * 299-argument call would be rejected. */
+extern void big300(                    int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int,
+                    int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int,
+                    int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int,
+                    int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int,
+                    int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int,
+                    int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int,
+                    int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int,
+                    int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int,
+                    int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int,
+                    int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int,
+                    int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int,
+                    int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int,
+                    int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int,
+                    int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int,
+                    int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int);
+static int big300_count = 0;
+void big300(                     int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int,
+                     int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int,
+                     int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int,
+                     int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int,
+                     int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int,
+                     int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int,
+                     int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int,
+                     int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int,
+                     int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int,
+                     int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int,
+                     int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int,
+                     int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int,
+                     int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int,
+                     int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int,
+                     int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int) {
+    big300_count = 1;
+}
+
+void big300_caller(void) {
+    big300(             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+    big300_count = 2;
+}
+
+/* Stage 4: pointer-returning multi-declarator fn list (the 2nd
+ * declarator's star is part of its own declarator; its prototype and
+ * definition must merge and the pointer return must survive). */
+int *sp1(void), *sp2(void);
+int *sp1(void) { static int a = 11; return &a; }
+int *sp2(void) { static int b = 22; return &b; }
+
+/* Stage 4: extern/mixed declaration with a fn declarator (the
+ * compile_unit path) - the prototype must register with its params. */
+struct PP { int x; long long y; };
+struct PP ppglob;
+int pr, pfn3(int, const char *, int);
+int pfn3(int a, const char *s, int b) {
+    return a + (int)(unsigned char)s[0] + b;
+}
+
 int main(void) {
     int r = 0;
     r += (f17(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 42) != 42);
@@ -115,6 +191,17 @@ int main(void) {
 
     r += (dbl(2) != 4.0);
     r += (dbl2(3) != 9.0);
+
+    big300_caller();
+    r += (big300_count != 2);  /* def set 1, caller set 2 */
+
+    r += (*sp1() != 11);
+    r += (*sp2() != 22);
+
+    pr = 0;
+    ppglob.x = 1;
+    r += (pfn3(1, "Z", 40) != 131); /* 1 + 'Z'(90) + 40 */
+    r += (pr != 0);
 
     return r;
 }

@@ -2375,26 +2375,23 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                             }
                             /* Function declarator in a mixed declaration:
                              * `int r, fn3 (int, const char *, int);` (c-torture
-                             * compile/pr51856) - register a prototype entry. */
+                             * compile/pr51856) - register a prototype entry.
+                             * Sprint 122 Stage 4: declarator-stack parse
+                             * (ctx == NULL - ZeroCCType-only). */
                             if (c->token_pos + 1 < c->token_count &&
                                 c->tokens[c->token_pos + 1].type == TK_LPAREN) {
                                 char fn2_name[128];
                                 snprintf(fn2_name, sizeof(fn2_name), "%s", c->tokens[c->token_pos].str_val);
-                                c->token_pos++; /* name */
-                                c->token_pos++; /* '(' */
-                                ZeroCCType *p2t = (ZeroCCType *)calloc(ZERO_CC_MAX_PARAMS, sizeof(ZeroCCType));
-                                const char **p2n = (const char **)calloc(ZERO_CC_MAX_PARAMS, sizeof(const char *));
-                                ZeroCCType *p2t_orig = p2t;
-                                const char **p2n_orig = p2n;
-                                size_t p2cap = ZERO_CC_MAX_PARAMS, p2count = 0;
+                                ZeroCCType *p2t = NULL;
+                                const char **p2n = NULL;
+                                size_t p2cap = 0, p2count = 0;
                                 bool p2var = false, p2proto = false;
                                 ZeroCCASTArena *p2arena = NULL;
                                 ASTRef p2dims[ZERO_CC_MAX_PARAMS];
                                 for (size_t di = 0; di < (size_t)ZERO_CC_MAX_PARAMS; di++) p2dims[di] = AST_NULL;
-                                if (p2t && p2n &&
-                                    zero_cc_parse_fn_param_block(c, NULL, fn2_name,
-                                        &p2t, &p2n, &p2cap, &p2count, &p2var, &p2proto,
-                                        &p2arena, p2dims)) {
+                                if (zero_cc_parse_fn_declarator(c, NULL,
+                                    &p2t, &p2n, &p2cap, &p2count, &p2var, &p2proto,
+                                    &p2arena, p2dims, NULL)) {
                                     if (c->function_count < ZERO_CC_MAX_FUNCTIONS) {
                                         ZeroCCFunction *fn2 = &c->functions[c->function_count++];
                                         memset(fn2, 0, sizeof(*fn2));
@@ -2419,8 +2416,8 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                     }
                                     if (p2arena) { zero_cc_ast_arena_free(p2arena); free(p2arena); }
                                 }
-                                if (p2t == p2t_orig) free(p2t);
-                                if (p2n == p2n_orig) free(p2n);
+                                if (p2t) free(p2t);
+                                if (p2n) free(p2n);
                             }
                             continue; /* next declarator with same base type */
                         }

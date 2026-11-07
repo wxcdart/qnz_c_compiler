@@ -20,14 +20,18 @@
 #include "zero_cc/semantic/decl.h"
 #include "zero_cc/semantic/visitor.h"
 
-/* Parse a function's parameter block (including K&R style, attributes and
- * VLA dimension expressions) into the out-params. Returns false on a
- * diagnostic. */
-bool zero_cc_parse_fn_param_block(ZeroCCCompiler *c, SemContext *ctx,
-    const char *fn_name,
+/* Sprint 122 Stage 4: parse ONE function declarator (token at the name,
+ * leading stars already consumed by the caller) through the declarator
+ * stack, appending its params to the shared buffers.  The sole prototype
+ * parser - used by the plain-name top-level function path, the
+ * multi-declarator comma loop (2nd+ declarators), and the extern/mixed
+ * function path.  ctx may be NULL (ZeroCCType-only, no semantic
+ * stamping).  Returns false when the declarator is not a complete
+ * function declarator. */
+bool zero_cc_parse_fn_declarator(ZeroCCCompiler *c, SemContext *ctx,
     ZeroCCType **param_types, const char ***param_names, size_t *param_cap,
     size_t *param_count, bool *is_variadic_fn, bool *has_prototype,
-    ZeroCCASTArena **dim_arena_out, ASTRef dim_exprs[]);
+    ZeroCCASTArena **dim_arena_out, ASTRef dim_exprs[], char *asm_out);
 
 /* Compile one function (params + body lowering + emission + nested fns). */
 void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm);
