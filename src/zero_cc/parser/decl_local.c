@@ -2128,6 +2128,29 @@ bool zero_cc_parse_local_decl(ZeroCCCompiler *c,  /* Sprint 114: defined in decl
                         nvla_dim_expr = zero_cc_declarator_vla_dim_expr(&next_decl);
                     }
 
+                    /* C99 6.7.9: an unsized array's outermost dimension is
+                     * inferred from its initializer (the mirror of the
+                     * first-declarator pre-measure above) - it must run
+                     * BEFORE zero_cc_add_local so the stack slot is sized
+                     * to the real object.  Without it, `char l1[] = "ll",
+                     * l2[] = "mm";` sized l2 as char[0] and the whole-string
+                     * initializer copied nothing (Sprint 123: the local
+                     * half of the multi-declarator initializer drop). */
+                    if (!nhas_any_vla && next_type.tag == TYPE_ARRAY &&
+                        next_type.array_len == 0 &&
+                        c->token_pos < c->token_count &&
+                        c->tokens[c->token_pos].type == TK_ASSIGN &&
+                        next_type.base) {
+                        size_t npre_count = 0;
+                        size_t npre_sz = zero_cc_measure_array_init_at(
+                            c, next_type.base, c->token_pos + 1, &npre_count);
+                        if (npre_sz > 0) {
+                            next_type.array_len = (next_type.base->size > 0) ?
+                                (npre_sz / next_type.base->size) : npre_sz;
+                            next_type.size = npre_sz;
+                        }
+                    }
+
                     TypeInfo *next_ti = zero_cc_type_to_typeinfo(ctx->perm_arena, next_type);
                     int32_t prev_next_frame = c->current_stack_frame;
                     ZeroCCSym *next_sym = zero_cc_add_local(c, next_vname, next_type);

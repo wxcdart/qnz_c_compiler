@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-07T12:50:52Z
+timestamp: 2026-11-07T18:48:41Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1113,3 +1113,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-07 — Updated `c-torture-gate.md`
 - 2b legacy-fallback sweep section marked historical (Stage 4 deleted the fallback)
+
+## 2026-11-07 — Updated `frontend-and-types.md`
+- Sprint 123: 115l float-Complex external residual verified resolved; arrow-on-array note updated (stale REJECT note cleared)
