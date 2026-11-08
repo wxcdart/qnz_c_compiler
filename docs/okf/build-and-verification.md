@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 165-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-11-08T06:38:15Z
+timestamp: 2026-11-08T14:25:11Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -40,10 +40,21 @@ All project headers are included **relative to the include roots `-Isrc -Iinclud
 - **Include order**: prescribed for new/touched files — sibling header first, then system (`<...>`), then project ("zero_cc/..."). The existing tree is mixed (≈half the files lead with project headers); untouched files are not churned.
 - **Why `include/` is flat (design decision)**: the common `include/<project>/` subdirectory pattern is deliberately **not** used. `threads.h` emulates the *system* `<threads.h>` and must resolve as a bare root name for test binaries compiled with host gcc + `-Iinclude`; `zero_cc.h` is a single-file umbrella API, and the collision risk the subdirectory pattern guards against only materializes when multiple projects share an include path (this tree does not). **Revisit trigger:** a second public header family (e.g. the `zero_rt` runtime API) → migrate to `include/zero_cc/` + `include/zero_rt/` in one step, keeping a `zero_cc.h` shim for compatibility. Full style reference: `docs/coding_style.md`.
 
+### Developer Tooling & Verification Prerequisites
+
+| Category | Tools & Minimum Versions | Role in ZeroCC Verification |
+|----------|--------------------------|-----------------------------|
+| **Core Build** | `make` (4.0+), Host `gcc` (13.0+), `python3` (3.8+), `git` | Building compiler binaries, `zero_rt` runtimes, test harnesses, and running test orchestration scripts. |
+| **Dialect Conformance** | `gcc-15` (15.0+), `gcc-14` / `gcc-13` | Differential verification across dialects (`-std=gnu23`, `c23`, `c11`, `c99`, `gnu89`) via `make test-c23` (`tools/c23/test_c23.py`) and diagnostic tests (`tools/diag_battery.py`). Overridable via `C23_GCC`. |
+| **Cross-ISA Emulation** | `qemu-user-static` (8.0+), `aarch64-linux-gnu-gcc`, `riscv64-linux-gnu-gcc` | User-mode emulation under Linux for cross-ISA verification (`make test-isa128`). |
+| **Static Musl Reference** | `musl-gcc-<arch>` (in `~/.local/bin`, via `tools/setup_musl_cross.sh`) | Fully static reference binary generation for raw emitter differential testing (`make test-isa-qemu`). |
+| **Workflow / Supervision** | `tmux` | Detaching and supervising long-running gates (such as `make test-torture`) without agent/shell command timeout. |
+| **Inspection & Profiling** | `gdb` (15+), `valgrind`, `perf` | JIT machine-code disassembly, stack-frame inspection, and `--profile-opts` pass timing. |
+
 ## 2. Running the Test Suite
 
 ```bash
-# Run all 165 tests (13 unit, 17 semantic, 38 abi, 97 jit)
+# Run all 186 tests (13 unit, 17 semantic, 38 abi, 118 jit)
 make test
 
 # Run specific category

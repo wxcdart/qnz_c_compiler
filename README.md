@@ -310,6 +310,45 @@ ZeroCC implements the following C23 features:
 | **`#pragma GCC diagnostic error/warning/ignored`** | ✅ Complete | Warning control |
 | **`#pragma GCC push_options` / `pop_options`** | ✅ Complete | Options stack |
 
+## Developer Tooling & Prerequisites
+
+ZeroCC development and verification rely on a combination of host build tools, reference compilers for differential conformance testing, and user-space emulation for cross-ISA verification.
+
+### Tooling Matrix
+
+| Tool | Minimum | Current System | Role | Tier |
+|------|---------|----------------|------|------|
+| **GNU Make** | 4.0+ | GNU Make 4.3 | Build orchestration for compiler, runtimes, and tests (`make all`, `make test`) | **Core** |
+| **Host C Compiler** | GCC 13+ / Clang 14+ | GCC 13.3.0 | Builds the `zerocc` binary and host-side test binaries (`make asan`) | **Core** |
+| **Python 3** | 3.8+ | Python 3.12.3 | Test runners, ABI verifiers, OKF knowledge graph (`tools/*.py`) | **Core** |
+| **Git** | 2.25+ | Git 2.43.0 | Source tree and revision control | **Core** |
+| **GCC 15** | 15.0+ | GCC 15.2.0 (`gcc-15`) | **Differential C23 conformance gate** (`make test-c23`) across dialects (`-std=gnu23`, `c23`, `c11`, `c99`, `gnu89`); overridable via `C23_GCC` | **Differential** |
+| **GCC 14 / 13** | Any recent | GCC 14.2 / 13.3 | Multi-version baseline probes and diagnostics validation (`tools/diag_battery.py`) | **Differential** |
+| **QEMU User Static** | 8.0+ | QEMU 8.2.2 (`qemu-*-static`) | Cross-ISA binary execution for x86-64, AArch64, RISC-V 64, RISC-V 32 under Linux | **Cross-ISA** |
+| **Cross Toolchains** | GCC 13+ | `aarch64-linux-gnu-gcc`, `riscv64-linux-gnu-gcc` | Reference cross-compilation & cross-assembling for `make test-isa128` | **Cross-ISA** |
+| **Static Musl Toolchains** | musl 1.2.6+ | `musl-gcc-<arch>` in `~/.local/bin` | Static reference binary generation for raw emitter differential gate (`make test-isa-qemu`, built via `tools/setup_musl_cross.sh`) | **Cross-ISA** |
+| **tmux** | Any | tmux 3.4 | Supervises long-running background gates (`make test-torture`) without shell timeouts | **Recommended** |
+| **gdb** | Any modern | GNU gdb 15.1 | Debugging JIT code pages, assembly inspection, and crash triaging (`scripts/gdb_zerocc.py`) | **Optional** |
+| **valgrind / perf** | Any | Valgrind 3.22 / Linux perf | Memory safety profiling and optimization pass profiling (`--profile-opts`) | **Optional** |
+
+### Environment Setup
+
+```bash
+# Core build & Python tooling
+sudo apt update && sudo apt install -y build-essential python3 python3-pip git tmux gdb valgrind
+
+# Reference GCC 15 for C23 differential conformance testing
+sudo apt install -y gcc-15  # or via ppa:ubuntu-toolchain-r/test if not in default repos
+
+# Cross-compilation toolchains and QEMU emulation
+sudo apt install -y qemu-user-static gcc-aarch64-linux-gnu gcc-riscv64-linux-gnu
+
+# Build static musl cross-wrappers for raw-emitter differential verification
+tools/setup_musl_cross.sh --arch aarch64 --ccbin aarch64-linux-gnu-gcc
+tools/setup_musl_cross.sh --arch riscv64 --ccbin riscv64-linux-gnu-gcc
+tools/setup_musl_cross.sh --arch riscv32 --ccbin riscv64-linux-gnu-gcc --extra "-march=rv32gc -mabi=ilp32" --host riscv32-linux-musl
+```
+
 ## Building
 
 ```bash
