@@ -59,6 +59,14 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
             continue;
         }
 
+        /* Sprint 136, Phase 2: integrated inline assembler for machine code */
+        if (instr->op == OP_ASM) {
+            if (BE(c)->emit_inline_asm_mc) {
+                BE(c)->emit_inline_asm_mc(c, i);
+            }
+            continue;
+        }
+
         /* Frame pointer (0xFF) should NOT be allocated - use actual FP register */
         int phys_dst = (instr->temp_dest== TEMP_NONE) ? BE(c)->fp_reg : regalloc_get_reg_for_temp(&c->regalloc, instr->temp_dest);
         int phys_src1 = (instr->temp_src1== TEMP_NONE) ? BE(c)->fp_reg : regalloc_get_reg_for_temp(&c->regalloc, instr->temp_src1);

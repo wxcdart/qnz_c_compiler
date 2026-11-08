@@ -4,7 +4,7 @@ title: Integrated Inline Assembly Roadmap
 description: Architectural roadmap and design for Clang-style integrated inline assembly in ZeroCC across AOT and JIT modes.
 resource: backend/inline-asm
 tags: [inline-asm, roadmap, jit, aot, register-allocation, isa, assembly]
-timestamp: 2026-11-08T23:17:06Z
+timestamp: 2026-11-08T23:37:51Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -12,13 +12,10 @@ status: active
 
 # Integrated Inline Assembly Roadmap
 
-> **Status (Sprint 135):** **Phase 1 is complete** for the x86-64 AOT text
-> path — non-empty GNU asm templates lower to `OP_ASM` (operand side table
-> `IRAsmArgs`), the LRA honors `no_spill`/fixed-register/`forbidden_mask`
-> operand constraints, and the substituted template is emitted between
-> `#APP`/`#NO_APP` in the `.s` stream. Differential gate: `make test-asm`
-> (`tools/asm_diff.py`). The JIT/raw path still rejects non-empty templates
-> (Phase 2 below).
+> **Status (Sprint 136):** **Phase 1 & Phase 2 are complete** for x86-64:
+> - **Phase 1 (AOT text path)**: Non-empty GNU asm templates lower to `OP_ASM` (operand side table `IRAsmArgs`), the LRA honors `no_spill`/fixed-register/`forbidden_mask` operand constraints, and the substituted template is emitted between `#APP`/`#NO_APP` in the `.s` stream.
+> - **Phase 2 (JIT & Raw Binary AOT)**: Integrated x86-64 inline assembler (`src/zero_cc/isa/x86_64_inline_asm.c`) tokenizes interpolated AT&T assembly statements, encodes Tier 1 & Tier 2 instructions directly into `c->text_section`, allowing `--run` (JIT) and `ZC_RAW_AOT=1` (raw ELF emission) to execute non-empty templates without invoking external assemblers.
+> Differential gate: `make test-asm` (`tools/asm_diff.py`) sweeps all 3 execution paths (`text`, `jit`, `raw`) at `-O0..-O3`.
 
 This document outlines the architectural plan for bringing first-class **inline assembly (`__asm__` / `asm`)** support to ZeroCC, progressing from AOT constraint-solving and register-allocation passthrough to a Clang-style **integrated assembler** for in-memory JIT execution (`--run`).
 
@@ -36,13 +33,12 @@ ZeroCC currently implements the following subset of inline assembly features:
    - Empty templates (`"" : : : "memory"`) and constraint-only assignments (`"" : "=r"(x) : "0"(y)`) are recognized and lowered as compiler/memory barriers and identity assignments.
 3. **Symbol Redirection (`__asm__("symbol")`)**:
    - GNU asm label redirection on function and variable declarations (`src/zero_cc/parser/zero_cc_declarator_stack.h:126`) is fully implemented across AOT and JIT.
-4. **Current Limitation (Phase 2+)**:
-   - Non-empty templates are supported on the **x86-64 AOT text path**
-     (Phase 1, Sprint 135 — see the status banner above). The **JIT /
-     raw-emitter paths** still reject a non-empty template with a clean
-     diagnostic pointing at Phase 2, and AArch64/RISC-V AOT text is a
-     Phase 2/3 target (the template text is ISA-specific). Low-level OS
-     calls can also use the compiler's native intrinsic [`__zerocc_syscall(...)`](./zero-rt.md).
+4. **Current Status & Scope**:
+   - Non-empty templates are supported on **x86-64 across all three compilation and execution modes**:
+     - **AOT text path** (`-S`, `-c`, `-o` using external assembler/linker)
+     - **In-memory JIT execution** (`--run`)
+     - **Standalone raw binary emission** (`ZC_RAW_AOT=1`)
+   - AArch64/RISC-V non-empty template support is planned for Phase 3 (since asm templates contain target-specific machine instructions). Low-level OS calls across all architectures can also use the compiler's native intrinsic [`__zerocc_syscall(...)`](./zero-rt.md).
 
 ---
 
@@ -106,28 +102,24 @@ flowchart TD
 
 ---
 
-### Phase 2: Lightweight JIT Integrated Assembler (Milestone 2)
+### Phase 2: Lightweight JIT Integrated Assembler (Milestone 2) — ✅ IMPLEMENTED (Sprint 136)
 
-**Goal:** Execute inline assembly in-memory under `--run` without invoking external assemblers.
+**Goal:** Execute inline assembly in-memory under `--run` and in standalone raw binaries (`ZC_RAW_AOT=1`) without invoking external assemblers.
 
-1. **Lightweight Instruction Lexer & Parser**:
-   - Create a fast tokenizer for inline asm snippets inside `src/zero_cc/parser/asm_inline_parse.c`.
-   - Parse mnemonics, operands (registers, immediates, memory dereferences), and commas.
-2. **Connecting to Existing ISA Binary Encoders**:
-   - ZeroCC **already has** multi-ISA machine-code encoders in `src/zero_cc/isa/`:
-     - `src/zero_cc/isa/x86_64.c`
-     - `src/zero_cc/isa/aarch64.c`
-     - `src/zero_cc/isa/riscv64.c`
-     - `src/zero_cc/isa/riscv32.c`
-   - Map parsed mnemonics directly to backend emitter functions:
-     - `mov` / `movq` / `movl` $\rightarrow$ `zc_x86_emit_mov_reg()`, `zc_x86_emit_load()`
-     - `add` / `sub` / `and` / `or` $\rightarrow$ `zc_x86_emit_alu()`
-     - `syscall` / `svc` / `ecall` $\rightarrow$ `zc_emit_syscall()`
-     - `rdtsc` / `cpuid` / `pause` $\rightarrow$ direct opcode byte emission.
-3. **Incremental Instruction Set Burn-Down**:
-   - **Tier 1 (Core)**: Data movement (`mov`), basic ALU (`add`, `sub`, `xor`), system instructions (`syscall`, `cpuid`, `rdtsc`, `nop`).
-   - **Tier 2 (Atomics & Synchronization)**: `lock cmpxchg`, `mfence`, `lfence`, `sfence` (x86); `ldrex`/`strex`, `dmb` (AArch64); `lr`/`sc` (RISC-V).
-   - **Tier 3 (SIMD & Float)**: Common vector/SSE operations.
+**As built (`src/zero_cc/isa/x86_64_inline_asm.c`)**:
+1. **Lightweight AT&T Instruction Lexer & Parser**:
+   - Parses operands: registers (`%rax`, `%eax`, `%ax`, `%al`, `%spl`, `%r8`–`%r15`), immediate values (`$imm`), and memory expressions (`disp(%base, %index, scale)` and `(%reg)`).
+   - Template interpolation handles digit binding, operand width specifiers (`%qN`, `%lN`, `%wN`, `%bN`, `%aN`), and `%%` escapes into expanded AT&T assembly statements.
+2. **Machine Code Emission**:
+   - In `ast_lowering_mc.c`, intercepted `OP_ASM` delegates to backend vtable hook `.emit_inline_asm_mc` (`x86_emit_inline_asm_mc`).
+   - Digit-bound inputs (`"0"(x)`) are pre-materialized into the shared register before statement execution using width-appropriate register moves (`movq`, `movl`, `movw`, `movb`).
+   - Multiple statements separated by `;` or `\n` are parsed and encoded sequentially directly into `c->text_section`.
+3. **Supported Instruction Subset**:
+   - **Tier 1 (Core)**: `mov`, `add`, `sub`, `and`, `or`, `xor`, `cmp`, `test`, `not`, `neg`, `inc`, `dec`, `lea`, `push`, `pop`, `xchg`, `nop`, `rdtsc`, `cpuid`, `pause`, `syscall`, `cld`, `std`, `leave`, `ret`.
+   - **Tier 2 (Atomics & Shifts)**: `cmpxchg`, `xadd` (with optional `lock` prefix), `shl`, `sal`, `shr`, `sar`, `rol`, `ror` (with immediate count or `%cl`).
+4. **Verification**:
+   - Extended `tools/asm_diff.py` to sweep all 3 execution paths (`text`, `jit`, `raw`) at `-O0..-O3` (36/36 runs passed).
+   - Added dual-compiler test `test/jit/inline_asm_jit.c` exercised under `make test` and `make test-opt`.
 
 ---
 

@@ -2503,6 +2503,8 @@ static void x86_emit_mov128_imm(ZeroCCCompiler *c, int dlo, int dhi, int64_t imm
     x86_emit_mov_imm(c, dhi, 0);
 }
 
+#include "zero_cc/isa/x86_64_inline_asm.c"  /* Phase 2: integrated inline assembler */
+
 ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled in lazily */
     .isa = ISA_X86_64,
     .regs = &x86_64_regs,
@@ -2526,6 +2528,7 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_leave = x86_emit_leave,
     .emit_epilogue = x86_emit_epilogue,
     .get_code_offset = x86_get_code_offset,
+    .emit_inline_asm_mc = x86_emit_inline_asm_mc,
 
     .emit_prologue_asm = x86_emit_prologue_asm,
     .emit_epilogue_asm = x86_emit_epilogue_asm,

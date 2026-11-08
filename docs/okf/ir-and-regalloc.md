@@ -4,7 +4,7 @@ title: Two-Pass IR & Linear Scan Register Allocation
 description: IR instruction format, call-argument tracking table, virtual register conventions, and linear scan register allocation constraints.
 resource: middleend/ir-and-regalloc
 tags: [ir, regalloc, ssa, registers, calling-convention]
-timestamp: 2026-11-08T23:17:06Z
+timestamp: 2026-11-08T23:37:55Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -137,13 +137,16 @@ Because `OP_CALL` can take up to `IR_CALL_MAX_ARGS` (16) register arguments, cal
 
 ## Inline-Asm Operand Side Table (`IRAsmArgsArena`, Sprint 135)
 
-`OP_ASM` (GNU inline asm, Phase 1: x86-64 AOT text path) carries its payload in a second side table `c->ir_asm_args`, keyed by `instr_index` exactly like `IRCallArgs` — the packed 24-byte `Instr` cannot hold a template string or an operand list:
+`OP_ASM` (GNU inline asm, Sprint 135 Phase 1 / Sprint 136 Phase 2: x86-64 AOT text and JIT/raw paths) carries its payload in a second side table `c->ir_asm_args`, keyed by `instr_index` exactly like `IRCallArgs` — the packed 24-byte `Instr` cannot hold a template string or an operand list:
 - `IRAsmArgs { template_str, ops[16] {temp, kind, width, digit, fixed_reg}, clobber_mask, has_memory }`.
 - **Operand order is GCC template order: outputs first (`%0..`), then inputs.** The lowering materializes all operand temps before the `OP_ASM` (outputs first so a digit-matched input can seed its `"=r"` output register), then records `ops` in that order.
 - **The same remap invariant as `IRCallArgs` — and it is broader**: every arena-rebuilding pass remaps both tables. LICM and branchless through their `old_to_new` rebuild maps; **the DCE compaction** (the forward copy that removes `OP_DEAD` slots) remaps per moved instruction. Missing the DCE remap shipped silently-vanishing templates at `-O1+` (the table pointed past the shifted `OP_ASM`, the emitter found no entry and emitted nothing, and the post-asm store wrote the uninitialized output temp).
 - **LRA contract** (`live_range.h`/`regalloc.h`): operand temps are `no_spill` (the template references them in a register at the site; pressure failure → clean diagnostic `asm_pressure_fail`); fixed-register letters `a/b/d/S/D` pre-color via `fixed_reg` in the **hardware** index space (`x86_hw_reg_names` order — the BE `int_regs[]` pool order disagrees at indices 1–5); `forbidden_mask` = the asm's `clobber_mask` is OR'd onto each operand's interval so the x86-64 alloc pool never places an operand in a clobbered register (a fixed letter that is itself clobbered is an unsatisfiable reject, matching gcc's "impossible constraints"). **`regalloc_add_interval` must initialize every `LiveInterval` field** — Sprint 135's first `no_spill` shipped uninitialized, and `realloc`'d garbage set it on ordinary intervals, false-rejecting asm-free functions at `-O1+`.
 - **Clobber pass** (post-`regalloc_allocate`, `ast_lowering.c`): every non-operand interval live across the `OP_ASM` whose assigned register is in `clobber_mask` is marked spilled (emitters materialize spilled temps via frame slots). A clobbered `VREG_0`/`VREG_2` is a clean reject **only if the materializing return store can flow into the asm** — a store immediately followed by a jump (every return site the lowering emits) cannot, so the coarse [first-def, last-use] interval does not false-positive on early-return + later-rax-clobber shapes.
-- **Emitter** (`x86_64_asm.c` `x86_emit_inline_asm_asm`, via the backend vtable slot `emit_inline_asm_asm`): interpolates `%N`/`%qN`/`%lN`/`%wN`/`%bN`/`%aN` and `%%` into the template with width-correct AT&T names in the hardware index space; `m` operands become memory refs; digit-bound inputs are materialized into the shared output register. Non-empty templates on the JIT/raw path and on non-x86-64 targets are a clean reject at lowering (Phase 2 = integrated assembler).
+- **Emitters**:
+  - `x86_64_asm.c` (`x86_emit_inline_asm_asm`, via `emit_inline_asm_asm`): interpolates `%N`/`%qN`/`%lN`/`%wN`/`%bN`/`%aN` and `%%` into the template with width-correct AT&T names in the hardware index space; `m` operands become memory refs; digit-bound inputs are materialized into the shared output register.
+  - `x86_64_inline_asm.c` (`x86_emit_inline_asm_mc`, via `emit_inline_asm_mc`, Sprint 136): integrated assembler for in-memory JIT (`--run`) and raw binary AOT (`ZC_RAW_AOT=1`), assembling statements directly into `c->text_section`.
+  - Non-x86-64 non-empty templates are a clean reject at lowering (Phase 3).
 
 ## Thread-Reentrant IR Emission (Sprint 81)
 

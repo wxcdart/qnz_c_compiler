@@ -136,6 +136,10 @@ typedef struct ZeroCCISABackend {
      * support - the lowering rejects those targets before emission. */
     void (*emit_inline_asm_asm)(ZeroCCCompiler *c, size_t instr_index, FILE *out);
 
+    /* GNU inline asm machine code emission (Sprint 136, Phase 2):
+     * assemble the template into machine code bytes in-memory for JIT/raw AOT. */
+    void (*emit_inline_asm_mc)(ZeroCCCompiler *c, size_t instr_index);
+
     /* Vector instruction emission (SSE2/NEON/RVV) */
     void (*emit_vload_asm)(ZeroCCCompiler *c, int dst, int base, int32_t offset, FILE *out);
     void (*emit_vstore_asm)(ZeroCCCompiler *c, int src, int base, int32_t offset, FILE *out);

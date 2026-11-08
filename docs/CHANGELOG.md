@@ -1,3 +1,25 @@
+## [Sprint 136] - 2026-11-08 - Inline assembly Phase 2: x86-64 integrated inline assembler (JIT `--run` and raw AOT `ZC_RAW_AOT=1`)
+
+**Plan item #12 Phase 2 is complete**: non-empty GNU `__asm__` templates on x86-64 can now be assembled and executed directly in-memory under `--run` (JIT) and in standalone raw ELF object generation (`ZC_RAW_AOT=1`) without invoking an external assembler or compiler.
+
+**Implementation**:
+- **Integrated x86-64 Assembler (`src/zero_cc/isa/x86_64_inline_asm.c`)**:
+  - Full AT&T operand tokenizer and parser handling immediate values (`$imm`), registers (`%rax`, `%eax`, `%ax`, `%al`, `%spl`, `%r8`–`%r15`), and memory expressions (`disp(%base, %index, scale)` and `(%reg)`).
+  - Statement parsing and interpolation: split by `;` and `\n`, with full operand interpolation (`%N`, `%qN`, `%lN`, `%wN`, `%bN`, `%aN`, and `%%` escapes).
+  - Pre-execution digit binding: digit-bound inputs (`"0"(x)`) are copied into the shared register before executing the assembly statement sequence via width-appropriate register moves (`movq`, `movl`, `movw`, `movb`).
+  - Single-statement instruction encoder (`x86_assemble_single_stmt`) emitting machine code bytes directly into `c->text_section`:
+    - **Tier 1 (Core)**: `mov`, `add`, `sub`, `and`, `or`, `xor`, `cmp`, `test`, `not`, `neg`, `inc`, `dec`, `lea`, `push`, `pop`, `xchg`, `nop`, `rdtsc`, `cpuid`, `pause`, `syscall`, `cld`, `std`, `leave`, `ret`.
+    - **Tier 2 (Atomics & Shifts)**: `cmpxchg`, `xadd` (with optional `lock` prefix), `shl`, `sal`, `shr`, `sar`, `rol`, `ror` (with immediate count or `%cl`).
+- **Pipeline & Backend Integration**:
+  - `src/zero_cc/isa/isa_backend.h`: added backend vtable slot `void (*emit_inline_asm_mc)(ZeroCCCompiler *c, size_t instr_index)`.
+  - `src/zero_cc/isa/x86_64.c`: wired `.emit_inline_asm_mc = x86_emit_inline_asm_mc`.
+  - `src/zero_cc/ir/ast_lowering_stmt.c`: allowed lowering non-empty templates when `BE(c)->emit_inline_asm_mc` is present (no longer gated strictly on `c->emit_asm`).
+  - `src/zero_cc/ir/ast_lowering_mc.c`: intercepted `OP_ASM` in `emit_ir_to_machine_code` to invoke `BE(c)->emit_inline_asm_mc(c, i)` directly.
+- **Verification & Differential Gates**:
+  - Extended `tools/asm_diff.py` to sweep all three execution paths: `text` (`-S` + gcc), `jit` (`--run`), and `raw` (`ZC_RAW_AOT=1` + ld) across `-O0..-O3`.
+  - Added dual-compiler test [`test/jit/inline_asm_jit.c`](file:///home/ubuntu/dev/qnz_c_compiler/test/jit/inline_asm_jit.c) covering Tier 1 ALU, memory dereferences, 64-bit immediates, bitwise negation, rdtsc, and digit constraints.
+  - Gates passed: `make test-asm` (36/36 runs passed across text/jit/raw), `make test` (191/191), `make test-opt` (151/151), `make test-c23` (24/24), `make test-project-diff` (36/36).
+
 ## [Sprint 135] - 2026-11-08 - Inline assembly Phase 1: x86-64 AOT text path (`make test-asm`) + latent LRA/optimizer fixes
 
 **Plan item #12 Phase 1 is complete**: non-empty GNU `__asm__` templates on the x86-64 AOT *text* path (`-S`, or `ZC_TEXT_AOT=1 -o`) now compile and run, differential-clean against host gcc at `-O0..-O3`. The JIT/raw-emitter paths still reject non-empty templates with a clean diagnostic pointing at Phase 2 (the integrated assembler).

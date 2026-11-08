@@ -1,24 +1,18 @@
 #!/usr/bin/env python3
 """
-Inline-Assembly Phase 1 Differential Gate (Sprint 135)
+Inline-Assembly Differential Gate (Sprint 135 Phase 1 / Sprint 136 Phase 2)
 
-Differential-tests the x86-64 AOT *text* path for GNU inline asm
-(`-S` -> host assembler -> link -> run). Every test/asm/*.c is compiled
-with ZeroCC at -O0..-O3, assembled and linked with the host toolchain,
-run, and compared (exit code + stdout) against a host-`gcc -O2` reference
-run of the same source.
+Differential-tests x86-64 inline asm across three execution paths:
+- AOT text path: `-S` -> host assembler -> link -> run
+- JIT path: `--run` (Phase 2 integrated inline assembler)
+- Raw binary AOT path: `ZC_RAW_AOT=1` (Phase 2 integrated assembler + own ELF writer)
 
-The JIT / raw-emitter paths intentionally REJECT non-empty templates in
-Phase 1 (the integrated assembler is Phase 2); this gate covers the text
-path only. The JIT-safe barrier forms are swept by `make test-opt` via
-test/jit/inline_asm_barrier.c.
-
-Reference assembler/linker: the host `gcc` (or $ASM_CC). ZeroCC emits
-portable AT&T assembly for the host GNU assembler, so any gcc that
-targets the build machine works.
+Every test/asm/*.c is compiled with ZeroCC at -O0..-O3 across all selected
+paths, and compared (exit code + stdout) against a host-`gcc -O2` reference.
 
 Usage:
   python3 tools/asm_diff.py
+  python3 tools/asm_diff.py --paths jit raw
   python3 tools/asm_diff.py --levels 0 2
   python3 tools/asm_diff.py --only asm_basic
 """
@@ -52,9 +46,9 @@ def shutil_which(name):
     return shutil.which(name)
 
 
-def run(cmd, timeout=TIMEOUT):
+def run(cmd, env=None, timeout=TIMEOUT):
     try:
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
         return None
 
@@ -62,6 +56,9 @@ def run(cmd, timeout=TIMEOUT):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--levels", nargs="*", type=int, default=[0, 1, 2, 3])
+    ap.add_argument("--paths", nargs="*", default=["text", "jit", "raw"],
+                    choices=["text", "jit", "raw"],
+                    help="execution paths to test (text=-S+gas, jit=--run, raw=ZC_RAW_AOT=1)")
     ap.add_argument("--only", help="substring filter on test name")
     ap.add_argument("--cc", default=None, help="host assembler/linker driver")
     ap.add_argument("--verbose", action="store_true")
@@ -101,43 +98,87 @@ def main():
         ref = (rr.returncode, rr.stdout)
 
         for lvl in args.levels:
-            s = os.path.join(tmp, f"{name}_o{lvl}.s")
-            o = os.path.join(tmp, f"{name}_o{lvl}.o")
-            b = os.path.join(tmp, f"{name}_o{lvl}")
-            rc = run([ZEROCC, f"-O{lvl}", "-S", path, "-o", s])
-            if rc is None or rc.returncode != 0:
-                line = (rc.stderr or "").strip().splitlines()
-                msg = line[0] if line else "timeout"
-                failed.append((name, lvl, "compile", msg))
+            if "text" in args.paths:
+                s = os.path.join(tmp, f"{name}_o{lvl}.s")
+                o = os.path.join(tmp, f"{name}_o{lvl}.o")
+                b = os.path.join(tmp, f"{name}_o{lvl}")
+                rc = run([ZEROCC, f"-O{lvl}", "-S", path, "-o", s])
+                if rc is None or rc.returncode != 0:
+                    line = (rc.stderr or "").strip().splitlines()
+                    msg = line[0] if line else "timeout"
+                    failed.append((name, f"text-O{lvl}", "compile", msg))
+                    if args.verbose:
+                        print(f"[FAIL] {name} text-O{lvl}: compile: {msg}")
+                    continue
+                rc = run([cc, "-c", s, "-o", o])
+                if rc is None or rc.returncode != 0:
+                    line = (rc.stderr or "").strip().splitlines()
+                    msg = line[0] if line else "timeout"
+                    failed.append((name, f"text-O{lvl}", "assemble", msg))
+                    if args.verbose:
+                        print(f"[FAIL] {name} text-O{lvl}: assemble: {msg}")
+                    continue
+                rc = run([cc, o, "-o", b])
+                if rc is None or rc.returncode != 0:
+                    failed.append((name, f"text-O{lvl}", "link", (rc.stderr or "").strip().splitlines()[0]))
+                    continue
+                rr = run([b])
+                if rr is None:
+                    failed.append((name, f"text-O{lvl}", "run", "timeout"))
+                    continue
+                got = (rr.returncode, rr.stdout)
+                if got != ref:
+                    failed.append((name, f"text-O{lvl}", "diff",
+                                   f"got rc={got[0]} out={got[1]!r} want rc={ref[0]} out={ref[1]!r}"))
+                    if args.verbose:
+                        print(f"[FAIL] {name} text-O{lvl}: {failed[-1][3]}")
+                    continue
+                ok += 1
                 if args.verbose:
-                    print(f"[FAIL] {name} -O{lvl}: compile: {msg}")
-                continue
-            rc = run([cc, "-c", s, "-o", o])
-            if rc is None or rc.returncode != 0:
-                line = (rc.stderr or "").strip().splitlines()
-                msg = line[0] if line else "timeout"
-                failed.append((name, lvl, "assemble", msg))
+                    print(f"[ok ] {name} text-O{lvl}")
+
+            if "jit" in args.paths:
+                rr = run([ZEROCC, f"-O{lvl}", "--run", path])
+                if rr is None:
+                    failed.append((name, f"jit-O{lvl}", "run", "timeout"))
+                    continue
+                got = (rr.returncode, rr.stdout)
+                if got != ref:
+                    msg = (rr.stderr or "").strip().splitlines()
+                    err = msg[0] if msg else f"got rc={got[0]} out={got[1]!r} want rc={ref[0]} out={ref[1]!r}"
+                    failed.append((name, f"jit-O{lvl}", "diff", err))
+                    if args.verbose:
+                        print(f"[FAIL] {name} jit-O{lvl}: {err}")
+                    continue
+                ok += 1
                 if args.verbose:
-                    print(f"[FAIL] {name} -O{lvl}: assemble: {msg}")
-                continue
-            rc = run([cc, o, "-o", b])
-            if rc is None or rc.returncode != 0:
-                failed.append((name, lvl, "link", (rc.stderr or "").strip().splitlines()[0]))
-                continue
-            rr = run([b])
-            if rr is None:
-                failed.append((name, lvl, "run", "timeout"))
-                continue
-            got = (rr.returncode, rr.stdout)
-            if got != ref:
-                failed.append((name, lvl, "diff",
-                               f"got rc={got[0]} out={got[1]!r} want rc={ref[0]} out={ref[1]!r}"))
+                    print(f"[ok ] {name} jit-O{lvl}")
+
+            if "raw" in args.paths:
+                b_raw = os.path.join(tmp, f"{name}_raw_o{lvl}")
+                env_raw = dict(os.environ, ZC_RAW_AOT="1")
+                rc = run([ZEROCC, f"-O{lvl}", path, "-o", b_raw], env=env_raw)
+                if rc is None or rc.returncode != 0:
+                    line = (rc.stderr or "").strip().splitlines()
+                    msg = line[0] if line else "timeout"
+                    failed.append((name, f"raw-O{lvl}", "compile", msg))
+                    if args.verbose:
+                        print(f"[FAIL] {name} raw-O{lvl}: compile: {msg}")
+                    continue
+                rr = run([b_raw])
+                if rr is None:
+                    failed.append((name, f"raw-O{lvl}", "run", "timeout"))
+                    continue
+                got = (rr.returncode, rr.stdout)
+                if got != ref:
+                    failed.append((name, f"raw-O{lvl}", "diff",
+                                   f"got rc={got[0]} out={got[1]!r} want rc={ref[0]} out={ref[1]!r}"))
+                    if args.verbose:
+                        print(f"[FAIL] {name} raw-O{lvl}: {failed[-1][3]}")
+                    continue
+                ok += 1
                 if args.verbose:
-                    print(f"[FAIL] {name} -O{lvl}: {failed[-1][3]}")
-                continue
-            ok += 1
-            if args.verbose:
-                print(f"[ok ] {name} -O{lvl}")
+                    print(f"[ok ] {name} raw-O{lvl}")
 
     total = ok + len(failed)
     print("=" * 60)

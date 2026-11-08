@@ -157,10 +157,9 @@ static void lower_asm_stmt(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNo
     if (node->int_val < 0 || (size_t)node->int_val >= c->asm_stmt_count) return;
     ZeroCCAsmStmt *as = &c->asm_stmts[node->int_val];
 
-    if (!c->emit_asm) {
+    if (!c->emit_asm && !BE(c)->emit_inline_asm_mc) {
         diag_report_error_at_token(c,
-            "inline asm requires the AOT text path (-S, or ZC_TEXT_AOT=1 with -o); "
-            "the JIT/raw-emitter path is Phase 2");
+            "inline asm machine-code emission is not supported on this target");
         c->had_error = 1;
         return;
     }
