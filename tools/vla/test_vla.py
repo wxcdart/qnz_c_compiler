@@ -228,36 +228,48 @@ int main(void) { return matmul(); }
         vla_type="runtime"
     ),
     
-    # VLA in loop (should fail in hybrid mode)
+    # VLA in loop (C99 6.7.5.2: a VLA is legal in ANY block scope, loop
+    # bodies included). This used to assert the old "hybrid mode" rejection
+    # of loop-bounded VLAs; zerocc (and gcc) now accept and run them, so
+    # the guard is a runtime read-back (10 iterations x arr[n-1]).
     TestCase(
         name="vla_in_loop",
         source="""
-void test(int n) {
+int test(int n) {
+    int sum = 0;
     for (int i = 0; i < 10; i++) {
-        int arr[n];  // VLA in loop - should error
+        int arr[n];
+        for (int j = 0; j < n; j++) arr[j] = j;
+        sum += arr[n - 1];
     }
+    return sum; /* 10 * (n - 1) */
 }
-int main(void) { return 0; }
+int main(void) { return test(3) == 20 ? 0 : 1; }
 """,
-        should_compile=False,
-        vla_type="hybrid",
-        expect_error="VLA in loop"
+        expected_result=0,
+        should_compile=True,
+        vla_type="hybrid"
     ),
-    
-    # VLA in nested block (should fail in hybrid mode)
+
+    # VLA in nested block (same as above - the old "hybrid mode" rejection
+    # is gone; legal C99, guarded by runtime read-back).
     TestCase(
         name="vla_in_block",
         source="""
-void test(int n) {
+int test(int n) {
+    int out = -1;
     if (n > 0) {
-        int arr[n];  // VLA in block - should error
+        int arr[n];
+        for (int j = 0; j < n; j++) arr[j] = j + 1;
+        out = arr[n - 1] + arr[0];
     }
+    return out; /* n + 1 */
 }
-int main(void) { return 0; }
+int main(void) { return test(5) == 6 ? 0 : 1; }
 """,
-        should_compile=False,
-        vla_type="hybrid",
-        expect_error="VLA in block"
+        expected_result=0,
+        should_compile=True,
+        vla_type="hybrid"
     ),
 ]
 

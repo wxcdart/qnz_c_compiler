@@ -146,7 +146,7 @@ make test-san
 # FP/128-bit ops, extend ops, COND_SET, and unsigned division; reports the I9 unmarked-
 # narrow-op population (OVF-deferred / pre-canonicalized / load-store-discipline) and checks
 # I10 (complex/vector address-form temps are never the dest of a scalar FP/128 value op -
-# the Sprint 115l esz / 113 vector-lane bug class) across 152 corpus files at -O0/2/3
+# the Sprint 115l esz / 113 vector-lane bug class) across 160 corpus files at -O0/2/3
 python3 tools/type_tag_verifier.py --verify-all
 
 # Verify the CFG layer (-dump-cfg) against an independent Python recomputation
