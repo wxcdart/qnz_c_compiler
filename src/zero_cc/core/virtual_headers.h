@@ -152,6 +152,7 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "size_t strcspn(const char *s, const char *reject);\n"
             "char* strpbrk(const char *s, const char *accept);\n"
             "void* memchr(const void *s, int c, size_t n);\n"
+            "char* strerror(int errnum);\n"
             "#endif\n"
         );
     }
@@ -293,6 +294,7 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
         return strdup(
             "#ifndef _UNISTD_H\n#define _UNISTD_H 1\n"
             "typedef unsigned long size_t;\n"
+            "typedef long ssize_t;\n"
             "int write(int fd, const void *buf, size_t count);\n"
             "int read(int fd, void *buf, size_t count);\n"
             "int close(int fd);\n"
@@ -422,12 +424,20 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "#ifndef _SYS_MMAN_H\n#define _SYS_MMAN_H 1\n"
             "typedef unsigned long size_t;\n"
             "#define PROT_NONE 0\n#define PROT_READ 1\n#define PROT_WRITE 2\n#define PROT_EXEC 4\n"
-            "#define MAP_PRIVATE 2\n#define MAP_SHARED 1\n#define MAP_ANONYMOUS 32\n#define MAP_ANON 32\n"
+            "#define MAP_SHARED 1\n#define MAP_PRIVATE 2\n#define MAP_ANONYMOUS 32\n#define MAP_ANON 32\n"
             "#define MAP_FAILED ((void*)-1)\n"
             "#define MREMAP_MAYMOVE 1\n#define MREMAP_FIXED 2\n#define MREMAP_DONTUNMAP 4\n"
+            "void* mmap(void *addr, size_t length, int prot, int flags, int fd, long offset);\n"
             "void *mremap(void *old_address, long old_size, long new_size, int flags);\n"
             "int munmap(void *addr, size_t length);\n"
             "int mprotect(void *addr, size_t len, int prot);\n"
+            "#endif\n"
+        );
+    }
+    if (strcmp(name, "sys/ioctl.h") == 0) {
+        return strdup(
+            "#ifndef _SYS_IOCTL_H\n#define _SYS_IOCTL_H 1\n"
+            "int ioctl(int fd, unsigned long request, ...);\n"
             "#endif\n"
         );
     }
@@ -497,53 +507,6 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "#ifndef _CTYPE_H\n#define _CTYPE_H 1\n"
             "int isspace(int c);\nint isdigit(int c);\nint isalpha(int c);\nint isalnum(int c);\n"
             "int isxdigit(int c);\nint toupper(int c);\nint tolower(int c);\n"
-            "#endif\n"
-        );
-    }
-    if (strcmp(name, "fcntl.h") == 0) {
-        return strdup(
-            "#ifndef _FCNTL_H\n#define _FCNTL_H 1\n"
-            "#define O_RDONLY 0\n#define O_WRONLY 1\n#define O_RDWR 2\n#define O_CREAT 0100\n#define O_TRUNC 01000\n"
-            "int open(const char *pathname, int flags, ...);\n"
-            "#endif\n"
-        );
-    }
-    if (strcmp(name, "unistd.h") == 0) {
-        return strdup(
-            "#ifndef _UNISTD_H\n#define _UNISTD_H 1\n"
-            "#define R_OK 4\n#define W_OK 2\n#define X_OK 1\n#define F_OK 0\n"
-            "int access(const char *pathname, int mode);\nint close(int fd);\n"
-            "long read(int fd, void *buf, size_t count);\nlong write(int fd, const void *buf, size_t count);\n"
-            "int unlink(const char *pathname);\n"
-            "#endif\n"
-        );
-    }
-    if (strcmp(name, "sys/stat.h") == 0) {
-        return strdup(
-            "#ifndef _SYS_STAT_H\n#define _SYS_STAT_H 1\n"
-            "typedef unsigned int mode_t;\nint chmod(const char *pathname, mode_t mode);\n"
-            "#endif\n"
-        );
-    }
-    if (strcmp(name, "sys/mman.h") == 0) {
-        return strdup(
-            "#ifndef _SYS_MMAN_H\n#define _SYS_MMAN_H 1\n"
-            "typedef unsigned long size_t;\n"
-            "#define PROT_READ 0x1\n#define PROT_WRITE 0x2\n#define PROT_EXEC 0x4\n#define PROT_NONE 0x0\n"
-            "#define MAP_SHARED 0x01\n#define MAP_PRIVATE 0x02\n#define MAP_ANONYMOUS 0x20\n#define MAP_ANON 0x20\n"
-            "#define MAP_FAILED ((void*)-1)\n"
-            "#define MREMAP_MAYMOVE 1\n#define MREMAP_FIXED 2\n#define MREMAP_DONTUNMAP 4\n"
-            "void* mmap(void *addr, size_t length, int prot, int flags, int fd, long offset);\n"
-            "int munmap(void *addr, size_t length);\nint mprotect(void *addr, size_t len, int prot);\n"
-            "#endif\n"
-        );
-    }
-    if (strcmp(name, "dlfcn.h") == 0) {
-        return strdup(
-            "#ifndef _DLFCN_H\n#define _DLFCN_H 1\n"
-            "#define RTLD_LAZY 1\n#define RTLD_NOW 2\n#define RTLD_GLOBAL 0x100\n#define RTLD_LOCAL 0\n#define RTLD_DEFAULT ((void*)0)\n"
-            "void* dlopen(const char *filename, int flags);\nvoid* dlsym(void *handle, const char *symbol);\n"
-            "int dlclose(void *handle);\nchar* dlerror(void);\n"
             "#endif\n"
         );
     }

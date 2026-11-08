@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-11-08T03:15:12Z
+timestamp: 2026-11-08T05:12:20Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -28,6 +28,7 @@ ZeroCC synchronizes its parser/lowering type representation (`ZeroCCType`) and s
 4. **Symmetric Classification Predicates**:
    - `ZeroCCType` (`src/zero_cc/types/type_funcs.h`) and `TypeInfo` (`src/zero_cc/semantic/type.h`) share symmetric, inline classification predicates: `is_void`, `is_bool`, `is_integer`, `is_floating`, `is_arithmetic`, `is_pointer`, `is_array`, `is_struct`, `is_union`, `is_struct_or_union`, `is_unsigned`, `is_signed`, `is_scalar`, `is_aggregate`, `is_complex`, `is_vector`, `is_func_ptr`, and structural equality (`zero_cc_type_equal` vs `type_equal`).
    - Struct member lookup is unified via `zero_cc_type_find_member_info` / `zero_cc_type_get_member_offset` (`ZeroCCType`) and `type_find_field_info` / `type_get_field_offset` (`TypeInfo`).
+   - **StructField Allocation & Bitfield State (`src/zero_cc/semantic/type.c`)**: `type_add_field_ext()` appends fields to `TypeInfo.details.record.fields` allocated via `arena_alloc` (which does not zero-initialize). All struct field slots are explicitly zero-initialized (`memset(&fields[new_count - 1], 0, sizeof(struct StructField))` with `sso_be = false, sso_unit = 0`), guaranteeing uninitialized arena memory cannot spuriously set `sso_be` (which would trigger spurious byte-swapping on bitfield loads/stores, as previously exposed in SQLite view column flag evaluation).
 
 ## SemContext: Single Canonical Definition
 

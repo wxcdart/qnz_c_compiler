@@ -388,6 +388,7 @@ void type_add_field_ext(Arena *perm, TypeInfo *struct_t, const char *name, size_
     size_t nlen = strlen(name) + 1;
     char *name_copy = (char *)arena_alloc(perm, nlen);
     if (name_copy) memcpy(name_copy, name, nlen);
+    memset(&fields[new_count - 1], 0, sizeof(struct StructField));
     fields[new_count - 1].name = name_copy ? name_copy : name;
     fields[new_count - 1].offset = offset;
     fields[new_count - 1].type = field_type;
@@ -396,6 +397,8 @@ void type_add_field_ext(Arena *perm, TypeInfo *struct_t, const char *name, size_
     fields[new_count - 1].bit_width = bit_width;
     fields[new_count - 1].is_signed = is_signed;
     fields[new_count - 1].is_flexible = is_flexible;
+    fields[new_count - 1].sso_be = false;
+    fields[new_count - 1].sso_unit = 0;
 
     struct_t->details.record.fields = fields;
     struct_t->details.record.field_count = new_count;

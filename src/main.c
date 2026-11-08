@@ -225,7 +225,7 @@ static char *preprocess_with_options(const char *source, const CompileOptions *o
 
 /* Compile one translation unit for JIT execution. Returns the compiler on
  * success (caller owns it), NULL on failure (diagnostics already printed). */
-static ZeroCCCompiler *jit_compile_tu(CompileOptions *opts, const char *input) {
+static ZeroCCCompiler *jit_compile_tu(CompileOptions *opts, const char *input, int tu_index) {
     char *source = read_file(input);
     if (!source) {
         return NULL;
@@ -249,6 +249,7 @@ static ZeroCCCompiler *jit_compile_tu(CompileOptions *opts, const char *input) {
         free(source);
         return NULL;
     }
+    comp->tu_index = tu_index;
 
     ZeroCCISA target_isa = parse_target_arch(opts->target_arch);
     zero_cc_init_compiler_with_target(comp, target_isa);
@@ -295,7 +296,7 @@ static ZeroCCCompiler *jit_compile_tu(CompileOptions *opts, const char *input) {
 }
 
 static int compile_jit(CompileOptions *opts) {
-    ZeroCCCompiler *comp = jit_compile_tu(opts, opts->input_files[0]);
+    ZeroCCCompiler *comp = jit_compile_tu(opts, opts->input_files[0], 0);
     if (!comp) {
         return 1;
     }
@@ -311,7 +312,7 @@ static int compile_jit(CompileOptions *opts) {
          * TU's own entries are re-based into the merged data layout,
          * re-append the snapshot (already in merged layout). */
         for (int i = 1; i < opts->input_count; i++) {
-            ZeroCCCompiler *tu = jit_compile_tu(opts, opts->input_files[i]);
+            ZeroCCCompiler *tu = jit_compile_tu(opts, opts->input_files[i], i);
             if (!tu) {
                 zero_cc_compiler_free(comp);
                 return 1;

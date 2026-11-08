@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-08T04:14:02Z
+timestamp: 2026-11-08T05:12:20Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1149,3 +1149,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-08 — Updated `optimization-passes.md`
 - Sprint 128: inlined callee parameter caller-local shadowing invariant
+
+## 2026-11-08 — Updated `multi-tu.md`
+- Multi-TU static local mangling and JIT atexit lifecycle
+
+## 2026-11-08 — Updated `frontend-and-types.md`
+- Zero-initialize StructField in type_add_field_ext

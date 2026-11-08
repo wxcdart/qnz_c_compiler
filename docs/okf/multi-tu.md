@@ -4,7 +4,7 @@ title: Multi-Translation-Unit Driver (T1) & JIT Image Merge
 description: How zerocc compiles multiple .c inputs - per-TU compile, the multi-TU JIT image merge (zero_cc_tu_merge), the global-registry snapshot discipline, and the extern-object store/load paths that make cross-TU globals work.
 resource: driver/multi-tu
 tags: [driver, multi-tu, jit, merge, relocations, globals, linker]
-timestamp: 2026-11-08T00:51:57Z
+timestamp: 2026-11-08T05:12:20Z
 generated: pi-agent
 verified: engineering-lead
 status: active
@@ -84,6 +84,15 @@ compiling TU `i` wipes the merged registry. The driver therefore:
    contents) by `align8(base->data.length)`;
 3. re-appends the snapshot (via `zero_cc_global_vars_reserve`);
 4. only then calls `zero_cc_tu_merge` (which no longer touches the registry).
+
+### Multi-TU static locals & JIT lifecycle
+
+- **Static local variable mangling (`src/zero_cc/parser/decl_local.c`)**:
+  Within a translation unit, static local variables are named `__sl_%zu`. In a multi-TU compile, each TU's sequence previously restarted at 0. Because JIT relocations resolve globals by name at patch time, TU 1's `__sl_0` bound to TU 0's memory (e.g. zlib's `deflate.c` `my_version` colliding with `example.c`'s static string). `decl_local.c` now qualifies names as `__sl_%d_%zu` using `c->tu_index` whenever `c->tu_index > 0`, isolating static locals across all merged TUs.
+- **JIT `atexit` lifecycle (`src/zero_cc/types/symbol_mgmt.h`)**:
+  JIT code registering callbacks with libc `atexit` crashes if host glibc invokes unmapped JIT code pages during process exit. `zero_cc_resolve_symbol` intercepts `atexit` with `zero_cc_jit_atexit`, tracking registered function pointers in `g_jit_atexit_handlers` and running them in reverse registration order before `zero_mmap_free` releases the JIT execution pages.
+- **JIT command line `main` arguments (`src/zero_cc/jit/execution.h`)**:
+  `zero_cc_execute_jit` supplies standard default `argc = 1` and `argv = {"zerocc", NULL}` when invoking JIT `main` with a null context, satisfying command-line assertions (such as SQLite shell's `assert(argc >= 1 && argv && argv[0])`).
 
 ## Cross-TU globals: extern-object load/store
 

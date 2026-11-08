@@ -234,8 +234,17 @@ static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
     ZeroCCFunction *main_fn = zero_cc_find_function(c, "main");
     size_t main_offset = main_fn ? main_fn->text_offset : 0;
 
-    int (*jit_main)(void *) = (int (*)(void *))((char*)mem + main_offset);
-    int result = jit_main(context);
+    static char default_prog_name[] = "zerocc";
+    static char *default_argv[] = { default_prog_name, NULL };
+    int result;
+    if (context) {
+        int (*jit_main_ctx)(void *) = (int (*)(void *))((char*)mem + main_offset);
+        result = jit_main_ctx(context);
+    } else {
+        int (*jit_main_args)(int, char **) = (int (*)(int, char **))((char*)mem + main_offset);
+        result = jit_main_args(1, default_argv);
+    }
+    zero_cc_jit_atexit_run();
     zero_mmap_free(mem, total_sz);
     return result;
 #else

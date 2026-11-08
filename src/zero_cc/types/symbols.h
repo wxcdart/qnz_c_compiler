@@ -78,6 +78,7 @@ typedef struct ZeroCCCompiler {
     int32_t local_lookup_bound;
     int32_t current_stack_frame;
     size_t static_local_seq;              /* Sprint 37: unique mangle counter for static locals */
+    int tu_index;                         /* Translation unit index in multi-TU builds (default 0) */
     size_t anon_struct_seq;               /* unique name counter for anonymous struct/union definitions */
     ZeroCCType (*parse_struct_body)(struct ZeroCCCompiler *c, bool is_union);
     ZeroCCTypedef typedefs[ZERO_CC_MAX_TYPEDEFS];

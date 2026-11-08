@@ -1,3 +1,36 @@
+## [Sprint 129] - 2026-11-08 - Fix Multi-TU JIT static local collisions, JIT atexit handling, and uninitialized StructField bitfield state (SQLite view expansion)
+
+Root-caused and resolved multi-TU JIT execution issues for 15-TU zlib and the 255k-line SQLite amalgamation, enabling full JIT `--run` and AOT parity with 100% byte-for-byte behavioral matching against GCC.
+
+**Root Cause 1: Multi-TU Static Local Symbol Collision** (`src/zero_cc/parser/decl_local.c`, `src/main.c`, `src/zero_cc/types/symbols.h`):
+When compiling multiple translation units in JIT mode (`zerocc a.c b.c --run`), each TU's static local counter restarted at 0 (`__sl_0`, `__sl_1`, ...). At patch time, relocation resolution by name bound subsequent TUs' static locals to TU 0's memory (e.g. zlib's `deflate.c` static `my_version` resolving to `example.c`'s `__sl_0`, tripping `Z_VERSION_ERROR (-6)`).
+Qualified static local symbols as `__sl_%d_%zu` with `c->tu_index` whenever `c->tu_index > 0`, ensuring distinct names for internal static locals across all merged TUs.
+
+**Root Cause 2: JIT Command-Line Arguments & `atexit` Lifecycle** (`src/zero_cc/jit/execution.h`, `src/zero_cc/types/symbol_mgmt.h`):
+- `execution.h`: Provided standard default arguments `argc = 1` and `argv = {"zerocc", NULL}` when invoking JIT `main` with a null context, satisfying assertions such as SQLite shell's `assert(argc >= 1 && argv && argv[0])`.
+- `symbol_mgmt.h`: Intercepted libc `atexit` registration via `zero_cc_jit_atexit` to track callbacks in `g_jit_atexit_handlers`. Registered handlers are executed in reverse order prior to `zero_mmap_free` releasing the JIT code memory, eliminating segmentation faults during host process termination.
+
+**Root Cause 3: Uninitialized StructField Bitfield State & SQLite View Expansion** (`src/zero_cc/semantic/type.c`):
+When adding struct fields in `type_add_field_ext()`, slots were allocated using `arena_alloc` without zero-initialization. Uninitialized memory in `sso_be` and `sso_unit` caused `ast_lowering_expr.c` to emit a spurious 16-bit byte-swap on `ExprList_item.fg.bNoExpand`. This byte-swap turned `eEName = 1` into `bNoExpand = 1`, marking all columns in SQLite views with `COLFLAG_NOEXPAND`, which broke wildcard expansion in `SELECT * FROM v1` ("no tables specified").
+Explicitly zero-initialized `StructField` slots (`memset(&fields[new_count - 1], 0, sizeof(struct StructField))` with `sso_be = false, sso_unit = 0`), eliminating spurious byte-swapping.
+
+**Root Cause 4: Virtual Header Declarations Parity** (`src/zero_cc/core/virtual_headers.h`):
+- Added `void* mmap(void *addr, size_t length, int prot, int flags, int fd, long offset);` to `<sys/mman.h>`, resolving SQLite's `mmap` syscall table slot to the dynamic libc helper (matching GCC).
+- Added `<sys/ioctl.h>` with `int ioctl(int fd, unsigned long request, ...);`.
+- Added `char* strerror(int errnum);` to `<string.h>` and `typedef long ssize_t;` to `<unistd.h>`.
+
+**Verification**:
+- `python3 tools/project_runs.py`: 25/25 PASS (AOT) and 39/39 PASS (`--jit`).
+- `zlib example` under JIT `--run` across 16 TUs executes cleanly and exits 0.
+- `sqlite shell` + `sqlite3.c` under JIT `--run` evaluates queries and matches GCC byte-for-byte on `sql_suite.sql`.
+- `make test`: 184/184 PASS.
+- `make test-opt`: 147/147 PASS across -O0..-O3 in JIT and AOT.
+- `make test-san`: 101/101 PASS across x86-64, AArch64, RISC-V.
+- `python3 tools/sret_verifier.py --verify-all`: 6/6 PASS.
+- `python3 tools/type_tag_verifier.py --verify-all`: RESULT OK.
+- `python3 tools/style_check.py`: 0 errors.
+- `python3 tools/okf.py lint && python3 tools/okf.py index`: All OKF v0.2 checks PASS.
+
 ## [Sprint 128] - 2026-11-08 - Fix inlined callee parameter caller-local shadowing and struct ternary address-form lowering; SQLite shell suite passes cleanly across -O0..-O3
 
 Root-caused and fixed the SQLite VDBE commit-path and parser segfaults at `-O2`/`-O3`, making the full on-disk SQLite shell test suite pass byte-for-byte against GCC with zero regressions.

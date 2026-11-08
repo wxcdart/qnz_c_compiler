@@ -78,7 +78,11 @@ static inline bool zero_cc_static_local_register(ZeroCCCompiler *c, ZeroCCSym *s
     size_t off = c->data_section.length;
     for (size_t i = 0; i < alloc; i++) zero_cc_emit_u8(&c->data_section, 0);
     char mangled[48];
-    snprintf(mangled, sizeof(mangled), "__sl_%zu", c->static_local_seq++);
+    if (c->tu_index > 0) {
+        snprintf(mangled, sizeof(mangled), "__sl_%d_%zu", c->tu_index, c->static_local_seq++);
+    } else {
+        snprintf(mangled, sizeof(mangled), "__sl_%zu", c->static_local_seq++);
+    }
     /* An initializer (even a brace aggregate) keeps the object in .data:
      * has_init=false routes >=256B statics to .bss and the baked bytes
      * are silently zeroed at runtime (c-torture execute/ieee/fp-cmp-8:

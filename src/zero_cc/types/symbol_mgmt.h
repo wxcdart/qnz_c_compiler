@@ -361,12 +361,35 @@ static inline ZeroCCFunction* zero_cc_find_function_by_symbol(ZeroCCCompiler *c,
     return asm_match;
 }
 
+#define ZERO_CC_MAX_JIT_ATEXIT 64
+static void (*g_jit_atexit_handlers[ZERO_CC_MAX_JIT_ATEXIT])(void);
+static int g_jit_atexit_count = 0;
+
+static inline int zero_cc_jit_atexit(void (*fn)(void)) {
+    if (!fn) return -1;
+    if (g_jit_atexit_count < ZERO_CC_MAX_JIT_ATEXIT) {
+        g_jit_atexit_handlers[g_jit_atexit_count++] = fn;
+        return 0;
+    }
+    return -1;
+}
+
+static inline void zero_cc_jit_atexit_run(void) {
+    for (int i = g_jit_atexit_count - 1; i >= 0; i--) {
+        if (g_jit_atexit_handlers[i]) {
+            g_jit_atexit_handlers[i]();
+        }
+    }
+    g_jit_atexit_count = 0;
+}
+
 /* Dynamic Symbol Lookup for JIT Mode */
 static inline void* zero_cc_resolve_symbol(const char *name) {
 #ifdef __linux__
     if (strcmp(name, "stderr") == 0) return (void*)&stderr;
     if (strcmp(name, "stdout") == 0) return (void*)&stdout;
     if (strcmp(name, "stdin") == 0) return (void*)&stdin;
+    if (strcmp(name, "atexit") == 0) return (void*)&zero_cc_jit_atexit;
     if (strcmp(name, "link_error") == 0) {
         extern void abort(void);
         return (void*)&abort;
