@@ -5,7 +5,10 @@ ZeroCC is a lightweight, embeddable C99/C11/C23 compiler (with GNU extensions) w
 ## Features
 
 - **C99/C11/C23** compiler, freestanding, with optional `zero_rt` standard library
+- **C23 Conformance**: `constexpr` data declarations, `nullptr`, `true`/`false` keywords, `typeof`/`typeof_unqual`, `#warning` (C23 6.9.1), empty `{}` initializers, `[[attr]]` attributes, designator-based unsized array sizing (`make test-c23` gate vs gcc-15)
+- **Multi-project validation**: sqlite3.c amalgamation (255k lines), 15-TU zlib, and cJSON compiled under zerocc at `-O0` and `-O2` (`make test-project-diff`)
 - **Multi-ISA**: x86-64, AArch64, RISC-V 64, RISC-V 32 (`--target`)
+- **Inline assembly support & roadmap**: GNU asm statement parsing (`__asm__ volatile ("..." : out : in : clobbers)`), memory/optimization barriers, asm symbol labels, direct multi-ISA `__zerocc_syscall`, and Clang-style integrated assembler roadmap (docs/okf/inline-assembly-roadmap.md)
 - **`-fsanitize=undefined`** — target-side signed-integer-overflow trap (bare
   `ud2`; x86-64, both emitters; check width follows the usual arithmetic
   conversions — Sprints 116–117; `make test-san` flag-ON gate)
@@ -242,12 +245,14 @@ against a static-musl reference). See
 
 ## Test Results
 
-Current status (verified 2026-11-06 at HEAD, Sprints 118–120):
+Current status (verified 2026-11-08 at HEAD, Sprints 129–134):
 
 | Suite | Status | Count |
 |-------|--------|-------|
-| **Main regression suite** (`make test`: unit, semantic, ABI, JIT, AOT, LICM) | ✅ Pass | 179/179 |
-| **Optimizer sweep** (`make test-opt`, `-O0..-O3` × JIT + AOT via zerocc) | ✅ Pass | 141/141 |
+| **Main regression suite** (`make test`: unit, semantic, ABI, JIT, AOT, LICM) | ✅ Pass | 186/186 |
+| **Optimizer sweep** (`make test-opt`, `-O0..-O3` × JIT + AOT via zerocc) | ✅ Pass | 149/149 |
+| **C23 differential gate** (`make test-c23`: 24 cases across gnu23/c11/c99 vs gcc-15) | ✅ Pass | 24/24 |
+| **Project-differential gate** (`make test-project-diff`: cJSON, zlib, sqlite3.c at -O0/-O2) | ✅ Pass | 36/36 TUs |
 | **`zero_san` flag-ON sweep** (`make test-san`: `san_ok_*` clean + `san_trap_*` SIGILL at `-O0..-O3`, JIT + AOT, cross-ISA qemu smoke) | ✅ Pass | 101 ok + 3 cross |
 | **Multi-file driver** (`make test-driver`, multi-TU JIT/AOT + per-input `-c`/`-S`) | ✅ Pass | 37/37 |
 | **Own linker** (`make test-linker`, `--zerocc-link` + gcc differential) | ✅ Pass | 21/21 |
@@ -255,7 +260,7 @@ Current status (verified 2026-11-06 at HEAD, Sprints 118–120):
 | **Cross-ISA `__int128` raw-emitter QEMU gate** (`make test-isa128`, vs static-musl reference) | ✅ Pass | 144/144 (all 3 ISAs × 6 tests × 4 levels × 2 paths) |
 | **GCC c-torture conformance gate** (`make test-torture`, ratcheted baseline) | ✅ Pass | 3,740 PASS / 3,934 corpus (0 MISCOMPILE / 0 REJECT; SKIP-SUPPORT 87, SKIP-C89 44, SKIP-REFSEM 16, SKIP-TARGET: arm/ia64/mips 6, SKIP-UB/PTR/BOGUS 3, EXPECTED-REJECT 4, NO-REF 26, REF-BUG 8) |
 | **Type-tag verifier** (`tools/type_tag_verifier.py --verify-all`, invariants I1–I10 at `-O0/2/3`) | ✅ Pass | 152 files, RESULT OK |
-| **ASan/UBSan rebuild** (`make asan`) | ✅ Pass | 179/179 |
+| **ASan/UBSan rebuild** (`make asan`) | ✅ Pass | 186/186 |
 | **`sret` ABI verifier** (`tools/sret_verifier.py --verify-all`) | ✅ Pass | 6/6 |
 | **C11 verification suite** (`tools/c11/test_c11.py`) | ✅ Pass | 11/11 |
 | **VLA verification suite** (`tools/vla/test_vla.py`) | ✅ Pass | 11/11 (9 pass + 2 expected-reject) |
@@ -268,11 +273,18 @@ ZeroCC implements the following C23 features:
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `typeof` / `typeof_unqual` | ✅ | C23 6.7.2.5; also GNU `__typeof__` / `__typeof` |
-| Empty `{}` initializers | ✅ | C23 6.7.10 for all storage classes |
-| `[[attr]]` attributes | ✅ | Parser recognition via `skip_c23_attributes()` |
+| `nullptr` / `nullptr_t` | ✅ Complete | C23 6.4.4.6 / 6.7.2; keyword and `nullptr_t` predefined type |
+| `true` / `false` | ✅ Complete | C23 6.4.4.5; keywords in C23 dialect without `<stdbool.h>` |
+| `constexpr` data declarations | ✅ Complete | C23 6.7.2.4; initialized data objects (scalars, arrays, structs, pointers) |
+| `typeof` / `typeof_unqual` | ✅ Complete | C23 6.7.2.5; also GNU `__typeof__` / `__typeof` and dependent param types |
+| `#warning` directive | ✅ Complete | C23 6.9.1; raw diagnostic text, splicing, `#pragma GCC diagnostic` control |
+| `#error` directive | ✅ Complete | Standard C preprocessor diagnostic |
+| Unsized-array designator sizing | ✅ Complete | C99 6.7.8p12 / C23 6.7.10; `T a[] = { [N] = ... }` sized from max index + 1 |
+| Empty `{}` initializers | ✅ Complete | C23 6.7.10 for all storage classes |
+| `[[attr]]` attributes | ✅ Complete | Parser recognition via `skip_c23_attributes()` |
 | `__STDC_NO_COMPLEX__` | ❌ Not defined | `_Complex float/double` and GNU integer complex are supported; the macro is intentionally absent |
-| `__typeof__` / `__typeof` | ✅ | GNU spellings accepted everywhere `typeof` works |
+| `__typeof__` / `__typeof` | ✅ Complete | GNU spellings accepted everywhere `typeof` works |
+| **Differential C23 Gate** | ✅ Verified | `make test-c23` (`tools/c23/test_c23.py`) 24/24 cases diffed vs gcc-15 across dialects |
 
 ## C11 Support
 
@@ -302,8 +314,10 @@ ZeroCC implements the following C23 features:
 
 ```bash
 make           # Build zerocc, zero_rt.a (all ISAs), and all tests
-make test      # Run the full regression suite
-make test-opt  # Optimizer sweep at -O0..-O3, JIT + AOT, via zerocc itself
+make test      # Run the full regression suite (186 tests)
+make test-opt  # Optimizer sweep at -O0..-O3, JIT + AOT, via zerocc itself (149 tests)
+make test-c23  # C23 differential conformance gate vs gcc-15 (24 tests)
+make test-project-diff # Project-differential gate (cJSON, zlib, sqlite3.c at -O0/-O2)
 make test-driver   # Multi-TU driver tests (tools/driver_tests.py)
 make test-linker   # Own-linker differential tests (tools/linker_tests.py)
 make test-isa-qemu # Raw-emitter QEMU gate for all 4 ISAs (needs qemu-user-static + tools/setup_musl_cross.sh)
@@ -344,6 +358,7 @@ ZeroCC maintains an **Open Knowledge Format (OKF v0.2)** knowledge graph in
 | [`docs/okf/tls-static.md`](docs/okf/tls-static.md) | Static TLS (`_Thread_local`) support |
 | [`docs/okf/scalar-float-x86.md`](docs/okf/scalar-float-x86.md) | Scalar float pipeline (x86-64) |
 | [`docs/okf/c-torture-gate.md`](docs/okf/c-torture-gate.md) | GCC `c-torture` differential conformance gate |
+| [`docs/okf/inline-assembly-roadmap.md`](docs/okf/inline-assembly-roadmap.md) | Clang-style integrated inline assembly roadmap (Phase 1 AOT, Phase 2 JIT, Phase 3 Extensions) |
 | [`docs/okf/perf-measurements.md`](docs/okf/perf-measurements.md) | Measured optimizer costs & JIT-vs-GCC data |
 | [`docs/okf/sanitizer-roadmap.md`](docs/okf/sanitizer-roadmap.md) | Target-side sanitizer roadmap — Phase 1 (signed-overflow) implemented in Sprint 116; later phases parked |
 | [`docs/CHANGELOG.md`](docs/CHANGELOG.md) | Full release notes and changelog |
@@ -357,6 +372,8 @@ ZeroCC includes automated verification suites in [`tools/`](tools/)
 (historical debugging scripts are archived in [`tools/archive/`](tools/archive/)):
 
 ```bash
+python3 tools/c23/test_c23.py              # C23 differential conformance gate vs gcc-15
+python3 tools/project_diff.py              # Real-world project compilation gate (cJSON, zlib, sqlite3.c)
 python3 tools/c11/test_c11.py --verbose    # C11 feature & concurrency suite
 python3 tools/vla/test_vla.py              # VLA & matrix VLA suite
 python3 tools/sret_verifier.py --verify-all  # sret ABI verifier
