@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-08T00:51:58Z
+timestamp: 2026-11-08T02:57:07Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1134,3 +1134,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-08 — Updated `build-and-verification.md`
 - Sprint 125: run/matches gate + 9-16B struct-deref address fix, casted fn designators, weak symbols, struct stat, missing POSIX decls
+
+## 2026-11-08 — Updated `ir-and-regalloc.md`
+- Sprint 126: floating-point compound assignment (a[i] += x / *p += x) lowering rule - native-width vloadss/vloadsd + scalar FADD, not an integer deref+add on IEEE-754 bits (sqlite3AtoF dekkerMul2 REAL-corruption root cause)
+
+## 2026-11-08 — Updated `optimization-passes.md`
+- Sprint 126: LICM instr_has_moving_side_effects now lists OP_VSTORE/VSTORESS/VSTORESD (memory writes must not be hoisted; defensive alongside the integer stores + OP_FSTORE)

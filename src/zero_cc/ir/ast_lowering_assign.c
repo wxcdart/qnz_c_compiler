@@ -848,27 +848,68 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                 return final_val;
             }
             if (is_compound) {
-                int curr_val = c->next_temp_id++;
-                if (p_size == 1) ir_emit_load_byte(c, curr_val, ptr_temp);
-                else if (p_size == 2) ir_emit_load_16(c, curr_val, ptr_temp);
-                else if (p_size == 4) ir_emit_load_32(c, curr_val, ptr_temp);
-                else ir_emit_deref(c, curr_val, ptr_temp);
-                lower_extend_narrow(c, curr_val, target_ti);
-                int op_res = c->next_temp_id++;
-                switch (node->aux.op) {
-                    case TK_ADD_ASSIGN: ir_emit_add(c, op_res, curr_val, right_temp); break;
-                    case TK_SUB_ASSIGN: ir_emit_sub(c, op_res, curr_val, right_temp); break;
-                    case TK_MUL_ASSIGN: ir_emit_mul(c, op_res, curr_val, right_temp); break;
-                    case TK_DIV_ASSIGN: ir_emit_div(c, op_res, curr_val, right_temp); break;
-                    case TK_MOD_ASSIGN: ir_emit_mod(c, op_res, curr_val, right_temp); break;
-                    case TK_AND_ASSIGN: ir_emit_and(c, op_res, curr_val, right_temp); break;
-                    case TK_OR_ASSIGN:  ir_emit_or(c, op_res, curr_val, right_temp); break;
-                    case TK_XOR_ASSIGN: ir_emit_xor(c, op_res, curr_val, right_temp); break;
-                    case TK_SHL_ASSIGN: ir_emit_shl(c, op_res, curr_val, right_temp); break;
-                    case TK_SHR_ASSIGN: ir_emit_shr(c, op_res, curr_val, right_temp); break;
-                    default: op_res = right_temp; break;
+                /* C11 6.5.16.1: floating-point compound assignment through a
+                 * pointer/deref (*p += x, a[i] += x). The current value must
+                 * be loaded as a float and the arithmetic done in floating
+                 * point - an integer load (deref) + integer add operates on
+                 * the raw IEEE-754 bit pattern, not the value (Sprint 126:
+                 * sqlite3AtoF's dekkerMul2 `x[1] += cc` miscompiled to 2x).
+                 * Mirrors the global-variable float compound path. */
+                if (target_ti && type_is_floating(target_ti)) {
+                    /* C11 6.5.16.1: floating-point compound through a pointer/
+                     * deref (*p += x). Do the math in the pointee's native
+                     * width: load (vloadss/vloadsd), convert the RHS to the
+                     * same width, FADD (width from temp tags), store. C99
+                     * 6.3.1.3: int RHS converts. Sprint 126: the old code did
+                     * an integer deref + integer add on the raw IEEE-754 bits. */
+                    int curr_val = c->next_temp_id++;
+                    if (p_size == 4) ir_emit_vloadss(c, (uint16_t)curr_val, (uint16_t)ptr_temp);
+                    else ir_emit_vloadsd(c, (uint16_t)curr_val, (uint16_t)ptr_temp);
+                    int rhs_f = right_temp;
+                    ZeroCCASTNode *rhs_node_u = (node->right != AST_NULL) ? zero_cc_ast_get(arena, node->right) : NULL;
+                    const TypeInfo *rhs_ti_u = rhs_node_u ? ast_node_get_typeinfo(c, rhs_node_u) : NULL;
+                    int rhs_w = (rhs_ti_u && rhs_ti_u->kind == TYPE_KIND_FLOAT) ? 4 :
+                                (rhs_ti_u && rhs_ti_u->kind == TYPE_KIND_DOUBLE) ? 8 : 0; /* 0 = int */
+                    if (p_size == 4) {
+                        if (rhs_w == 8) { int t = c->next_temp_id++; ir_emit_cvtsd2ss(c, (uint16_t)t, (uint16_t)right_temp); rhs_f = t; }
+                        else if (rhs_w == 0) { int t = c->next_temp_id++; ir_emit_vcvtsi2ss(c, (uint16_t)t, (uint16_t)right_temp); rhs_f = t; }
+                    } else {
+                        if (rhs_w == 4) { int t = c->next_temp_id++; ir_emit_cvtss2sd(c, (uint16_t)t, (uint16_t)right_temp); rhs_f = t; }
+                        else if (rhs_w == 0) { int t = c->next_temp_id++; ir_emit_cvtsi2sd(c, (uint16_t)t, (uint16_t)right_temp); rhs_f = t; }
+                    }
+                    int op_res = c->next_temp_id++;
+                    switch (node->aux.op) {
+                        case TK_ADD_ASSIGN: ir_emit_fadd(c, op_res, curr_val, rhs_f); break;
+                        case TK_SUB_ASSIGN: ir_emit_fsub(c, op_res, curr_val, rhs_f); break;
+                        case TK_MUL_ASSIGN: ir_emit_fmul(c, op_res, curr_val, rhs_f); break;
+                        case TK_DIV_ASSIGN: ir_emit_fdiv(c, op_res, curr_val, rhs_f); break;
+                        default: ir_emit_mov_reg(c, op_res, rhs_f); break; /* bit/shift/mod invalid */
+                    }
+                    final_val = op_res;
+                    c->last_expr_is_float = 1;
+                } else {
+                    int curr_val = c->next_temp_id++;
+                    if (p_size == 1) ir_emit_load_byte(c, curr_val, ptr_temp);
+                    else if (p_size == 2) ir_emit_load_16(c, curr_val, ptr_temp);
+                    else if (p_size == 4) ir_emit_load_32(c, curr_val, ptr_temp);
+                    else ir_emit_deref(c, curr_val, ptr_temp);
+                    lower_extend_narrow(c, curr_val, target_ti);
+                    int op_res = c->next_temp_id++;
+                    switch (node->aux.op) {
+                        case TK_ADD_ASSIGN: ir_emit_add(c, op_res, curr_val, right_temp); break;
+                        case TK_SUB_ASSIGN: ir_emit_sub(c, op_res, curr_val, right_temp); break;
+                        case TK_MUL_ASSIGN: ir_emit_mul(c, op_res, curr_val, right_temp); break;
+                        case TK_DIV_ASSIGN: ir_emit_div(c, op_res, curr_val, right_temp); break;
+                        case TK_MOD_ASSIGN: ir_emit_mod(c, op_res, curr_val, right_temp); break;
+                        case TK_AND_ASSIGN: ir_emit_and(c, op_res, curr_val, right_temp); break;
+                        case TK_OR_ASSIGN:  ir_emit_or(c, op_res, curr_val, right_temp); break;
+                        case TK_XOR_ASSIGN: ir_emit_xor(c, op_res, curr_val, right_temp); break;
+                        case TK_SHL_ASSIGN: ir_emit_shl(c, op_res, curr_val, right_temp); break;
+                        case TK_SHR_ASSIGN: ir_emit_shr(c, op_res, curr_val, right_temp); break;
+                        default: op_res = right_temp; break;
+                    }
+                    final_val = op_res;
                 }
-                final_val = op_res;
             }
             if (!c->last_expr_is_float && !is_compound &&
                 target_ti && type_is_floating(target_ti)) {
@@ -1582,31 +1623,75 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                 c->last_expr_is_float = 0;
             }
             if (is_compound) {
-                int curr_val = c->next_temp_id++;
-                if (elem_size == 1) {
-                    ir_emit_load_byte(c, curr_val, addr_temp);
-                } else if (elem_size == 2) {
-                    ir_emit_load_16(c, curr_val, addr_temp);
-                } else if (elem_size == 4) {
-                    ir_emit_load_32(c, curr_val, addr_temp);
+                /* C11 6.5.16.1: floating-point compound on an array element
+                 * (a[i] += x, a[i] *= x, ...): load the current value as a
+                 * float and do the math in floating point. An integer deref +
+                 * integer add operates on the raw IEEE-754 bit pattern, not
+                 * the value (Sprint 126: sqlite3AtoF's dekkerMul2
+                 * `x[1] += cc` miscompiled to 2x). right_temp becomes the
+                 * float result and right_is_float is set so the store below
+                 * uses vstore instead of re-converting. */
+                if (elem_ti && type_is_floating(elem_ti)) {
+                    /* C11 6.5.16.1: floating-point compound on an array element
+                     * (a[i] += x, ...). Do the math in the element's native
+                     * width: load the current value (vloadss/vloadsd), convert
+                     * the RHS to the same width, FADD (width from temp tags -
+                     * ir_emit_fadd, not the SIMD vaddss), store. Sprint 126:
+                     * the old code did an integer deref + integer add on the
+                     * raw IEEE-754 bits (sqlite3AtoF's dekkerMul2
+                     * `x[1] += cc` miscompiled to 2x). */
+                    int curr_val = c->next_temp_id++;
+                    if (elem_size == 4) ir_emit_vloadss(c, (uint16_t)curr_val, (uint16_t)addr_temp);
+                    else ir_emit_vloadsd(c, (uint16_t)curr_val, (uint16_t)addr_temp);
+                    int rhs_f = right_temp;
+                    ZeroCCASTNode *rhs_node = (node->right != AST_NULL) ? zero_cc_ast_get(arena, node->right) : NULL;
+                    const TypeInfo *rhs_ti = rhs_node ? ast_node_get_typeinfo(c, rhs_node) : NULL;
+                    int rhs_w = (rhs_ti && rhs_ti->kind == TYPE_KIND_FLOAT) ? 4 :
+                                (rhs_ti && rhs_ti->kind == TYPE_KIND_DOUBLE) ? 8 : 0; /* 0 = int */
+                    if (elem_size == 4) {
+                        if (rhs_w == 8) { int t = c->next_temp_id++; ir_emit_cvtsd2ss(c, (uint16_t)t, (uint16_t)right_temp); rhs_f = t; }
+                        else if (rhs_w == 0) { int t = c->next_temp_id++; ir_emit_vcvtsi2ss(c, (uint16_t)t, (uint16_t)right_temp); rhs_f = t; }
+                    } else {
+                        if (rhs_w == 4) { int t = c->next_temp_id++; ir_emit_cvtss2sd(c, (uint16_t)t, (uint16_t)right_temp); rhs_f = t; }
+                        else if (rhs_w == 0) { int t = c->next_temp_id++; ir_emit_cvtsi2sd(c, (uint16_t)t, (uint16_t)right_temp); rhs_f = t; }
+                    }
+                    int op_res = c->next_temp_id++;
+                    switch (node->aux.op) {
+                        case TK_ADD_ASSIGN: ir_emit_fadd(c, op_res, curr_val, rhs_f); break;
+                        case TK_SUB_ASSIGN: ir_emit_fsub(c, op_res, curr_val, rhs_f); break;
+                        case TK_MUL_ASSIGN: ir_emit_fmul(c, op_res, curr_val, rhs_f); break;
+                        case TK_DIV_ASSIGN: ir_emit_fdiv(c, op_res, curr_val, rhs_f); break;
+                        default: ir_emit_mov_reg(c, op_res, rhs_f); break; /* bit/shift/mod invalid */
+                    }
+                    right_temp = op_res;
+                    right_is_float = 1;
                 } else {
-                    ir_emit_deref(c, curr_val, addr_temp);
+                    int curr_val = c->next_temp_id++;
+                    if (elem_size == 1) {
+                        ir_emit_load_byte(c, curr_val, addr_temp);
+                    } else if (elem_size == 2) {
+                        ir_emit_load_16(c, curr_val, addr_temp);
+                    } else if (elem_size == 4) {
+                        ir_emit_load_32(c, curr_val, addr_temp);
+                    } else {
+                        ir_emit_deref(c, curr_val, addr_temp);
+                    }
+                    int op_res = c->next_temp_id++;
+                    switch (node->aux.op) {
+                        case TK_ADD_ASSIGN: ir_emit_add(c, op_res, curr_val, right_temp); break;
+                        case TK_SUB_ASSIGN: ir_emit_sub(c, op_res, curr_val, right_temp); break;
+                        case TK_MUL_ASSIGN: ir_emit_mul(c, op_res, curr_val, right_temp); break;
+                        case TK_DIV_ASSIGN: ir_emit_div(c, op_res, curr_val, right_temp); break;
+                        case TK_MOD_ASSIGN: ir_emit_mod(c, op_res, curr_val, right_temp); break;
+                        case TK_AND_ASSIGN: ir_emit_and(c, op_res, curr_val, right_temp); break;
+                        case TK_OR_ASSIGN:  ir_emit_or(c, op_res, curr_val, right_temp); break;
+                        case TK_XOR_ASSIGN: ir_emit_xor(c, op_res, curr_val, right_temp); break;
+                        case TK_SHL_ASSIGN: ir_emit_shl(c, op_res, curr_val, right_temp); break;
+                        case TK_SHR_ASSIGN: ir_emit_shr(c, op_res, curr_val, right_temp); break;
+                        default: ir_emit_mov_reg(c, op_res, right_temp); break;
+                    }
+                    right_temp = op_res;
                 }
-                int op_res = c->next_temp_id++;
-                switch (node->aux.op) {
-                    case TK_ADD_ASSIGN: ir_emit_add(c, op_res, curr_val, right_temp); break;
-                    case TK_SUB_ASSIGN: ir_emit_sub(c, op_res, curr_val, right_temp); break;
-                    case TK_MUL_ASSIGN: ir_emit_mul(c, op_res, curr_val, right_temp); break;
-                    case TK_DIV_ASSIGN: ir_emit_div(c, op_res, curr_val, right_temp); break;
-                    case TK_MOD_ASSIGN: ir_emit_mod(c, op_res, curr_val, right_temp); break;
-                    case TK_AND_ASSIGN: ir_emit_and(c, op_res, curr_val, right_temp); break;
-                    case TK_OR_ASSIGN:  ir_emit_or(c, op_res, curr_val, right_temp); break;
-                    case TK_XOR_ASSIGN: ir_emit_xor(c, op_res, curr_val, right_temp); break;
-                    case TK_SHL_ASSIGN: ir_emit_shl(c, op_res, curr_val, right_temp); break;
-                    case TK_SHR_ASSIGN: ir_emit_shr(c, op_res, curr_val, right_temp); break;
-                    default: ir_emit_mov_reg(c, op_res, right_temp); break;
-                }
-                right_temp = op_res;
             }
 
             bool is_elem_float = false;

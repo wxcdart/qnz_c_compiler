@@ -311,6 +311,9 @@ static bool instr_has_moving_side_effects(Instr *instr) {
         case OP_STORE_32:
         case OP_STORE_64:
         case OP_FSTORE:
+        case OP_VSTORE:
+        case OP_VSTORESS:
+        case OP_VSTORESD:
         case OP_VLA_ALLOC:
         case OP_ATOMIC_XADD:
         case OP_ATOMIC_OR:

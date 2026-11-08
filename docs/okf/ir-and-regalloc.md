@@ -4,7 +4,7 @@ title: Two-Pass IR & Linear Scan Register Allocation
 description: IR instruction format, call-argument tracking table, virtual register conventions, and linear scan register allocation constraints.
 resource: middleend/ir-and-regalloc
 tags: [ir, regalloc, ssa, registers, calling-convention]
-timestamp: 2026-11-08T00:51:57Z
+timestamp: 2026-11-08T02:57:07Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -78,6 +78,8 @@ ZeroCC keeps scalar floats **and** doubles as double-width 64-bit patterns in th
 - `OP_CVTTSD2SS` (`ir_emit_cvttsd2ss`): in-register model double → ABI float (`cvttsd2ss` / `fcvt s,d` / `fcvt.s.d`), emitted by the `float` return epilogue before `ret`.
 
 (Their complements for the *capture* direction already existed: a `float` return is pulled back into the model with `OP_CVTSS2SD`; the caller-side float-arg *narrowing* store is `ir_emit_vstoress`, the converting `vstoress`.) See `abi-sysv-x86_64.md` §1 for the boundary rules and the one-register `_Complex float` convention.
+
+- **Floating-point compound assignment through a memory lvalue (Sprint 126)**: `a[i] += x` / `*p += x` (and `-=`/`*=`/`/=`) for a `float`/`double` element **must** lower to an FP load + FP op, never an integer `DEREF` + integer `ADD` (which operates on the raw IEEE-754 bits). `lower_expr_assign` (`ast_lowering_assign.c`) has a dedicated floating-point path for the `NODE_INDEX` and `NODE_UNOP *` branches: it loads the current element/pointee at its native width (`ir_emit_vloadss`/`ir_emit_vloadsd`), converts the RHS to the element's float width (C99 6.3.1.3 int→float/double via `cvtsi2sd`/`cvtsd2ss`, float↔double via `cvtss2sd`/`cvtsd2ss`), emits a **scalar** FP op (`ir_emit_fadd`/`fsub`/`fmul`/`fdiv` — width from the temp tags, *not* the SIMD `vaddss`), and reuses the existing float store (`vstoress`/`vstoresd`). The RHS float-width decision uses the captured `right_is_float` (not `c->last_expr_is_float`, which the LHS address lowering clobbers). The SQLite REAL-corruption burn-down (Sprint 125b→126) was exactly this: `sqlite3AtoF`'s Dekker-exact-multiply `dekkerMul2` computes its correction via `x[1] += cc`, so the integer-bit `ADD` made `sqlite3AtoF("1.5")` return `3` and every REAL round-trip come back corrupted. The float-element path does the math in the element's native width (a `float` element widens its current value via `cvtss2sd`, converts the RHS, `FADD`s in double, and a `cvtsd2ss` before the `vstoress` keeps the `FADD` result tagged double — a bare `vstoress` would back-propagate float,4 and turn the `FADD` into a float-add on double data).
 
 ### Per-Temp Value-Type Tags (Sprint 118, Slice 1)
 

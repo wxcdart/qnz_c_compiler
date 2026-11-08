@@ -4,7 +4,7 @@ title: Optimization Passes & Safety Invariants
 description: Active IR optimization pipeline (Constant Folding, CopyProp, CSE, GVN, DCE, Mem2Reg, LICM, Auto-Vectorization) and their correctness invariants.
 resource: middleend/optimization-passes
 tags: [optimizations, mem2reg, licm, vectorization, gvn, cse, dce]
-timestamp: 2026-11-06T23:18:37Z
+timestamp: 2026-11-08T02:57:07Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -61,6 +61,7 @@ Optimization passes are registered in `src/zero_cc/opt/opt_pass.c` (`g_opt_passe
    - **Stack Load & Extension Invariant Hoisting**: Detects read-only stack slots (loaded but never stored to in the loop body, no pointer aliasing, no calls) and hoists `OP_MOV` and downstream `OP_SEXT`/`OP_ZEXT` instructions out of the loop into the preheader (e.g. loop bound `n`).
    - **Call-Spanning Safety Invariant**: Does not hoist loop-invariant constants/expressions out of loops that contain `OP_CALL` or `OP_CALL_INDIRECT`, preventing hoisted temporaries from exceeding the 5 callee-saved GPRs on x86-64 and spilling into caller-saved registers across calls.
    - **In-Loop Definition Invariant**: An instruction is hoisted only if every definition of each source operand either lies outside the loop body before the header, or (within the body) is itself marked invariant. A source defined ANYWHERE in the body - including AFTER the candidate, which feeds back through the backedge on the next iteration - makes the candidate loop-dependent. This is what protects promoted induction variables: after mem2reg + copy propagation the increment is `ADD r_new, i, 1` with `i` defined by the backedge write-back at the bottom of the loop; without this check the ADD would be hoisted and `i` frozen. In-place self-references (`SEXT32 r, r`) are exempt when they are the body's only definition of that temp.
+   - **Memory-write side-effect list (Sprint 126)**: `instr_has_moving_side_effects` now lists the scalar/vector stores `OP_VSTORE` / `OP_VSTORESS` / `OP_VSTORESD` alongside the integer `OP_STORE_*` and `OP_FSTORE` — a store writes memory and must never be hoisted regardless of operand invariance. Defensive: the LICM invariance switch (`instr_is_invariant`) already rejects those ops today, so this is a no-op as of Sprint 126, but it is correct-by-construction in case the switch is later extended to admit them. (Added while landing the Sprint 126 floating-point compound-assignment codegen, which is the first place these vector stores appear in large numbers in the sqlite corpus.)
 8. **SIMD Auto-Vectorization (`opt_vectorize.c`)**
    - Detects countable array arithmetic loops:
      - **Single-Precision Floats (`float[N]`)**: maps `OP_VLOADSS`, `OP_VSTORESS`, `OP_FADD`/`OP_FSUB`/`OP_FMUL`/`OP_FDIV` &rarr; 128-bit packed single vector instructions (`OP_VADDPS`, `OP_VSUBPS`, `OP_VMULPS`, `OP_VDIVPS`, `OP_VLOAD`, `OP_VSTORE`) with `vec_width = 4` (stride 4, `i += 4`).
