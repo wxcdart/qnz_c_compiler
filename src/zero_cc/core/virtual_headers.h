@@ -342,9 +342,13 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "#define O_NONBLOCK 2048\n"
             /* glibc's fcntl.h also exposes the POSIX fcntl file-locking
              * constants + struct flock (via sys/file.h) - sqlite3.c relies
-             * on this (it never includes sys/file.h on plain Linux). */
-            "#define F_RDLCK 5\n#define F_WRLCK 8\n#define F_UNLCK 0\n"
-            "#define F_GETLK 12\n#define F_SETLK 13\n#define F_SETLKW 14\n"
+             * on this (it never includes sys/file.h on plain Linux).
+             * Linux x86-64 values: F_RDLCK=0/F_WRLCK=1/F_UNLCK=2 and
+             * F_GETLK=5/F_SETLK=6/F_SETLKW=7 (F_SETLK operates on the
+             * 64-bit struct flock; wrong values make fcntl return EINVAL,
+             * which sqlite maps to SQLITE_IOERR_LOCK / "disk I/O error"). */
+            "#define F_RDLCK 0\n#define F_WRLCK 1\n#define F_UNLCK 2\n"
+            "#define F_GETLK 5\n#define F_SETLK 6\n#define F_SETLKW 7\n"
             "#include <sys/file.h>\n"
             "#endif\n"
         );
@@ -403,9 +407,10 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             /* POSIX fcntl file-locking constants + struct flock (glibc
              * x86-64 layout: short short [pad4] i64 i64 [pid i32 pad4] = 32
              * bytes). The constants are #ifndef-guarded: fcntl.h defines
-             * them too (glibc exposes both). */
-            "#ifndef F_RDLCK\n#define F_RDLCK 5\n#define F_WRLCK 8\n#define F_UNLCK 0\n"
-            "#define F_GETLK 12\n#define F_SETLK 13\n#define F_SETLKW 14\n#endif\n"
+             * them too (glibc exposes both). Linux x86-64 values:
+             * F_RDLCK=0/F_WRLCK=1/F_UNLCK=2, F_GETLK=5/F_SETLK=6/F_SETLKW=7. */
+            "#ifndef F_RDLCK\n#define F_RDLCK 0\n#define F_WRLCK 1\n#define F_UNLCK 2\n"
+            "#define F_GETLK 5\n#define F_SETLK 6\n#define F_SETLKW 7\n#endif\n"
             "struct flock { short l_type; short l_whence; long long l_start;\n"
             "  long long l_len; int l_pid; };\n"
             "int flock(int fd, int operation);\n"

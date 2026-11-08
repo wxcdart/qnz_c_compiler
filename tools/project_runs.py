@@ -18,12 +18,13 @@ Projects (test/projects/*):
   sqlite  - shell.c + sqlite3.c CLI.  `--version` plus a deterministic
             SQL suite (test/projects/sqlite/sql_suite.sql: in-memory data,
             explicit ORDER BY, no clock/randomness).  The on-disk SQL suite
-            is currently SKIPPED (not a failure): zerocc's build hits a
-            pre-existing pager write-path bug (unixFile->h file descriptor
-            holds a corrupted pointer, so the first page write fails with
-            SQLITE_IOERR).  It is reported as a SKIP with the measured
-            delta so the gate stays red-free while that codegen bug is
-            tracked separately; `--version` and the clean build still run.
+            is currently SKIPPED (not a failure): the pager lock/fd bug is
+            fixed (Sprint 125b - wrong POSIX fcntl lock constants), so the db
+            now opens, locks and writes; but a pre-existing REAL (double)
+            value corruption in the B-tree record encode/decode remains. It is
+            reported as a SKIP with the measured delta so the gate stays
+            red-free while that codegen bug is tracked; `--version` and the
+            clean build still run.
 
 Modes:
   AOT     - zerocc <tus> -o bin   (default; the ELF objects are linked by
@@ -275,16 +276,16 @@ def run_sqlite(jit, work):
     g = sql_pair(gb, "g")
     z = sql_pair(zg, "z")
     ok, det = compare("sqlite sql-suite", g, z)
-    # The on-disk SQL suite is currently scoped out: zerocc's sqlite build
-    # hits a pre-existing pager write-path bug (unixFile->h file descriptor
-    # holds a corrupted data-region pointer, so the first page write fails
-    # with SQLITE_IOERR and the db file stays empty). This is independent of
-    # the compile gate (0 errors) and of --version above, and is tracked as a
-    # separate codegen bug. Report the measured delta but mark the case SKIP
-    # so the behavior gate stays red-free while the bug is open.
+    # The on-disk SQL suite is currently scoped out: the pager lock/fd bug
+    # (Sprint 125b) is fixed - the db now opens, locks and writes correctly -
+    # but a pre-existing REAL (double) value corruption in the B-tree record
+    # encode/decode remains: INSERTed REALs come back value-corrupted
+    # (1.5 -> 384.0, a value-dependent exponent shift in both write and read
+    # paths). Tracked as the next burn-down item; reported as a SKIP (not a
+    # failure) so the behavior gate stays red-free while it is open.
     if not ok:
         results.append(("sqlite sql-suite [aot]", None,
-                        f"known-broken (write-path fd corruption); delta: {det}"))
+                        f"known-broken (REAL value corruption in B-tree); delta: {det}"))
     else:
         results.append(("sqlite sql-suite [aot]", ok, det))
     return results
