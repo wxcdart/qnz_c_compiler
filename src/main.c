@@ -205,11 +205,18 @@ static char *preprocess_with_options(const char *source, const CompileOptions *o
      * hard error with a diagnostic instead of a silent skip. */
     char include_err[PATH_MAX + 96];
     include_err[0] = '\0';
+    /* __STDC_VERSION__ follows the -std= dialect */
+    const char *std_version =
+        opts->std_dialect == ZC_STD_C99 || opts->std_dialect == ZC_STD_GNU99 ? "199901L" :
+        opts->std_dialect == ZC_STD_C23 || opts->std_dialect == ZC_STD_GNU23 ? "202311L" :
+        /* ZC_STD_C11/ZC_STD_GNU11/ZC_STD_C17/ZC_STD_GNU17 */
+        "201112L";
     char *out = zero_cc_preprocess_ext3(source, &inc_dirs, &defines,
                                         main_file, include_err, sizeof(include_err),
                                         final_dep_target, final_dep_file, opts->gen_deps,
                                         opts->force_include_count > 0 ? (const char **)opts->force_includes : NULL,
-                                        opts->force_include_count);
+                                        opts->force_include_count,
+                                        std_version);
     if (!out && include_err[0]) {
         fprintf(stderr, "%s\n", include_err);
     }
@@ -262,6 +269,7 @@ static ZeroCCCompiler *jit_compile_tu(CompileOptions *opts, const char *input, i
                  "%s", opts->no_builtin[nb]);
     }
     comp->sanitize_overflow = opts->sanitize_overflow != 0;
+    comp->std_dialect = opts->std_dialect;
 
     char *prep = preprocess_with_options(source, opts, input, opts->dep_target);
     free(source);
@@ -519,6 +527,7 @@ static int compile_object_single(CompileOptions *opts, const char *input,
                  "%s", opts->no_builtin[nb]);
     }
     comp->sanitize_overflow = opts->sanitize_overflow != 0;
+    comp->std_dialect = opts->std_dialect;
 
     /* Preprocess (with -I include dirs, -D defines, and -MMD/-MF/-MT) */
     char *prep = preprocess_with_options(source, opts, input, dep_target);

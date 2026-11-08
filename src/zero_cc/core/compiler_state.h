@@ -8,6 +8,8 @@
 #include <string.h>
 #include <limits.h>
 
+#include "zero_cc/types/type_system.h"
+
 #define ZERO_CC_MAX_INCLUDE_PATHS  256
 #define ZERO_CC_MAX_MACROS         32768
 #define ZERO_CC_MAX_FUNCTIONS      16384
@@ -126,6 +128,9 @@ typedef struct {
     size_t dep_file_count;    /* Number of included files */
     size_t dep_file_capacity; /* Capacity of dep_files array */
     char *dep_target;         /* Target name for .d file (from -MT) */
+
+    /* Standard dialect (from -std=): drives __STDC_VERSION__ value */
+    ZeroCCStdDialect std_dialect;
 } ZeroCCPreprocessor;
 
 #endif /* ZERO_CC_CORE_COMPILER_STATE_H */

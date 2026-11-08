@@ -224,12 +224,16 @@ void zero_cc_cpp_define_func3(ZeroCCPreprocessor *cpp, const char *name, const c
     cpp->hash_buckets[b] = (int32_t)idx;
 }
 
-void zero_cc_cpp_define_builtin_macros(ZeroCCPreprocessor *cpp) {
+void zero_cc_cpp_define_builtin_macros(ZeroCCPreprocessor *cpp, const char *std_version) {
     zero_cc_cpp_define_obj(cpp, "__STDC__", "1");
-    /* C11 (201112L): ZeroCC accepts the full C11 keyword set (_Generic,
-     * _Static_assert, _Alignas, _Noreturn, _Atomic, _Thread_local, anonymous
-     * struct/union members, compound literals, <stdatomic.h>/<threads.h>). */
-    zero_cc_cpp_define_obj(cpp, "__STDC_VERSION__", "201112L");
+    /* __STDC_VERSION__ follows the -std= dialect:
+     *   c99/gnu99  -> 199901L (C99)
+     *   c11/gnu11  -> 201112L (C11)
+     *   c17/gnu17  -> 201112L (C17 is C11 + defect fixes)
+     *   c23/gnu23  -> 202311L (C23)
+     * The dialect only *enables* keywords and version macros; it never
+     * *rejects* syntax (gnu89/C89 leniency wins for gate stability). */
+    zero_cc_cpp_define_obj(cpp, "__STDC_VERSION__", std_version);
     /* __STDC_NO_COMPLEX__ must NOT be defined: _Complex float/double and
      * GNU integer _Complex are implemented (Sprint 85) - defining it made
      * `#ifdef __STDC_NO_COMPLEX__` take the wrong branch. Per C11/C23 it
@@ -2206,11 +2210,12 @@ char* zero_cc_preprocess_ext3(const char *source, ZeroCCIncludeDirs *inc_dirs,
                                             const char *dep_target, const char *dep_file,
                                             int gen_deps,
                                             const char **force_includes,
-                                            int force_include_count) {
+                                            int force_include_count,
+                                            const char *std_version) {
     ZeroCCPreprocessor *cpp = (ZeroCCPreprocessor *)calloc(1, sizeof(ZeroCCPreprocessor));
     if (!cpp) return strdup(source ? source : "");
     zero_cc_cpp_init(cpp);
-    zero_cc_cpp_define_builtin_macros(cpp);
+    zero_cc_cpp_define_builtin_macros(cpp, std_version);
     if (dep_target && dep_target[0]) {
         cpp->dep_target = strdup(dep_target);
     }
@@ -2295,17 +2300,19 @@ char* zero_cc_preprocess_ext3(const char *source, ZeroCCIncludeDirs *inc_dirs,
  * behavior exactly (missing includes are skipped, no error channel). */
 char* zero_cc_preprocess_ext2(const char *source, ZeroCCIncludeDirs *inc_dirs,
                                             ZeroCCDefines *defines, const char *main_file,
-                                            char *err_out, size_t err_cap) {
+                                            char *err_out, size_t err_cap,
+                                            const char *std_version) {
     return zero_cc_preprocess_ext3(source, inc_dirs, defines, main_file, err_out, err_cap,
-                                   NULL, NULL, 0, NULL, 0);
+                                   NULL, NULL, 0, NULL, 0, std_version);
 }
 
-char* zero_cc_preprocess_ext(const char *source, ZeroCCIncludeDirs *inc_dirs, ZeroCCDefines *defines) {
-    return zero_cc_preprocess_ext2(source, inc_dirs, defines, NULL, NULL, 0);
+char* zero_cc_preprocess_ext(const char *source, ZeroCCIncludeDirs *inc_dirs, ZeroCCDefines *defines,
+                             const char *std_version) {
+    return zero_cc_preprocess_ext2(source, inc_dirs, defines, NULL, NULL, 0, std_version);
 }
 
 char* zero_cc_preprocess(const char *source, ZeroCCIncludeDirs *inc_dirs) {
-    return zero_cc_preprocess_ext(source, inc_dirs, NULL);
+    return zero_cc_preprocess_ext(source, inc_dirs, NULL, "201112L");
 }
 
 

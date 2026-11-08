@@ -28,8 +28,10 @@ static inline void zero_cc_parse_enum_members(ZeroCCCompiler *c,
            c->tokens[c->token_pos].type != TK_EOF) {
         size_t saved = c->token_pos;
         if (c->tokens[c->token_pos].type == TK_IDENT ||
-            c->tokens[c->token_pos].type == TK_FALSE ||
-            c->tokens[c->token_pos].type == TK_TRUE) {
+            (c->tokens[c->token_pos].type == TK_FALSE &&
+             c->std_dialect != ZC_STD_C23 && c->std_dialect != ZC_STD_GNU23) ||
+            (c->tokens[c->token_pos].type == TK_TRUE &&
+             c->std_dialect != ZC_STD_C23 && c->std_dialect != ZC_STD_GNU23)) {
             char ename[128];
             snprintf(ename, sizeof(ename), "%s", c->tokens[c->token_pos].str_val);
             c->token_pos++;

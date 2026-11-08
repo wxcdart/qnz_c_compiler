@@ -1355,8 +1355,10 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
             if (!pdecl_handoff_fn) zc_unparen_declarator(c);
             if (!pdecl_handoff_fn &&
                 (c->tokens[c->token_pos].type == TK_IDENT ||
-                 c->tokens[c->token_pos].type == TK_TRUE ||
-                 c->tokens[c->token_pos].type == TK_FALSE)) {
+                 (c->tokens[c->token_pos].type == TK_TRUE &&
+                  c->std_dialect != ZC_STD_C23 && c->std_dialect != ZC_STD_GNU23) ||
+                 (c->tokens[c->token_pos].type == TK_FALSE &&
+                  c->std_dialect != ZC_STD_C23 && c->std_dialect != ZC_STD_GNU23))) {
                 /* Check if this is a function (followed by '(') or variable */
                 if (c->tokens[c->token_pos + 1].type == TK_LPAREN) {
                     /* This is a function definition, back up to start and let function parser handle it */

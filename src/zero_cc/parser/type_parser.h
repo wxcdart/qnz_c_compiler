@@ -308,7 +308,7 @@ static inline ZeroCCType zero_cc_type_of_primary(ZeroCCCompiler *c, size_t *pos)
     }
     if (t == TK_TRUE || t == TK_FALSE) {
         (*pos)++;
-        return zero_cc_type_int(); /* _Bool */
+        return zero_cc_type_bool(); /* _Bool */
     }
     if (t == TK_NULLPTR) {
         (*pos)++;

@@ -62,7 +62,7 @@ void zero_cc_cpp_undefine(ZeroCCPreprocessor *cpp, const char *name);
 void zero_cc_cpp_define_func1(ZeroCCPreprocessor *cpp, const char *name, const char *p1, const char *value);
 void zero_cc_cpp_define_func2(ZeroCCPreprocessor *cpp, const char *name, const char *p1, const char *p2, const char *value);
 void zero_cc_cpp_define_func3(ZeroCCPreprocessor *cpp, const char *name, const char *p1, const char *p2, const char *p3, const char *value);
-void zero_cc_cpp_define_builtin_macros(ZeroCCPreprocessor *cpp);
+void zero_cc_cpp_define_builtin_macros(ZeroCCPreprocessor *cpp, const char *std_version);
 void zero_cc_cpp_undef(ZeroCCPreprocessor *cpp, const char *name);
 void zero_cc_cpp_restore_macro(ZeroCCPreprocessor *cpp, const ZeroCCMacro *src);
 void zero_cc_cpp_push_macro(ZeroCCPreprocessor *cpp, const char *name);
@@ -86,11 +86,14 @@ char* zero_cc_preprocess_ext3(const char *source, ZeroCCIncludeDirs *inc_dirs,
                               const char *dep_target, const char *dep_file,
                               int gen_deps,
                               const char **force_includes,
-                              int force_include_count);
+                              int force_include_count,
+                              const char *std_version);
 char* zero_cc_preprocess_ext2(const char *source, ZeroCCIncludeDirs *inc_dirs,
                               ZeroCCDefines *defines, const char *main_file,
-                              char *err_out, size_t err_cap);
-char* zero_cc_preprocess_ext(const char *source, ZeroCCIncludeDirs *inc_dirs, ZeroCCDefines *defines);
+                              char *err_out, size_t err_cap,
+                              const char *std_version);
+char* zero_cc_preprocess_ext(const char *source, ZeroCCIncludeDirs *inc_dirs, ZeroCCDefines *defines,
+                             const char *std_version);
 char* zero_cc_preprocess(const char *source, ZeroCCIncludeDirs *inc_dirs);
 
 #endif /* ZERO_CC_CORE_PREPROCESSOR_H */

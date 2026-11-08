@@ -628,8 +628,10 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
         first_param_count = param_count;
     } else if (c->token_pos < c->token_count &&
                (c->tokens[c->token_pos].type == TK_IDENT ||
-                c->tokens[c->token_pos].type == TK_TRUE ||
-                c->tokens[c->token_pos].type == TK_FALSE)) {
+                (c->tokens[c->token_pos].type == TK_TRUE &&
+                 c->std_dialect != ZC_STD_C23 && c->std_dialect != ZC_STD_GNU23) ||
+                (c->tokens[c->token_pos].type == TK_FALSE &&
+                 c->std_dialect != ZC_STD_C23 && c->std_dialect != ZC_STD_GNU23))) {
         size_t name_pos = c->token_pos;  /* declarator start (Stage 2 rewind) */
         snprintf(fn_name, sizeof(fn_name), "%s", c->tokens[c->token_pos].str_val);
         c->token_pos++;

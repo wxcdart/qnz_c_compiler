@@ -288,6 +288,11 @@ typedef struct ZeroCCCompiler {
      *  1 = always omit when the frame is static. */
     int omit_frame_pointer;
 
+    /* Standard dialect (from -std=): drives __STDC_VERSION__ and dialect-gated
+     * keywords (true/false/constexpr under c23/gnu23).  ZeroCC's unified
+     * permissive dialect accepts syntax from all standards regardless. */
+    ZeroCCStdDialect std_dialect;
+
     /* -fno-builtin control (c-torture execute/builtins: the abs/labs
      * builtin lowering must fall back to a real call when the flag is set
      * and the user declares the function). */

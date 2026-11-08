@@ -71,6 +71,14 @@ static const KeywordEntry keyword_table[] = {
     {"__typeof__",     TK_TYPEOF},
     {"__typeof_unqual", TK_TYPEOF_UNQUAL},
     {"__typeof_unqual__", TK_TYPEOF_UNQUAL},
+    /* C23 6.4.4.1: true/false are keywords only in c23/gnu23 mode.
+     * In other dialects they are lexed as TK_TRUE/TK_FALSE here but
+     * reverted to TK_IDENT by zero_cc_tokenize_c99 when not in C23
+     * mode (so `loop-9.c` under -std=gnu17 with `int false()` keeps
+     * working, and <stdbool.h> macro expansion is unaffected since the
+     * preprocessor works on text, not tokens). */
+    {"true",           TK_TRUE},
+    {"false",          TK_FALSE},
 };
 
 #define KEYWORD_COUNT (sizeof(keyword_table) / sizeof(keyword_table[0]))

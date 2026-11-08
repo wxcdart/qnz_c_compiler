@@ -405,5 +405,19 @@ typedef struct {
     char   target_extern_name[128];
 } ZeroCCDataReloc;
 
+/* C standard dialect (-std=).  ZeroCC's permissive unified dialect accepts
+ * syntax from all standards; the dialect only *enables* (C23 keywords,
+ * correct __STDC_VERSION__) and never *rejects* (gnu89/C89 leniency wins). */
+typedef enum {
+    ZC_STD_C99,     /* -std=c99      -> __STDC_VERSION__ 199901L */
+    ZC_STD_GNU99,   /* -std=gnu99    -> 199901L + GNU extensions */
+    ZC_STD_C11,     /* -std=c11      -> __STDC_VERSION__ 201112L */
+    ZC_STD_GNU11,   /* -std=gnu11    -> 201112L + GNU extensions (default) */
+    ZC_STD_C17,     /* alias of c11    -> 201112L */
+    ZC_STD_GNU17,   /* alias of gnu11  -> 201112L + GNU extensions */
+    ZC_STD_C23,     /* -std=c23      -> __STDC_VERSION__ 202311L + C23 keywords */
+    ZC_STD_GNU23,   /* -std=gnu23    -> 202311L + GNU extensions */
+} ZeroCCStdDialect;
+
 
 #endif /* ZERO_CC_TYPES_TYPE_SYSTEM_H */

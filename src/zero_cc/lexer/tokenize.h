@@ -115,6 +115,18 @@ static inline void zero_cc_tokenize_c99(const char *src, ZeroCCCompiler *c) {
         c->token_count++;
         if (tok->type == TK_EOF) break;
     }
+
+    /* C23 6.4.4.1: true/false are keywords only in c23/gnu23 mode.
+     * In other dialects, revert TK_TRUE/TK_FALSE to TK_IDENT so they
+     * behave as ordinary identifiers (e.g. `int false()` under -std=gnu17
+     * in c-torture execute/loop-9.c). */
+    if (c->std_dialect != ZC_STD_C23 && c->std_dialect != ZC_STD_GNU23) {
+        for (size_t ti = 0; ti < c->token_count; ti++) {
+            if (c->tokens[ti].type == TK_TRUE || c->tokens[ti].type == TK_FALSE) {
+                c->tokens[ti].type = TK_IDENT;
+            }
+        }
+    }
 }
 
 /* Free token memory */

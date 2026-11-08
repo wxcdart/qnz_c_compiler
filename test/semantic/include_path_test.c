@@ -67,7 +67,7 @@ int main(void) {
     char err1[PATH_MAX + 96];
     err1[0] = '\0';
     char *prep1 = zero_cc_preprocess_ext2(prog_src, NULL, NULL, prog,
-                                          err1, sizeof(err1));
+                                          err1, sizeof(err1), "201112L");
     check(prep1 != NULL && err1[0] == '\0',
           "include relative to main-file dir resolves");
     check(prep1 && strstr(prep1, "int local_val(void)") != NULL,
@@ -80,7 +80,7 @@ int main(void) {
     char err2[PATH_MAX + 96];
     err2[0] = '\0';
     char *prep2 = zero_cc_preprocess_ext2(bad_src, NULL, NULL, prog,
-                                          err2, sizeof(err2));
+                                          err2, sizeof(err2), "201112L");
     check(prep2 == NULL, "missing include is a hard error (NULL result)");
     check(strstr(err2, "zz_nosuch_include_zz.h") != NULL,
           "diagnostic names the missing header");
@@ -92,7 +92,7 @@ int main(void) {
     char err3[PATH_MAX + 96];
     err3[0] = '\0';
     char *prep3 = zero_cc_preprocess_ext2(file_src, NULL, NULL, prog,
-                                          err3, sizeof(err3));
+                                          err3, sizeof(err3), "201112L");
     check(prep3 && strstr(prep3, prog) != NULL,
           "__FILE__ in main file is its path");
     if (prep3) free(prep3);

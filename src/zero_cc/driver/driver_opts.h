@@ -36,6 +36,7 @@ typedef struct {
     int no_builtin_all;   /* -fno-builtin (all) */
     int profile_opts;     /* --profile-opts */
     int sanitize_overflow; /* -fsanitize=undefined */
+    ZeroCCStdDialect std_dialect;   /* -std= dialect (default ZC_STD_GNU11) */
     int link_mode;        /* Link with system linker (default when -o specified) */
     int zerocc_link;      /* --zerocc-link: link with ZeroCC's own linker (T2) */
     int no_zerocc_rt;     /* --no-zerocc-rt: don't auto-link zero_rt.a */
@@ -109,6 +110,7 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
     memset(opts, 0, sizeof(*opts));
     opts->opt_level = 1; /* Default -O1 */
     opts->omit_frame_pointer = -1; /* Default: omit for fixed frames at -O1+ */
+    opts->std_dialect = ZC_STD_GNU11; /* Default: gnu11 (C11 + GNU extensions) */
 
     for (int i = 1; i < argc; i++) {
         const char *arg = argv[i];
@@ -293,9 +295,23 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
         }
         else if (strncmp(arg, "-std=", 5) == 0 || strncmp(arg, "--std=", 6) == 0) {
             const char *v = strncmp(arg, "--std=", 6) == 0 ? arg + 6 : arg + 5;
-            if (strcmp(v, "c99") != 0 && strcmp(v, "gnu99") != 0 && strcmp(v, "c11") != 0 &&
-                strcmp(v, "gnu11") != 0 && strcmp(v, "c23") != 0 && strcmp(v, "gnu23") != 0 &&
-                strcmp(v, "c89") != 0 && strcmp(v, "gnu89") != 0) {
+            if (strcmp(v, "c99") == 0) {
+                opts->std_dialect = ZC_STD_C99;
+            } else if (strcmp(v, "gnu99") == 0) {
+                opts->std_dialect = ZC_STD_GNU99;
+            } else if (strcmp(v, "c11") == 0 || strcmp(v, "c17") == 0) {
+                opts->std_dialect = ZC_STD_C11;
+            } else if (strcmp(v, "gnu11") == 0 || strcmp(v, "gnu17") == 0) {
+                opts->std_dialect = ZC_STD_GNU11;
+            } else if (strcmp(v, "c23") == 0) {
+                opts->std_dialect = ZC_STD_C23;
+            } else if (strcmp(v, "gnu23") == 0) {
+                opts->std_dialect = ZC_STD_GNU23;
+            } else if (strcmp(v, "c89") == 0) {
+                opts->std_dialect = ZC_STD_C99; /* C89 leniency on top of C99 */
+            } else if (strcmp(v, "gnu89") == 0) {
+                opts->std_dialect = ZC_STD_GNU99;
+            } else {
                 fprintf(stderr, "zerocc: warning: unknown standard '%s' (targeting C99/C11)\n", v);
             }
         }
