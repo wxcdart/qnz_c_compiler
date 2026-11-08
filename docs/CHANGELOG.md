@@ -1,3 +1,33 @@
+## [Sprint 127] - 2026-11-07 - Fix continue inside switch statement: resolves SQLite shell.c quickscan statement accumulation & line counting
+
+Root-caused and fixed the `shell.c` input line-counting / statement-accumulation miscompile (`quickscan` state machine).
+
+**Root Cause**:
+In `shell.c:quickscan`, the semicolon state transition is implemented inside a `switch (cin)` statement:
+```c
+case ';':
+    qss |= QSS_EndingSemi;
+    continue;
+```
+Under C99 §6.8.6.2, `continue` applies to the innermost enclosing *iteration statement* (`while ((cin = *zLine++) != 0)`), NOT to a selection statement (`switch`).
+However, ZeroCC's `lower_stmt_switch` entered a new loop scope on `LabelPatcherState` with `continue_label = 0` (`label_patcher_enter_loop(&c->label_patcher, switch_exit, 0)`).
+When `lower_stmt_continue` lowered `continue`, `label_patcher_get_continue_label()` only inspected `st->loop_stack[st->loop_depth - 1]`. Seeing `continue_label == 0`, it returned 0 and emitted **no jump instruction at all**.
+As a result, `case ';':` silently fell through into `case '/':`, broke out of the switch, and executed `qss = (qss & ~QSS_EndingSemi) | QSS_HasDark;`, which **explicitly cleared `QSS_EndingSemi`**. `quickscan` thus never returned with `QSS_SEMITERM` set, preventing the shell from recognizing semicolons and flushing completed statements. Lines were continuously accumulated across statement boundaries into a single giant buffer, throwing off error line numbers ("near line 4" instead of "near line 25").
+
+**Fix**:
+Updated `label_patcher_get_continue_label()` (`src/zero_cc/ir/label_patcher.h`) to scan upwards past switch scopes (`continue_label == 0`) to find the innermost enclosing loop's continue target.
+
+**Verification**:
+- Added `continue_in_switch_test` (nested and single switch continuing enclosing `for` loop) in `test/jit/break_continue.c`, verified in JIT (`--run`) and AOT modes.
+- `make test` 184/184 PASS.
+- `make test-opt` 146/146 PASS across -O0..-O3 in JIT and AOT.
+- `make test-san` 6/6 PASS, cross-ISA trap opcodes verified.
+- `python3 tools/sret_verifier.py --verify-all` 6/6 PASS.
+- `python3 tools/type_tag_verifier.py --verify-all` RESULT OK.
+- `python3 tools/style_check.py` 0 errors.
+- `python3 tools/okf.py lint` PASS.
+- `python3 tools/project_runs.py` 24/25 PASS (1 SKIP: sqlite on-disk suite, with stdout size matching gcc at 728B vs 728B and line numbers matching gcc).
+
 ## [Sprint 126] - 2026-11-07 - SQLite REAL corruption root-caused + fixed: floating-point compound assignment through a memory lvalue was lowered as an integer bit-op
 
 The Sprint-125b **REAL (double) value corruption** is **root-caused and fixed**. It was never in sqlite's page I/O, the record serial encode/decode, the `swapMixedEndianFloat` byte order, or `memcpy` (all of those were isolated and reproduced correctly in isolation). Instrumenting `sqlite3AtoF`/`OP_Real`/`codeReal` showed the REAL was stored as an **integer** (`1.5` became `3`): `sqlite3AtoF("1.5")` returned `3` because its Dekker-exact-multiply helper `dekkerMul2` computes the correction term via a floating-point compound assignment `x[1] += cc`, and **zerocc lowered `a[i] += x` (and `*p += x`) for a floating-point element as an integer `DEREF` + integer `ADD` on the raw IEEE-754 bit pattern** instead of a floating-point load + `FADD`. `15 * 0.1` (dekker `15*0.1`) came back `3` instead of `1.5`; `1234567 * 1e-3` came back `2469.134` instead of `1234.567`.

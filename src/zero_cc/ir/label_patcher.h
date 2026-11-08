@@ -67,10 +67,12 @@ static inline uint16_t label_patcher_get_break_label(LabelPatcherState *st) {
     return 0;
 }
 
-/* Get current loop's continue label */
+/* Get current loop's continue label (skipping switch scopes which have continue_label == 0) */
 static inline uint16_t label_patcher_get_continue_label(LabelPatcherState *st) {
-    if (st->loop_depth > 0) {
-        return st->loop_stack[st->loop_depth - 1].continue_label;
+    for (int i = st->loop_depth - 1; i >= 0; i--) {
+        if (st->loop_stack[i].continue_label != 0) {
+            return st->loop_stack[i].continue_label;
+        }
     }
     return 0;
 }

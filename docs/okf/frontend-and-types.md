@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-11-07T22:16:18Z
+timestamp: 2026-11-08T03:15:12Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -198,7 +198,8 @@ Two width-marking invariants complete the picture (both in `ast_lowering_expr.c`
 
 - **`goto label;` and `label: stmt`** (`src/zero_cc/parser/ast_stmt.h`): the statement parser handles `TK_GOTO` (`NODE_GOTO`, name in `s.str`) and a statement-leading `IDENT` immediately followed by `TK_COLON` (`NODE_LABEL`, name in `s.str`, `left` = the labeled statement). Lowering (`lower_stmt_goto`/`lower_stmt_label` in `src/zero_cc/ir/ast_lowering_stmt.c`) maps user names to IR labels through `label_patcher_find_or_create_user_label` + `get_or_create_user_ir_label` (names persist in `c->label_patcher.user_labels`; labels are created lazily on first goto/label, supporting forward references).
 - **`switch` dispatch** (`lower_stmt_switch`, `src/zero_cc/ir/ast_lowering_stmt.c`): evaluates the controlling expression, pre-scans the body block's top-level statement chain for `NODE_CASE`/`NODE_DEFAULT`, emits a `CMP`/`COND_SET`/`JNE` dispatch chain per case (jump-if-**nonzero** — see the conditional-branch note in [isa-backends.md](./isa-backends.md)), stores each case's IR label in `node->aux.alt`, and registers the switch exit as the current break target via `label_patcher_enter_loop(..., switch_exit, 0)` so `break` works. A non-matching value skips the body entirely (unconditional jump past the body, per C semantics); fallthrough between case labels is natural code order. `NODE_CASE`/`NODE_DEFAULT` lowering emits their stored label (when set by a switch) and lowers the attached statement.
-- **Known limitation**: `case` constants are lowered as runtime expressions (no compile-time deduplication); deeply nested `continue` inside a bare switch (no loop) is a no-op, matching prior behavior.
+- **`continue` inside `switch`** (`src/zero_cc/ir/label_patcher.h`): in C (C99 6.8.6.2), `continue` applies to the innermost enclosing *iteration statement* (for/while/do-while), not a switch. Because `lower_stmt_switch` registers the switch with `continue_label = 0`, `label_patcher_get_continue_label()` traverses the loop stack upwards, skipping switch frames (`continue_label == 0`) to find the enclosing loop's continue target. (Previously, checking only `st->loop_depth - 1` yielded 0, silently discarding `continue` inside switch cases, which caused SQLite's `shell.c:quickscan` semicolon-handling state machine to fall through and corrupt statement accumulation).
+- **Known limitation**: `case` constants are lowered as runtime expressions (no compile-time deduplication); bare `continue` inside a switch without an enclosing loop is a no-op.
 
 ## C23 Features & Standard Conformance
 
