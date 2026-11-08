@@ -47,7 +47,7 @@ SELECT a, b FROM t3 EXCEPT SELECT 'k1', 'v9' ORDER BY a;
 SELECT a FROM t3 INTERSECT SELECT 'k2' ORDER BY a;
 SELECT (SELECT b FROM t3 WHERE a = 'k2') AS k2v;
 SELECT EXISTS(SELECT * FROM t3 WHERE a = 'k9'), NOT EXISTS(SELECT * FROM t3 WHERE a = 'k1');
-SELECT randomblob(0), length(randomblob(8)), sqlite_compileoption_get(0), sqlite_source_id();
+SELECT length(zeroblob(0)), length(randomblob(8)), sqlite_source_id();
 PRAGMA user_version = 7;
 PRAGMA user_version;
 DROP VIEW v1;

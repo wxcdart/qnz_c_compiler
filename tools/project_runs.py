@@ -18,13 +18,8 @@ Projects (test/projects/*):
   sqlite  - shell.c + sqlite3.c CLI.  `--version` plus a deterministic
             SQL suite (test/projects/sqlite/sql_suite.sql: in-memory data,
             explicit ORDER BY, no clock/randomness).  The on-disk SQL suite
-            is currently SKIPPED (not a failure): the pager lock/fd bug is
-            fixed (Sprint 125b - wrong POSIX fcntl lock constants), so the db
-            now opens, locks and writes; but a pre-existing REAL (double)
-            value corruption in the B-tree record encode/decode remains. It is
-            reported as a SKIP with the measured delta so the gate stays
-            red-free while that codegen bug is tracked; `--version` and the
-            clean build still run.
+            now runs cleanly and matches gcc byte-for-byte across all
+            statements, triggers, and views.
 
 Modes:
   AOT     - zerocc <tus> -o bin   (default; the ELF objects are linked by
@@ -276,17 +271,7 @@ def run_sqlite(jit, work):
     g = sql_pair(gb, "g")
     z = sql_pair(zg, "z")
     ok, det = compare("sqlite sql-suite", g, z)
-    # The on-disk SQL suite is currently scoped out. The REAL (double) value
-    # corruption is FIXED (Sprint 126) and the shell.c input line-counting /
-    # statement accumulation miscompile (continue inside switch in quickscan)
-    # is FIXED (Sprint 127). The pre-existing sqlite3 trigger/VDBE commit-path
-    # segfault remains. Tracked as the next burn-down item; reported as a
-    # SKIP so the behavior gate stays red-free while it is open.
-    if not ok:
-        results.append(("sqlite sql-suite [aot]", None,
-                        f"known-broken (REAL + shell line-count fixed; sqlite3 trigger/VDBE segfault remains); delta: {det}"))
-    else:
-        results.append(("sqlite sql-suite [aot]", ok, det))
+    results.append(("sqlite sql-suite [aot]", ok, det))
     return results
 
 

@@ -1,3 +1,31 @@
+## [Sprint 128] - 2026-11-08 - Fix inlined callee parameter caller-local shadowing and struct ternary address-form lowering; SQLite shell suite passes cleanly across -O0..-O3
+
+Root-caused and fixed the SQLite VDBE commit-path and parser segfaults at `-O2`/`-O3`, making the full on-disk SQLite shell test suite pass byte-for-byte against GCC with zero regressions.
+
+**Root Cause 1: Inlined Parameter Caller-Local Shadowing** (`ast_lowering_call.c`):
+When inlining a callee whose parameter name matches a caller's parameter or local variable (e.g. `sqlite3VdbeExec(Vdbe *p)` inlining `sqlite3VdbeCursorRestore(VdbeCursor *p)`), member accesses like `p->member` in the inlined body checked `zero_cc_find_local(c, "p")` and resolved against the caller's stack slot (`Vdbe *p`) instead of the substituted argument temporary. Although `c->local_lookup_bound` was saved and restored around inlining, it was not cleared. Setting `c->local_lookup_bound = 0;` inside the inlined context ensures caller local symbols are invisible to inlined callee expressions.
+
+**Root Cause 2: Struct Ternary Address-Form Lowering & Resolution** (`ast_lowering_internal.h`, `ast_lowering_expr.c`):
+In SQLite's trigger parser (`sqlite3FinishTrigger`, lemon parser rule 259): `yymsp[-10].minor.yy0 = (yymsp[-6].minor.yy0.n==0 ? yymsp[-7].minor.yy0 : yymsp[-6].minor.yy0);`. The ternary operator selects between two 16-byte `struct Token` objects.
+In `ast_lowering_internal.h`, `ast_expr_is_struct_addr()` did not treat `NODE_TERNARY` or `NODE_COMMA` as address-form struct expressions. When lowering struct assignments (`zero_cc_emit_struct_copy_to_addr`), the RHS was assumed to be a direct value rather than an address, resulting in corrupt source pointers and unbounded copy lengths that crashed `memcpy`.
+Added `NODE_TERNARY` and `NODE_COMMA` to `ast_expr_is_struct_addr()`, and updated `lower_expr(NODE_TERNARY)` in `ast_lowering_expr.c` to evaluate struct ternary branches via `zero_cc_lower_lvalue_addr()` so the result temporary reliably holds the chosen struct's address.
+
+**Root Cause 3: SQLite Suite Determinism & Behavior Runs** (`sql_suite.sql`, `tools/project_runs.py`):
+Replaced non-deterministic `randomblob(0)` (which SQLite clamps to 1 byte) with `length(zeroblob(0))` in `test/projects/sqlite/sql_suite.sql`, and removed the host-dependent intrinsic check `sqlite_compileoption_get(0)`.
+Unskipped the SQLite on-disk suite in `tools/project_runs.py`. Output now matches GCC 100% byte-for-byte across all 59 queries.
+
+**Verification**:
+- Added `test/inline_audit/18_shadow_param.c` verifying that inlined parameter names do not shadow caller locals.
+- Added 16-byte struct ternary tests to `test/jit/ternary_branchless.c`.
+- `make test`: 184/184 PASS.
+- `make test-opt`: 147/147 PASS across -O0..-O3 in JIT and AOT.
+- `make test-san`: 101 ok, 0 FAIL across all ISAs.
+- `python3 tools/project_runs.py`: 25/25 PASS (cJSON, zlib, and SQLite suites fully green).
+- `python3 tools/sret_verifier.py --verify-all`: 6/6 PASS.
+- `python3 tools/type_tag_verifier.py --verify-all`: RESULT OK.
+- `python3 tools/style_check.py`: 0 errors.
+- `python3 tools/okf.py lint && python3 tools/okf.py index`: All OKF v0.2 checks PASS.
+
 ## [Sprint 127] - 2026-11-07 - Fix continue inside switch statement: resolves SQLite shell.c quickscan statement accumulation & line counting
 
 Root-caused and fixed the `shell.c` input line-counting / statement-accumulation miscompile (`quickscan` state machine).

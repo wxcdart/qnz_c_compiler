@@ -290,6 +290,13 @@ static inline bool ast_expr_is_struct_addr(ZeroCCCompiler *c, ZeroCCASTArena *ar
     } else if (node->tag == NODE_MEMBER) {
         TypeInfo *ti = ast_node_get_typeinfo(c, node);
         if (type_is_struct_or_union(ti)) return true;
+    } else if (node->tag == NODE_TERNARY) {
+        TypeInfo *ti = ast_node_get_typeinfo(c, node);
+        if (type_is_struct_or_union(ti)) return true;
+        if (ast_expr_is_struct_addr(c, arena, node->right) ||
+            ast_expr_is_struct_addr(c, arena, node->aux.alt)) return true;
+    } else if (node->tag == NODE_COMMA) {
+        return ast_expr_is_struct_addr(c, arena, node->right);
     } else if (node->tag == NODE_VA_ARG) {
         /* va_arg(ap, struct S) with sizeof(S) > 16 yields the hidden
          * pointer to the caller's variadic copy (SysV ABI) - an address. */

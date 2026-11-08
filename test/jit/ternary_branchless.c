@@ -76,6 +76,15 @@ int main(void) {
         if (v != expect) { r |= 4194304; break; }
     }
 
+    /* Struct ternary assignment (16B struct - Token shape from SQLite) */
+    struct TokenTest { const char *z; unsigned int n; };
+    struct TokenTest t1 = { "hello", 5 };
+    struct TokenTest t2 = { "world!!", 7 };
+    struct TokenTest t_res1 = (1 ? t1 : t2);
+    struct TokenTest t_res2 = (0 ? t1 : t2);
+    if (t_res1.z != t1.z || t_res1.n != 5) r |= 8388608;
+    if (t_res2.z != t2.z || t_res2.n != 7) r |= 16777216;
+
     if (r != 0) {
         printf("ternary_branchless FAILED: r=0x%x\n", r);
         return 1;

@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-08T03:15:12Z
+timestamp: 2026-11-08T04:14:02Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1143,3 +1143,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-08 — Updated `frontend-and-types.md`
 - Document continue inside switch resolution for shell.c quickscan
+
+## 2026-11-08 — Updated `ir-and-regalloc.md`
+- Sprint 128: struct ternary and comma expressions address-form lowering
+
+## 2026-11-08 — Updated `optimization-passes.md`
+- Sprint 128: inlined callee parameter caller-local shadowing invariant

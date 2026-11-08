@@ -1305,8 +1305,17 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
 
             ir_emit_je(c, (uint16_t)cond_temp, else_label);
 
-            int then_temp = lower_expr(c, arena, node->right);
-            int then_fp = c->last_expr_is_float;
+            TypeInfo *tern_ti = ast_node_get_typeinfo(c, node);
+            bool is_struct_tern = type_is_struct_or_union(tern_ti);
+            if (!is_struct_tern) {
+                ZeroCCASTNode *rn = zero_cc_ast_get(arena, node->right);
+                TypeInfo *rti = rn ? ast_node_get_typeinfo(c, rn) : NULL;
+                if (type_is_struct_or_union(rti)) is_struct_tern = true;
+            }
+
+            int then_temp = is_struct_tern ? zero_cc_lower_lvalue_addr(c, arena, node->right) : TEMP_NONE;
+            if (then_temp == TEMP_NONE) then_temp = lower_expr(c, arena, node->right);
+            int then_fp = is_struct_tern ? 0 : c->last_expr_is_float;
 
             if (then_fp || else_may_be_fp) {
                 if (then_fp) {
@@ -1322,9 +1331,10 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
             ir_emit_jmp(c, end_label);
 
             ir_emit_label(c, else_label);
-            int else_temp = lower_expr(c, arena, node->aux.alt);
-            int else_fp = c->last_expr_is_float;
-            int fp_result = then_fp || else_fp || else_may_be_fp;
+            int else_temp = is_struct_tern ? zero_cc_lower_lvalue_addr(c, arena, node->aux.alt) : TEMP_NONE;
+            if (else_temp == TEMP_NONE) else_temp = lower_expr(c, arena, node->aux.alt);
+            int else_fp = is_struct_tern ? 0 : c->last_expr_is_float;
+            int fp_result = is_struct_tern ? 0 : (then_fp || else_fp || else_may_be_fp);
 
             if (fp_result) {
                 if (else_fp) {

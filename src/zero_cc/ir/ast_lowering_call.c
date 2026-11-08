@@ -472,6 +472,7 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                         }
 
                         /* Setup new inlining context */
+                        c->local_lookup_bound = 0;
                         c->lowering.inlining.active_depth = prev_depth + 1;
                         c->lowering.inlining.return_target_temp = inline_res_temp;
                         c->lowering.inlining.return_target_label = inline_exit_label;
