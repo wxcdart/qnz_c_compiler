@@ -640,7 +640,20 @@ int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                         }
                     }
                 }
-                if (is_struct && p_size > 16) {
+                /* A dereference of a pointer to a struct yields the struct
+                 * lvalue, which lives in memory at *ptr.  For a single 8-byte
+                 * chunk the value can be loaded into one temp below, but a
+                 * multi-chunk struct (p_size > 8) CANNOT be represented in one
+                 * 8-byte temp - and the "upper chunk in the ABI secondary
+                 * value register (VREG_2 / rdx)" convention only holds for
+                 * by-value CALL results, never for a dereference.  Yielding the
+                 * address (like the >16 case) lets consumers (struct copy,
+                 * by-value argument chunk streaming, member access) load every
+                 * 8-byte chunk from ptr + i*8.  A 9-16B `dst = *src` / `f(*p)`
+                 * that loaded only chunk 0 and took chunk 1 from a stale VREG_2
+                 * stored the destination offset as the pointer member (sqlite
+                 * shell PerStreamTags). */
+                if (is_struct && p_size > 8) {
                     c->last_expr_is_float = 0;
                     return operand_temp;
                 }

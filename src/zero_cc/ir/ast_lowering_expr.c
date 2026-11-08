@@ -126,7 +126,15 @@ int lower_member_chain_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTN
         ZeroCCASTNode *m = stack[i];
         int32_t off = (int32_t)m->aux.alt;
         bool skip_load = (generic_base && i == n - 1);
-        bool is_arr_base = (i == n - 1) && zc_is_array_base(c, arena, m, base_node);
+        /* An arrow whose left operand is an ARRAY decays to &arr[0]
+         * (C99 6.5.2.3: arr->m == arr[0].m) - no pointer load.  The
+         * array may sit at ANY segment, not only the innermost one:
+         * in `d.aux->f` (d.aux an array member) the arrow is the
+         * OUTERMOST segment and its left operand is the intermediate
+         * `.aux` member node.  zc_is_array_base checks m->left's
+         * typeinfo, which is the correct node at every position; the
+         * IDENT fallback only applies at the innermost segment. */
+        bool is_arr_base = zc_is_array_base(c, arena, m, (i == n - 1) ? base_node : NULL);
         if ((m->flags & NODE_MEMBER_IS_ARROW) && !skip_load && !is_arr_base) {
             int ptr = c->next_temp_id++;
             ir_emit_deref(c, ptr, addr);

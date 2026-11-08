@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 165-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-11-07T22:16:19Z
+timestamp: 2026-11-08T00:51:58Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -275,6 +275,17 @@ python3 tools/torture_run.py --quick
 # (54 TUs at -O0/-O2/-O3 as of Sprint 124).
 make test-project-diff
 python3 tools/project_diff.py --levels 0 2 3
+
+# Project run + behavior-diff gate (Verification & Scale #1, phases 2/3):
+# builds each project's own test program with BOTH host gcc and zerocc,
+# runs both on identical inputs, diffs stdout/stderr/exit-code (+ produced
+# file bytes). cjson (demo + 19 Unity suites) and zlib (example + minigzip
+# round-trip) match gcc AOT; cjson also passes under --jit. The sqlite
+# on-disk SQL suite is SKIPPED (not failed) while a pre-existing pager
+# write-path fd-corruption bug is open.
+make test-project-runs
+python3 tools/project_runs.py
+python3 tools/project_runs.py --jit
 ```
 
 ## Related Concepts

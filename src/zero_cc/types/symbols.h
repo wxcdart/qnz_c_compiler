@@ -56,6 +56,14 @@ typedef struct ZeroCCCompiler {
      * functions) to place the entity in the named ELF section (AOT -c). */
     char pending_section[64];
 
+    /* GNU __attribute__((weak)): set by the file-scope loop when a
+     * `__zc_weak__` marker (preprocessor-emitted for `__attribute__((weak))`)
+     * is found on the current declaration.  Consumed by add_global_var
+     * (objects) and the function registration to mark the entity a weak
+     * ELF symbol (AOT -c), so a later strong definition in another TU wins
+     * at link time (Unity test-framework setup stubs). */
+    int pending_weak;
+
     ZeroCCSym *locals;
     size_t local_count;
     size_t local_capacity;

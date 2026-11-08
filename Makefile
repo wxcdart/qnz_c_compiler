@@ -96,7 +96,7 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 .PHONY: all test clean golden_test test-unit test-semantic test-abi test-jit test-tap benchmark \
 	asan asan-unit asan-semantic asan-abi asan-jit \
 	test-asan test-asan-unit test-asan-semantic test-asan-abi test-asan-jit \
-	test-project-diff \
+	test-project-diff test-project-runs \
 	test-isa-qemu test-driver test-linker \
 	valgrind test-valgrind
 
@@ -235,6 +235,13 @@ test-torture: build/bin/zerocc
 test-project-diff: build/bin/zerocc
 	@python3 tools/project_diff.py
 
+# Project run + behavior-diff gate (Verification & Scale #2/#3): builds each
+# project's own test programs with gcc AND zerocc, runs both on identical
+# input, and diffs stdout/stderr/exit code.  `--jit` additionally drives the
+# supported cases through the in-process `zerocc --run` merge path.
+test-project-runs: build/bin/zerocc
+	@python3 tools/project_runs.py
+
 # zero_rt: the ZeroCC-owned runtime (heap, minimal stdio, strings, exit).
 # Compiled by zerocc itself; the objects are archived with the system `ar`
 # (the own linker reads classic archives; writing them is a follow-up).
@@ -243,7 +250,7 @@ ZERO_RT_OBJS = $(BUILD_DIR)/obj/zero_rt/os.o \
                $(BUILD_DIR)/obj/zero_rt/heap.o $(BUILD_DIR)/obj/zero_rt/string.o \
                $(BUILD_DIR)/obj/zero_rt/exit.o $(BUILD_DIR)/obj/zero_rt/stdio.o \
                $(BUILD_DIR)/obj/zero_rt/d2s.o $(BUILD_DIR)/obj/zero_rt/d2fixed.o \
-               $(BUILD_DIR)/obj/zero_rt/int128.o
+               $(BUILD_DIR)/obj/zero_rt/int128.o $(BUILD_DIR)/obj/zero_rt/errno.o
 $(BUILD_DIR)/lib/zero_rt.a: $(ZERO_RT_OBJS)
 	@mkdir -p $(dir $@)
 	ar rcs $@ $^
@@ -271,13 +278,16 @@ $(BUILD_DIR)/obj/zero_rt/d2s.o: third_party/vendor/ryu/ryu/d2s.c $(BUILD_DIR)/bi
 $(BUILD_DIR)/obj/zero_rt/d2fixed.o: third_party/vendor/ryu/ryu/d2fixed.c $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc -c $< -Ithird_party/vendor/ryu -o $@
+$(BUILD_DIR)/obj/zero_rt/errno.o: zero_rt/core/errno.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc -c $< $(ZERO_RT_CFLAGS) -o $@
 
 # zero_rt for AArch64
 ZERO_RT_AARCH64_OBJS = $(BUILD_DIR)/obj/zero_rt_aarch64/os.o \
                        $(BUILD_DIR)/obj/zero_rt_aarch64/heap.o $(BUILD_DIR)/obj/zero_rt_aarch64/string.o \
                        $(BUILD_DIR)/obj/zero_rt_aarch64/exit.o $(BUILD_DIR)/obj/zero_rt_aarch64/stdio.o \
                        $(BUILD_DIR)/obj/zero_rt_aarch64/d2s.o $(BUILD_DIR)/obj/zero_rt_aarch64/d2fixed.o \
-                       $(BUILD_DIR)/obj/zero_rt_aarch64/int128.o
+                       $(BUILD_DIR)/obj/zero_rt_aarch64/int128.o $(BUILD_DIR)/obj/zero_rt_aarch64/errno.o
 $(BUILD_DIR)/lib/zero_rt_aarch64.a: $(ZERO_RT_AARCH64_OBJS)
 	@mkdir -p $(dir $@)
 	ar rcs $@ $^
@@ -305,13 +315,16 @@ $(BUILD_DIR)/obj/zero_rt_aarch64/d2s.o: third_party/vendor/ryu/ryu/d2s.c $(BUILD
 $(BUILD_DIR)/obj/zero_rt_aarch64/d2fixed.o: third_party/vendor/ryu/ryu/d2fixed.c $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --target aarch64 -c $< -Ithird_party/vendor/ryu -o $@
+$(BUILD_DIR)/obj/zero_rt_aarch64/errno.o: zero_rt/core/errno.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target aarch64 -c $< $(ZERO_RT_CFLAGS) -o $@
 
 # zero_rt for RISC-V 64-bit
 ZERO_RT_RISCV64_OBJS = $(BUILD_DIR)/obj/zero_rt_riscv64/os.o \
                        $(BUILD_DIR)/obj/zero_rt_riscv64/heap.o $(BUILD_DIR)/obj/zero_rt_riscv64/string.o \
                        $(BUILD_DIR)/obj/zero_rt_riscv64/exit.o $(BUILD_DIR)/obj/zero_rt_riscv64/stdio.o \
                        $(BUILD_DIR)/obj/zero_rt_riscv64/d2s.o $(BUILD_DIR)/obj/zero_rt_riscv64/d2fixed.o \
-                       $(BUILD_DIR)/obj/zero_rt_riscv64/int128.o
+                       $(BUILD_DIR)/obj/zero_rt_riscv64/int128.o $(BUILD_DIR)/obj/zero_rt_riscv64/errno.o
 $(BUILD_DIR)/lib/zero_rt_riscv64.a: $(ZERO_RT_RISCV64_OBJS)
 	@mkdir -p $(dir $@)
 	ar rcs $@ $^
@@ -339,6 +352,9 @@ $(BUILD_DIR)/obj/zero_rt_riscv64/d2s.o: third_party/vendor/ryu/ryu/d2s.c $(BUILD
 $(BUILD_DIR)/obj/zero_rt_riscv64/d2fixed.o: third_party/vendor/ryu/ryu/d2fixed.c $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --target riscv64 -c $< -Ithird_party/vendor/ryu -o $@
+$(BUILD_DIR)/obj/zero_rt_riscv64/errno.o: zero_rt/core/errno.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target riscv64 -c $< $(ZERO_RT_CFLAGS) -o $@
 
 # Cross-ISA raw-binary-emitter differential test under QEMU. Builds each
 # test/isa_qemu/*.c for every target ISA via zerocc's RAW binary emitter

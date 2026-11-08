@@ -911,7 +911,7 @@ static int compile_object_single(CompileOptions *opts, const char *input,
 
             /* Estimate function size (simplified - in reality would need more analysis) */
             size_t fn_size = 0;  /* Could be computed from next function's offset */
-            int binding = fn->is_static ? ELF_STB_LOCAL : ELF_STB_GLOBAL;
+            int binding = fn->is_static ? ELF_STB_LOCAL : (fn->is_weak ? ELF_STB_WEAK : ELF_STB_GLOBAL);
             int sym_type = fn->is_external ? ELF_STT_NOTYPE : ELF_STT_FUNC;
             if (fn->section[0]) {
                 /* Sprint 108: function in a named section - symbol lives in the
@@ -946,7 +946,7 @@ static int compile_object_single(CompileOptions *opts, const char *input,
             /* GNU alias entry: no storage, no ELF symbol (uses resolve to
              * the target's symbol at lowering time). */
             if (gv->alias_target[0]) continue;
-            int binding = gv->is_static ? ELF_STB_LOCAL : ELF_STB_GLOBAL;
+            int binding = gv->is_static ? ELF_STB_LOCAL : (gv->is_weak ? ELF_STB_WEAK : ELF_STB_GLOBAL);
             if (gv->is_tls) {
                 /* TLS variable: symbol lives in .tdata or .tbss at its
                  * in-block offset (data_offset was patched by finalize). */

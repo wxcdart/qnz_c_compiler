@@ -22,8 +22,7 @@
  * re-expanded the whole shared struct DAG from scratch - quadratic
  * TypeInfo bloat that pushed the perm arena past 4 GB and silently
  * truncated the 32-bit AST type-annotation offsets (aux.extra), turning
- * unrelated locals into "void type".  Entries are keyed by (perm, ...),
- * so stale entries from a previous compilation never match. */
+ * unrelated locals into "void type". */
 typedef struct ZCT2TIMemo {
     Arena      *perm;
     const void *members;
@@ -35,43 +34,45 @@ typedef struct ZCT2TIMemo {
     TypeInfo   *ti;
 } ZCT2TIMemo;
 
+static inline void zero_cc_t2ti_memo_reset(void);
+
+/* The memo state lives in ONE external definition (semantic/type.c).
+ * A `static` local inside this `static inline` function gives every
+ * including object file its OWN copy of the memo (and its own perm
+ * ring) - fragmented state that an external reset could not reach.
+ * The memo must persist ACROSS top-level calls within one compilation
+ * (each function parameter / local / member access re-expanding the
+ * shared struct DAG allocated the entire graph again - O(N_toplevel x
+ * |graph|) perm-arena bloat, sqlite3.c: >4 GB), but it must be EMPTY
+ * at the start of each compilation: the perm arena is per-compile,
+ * so a stale entry's TypeInfo* dangles the moment the next TU frees
+ * it.  The old "perm-pointer ring" heuristic tried to detect a new
+ * compilation from arena identity - but malloc reuses the freed arena
+ * address for the next same-size arena_create, so every multi-TU AOT
+ * run (zerocc a.c b.c ...) looked like the SAME compilation and stale
+ * entries matched identical struct redefinitions (zlib's
+ * struct z_stream_s in the 5th TU resolved through a 4th-TU TypeInfo
+ * that now pointed at unrelated perm-arena bytes).  The reset is now
+ * explicit: zero_cc_compile_c99 calls zero_cc_t2ti_memo_reset() at
+ * the start of every compilation. */
+extern int zc_t2ti_depth;
+extern ZCT2TIMemo *zc_t2ti_memo;
+extern size_t zc_t2ti_memo_cap;
+extern size_t zc_t2ti_memo_cnt;
+
+static inline void zero_cc_t2ti_memo_reset(void) {
+    zc_t2ti_memo_cnt = 0;
+}
+
 static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
     /* Recursion & cycle/DAG memoization guard: a self-referential struct
      * (`struct S { struct S *next, *prev; }`) or shared struct graph
      * otherwise expands exponentially (B^(depth/2)).  We memoize converted
-     * struct/union TypeInfo* records within each top-level call (and tie
+     * struct/union TypeInfo* records within each compilation (and tie
      * recursive cycles directly to the in-progress TypeInfo* before
-     * expanding members), turning O(B^d) into O(V + E). */
-    static int zc_t2ti_depth = 0;
-    static ZCT2TIMemo *zc_t2ti_memo = NULL;
-    static size_t zc_t2ti_memo_cap = 0;
-    static size_t zc_t2ti_memo_cnt = 0;
-    /* The memo must persist ACROSS top-level calls (across the whole
-     * compilation): every top-level conversion (each function parameter,
-     * local, member access) re-expanding the shared struct DAG allocated
-     * the entire graph again - O(N_toplevel x |graph|) perm-arena bloat
-     * (sqlite3.c: >4 GB, which truncated the 32-bit AST type-annotation
-     * offsets and corrupted local types).  Entries are keyed by (perm, ...)
-     * and the stored TypeInfo* lives in that same perm arena, so entries
-     * stay valid for the whole compilation.  A fresh perm arena signals a
-     * new compilation: reset the table (old entries reference a different
-     * arena and can never match). */
-    static Arena *zc_t2ti_perm_ring[16];
-    static int zc_t2ti_perm_cnt = 0;
-    if (zc_t2ti_depth == 0) {
-        int zc_t2ti_seen = 0;
-        for (int i = 0; i < zc_t2ti_perm_cnt; i++)
-            if (zc_t2ti_perm_ring[i] == perm) { zc_t2ti_seen = 1; break; }
-        if (!zc_t2ti_seen) {
-            zc_t2ti_memo_cnt = 0;
-            if (zc_t2ti_perm_cnt >= 16) {
-                for (int i = 1; i < 16; i++)
-                    zc_t2ti_perm_ring[i - 1] = zc_t2ti_perm_ring[i];
-                zc_t2ti_perm_cnt = 15;
-            }
-            zc_t2ti_perm_ring[zc_t2ti_perm_cnt++] = perm;
-        }
-    }
+     * expanding members), turning O(B^d) into O(V + E).  The zc_t2ti_*
+     * state is ONE external set (semantic/type.c) - see the extern block
+     * above for why it may not be function-static. */
     bool zc_t2ti_break = (zc_t2ti_depth >= 48);
     zc_t2ti_depth++;
     // Guard against uninitialized/corrupted types while allowing valid large arrays and structs.

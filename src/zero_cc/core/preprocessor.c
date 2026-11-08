@@ -1038,7 +1038,12 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
     if (!src) return;
     const char *p = src;
     bool at_line_start = true;
-    cpp->line_num = 1; /* Start at line 1 */
+    /* line_num is NOT reset here - the caller owns it.  Top-level file entry
+     * sets it to 1; #include pushes the outer count and resets to 1 for the
+     * included file (C99 6.10.8.1 per-file numbering); nested string
+     * processing (macro bodies, #if/attribute expressions) saves and restores
+     * it so those strings' newlines never leak into the source line count and
+     * a __LINE__ in a macro body expands to the line where the macro is used. */
 
     while (*p) {
         /* Comments - process first */
@@ -1049,8 +1054,9 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                 if (*p != '\n') break;
                 /* Phase-2 splice: a backslash before the newline joins the
                  * next line into THIS comment (it is deleted before comment
-                 * recognition) - do not terminate or count a logical line. */
-                if (p[-1] == '\\') { p++; continue; }
+                 * recognition) - do not terminate or emit a logical line,
+                 * but the physical line number still advances. */
+                if (p[-1] == '\\') { p++; cpp->line_num++; continue; }
                 zero_cc_buf_putc(out, *p++); at_line_start = true; cpp->line_num++;
                 break;
             }
@@ -1059,7 +1065,13 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
         if (*p == '/' && p[1] == '*') {
             p += 2;
             while (*p && !(*p == '*' && p[1] == '/')) {
-                if (*p == '\n' && p[-1] != '\\') { zero_cc_buf_putc(out, '\n'); at_line_start = true; cpp->line_num++; }
+                if (*p == '\n') {
+                    /* A spliced newline (backslash before it) is deleted in
+                     * phase 1 and not re-emitted, but it still advances the
+                     * physical line number. */
+                    if (p[-1] != '\\') zero_cc_buf_putc(out, '\n');
+                    at_line_start = true; cpp->line_num++;
+                }
                 p++;
             }
             if (*p) p += 2;
@@ -1164,6 +1176,11 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                         }
 
                         if (cpp->macro_count < ZERO_CC_MAX_MACROS) {
+                            if (cpp->macro_count >= cpp->macro_capacity) {
+                                cpp->macro_capacity *= 2;
+                                cpp->macros = (ZeroCCMacro *)realloc(cpp->macros, cpp->macro_capacity * sizeof(ZeroCCMacro));
+                                cpp->hash_next = (int32_t *)realloc(cpp->hash_next, cpp->macro_capacity * sizeof(int32_t));
+                            }
                             size_t idx = cpp->macro_count++;
                             ZeroCCMacro *m = &cpp->macros[idx];
                             memset(m,0,sizeof(*m));
@@ -1217,8 +1234,11 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                          * for the duration of the nested process_text
                          * call; virtual headers leave it empty (NULL). */
                         char *saved_filename = cpp->filename;
+                        size_t saved_line = cpp->line_num;
                         cpp->filename = resolved_path[0] ? resolved_path : NULL;
+                        cpp->line_num = 1; /* included file starts at line 1 */
                         zero_cc_cpp_process_text(cpp, inc_content, out);
+                        cpp->line_num = saved_line;
                         cpp->filename = saved_filename;
                         zero_cc_cpp_pop_include_dir(cpp, saved_inc_depth);
                         free(inc_content);
@@ -1344,7 +1364,7 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
         if (cpp->cond_depth > 0 && !cpp->cond_true[cpp->cond_depth]) {
             while (*p && *p != '\n') p++;
             if (*p == '\n') {
-                if (p > src && p[-1] == '\\') p++; /* spliced line: not a logical newline */
+                if (p > src && p[-1] == '\\') { p++; cpp->line_num++; } /* spliced: physical line advances */
                 else { p++; at_line_start = true; cpp->line_num++; }
             }
             continue;
@@ -1360,8 +1380,9 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
             while (*p && *p != quote) {
                 /* Phase-2 splice: backslash+newline is DELETED (the string
                  * continues on the next physical line with no extra chars);
-                 * other escapes copy verbatim. */
-                if (*p == '\\' && p[1] == '\n') { p += 2; continue; }
+                 * the physical line number still advances. Other escapes
+                 * copy verbatim. */
+                if (*p == '\\' && p[1] == '\n') { p += 2; cpp->line_num++; continue; }
                 if (*p == '\\' && p[1]) {
                     zero_cc_buf_putc(out, *p++);
                 }
@@ -1559,7 +1580,11 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                 if (m->param_count < 0) {
                     if (cpp->expanding_top < 39) cpp->expanding_stack[++cpp->expanding_top] = (int)(m - cpp->macros);
                     cpp->expand_depth++;
-                    zero_cc_cpp_process_text(cpp, m->replacement, out);
+                    {
+                        size_t obj_saved_line = cpp->line_num;
+                        zero_cc_cpp_process_text(cpp, m->replacement, out);
+                        cpp->line_num = obj_saved_line;
+                    }
                     cpp->expand_depth--;
                     if (cpp->expanding_top >= 0) cpp->expanding_top--;
                 } else {
@@ -1572,6 +1597,7 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                     if (*ws_skip == '(') {
                         p = ws_skip + 1;
                         cpp->line_num += ws_newlines;
+                        const char *arglist_start = p;
                         char *args[64];
                         int arg_count = 0;
                         while (*p) {
@@ -1638,7 +1664,11 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                                     zero_cc_buf_putc(&arg_src, 0);
                                     cpp->expand_depth++;
                                     cpp->arg_expand_depth++;
-                                    zero_cc_cpp_process_text(cpp, arg_src.data, &arg_out);
+                                    {
+                                        size_t arg_saved_line = cpp->line_num;
+                                        zero_cc_cpp_process_text(cpp, arg_src.data, &arg_out);
+                                        cpp->line_num = arg_saved_line;
+                                    }
                                     cpp->arg_expand_depth--;
                                     cpp->expand_depth--;
                                     zero_cc_buf_putc(&arg_out, 0);
@@ -1675,7 +1705,13 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                     }
                     if (*p == ')') p++;
 
-                    /* Bundle variadic arguments into __VA_ARGS__ / named variadic param */
+                    /* C99 6.10.8.1: the argument list is consumed here, not
+                     * by the main loop, so its physical newlines (multi-line
+                     * calls like TEST_ASSERT(F(\n ...)) must advance the line
+                     * count now; each argument's own expansion keeps them
+                     * from leaking elsewhere via its save/restore. */
+                    for (const char *nl = arglist_start; nl < p; nl++)
+                        if (*nl == '\n') cpp->line_num++;
                     if (m->is_variadic && m->param_count > 0) {
                         if (arg_count >= m->param_count) {
                             size_t total_va_len = 0;
@@ -1775,7 +1811,7 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                              * of several attributes). */
                             const char *ex = NULL;
                             size_t el = 0;
-                            int ex_marker = 0; /* 1 = vector_size, 2 = aligned, 3 = alias, 4 = mode, 5 = scalar_storage_order */
+                            int ex_marker = 0; /* 1 = vector_size, 2 = aligned, 3 = alias, 4 = mode, 5 = scalar_storage_order, 7 = weak */
                             int depth = 0;
                             for (const char *q = it; q < it + il; q++) {
                                 if (*q == '(') {
@@ -1799,7 +1835,9 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                                         bool is_sso = (namelen == 20 && strncmp(nam, "scalar_storage_order", 20) == 0);
                                         bool is_sec = (namelen == 7 && strncmp(nam, "section", 7) == 0) ||
                                                        (namelen == 11 && strncmp(nam, "__section__", 11) == 0);
-                                        if (is_vs || is_al || is_as || is_md || is_sso || is_sec) {
+                                        bool is_wk = (namelen == 4 && strncmp(nam, "weak", 4) == 0) ||
+                                                      (namelen == 8 && strncmp(nam, "__weak__", 8) == 0);
+                                        if (is_vs || is_al || is_as || is_md || is_sso || is_sec || is_wk) {
                                             /* find the matching ')' */
                                             int nest = 0;
                                             const char *close = NULL;
@@ -1810,7 +1848,7 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                                             if (close) {
                                                 ex = q + 1;
                                                 el = (size_t)(close - ex);
-                                                ex_marker = is_vs ? 1 : (is_al ? 2 : (is_as ? 3 : (is_md ? 4 : (is_sso ? 5 : 6))));
+                                                ex_marker = is_vs ? 1 : (is_al ? 2 : (is_as ? 3 : (is_md ? 4 : (is_sso ? 5 : (is_sec ? 6 : 7)))));
                                             }
                                             break;
                                         }
@@ -1821,8 +1859,10 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                                 }
                             }
                             if (!ex) {
-                                /* Check for bare `aligned` / `__aligned__` without parens
-                                 * (GCC extension: default alignment, 16 bytes). */
+                                /* Check for bare `aligned` / `__aligned__` /
+                                 * `weak` / `__weak__` without parens (GCC
+                                 * extensions: default alignment 16; weak is
+                                 * argument-free). */
                                 for (const char *q = it; q < it + il; ) {
                                     while (q < it + il && (*q == ' ' || *q == '\t' || *q == ',')) q++;
                                     if (q >= it + il) break;
@@ -1839,6 +1879,12 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                                             ex_marker = 2;
                                             break;
                                         }
+                                    } else if ((len == 4 && strncmp(start, "weak", 4) == 0) ||
+                                                 (len == 8 && strncmp(start, "__weak__", 8) == 0)) {
+                                        ex = "";
+                                        el = 0;
+                                        ex_marker = 7;
+                                        break;
                                     }
                                     if (q == start) q++;
                                 }
@@ -1857,17 +1903,25 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                             if (ex_marker == 5) {
                                 if (strstr(expr_text, "big-endian") == NULL) continue;
                             }
+                            /* weak: no argument - bare marker identifier
+                             * (consumed by the file-scope loop, which marks
+                             * the next function/object symbol weak). */
+                            if (ex_marker == 7) el = 0;
                             /* Expand macros inside the size expression
                              * (e.g. __vector_size__(sizeof(__INTPTR_TYPE__))). */
                             ZeroCCBuffer expr_buf;
                             zero_cc_buf_init(&expr_buf, el + 16);
-                            zero_cc_cpp_process_text(cpp, expr_text, &expr_buf);
+                            {
+                                size_t expr_saved_line = cpp->line_num;
+                                zero_cc_cpp_process_text(cpp, expr_text, &expr_buf);
+                                cpp->line_num = expr_saved_line;
+                            }
                             size_t el2 = expr_buf.length;
                             char *et2 = expr_buf.data;
                             char marker[600];
-                            const char *mk = (ex_marker == 1) ? "__zc_vector_size__" : (ex_marker == 2 ? "__zc_aligned__" : (ex_marker == 3 ? "__zc_alias__" : (ex_marker == 4 ? "__zc_mode__" : (ex_marker == 6 ? "__zc_section__" : "__zc_sso_be__"))));
+                            const char *mk = (ex_marker == 1) ? "__zc_vector_size__" : (ex_marker == 2 ? "__zc_aligned__" : (ex_marker == 3 ? "__zc_alias__" : (ex_marker == 4 ? "__zc_mode__" : (ex_marker == 6 ? "__zc_section__" : (ex_marker == 7 ? "__zc_weak__" : "__zc_sso_be__")))));
                             if (el2 > sizeof(marker) - 22) { el2 = sizeof(marker) - 22; }
-                            if (ex_marker == 5) {
+                            if (ex_marker == 5 || ex_marker == 7) {
                                 /* No argument: bare marker identifier. */
                                 snprintf(marker, sizeof(marker), "%s", mk);
                             } else {
@@ -2113,7 +2167,11 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                     }
                     /* Any still-pending paste (## at end of body) has no
                      * operand; the text is discarded (constraint violation). */
-                    zero_cc_cpp_process_text(cpp, temp_buf.data, out);
+                    {
+                        size_t body_saved_line = cpp->line_num;
+                        zero_cc_cpp_process_text(cpp, temp_buf.data, out);
+                        cpp->line_num = body_saved_line;
+                    }
                     cpp->expand_depth--;
                     zero_cc_buf_free(&temp_buf);
                         if (cpp->expanding_top >= 0) cpp->expanding_top--;
@@ -2194,8 +2252,11 @@ char* zero_cc_preprocess_ext3(const char *source, ZeroCCIncludeDirs *inc_dirs,
             int saved_inc_depth = zero_cc_cpp_push_include_dir(cpp, resolved_path);
             zero_cc_cpp_add_dependency(cpp, resolved_path);
             char *saved_filename = cpp->filename;
+            size_t finc_saved_line = cpp->line_num;
             cpp->filename = resolved_path[0] ? resolved_path : NULL;
+            cpp->line_num = 1; /* forced include: main file still starts at 1 */
             zero_cc_cpp_process_text(cpp, inc_content, &out);
+            cpp->line_num = finc_saved_line;
             cpp->filename = saved_filename;
             zero_cc_cpp_pop_include_dir(cpp, saved_inc_depth);
             free(inc_content);
@@ -2206,6 +2267,7 @@ char* zero_cc_preprocess_ext3(const char *source, ZeroCCIncludeDirs *inc_dirs,
         }
     }
 
+    cpp->line_num = 1; /* the main source file starts at line 1 */
     zero_cc_cpp_process_text(cpp, source, &out);
     int include_failed = cpp->include_error[0] != '\0';
     if (include_failed && err_out && err_cap) {

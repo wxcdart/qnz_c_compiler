@@ -4,7 +4,7 @@ title: Multi-Translation-Unit Driver (T1) & JIT Image Merge
 description: How zerocc compiles multiple .c inputs - per-TU compile, the multi-TU JIT image merge (zero_cc_tu_merge), the global-registry snapshot discipline, and the extern-object store/load paths that make cross-TU globals work.
 resource: driver/multi-tu
 tags: [driver, multi-tu, jit, merge, relocations, globals, linker]
-timestamp: 2026-10-25T20:42:20Z
+timestamp: 2026-11-08T00:51:57Z
 generated: pi-agent
 verified: engineering-lead
 status: active
@@ -57,8 +57,16 @@ every relocation resolved by **name** at patch time in
 - `.text`/`.rodata`/`.data` are appended at 16/8/8-aligned bases; every
   `tu` offset shifts by the per-section base.
 - Function table is appended (re-based); a duplicate *definition* is a
-  multiple-definition error. Prototype-in-`base` + definition-in-`tu` is the
-  expected cross-TU shape — `zero_cc_find_function` prefers definitions.
+  multiple-definition error — **except** for weak/strong and static coexistence
+  (Sprint 125): a **strong definition beats a weak one** (the base's weak entry
+  is re-pointed at the strong definition and its `is_weak` cleared), weak-vs-weak
+  keeps the first, and **same-named `static` (internal-linkage) functions from
+  different TUs may coexist** (legal in C and in ELF objects; zlib's 15-TU
+  `fixedtables` in `inflate.c`/`infback.c` used to fail the merge). This mirrors
+  the host ELF linker's weak/strong + internal-linkage semantics so the JIT
+  merge and the AOT `ld` path resolve identically. `__attribute__((weak))` is
+  rewritten to a `__zc_weak__` marker by the preprocessor; `ZeroCCFunction`/
+  `ZeroCCGlobalVar` carry `is_weak`; AOT emission uses `ELF_STB_WEAK`.
 - Relocations need no retargeting: call targets and `&global`/`OP_MOV_GLOBAL`
   references are bare names resolved at patch time against the merged table
   and registry.
@@ -107,8 +115,9 @@ prototype, no param).
 
 ## Known limitations (documented, out of T1 scope)
 
-- `static` file-scope globals from different TUs share the bare-name global
-  registry (no per-TU mangling) — same-name statics alias.
+- `static` file-scope **global variables** from different TUs share the bare-name global
+  registry (no per-TU mangling) — same-name statics alias. (`static` functions are
+  different: same-named `static` *functions* may coexist across TUs, Sprint 125.)
 - `_Thread_local` storage is per-compiler and not merged.
 - `int *p = &g;` initializers referencing a *cross-TU* global: **fixed
   (Sprint 43, T2)** — the emitter now registers a by-name (kind-2) data

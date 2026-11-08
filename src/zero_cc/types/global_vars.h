@@ -23,6 +23,7 @@ struct ZeroCCGlobalVar {
     char alias_target[128];   /* GNU __attribute__((alias("tgt"))): storage lives at tgt */
     char section[64];         /* __attribute__((section("name"))): named ELF section (AOT -c); empty = default */
     size_t named_sec_off;    /* offset of this object within its named section (AOT -c emission) */
+    int is_weak;              /* GNU __attribute__((weak)): STB_WEAK binding at AOT -c */
 };
 
 /* Global variable storage (M2: dynamic table - grows on demand, no fixed cap) */
@@ -131,6 +132,7 @@ static inline int add_global_var(ZeroCCCompiler *c, const char *name, ZeroCCType
             strncpy(c->global_vars[existing].section, c->pending_section, sizeof(c->global_vars[existing].section) - 1);
             c->global_vars[existing].section[sizeof(c->global_vars[existing].section) - 1] = '\0';
         }
+        if (c->pending_weak) c->global_vars[existing].is_weak = 1;
         return (int)existing;
     }
     if (c->global_var_count >= c->global_var_capacity) {
@@ -156,6 +158,7 @@ static inline int add_global_var(ZeroCCCompiler *c, const char *name, ZeroCCType
         strncpy(gv->section, c->pending_section, sizeof(gv->section) - 1);
         gv->section[sizeof(gv->section) - 1] = '\0';
     }
+    gv->is_weak = c->pending_weak;
     zero_cc_gname_hash_insert(c, name, c->global_var_count - 1, c->global_var_count);
     return (int)(c->global_var_count - 1);
 }

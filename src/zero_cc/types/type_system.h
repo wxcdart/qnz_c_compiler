@@ -357,6 +357,9 @@ typedef struct ZeroCCFunction {
      * named_text_sec_off.  The .text copy is left in place (dead). */
     char section[64];
     size_t named_text_sec_off;
+    /* GNU __attribute__((weak)): emit the symbol with STB_WEAK binding so a
+     * strong definition in another TU wins at link time (Unity setup stubs). */
+    int is_weak;
 } ZeroCCFunction;
 
 /* Relocation Record */

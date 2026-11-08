@@ -79,14 +79,42 @@ static inline int zero_cc_tu_merge(ZeroCCCompiler *base, ZeroCCCompiler *tu,
     /* Duplicate-definition check BEFORE mutating anything. A prototype in
      * `base` + a definition in `tu` (the universal-header pattern) is the
      * expected cross-TU shape and merges cleanly; two definitions are a
-     * multiple-definition error. */
+     * multiple-definition error.  Weak symbols (GNU __attribute__((weak)),
+     * e.g. Unity's SETUP_STUBS) merge like the ELF linker resolves them:
+     * a strong definition beats a weak one, weak vs weak keeps the first.
+     * A weak duplicate that loses is still appended below as dead text -
+     * name resolution (zero_cc_find_function, first match) hits the winner.
+     * STATIC (internal-linkage) duplicates from different TUs are legal C
+     * (zlib's `local void fixedtables` exists in both inflate.c and
+     * infback.c) and coexist exactly as they do in ELF objects: same-TU
+     * calls are relative and resolved at emit time, so no retargeting is
+     * needed.  (Residual hazard, matching ELF local-symbol semantics only
+     * when the names differ: a same-TU FORWARD call to a static that an
+     * earlier TU also defines as a static would resolve by name to the
+     * first copy - rare, and unobservable in the current corpus.) */
+    size_t dup_text_base = zero_cc_align_up(base->text_section.length, 16);
     for (size_t i = 0; i < tu->function_count; i++) {
         if (tu->functions[i].is_prototype) continue;
         ZeroCCFunction *prev = zero_cc_find_function(base, tu->functions[i].name);
         if (prev && !prev->is_prototype) {
-            snprintf(err, errsz, "multiple definition of '%s' (first in an earlier input file)",
-                     tu->functions[i].name);
-            return -1;
+            if (prev->is_static || tu->functions[i].is_static) {
+                /* Internal linkage on at least one side: no cross-TU
+                 * collision (ELF local symbols); keep both copies. */
+                continue;
+            }
+            if (!prev->is_weak && !tu->functions[i].is_weak) {
+                snprintf(err, errsz, "multiple definition of '%s' (first in an earlier input file)",
+                         tu->functions[i].name);
+                return -1;
+            }
+            if (prev->is_weak && !tu->functions[i].is_weak) {
+                /* Strong beats weak: the appended copy of the strong
+                 * definition wins; re-point the (first-found) symbol entry
+                 * at it.  Signatures match by C name-identity, so the
+                 * stale param metadata on the entry stays valid. */
+                prev->text_offset = dup_text_base + tu->functions[i].text_offset;
+                prev->is_weak = 0;
+            }
         }
     }
 

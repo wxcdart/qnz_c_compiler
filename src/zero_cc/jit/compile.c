@@ -938,6 +938,9 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
         if (c->pending_section[0]) {
             snprintf(fn->section, sizeof(fn->section), "%s", c->pending_section);
         }
+        /* GNU __attribute__((weak)): STB_WEAK at AOT -c so a strong
+         * definition in another TU wins at link time (Unity setup stubs). */
+        fn->is_weak = c->pending_weak;
         fn->param_count = param_count;
         fn->return_type = fn_ret_type;
         fn->returns_struct = (fn_ret_type.tag == TYPE_STRUCT || fn_ret_type.tag == TYPE_UNION ||

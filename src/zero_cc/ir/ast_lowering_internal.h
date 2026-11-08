@@ -263,14 +263,16 @@ static inline bool ast_expr_is_struct_addr(ZeroCCCompiler *c, ZeroCCASTArena *ar
         TypeInfo *ti = ast_node_get_typeinfo(c, node);
         if (type_is_struct_or_union(ti) && type_size(ti) > 16) return true;
     } else if (node->tag == NODE_UNOP && (node->aux.op == '*' || node->aux.op == TK_STAR)) {
+        /* A multi-chunk struct deref (p_size > 8) yields the ADDRESS (see
+         * lower_expr_unop), so consumers read chunks from ptr + i*8. */
         TypeInfo *ti = ast_node_get_typeinfo(c, node);
-        if (type_is_struct_or_union(ti) && type_size(ti) > 16) return true;
+        if (type_is_struct_or_union(ti) && type_size(ti) > 8) return true;
         ZeroCCASTNode *in = zero_cc_ast_get(arena, node->left);
         if (in && in->tag == NODE_IDENT) {
             ZeroCCSym *sym = zero_cc_find_local(c, in->s.str);
-            if (sym && sym->type.base && zero_cc_type_is_struct_or_union(sym->type.base) && sym->type.base->size > 16) return true;
+            if (sym && sym->type.base && zero_cc_type_is_struct_or_union(sym->type.base) && sym->type.base->size > 8) return true;
             ZeroCCGlobalVar *gv = find_global_var(c, in->s.str);
-            if (gv && gv->type.base && zero_cc_type_is_struct_or_union(gv->type.base) && gv->type.base->size > 16) return true;
+            if (gv && gv->type.base && zero_cc_type_is_struct_or_union(gv->type.base) && gv->type.base->size > 8) return true;
         }
     } else if (node->tag == NODE_INDEX) {
         TypeInfo *ti = ast_node_get_typeinfo(c, node);

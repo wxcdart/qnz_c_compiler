@@ -101,15 +101,42 @@ static inline bool zero_cc_static_local_register(ZeroCCCompiler *c, ZeroCCSym *s
  * Returns true when a supported literal initializer was consumed.
  * A non-literal initializer leaves the stream where the caller skips
  * it and reports the diagnostic (the run then fails, no binary). */
+/* Scan a braced initializer list (c->token_pos at the '{') for a top-level
+ * `&...` address element.  The global brace walker has no address-element
+ * support, but the static-local positional path does (kind-1 data reloc
+ * with a type-computed member offset - the sqlite shell.c `apst[]` class).
+ * Used to route such arrays to the positional path. */
+static bool zc_static_array_has_addr_elem(ZeroCCCompiler *c) {
+    size_t q = c->token_pos + 1;
+    int depth = 0;
+    while (q < c->token_count) {
+        ZeroCCTokType tt = c->tokens[q].type;
+        if (tt == TK_LBRACE) { depth++; q++; continue; }
+        if (tt == TK_RBRACE) {
+            if (depth == 0) return false;
+            depth--;
+            q++;
+            continue;
+        }
+        if (depth == 0 && tt == TK_AMP) return true;
+        q++;
+    }
+    return false;
+}
+
 static inline bool zero_cc_static_local_patch_init(ZeroCCCompiler *c, ZeroCCSym *sym) {
     /* Aggregate brace initializer (C99 6.7.9): `static struct S d[] =
      * { {...}, ... };` / `static const int tab[] = { 1, 2, 3 };` - run the
      * global brace walker directly into the reserved data region (c-torture
      * execute/ieee/fp-cmp-4/5/8 family, pr38016, loop-ivopts-1).  The
-     * region was zero-filled at register time, so elided leaves stay zero. */
+     * region was zero-filled at register time, so elided leaves stay zero.
+     * Exception: an array containing a top-level `&...` address element is
+     * routed to the positional path below (the walker cannot emit the
+     * kind-1 global-member reloc). */
     if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACE &&
         (sym->type.tag == TYPE_ARRAY || sym->type.tag == TYPE_STRUCT ||
-         sym->type.tag == TYPE_UNION)) {
+         sym->type.tag == TYPE_UNION) &&
+        !(sym->type.tag == TYPE_ARRAY && zc_static_array_has_addr_elem(c))) {
         size_t total = (sym->type.size > 0) ? sym->type.size : 8;
         if (sym->static_data_offset + total > c->data_section.length) return false;
         size_t cursor = 0;
@@ -292,6 +319,102 @@ static inline bool zero_cc_static_local_patch_init(ZeroCCCompiler *c, ZeroCCSym 
                     c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++;
                 continue;
             }
+            /* Address element: `&g`, `&g.member[i]`, `&g.a.b[j]` - the
+             * address of a global object plus a member/element byte offset
+             * computed from the type (sqlite shell.c's `static PerStreamTags
+             * *apst[] = { &consoleInfo.pstDesignated[1], ... }` class).
+             * kind-1 data reloc with target_data_offset = the byte offset
+             * from the target global's storage base. */
+            if (c->tokens[c->token_pos].type == TK_AMP &&
+                c->token_pos + 1 < c->token_count &&
+                c->tokens[c->token_pos + 1].type == TK_IDENT) {
+                size_t apos = c->token_pos;
+                c->token_pos++; /* & */
+                char anm[128];
+                snprintf(anm, sizeof(anm), "%s", c->tokens[c->token_pos].str_val);
+                c->token_pos++;
+                ZeroCCGlobalVar *agv = find_global_var(c, anm);
+                if (agv) {
+                    size_t moff = 0;
+                    /* Current object type at the running offset: the global
+                     * object, then each member (an array member `M a[N]`
+                     * contributes element type M with tag TYPE_ARRAY, so a
+                     * following [i] consumes the member's outer dimension),
+                     * then each [i] descends one array dimension. */
+                    ZeroCCType cur = agv->type;
+                    bool chain_ok = true;
+                    while (c->token_pos < c->token_count &&
+                           c->tokens[c->token_pos].type == TK_DOT) {
+                        c->token_pos++; /* . */
+                        if (c->token_pos >= c->token_count ||
+                            c->tokens[c->token_pos].type != TK_IDENT) {
+                            chain_ok = false; break;
+                        }
+                        const char *mnm = c->tokens[c->token_pos].str_val;
+                        c->token_pos++;
+                        if (cur.tag != TYPE_STRUCT && cur.tag != TYPE_UNION) {
+                            chain_ok = false; break;
+                        }
+                        bool mfound = false;
+                        for (size_t mi = 0; mi < cur.member_count; mi++) {
+                            ZeroCCStructMember *mm = &cur.members[mi];
+                            if (strcmp(mm->name, mnm) == 0) {
+                                moff += mm->offset;
+                                cur = *mm->base;
+                                if (mm->tag == TYPE_ARRAY) {
+                                    /* Array member: base holds the ELEMENT
+                                     * type; rebuild the member's array view
+                                     * so [i] advances by sizeof(element). */
+                                    cur.tag = TYPE_ARRAY;
+                                    cur.base = mm->base;
+                                    cur.array_len = 0;
+                                }
+                                mfound = true;
+                                break;
+                            }
+                        }
+                        if (!mfound) { chain_ok = false; break; }
+                    }
+                    while (chain_ok && c->token_pos < c->token_count &&
+                           c->tokens[c->token_pos].type == TK_LBRACKET) {
+                        c->token_pos++; /* [ */
+                        if (cur.tag != TYPE_ARRAY || !cur.base) {
+                            chain_ok = false; break;
+                        }
+                        size_t dstart = c->token_pos;
+                        int64_t aidx = zero_cc_eval_const_expr(c);
+                        if (c->token_pos == dstart ||
+                            c->token_pos >= c->token_count ||
+                            c->tokens[c->token_pos].type != TK_RBRACKET) {
+                            chain_ok = false; break;
+                        }
+                        c->token_pos++; /* ] */
+                        moff += (size_t)aidx * (cur.base->size > 0 ? cur.base->size : 1);
+                        cur = *cur.base;
+                    }
+                    if (chain_ok &&
+                        (c->token_pos >= c->token_count ||
+                         c->tokens[c->token_pos].type == TK_COMMA ||
+                         c->tokens[c->token_pos].type == TK_RBRACE)) {
+                        if (c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
+                            ZeroCCDataReloc *adr = &c->data_relocs[c->data_reloc_count];
+                            memset(adr, 0, sizeof(*adr));
+                            adr->data_patch_offset = sym->static_data_offset + off;
+                            adr->target_kind = 1;
+                            adr->target_global_idx = (int)(agv - c->global_vars);
+                            adr->target_data_offset = moff;
+                            c->data_reloc_count++;
+                        }
+                        off += 8;
+                        if (c->token_pos < c->token_count &&
+                            c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++;
+                        continue;
+                    }
+                }
+                c->token_pos = apos;
+                /* Not a resolvable address chain - fall through to the
+                 * constant-expression path (it will fail -> return false). */
+            }
             /* Constant-expression element (literals, shifts, casts, NULL, ...) */
             size_t start = c->token_pos;
             int64_t iv = zero_cc_eval_const_expr(c);
@@ -349,6 +472,36 @@ static inline bool zero_cc_static_local_patch_init(ZeroCCCompiler *c, ZeroCCSym 
     if (sym->type.tag == TYPE_PTR) {
         size_t save = c->token_pos;
         bool ok = false;
+        /* Null-pointer / integer constant expression (C99 6.6): `static T *
+         * p = 0;`, `= (void*)0;` (NULL), `= (T*)0x10;` - bake the 8-byte
+         * pointer-width value directly (sqlite shell.c's `static
+         * sqlite3_vfs *clockVfs = 0;` class). Only attempted when the
+         * initializer *starts* a constant expression, so the reloc paths
+         * below (&global, "string", identifier, &&label) are untouched. */
+        if (c->token_pos < c->token_count &&
+            (c->tokens[c->token_pos].type == TK_NUM ||
+             c->tokens[c->token_pos].type == TK_MINUS ||
+             c->tokens[c->token_pos].type == TK_PLUS ||
+             c->tokens[c->token_pos].type == TK_LPAREN)) {
+            size_t start = c->token_pos;
+            int64_t pv = zero_cc_eval_const_expr(c);
+            if (c->token_pos != start) {
+                ZeroCCTokType after = (c->token_pos < c->token_count) ?
+                    c->tokens[c->token_pos].type : TK_EOF;
+                if (after == TK_SEMI) {
+                    uint64_t bits = (uint64_t)pv;
+                    size_t cap_end = sym->static_data_offset + 8;
+                    if (c->data_section.length < cap_end) {
+                        zero_cc_buf_ensure(&c->data_section, cap_end - c->data_section.length);
+                        c->data_section.length = cap_end;
+                    }
+                    uint8_t *pd = (uint8_t *)c->data_section.data + sym->static_data_offset;
+                    for (size_t i = 0; i < 8; i++) pd[i] = (uint8_t)(bits >> (8 * i));
+                    return true;
+                }
+            }
+            c->token_pos = start;
+        }
         if (c->token_pos < c->token_count &&
             (c->tokens[c->token_pos].type == TK_AMP ||
              c->tokens[c->token_pos].type == TK_LOGAND ||

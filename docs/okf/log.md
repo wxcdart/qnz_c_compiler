@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-07T22:16:19Z
+timestamp: 2026-11-08T00:51:58Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1122,3 +1122,15 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-07 — Updated `build-and-verification.md`
 - Sprint 124: project-differential compile gate (make test-project-diff / tools/project_diff.py; cJSON + zlib + sqlite3.c, 54/54 TU-levels at -O0..-O3)
+
+## 2026-11-08 — Updated `ir-and-regalloc.md`
+- Sprint 125: run/matches gate + 9-16B struct-deref address fix, casted fn designators, weak symbols, struct stat, missing POSIX decls
+
+## 2026-11-08 — Updated `global-data-relocs.md`
+- Sprint 125: run/matches gate + 9-16B struct-deref address fix, casted fn designators, weak symbols, struct stat, missing POSIX decls
+
+## 2026-11-08 — Updated `multi-tu.md`
+- Sprint 125: run/matches gate + 9-16B struct-deref address fix, casted fn designators, weak symbols, struct stat, missing POSIX decls
+
+## 2026-11-08 — Updated `build-and-verification.md`
+- Sprint 125: run/matches gate + 9-16B struct-deref address fix, casted fn designators, weak symbols, struct stat, missing POSIX decls

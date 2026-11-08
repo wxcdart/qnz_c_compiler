@@ -227,12 +227,18 @@ static bool zero_cc_compile_top_level_decl(ZeroCCCompiler *c) {
  * strip the parens in place so the downstream hand-rolled declarator
  * parsing (and the function-parser handoff) sees the plain identifier.
  * Expression contexts (`= (f)`, `{ (f)`, ...) are never at a declarator
- * position, so the previous-token whitelist keeps casts intact. */
+ * position, so the previous-token whitelist keeps casts intact.
+ *
+ * Case 2 (Sprint 125): `(IDENT [ ... ] ... [ ... ])` - redundant outer
+ * parens around an ARRAY declarator, e.g. `static const char *(azHelp[])
+ * = { ... };` (sqlite shell.c).  The outer parens are redundant only
+ * when no declarator suffix (`[` or `(`) follows the closing paren -
+ * `int (a[2])[3];` is a genuine grouping whose type changes if stripped,
+ * so that shape is left for the (still-open) general declarator stack. */
 static bool zc_unparen_declarator(ZeroCCCompiler *c) {
     if (c->token_pos + 2 >= c->token_count) return false;
     if (c->tokens[c->token_pos].type != TK_LPAREN) return false;
     if (c->tokens[c->token_pos + 1].type != TK_IDENT) return false;
-    if (c->tokens[c->token_pos + 2].type != TK_RPAREN) return false;
     if (c->token_pos == 0) return false;
     ZeroCCTokType prev = c->tokens[c->token_pos - 1].type;
     switch (prev) {
@@ -248,14 +254,60 @@ static bool zc_unparen_declarator(ZeroCCCompiler *c) {
         default:
             return false;
     }
-    /* Remove tokens[pos] '(' and tokens[pos+2] ')' (two non-adjacent
-     * deletions); the IDENT stays at token_pos. */
     size_t a = c->token_pos;
+    size_t close = 0;
+    if (c->tokens[a + 2].type == TK_RPAREN) {
+        /* Case 1: (IDENT) - the paren sits directly on the name. */
+        close = a + 2;
+    } else {
+        /* Case 2: (IDENT [ ... ] ... [ ... ]) - the inside must be the
+         * name plus a run of balanced [ ... ] dimension groups (anything
+         * is legal inside a dimension).  Find the RPAREN that closes the
+         * group opened at `a`; any other token at declarator level
+         * (a second IDENT, an operator, a nested group) rejects the shape. */
+        int depth = 1;
+        int dim_depth = 0;
+        bool shape_ok = true;
+        size_t p = a + 2;
+        while (p < c->token_count) {
+            ZeroCCTokType tt = c->tokens[p].type;
+            if (dim_depth > 0) {
+                /* Inside a [ ... ] dimension: anything is legal (expressions
+                 * with nested brackets or parens are self-contained). */
+                if (tt == TK_LBRACKET) dim_depth++;
+                else if (tt == TK_RBRACKET) dim_depth--;
+                p++;
+                continue;
+            }
+            if (tt == TK_LBRACKET) { dim_depth = 1; p++; continue; }
+            if (tt == TK_RPAREN) {
+                if (depth == 1) {
+                    /* The closing paren: the next token must terminate the
+                     * declaration (no suffix, or the parens are real). */
+                    ZeroCCTokType after = (p + 1 < c->token_count) ?
+                        c->tokens[p + 1].type : TK_EOF;
+                    if (after != TK_SEMI && after != TK_COMMA &&
+                        after != TK_ASSIGN && after != TK_EOF) shape_ok = false;
+                    close = p;
+                    break;
+                }
+                depth--;
+                p++;
+                continue;
+            }
+            if (tt == TK_LPAREN) { depth++; p++; continue; }
+            shape_ok = false;
+            break;
+        }
+        if (!shape_ok) return false;
+    }
+    /* Remove tokens[a] '(' and tokens[close] ')' (two non-adjacent
+     * deletions); the declarator between them stays at token_pos. */
+    memmove(&c->tokens[close], &c->tokens[close + 1],
+            (c->token_count - close - 1) * sizeof(c->tokens[0]));
+    c->token_count--;
     memmove(&c->tokens[a], &c->tokens[a + 1],
             (c->token_count - a - 1) * sizeof(c->tokens[0]));
-    c->token_count--;
-    memmove(&c->tokens[a + 1], &c->tokens[a + 2],
-            (c->token_count - a - 2) * sizeof(c->tokens[0]));
     c->token_count--;
     return true;
 }
@@ -354,6 +406,10 @@ static void zero_cc_decl_thread_local(ZeroCCCompiler *c, SemContext *shared_ctx,
 /* Master Translation Unit Compiler */
 void zero_cc_compile_c99(ZeroCCCompiler *c) {
     zero_cc_type_pool_free();
+    /* Fresh memo for this compilation: the perm arena below is new, so any
+     * struct/union TypeInfo* cached from a previous TU (same process,
+     * multi-file AOT) would dangle.  See jit/type_info.h. */
+    zero_cc_t2ti_memo_reset();
     zero_cc_buf_init(&c->text_section, 4096);
     zero_cc_buf_init(&c->rodata_section, 1024);
     zero_cc_buf_init(&c->data_section, 1024);
@@ -462,6 +518,7 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
          * Sprint 108, places the function) in the named section for AOT -c
          * output.  Both object and function section routing are supported. */
         c->pending_section[0] = '\0';
+        c->pending_weak = 0;
         {
             size_t dstart = c->token_pos;
             int paren = 0, brace = 0;
@@ -498,6 +555,40 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                     }
                 }
                 p++;
+            }
+        }
+        /* GNU __attribute__((weak)): the preprocessor rewrites it to a bare
+         * `__zc_weak__` identifier.  Consume the marker here (before dispatch)
+         * and record it so the following function/object registration marks
+         * the symbol weak (AOT -c emits STB_WEAK; a strong definition in
+         * another TU then wins at link time - Unity setup stubs). */
+        {
+            size_t dstart = c->token_pos;
+            int paren = 0, brace = 0;
+            size_t dend = c->token_count;
+            for (size_t p = dstart; p < c->token_count; p++) {
+                ZeroCCTokType tt = c->tokens[p].type;
+                if (tt == TK_LPAREN) paren++;
+                else if (tt == TK_RPAREN) { if (paren > 0) paren--; }
+                else if (tt == TK_LBRACE) brace++;
+                else if (tt == TK_RBRACE) {
+                    if (brace > 0) brace--;
+                    if (brace == 0 && paren == 0) { dend = p + 1; break; }
+                }
+                else if (tt == TK_SEMI && paren == 0 && brace == 0) { dend = p + 1; break; }
+            }
+            for (size_t p = dstart; p < dend; p++) {
+                if (c->tokens[p].type == TK_IDENT) {
+                    const char *id = c->tokens[p].allocated_str ? c->tokens[p].allocated_str : c->tokens[p].str_val;
+                    if (id && strcmp(id, "__zc_weak__") == 0) {
+                        c->pending_weak = 1;
+                        size_t after = p + 1;
+                        memmove(&c->tokens[p], &c->tokens[after], (c->token_count - after) * sizeof(c->tokens[0]));
+                        c->token_count--;
+                        dend--;
+                        break;
+                    }
+                }
             }
         }
         /* Empty declaration at file scope (`;`) - legal C (C99 6.7) and a
@@ -1768,8 +1859,13 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                 uint8_t *vbuf = calloc(size > 0 ? size : 1, 1);
                                 if (vbuf) {
                                     ZeroCCType init_type = gtype;
+                                    /* lv[] lives for the whole block: the walker
+                                     * reads init_type.base (and base->base), and
+                                     * those pointers index into this stack array
+                                     * (a narrower scope made the reads
+                                     * stack-use-after-scope - sqlite3.c globals). */
+                                    ZeroCCType lv[8];
                                     if (has_array_suffix) {
-                                        ZeroCCType lv[8];
                                         lv[0] = gtype;
                                         size_t nd = (dim_count < 1) ? 1 : (size_t)dim_count;
                                         if (nd > 7) nd = 7;

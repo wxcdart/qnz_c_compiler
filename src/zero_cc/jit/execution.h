@@ -187,15 +187,22 @@ static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
             target = eg ? (uintptr_t)((char *)mem +
                 (eg->is_bss ? bss_offset : data_offset) + eg->data_offset) : 0;
         } else if (dr->target_kind == 3) {
-            /* Function pointer initializer: the function's text offset in
-             * the JIT image (kind 3 targets are always local functions -
-             * extern function-pointer initializers resolve at the linker). */
+            /* Function pointer initializer.  Local functions resolve to
+             * their text offset in the JIT image; EXTERNAL ones (e.g.
+             * `hooks = { malloc, free, realloc }`) have no in-image target -
+             * there is no host linker in JIT mode, so resolve them against
+             * the host process the same way abs-calls do. */
             target = 0;
             for (size_t fi = 0; fi < c->function_count; fi++) {
+                if (c->functions[fi].is_prototype) continue;
                 if (strcmp(c->functions[fi].name, dr->target_extern_name) == 0) {
                     target = (uintptr_t)((char *)mem + c->functions[fi].text_offset);
                     break;
                 }
+            }
+            if (target == 0) {
+                void *host_fn = zero_cc_resolve_symbol(dr->target_extern_name);
+                if (host_fn) target = (uintptr_t)host_fn;
             }
         } else if (dr->target_kind == 4) {
             /* Absolute .data offset: address of an in-TU static local. */

@@ -995,6 +995,30 @@ static bool zc_probe_cast_str_elem(ZeroCCCompiler *c, size_t start, size_t *out_
     return true;
 }
 
+/* Probe `( <type> ) ident` - a cast of a FUNCTION designator to a pointer
+ * at the start of a static-initializer element (sqlite3.c's aSyscall[]:
+ * `{ "getcwd", (sqlite3_syscall_ptr)getcwd, 0 }`).  On success *out_close
+ * receives the index of the closing ')' and *out_fn the function name. */
+static bool zc_probe_cast_fn_elem(ZeroCCCompiler *c, size_t start, size_t *out_close, char *out_fn, size_t fn_cap) {
+    if (start >= c->token_count || c->tokens[start].type != TK_LPAREN) return false;
+    if (start + 1 >= c->token_count || !zero_cc_tok_is_type_start(c, start + 1)) return false;
+    size_t p = start + 1;
+    (void)zero_cc_parse_type_name_at_pos(c, &p);
+    while (p < c->token_count && c->tokens[p].type == TK_STAR) p++;
+    if (p >= c->token_count || c->tokens[p].type != TK_RPAREN) return false;
+    p++;
+    if (p >= c->token_count || c->tokens[p].type != TK_IDENT) return false;
+    if (!zero_cc_find_function(c, c->tokens[p].str_val)) return false;
+    *out_close = p - 1;
+    if (out_fn && fn_cap > 0) {
+        size_t n = strlen(c->tokens[p].str_val);
+        if (n >= fn_cap) n = fn_cap - 1;
+        memcpy(out_fn, c->tokens[p].str_val, n);
+        out_fn[n] = '\0';
+    }
+    return true;
+}
+
 void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType obj_type,
                                                   uint8_t *buf, size_t buf_off, size_t buf_cap,
                                                   size_t data_patch_off, size_t *cursor,
@@ -1003,6 +1027,7 @@ void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType obj_type,
     while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_RBRACE) {
         size_t iter_start = c->token_pos;
         size_t cast_str_close = 0;
+        char fn_probe_name[128];
         bool has_desig = false;
         bool is_range = false;
         int64_t desig_lo = 0, desig_hi = 0;
@@ -1478,6 +1503,41 @@ void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType obj_type,
                 dr->rodata_offset = 0;
                 dr->target_data_offset = anon_offset + extra_offset;
                 dr->target_global_idx = anon_idx;
+            }
+            if (cursor) {
+                if (has_desig) {
+                    size_t nc = tgt.leaf_idx + 1;
+                    if (nc > *cursor) *cursor = nc;
+                } else {
+                    *cursor += tgt.advance;
+                }
+            }
+        } else if (c->tokens[c->token_pos].type == TK_LPAREN &&
+                   zc_probe_cast_fn_elem(c, c->token_pos, &cast_str_close, fn_probe_name, sizeof(fn_probe_name))) {
+            /* Cast of a function designator to a pointer member:
+             * `{ ..., (T)fn, ... }` - the designator decays to its address
+             * exactly like the bare-name case above; the cast prefix is
+             * consumed first (sqlite3.c aSyscall[]: (sqlite3_syscall_ptr)getcwd).
+             * Without this branch the element fell into the scalar-constant
+             * path, which silently stored 0 - every aSyscall pCurrent was
+             * NULL and the first VFS syscall jumped to 0. */
+            while (c->tokens[c->token_pos].type == TK_LPAREN) {
+                c->token_pos++;
+                (void)zero_cc_parse_type_name_at_pos(c, &c->token_pos);
+                while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STAR) c->token_pos++;
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
+            }
+            char fnm[128];
+            snprintf(fnm, sizeof(fnm), "%s", c->tokens[c->token_pos].str_val);
+            c->token_pos++;
+            if (c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
+                ZeroCCDataReloc *dr = &c->data_relocs[c->data_reloc_count++];
+                dr->data_patch_offset = data_patch_off + tgt.abs_off;
+                dr->target_kind = 3; /* function symbol */
+                dr->rodata_offset = 0;
+                dr->target_data_offset = 0;
+                dr->target_global_idx = -1;
+                snprintf(dr->target_extern_name, sizeof(dr->target_extern_name), "%s", fnm);
             }
             if (cursor) {
                 if (has_desig) {

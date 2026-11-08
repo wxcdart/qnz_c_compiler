@@ -1,4 +1,5 @@
 #include "zero_cc/semantic/type.h"
+#include "zero_cc/jit/type_info.h"
 #include <string.h>
 
 /* Allocate and initialize a basic type */
@@ -434,3 +435,23 @@ size_t type_get_field_offset(const TypeInfo *struct_t, const char *name) {
     struct StructField *fld = type_find_field_info(struct_t, name);
     return fld ? fld->offset : 0;
 }
+
+/* ---------------------------------------------------------------------------
+ * zero_cc_type_to_typeinfo memo state (declared extern in jit/type_info.h).
+ *
+ * Defined HERE (not as `static` locals of the `static inline` converter) so
+ * there is exactly ONE memo for the whole process: a function-static inside
+ * a `static inline` header function yields one copy per including object
+ * file, which fragments the memo and defeats an external reset.  The memo
+ * persists across top-level calls within one compilation (Sprint 124:
+ * re-expanding the shared struct DAG per call blew the perm arena past
+ * 4 GB on sqlite3.c) and is reset at the start of each compilation by
+ * zero_cc_compile_c99 -> zero_cc_t2ti_memo_reset(): the perm arena is
+ * per-compile, so any entry left over from a previous TU dangles the moment
+ * that arena is freed (and malloc address-reuse made the old perm-pointer
+ * ring heuristic mis-detect "same compilation" for every multi-TU AOT run).
+ * ------------------------------------------------------------------------- */
+int zc_t2ti_depth = 0;
+ZCT2TIMemo *zc_t2ti_memo = NULL;
+size_t zc_t2ti_memo_cap = 0;
+size_t zc_t2ti_memo_cnt = 0;

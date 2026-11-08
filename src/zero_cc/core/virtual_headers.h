@@ -24,6 +24,7 @@ static inline const char *zc_builtin_math_h(void) {
         "double exp(double);\ndouble exp2(double);\ndouble expm1(double);\n"
         "double log(double);\ndouble log10(double);\ndouble log2(double);\ndouble log1p(double);\n"
         "double floor(double);\ndouble ceil(double);\ndouble round(double);\n"
+        "double fabs(double);\n"
         "double nearbyint(double);\ndouble rint(double);\ndouble trunc(double);\n"
         "double fmod(double, double);\ndouble remainder(double, double);\n"
         "double fdim(double, double);\ndouble fmin(double, double);\ndouble fmax(double, double);\n"
@@ -116,8 +117,15 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "char* getenv(const char *name);\n"
             "void* qsort(void *base, size_t nmemb, size_t size, int (*compar)(const void *, const void *));\n"
             "void* bsearch(const void *key, const void *base, size_t nmemb, size_t size, int (*compar)(const void *, const void *));\n"
-            "int atoi(const char *nptr);\nint abs(int j);\n"
-            "char* tmpnam(char *s);\n"
+            "int atoi(const char *nptr);\nint abs(int j);\nint labs(long j);\nint llabs(long long j);\n"
+            "char* tmpnam(char *s);\nvoid* tmpfile(void);\nint rand(void);\nvoid srand(unsigned int seed);\n"
+            "#define EXIT_SUCCESS 0\n#define EXIT_FAILURE 1\n"
+            "#define RAND_MAX 2147483647\n"
+            "typedef struct { int quot; int rem; } div_t;\n"
+            "typedef struct { long quot; long rem; } ldiv_t;\n"
+            "typedef struct { long long quot; long long rem; } lldiv_t;\n"
+            "div_t div(int numer, int denom);\nldiv_t ldiv(long numer, long denom);\n"
+            "lldiv_t lldiv(long long numer, long long denom);\n"
             "#endif\n"
         );
     }
@@ -141,7 +149,9 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "char* strrchr(const char *s, int c);\n"
             "char* strstr(const char *haystack, const char *needle);\n"
             "size_t strspn(const char *s, const char *accept);\n"
+            "size_t strcspn(const char *s, const char *reject);\n"
             "char* strpbrk(const char *s, const char *accept);\n"
+            "void* memchr(const void *s, int c, size_t n);\n"
             "#endif\n"
         );
     }
@@ -196,7 +206,13 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
     if (strcmp(name, "errno.h") == 0) {
         return strdup(
             "#ifndef _ERRNO_H\n#define _ERRNO_H 1\n"
-            "extern int errno;\n"
+            /* glibc convention: errno is a macro over __errno_location()
+             * (glibc's own <errno.h> does exactly this - the TLS errno
+             * object is reached through the accessor, so a plain C
+             * reference never names a TLS symbol).  zero_rt provides the
+             * same function for --zerocc-link builds. */
+            "extern int *__errno_location(void);\n"
+            "#define errno (*__errno_location ())\n"
             "#define EPERM 1\n#define ENOENT 2\n#define EINTR 4\n#define EIO 5\n#define EBADF 9\n"
             "#define EAGAIN 11\n#define ENOMEM 12\n#define EACCES 13\n#define EEXIST 17\n"
             "#define EINVAL 22\n#define ENFILE 23\n#define EMFILE 24\n#define ENOSPC 28\n"
@@ -289,6 +305,26 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "int fsync(int fd);\n"
             "int fdatasync(int fd);\n"
             "long sysconf(int name);\n"
+            "int unlink(const char *path);\n"
+            "int symlink(const char *target, const char *linkpath);\n"
+            "long readlink(const char *path, char *buf, size_t bufsiz);\n"
+            "char *getcwd(char *buf, size_t size);\n"
+            "long lseek(int fd, long offset, int whence);\n"
+            "long pread(int fd, void *buf, long count, long offset);\n"
+            "long pread64(int fd, void *buf, long count, long offset);\n"
+            "long pwrite(int fd, const void *buf, long count, long offset);\n"
+            "long pwrite64(int fd, const void *buf, long count, long offset);\n"
+            "int ftruncate(int fd, long length);\n"
+            "int fcntl(int fd, int cmd, ...);\n"
+            "int fchmod(int fd, int mode);\n"
+            "int fchown(int fd, int owner, int group);\n"
+            "int rmdir(const char *path);\n"
+            "int posix_fallocate(int fd, long offset, long len);\n"
+            "int geteuid(void);\n"
+            "int isatty(int fd);\n"
+            "int chdir(const char *path);\n"
+            "extern int optind;\nextern char* optarg;\n"
+            "int getopt(int argc, char **argv, const char *optstring);\n"
             "#define _SC_PAGESIZE 30\n#define _SC_NPROCESSORS_CONF 84\n#define _SC_NPROCESSORS_ONLN 84\n"
             "#define F_OK 0\n#define R_OK 4\n#define W_OK 2\n#define X_OK 1\n"
             "#define STDIN_FILENO 0\n#define STDOUT_FILENO 1\n#define STDERR_FILENO 2\n"
@@ -344,7 +380,7 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "  long long st_size; int st_blksize; int __pad1; long long st_blocks;\n"
             "  long long st_atime; long long __atime_nsec; long long st_mtime;\n"
             "  long long __mtime_nsec; long long st_ctime; long long __ctime_nsec;\n"
-            "  int __unused[3]; };\n"
+            "  int __unused[2]; int __tail[4]; };\n"
             "int stat(const char *path, struct stat *buf);\n"
             "int lstat(const char *path, struct stat *buf);\n"
             "int fstat(int fd, struct stat *buf);\n"
@@ -353,6 +389,8 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "#define S_ISREG(m) (((m) & 61440) == 32768)\n"
             "#define S_ISDIR(m) (((m) & 61440) == 16384)\n"
             "#define S_ISLNK(m) (((m) & 61440) == 40960)\n"
+            "#define S_ISFIFO(m) (((m) & 61440) == 2048)\n"
+            "#define S_ISCHR(m) (((m) & 61440) == 4096)\n"
             "#define S_IRWXU 493\n#define S_IRUSR 256\n#define S_IWUSR 128\n#define S_IXUSR 64\n"
             "#define S_IRWXG 56\n#define S_IRGRP 32\n#define S_IWGRP 16\n#define S_IXGRP 8\n"
             "#define S_IRWXO 7\n#define S_IROTH 4\n#define S_IWOTH 2\n#define S_IXOTH 1\n"
@@ -382,7 +420,7 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "#define MAP_PRIVATE 2\n#define MAP_SHARED 1\n#define MAP_ANONYMOUS 32\n#define MAP_ANON 32\n"
             "#define MAP_FAILED ((void*)-1)\n"
             "#define MREMAP_MAYMOVE 1\n#define MREMAP_FIXED 2\n#define MREMAP_DONTUNMAP 4\n"
-            "void *mmap(void *addr, size_t length, int prot, int flags, int fd, long offset);\n"
+            "void *mremap(void *old_address, long old_size, long new_size, int flags);\n"
             "int munmap(void *addr, size_t length);\n"
             "int mprotect(void *addr, size_t len, int prot);\n"
             "#endif\n"
@@ -435,6 +473,14 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream);\n"
             "int fseek(FILE *stream, long offset, int whence);\n"
             "long ftell(FILE *stream);\nint fflush(FILE *stream);\n"
+            "char* fgets(char *s, int size, FILE *stream);\n"
+            "int fileno(FILE *stream);\n"
+            "int setvbuf(FILE *stream, void *buf, int mode, size_t size);\n"
+            "int setbuf(FILE *stream, char *buf);\n"
+            "int setlinebuf(FILE *stream);\n"
+            "#define _IOFBF 0\n#define _IONBF 1\n#define _IOLBF 2\n"
+            "#define BUFSIZ 8192\n"
+            "int rename(const char *old, const char *new);\n"
             "#endif\n"
         );
     }
@@ -496,6 +542,35 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "#endif\n"
         );
     }
+    if (strcmp(name, "dirent.h") == 0) {
+        return strdup(
+            "#ifndef _DIRENT_H\n#define _DIRENT_H 1\n"
+            /* glibc x86-64 struct dirent layout (280 bytes): d_ino u64 @0,
+             * d_off s64 @8, d_reclen u16 @16, d_type u8 @18, d_name[256]. */
+            "struct dirent { long long d_ino; long long d_off;"
+            " unsigned short d_reclen; unsigned char d_type;"
+            " char d_name[256]; };\n"
+            "typedef struct __dirstream DIR;\n"
+            "DIR* opendir(const char *name);\n"
+            "struct dirent* readdir(DIR *dir);\n"
+            "int closedir(DIR *dir);\n"
+            "void rewinddir(DIR *dir);\n"
+            "void seekdir(DIR *dir, long loc);\nlong telldir(DIR *dir);\n"
+            "#endif\n"
+        );
+    }
+    if (strcmp(name, "pwd.h") == 0) {
+        return strdup(
+            "#ifndef _PWD_H\n#define _PWD_H 1\n"
+            "struct passwd { char *pw_name; char *pw_passwd;"
+            " unsigned int pw_uid; unsigned int pw_gid;"
+            " char *pw_gecos; char *pw_dir; char *pw_shell; };\n"
+            "struct passwd* getpwuid(unsigned int uid);\n"
+            "unsigned int getuid(void);\n"
+            "unsigned int geteuid(void);\n"
+            "#endif\n"
+        );
+    }
     if (strcmp(name, "elf.h") == 0) {
         return strdup(
             "#ifndef _ELF_H\n#define _ELF_H 1\n"
@@ -522,16 +597,25 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
     if (strcmp(name, "pthread.h") == 0) {
         return strdup(
             "#ifndef _PTHREAD_H\n#define _PTHREAD_H 1\n"
+            /* Opaque layouts mirror glibc x86-64 (bits/pthreadtypes.h): the
+             * real pthread_* functions in libc operate on 40-byte mutex /
+             * 48-byte cond objects.  The old 4-byte fakes corrupted the
+             * heap and stack whenever host-linked code (the sqlite CLI's
+             * pthread mutex wrapper) called them. */
             "typedef unsigned long pthread_t;\n"
-            "typedef struct { int __lock; } pthread_mutex_t;\n"
-            "typedef struct { int __kind; } pthread_mutexattr_t;\n"
-            "typedef struct { int __cond; } pthread_cond_t;\n"
+            "typedef union { char __size[40]; long int __align; } pthread_mutex_t;\n"
+            "typedef union { char __size[4]; int __align; } pthread_mutexattr_t;\n"
+            "typedef union { char __size[48]; long long int __align; } pthread_cond_t;\n"
+            "typedef union { char __size[4]; int __align; } pthread_condattr_t;\n"
+            "typedef unsigned int pthread_key_t;\n"
+            "typedef int pthread_once_t;\n"
             "#define PTHREAD_MUTEX_NORMAL 0\n#define PTHREAD_MUTEX_RECURSIVE 1\n"
             "#define PTHREAD_MUTEX_INITIALIZER { 0 }\n"
             "int pthread_create(pthread_t *thread, const void *attr, void *(*start_routine)(void *), void *arg);\n"
             "int pthread_join(pthread_t thread, void **retval);\n"
             "int pthread_equal(pthread_t a, pthread_t b);\n"
             "pthread_t pthread_self(void);\n"
+            "int pthread_detach(pthread_t thread);\n"
             "int pthread_mutex_init(pthread_mutex_t *mutex, const void *attr);\n"
             "int pthread_mutex_lock(pthread_mutex_t *mutex);\n"
             "int pthread_mutex_trylock(pthread_mutex_t *mutex);\n"
@@ -545,6 +629,9 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
             "int pthread_cond_signal(pthread_cond_t *cond);\n"
             "int pthread_cond_broadcast(pthread_cond_t *cond);\n"
             "int pthread_cond_destroy(pthread_cond_t *cond);\n"
+            "int pthread_condattr_init(pthread_condattr_t *attr);\n"
+            "int pthread_condattr_destroy(pthread_condattr_t *attr);\n"
+            "#define PTHREAD_COND_INITIALIZER { { 0 } }\n"
             "#endif\n"
         );
     }
@@ -600,7 +687,9 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
     if (strcmp(name, "errno.h") == 0) {
         return strdup(
             "#ifndef _ERRNO_H\n#define _ERRNO_H 1\n"
-            "extern int errno;\n#define EINTR 4\n#define EAGAIN 11\n#define ENOMEM 12\n"
+            "extern int *__errno_location(void);\n"
+            "#define errno (*__errno_location ())\n"
+            "#define EINTR 4\n#define EAGAIN 11\n#define ENOMEM 12\n"
             "#endif\n"
         );
     }
