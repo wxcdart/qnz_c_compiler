@@ -586,7 +586,7 @@ char* zero_cc_cpp_resolve_include(ZeroCCPreprocessor *cpp, const char *filename,
      * access() rejects, and snprintf truncates safely either way. */
     char path[PATH_MAX + 64];
     /* 1. First check virtual freestanding system headers */
-    char *vhdr = zero_cc_cpp_get_virtual_header(filename);
+    char *vhdr = zero_cc_cpp_get_virtual_header(filename, cpp->std_dialect);
     if (vhdr) {
         if (out_path && out_cap) out_path[0] = '\0'; /* virtual: no file directory */
         return vhdr;
@@ -1399,6 +1399,33 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                                     cpp->filename ? cpp->filename : "<stdin>", warn_line,
                                     wmsg);
                         }
+                    }
+                } else if (active && strcmp(directive, "error") == 0) {
+                    /* C99 6.10.1 #error: a diagnostic is REQUIRED and the
+                     * translation must be abandoned.  gcc:
+                     * `error: <arg-text>` + fatal.  The message is the
+                     * directive's raw argument (the `#` and `error` token
+                     * are not part of it); the build fails via
+                     * include_error (the preprocessor's only failure
+                     * channel - single print, like a missing #include). */
+                    const char *arg_start = p;
+                    const int err_line = (int)cpp->line_num;
+                    while (*p && *p != '\n') {
+                        if (*p == '\\' && p[1] == '\n') { p += 2; cpp->line_num++; continue; }
+                        p++;
+                    }
+                    char emsg[256]; size_t el = 0;
+                    for (const char *t = arg_start; t < p && el < sizeof(emsg) - 1; ) {
+                        if (*t == '\\' && t[1] == '\n') { t += 2; continue; } /* spliced */
+                        emsg[el++] = *t++;
+                    }
+                    while (el > 0 && isspace((unsigned char)emsg[el - 1])) el--;
+                    emsg[el] = '\0';
+                    if (cpp->include_error[0] == '\0') {
+                        snprintf(cpp->include_error, sizeof(cpp->include_error),
+                                 "%s:%d: error: #error %s",
+                                 cpp->filename ? cpp->filename : "<stdin>",
+                                 err_line, emsg);
                     }
                 }
 
@@ -2266,6 +2293,16 @@ char* zero_cc_preprocess_ext3(const char *source, ZeroCCIncludeDirs *inc_dirs,
     ZeroCCPreprocessor *cpp = (ZeroCCPreprocessor *)calloc(1, sizeof(ZeroCCPreprocessor));
     if (!cpp) return strdup(source ? source : "");
     zero_cc_cpp_init(cpp);
+    /* The dialect drives dialect-dependent virtual header content (the C23
+     * stdbool.h omits the true/false definitions - they are keywords).
+     * std_version is the driver-resolved __STDC_VERSION__ string, so the
+     * mapping is a clean 3-way (the c/gnu split is not observable here). */
+    if (std_version && strcmp(std_version, "202311L") == 0)
+        cpp->std_dialect = ZC_STD_C23;
+    else if (std_version && strcmp(std_version, "199901L") == 0)
+        cpp->std_dialect = ZC_STD_C99;
+    else
+        cpp->std_dialect = ZC_STD_C11;
     zero_cc_cpp_define_builtin_macros(cpp, std_version);
     if (dep_target && dep_target[0]) {
         cpp->dep_target = strdup(dep_target);

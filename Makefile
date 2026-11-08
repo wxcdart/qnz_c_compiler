@@ -229,6 +229,14 @@ test-torture: build/bin/zerocc
 	@# reference builds are the corpus's load-sensitive edge cases).
 	@python3 tools/torture_run.py --chunk heavy
 
+# C23 differential conformance gate (Sprint 134): feature-tagged C23 cases
+# (std_version, true/false, constexpr, nullptr, designator sizing, #warning,
+# c23_misc) compiled & run under zerocc at -O0..-O3 in JIT + AOT and diffed
+# against a reference gcc (C23_GCC override, else gcc-15/14/gcc) with the
+# matching -std flag; negative cases check accept/reject agreement.
+test-c23: build/bin/zerocc
+	@python3 tools/c23/test_c23.py --all
+
 # Project-differential gate (Verification & Scale #1): real-world TUs
 # (cJSON, zlib, the sqlite amalgamation) must compile under zerocc at every
 # level, differential against host gcc acceptance of the same TU.

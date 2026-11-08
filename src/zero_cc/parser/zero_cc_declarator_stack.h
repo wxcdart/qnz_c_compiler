@@ -96,6 +96,14 @@ typedef struct ZeroCCDeclarator {
      * table - LeakSanitizer: `make asan`).  NULL otherwise. */
     ZeroCCType *param_zt;
     size_t param_zt_cap;
+    /* Parallel to param_zt: the recorded params' names (raw pointers into
+     * the token buffer - valid while the tokens live; the array itself is
+     * freed in zero_cc_declarator_free).  Enables DEPENDENT parameter
+     * types: `typeof(int) f(typeof(int) a, typeof(a) b)` - when param N's
+     * typeof operand is a plain identifier, params 0..N-1 are already
+     * recorded and can be resolved (the semantic scope does not see them
+     * until after the whole param list is parsed). */
+    char **param_zt_names;
 } ZeroCCDeclarator;
 
 /* Forward declarations */
@@ -116,6 +124,8 @@ static inline void zero_cc_declarator_free(ZeroCCDeclarator *d) {
     free(d->param_zt);
     d->param_zt = NULL;
     d->param_zt_cap = 0;
+    free(d->param_zt_names);
+    d->param_zt_names = NULL;
 }
 
 /* GNU asm label following a complete declarator:
@@ -275,9 +285,32 @@ static inline void zero_cc_parse_param_list(
         if (param_type_tok == TK_TYPEOF || param_type_tok == TK_TYPEOF_UNQUAL) {
             param_has_typeof = true;
             bool unqual = (param_type_tok == TK_TYPEOF_UNQUAL);
+            const ZeroCCType *dep_param = NULL; /* dependent: typeof(prev-param) */
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
+                size_t op = c->token_pos + 1;
+                /* C23-style dependent parameter type: `typeof(a) b` where
+                 * `a` is a PRECEDING param.  The param list is not in the
+                 * semantic scope yet (registration happens after the whole
+                 * list parses), so resolve against the names recorded for
+                 * params 0..N-1.  Only the plain `typeof(NAME)` form (no
+                 * postfix) is handled here; anything else falls through to
+                 * the ordinary type-of-expression machinery. */
+                if (op < c->token_count && c->tokens[op].type == TK_IDENT &&
+                    op + 1 < c->token_count && c->tokens[op + 1].type == TK_RPAREN &&
+                    decl && decl->param_zt && decl->param_zt_names) {
+                    for (size_t i = 0; i < fn_chunk->param_count; i++) {
+                        if (decl->param_zt_names[i] &&
+                            strcmp(decl->param_zt_names[i], c->tokens[op].str_val) == 0) {
+                            dep_param = &decl->param_zt[i];
+                            break;
+                        }
+                    }
+                }
                 c->token_pos++;
-                if (zero_cc_tok_is_type_start(c, c->token_pos)) {
+                if (dep_param) {
+                    param_typeof_type = *dep_param;
+                    c->token_pos = op + 2; /* past NAME ) */
+                } else if (zero_cc_tok_is_type_start(c, c->token_pos)) {
                     param_typeof_type = zero_cc_parse_type_name_at_pos(c, &c->token_pos);
                 } else {
                     param_typeof_type = zero_cc_type_of_equality(c, &c->token_pos);
@@ -765,9 +798,13 @@ static inline void zero_cc_parse_param_list(
                 ZeroCCType *nz = (ZeroCCType *)realloc(decl->param_zt, newcap * sizeof(ZeroCCType));
                 if (!nz) return false;
                 decl->param_zt = nz;
+                char **nn = (char **)realloc(decl->param_zt_names, newcap * sizeof(char *));
+                if (!nn) return false;
+                decl->param_zt_names = nn;
                 decl->param_zt_cap = newcap;
             }
             if (decl->param_zt) decl->param_zt[fn_chunk->param_count] = ptype;
+            if (decl->param_zt_names) decl->param_zt_names[fn_chunk->param_count] = pname;
         }
         fn_chunk->param_count++;
         fn_chunk->param_total++;

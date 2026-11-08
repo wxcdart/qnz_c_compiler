@@ -780,33 +780,65 @@ bool zero_cc_parse_local_decl(ZeroCCCompiler *c,  /* Sprint 114: defined in decl
             diag_report_error_at_token(c, "expected identifier after '__label__'");
             return true;
         }
-        const char *lname = c->tokens[c->token_pos].str_val;
-        c->token_pos++;
-        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) {
-            c->token_pos++;
-        } else {
-            diag_report_error_at_token(c, "expected ';' after '__label__' declaration");
-            while (c->token_pos < c->token_count &&
-                   c->tokens[c->token_pos].type != TK_SEMI) c->token_pos++;
-            if (c->token_pos < c->token_count) c->token_pos++;
-            return true;
-        }
+        /* C23 6.7.11 / GNU: `__label__ a, b;` is a declarator LIST - each
+         * name gets its own label-value local + NODE_DECL, chained via
+         * ->next like the ordinary multi-declarator path (the statement
+         * lowering walks the chain). */
         ZeroCCType lt = zero_cc_type_int64();
-        ZeroCCSym *sym = zero_cc_add_local(c, lname, lt);
-        if (!sym) {
-            diag_report_error_at_token(c, "out of memory allocating local variable '%s'", lname);
-            *out_ref = AST_NULL; return true;
+        ASTRef head_ref = AST_NULL;
+        ASTRef prev_ref = AST_NULL;
+        for (;;) {
+            const char *lname = c->tokens[c->token_pos].str_val;
+            c->token_pos++;
+            if (c->token_pos < c->token_count &&
+                c->tokens[c->token_pos].type == TK_COMMA) {
+                c->token_pos++;
+                if (c->token_pos >= c->token_count ||
+                    c->tokens[c->token_pos].type != TK_IDENT) {
+                    diag_report_error_at_token(c,
+                        "expected identifier after ',' in '__label__' declaration");
+                    while (c->token_pos < c->token_count &&
+                           c->tokens[c->token_pos].type != TK_SEMI) c->token_pos++;
+                    if (c->token_pos < c->token_count) c->token_pos++;
+                    *out_ref = AST_NULL;
+                    return true;
+                }
+                continue;
+            }
+            if (c->token_pos >= c->token_count ||
+                c->tokens[c->token_pos].type != TK_SEMI) {
+                diag_report_error_at_token(c, "expected ';' after '__label__' declaration");
+                while (c->token_pos < c->token_count &&
+                       c->tokens[c->token_pos].type != TK_SEMI) c->token_pos++;
+                if (c->token_pos < c->token_count) c->token_pos++;
+                *out_ref = AST_NULL;
+                return true;
+            }
+            c->token_pos++; /* ; */
+            ZeroCCSym *sym = zero_cc_add_local(c, lname, lt);
+            if (!sym) {
+                diag_report_error_at_token(c, "out of memory allocating local variable '%s'", lname);
+                *out_ref = AST_NULL;
+                return true;
+            }
+            sym->is_label_value = true;
+            ASTRef decl_ref = zero_cc_ast_alloc_node(arena, NODE_DECL);
+            ZeroCCASTNode *dn = zero_cc_ast_get(arena, decl_ref);
+            dn->line = line;
+            dn->col = col;
+            dn->s.str = zero_cc_intern_string(c, lname);
+            dn->s_len = strlen(dn->s.str);
+            dn->aux.step = (uint32_t)((size_t)(sym - c->locals)) + 1;
+            decl_node_set_type(ctx, dn, zero_cc_type_to_typeinfo(ctx->perm_arena, lt));
+            if (head_ref == AST_NULL) {
+                head_ref = decl_ref;
+            } else {
+                zero_cc_ast_get(arena, prev_ref)->next = decl_ref;
+            }
+            prev_ref = decl_ref;
+            break; /* the list is complete (';' consumed) */
         }
-        sym->is_label_value = true;
-        ASTRef decl_ref = zero_cc_ast_alloc_node(arena, NODE_DECL);
-        ZeroCCASTNode *dn = zero_cc_ast_get(arena, decl_ref);
-        dn->line = line;
-        dn->col = col;
-        dn->s.str = zero_cc_intern_string(c, lname);
-        dn->s_len = strlen(dn->s.str);
-        dn->aux.step = (uint32_t)((size_t)(sym - c->locals)) + 1;
-        decl_node_set_type(ctx, dn, zero_cc_type_to_typeinfo(ctx->perm_arena, lt));
-        *out_ref = decl_ref;
+        *out_ref = head_ref;
         return true;
     }
     /* Variable Declaration or Typedef Declaration */

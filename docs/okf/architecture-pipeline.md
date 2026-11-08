@@ -4,7 +4,7 @@ title: ZeroCC Compilation Pipeline & Two-Pass Architecture
 description: End-to-end compilation pipeline from C source through AST arena, semantic analysis, two-pass IR, optimization passes, and JIT/AOT code generation.
 resource: architecture/pipeline
 tags: [architecture, pipeline, ast, ir, jit, aot]
-timestamp: 2026-11-08T06:02:59Z
+timestamp: 2026-11-08T06:38:14Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -17,7 +17,7 @@ ZeroCC compiles C99/C11 source files through a unified pipeline that supports bo
 ## Pipeline Stages
 
 1. **Lexer & Preprocessor (`src/zero_cc/lexer/`, `src/zero_cc/core/`)**
-   - Tokenizes preprocessed/raw C source, handling `#include`, `#define` macros, `#if` arithmetic evaluation (`cpp_expr.h`), virtual embedded headers (`virtual_headers.h`), and `#pragma pack` / diagnostic pragmas (`src/zero_cc/core/pragma_state.c`). `#warning` (C23 6.9.1, Sprint 133) is handled in the preprocessor's directive dispatch and emits `file:line: warning: #warning "text"` (raw directive text; splices merged; included-file names) — `#pragma GCC diagnostic` `-Wcpp`/`-Werror` keys suppress/escalate it (escalation records via `include_error`, the preprocessor's only failure channel); inactive `#if` groups stay silent.
+   - Tokenizes preprocessed/raw C source, handling `#include`, `#define` macros, `#if` arithmetic evaluation (`cpp_expr.h`), virtual embedded headers (`virtual_headers.h`), and `#pragma pack` / diagnostic pragmas (`src/zero_cc/core/pragma_state.c`). `#warning` (C23 6.9.1, Sprint 133) is handled in the preprocessor's directive dispatch and emits `file:line: warning: #warning "text"` (raw directive text; splices merged; included-file names) — `#pragma GCC diagnostic` `-Wcpp`/`-Werror` keys suppress/escalate it (escalation records via `include_error`, the preprocessor's only failure channel); inactive `#if` groups stay silent. `#error` (C89 6.10.1, Sprint 134 — previously unhandled and silently skipped) emits `file:line: error: #error <arg>` and fails the build via the same channel.
 2. **Parser & AST Arena (`src/zero_cc/parser/`)**
    - Parses declarations (`definitions.h`, `decl_struct.h`, `decl_enum.h`, `decl_local.c` - Sprint 114: local-declaration parsing moved out of the 2,200-line `decl_local.h` header into its own translation unit; the header now only declares `zero_cc_parse_local_decl`), type expressions (`type_parser.h`), statements (`ast_stmt.h`), constant expressions (`const_eval.c`), and expressions (`ast_expr.c`) into a contiguous `ZeroCCASTArena` indexed by `ASTRef` (`uint32_t`). Sprint 114 (Tier C) converted the three remaining multi-TU parser header monoliths (`const_eval.h` 1,539, `init_common.h` 1,602, `ast_expr.h` 1,422) to `.c` translation units with thin prototype headers - every consumer TU now links one copy instead of compiling its own static-inline copies.
    - Collects function prototypes and local/global symbol tables into `ZeroCCCompiler` (`src/zero_cc/jit/compile.c` - Sprint 114: `zero_cc_compile_function` + the fn-parameter-block parser moved out of the 1,800-line `compile.h` header into their own translation unit; the header keeps the two cross-TU entry-point declarations - `src/zero_cc/jit/compile_unit.h`, `src/zero_cc/jit/const_ptr_eval.h`). Global variables (`c->global_vars`) and their name-to-index open-addressing hash table (`c->g_name_hash`) are compiler-instance owned (Sprint 77).

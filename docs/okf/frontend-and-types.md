@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-11-08T06:00:30Z
+timestamp: 2026-11-08T06:38:14Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -214,6 +214,7 @@ Two width-marking invariants complete the picture (both in `ast_lowering_expr.c`
   - Deduced at parse-time via `zero_cc_parse_type_name_at_pos()` or `zero_cc_type_of_equality()` in `src/zero_cc/parser/const_eval.h`.
   - Supports both type names (`typeof(int)`) and expressions (`typeof(a + b)`, `typeof(p.x)`, `typeof(*ptr)`, `typeof(fn(x))`).
   - `typeof_unqual` strips `const`, `volatile`, `restrict`, and `_Atomic` qualifiers from the evaluated type.
+  - **Dependent parameter types (Sprint 134)**: `typeof(int) f(typeof(int) a, typeof(a) b)` — the param list is not in the semantic scope until the whole list parses, so the declarator-stack param loop (`zero_cc_parse_param_list`, `zero_cc_declarator_stack.h`) records each param's name alongside its canonical type (`ZeroCCDeclarator.param_zt_names`, parallel heap table to `param_zt`) and a plain `typeof(NAME)` param operand resolves against the preceding params (chained/pointer/const/`typeof_unqual` forms included). Only the plain `typeof(NAME)` form (no postfix) takes this path; anything else falls through to `zero_cc_type_of_equality`.
 - **Empty `{}` Initializers** (C23 6.7.10):
   - Standard zero-initialization syntax (`= {}`) supported across all storage classes: automatic locals (scalars, structs, arrays), static locals (`zero_cc_static_local_patch_init` in `ast_stmt.h`), and global variables (`compile_unit.h`).
 - **`__STDC_NO_COMPLEX__ 1` Conformance**:
@@ -526,7 +527,7 @@ ZeroCC supports GNU C computed gotos and first-class label addresses:
 - **Computed Goto Statement (`goto *expr;`)**:
   - Inside `ast_stmt.h`, when `TK_STAR` immediately follows `TK_GOTO`, the statement parses as an indirect computed goto, placing the target address expression in `node->left`.
   - Semantic analysis checks that `node->left` has integer or pointer type.
-  - GNU local label declarations (`__label__ l1, l2;`) are accepted at block scope and skipped.
+  - GNU local label declarations (`__label__ l1, l2;`) are block-scope locals of the label-value type (Sprint 99: each name gets a `ZeroCCSym` with `is_label_value`, lowering materializes the label address like `&&l`); the multi-declarator list form (C23 6.7.11) parses since Sprint 134 — each name gets its own local + `NODE_DECL`, chained via `->next` like the ordinary multi-declarator path.
 - **Static & Global Label Dispatch Tables (`target_kind 5`)**:
   - Declarations such as `static void *dispatch_table[] = { &&op1, &&op2 };` are parsed before the function IR is generated. Initializers record `ZeroCCDataReloc` entries with `target_kind = 5`.
   - After function AST lowering completes, post-lowering resolves `target_kind 5` entries against `c->user_label_offsets` to record the exact byte offset in `.text` and the assembly label name `.L<fn>_<ir_lbl>`.

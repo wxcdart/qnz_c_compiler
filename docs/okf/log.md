@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-08T06:02:59Z
+timestamp: 2026-11-08T06:38:15Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1164,3 +1164,12 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-08 — Updated `architecture-pipeline.md`
 - Sprint 133: #warning directive (C23 6.9.1) - preprocessor emits warning: #warning "text" (raw directive text); #pragma GCC diagnostic -Wcpp/-Werror keys suppress/escalate; regression test/jit/warning_directive.c
+
+## 2026-11-08 — Updated `frontend-and-types.md`
+- Sprint 134: dependent typeof param types (param_zt_names table in the declarator stack) + multi-declarator __label__ lists
+
+## 2026-11-08 — Updated `architecture-pipeline.md`
+- Sprint 134: #error directive (C89 6.10.1) now handled in the preprocessor - emits error: #error <arg> and fails the build
+
+## 2026-11-08 — Updated `build-and-verification.md`
+- Sprint 134: make test-c23 gate (24/24 vs gcc-15) + opt_sweep baseline probe (uncompilable-while-gcc-builds is now a FAIL)

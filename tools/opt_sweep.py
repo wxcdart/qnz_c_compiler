@@ -20,7 +20,8 @@ Rules per test:
   * A level that fails to compile when -O0 compiles is a COMPILE-FAIL.
   * A level that times out when the baseline did not is a TIMEOUT.
   * A test that does not compile/run at -O0 is SKIPPED (pre-existing gap,
-    not a regression; still listed).
+    not a regression; still listed) - UNLESS the gcc reference builds the
+    same source, in which case zerocc's rejection is a failure (Sprint 134).
   * gcc reference: a gcc -O2 build's (rc, stdout) is compared with the -O0
     JIT baseline; differences are flagged as REF-DIFF (informational).
 
@@ -166,18 +167,37 @@ def main() -> int:
         rep.baseline = b1
 
         # gcc reference (vs -O0 JIT baseline)
+        gcc_builds = False
         if not args.no_gcc:
             g = os.path.join(tmpdir, f"{name.replace('/', '_')}.gcc")
             gc = run_cmd([args.gcc, "-O2", "-o", g, path], args.timeout)
             if gc.status == "ok" and gc.rc == 0:
                 gr = run_cmd([g], args.timeout)
                 rep.gcc = gr
+                gcc_builds = True
                 if gr.status == "ok" and (gr.rc, gr.stdout) != (b1.rc, b1.stdout):
                     rep.details.append(
                         f"REF-DIFF: gcc -O2 rc={gr.rc} out={short(gr.stdout)} "
                         f"vs zerocc -O0 JIT rc={b1.rc} out={short(b1.stdout)}")
             else:
                 rep.details.append(f"gcc reference unavailable (compile rc={gc.rc})")
+
+        # Sprint 134: a non-zero baseline rc is legitimate only when the
+        # program COMPILES and intentionally exits non-zero.  When zerocc
+        # cannot compile a source the gcc reference builds, that is a
+        # failure, not a stable baseline.  Pre-134 this silently passed:
+        # `zerocc --run` on an uncompilable source exits rc=1 like any
+        # process, so the sweep adopted the failure as the -O0 baseline
+        # (c23_features.c was uncompilable under zerocc for ~50 sprints
+        # while the sweep reported it [OK]).
+        if b1.rc not in (0, None) and gcc_builds:
+            probe = os.path.join(tmpdir, f"{name.replace('/', '_')}.probe")
+            pc = run_cmd([args.zerocc, "-O0", path, "-o", probe], args.timeout)
+            if pc.status != "ok" or pc.rc != 0:
+                rep.mismatches.append(
+                    f"zerocc fails to compile a source the gcc reference "
+                    f"builds (baseline rc={b1.rc})")
+                continue
 
         # JIT sweep
         if not args.aot_only:

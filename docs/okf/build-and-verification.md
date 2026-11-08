@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 165-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-11-08T00:51:58Z
+timestamp: 2026-11-08T06:38:15Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -73,7 +73,7 @@ make asan
 
 ### Optimizer regression sweep (`make test-opt`)
 
-The normal suite compiles the `test/abi`/`test/semantic`/`test/unit` binaries with the host `gcc`, so it **never** exercises zerocc's optimization pipeline. `make test-opt` closes that gap with `tools/opt_sweep.py`: it compiles and runs every standalone test at `-O0/-O1/-O2/-O3` **using `./build/bin/zerocc` itself**, in **both JIT (`--run`) and AOT (`-o`)** modes, and compares each level's `(exit code, stdout)` against the `-O0` baseline. It also (informationally) diffs against `gcc -O2` when the host compiler can build the test.
+The normal suite compiles the `test/abi`/`test/semantic`/`test/unit` binaries with the host `gcc`, so it **never** exercises zerocc's optimization pipeline. `make test-opt` closes that gap with `tools/opt_sweep.py`: it compiles and runs every standalone test at `-O0/-O1/-O2/-O3` **using `./build/bin/zerocc` itself**, in **both JIT (`--run`) and AOT (`-o`)** modes, and compares each level's `(exit code, stdout)` against the `-O0` baseline. It also (informationally) diffs against `gcc -O2` when the host compiler can build the test. **Baseline probe (Sprint 134):** a non-zero baseline rc with a *building* gcc reference triggers an explicit zerocc compile probe — `zerocc --run` on an uncompilable source exits rc=1 like any process, so pre-Sprint 134 a persistent compile failure was adopted as the stable baseline and the test reported `[OK]` (how the stale `test/jit/c23_features.c` hid for ~50 sprints). Intentional non-zero program exits (successful compile) remain legitimate.
 
 ```bash
 # Full optimizer sweep (the definitive gate for any optimizer/pass change)
@@ -148,6 +148,14 @@ python3 tools/cfg_verifier.py --verify-all
 
 # Run C11 feature & concurrency verification suite (11/11 tests: _Alignas, _Alignof, anonymous structs/unions, _Generic, _Static_assert, atomics, <threads.h>)
 python3 tools/c11/test_c11.py --verbose
+
+# Run C23 differential conformance gate (Sprint 134): feature-tagged C23 cases
+# (std_version, true/false, constexpr, nullptr, designator sizing, #warning,
+# c23_misc) compiled & run under zerocc at -O0..-O3 in JIT + AOT, diffed
+# against a reference gcc (C23_GCC override, else gcc-15/14/gcc) with the
+# matching -std flag; negative cases check accept/reject agreement.
+# Wired as `make test-c23`.
+python3 tools/c23/test_c23.py --all
 
 # Run C99 VLA & multi-dimensional matrix VLA verification suite
 python3 tools/vla/test_vla.py

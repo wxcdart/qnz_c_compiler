@@ -3,6 +3,7 @@
 
 #include <string.h>
 #include <stdlib.h>
+#include "zero_cc/types/type_system.h"
 
 /* Freestanding C99 math.h (double + float families; the `long double`
  * family is intentionally omitted - ZeroCC models long double as double,
@@ -50,7 +51,7 @@ static inline const char *zc_builtin_math_h(void) {
         "#endif\n";
 }
 
-static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
+static inline char* zero_cc_cpp_get_virtual_header(const char *name, ZeroCCStdDialect dialect) {
     if (!name) return NULL;
     if (strcmp(name, "stddef.h") == 0) {
         return strdup(
@@ -82,11 +83,18 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name) {
         );
     }
     if (strcmp(name, "stdbool.h") == 0) {
-        return strdup(
+        /* C23 6.4.4.1: true/false are KEYWORDS in c23/gnu23, so (like
+         * glibc/gcc's C23 stdbool.h) this header must not define them -
+         * the `#define true 1` form would make the preprocessor rewrite
+         * `sizeof(true)` into `sizeof(1)` (4) instead of sizeof(_Bool) (1). */
+        bool is_c23 = (dialect == ZC_STD_C23 || dialect == ZC_STD_GNU23);
+        return strdup(is_c23 ?
+            "#ifndef _STDBOOL_H\n#define _STDBOOL_H 1\n"
+            "#define bool _Bool\n#define __bool_true_false_are_defined 1\n"
+            "#endif\n" :
             "#ifndef _STDBOOL_H\n#define _STDBOOL_H 1\n"
             "#define bool _Bool\n#define true 1\n#define false 0\n#define __bool_true_false_are_defined 1\n"
-            "#endif\n"
-        );
+            "#endif\n");
     }
     if (strcmp(name, "inttypes.h") == 0) {
         /* Freestanding inttypes: the stdint types plus PRI* formatting
