@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-11-08T05:12:20Z
+timestamp: 2026-11-08T05:51:09Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -204,6 +204,11 @@ Two width-marking invariants complete the picture (both in `ast_lowering_expr.c`
 
 ## C23 Features & Standard Conformance
 
+- **`-std=` dialect plumbing & `true`/`false` keywords (Sprint 130, C23 completion Phase 0 + 6.4.4.1)**:
+  - `ZeroCCStdDialect` (`types/type_system.h`: c99/gnu99/c11/gnu11/c17/gnu17/c23/gnu23) is parsed by `-std=` in `driver/driver_opts.h` (`c17`/`gnu17` now accepted as c11/gnu11 aliases; default gnu11) and stored in `ZeroCCCompiler.std_dialect`.
+  - `__STDC_VERSION__` follows the dialect (preprocessor entry points take a `std_version` parameter): c99/gnu99 → `199901L`, c11/gnu11/c17/gnu17 → `201112L` (was hardcoded), c23/gnu23 → `202311L`. Additive-only invariant: a dialect only *enables* (keywords, version macro), never *rejects* (gnu89/C89 leniency wins for gate stability).
+  - `true`/`false` (C23 6.4.4.1) are lexed as `TK_TRUE`/`TK_FALSE` by the keyword table; `zero_cc_tokenize_c99` reverts them to `TK_IDENT` **outside** c23/gnu23 mode, so `int false()` under `-std=gnu17` (c-torture `execute/loop-9.c`) keeps working and `<stdbool.h>` macro expansion is untouched (the preprocessor works on text, not tokens). Dialect gates: enum constants (`parser/decl_enum.h`) and function declarator names (`jit/compile.c` / `compile_unit.c`) reject `true`/`false` in C23 mode, matching gcc-15. In C23 mode `true`/`false` lower to `NODE_BOOL` (`_Bool`); `zero_cc_type_of_primary` types them `zero_cc_type_bool()` (was `int` — `sizeof(true)` was 4, now 1).
+- **`constexpr` (C23 6.7.2.4, Sprint 131)**: data declarations only, gcc-15 parity. Local scope: consumed as a storage specifier by `parser/decl_local.c` (behaves as `const`). File scope: `jit/compile_unit.c` top-of-loop handler — the pure probe `zc_constexpr_not_data()` skips the storage-specifier run + type name (via `is_type_specifier_at`, struct/union/enum tags + anonymous bodies, typedefs) and classifies the declarator; a function declarator (`IDENT (`) or `typedef` is rejected with the gcc diagnostic `'constexpr' requires an initialized data declaration` and the declaration is skipped (balanced `}`/`;`), otherwise the token is rewritten to `TK_CONST` in place and the normal dispatch handles it (TK_CONST is a full citizen of every path). The rewrite (not a `continue`) keeps the hang guard satisfied.
 - **`typeof` and `typeof_unqual`** (C23 6.7.2.5, GNU `__typeof__` / `__typeof`):
   - Supported everywhere type specifiers appear: local and global declarations, function return types, function parameters, struct/union members, typedefs, casts (`(typeof(T))val`), and `sizeof(typeof(...))`.
   - Deduced at parse-time via `zero_cc_parse_type_name_at_pos()` or `zero_cc_type_of_equality()` in `src/zero_cc/parser/const_eval.h`.

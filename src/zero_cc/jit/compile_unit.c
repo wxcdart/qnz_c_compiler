@@ -56,6 +56,71 @@ static bool zero_cc_struct_def_is_fn(ZeroCCCompiler *c) {
 }
 
 static bool zero_cc_compile_top_level_decl(ZeroCCCompiler *c);
+
+/* C23 6.7.2.4: probe whether the file-scope declaration at c->token_pos
+ * (which starts with a `constexpr` there) declares a function or a
+ * typedef - both must be rejected ("'constexpr' requires an initialized
+ * data declaration").  Skip the storage-specifier run and the type name,
+ * then classify the declarator: `IDENT (` = function, `typedef` = typedef,
+ * everything else (STAR / LBRACKET / LPAREN-star / initializer / `;`) is a
+ * data declaration.  Pure probe: does not touch c->token_pos. */
+static bool zc_constexpr_not_data(ZeroCCCompiler *c) {
+    size_t pos = c->token_pos;
+    while (pos < c->token_count &&
+           (c->tokens[pos].type == TK_CONSTEXPR ||
+            c->tokens[pos].type == TK_STATIC ||
+            c->tokens[pos].type == TK_INLINE ||
+            c->tokens[pos].type == TK_REGISTER ||
+            c->tokens[pos].type == TK_CONST ||
+            c->tokens[pos].type == TK_VOLATILE ||
+            c->tokens[pos].type == TK_EXTERN ||
+            c->tokens[pos].type == TK_THREAD_LOCAL)) pos++;
+    /* _Alignas(N) / _Alignas(type) between specifiers and the type */
+    while (pos < c->token_count && c->tokens[pos].type == TK_ALIGNAS) {
+        pos++;
+        if (pos < c->token_count && c->tokens[pos].type == TK_LPAREN) {
+            int depth = 1; pos++;
+            while (pos < c->token_count && depth > 0) {
+                if (c->tokens[pos].type == TK_LPAREN) depth++;
+                else if (c->tokens[pos].type == TK_RPAREN) depth--;
+                pos++;
+            }
+        } else {
+            pos++;
+        }
+    }
+    /* type name (keywords, struct/union/enum + tag, typedef alias) */
+    while (pos < c->token_count) {
+        ZeroCCTokType t = c->tokens[pos].type;
+        if (t == TK_STRUCT || t == TK_UNION || t == TK_ENUM) {
+            pos++;
+            if (pos < c->token_count && c->tokens[pos].type == TK_LBRACE) {
+                /* anonymous definition: skip the balanced body */
+                int depth = 0;
+                while (pos < c->token_count) {
+                    if (c->tokens[pos].type == TK_LBRACE) depth++;
+                    else if (c->tokens[pos].type == TK_RBRACE) {
+                        if (depth == 0) break;
+                        depth--;
+                    }
+                    pos++;
+                }
+                pos++; /* closing brace */
+            } else if (pos < c->token_count && c->tokens[pos].type == TK_IDENT) {
+                pos++; /* tag name */
+            }
+            continue;
+        }
+        if (is_type_specifier_at(c, pos, t)) { pos++; continue; }
+        break; /* reached the declarator */
+    }
+    if (pos >= c->token_count) return false;
+    if (c->tokens[pos].type == TK_TYPEDEF) return true;
+    return (c->tokens[pos].type == TK_IDENT &&
+            pos + 1 < c->token_count &&
+            c->tokens[pos + 1].type == TK_LPAREN);
+}
+
 /* Emit `width` low bytes of `bits` (little-endian) into a section buffer. */
 static void zero_cc_emit_scalar_bytes(ZeroCCBuffer *b, size_t width, uint64_t bits) {
     for (size_t i = 0; i < width && i < 8; i++) {
@@ -590,6 +655,39 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                     }
                 }
             }
+        }
+        /* C23 6.7.2.4: `constexpr` - valid only on initialized data
+         * declarations (gcc parity: a constexpr function/typedef is
+         * rejected with "'constexpr' requires an initialized data
+         * declaration").  For data declarations it behaves as the `const`
+         * qualifier: rewrite the token and fall through to the normal
+         * dispatch (TK_CONST is a full citizen of every path below). */
+        if (c->tokens[c->token_pos].type == TK_CONSTEXPR) {
+            if (zc_constexpr_not_data(c)) {
+                diag_report_error_at_token(c, "'constexpr' requires an initialized data declaration");
+                c->had_error = 1;
+                /* Skip the whole declaration: balanced body `}` (definition)
+                 * or `;` (prototype/typedef). */
+                size_t p = c->token_pos;
+                int paren = 0, brace = 0;
+                bool done = false;
+                while (p < c->token_count && !done) {
+                    ZeroCCTokType tt = c->tokens[p].type;
+                    if (tt == TK_LPAREN) paren++;
+                    else if (tt == TK_RPAREN) { if (paren > 0) paren--; }
+                    else if (tt == TK_LBRACE) brace++;
+                    else if (tt == TK_RBRACE) {
+                        if (brace > 0) brace--;
+                        if (brace == 0 && paren == 0) { p++; done = true; }
+                    }
+                    else if (tt == TK_SEMI && paren == 0 && brace == 0) { p++; done = true; }
+                    if (!done) p++;
+                }
+                c->token_pos = p;
+                continue;
+            }
+            c->tokens[c->token_pos].type = TK_CONST;
+            /* fall through to the normal dispatch */
         }
         /* Empty declaration at file scope (`;`) - legal C (C99 6.7) and a
          * common byproduct of attribute macros that carry their own `;`

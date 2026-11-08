@@ -1,3 +1,33 @@
+## [Sprint 131] - 2026-11-08 - constexpr (C23 6.7.2.4) and inline-assembly roadmap (Clang-style integrated assembler)
+
+**`constexpr` data declarations** (`src/zero_cc/jit/compile_unit.c`): file-scope `constexpr` previously failed with "unexpected token at file scope" (only the local-declaration path consumed `TK_CONSTEXPR`). The file-scope top-level loop now handles it at the top of the dispatch:
+- New pure probe `zc_constexpr_not_data()`: skips the storage-specifier run (`constexpr/static/inline/register/const/volatile/extern/_Thread_local`) and `_Alignas(...)` markers, then the type name (keywords, struct/union/enum tags incl. anonymous bodies, typedefs via `is_type_specifier_at`), and classifies the declarator — `IDENT (` = function, `typedef` = typedef, everything else (STAR/LBRACKET/LPAREN-star/initializer/`;`) = data. No `c->token_pos` mutation.
+- Function/typedef declarators are rejected with the gcc-15 diagnostic `'constexpr' requires an initialized data declaration` and the whole declaration is skipped (balanced `}` definition body or `;` prototype) — verified differentially against gcc-15 for `constexpr int f(void){...}` (definition) and `constexpr int f(void);` (prototype).
+- Data declarations: the token is rewritten to `TK_CONST` in place and falls through to the normal dispatch (no `continue` — the file-scope hang guard would fire on an unadvanced `continue`). `TK_CONST` is a full citizen of every downstream path (global branch, thread_local, function handoff), so no other site needed changes.
+- Local scope was already handled: `parser/decl_local.c` consumes `TK_CONSTEXPR` in the storage-specifier run.
+- gcc-15 differential matrix (10 cases): file-scope data, arrays, structs, pointers, typeof, function-pointer variables, and local constexpr all compile+run identically; function definitions/prototypes reject with the same diagnostic. (Minor accepted divergences: gcc *warns* on `constexpr int *p = &v` const-qualifier discard and *rejects* `constexpr struct { ... } x` anonymous-struct-initializer forms — both corner cases, both out of scope.)
+
+**Roadmap: inline assembly — Clang-style integrated assembler** (`docs/ZEROCC_Development_Plan.md`, Current Priorities #12): three-phase plan added, grounded in the verified current state (GNU asm statements are *parsed* in `ast_stmt.h` — constraints, matching-digit `"0"`-`"9"`, in-out `+` — but only empty templates lower as barriers; non-empty templates are a clean reject with no `NODE_ASM`/IR op; the i387 `fpatan`/`fsqrt` forms are emulated as plain C ops):
+- **Phase 1** — AOT register allocation & text passthrough: new `OP_ASM` IR op; the register allocator assigns constraint operands and spills clobbered live values; `"memory"` is an optimizer barrier; the substituted template is written to the `.s` text stream (no new assembler needed).
+- **Phase 2** — lightweight integrated assembler for JIT & raw AOT: per-ISA snippet lexer/parser (AT&T x86-64, GAS AArch64/RISC-V) with precise in-string line/column diagnostics, mapping parsed mnemonics onto the existing `zc_emit_*`/`ir_emit_*` raw encoders (Clang's integrated-assembler architecture — no external as/gcc), incremental mnemonic coverage from real idioms (barriers, `rdtsc`/`cpuid`, SIMD, locked atomics, syscalls).
+- **Phase 3** — advanced GNU extensions: `asm goto`, Intel dialect (`-masm=intel`), file-scope asm (the DejaGnu `asm goto` cluster + `SKIP-SUPPORT` asm bucket are the unskip targets).
+
+**Verification**: `make test` 184/184; `make test-opt` 147/147; 10-case constexpr differential vs gcc-15 (all match).
+
+## [Sprint 130] - 2026-11-08 - C23 completion Phase 0: `-std=` dialect plumbing + `true`/`false` keywords (C23 6.4.4.1)
+
+**Dialect plumbing** (the C23-completion prerequisite — `-std=` was parsed and validated but zero-propagated, "accepted and ignored"; `__STDC_VERSION__` was hardcoded `201112L`):
+- New `ZeroCCStdDialect` enum in `types/type_system.h` (c99/gnu99/c11/gnu11/c17/gnu17/c23/gnu23); `ZeroCCCompiler.std_dialect` set from the driver. `driver/driver_opts.h` now maps `-std=` strings to the dialect, **adds `c17`/`gnu17`** as c11/gnu11 aliases (c-torture `loop-9.c` & co. pass `-std=gnu17`), and c89/gnu89 map onto the C99/GNU99 lenient dialects; default is gnu11.
+- `__STDC_VERSION__` follows the dialect, threaded through the preprocessor entry points (`zero_cc_preprocess_ext3/ext2/ext` + `zero_cc_cpp_define_builtin_macros` take a `std_version` parameter; the legacy `zero_cc_preprocess` keeps `201112L`): c99/gnu99 → `199901L`, c11/gnu11/c17/gnu17 → `201112L`, c23/gnu23 → `202311L`. Verified differentially: each `-std=` form yields the matching `#if __STDC_VERSION__` branch in JIT+AOT.
+- Additive-only invariant: a dialect only *enables* (keywords, version macro) and never *rejects* — the permissive unified dialect (gnu89/C89 leniency) wins for gate stability.
+
+**`true`/`false` keywords (C23 6.4.4.1)** — the parser's `TK_TRUE`/`TK_FALSE` → `NODE_BOOL` handling existed as dead code; the tokens were never produced:
+- The lexer keyword table gains `true`/`false`; `zero_cc_tokenize_c99` reverts `TK_TRUE`/`TK_FALSE` to `TK_IDENT` after lexing **outside** c23/gnu23 mode, so `int false()` under `-std=gnu17` (c-torture `execute/loop-9.c`) keeps working and `<stdbool.h>`'s `#define true 1` expansion is untouched (the preprocessor works on text, not tokens).
+- Dialect gates matching gcc-15: enum constants (`parser/decl_enum.h` — `enum E { false, true }` rejects under c23, accepted under gnu17) and function declarator names (`jit/compile.c` + `compile_unit.c`).
+- Bug fix found by the differential: `zero_cc_type_of_primary` returned `zero_cc_type_int()` for `true`/`false` where its comment said `_Bool` — `sizeof(true)` was 4, now 1.
+
+**Verification**: `make test` 184/184; `make test-opt` 147/147; `loop-9.c` rc=0; 10-case true/false differential matrix (c23 keywords incl. `stdbool.h` interop + `sizeof`; gnu17/gnu11/c99 identifier forms incl. `int false()`, `enum { false, true }`, `int true = 1;`); c99/c11/c23 `__STDC_VERSION__` differentials.
+
 ## [Sprint 129] - 2026-11-08 - Fix Multi-TU JIT static local collisions, JIT atexit handling, and uninitialized StructField bitfield state (SQLite view expansion)
 
 Root-caused and resolved multi-TU JIT execution issues for 15-TU zlib and the 255k-line SQLite amalgamation, enabling full JIT `--run` and AOT parity with 100% byte-for-byte behavioral matching against GCC.
