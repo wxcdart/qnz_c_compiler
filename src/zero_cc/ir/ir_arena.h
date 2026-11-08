@@ -299,4 +299,68 @@ static inline const IRCallArgs *ir_call_args_arena_find(IRCallArgsArena *arena,
     return NULL;
 }
 
+/* ==========================================================================
+ * Inline asm args arena (Sprint 135) - same shape as the call args arena,
+ * keyed by OP_ASM instruction index.
+ * ========================================================================== */
+
+static inline bool ir_asm_args_arena_init(IRAsmArgsArena *arena) {
+    if (!arena) return false;
+
+    arena->capacity = 16;
+    arena->table = (IRAsmArgs *)malloc(arena->capacity * sizeof(IRAsmArgs));
+    if (!arena->table) {
+        arena->capacity = 0;
+        arena->count = 0;
+        return false;
+    }
+    memset(arena->table, 0, arena->capacity * sizeof(IRAsmArgs));
+    arena->count = 0;
+    return true;
+}
+
+static inline void ir_asm_args_arena_free(IRAsmArgsArena *arena) {
+    if (!arena) return;
+    if (arena->table) {
+        free(arena->table);
+        arena->table = NULL;
+    }
+    arena->count = 0;
+    arena->capacity = 0;
+}
+
+static inline void ir_asm_args_arena_reset(IRAsmArgsArena *arena) {
+    if (!arena || !arena->table) return;
+    arena->count = 0;
+}
+
+static inline void ir_asm_args_arena_record(IRAsmArgsArena *arena,
+                                            size_t instr_index, const IRAsmArgs *args) {
+    if (!arena || !arena->table || !args) return;
+
+    if (arena->count >= arena->capacity) {
+        size_t new_cap = arena->capacity * 2;
+        if (new_cap == 0) new_cap = 16;
+        IRAsmArgs *new_table = (IRAsmArgs *)realloc(arena->table, new_cap * sizeof(IRAsmArgs));
+        if (!new_table) return;  /* Allocation failed */
+        arena->table = new_table;
+        arena->capacity = new_cap;
+    }
+
+    IRAsmArgs *e = &arena->table[arena->count++];
+    *e = *args;  /* shallow copy: template_str points at compiler-owned storage */
+    e->instr_index = instr_index;
+}
+
+static inline const IRAsmArgs *ir_asm_args_arena_find(IRAsmArgsArena *arena,
+                                                      size_t instr_index) {
+    if (!arena || !arena->table) return NULL;
+    for (size_t i = 0; i < arena->count; i++) {
+        if (arena->table[i].instr_index == instr_index) {
+            return &arena->table[i];
+        }
+    }
+    return NULL;
+}
+
 #endif /* ZERO_CC_IR_ARENA_H */

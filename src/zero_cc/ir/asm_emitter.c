@@ -1345,6 +1345,18 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
         return;
     }
 
+    /* Sprint 135: GNU inline asm - the backend interpolates the operand
+     * specifiers into the template and writes the text. Handled before
+     * phys-reg/spill resolution (operands are resolved inside the helper). */
+    if (instr->op == OP_ASM) {
+        if (BE(c)->emit_inline_asm_asm) {
+            BE(c)->emit_inline_asm_asm(c, idx, out);
+        } else {
+            fprintf(out, "\t# inline asm (not supported on this backend)\n");
+        }
+        return;
+    }
+
     /* Skip EPILOGUE - handled separately */
     if (instr->op == OP_EPILOGUE) {
         return;

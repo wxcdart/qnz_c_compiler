@@ -98,6 +98,7 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	test-asan test-asan-unit test-asan-semantic test-asan-abi test-asan-jit \
 	test-project-diff test-project-runs \
 	test-isa-qemu test-driver test-linker \
+	test-c23 test-asm test-opt test-san \
 	valgrind test-valgrind
 
 all: $(TESTS) build/bin/zerocc build/lib/zero_rt.a build/lib/zero_rt_aarch64.a build/lib/zero_rt_riscv64.a
@@ -236,6 +237,14 @@ test-torture: build/bin/zerocc
 # matching -std flag; negative cases check accept/reject agreement.
 test-c23: build/bin/zerocc
 	@python3 tools/c23/test_c23.py --all
+
+# Inline-assembly Phase 1 differential gate (Sprint 135): every test/asm/*.c
+# compiled under zerocc -O0..-O3 on the AOT *text* path (-S), assembled and
+# linked with the host gcc, run, and diffed (rc + stdout) against a
+# host-`gcc -O2` reference. Guards the OP_ASM lowering, operand side table,
+# no_spill LRA, clobber spill/forbidden-mask, and template interpolation.
+test-asm: build/bin/zerocc
+	@python3 tools/asm_diff.py
 
 # Project-differential gate (Verification & Scale #1): real-world TUs
 # (cJSON, zlib, the sqlite amalgamation) must compile under zerocc at every

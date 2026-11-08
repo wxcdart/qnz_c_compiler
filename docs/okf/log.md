@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-08T14:25:11Z
+timestamp: 2026-11-08T23:17:06Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1179,3 +1179,21 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-08 — Updated `build-and-verification.md`
 - Document developer tooling requirements (GCC 15, QEMU, musl cross-wrappers, tmux)
+
+## 2026-11-08 — Updated `ir-and-regalloc.md`
+- Sprint 135: OP_ASM + IRAsmArgsArena side table (remapped through LICM/branchless/DCE arena rebuilds); LRA asm operand support: no_spill, fixed-letter pre-coloring in the hardware index space, forbidden_mask clobber exclusion, post-allocation clobber spill pass (def-sensitive pending-return check); regalloc_add_interval now initializes no_spill (latent stale-field bug fixed)
+
+## 2026-11-08 — Updated `optimization-passes.md`
+- Sprint 135: OP_ASM barrier contract - CSE/copy-prop reset their block tables at OP_ASM (volatile and memory clobber); GVN mf_reset; mem2reg/LICM/DCE already barrier-safe via side-effect treatment
+
+## 2026-11-08 — Updated `build-and-verification.md`
+- Sprint 135: add make test-asm (tools/asm_diff.py) - inline-asm Phase 1 differential gate on the -S text path, -O0..-O3, vs host gcc
+
+## 2026-11-08 — Updated `architecture-pipeline.md`
+- Sprint 135: AST-to-IR now 168 opcodes + IRAsmArgsArena side table for OP_ASM inline-asm state
+
+## 2026-11-08 — Updated `c-torture-gate.md`
+- Sprint 135: baseline ratcheted to PASS 3,747 (execute/920721-4.c SKIP-C89->PASS via the Sprint 134 multi-name __label__ fix)
+
+## 2026-11-08 — Updated `inline-assembly-roadmap.md`
+- Sprint 135: Phase 1 (x86-64 AOT text) implemented - OP_ASM lowering, LRA operand constraints, #APP/#NO_APP emission, make test-asm gate 12/12

@@ -52,6 +52,22 @@ void zero_cc_compiler_free(ZeroCCCompiler *c) {
     /* IR arenas (one-time init, per-instance) */
     ir_arena_free(&c->ir_arena);
     ir_call_args_arena_free(&c->ir_call_args);
+    ir_asm_args_arena_free(&c->ir_asm_args);
+
+    /* GNU __asm__ payloads (Sprint 135) */
+    for (size_t i = 0; i < c->asm_stmt_count; i++) {
+        free((void *)c->asm_stmts[i].template_str);
+    }
+    free(c->asm_stmts);
+    c->asm_stmts = NULL;
+    c->asm_stmt_count = 0;
+    c->asm_stmt_cap = 0;
+    free(c->asm_operand_temps);
+    free(c->asm_fixed_regs);
+    c->asm_operand_temps = NULL;
+    c->asm_fixed_regs = NULL;
+    c->asm_operand_count = 0;
+    c->asm_operand_cap = 0;
 
     /* Per-temp type-tag table (Sprint 118: lazy 64 KiB, indexed by temp id) */
     free(c->temp_type_tags);

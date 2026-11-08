@@ -1,6 +1,6 @@
 {
  "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
- "generated": "2026-11-06T13:42:53Z",
+ "generated": "2026-11-08T23:14:57Z",
  "tests": {
   "compile/103818.c": {
    "class": "PASS",
@@ -7449,6 +7449,14 @@
    },
    "note": ""
   },
+  "compile/limits-fnargs.c": {
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
+   "note": ""
+  },
   "compile/limits-fndefn.c": {
    "class": "PASS",
    "configs": {
@@ -8739,7 +8747,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "          ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O2-aot"
+   "note": "          ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
   },
   "compile/pr115143-3.c": {
    "class": "SKIP-C89",
@@ -8747,7 +8755,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "          ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O2-aot"
+   "note": "          ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
   },
   "compile/pr115881.c": {
    "class": "SKIP-C89",
@@ -9023,7 +9031,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "<stdin>: error: incompatible types in assignment; Compile error: incompatible types in assignment | cfgs: O0-aot,O2-aot"
+   "note": "                              ^; Compile error: incompatible types in assignment | cfgs: O0-aot,O2-aot"
   },
   "compile/pr16808.c": {
    "class": "PASS",
@@ -10817,7 +10825,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "     ^; Compile error: GNU asm statement with a non-empty template is not supported | cfgs: O0-aot,O2-aot"
+   "note": "    ^; Compile error: inline asm requires the AOT text path (-S, or ZC_TEXT_AOT=1 with -o); the JIT/raw-emitter path is Phase 2 | cfgs: O0-aot,O2-aot"
   },
   "compile/pr38807.c": {
    "class": "PASS",
@@ -13720,7 +13728,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "           ^; Compile error: argument count mismatch in call to 'fn4': prototype declares 5 parameter(s), 2 argument(s) given | cfgs: O0-aot,O2-aot"
+   "note": "         ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
   },
   "compile/pr77901.c": {
    "class": "PASS",
@@ -14966,7 +14974,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "                                              ^; Compile error: use of undeclared identifier 'fmt' | cfgs: O0-aot,O2-aot"
+   "note": "                                              ^; Compile error: incompatible initializer type for variable 'fmt' | cfgs: O0-aot,O2-aot"
   },
   "compile/rel.c": {
    "class": "PASS",
@@ -15318,7 +15326,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "<stdin>: error: incompatible types in assignment; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O2-aot"
+   "note": "                ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O2-aot"
   },
   "compile/split-path-6.c": {
    "class": "PASS",
@@ -22172,7 +22180,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "<stdin>: error: incompatible types in assignment; Compile error: incompatible types in assignment | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "          ^; Compile error: incompatible types in assignment | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/20131127-1.c": {
    "class": "PASS",
@@ -23113,18 +23121,18 @@
    "note": ""
   },
   "execute/920721-4.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                     ^; Compile error: expected ';' after '__label__' declaration | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/920726-1.c": {
    "class": "PASS",
@@ -30855,6 +30863,20 @@
    },
    "note": ""
   },
+  "execute/memclr.c": {
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
+   "note": ""
+  },
   "execute/memcpy-1.c": {
    "class": "PASS",
    "configs": {
@@ -30870,6 +30892,62 @@
    "note": ""
   },
   "execute/memcpy-2.c": {
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
+   "note": ""
+  },
+  "execute/memcpy-a1.c": {
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
+   "note": ""
+  },
+  "execute/memcpy-a2.c": {
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
+   "note": ""
+  },
+  "execute/memcpy-a4.c": {
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
+   "note": ""
+  },
+  "execute/memcpy-a8.c": {
    "class": "PASS",
    "configs": {
     "O0-aot": "OK",
@@ -41885,10 +41963,10 @@
  "totals": {
   "EXPECTED-REJECT": 4,
   "NO-REF": 26,
-  "PASS": 3740,
+  "PASS": 3747,
   "REF-BUG": 8,
   "SKIP-BOGUS": 1,
-  "SKIP-C89": 44,
+  "SKIP-C89": 43,
   "SKIP-PTR": 1,
   "SKIP-REFSEM": 16,
   "SKIP-SUPPORT": 87,

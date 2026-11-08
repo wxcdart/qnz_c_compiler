@@ -27,6 +27,7 @@
 
 void lower_node(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
 int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
+static void lower_asm_stmt(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node);
 
 void lower_stmt_block(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
     c->lowering.vla.block_depth++;
@@ -55,6 +56,416 @@ void lower_stmt_block(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
     }
 
     c->lowering.vla.block_depth--;
+}
+
+/* Sprint 135 (inline asm Phase 1): x86-64 fixed-register constraint letters
+ * map to hardware register numbers (the LRA index space, matching
+ * get_hw_reg_name: 0=rax 1=rcx 2=rdx 3=rbx 4=rsp 5=rbp 6=rsi 7=rdi
+ * 8-15=r8-r15). */
+static int zc_asm_fixed_letter_reg(const char ch) {
+    switch (ch) {
+        case 'a': return 0;  /* rax */
+        case 'b': return 3;  /* rbx */
+        case 'c': return 1;  /* rcx */
+        case 'd': return 2;  /* rdx */
+        case 'S': return 6;  /* rsi */
+        case 'D': return 7;  /* rdi */
+        default: return -1;
+    }
+}
+
+/* Resolve a fixed-register constraint letter to an allocatable hardware
+ * register. 'c' is rejected: RCX is reserved for the shift count, so it can
+ * never hold an asm operand. Returns 1 on success (pool set), 0 after
+ * reporting a clean diagnostic. */
+static int zc_asm_fixed_letter_ok(ZeroCCCompiler *c, char body, int *pool) {
+    int p = zc_asm_fixed_letter_reg(body);
+    if (p < 0) {
+        diag_report_error_at_token(c, "asm constraint not supported in Phase 1 (r/m/a/b/d/S/D)");
+        return 0;
+    }
+    if (p == 1) {
+        diag_report_error_at_token(c,
+            "asm constraint 'c' (rcx) not supported: rcx is reserved for shift counts");
+        return 0;
+    }
+    *pool = p;
+    return 1;
+}
+
+/* Width (bits) of an r-constraint operand from its C type; -1 on a
+ * Phase-1-unsupported operand type (FP, struct, 128-bit, unknown). */
+static int zc_asm_r_operand_width(ZeroCCCompiler *c, ZeroCCASTNode *expr, int *ok) {
+    *ok = 1;
+    if (!expr) { *ok = 0; return -1; }
+    TypeInfo *ti = ast_node_get_typeinfo(c, expr);
+    if (!ti) { *ok = 0; return -1; }
+    if (type_is_struct_or_union(ti)) { *ok = 0; return -1; }
+    if (ti->kind == TYPE_KIND_FLOAT || ti->kind == TYPE_KIND_DOUBLE) { *ok = 0; return -1; }
+    size_t sz = type_size(ti);
+    if (sz == 1) return 8;
+    if (sz == 2) return 16;
+    if (sz == 4) return 32;
+    if (sz == 8) return 64;
+    *ok = 0;  /* 128-bit / incomplete / odd */
+    return -1;
+}
+
+/* Phase 1: an asm operand that names a location (m input/output, or an
+ * r/fixed output stored back after the asm) must be directly addressable -
+ * the same lvalue forms `&` accepts (semantic/expr.c expr_is_lvalue),
+ * minus the __real/__imag part extractors. A value operand like `a + b`
+ * would otherwise be dereferenced as a pointer by the memory form. */
+static bool zc_asm_expr_is_lvalue(const ZeroCCASTNode *node) {
+    if (!node) return false;
+    switch (node->tag) {
+        case NODE_IDENT:
+        case NODE_MEMBER:
+        case NODE_INDEX:
+        case NODE_COMPOUND_LIT:
+            return true;
+        case NODE_UNOP:
+            return (node->aux.op == '*' || node->aux.op == TK_STAR);
+        default:
+            return false;
+    }
+}
+
+/* Record an asm operand temp (no_spill) with optional fixed-register
+ * pre-coloring for the current function. */
+static void zc_asm_record_operand_temp(ZeroCCCompiler *c, int temp, int fixed_reg) {
+    if (c->asm_operand_count >= c->asm_operand_cap) {
+        size_t ncap = c->asm_operand_cap ? c->asm_operand_cap * 2 : 16;
+        int *nt = realloc(c->asm_operand_temps, ncap * sizeof(int));
+        if (!nt) return;
+        int *nr = realloc(c->asm_fixed_regs, ncap * sizeof(int));
+        if (!nr) { free(nt); return; }
+        c->asm_operand_temps = nt;
+        c->asm_fixed_regs = nr;
+        c->asm_operand_cap = ncap;
+    }
+    c->asm_operand_temps[c->asm_operand_count] = temp;
+    c->asm_fixed_regs[c->asm_operand_count] = fixed_reg;
+    c->asm_operand_count++;
+}
+
+/* GNU inline asm (Sprint 135, Phase 1: x86-64 AOT text path).
+ * Constraint subset: r/m with = / + prefixes, matching digits 0-7, and the
+ * x86 fixed-register letters a/b/c/d/S/D. Clobbers: "memory", "cc" and
+ * GPR names. Everything else is a clean reject with a clean diagnostic. */
+static void lower_asm_stmt(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
+    if (node->int_val < 0 || (size_t)node->int_val >= c->asm_stmt_count) return;
+    ZeroCCAsmStmt *as = &c->asm_stmts[node->int_val];
+
+    if (!c->emit_asm) {
+        diag_report_error_at_token(c,
+            "inline asm requires the AOT text path (-S, or ZC_TEXT_AOT=1 with -o); "
+            "the JIT/raw-emitter path is Phase 2");
+        c->had_error = 1;
+        return;
+    }
+    if (BE(c)->isa != ISA_X86_64) {
+        diag_report_error_at_token(c,
+            "inline asm Phase 1 targets x86-64 (template text is ISA-specific)");
+        c->had_error = 1;
+        return;
+    }
+    if (!as->template_str) return;
+
+    IRAsmArgs aa;
+    memset(&aa, 0, sizeof(aa));
+    aa.template_str = as->template_str;
+    aa.op_count = 0;
+    aa.has_memory = as->is_volatile;  /* volatile asm: full memory barrier */
+
+    /* --- Clobbers --- */
+    for (int i = 0; i < as->clobber_count; i++) {
+        const char *cb = as->clobber_names[i];
+        if (strcmp(cb, "memory") == 0) { aa.has_memory = 1; continue; }
+        if (strcmp(cb, "cc") == 0) continue;  /* IR keeps no implicit flags */
+        int pool = -1;
+        for (int r = 0; r < BE(c)->regs->num_int_regs; r++) {
+            if (strcmp(cb, BE(c)->get_hw_reg_name(r)) == 0) { pool = r; break; }
+        }
+        if (pool < 0) {
+            diag_report_error_at_token(c,
+                "inline asm clobber not supported in Phase 1 (memory/cc/rax..r15)");
+            c->had_error = 1;
+            return;
+        }
+        if (pool == 4 || pool == 5) {  /* rsp / rbp */
+            diag_report_error_at_token(c, "inline asm cannot clobber rsp/rbp");
+            c->had_error = 1;
+            return;
+        }
+        aa.clobber_mask |= (1u << pool);
+    }
+
+    /* --- Parse constraints (outputs first, then inputs) --- */
+    int out_kind[ZC_ASM_MAX_OPS];   /* ZC_ASM_OP_* for r/m */
+    int out_width[ZC_ASM_MAX_OPS];  /* bits for r ops */
+    int out_fixed[ZC_ASM_MAX_OPS];  /* pool index or -1 */
+    int in_kind[ZC_ASM_MAX_OPS];
+    int in_width[ZC_ASM_MAX_OPS];
+    int in_fixed[ZC_ASM_MAX_OPS];
+    int in_digit[ZC_ASM_MAX_OPS];   /* 0..7 or -1 */
+    for (int i = 0; i < as->out_count; i++) out_fixed[i] = -1;
+    for (int i = 0; i < as->in_count; i++) { in_fixed[i] = -1; in_digit[i] = -1; }
+
+    for (int i = 0; i < as->out_count; i++) {
+        const char *cs = as->out_constraints[i];
+        size_t off = 0;
+        if (cs[0] == '=') off = 1;
+        else if (cs[0] == '+') off = 1;
+        else {
+            diag_report_error_at_token(c, "asm output operand requires '=' or '+' prefix");
+            c->had_error = 1;
+            return;
+        }
+        if (cs[off] == '&') {
+            diag_report_error_at_token(c, "asm earlyclobber '&' operand not supported in Phase 1");
+            c->had_error = 1;
+            return;
+        }
+        char body = cs[off];
+        if (cs[off + 1] != '\0' && body != 'r' && body != 'm') {
+            diag_report_error_at_token(c, "asm constraint not supported in Phase 1 (r/m/a/b/c/d/S/D)");
+            c->had_error = 1;
+            return;
+        }
+        int ok = 1;
+        if (body == 'r') {
+            if (!zc_asm_expr_is_lvalue(zero_cc_ast_get(arena, as->out_exprs[i]))) {
+                diag_report_error_at_token(c, "asm r output operand must be an lvalue");
+                c->had_error = 1;
+                return;
+            }
+            int w = zc_asm_r_operand_width(c, zero_cc_ast_get(arena, as->out_exprs[i]), &ok);
+            if (!ok) {
+                diag_report_error_at_token(c, "asm r operand must be an integer or pointer scalar");
+                c->had_error = 1;
+                return;
+            }
+            out_width[i] = w;
+            out_kind[i] = (cs[0] == '+') ? ZC_ASM_OP_INOUT_R : ZC_ASM_OP_OUT_R;
+        } else if (body == 'm') {
+            if (!zc_asm_expr_is_lvalue(zero_cc_ast_get(arena, as->out_exprs[i]))) {
+                diag_report_error_at_token(c, "asm m operand must be directly addressable (an lvalue)");
+                c->had_error = 1;
+                return;
+            }
+            out_width[i] = 0;
+            out_kind[i] = ZC_ASM_OP_OUT_M;
+        } else {
+            int pool;
+            if (!zc_asm_fixed_letter_ok(c, body, &pool)) {
+                c->had_error = 1;
+                return;
+            }
+            if (!zc_asm_expr_is_lvalue(zero_cc_ast_get(arena, as->out_exprs[i]))) {
+                diag_report_error_at_token(c, "asm r output operand must be an lvalue");
+                c->had_error = 1;
+                return;
+            }
+            int w = zc_asm_r_operand_width(c, zero_cc_ast_get(arena, as->out_exprs[i]), &ok);
+            if (!ok) {
+                diag_report_error_at_token(c, "asm r operand must be an integer or pointer scalar");
+                c->had_error = 1;
+                return;
+            }
+            out_width[i] = w;
+            out_fixed[i] = pool;
+            out_kind[i] = (cs[0] == '+') ? ZC_ASM_OP_INOUT_R : ZC_ASM_OP_OUT_R;
+        }
+    }
+
+    for (int i = 0; i < as->in_count; i++) {
+        const char *cs = as->in_constraints[i];
+        char body = cs[0];
+        if (body >= '0' && body <= '7') {
+            in_digit[i] = body - '0';
+            if (in_digit[i] >= as->out_count ||
+                (out_kind[in_digit[i]] != ZC_ASM_OP_OUT_R &&
+                 out_kind[in_digit[i]] != ZC_ASM_OP_INOUT_R)) {
+                diag_report_error_at_token(c, "asm matching-digit input requires an r output");
+                c->had_error = 1;
+                return;
+            }
+            in_kind[i] = ZC_ASM_OP_IN_R;
+            in_width[i] = 0;  /* materialized into the output register */
+            continue;
+        }
+        if (body == '&') {
+            diag_report_error_at_token(c, "asm earlyclobber '&' operand not supported in Phase 1");
+            c->had_error = 1;
+            return;
+        }
+        if (cs[1] != '\0' && body != 'r' && body != 'm') {
+            diag_report_error_at_token(c, "asm constraint not supported in Phase 1 (r/m/a/b/c/d/S/D/0-7)");
+            c->had_error = 1;
+            return;
+        }
+        int ok = 1;
+        if (body == 'r') {
+            int w = zc_asm_r_operand_width(c, zero_cc_ast_get(arena, as->in_exprs[i]), &ok);
+            if (!ok) {
+                diag_report_error_at_token(c, "asm r operand must be an integer or pointer scalar");
+                c->had_error = 1;
+                return;
+            }
+            in_width[i] = w;
+            in_kind[i] = ZC_ASM_OP_IN_R;
+        } else if (body == 'm') {
+            if (!zc_asm_expr_is_lvalue(zero_cc_ast_get(arena, as->in_exprs[i]))) {
+                diag_report_error_at_token(c, "asm m operand must be directly addressable (an lvalue)");
+                c->had_error = 1;
+                return;
+            }
+            in_width[i] = 0;
+            in_kind[i] = ZC_ASM_OP_IN_M;
+        } else {
+            int pool;
+            if (!zc_asm_fixed_letter_ok(c, body, &pool)) {
+                c->had_error = 1;
+                return;
+            }
+            int w = zc_asm_r_operand_width(c, zero_cc_ast_get(arena, as->in_exprs[i]), &ok);
+            if (!ok) {
+                diag_report_error_at_token(c, "asm r operand must be an integer or pointer scalar");
+                c->had_error = 1;
+                return;
+            }
+            in_width[i] = w;
+            in_fixed[i] = pool;
+            in_kind[i] = ZC_ASM_OP_IN_R;
+        }
+    }
+
+    /* --- Materialize operand temps (all BEFORE the asm). Outputs first so
+     * digit-matched inputs can seed their "=r" output register; input
+     * values are pure loads/LEAs and their order is unobservable. --- */
+    int in_temp[ZC_ASM_MAX_OPS];
+    int out_temp[ZC_ASM_MAX_OPS];
+    int out_addr[ZC_ASM_MAX_OPS];   /* lvalue address temp (r outputs / m outputs) */
+    for (int i = 0; i < as->out_count; i++) {
+        out_addr[i] = TEMP_NONE;
+        if (out_kind[i] == ZC_ASM_OP_OUT_M) {
+            /* Address operand, live at the asm */
+            out_addr[i] = zero_cc_lower_lvalue_addr(c, arena, as->out_exprs[i]);
+            c->last_expr_is_float = 0;
+            zc_asm_record_operand_temp(c, out_addr[i], -1);
+            out_temp[i] = out_addr[i];
+        } else {
+            /* r output: the lvalue address is materialized before the asm
+             * (operand-address evaluation order) and the value stored after */
+            out_addr[i] = zero_cc_lower_lvalue_addr(c, arena, as->out_exprs[i]);
+            c->last_expr_is_float = 0;
+            out_temp[i] = c->next_temp_id++;
+            zc_asm_record_operand_temp(c, out_temp[i], out_fixed[i]);
+            if (out_kind[i] == ZC_ASM_OP_INOUT_R) {
+                /* '+r': the lvalue's current value is the operand's initial
+                * value - load it into the output temp so the template sees
+                * it in the operand register (OP_ASM then redefines it). */
+                switch (out_width[i]) {
+                    case 8:  ir_emit(c, (Instr){.op = OP_LOAD_BYTE, .temp_dest = (uint16_t)out_temp[i], .temp_src1 = (uint16_t)out_addr[i], .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0}); break;
+                    case 16: ir_emit_load_16(c, (uint16_t)out_temp[i], (uint16_t)out_addr[i]); break;
+                    case 32: ir_emit_load_32(c, (uint16_t)out_temp[i], (uint16_t)out_addr[i]); break;
+                    default: ir_emit_deref(c, (uint16_t)out_temp[i], (uint16_t)out_addr[i]); break;
+                }
+            }
+        }
+    }
+
+    for (int i = 0; i < as->in_count; i++) {
+        if (in_digit[i] >= 0) {
+            /* Digit-matched: shares the referenced output's register. For
+             * "=r" the input expression seeds the register (GCC semantics);
+             * for "+r" the register already holds the lvalue's value. */
+            if (out_kind[in_digit[i]] == ZC_ASM_OP_OUT_R) {
+                int t = lower_expr(c, arena, as->in_exprs[i]);
+                c->last_expr_is_float = 0;
+                ir_emit(c, (Instr){.op = OP_MOV_REG, .temp_dest = (uint16_t)out_temp[in_digit[i]],
+                                   .temp_src1 = (uint16_t)t, .temp_src2= TEMP_NONE,
+                                   .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF,
+                                   .imm = 0, .label_idx = 0});
+            }
+            in_temp[i] = out_temp[in_digit[i]];
+            in_width[i] = out_width[in_digit[i]];
+            continue;
+        }
+        if (in_kind[i] == ZC_ASM_OP_IN_R) {
+            in_temp[i] = lower_expr(c, arena, as->in_exprs[i]);
+            c->last_expr_is_float = 0;
+        } else {
+            in_temp[i] = zero_cc_lower_lvalue_addr(c, arena, as->in_exprs[i]);
+            c->last_expr_is_float = 0;
+        }
+        zc_asm_record_operand_temp(c, in_temp[i], in_fixed[i]);
+    }
+
+    /* --- Record operands: outputs first (GCC %0..%n-1), then inputs --- */
+    for (int i = 0; i < as->out_count; i++) {
+        if (aa.op_count >= 16) {
+            diag_report_error_at_token(c, "too many asm operands (max 16)");
+            c->had_error = 1;
+            return;
+        }
+        IRAsmOperand *op = &aa.ops[aa.op_count++];
+        memset(op, 0, sizeof(*op));
+        op->kind = (uint8_t)out_kind[i];
+        op->width = (uint8_t)out_width[i];
+        op->digit = (out_kind[i] == ZC_ASM_OP_INOUT_R) ? (int16_t)i : -1;
+        op->fixed_reg = (int16_t)out_fixed[i];
+        op->temp = out_temp[i];
+    }
+
+    /* --- Record inputs after outputs: GCC template numbering is %0 = first
+     * output, ..., then inputs. --- */
+    for (int i = 0; i < as->in_count; i++) {
+        if (aa.op_count >= 16) {
+            diag_report_error_at_token(c, "too many asm operands (max 16)");
+            c->had_error = 1;
+            return;
+        }
+        IRAsmOperand *op = &aa.ops[aa.op_count++];
+        memset(op, 0, sizeof(*op));
+        op->kind = (uint8_t)in_kind[i];
+        op->width = (uint8_t)in_width[i];
+        op->digit = (int16_t)in_digit[i];
+        op->fixed_reg = (int16_t)in_fixed[i];
+        op->temp = in_temp[i];
+    }
+
+    /* Validate the template's operand references (the text emitter cannot
+     * report a clean diagnostic for a bad %N). */
+    for (const char *tp = as->template_str; *tp; tp++) {
+        if (*tp != '%' || !tp[1]) continue;
+        if (tp[1] == '%') { tp++; continue; }
+        if (tp[1] < '0' || tp[1] > '9') continue;
+        if (tp[1] - '0' >= aa.op_count) {
+            diag_report_error_at_token(c, "asm template references an out-of-range operand");
+            c->had_error = 1;
+            return;
+        }
+    }
+
+    /* --- The OP_ASM itself --- */
+    ir_emit(c, (Instr){.op = OP_ASM, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE,
+                       .temp_src2= TEMP_NONE, .cond = 0, .flags_out = 0xFF,
+                       .flags_in = 0xFF, .imm = 0, .label_idx = 0});
+    ir_asm_args_record(c, ir_get_count(c) - 1, &aa);
+
+    /* --- Post-asm: store r outputs back to their lvalues --- */
+    for (int i = 0; i < as->out_count; i++) {
+        if (out_kind[i] != ZC_ASM_OP_OUT_R && out_kind[i] != ZC_ASM_OP_INOUT_R) continue;
+        switch (out_width[i]) {
+            case 8:  ir_emit_store_byte(c, (uint16_t)out_temp[i], (uint16_t)out_addr[i]); break;
+            case 16: ir_emit_store_16(c, (uint16_t)out_temp[i], (uint16_t)out_addr[i]); break;
+            case 32: ir_emit_store_32(c, (uint16_t)out_temp[i], (uint16_t)out_addr[i]); break;
+            default: ir_emit_store_64(c, (uint16_t)out_temp[i], (uint16_t)out_addr[i]); break;
+        }
+    }
+    c->last_expr_is_float = 0;
 }
 
 void lower_stmt_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
@@ -1825,6 +2236,9 @@ void lower_node(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
         }
         case NODE_EXPR_STMT:
             lower_stmt_expr(c, arena, node);
+            break;
+        case NODE_ASM:
+            lower_asm_stmt(c, arena, node);
             break;
         case NODE_DECL:
             /* If this is a function definition (has body in right), lower the body */

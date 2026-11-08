@@ -11,7 +11,7 @@ Before scanning the 80+ historical files in `docs/`, **always consult the Open K
 - **Concept Nodes**:
   - [`docs/okf/architecture-pipeline.md`](docs/okf/architecture-pipeline.md) — Pipeline stages & source file map
   - [`docs/okf/frontend-and-types.md`](docs/okf/frontend-and-types.md) — `ZeroCCType` vs `TypeInfo`, structs, function pointers (`is_func_ptr`)
-  - [`docs/okf/ir-and-regalloc.md`](docs/okf/ir-and-regalloc.md) — 127-opcode `Instr` IR, `IRCallArgs`, reserved physical registers
+  - [`docs/okf/ir-and-regalloc.md`](docs/okf/ir-and-regalloc.md) — 168-opcode `Instr` IR, `IRCallArgs`/`IRAsmArgs` side tables, reserved physical registers
   - [`docs/okf/optimization-passes.md`](docs/okf/optimization-passes.md) — Active IR passes (`mem2reg`, `licm`, `auto_vectorize`, etc.) & safety invariants
   - [`docs/okf/abi-sysv-x86_64.md`](docs/okf/abi-sysv-x86_64.md) — System V AMD64 ABI, by-value structs, `sret` (`>16B` struct returns)
   - [`docs/okf/isa-backends.md`](docs/okf/isa-backends.md) — `ZeroCCISABackend` vtable, JIT vs AOT emission, relocations
@@ -35,6 +35,7 @@ Before scanning the 80+ historical files in `docs/`, **always consult the Open K
   make test-san            # zero_san flag-ON soundness sweep: test/san san_ok_*/san_trap_* at -O0..-O3 in JIT + AOT + cross-ISA qemu smoke
   make test-torture        # GCC c-torture conformance gate (ratcheted against test/torture/baseline.json)
   make test-c23            # C23 differential conformance gate: feature-tagged C23 cases (std_version, true/false, constexpr, nullptr, designator sizing, #warning, c23_misc) at -O0..-O3 in JIT + AOT, diffed against a reference gcc (C23_GCC override, else gcc-15/14/gcc) with the matching -std flag (tools/c23/test_c23.py)
+  make test-asm            # inline-assembly Phase 1 gate: every test/asm/*.c on the AOT text path (-S) at -O0..-O3, assembled+linked with host gcc, diffed (rc+stdout) vs a host-gcc -O2 reference (tools/asm_diff.py)
   make test-project-diff   # project-differential gate: test/projects/ (cJSON, zlib, sqlite3.c) must compile under zerocc at -O0/-O2, diffed against host-gcc acceptance (tools/project_diff.py)
   make asan                # host-side ASan/UBSan rebuild of the compiler itself — run after core-pipeline (parser/semantic/IR/optimizer) changes to catch the compiler's own memory bugs before they become user-facing crashes
   python3 tools/sret_verifier.py --verify-all

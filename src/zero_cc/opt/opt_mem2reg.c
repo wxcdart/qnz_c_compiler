@@ -70,6 +70,10 @@ static int instr_invalidates_slots(Instr *instr, const bool *label_targeted, int
         case OP_CALL:
         case OP_CALL_INDIRECT:
         case OP_SYSCALL:
+        case OP_ASM:
+            /* Sprint 135: an inline asm template may read/write any memory
+             * (including promoted local slots), so it invalidates slots the
+             * same way a call does. */
             return 1;
 
         /* Unconditional control flow leaves the basic block */

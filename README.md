@@ -1,14 +1,24 @@
 # zero_cc — Standalone Embeddable C99/C11/C23 Compiler
 
-ZeroCC is a lightweight, embeddable C99/C11/C23 compiler (with GNU extensions) with a two-pass architecture: a flat 167-opcode IR that is lowered, optimized, register-allocated, and emitted to any of four target ISAs. It compiles to machine code for a JIT (`--run`, the default) or to assembly, ELF objects, and — via ZeroCC's own linker — directly-executable freestanding binaries linked against its own `zero_rt` runtime, with no host libc involved.
+ZeroCC is a lightweight, embeddable C99/C11/C23 compiler (with GNU extensions) with a two-pass architecture: a flat 168-opcode IR that is lowered, optimized, register-allocated, and emitted to any of four target ISAs. It compiles to machine code for a JIT (`--run`, the default) or to assembly, ELF objects, and — via ZeroCC's own linker — directly-executable freestanding binaries linked against its own `zero_rt` runtime, with no host libc involved.
 
 ## Features
 
 - **C99/C11/C23** compiler, freestanding, with optional `zero_rt` standard library
 - **C23 Conformance**: `constexpr` data declarations, `nullptr`, `true`/`false` keywords, `typeof`/`typeof_unqual`, `#warning` (C23 6.9.1), empty `{}` initializers, `[[attr]]` attributes, designator-based unsized array sizing (`make test-c23` gate vs gcc-15)
 - **Multi-project validation**: sqlite3.c amalgamation (255k lines), 15-TU zlib, and cJSON compiled under zerocc at `-O0` and `-O2` (`make test-project-diff`)
+- **`__zerocc_syscall(number, a, b, c, d, e, f)`** — direct OS-syscall builtin
+  on all 4 ISAs (the `zero_rt` OS boundary)
 - **Multi-ISA**: x86-64, AArch64, RISC-V 64, RISC-V 32 (`--target`)
-- **Inline assembly support & roadmap**: GNU asm statement parsing (`__asm__ volatile ("..." : out : in : clobbers)`), memory/optimization barriers, asm symbol labels, direct multi-ISA `__zerocc_syscall`, and Clang-style integrated assembler roadmap (docs/okf/inline-assembly-roadmap.md)
+- **Inline assembly (Phase 1 complete, x86-64 AOT text)**: GNU extended asm
+  (`__asm__ [volatile] ("..." : outs : ins : clobbers)`) with `r`/`m`/
+  `=r`/`+r`/fixed-register (`a`/`b`/`d`/`S`/`D`) operands, matching-digit
+  constraints, and `memory`/`cc`/GPR clobbers — lowered to an `OP_ASM` IR op,
+  register-allocated (operands `no_spill`, clobbered registers forbidden for
+  operands, live values across clobbers spilled), and emitted into the `.s`
+  text stream with `%N`/`%%` interpolation (`make test-asm` differential gate
+  vs gcc; JIT/raw paths defer to the Phase 2 integrated assembler —
+  docs/okf/inline-assembly-roadmap.md)
 - **`-fsanitize=undefined`** — target-side signed-integer-overflow trap (bare
   `ud2`; x86-64, both emitters; check width follows the usual arithmetic
   conversions — Sprints 116–117; `make test-san` flag-ON gate)
@@ -48,7 +58,7 @@ ZeroCC is a lightweight, embeddable C99/C11/C23 compiler (with GNU extensions) w
 - **Compiler diagnostics** — gcc-style caret errors, C99 constraint checking,
   "did you mean" suggestions, multi-error recovery
 - **Conformance gate** ratcheted against GCC's `gcc.c-torture` corpus
-  (3,934 tests; 3,740 PASS / 0 bad at HEAD; see `make test-torture`)
+  (3,940 tests; 3,747 PASS / 0 bad at HEAD; see `make test-torture`)
 
 ## Quick Start
 
@@ -117,7 +127,7 @@ zero_cc/
 │       ├─ lexer/          # Tokenizer (C99/C11/C23 keyword tables)
 │       ├─ parser/         # Arena-based AST parser, const eval, static assert
 │       ├─ semantic/       # Semantic analysis: types, scopes, diagnostics
-│       ├─ ir/             # 167-opcode Instr IR, AST→IR lowering,
+│       ├─ ir/             # 168-opcode Instr IR, AST→IR lowering,
 │       │                   # linear-scan regalloc, asm/machine emitters
 │       ├─ opt/            # IR passes: constant_fold, dce, copy_prop,
 │       │                   # mem2reg, cse, gvn, licm, branchless,
@@ -151,8 +161,9 @@ Source → Preprocessor → Lexer → Arena AST Parser → Semantic Analysis
 ```
 
 **IR design:**
-- 167-opcode `Instr` array (integer, float, SIMD, atomic, TLS, and call
-  opcodes) with an `IRCallArgs` side table for call-site operands
+- 168-opcode `Instr` array (integer, float, SIMD, atomic, TLS, and call
+  opcodes) with `IRCallArgs` / `IRAsmArgs` side tables for call-site and
+  inline-asm operands
 - Dynamic, growing `IRArena` buffer — O(1) emission, cheap reset per function
 - Flat, non-SSA with implicit control flow; a lazy versioned **CFG layer**
   (`opt/cfg.{h,c}`) provides basic blocks, reachability, and natural loops for
@@ -249,18 +260,19 @@ Current status (verified 2026-11-08 at HEAD, Sprints 129–134):
 
 | Suite | Status | Count |
 |-------|--------|-------|
-| **Main regression suite** (`make test`: unit, semantic, ABI, JIT, AOT, LICM) | ✅ Pass | 186/186 |
-| **Optimizer sweep** (`make test-opt`, `-O0..-O3` × JIT + AOT via zerocc) | ✅ Pass | 149/149 |
+| **Main regression suite** (`make test`: unit, semantic, ABI, JIT, AOT, asm reference) | ✅ Pass | 190/190 |
+| **Optimizer sweep** (`make test-opt`, `-O0..-O3` × JIT + AOT via zerocc) | ✅ Pass | 150/150 |
 | **C23 differential gate** (`make test-c23`: 24 cases across gnu23/c11/c99 vs gcc-15) | ✅ Pass | 24/24 |
+| **Inline-asm Phase 1 gate** (`make test-asm`: `test/asm/*.c` on the `-S` text path, `-O0..-O3`, vs host-gcc reference) | ✅ Pass | 12/12 |
 | **Project-differential gate** (`make test-project-diff`: cJSON, zlib, sqlite3.c at -O0/-O2) | ✅ Pass | 36/36 TUs |
 | **`zero_san` flag-ON sweep** (`make test-san`: `san_ok_*` clean + `san_trap_*` SIGILL at `-O0..-O3`, JIT + AOT, cross-ISA qemu smoke) | ✅ Pass | 101 ok + 3 cross |
 | **Multi-file driver** (`make test-driver`, multi-TU JIT/AOT + per-input `-c`/`-S`) | ✅ Pass | 37/37 |
 | **Own linker** (`make test-linker`, `--zerocc-link` + gcc differential) | ✅ Pass | 21/21 |
 | **Cross-ISA raw-emitter QEMU gate** (`make test-isa-qemu`, vs static-musl reference) | ✅ Pass | 59/59 (all 4 ISAs) |
 | **Cross-ISA `__int128` raw-emitter QEMU gate** (`make test-isa128`, vs static-musl reference) | ✅ Pass | 144/144 (all 3 ISAs × 6 tests × 4 levels × 2 paths) |
-| **GCC c-torture conformance gate** (`make test-torture`, ratcheted baseline) | ✅ Pass | 3,740 PASS / 3,934 corpus (0 MISCOMPILE / 0 REJECT; SKIP-SUPPORT 87, SKIP-C89 44, SKIP-REFSEM 16, SKIP-TARGET: arm/ia64/mips 6, SKIP-UB/PTR/BOGUS 3, EXPECTED-REJECT 4, NO-REF 26, REF-BUG 8) |
+| **GCC c-torture conformance gate** (`make test-torture`, ratcheted baseline) | ✅ Pass | 3,747 PASS / 3,940 corpus (0 MISCOMPILE / 0 REJECT; SKIP-SUPPORT 87, SKIP-C89 43, SKIP-REFSEM 16, SKIP-TARGET: arm/ia64/mips 6, SKIP-UB/PTR/BOGUS 3, EXPECTED-REJECT 4, NO-REF 26, REF-BUG 8) |
 | **Type-tag verifier** (`tools/type_tag_verifier.py --verify-all`, invariants I1–I10 at `-O0/2/3`) | ✅ Pass | 160 files, RESULT OK |
-| **ASan/UBSan rebuild** (`make asan`) | ✅ Pass | 186/186 |
+| **ASan/UBSan rebuild** (`make asan`) | ✅ Pass | 190/190 |
 | **`sret` ABI verifier** (`tools/sret_verifier.py --verify-all`) | ✅ Pass | 6/6 |
 | **C11 verification suite** (`tools/c11/test_c11.py`) | ✅ Pass | 11/11 |
 | **VLA verification suite** (`tools/vla/test_vla.py`) | ✅ Pass | 11/11 (incl. VLA-in-loop / VLA-in-block runtime tests — C99 6.7.5.2 legal, gcc-differentially verified) |
@@ -353,9 +365,10 @@ tools/setup_musl_cross.sh --arch riscv32 --ccbin riscv64-linux-gnu-gcc --extra "
 
 ```bash
 make           # Build zerocc, zero_rt.a (all ISAs), and all tests
-make test      # Run the full regression suite (186 tests)
-make test-opt  # Optimizer sweep at -O0..-O3, JIT + AOT, via zerocc itself (149 tests)
+make test      # Run the full regression suite (190 tests)
+make test-opt  # Optimizer sweep at -O0..-O3, JIT + AOT, via zerocc itself (150 tests)
 make test-c23  # C23 differential conformance gate vs gcc-15 (24 tests)
+make test-asm  # Inline-assembly Phase 1 gate: test/asm/*.c on the -S text path, -O0..-O3, vs host gcc
 make test-project-diff # Project-differential gate (cJSON, zlib, sqlite3.c at -O0/-O2)
 make test-driver   # Multi-TU driver tests (tools/driver_tests.py)
 make test-linker   # Own-linker differential tests (tools/linker_tests.py)
@@ -388,7 +401,7 @@ ZeroCC maintains an **Open Knowledge Format (OKF v0.2)** knowledge graph in
 | [`docs/okf/multi-tu.md`](docs/okf/multi-tu.md) | Multi-translation-unit driver & JIT image merge (T1) |
 | [`docs/okf/own-linker.md`](docs/okf/own-linker.md) | ZeroCC's own ELF linker & relocation set (T2) |
 | [`docs/okf/zero-rt.md`](docs/okf/zero-rt.md) | `zero_rt` freestanding runtime |
-| [`docs/okf/ir-and-regalloc.md`](docs/okf/ir-and-regalloc.md) | 167-opcode `Instr` IR & linear-scan register allocation |
+| [`docs/okf/ir-and-regalloc.md`](docs/okf/ir-and-regalloc.md) | 168-opcode `Instr` IR & linear-scan register allocation |
 | [`docs/okf/optimization-passes.md`](docs/okf/optimization-passes.md) | Active IR optimization passes & safety invariants |
 | [`docs/okf/build-and-verification.md`](docs/okf/build-and-verification.md) | Build targets, direct compiler testing & ABI verifiers |
 | [`docs/okf/abi-sysv-x86_64.md`](docs/okf/abi-sysv-x86_64.md) | System V AMD64 ABI & `>16B` struct return (`sret`) rules |

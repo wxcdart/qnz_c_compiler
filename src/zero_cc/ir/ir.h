@@ -47,6 +47,57 @@ typedef struct {
  * fields were uint8_t). 65535 can no longer be a real temp id. */
 #define TEMP_NONE 0xFFFF
 
+/* ==========================================================================
+ * Inline asm (GNU __asm__) - Sprint 135, Phase 1 (x86-64 AOT text path).
+ *
+ * The template string and operand/clobber lists live in a side table keyed
+ * by instruction index (same pattern as IRCallArgs): the packed 24-byte
+ * Instr has no room for them. The operand temps are ordinary temps -
+ * output r/in-out temps are DEFINED by the OP_ASM, input r temps are USED,
+ * and m operands carry an ADDRESS temp (the template gets a (%reg) form).
+ * Constraint subset for Phase 1: r/m (with =, + prefixes), matching digits
+ * 0-7, and the x86 fixed-register letters a/b/c/d/S/D (pre-colored via the
+ * same mechanism as ABI parameter slots). "memory"/"cc" and GPR-name
+ * clobbers are supported; "memory" (or volatile) makes the op a full
+ * memory barrier for the optimizer passes.
+ * ========================================================================== */
+#define IR_ASM_MAX_OPERANDS 16
+
+/* Operand kinds for IRAsmOperand.kind */
+typedef enum {
+    ZC_ASM_OP_OUT_R = 0,  /* "=r" output; OP_ASM defines `temp` */
+    ZC_ASM_OP_IN_R,       /* "r" input; OP_ASM uses `temp` */
+    ZC_ASM_OP_INOUT_R,    /* "+r" in-out; digit is the binding index */
+    ZC_ASM_OP_OUT_M,      /* "=m" output; `temp` = address, written by asm */
+    ZC_ASM_OP_IN_M        /* "m" input; `temp` = address, read by asm */
+} ZeroCCAsmOpKind;
+
+typedef struct {
+    uint8_t  kind;       /* ZeroCCAsmOpKind */
+    uint8_t  width;      /* C width in BITS for r ops: 8/16/32/64 (0 for m) */
+    int16_t  digit;      /* bound output index for IN_R (digit constraint) /
+                          * INOUT_R, or -1 for a plain operand */
+    int16_t  fixed_reg;  /* x86 GPR pool index for a/b/c/d/S/D, -1 otherwise */
+    int32_t  temp;       /* value temp (r) / address temp (m) */
+} IRAsmOperand;
+
+typedef struct {
+    size_t instr_index;
+    const char *template_str;  /* concatenated template (NUL-terminated) */
+    IRAsmOperand ops[IR_ASM_MAX_OPERANDS];
+    int op_count;
+    uint32_t clobber_mask;     /* x86 GPR pool-index bits (0=rax 1=rbx 2=rcx
+                                 * 3=rdx 4=rsi 5=rdi 6..13=r8..r15); 0 = none */
+    int has_memory;            /* "memory" clobber or volatile: full memory
+                                 * barrier (DCE/LICM/GVN/mem2reg respect it) */
+} IRAsmArgs;
+
+typedef struct {
+    IRAsmArgs *table;
+    size_t count;
+    size_t capacity;
+} IRAsmArgsArena;
+
 /* Opcode definitions - 51 opcodes */
 typedef enum {
     /* Data Movement (10) */
@@ -288,6 +339,14 @@ typedef enum {
     OP_VLOADSS_RAW,    /* dest (low32) = *(32-bit *)src1, zero-extended (no widen) */
     OP_VSTORESS_RAW,   /* *(32-bit *)src2 (address) = low 32 bits of src1 (no narrow) */
     OP_CVTTSD2SS,      /* dest (ss, low32) = (float) src1 (sd): model double -> ABI float */
+
+    /* GNU inline asm (Sprint 135, Phase 1): a non-empty __asm__ template.
+     * Operand/clobber payload lives in the IRAsmArgs side table
+     * (ir_asm_args_find); the instr fields are unused. Always a side effect
+     * (never DCE-able); a full memory barrier when has_memory. Emitted only
+     * by the AOT text path (x86-64): the template is interpolated and written
+     * to the .s stream. JIT/raw paths reject at lowering (Phase 2). */
+    OP_ASM,
 } Opcode;
 
 /* Condition codes for OP_COND_SET */
@@ -470,6 +529,7 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_VLOADSS_RAW: return "VLOADSS_RAW";
         case OP_VSTORESS_RAW: return "VSTORESS_RAW";
         case OP_CVTTSD2SS: return "CVTTSD2SS";
+        case OP_ASM: return "ASM";
         default: return "UNKNOWN";
     }
 }
@@ -848,6 +908,11 @@ static inline void ir_insert_label(ZeroCCCompiler *c, size_t idx, uint16_t label
 /* Call argument tracking - arena-based */
 void ir_call_args_record(ZeroCCCompiler *c, size_t instr_index, int count, const int *temps, const int *is_fp, const uint8_t *stack_pos);
 const IRCallArgs *ir_call_args_find(const ZeroCCCompiler *c, size_t instr_index);
+
+/* Inline asm args tracking - arena-based (Sprint 135). Record right after
+ * ir_emit of the OP_ASM; template_str must outlive the compiler. */
+void ir_asm_args_record(ZeroCCCompiler *c, size_t instr_index, const IRAsmArgs *args);
+const IRAsmArgs *ir_asm_args_find(const ZeroCCCompiler *c, size_t instr_index);
 
 /* Helper functions for common patterns */
 static inline void ir_emit_mov_imm(ZeroCCCompiler *c, uint16_t temp_dest, int64_t imm) {

@@ -22,6 +22,7 @@
 /* Compiler & Emitter Context */
 typedef struct ZeroCCStrChunk ZeroCCStrChunk;
 typedef struct ZeroCCGlobalVar ZeroCCGlobalVar;
+typedef struct ZeroCCAsmStmt ZeroCCAsmStmt;
 
 /* Static TLS variable descriptor (declaration order). The TLS backend's
  * finalize() lays these out into the .tdata/.tbss block. */
@@ -304,6 +305,23 @@ typedef struct ZeroCCCompiler {
     /* IR arena - dynamic instruction buffer */
     IRArena ir_arena;              /* IR instruction arena */
     IRCallArgsArena ir_call_args;  /* Call argument tracking arena */
+    IRAsmArgsArena ir_asm_args;    /* Inline asm (OP_ASM) args arena (Sprint 135) */
+
+    /* GNU __asm__ statement payloads (Sprint 135): the parser appends one
+     * ZeroCCAsmStmt per non-empty template; NODE_ASM.int_val indexes this
+     * array. Freed with the compiler. */
+    ZeroCCAsmStmt *asm_stmts;
+    size_t asm_stmt_count;
+    size_t asm_stmt_cap;
+
+    /* Inline-asm operand temps for the function being lowered (Sprint 135).
+     * Parallel lists, reset per function: operand temps are marked no_spill
+     * in LRA (the template references them at the OP_ASM site), and a fixed
+     * constraint (a/b/c/d/S/D) pre-colors them to the pool index. */
+    int *asm_operand_temps;
+    int *asm_fixed_regs;
+    size_t asm_operand_count;
+    size_t asm_operand_cap;
 
     /* Translation-unit level AST arena for inlinable functions */
     void *tu_ast_arena;

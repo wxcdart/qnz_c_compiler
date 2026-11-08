@@ -68,6 +68,11 @@ typedef enum {
     NODE_LABEL_ADDR,  /* GNU &&label unary expr: s.str = label name */
     NODE_RETURN,      /* left = expr (optional) */
     NODE_DECL,        /* var / func declaration: left = init, str_val = name */
+    /* GNU inline asm statement (Sprint 135): int_val = index into
+     * c->asm_stmts (the ZeroCCAsmStmt payload: template, operands with
+     * constraints, clobbers, volatile flag). Empty templates never reach
+     * the AST (they lower to C-level assignments / barriers at parse time). */
+    NODE_ASM,         /* int_val = c->asm_stmts index */
     /* Flags for NODE_DECL: */
 #define NODE_DECL_FUNC_PROTO  (1u << 0)  /* function prototype (no body, has param list) */
 #define NODE_FLAG_FUNC_PROTO  NODE_DECL_FUNC_PROTO /* alias for backwards-compat */
@@ -130,6 +135,29 @@ typedef struct ZeroCCASTNode {
         } aux;
     };
 } ZeroCCASTNode;
+
+/* GNU __asm__ payload (Sprint 135). One per non-empty-template asm statement;
+ * referenced by NODE_ASM.int_val (index into c->asm_stmts). The parser fills
+ * this in; the lowering (ast_lowering_stmt.c) consumes it and builds OP_ASM.
+ * Constraint strings are the unquoted literal text ("=r", "0", "m", ...);
+ * clobber_names hold bare clobber tokens ("memory", "cc", "rcx", ...). */
+#define ZC_ASM_MAX_OPS     8
+#define ZC_ASM_MAX_CLOBBERS 8
+
+typedef struct ZeroCCAsmStmt {
+    const char *template_str;   /* concatenated template (malloc'd, NUL-terminated) */
+    ASTRef      out_exprs[ZC_ASM_MAX_OPS];
+    char        out_constraints[ZC_ASM_MAX_OPS][8];
+    int         out_count;
+    ASTRef      in_exprs[ZC_ASM_MAX_OPS];
+    char        in_constraints[ZC_ASM_MAX_OPS][8];
+    int         in_count;
+    char        clobber_names[ZC_ASM_MAX_CLOBBERS][16];
+    int         clobber_count;
+    int         is_volatile;
+    uint32_t    line;
+    uint32_t    col;
+} ZeroCCAsmStmt;
 
 #define ZERO_CC_AST_CHUNK_BITS 10
 #define ZERO_CC_AST_CHUNK_SIZE (1 << ZERO_CC_AST_CHUNK_BITS) /* 1024 nodes per chunk */

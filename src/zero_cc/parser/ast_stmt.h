@@ -75,6 +75,7 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
          strcmp(c->tokens[c->token_pos].str_val, "__asm") == 0 ||
          strcmp(c->tokens[c->token_pos].str_val, "asm") == 0)) {
         c->token_pos++;
+        int asm_volatile = 0;
         if (c->token_pos < c->token_count &&
             ((c->tokens[c->token_pos].type == TK_IDENT &&
               c->tokens[c->token_pos].str_val &&
@@ -83,26 +84,42 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                strcmp(c->tokens[c->token_pos].str_val, "volatile") == 0)) ||
              c->tokens[c->token_pos].type == TK_VOLATILE)) {
             c->token_pos++;
+            asm_volatile = 1;
         }
         bool asm_paren = false;
         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
             asm_paren = true;
             c->token_pos++;
         }
-        /* Template: one or more adjacent string literals. */
+        /* Template: one or more adjacent string literals. Concatenate for
+         * the NODE_ASM payload (Sprint 135); empty/whitespace-only
+         * templates (barriers) take the C-level lowering below. */
         bool asm_nonempty = false;
         bool asm_is_fpatan = false;
         bool asm_is_fsqrt = false;
+        char *asm_tpl = NULL;
+        size_t asm_tpl_len = 0, asm_tpl_cap = 0;
         while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STRING) {
             const char *tstr = c->tokens[c->token_pos].str_val;
             if (tstr) {
                 if (strncmp(tstr, "fpatan", 6) == 0) asm_is_fpatan = true;
                 else if (strncmp(tstr, "fsqrt", 5) == 0) asm_is_fsqrt = true;
-            }
-            for (const char *ch = c->tokens[c->token_pos].str_val; *ch; ch++) {
-                if (*ch != ' ' && *ch != '\t' && *ch != '\n' && *ch != '\r') {
-                    asm_nonempty = true;
-                    break;
+                for (const char *ch = tstr; *ch; ch++) {
+                    if (*ch != ' ' && *ch != '\t' && *ch != '\n' && *ch != '\r') {
+                        asm_nonempty = true;
+                        break;
+                    }
+                }
+                size_t tlen = strlen(tstr);
+                if (asm_tpl_len + tlen + 1 > asm_tpl_cap) {
+                    size_t ncap = asm_tpl_cap ? asm_tpl_cap * 2 : 64;
+                    while (ncap < asm_tpl_len + tlen + 1) ncap *= 2;
+                    char *nt = realloc(asm_tpl, ncap);
+                    if (nt) { asm_tpl = nt; asm_tpl_cap = ncap; }
+                }
+                if (asm_tpl) {
+                    memcpy(asm_tpl + asm_tpl_len, tstr, tlen + 1);
+                    asm_tpl_len += tlen;
                 }
             }
             c->token_pos++;
@@ -121,6 +138,8 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
         char in_constraints[8][32] = {{0}};
         int in_count = 0;
         char last_constraint[32] = {0};
+        char asm_clobbers[8][16] = {{0}};
+        int asm_clobber_count = 0;
 
         bool asm_bail = false;
         while (c->token_pos < c->token_count &&
@@ -140,7 +159,14 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                 c->token_pos++;
             } else if (ot == TK_STRING) {
                 const char *s = c->tokens[c->token_pos].str_val;
-                if (s) snprintf(last_constraint, sizeof(last_constraint), "%s", s);
+                if (s) {
+                    if (colon_section == 3 && asm_clobber_count < 8) {
+                        snprintf(asm_clobbers[asm_clobber_count],
+                                 sizeof(asm_clobbers[0]), "%s", s);
+                        asm_clobber_count++;
+                    }
+                    snprintf(last_constraint, sizeof(last_constraint), "%s", s);
+                }
                 c->token_pos++;
             } else if (ot == TK_LPAREN) {
                 c->token_pos++;
@@ -253,11 +279,64 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                 }
             }
         }
-        if (asm_nonempty) {
+        if (asm_nonempty && asm_bail) {
+            free(asm_tpl);
             diag_report_error_at_token(c,
-                "GNU asm statement with a non-empty template is not supported");
+                "GNU asm statement: operand list not understood");
             c->had_error = 1;
+            return head_stmt;
         }
+        if (asm_nonempty) {
+            /* Non-empty GNU template (Sprint 135, Phase 1): record the
+             * payload and emit a NODE_ASM for the lowering to turn into an
+             * OP_ASM. Support scope (x86-64 AOT text path, constraint subset
+             * r/m/=/+ /0-7 / a b c d S D, "memory"/"cc"/GPR clobbers) is
+             * validated there with clean diagnostics; the parser stays
+             * permissive so recovery/structure handling is unchanged. */
+            if (c->asm_stmt_count >= c->asm_stmt_cap) {
+                size_t ncap = c->asm_stmt_cap ? c->asm_stmt_cap * 2 : 8;
+                ZeroCCAsmStmt *ns = realloc(c->asm_stmts, ncap * sizeof(ZeroCCAsmStmt));
+                if (!ns) {
+                    free(asm_tpl);
+                    diag_report_error_at_token(c, "internal: out of memory for asm statement");
+                    c->had_error = 1;
+                    return head_stmt;
+                }
+                c->asm_stmts = ns;
+                c->asm_stmt_cap = ncap;
+            }
+            ZeroCCAsmStmt *as = &c->asm_stmts[c->asm_stmt_count];
+            memset(as, 0, sizeof(*as));
+            as->template_str = asm_tpl;  /* take ownership of the malloc'd buffer */
+            for (int i = 0; i < out_count && i < ZC_ASM_MAX_OPS; i++) {
+                as->out_exprs[i] = out_exprs[i];
+                snprintf(as->out_constraints[i], sizeof(as->out_constraints[i]), "%s", out_constraints[i]);
+            }
+            as->out_count = out_count > ZC_ASM_MAX_OPS ? ZC_ASM_MAX_OPS : out_count;
+            for (int i = 0; i < in_count && i < ZC_ASM_MAX_OPS; i++) {
+                as->in_exprs[i] = in_exprs[i];
+                snprintf(as->in_constraints[i], sizeof(as->in_constraints[i]), "%s", in_constraints[i]);
+            }
+            as->in_count = in_count > ZC_ASM_MAX_OPS ? ZC_ASM_MAX_OPS : in_count;
+            for (int i = 0; i < asm_clobber_count && i < ZC_ASM_MAX_CLOBBERS; i++) {
+                snprintf(as->clobber_names[i], sizeof(as->clobber_names[i]), "%s", asm_clobbers[i]);
+            }
+            as->clobber_count = asm_clobber_count > ZC_ASM_MAX_CLOBBERS ? ZC_ASM_MAX_CLOBBERS : asm_clobber_count;
+            as->is_volatile = asm_volatile;
+            as->line = line;
+            as->col = col;
+
+            ASTRef a_ref = zero_cc_ast_alloc_node(arena, NODE_ASM);
+            ZeroCCASTNode *an = zero_cc_ast_get(arena, a_ref);
+            if (an) {
+                an->line = line;
+                an->col = col;
+                an->int_val = (int64_t)c->asm_stmt_count;
+            }
+            c->asm_stmt_count++;
+            return a_ref;
+        }
+        if (asm_tpl) free(asm_tpl);  /* empty template: barrier path, no payload */
         return head_stmt;
     }
 

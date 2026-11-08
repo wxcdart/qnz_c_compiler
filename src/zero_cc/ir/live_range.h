@@ -476,6 +476,32 @@ static void live_range_compute(LiveRangeAnalyzer *lra, RegAllocator *ra, ZeroCCC
                 }
             }
         }
+
+        /* Sprint 135: inline-asm operand temps are no_spill (the template
+         * references them at the OP_ASM site); a fixed-register constraint
+         * (a/b/c/d/S/D) pre-colors the interval like an ABI parameter slot.
+         * Registers the template clobbers are forbidden for the operand. */
+        if (c && c->asm_operand_count > 0 && int_idx >= 0) {
+            for (size_t k = 0; k < c->asm_operand_count; k++) {
+                if (c->asm_operand_temps[k] != (int)temp_id) continue;
+                regalloc_set_no_spill(ra, int_idx);
+                if (c->asm_fixed_regs && c->asm_fixed_regs[k] >= 0) {
+                    regalloc_set_fixed_reg(ra, int_idx, c->asm_fixed_regs[k]);
+                }
+                /* Find this operand's OP_ASM and forbid its clobbered regs */
+                for (size_t a = 0; a < c->ir_asm_args.count; a++) {
+                    const IRAsmArgs *aa = &c->ir_asm_args.table[a];
+                    for (int o = 0; o < aa->op_count; o++) {
+                        if (aa->ops[o].temp != (uint16_t)temp_id) continue;
+                        if (aa->clobber_mask) {
+                            regalloc_set_forbidden(ra, int_idx, aa->clobber_mask);
+                        }
+                        break;
+                    }
+                }
+                break;
+            }
+        }
     }
 
     if (backedges) free(backedges);
@@ -540,6 +566,30 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
             }
             if (arg_count > 1 && instr->temp_src2 != TEMP_NONE) {
                 live_range_add_use(lra, i, instr->temp_src2, false);
+            }
+            continue;
+        }
+
+        /* OP_ASM (Sprint 135): operand liveness lives in the IRAsmArgs side
+         * table. An output r / in-out operand is DEFINED by the asm; an
+         * input r operand and every m address temp is USED. An in-out temp
+         * is both (same position, like an in-place op) so its pre-asm value
+         * (the lvalue load the lowering emits) stays live in the operand
+         * register across the template. */
+        if (instr->op == OP_ASM) {
+            const IRAsmArgs *aa = ir_asm_args_find(c, i);
+            if (aa) {
+                for (int o = 0; o < aa->op_count; o++) {
+                    const IRAsmOperand *opn = &aa->ops[o];
+                    if (opn->temp < 0) continue;
+                    if (opn->kind == ZC_ASM_OP_OUT_R || opn->kind == ZC_ASM_OP_INOUT_R) {
+                        live_range_add_use(lra, i, opn->temp, true);
+                    }
+                    if (opn->kind == ZC_ASM_OP_IN_R || opn->kind == ZC_ASM_OP_INOUT_R ||
+                        opn->kind == ZC_ASM_OP_OUT_M || opn->kind == ZC_ASM_OP_IN_M) {
+                        live_range_add_use(lra, i, opn->temp, false);
+                    }
+                }
             }
             continue;
         }

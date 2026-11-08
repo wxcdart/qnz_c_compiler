@@ -390,6 +390,15 @@ void opt_branchless_select(ZeroCCCompiler *c) {
             }
         }
     }
+    /* Sprint 135: remap OP_ASM side-table indices the same way */
+    if (c->ir_asm_args.table) {
+        for (size_t ai = 0; ai < c->ir_asm_args.count; ai++) {
+            size_t old_pos = c->ir_asm_args.table[ai].instr_index;
+            if (old_pos < (size_t)count && old_to_new[old_pos] >= 0) {
+                c->ir_asm_args.table[ai].instr_index = (size_t)old_to_new[old_pos];
+            }
+        }
+    }
     ir_arena_free(&c->ir_arena);
     c->ir_arena = new_arena;
 

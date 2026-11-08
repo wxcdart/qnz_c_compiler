@@ -95,6 +95,12 @@ typedef struct LiveInterval {
     int spill_slot;           /* Spill slot index (-1 if not spilled) */
     bool is_spilled;          /* Whether this interval is spilled */
     bool spans_call;          /* Whether this interval spans a function call */
+    bool no_spill;            /* Sprint 135: inline-asm operand temp - the
+                               * OP_ASM template references this value in a
+                               * register at the asm site, so it can never be
+                               * spilled (pressure failure instead) */
+    uint32_t forbidden_mask;  /* Sprint 135: hardware GPRs the template clobbers
+                               * - an asm operand must never be placed there */
     size_t spill_cost;        /* Spill cost (higher = more important to keep in reg) */
     int fixed_reg;            /* Pre-colored physical register (ABI parameter slot
                                * pre-coloring, Sprint 117); -1 = not pinned. */
@@ -140,6 +146,11 @@ typedef struct RegAllocator {
     /* Cost-based allocation flag */
     bool use_cost_based;  /* If true, use spill cost priority instead of start position */
     bool spill_across_calls; /* True for has_setjmp functions: force spans_call intervals onto stack */
+
+    /* Sprint 135: set by regalloc_allocate when an inline-asm operand temp
+     * (no_spill) could not be kept in a register and no spillable victim
+     * existed. The lowering reports a clean diagnostic afterwards. */
+    bool asm_pressure_fail;
 
     /* O(1) lookup table from 16-bit temp_id to interval index (-1 if none) */
     int32_t temp_to_interval[65536];
@@ -214,6 +225,7 @@ static void regalloc_init(RegAllocator *ra) {
     ra->used_callee_saved_gpr_mask = 0;
     ra->use_cost_based = true;   /* Enable cost-based allocation for better loop performance */
     ra->spill_across_calls = false;
+    ra->asm_pressure_fail = false;
     memset(ra->temp_to_interval, -1, sizeof(ra->temp_to_interval));
     ra->fixed_interval_count = 0;
     regalloc_set_isa(ra, ISA_X86_64);  /* Default to x86-64, caller can call regalloc_set_isa */
@@ -244,6 +256,8 @@ static int regalloc_add_interval(RegAllocator *ra, int temp_id, size_t start, si
     interval->assigned_reg_hi = -1;
     interval->spill_slot = -1;
     interval->is_spilled = false;
+    interval->no_spill = false;
+    interval->forbidden_mask = 0;
     interval->spans_call = false;
     interval->spill_cost = 1;  /* Default spill cost */
     interval->fixed_reg = -1;
@@ -282,6 +296,21 @@ static void regalloc_set_fixed_reg(RegAllocator *ra, int interval_idx, int reg) 
     if (ra->fixed_interval_count < 256) {
         ra->fixed_interval_indices[ra->fixed_interval_count++] = (size_t)interval_idx;
     }
+}
+
+/* Mark an interval non-spillable (inline-asm operand, Sprint 135) */
+static void regalloc_set_no_spill(RegAllocator *ra, int interval_idx) __attribute__((unused));
+static void regalloc_set_no_spill(RegAllocator *ra, int interval_idx) {
+    if (!ra || interval_idx < 0 || (size_t)interval_idx >= ra->interval_count) return;
+    ra->intervals[interval_idx].no_spill = true;
+}
+
+/* Forbid a set of hardware GPRs for an interval (inline-asm operand whose
+ * OP_ASM clobbers those registers, Sprint 135). */
+static void regalloc_set_forbidden(RegAllocator *ra, int interval_idx, uint32_t mask) __attribute__((unused));
+static void regalloc_set_forbidden(RegAllocator *ra, int interval_idx, uint32_t mask) {
+    if (!ra || interval_idx < 0 || (size_t)interval_idx >= ra->interval_count) return;
+    ra->intervals[interval_idx].forbidden_mask |= mask;
 }
 
 /* Comparison function for sorting intervals by start position */
@@ -552,6 +581,7 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
             static const int pool_to_phys[] = {7, 6, 2, 8, 9, 0, 3, 12, 13, 14, 15};
             for (size_t pool_idx = 0; pool_idx < sizeof(pool_to_phys)/sizeof(pool_to_phys[0]); pool_idx++) {
                 int phys_reg = pool_to_phys[pool_idx];
+                if (interval->forbidden_mask && (interval->forbidden_mask & (1u << phys_reg))) continue;
                 if (ra->gpr_free[phys_reg] && !regalloc_reg_conflicts_fixed(ra, phys_reg, interval)) {
                     ra->gpr_free[phys_reg] = false;
                     static const uint32_t x86_callee_saved_mask =
@@ -714,8 +744,19 @@ static void regalloc_allocate(RegAllocator *ra) {
              * if the slot is somehow held, fall back to a normal register —
              * the OP_PARAM_LOAD emission then moves the value in. */
             reg = current->fixed_reg;
-            if (!ra->gpr_free[reg]) {
-                reg = alloc_reg(ra, current);
+            if (current->no_spill && current->forbidden_mask &&
+                (current->forbidden_mask & (1u << reg))) {
+                /* Sprint 135: a fixed-register asm operand (a/b/d/S/D) whose
+                 * register the template itself clobbers is unsatisfiable. */
+                ra->asm_pressure_fail = true;
+                reg = -1;
+            } else if (!ra->gpr_free[reg]) {
+                if (current->no_spill) {
+                    ra->asm_pressure_fail = true;
+                    reg = -1;
+                } else {
+                    reg = alloc_reg(ra, current);
+                }
             }
         } else {
             reg = alloc_reg(ra, current);
@@ -754,6 +795,8 @@ static void regalloc_allocate(RegAllocator *ra) {
                     if (active->temp_id == VREG_0 || active->temp_id == VREG_2) continue;
                     /* Already-spilled intervals hold no register to hand over */
                     if (active->is_spilled) continue;
+                    /* Sprint 135: inline-asm operand intervals never spill */
+                    if (active->no_spill) continue;
                     if (regalloc_reg_conflicts_fixed(ra, active->assigned_reg, current)) continue;
                     if (current->spans_call && current->reg_class == REG_CLASS_GPR &&
                         !regalloc_is_callee_saved_gpr(ra, active->assigned_reg)) {
@@ -788,6 +831,8 @@ static void regalloc_allocate(RegAllocator *ra) {
                     if (active->temp_id == VREG_0 || active->temp_id == VREG_2) continue;
                     /* Already-spilled intervals hold no register to hand over */
                     if (active->is_spilled) continue;
+                    /* Sprint 135: inline-asm operand intervals never spill */
+                    if (active->no_spill) continue;
                     if (regalloc_reg_conflicts_fixed(ra, active->assigned_reg, current)) continue;
                     if (current->spans_call && current->reg_class == REG_CLASS_GPR &&
                         !regalloc_is_callee_saved_gpr(ra, active->assigned_reg)) {
@@ -805,6 +850,10 @@ static void regalloc_allocate(RegAllocator *ra) {
                         spill = active;
                     }
                 }
+            }
+
+            if (spill->no_spill) {
+                ra->asm_pressure_fail = true;
             }
 
             if (spill == current || spill->assigned_reg < 0) {

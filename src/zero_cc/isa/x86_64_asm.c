@@ -1496,6 +1496,157 @@ static void x86_emit_trunc128_64_asm(ZeroCCCompiler *c, int dst, int slo, FILE *
     if (dst != slo) fprintf(out, "\tmovq\t%%%s,%%%s\n", slo_n, dst_n);
 }
 
+/* =========================================================================
+ * GNU inline asm (Sprint 135, Phase 1: AOT text passthrough, x86-64)
+ *
+ * Interpolates GNU operand specifiers into the template and writes the
+ * result to the .s stream. Register allocation already resolved every
+ * operand temp (r operands in registers, m operands as address temps);
+ * digit-bound inputs are materialized into their output's register first.
+ * ========================================================================= */
+
+/* Width-variant AT&T register name for a hardware register number (the LRA
+ * index space): 0=rax 1=rcx 2=rdx 3=rbx 4=rsp 5=rbp 6=rsi 7=rdi 8-15=r8-r15. */
+static const char *x86_asm_operand_reg_name(int phys, int width) {
+    static const char *n64[16] = {"rax","rcx","rdx","rbx","rsp","rbp","rsi","rdi","r8","r9","r10","r11","r12","r13","r14","r15"};
+    static const char *n32[16] = {"eax","ecx","edx","ebx","esp","ebp","esi","edi","r8d","r9d","r10d","r11d","r12d","r13d","r14d","r15d"};
+    static const char *n16[16] = {"ax","cx","dx","bx","sp","bp","si","di","r8w","r9w","r10w","r11w","r12w","r13w","r14w","r15w"};
+    static const char *n8[16]  = {"al","cl","dl","bl","spl","bpl","sil","dil","r8b","r9b","r10b","r11b","r12b","r13b","r14b","r15b"};
+    if (phys < 0 || phys > 15) return "rax";
+    switch (width) {
+        case 8:  return n8[phys];
+        case 16: return n16[phys];
+        case 32: return n32[phys];
+        default: return n64[phys];
+    }
+}
+
+static const char *x86_asm_mov_suffix(int width) {
+    switch (width) {
+        case 8:  return "b";
+        case 16: return "w";
+        case 32: return "l";
+        default: return "q";
+    }
+}
+
+static void x86_emit_inline_asm_asm(ZeroCCCompiler *c, size_t idx, FILE *out) {
+    const Instr *instr = ir_get(c, idx);
+    if (!instr) return;
+    const IRAsmArgs *aa = ir_asm_args_find(c, idx);
+    if (!aa || !aa->template_str) return;
+
+    int32_t spill_base_offset = c->regalloc.spill_base_offset;
+
+    /* Locate the first output operand in the array (the lowering records
+     * all outputs first, then inputs - GCC template order). */
+    int first_out = -1;
+    for (int o = 0; o < aa->op_count; o++) {
+        if (aa->ops[o].kind == ZC_ASM_OP_OUT_R || aa->ops[o].kind == ZC_ASM_OP_INOUT_R ||
+            aa->ops[o].kind == ZC_ASM_OP_OUT_M) {
+            first_out = o;
+            break;
+        }
+    }
+
+    /* Materialize digit-bound inputs into their output's register: the
+     * template references the shared operand once, at the output's %N. */
+    for (int o = 0; o < aa->op_count; o++) {
+        const IRAsmOperand *op = &aa->ops[o];
+        if (op->digit < 0 || first_out < 0) continue;
+        int out_pos = first_out + op->digit;
+        if (out_pos < 0 || out_pos >= aa->op_count) continue;
+        const IRAsmOperand *oop = &aa->ops[out_pos];
+        int width = oop->width ? oop->width : 64;
+        int out_phys = regalloc_get_reg_for_temp(&c->regalloc, oop->temp);
+        int in_sp = regalloc_get_spill_slot_for_temp(&c->regalloc, op->temp);
+        int in_phys;
+        if (in_sp >= 0) {
+            /* Defensive: asm operands are no_spill, so this should be
+             * unreachable; reload into scratch1 to stay well-defined. */
+            int32_t off = spill_base_offset + (in_sp + 1) * 8;
+            fprintf(out, "\tmovq\t%d(%%%s),%%%s\n", (int)zero_cc_frame_disp(c, -off),
+                    BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c)),
+                    BE(c)->get_hw_reg_name(BE(c)->scratch_reg1));
+            in_phys = BE(c)->scratch_reg1;
+        } else {
+            in_phys = regalloc_get_reg_for_temp(&c->regalloc, op->temp);
+        }
+        const char *in_n = x86_asm_operand_reg_name(in_phys, width);
+        const char *out_n = x86_asm_operand_reg_name(out_phys, width);
+        if (strcmp(in_n, out_n) != 0) {
+            fprintf(out, "\tmov%s\t%%%s,%%%s\n", x86_asm_mov_suffix(width), in_n, out_n);
+        }
+    }
+
+    /* Interpolate the template and write it. %% -> %; %N/%aN/%{q,l,w,b,c}N
+     * -> the operand's register (width-variant) or memory form; anything
+     * else passes through. */
+    /* The raw template goes between #APP/#NO_APP (gcc's convention): gas's
+     * C preprocessor is off, so backslashes, leading tabs and '#' in the
+     * user text cannot be mangled by macro/continuation processing. */
+    fprintf(out, "#APP\n\t/* GNU asm */\n\t");
+    const char *p = aa->template_str;
+    fprintf(out, "\t");
+    while (*p) {
+        if (*p == '%' && p[1]) {
+            p++;
+            if (*p == '%') {
+                fputc('%', out);
+                p++;
+                continue;
+            }
+            if (*p >= '0' && *p <= '9') {
+                int n = *p - '0';
+                p++;
+                int width = 0;
+                if (*p == 'a') { p++; }                       /* alternate: same form in Phase 1 */
+                else if (*p == 'q') { p++; width = 64; }
+                else if (*p == 'l') { p++; width = 32; }
+                else if (*p == 'w') { p++; width = 16; }
+                else if (*p == 'b' || *p == 'c') { p++; width = 8; }
+                if (n >= aa->op_count) {
+                    fprintf(out, "%%bad");
+                    continue;
+                }
+                const IRAsmOperand *op = &aa->ops[n];
+                if (op->kind == ZC_ASM_OP_OUT_M || op->kind == ZC_ASM_OP_IN_M) {
+                    int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, op->temp);
+                    if (sp >= 0) {
+                        int32_t off = spill_base_offset + (sp + 1) * 8;
+                        fprintf(out, "\n\tmovq\t%d(%%%s),%%%s", (int)zero_cc_frame_disp(c, -off),
+                                BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c)),
+                                BE(c)->get_hw_reg_name(BE(c)->scratch_reg1));
+                        fprintf(out, "(%%%s)", BE(c)->get_hw_reg_name(BE(c)->scratch_reg1));
+                    } else {
+                        int phys = regalloc_get_reg_for_temp(&c->regalloc, op->temp);
+                        fprintf(out, "(%%%s)", BE(c)->get_hw_reg_name(phys));
+                    }
+                } else {
+                    int phys = regalloc_get_reg_for_temp(&c->regalloc, op->temp);
+                    fprintf(out, "%%%s", x86_asm_operand_reg_name(phys,
+                        width ? width : (op->width ? op->width : 64)));
+                }
+                continue;
+            }
+            /* Unknown escape: pass through */
+            fputc('%', out);
+            fputc(*p, out);
+            p++;
+            continue;
+        }
+        if (*p == '\n') {
+            fprintf(out, "\n\t");
+            p++;
+            continue;
+        }
+        fputc(*p, out);
+        p++;
+    }
+    fputc('\n', out);
+    fprintf(out, "#NO_APP\n");
+}
+
 /* Initialize x86-64 assembly emission functions in backend */
 void x86_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_prologue_asm = x86_emit_prologue_asm;
@@ -1506,6 +1657,7 @@ void x86_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_mov_imm_asm = x86_emit_mov_imm_asm;
     be->emit_mov_reg_asm = x86_emit_mov_reg_asm;
     be->emit_syscall_asm = x86_emit_syscall_asm;
+    be->emit_inline_asm_asm = x86_emit_inline_asm_asm;
     be->emit_load_asm = x86_emit_load_asm;
     be->emit_store_asm = x86_emit_store_asm;
     be->emit_add_asm = x86_emit_add_asm;

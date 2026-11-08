@@ -4,7 +4,7 @@ title: Optimization Passes & Safety Invariants
 description: Active IR optimization pipeline (Constant Folding, CopyProp, CSE, GVN, DCE, Mem2Reg, LICM, Auto-Vectorization) and their correctness invariants.
 resource: middleend/optimization-passes
 tags: [optimizations, mem2reg, licm, vectorization, gvn, cse, dce]
-timestamp: 2026-11-08T04:14:02Z
+timestamp: 2026-11-08T23:17:06Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -88,6 +88,16 @@ Optimization passes are registered in `src/zero_cc/opt/opt_pass.c` (`g_opt_passe
     - **Select scratch temps are type-tagged (Sprint 119, Slice 2)**: the 4 fresh temps per site (mask, ±1 constant, XOR difference, AND select) are stamped `INT(8)` — full-register-domain scratch (the mask/select hold 64-bit bit patterns, not C99 N-bit values; a width-8 extend is a no-op, so no wrap semantics apply). The final select writes `sp->then.res`, the original lowering temp, which already carries the conditional's semantic tag — codegen's extend/DIV decisions on the select therefore ride on tags like any other value.
     - Verified by `test/jit/ternary_branchless.c` (part of `make test-opt`, all `-O` levels, JIT + AOT) and a gcc differential battery (plain/comparison conditions, negative/large values, pointer arms, SEXT arms, condition reuse, nested ternaries, loop-carried selects).
     - **Known non-matches (by design)**: ternaries whose arms are FP values (XMM guard), whose arms compute (e.g. `? -x :`), whose arms are bare immediates, and `char`/`short` *pointer* arms are fine but struct-by-value arms are out of scope (v2 candidates: immediate arms, struct chunks).
+
+### `OP_ASM` — the inline-asm barrier contract (Sprint 135)
+
+`OP_ASM` (GNU inline asm, Phase 1: x86-64 AOT text; see `ir-and-regalloc.md` for the `IRAsmArgs` side table) is **opaque to every pass** — the template can read/write any memory and clobber any named register. The invariant every pass must hold: *nothing computed before an `OP_ASM` may be reused, hoisted, or forwarded across it.*
+- **`has_memory`** (`"memory"` clobber **or** `volatile`) makes the op a full memory barrier: DCE keeps it (`instr_has_side_effects`) and marks its side-table operand temps live (`mark_uses` reads `c->ir_asm_args`); LICM treats a loop containing asm as non-liftable (`instr_has_moving_side_effects` + the loop guard) so no memory op crosses it; GVN `mf_reset`s (forgets every load/value equivalence); mem2reg invalidates all slot tracking.
+- **CSE and copy-prop reset their tables at `OP_ASM`** (the -O1 miscompile class): a copy or a pure result tracked across the asm lets a later use forward a *pre-asm* value whose register the template overwrote (digit-matched `dm` came back 11 instead of 12 at `-O1` until copy-prop reset at the asm). GVN's block-scoped value cache already reset at every `OP_LABEL` and now also at `OP_ASM`.
+- **Operand liveness is side-table-driven**: the LRA (`live_range.h`) treats an `OP_ASM` as *def* of its `=r`/`+r` output temps and *use* of its input (`r`/`m`) temps, so DCE's liveness fixpoint keeps the materializing loads/LEAs alive. The side table is the single source of truth for the operand set — no pass may infer it from the packed `Instr` fields (all `TEMP_NONE`).
+- **Clobber spill pass** (post-`regalloc_allocate`, in `ast_lowering.c`): after allocation, every non-operand interval live across the `OP_ASM` whose assigned register is in the operand's `clobber_mask` is marked spilled; `forbidden_mask` keeps operand temps out of clobbered registers *at allocation time* (see `ir-and-regalloc.md`). This is why a clobbered live value survives: it is reloaded from its frame slot on the far side of the asm.
+- **Arena-rebuild remap**: LICM, branchless, and the DCE compaction each remap the `IRAsmArgs` `instr_index` entries through their new arena (the same invariant as `IRCallArgs`). Forgetting one (DCE's compaction was the first miss) silently drops the template from the `.s` while the post-asm store still writes the uninitialized output temp.
+- **Gate**: `make test-asm` (`tools/asm_diff.py`) differential-tests the `-S` path at `-O0..-O3` against a host-`gcc -O2` reference; `test/jit/inline_asm_barrier.c` sweeps the JIT-safe empty-template forms in `make test-opt`.
 
 ## Known Issues Surfaced During Sprint 39 (ALL RESOLVED in Sprint 40)
 

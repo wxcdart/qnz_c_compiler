@@ -4,13 +4,21 @@ title: Integrated Inline Assembly Roadmap
 description: Architectural roadmap and design for Clang-style integrated inline assembly in ZeroCC across AOT and JIT modes.
 resource: backend/inline-asm
 tags: [inline-asm, roadmap, jit, aot, register-allocation, isa, assembly]
-timestamp: 2026-11-08T14:18:50Z
+timestamp: 2026-11-08T23:17:06Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
 ---
 
 # Integrated Inline Assembly Roadmap
+
+> **Status (Sprint 135):** **Phase 1 is complete** for the x86-64 AOT text
+> path — non-empty GNU asm templates lower to `OP_ASM` (operand side table
+> `IRAsmArgs`), the LRA honors `no_spill`/fixed-register/`forbidden_mask`
+> operand constraints, and the substituted template is emitted between
+> `#APP`/`#NO_APP` in the `.s` stream. Differential gate: `make test-asm`
+> (`tools/asm_diff.py`). The JIT/raw path still rejects non-empty templates
+> (Phase 2 below).
 
 This document outlines the architectural plan for bringing first-class **inline assembly (`__asm__` / `asm`)** support to ZeroCC, progressing from AOT constraint-solving and register-allocation passthrough to a Clang-style **integrated assembler** for in-memory JIT execution (`--run`).
 
@@ -28,10 +36,13 @@ ZeroCC currently implements the following subset of inline assembly features:
    - Empty templates (`"" : : : "memory"`) and constraint-only assignments (`"" : "=r"(x) : "0"(y)`) are recognized and lowered as compiler/memory barriers and identity assignments.
 3. **Symbol Redirection (`__asm__("symbol")`)**:
    - GNU asm label redirection on function and variable declarations (`src/zero_cc/parser/zero_cc_declarator_stack.h:126`) is fully implemented across AOT and JIT.
-4. **Current Limitation**:
-   - Any non-empty template string (e.g. `__asm__("mov %rax, %rbx")`) is rejected at compile time:
-     `"GNU asm statement with a non-empty template is not supported"`.
-   - Low-level OS calls rely instead on the compiler's native intrinsic [`__zerocc_syscall(...)`](./zero-rt.md).
+4. **Current Limitation (Phase 2+)**:
+   - Non-empty templates are supported on the **x86-64 AOT text path**
+     (Phase 1, Sprint 135 — see the status banner above). The **JIT /
+     raw-emitter paths** still reject a non-empty template with a clean
+     diagnostic pointing at Phase 2, and AArch64/RISC-V AOT text is a
+     Phase 2/3 target (the template text is ISA-specific). Low-level OS
+     calls can also use the compiler's native intrinsic [`__zerocc_syscall(...)`](./zero-rt.md).
 
 ---
 
@@ -66,9 +77,17 @@ flowchart TD
     P3 --> P3_2["Target Dialect Support (Intel/AT&T)"]
 ```
 
-### Phase 1: AOT Register Allocation & Passthrough (Milestone 1)
+### Phase 1: AOT Register Allocation & Passthrough (Milestone 1) — ✅ IMPLEMENTED (Sprint 135)
 
-**Goal:** Enable compiling real-world C projects (Linux headers, crypto libraries, musl/glibc headers) that use inline assembly in AOT mode (`-S`, `-c`, `-o`).
+**As built** (see [Two-Pass IR & Register Allocation](./ir-and-regalloc.md) §“Inline-Asm Operand Side Table” and [Optimization Passes](./optimization-passes.md) §“OP_ASM barrier contract” for the invariants):
+- `OP_ASM` IR op + `IRAsmArgsArena` side table (template, `ops[16]` in **GCC order: outputs then inputs**, `clobber_mask`, `has_memory`); remapped through every arena-rebuilding pass (LICM/branchless rebuilds, DCE compaction).
+- Constraint subset: `r`/`m` with `=`/`+`, matching digits `0`-`7` (a digit input on an `=r` output seeds the register with the input expression’s value), fixed letters `a`/`b`/`d`/`S`/`D` in the LRA’s **hardware** index space (`c` rejected — RCX is the shift-count register); `m` operands must be lvalue forms (a value operand would be dereferenced as a pointer). Everything else — earlyclobber `&`, other constraints, FP/struct/128-bit operands, `rsp`/`rbp` clobbers, non-x86-64 targets — is a clean reject.
+- LRA: operand temps `no_spill` (pressure → clean diagnostic); fixed letters pre-colored; `forbidden_mask` = the asm’s `clobber_mask` keeps operands out of clobbered registers; a post-allocation pass spills non-operand values live across a clobbered register (def-sensitive pending-return check).
+- Barrier: `"memory"`/`volatile` → `has_memory`; DCE/LICM/GVN/mem2reg treat the op as a barrier, CSE/copy-prop reset their tables at it.
+- Emitter: `x86_emit_inline_asm_asm` interpolates `%N`/`%qN`/`%lN`/`%wN`/`%bN`/`%aN`/`%%` with width-correct names between `#APP`/`#NO_APP`; `m` operands become memory refs.
+- Gate: `make test-asm` (12/12) + `test/jit/inline_asm_barrier.c` in `make test-opt`.
+
+**Original goal (as planned):** Enable compiling real-world C projects (Linux headers, crypto libraries, musl/glibc headers) that use inline assembly in AOT mode (`-S`, `-c`, `-o`).
 
 1. **IR Node & Representation**:
    - Introduce an `OP_INLINE_ASM` IR instruction or attach operand lists to a dedicated AST node holding the raw template string, operand temps, constraints, and clobber lists.

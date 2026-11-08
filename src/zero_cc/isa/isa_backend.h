@@ -130,6 +130,12 @@ typedef struct ZeroCCISABackend {
      * against the register allocation by the backend. */
     void (*emit_syscall_asm)(ZeroCCCompiler *c, int arg_count, const int *arg_temps, FILE *out);
 
+    /* GNU inline asm (Sprint 135, Phase 1): interpolate the operand
+     * specifiers (from the IRAsmArgs side table) into the template and
+     * write the text to the .s stream. NULL on backends without Phase 1
+     * support - the lowering rejects those targets before emission. */
+    void (*emit_inline_asm_asm)(ZeroCCCompiler *c, size_t instr_index, FILE *out);
+
     /* Vector instruction emission (SSE2/NEON/RVV) */
     void (*emit_vload_asm)(ZeroCCCompiler *c, int dst, int base, int32_t offset, FILE *out);
     void (*emit_vstore_asm)(ZeroCCCompiler *c, int src, int base, int32_t offset, FILE *out);

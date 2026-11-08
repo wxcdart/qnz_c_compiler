@@ -148,6 +148,19 @@ static void zc_prescan_visit(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef re
         case NODE_LABEL:
             zc_prescan_visit(c, arena, n->left);
             break;
+        case NODE_ASM: {
+            /* Sprint 135: operand expressions live in the asm payload */
+            if (n->int_val >= 0 && (size_t)n->int_val < c->asm_stmt_count) {
+                ZeroCCAsmStmt *as = &c->asm_stmts[n->int_val];
+                for (int i = 0; i < as->out_count; i++) {
+                    zc_prescan_visit(c, arena, as->out_exprs[i]);
+                }
+                for (int i = 0; i < as->in_count; i++) {
+                    zc_prescan_visit(c, arena, as->in_exprs[i]);
+                }
+            }
+            break;
+        }
         case NODE_IF:
             zc_prescan_visit(c, arena, n->left);
             zc_prescan_visit(c, arena, n->right);
@@ -330,6 +343,9 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     /* Initialize VLA state */
     c->lowering.vla.has_runtime_vla = false;
     c->lowering.vla.vla_count = 0;
+
+    /* Sprint 135: per-function inline-asm operand temp lists */
+    c->asm_operand_count = 0;
     c->lowering.vla.block_depth = 0;
     c->lowering.vla.loop_depth = 0;
 
@@ -894,6 +910,82 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
 
     c->regalloc.spill_across_calls = c->lowering.has_setjmp;
     regalloc_allocate(&c->regalloc);
+
+    /* Sprint 135: inline-asm register pressure - an operand temp that could
+     * not be kept in a register is a clean reject (the template text needs
+     * the value in a register at the asm site). */
+    if (c->regalloc.asm_pressure_fail) {
+        diag_report_error_at_token(c,
+            "inline asm: register pressure - cannot keep an asm operand in a register");
+        c->had_error = 1;
+    }
+
+    /* Sprint 135: clobbered registers. An interval live across an OP_ASM
+     * whose assigned register the template clobbers cannot keep its value
+     * there - mark it spilled (the emitters already materialize spilled
+     * temps through the frame spill slots). The asm's own operand temps are
+     * exempt (they must be in registers at the site); the pre-colored
+     * return-value temps are a clean reject (their value would be lost). */
+    {
+        bool asm_clobber_lost = false;
+        size_t icount = ir_get_count(c);
+        for (size_t i = 0; i < icount; i++) {
+            const Instr *ins = ir_get(c, i);
+            if (!ins || ins->op != OP_ASM) continue;
+            const IRAsmArgs *aa = ir_asm_args_find(c, i);
+            if (!aa || aa->clobber_mask == 0) continue;
+            for (int pool = 0; pool < 16; pool++) {
+                if (!(aa->clobber_mask & (1u << pool))) continue;
+                for (size_t k = 0; k < c->regalloc.interval_count; k++) {
+                    LiveInterval *iv = &c->regalloc.intervals[k];
+                    if (iv->assigned_reg != pool || iv->is_spilled) continue;
+                    if (iv->start > i || iv->end < i) continue;  /* not live at asm */
+                    if (iv->temp_id == VREG_0 || iv->temp_id == VREG_2) {
+                        /* Pending return value: dangerous only if the
+                         * materializing store can FLOW into the asm. Every
+                         * return site the lowering emits either jumps to the
+                         * epilogue right after storing the return value or
+                         * is the function's trailing store (epilogue
+                         * directly after - no asm between). Scan back to the
+                         * nearest def of this temp before the asm. */
+                        bool def_flows = true;
+                        for (size_t d = i; d > 0; d--) {
+                            const Instr *di = ir_get(c, d - 1);
+                            if (!di) continue;
+                            if (di->temp_dest != iv->temp_id) continue;
+                            const Instr *dn = ir_get(c, d);
+                            def_flows = !(dn && (dn->op == OP_JMP ||
+                                dn->op == OP_JMP_LABEL || dn->op == OP_JMP_INDIRECT ||
+                                dn->op == OP_JE || dn->op == OP_JNE ||
+                                dn->op == OP_JL || dn->op == OP_JLE ||
+                                dn->op == OP_JG || dn->op == OP_JCOND ||
+                                dn->op == OP_RET));
+                            break;
+                        }
+                        if (def_flows) asm_clobber_lost = true;
+                        continue;
+                    }
+                    bool is_operand = false;
+                    for (int o = 0; o < aa->op_count; o++) {
+                        if (aa->ops[o].temp == iv->temp_id) { is_operand = true; break; }
+                    }
+                    if (is_operand) {
+                        /* Safety net: allocation already forbids clobbered
+                         * registers for asm operands (forbidden_mask); if one
+                         * still landed here the value would be destroyed. */
+                        asm_clobber_lost = true;
+                        continue;
+                    }
+                    spill_interval(&c->regalloc, iv);
+                }
+            }
+        }
+        if (asm_clobber_lost) {
+            diag_report_error_at_token(c,
+                "inline asm: clobbers a register holding the pending return value or an asm operand");
+            c->had_error = 1;
+        }
+    }
 
     /* Functions calling setjmp must save and restore all allocatable callee-saved
      * GPRs in their prologue/epilogue: a child frame may modify any CSR before

@@ -68,6 +68,10 @@ void ir_reset(ZeroCCCompiler *c) {
         c->ir_call_args.count = 0;
     }
 
+    if (c->ir_asm_args.table) {
+        c->ir_asm_args.count = 0;
+    }
+
     /* Sprint 118: temp ids restart at VREG_USER_START; clear the tag table. */
     zc_temp_tags_reset(c);
 
@@ -125,6 +129,18 @@ const IRCallArgs *ir_call_args_find(const ZeroCCCompiler *c, size_t instr_index)
         }
     }
     return NULL;
+}
+
+/* Record inline asm args for an OP_ASM instruction (Sprint 135) */
+void ir_asm_args_record(ZeroCCCompiler *c, size_t instr_index, const IRAsmArgs *args) {
+    if (!c || !c->ir_asm_args.table || !args) return;
+    ir_asm_args_arena_record(&c->ir_asm_args, instr_index, args);
+}
+
+/* Find inline asm args for an OP_ASM instruction */
+const IRAsmArgs *ir_asm_args_find(const ZeroCCCompiler *c, size_t instr_index) {
+    if (!c || !c->ir_asm_args.table) return NULL;
+    return ir_asm_args_arena_find(&c->ir_asm_args, instr_index);
 }
 
 /* IR Emitter Functions - Arena-based with compiler context */
@@ -206,6 +222,10 @@ void ir_clear(ZeroCCCompiler *c) {
 
     if (c->ir_call_args.table) {
         c->ir_call_args.count = 0;
+    }
+
+    if (c->ir_asm_args.table) {
+        c->ir_asm_args.count = 0;
     }
 }
 

@@ -37,9 +37,9 @@ Welcome to the **ZeroCC Knowledge Graph**. Start here to navigate architectural 
 ## 2. IR, Register Allocation & Optimization Passes
 
 - **[Two-Pass IR & Register Allocation](./ir-and-regalloc.md)**
-  - `Instr` 141-opcode representation, `IRCallArgs` call-site side table, virtual-to-physical register mapping, reserved registers (`%rsp`, `%rbp`, `%rcx`, `%r10`, `%r11`), and loop live-range extensions.
+  - `Instr` 168-opcode representation, `IRCallArgs` call-site + `IRAsmArgs` inline-asm side tables, virtual-to-physical register mapping, reserved registers (`%rsp`, `%rbp`, `%rcx`, `%r10`, `%r11`), and loop live-range extensions.
 - **[Optimization Passes & Safety Invariants](./optimization-passes.md)**
-  - Active passes (`constant_fold`, `copy_prop`, `cse`, `gvn`, `dce`, `mem2reg`, `licm`, `auto_vectorize`), sub-8-byte stack store invalidation in `mem2reg`, and two-pass `IRArena` rebuild in `licm`.
+  - Active passes (`constant_fold`, `copy_prop`, `cse`, `gvn`, `dce`, `mem2reg`, `licm`, `auto_vectorize`), the `OP_ASM` inline-asm barrier contract (CSE/copy-prop reset, GVN `mf_reset`, clobber spill + operand `forbidden_mask`), sub-8-byte stack store invalidation in `mem2reg`, and two-pass `IRArena` rebuild in `licm`.
 
 ---
 

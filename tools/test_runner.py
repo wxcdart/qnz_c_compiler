@@ -49,7 +49,11 @@ class TestResult:
 
 def find_test_binaries(root_dir, category=None):
     """Find compiled test executables across categories in build/test or test."""
-    categories = ["unit", "semantic", "abi", "jit"]
+    # "asm" (Sprint 135): host-gcc-built reference binaries for the inline-asm
+    # Phase 1 tests - run here as a standing check that the differential
+    # reference side stays valid; zerocc's own asm path is gated by
+    # `make test-asm` (tools/asm_diff.py).
+    categories = ["unit", "semantic", "abi", "jit", "asm"]
     if category:
         if category not in categories:
             print(f"Error: Unknown category '{category}'. Available: {', '.join(categories)}", file=sys.stderr)
@@ -334,7 +338,7 @@ def write_tap_report(results, total_duration_s):
 
 def main():
     parser = argparse.ArgumentParser(description="ZeroCC Unified Test Runner")
-    parser.add_argument("--category", "-c", choices=["unit", "semantic", "abi", "jit", "aot"],
+    parser.add_argument("--category", "-c", choices=["unit", "semantic", "abi", "jit", "aot", "asm"],
                         help="Run only tests from a specific category")
     parser.add_argument("--mode", "-m", choices=["jit", "aot"], default="jit",
                         help="Test mode: JIT (pre-compiled) or AOT (compile with zerocc)")

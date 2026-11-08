@@ -187,6 +187,14 @@ void opt_copy_propagate(ZeroCCCompiler *c) {
             continue;
         }
 
+        /* Sprint 135: an OP_ASM template may write any of its operand
+         * registers (and clobbers named registers) - every tracked copy
+         * across it is invalid. */
+        if (instr->op == OP_ASM) {
+            copy_prop_reset_block();
+            continue;
+        }
+
         /* Skip instructions that use flags */
         if (instr_uses_flags(instr)) {
             /* Invalidate all copies - flags may have changed */

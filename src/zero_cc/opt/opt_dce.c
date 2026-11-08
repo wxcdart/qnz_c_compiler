@@ -135,6 +135,7 @@ static int instr_has_side_effects(Instr *instr) {
         case OP_ATOMIC_XCHG:
         case OP_MFENCE:
         case OP_TRAP:
+        case OP_ASM:  /* Sprint 135: the template executes unconditionally */
         // Comparison/flag-setting instructions have side effects (affect jumps)
         case OP_CMP:
         case OP_CMP_ZERO:
@@ -212,6 +213,28 @@ static void mark_call_args_live(ZeroCCCompiler *c, Instr *instr) {
  */
 static void mark_uses(ZeroCCCompiler *c, Instr *instr) {
     switch (instr->op) {
+        case OP_ASM:
+            /* Sprint 135: operand temps live in the side table; the inputs
+             * (and m address temps, and in-out temps' pre-asm values) must
+             * stay live for the template. */
+            if (c) {
+                const IRAsmArgs *aa = ir_asm_args_find(c,
+                    (size_t)(instr - ir_get_buffer(c)));
+                if (aa) {
+                    for (int o = 0; o < aa->op_count; o++) {
+                        int t = aa->ops[o].temp;
+                        if (t < 0) continue;
+                        if (aa->ops[o].kind == ZC_ASM_OP_IN_R ||
+                            aa->ops[o].kind == ZC_ASM_OP_INOUT_R ||
+                            aa->ops[o].kind == ZC_ASM_OP_IN_M ||
+                            aa->ops[o].kind == ZC_ASM_OP_OUT_M) {
+                            mark_live(t);
+                        }
+                    }
+                }
+            }
+            return;
+
         case OP_CALL:
         case OP_SYSCALL:
             // Special handling for call/syscall - mark all argument temps
@@ -361,6 +384,17 @@ void opt_eliminate_dead_code(ZeroCCCompiler *c) {
                     IRCallArgsArena *call_arena = &c->ir_call_args;
                     for (size_t t = 0; t < call_arena->count; t++) {
                         IRCallArgs *entry = &call_arena->table[t];
+                        if (entry && entry->instr_index == (size_t)i) {
+                            entry->instr_index = write_idx;
+                            break;
+                        }
+                    }
+                }
+                /* Sprint 135: remap the OP_ASM side table the same way */
+                if (instr->op == OP_ASM && c) {
+                    IRAsmArgsArena *asm_arena = &c->ir_asm_args;
+                    for (size_t t = 0; t < asm_arena->count; t++) {
+                        IRAsmArgs *entry = &asm_arena->table[t];
                         if (entry && entry->instr_index == (size_t)i) {
                             entry->instr_index = write_idx;
                             break;

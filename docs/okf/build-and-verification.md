@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 165-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-11-08T14:25:11Z
+timestamp: 2026-11-08T23:17:06Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -167,6 +167,15 @@ python3 tools/c11/test_c11.py --verbose
 # matching -std flag; negative cases check accept/reject agreement.
 # Wired as `make test-c23`.
 python3 tools/c23/test_c23.py --all
+
+# Run the inline-assembly Phase 1 differential gate (Sprint 135): every
+# test/asm/*.c compiled under zerocc at -O0..-O3 on the AOT TEXT path (-S),
+# assembled + linked with the host gcc, run, and diffed (rc + stdout)
+# against a host-`gcc -O2` reference. Guards the OP_ASM lowering, the
+# IRAsmArgs side table (incl. the arena-rebuild/DCE-remap invariant), the
+# no_spill LRA, clobber spill/forbidden-mask, and template interpolation.
+# Wired as `make test-asm`.
+python3 tools/asm_diff.py
 
 # Run C99 VLA & multi-dimensional matrix VLA verification suite
 python3 tools/vla/test_vla.py

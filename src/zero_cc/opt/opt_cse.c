@@ -177,6 +177,13 @@ void opt_eliminate_cse(ZeroCCCompiler *c) {
             continue;
         }
 
+        /* Sprint 135: an OP_ASM template may clobber the register holding a
+         * previously-computed pure result - nothing may be reused across it. */
+        if (instr->op == OP_ASM) {
+            cse_clear_block();
+            continue;
+        }
+
         /* Profile: count instructions */
         opt_profile_count_cse_instruction();
 

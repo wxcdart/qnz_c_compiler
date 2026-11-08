@@ -696,6 +696,22 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
         }
 
         /* Statements */
+        case NODE_ASM: {
+            /* Sprint 135: analyze the operand expressions (outputs first,
+             * then inputs - source order) so their types are available to
+             * the lowering's constraint/width checks. */
+            if (ctx->compiler && node->int_val >= 0 &&
+                (size_t)node->int_val < ctx->compiler->asm_stmt_count) {
+                ZeroCCAsmStmt *as = &ctx->compiler->asm_stmts[node->int_val];
+                for (int i = 0; i < as->out_count; i++) {
+                    (void)sem_analyze_ref(ctx, as->out_exprs[i]);
+                }
+                for (int i = 0; i < as->in_count; i++) {
+                    (void)sem_analyze_ref(ctx, as->in_exprs[i]);
+                }
+            }
+            break;
+        }
         case NODE_EXPR_STMT: {
             (void)sem_analyze_ref(ctx, node->left);
             break;

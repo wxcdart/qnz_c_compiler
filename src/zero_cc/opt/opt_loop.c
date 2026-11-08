@@ -324,6 +324,7 @@ static bool instr_has_moving_side_effects(Instr *instr) {
         case OP_ATOMIC_XCHG:
         case OP_MFENCE:
         case OP_TRAP:
+        case OP_ASM:  /* Sprint 135: template may touch anything */
         case OP_LABEL:
         case OP_JMP:
         case OP_JE:
@@ -392,6 +393,7 @@ void opt_licm(ZeroCCCompiler *c) {
          * caller-saved registers will be assigned and clobbered by the calls!
          * Therefore, do not hoist out of loops containing calls. */
         bool loop_has_call = false;
+        bool loop_has_asm = false;
         for (int i = 0; i < loop->body_count; i++) {
             Instr *ins = ir_get(c, loop->body_indices[i]);
             if (ins && (ins->op == OP_CALL || ins->op == OP_CALL_INDIRECT ||
@@ -399,8 +401,15 @@ void opt_licm(ZeroCCCompiler *c) {
                 loop_has_call = true;
                 break;
             }
+            /* Sprint 135: an inline asm in the loop may read/write any
+             * memory (its template is opaque), so stack-slot loads in the
+             * loop are not invariant - same conservative skip as calls. */
+            if (ins && ins->op == OP_ASM) {
+                loop_has_asm = true;
+                break;
+            }
         }
-        if (loop_has_call) {
+        if (loop_has_call || loop_has_asm) {
             continue;
         }
 
@@ -532,6 +541,17 @@ void opt_licm(ZeroCCCompiler *c) {
                 size_t old_pos = call_arena->table[c_idx].instr_index;
                 if (old_pos < (size_t)ir_count && old_to_new[old_pos] >= 0) {
                     call_arena->table[c_idx].instr_index = (size_t)old_to_new[old_pos];
+                }
+            }
+        }
+
+        /* Sprint 135: remap OP_ASM side-table indices the same way */
+        IRAsmArgsArena *asm_arena = &c->ir_asm_args;
+        if (asm_arena && asm_arena->table) {
+            for (size_t a_idx = 0; a_idx < asm_arena->count; a_idx++) {
+                size_t old_pos = asm_arena->table[a_idx].instr_index;
+                if (old_pos < (size_t)ir_count && old_to_new[old_pos] >= 0) {
+                    asm_arena->table[a_idx].instr_index = (size_t)old_to_new[old_pos];
                 }
             }
         }
