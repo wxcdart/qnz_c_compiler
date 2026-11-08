@@ -1700,3 +1700,52 @@ void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType obj_type,
     }
     if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACE) c->token_pos++;
 }
+
+int64_t zc_designator_max_index(ZeroCCCompiler *c, size_t brace_pos) {
+    if (!c || brace_pos >= c->token_count ||
+        c->tokens[brace_pos].type != TK_LBRACE) return -1;
+    int64_t max_idx = -1;
+    size_t q = brace_pos + 1; /* first token after '{' */
+    int depth = 1;
+    bool at_element_start = true;
+    while (q < c->token_count && depth > 0) {
+        ZeroCCTokType qt = c->tokens[q].type;
+        if (qt == TK_LBRACE) { depth++; at_element_start = false; q++; continue; }
+        if (qt == TK_RBRACE) {
+            depth--;
+            at_element_start = false;
+            q++;
+            if (depth == 0) break;
+            continue;
+        }
+        if (depth != 1) { q++; continue; }
+        if (qt == TK_COMMA) { at_element_start = true; q++; continue; }
+        if (at_element_start && qt == TK_LBRACKET) {
+            /* Top-level index designator `[N]` or `[lo ... hi]`. The index is
+             * a constant expression; evaluate it with a save/restore so this
+             * stays a pure probe (zero_cc_eval_const_expr advances
+             * c->token_pos and can stop early on a non-constant index, in
+             * which case we bail with the current max). */
+            size_t save = c->token_pos;
+            q++; /* [ */
+            c->token_pos = q;
+            int64_t dlo = zero_cc_eval_const_expr(c);
+            int64_t dhi = dlo;
+            q = c->token_pos; /* token after the index expr (']' or '...') */
+            if (q < c->token_count && c->tokens[q].type == TK_ELLIPSIS) {
+                c->token_pos = q + 1;
+                dhi = zero_cc_eval_const_expr(c);
+                q = c->token_pos; /* token after the hi expr (']') */
+            }
+            c->token_pos = save;
+            if (dlo < 0 || dhi < dlo) { c->token_pos = save; q = save; break; }
+            if (dhi > max_idx) max_idx = dhi;
+            if (q < c->token_count && c->tokens[q].type == TK_RBRACKET) q++;
+            at_element_start = false; /* '=' (or a nested '{') follows */
+            continue;
+        }
+        at_element_start = false;
+        q++;
+    }
+    return max_idx;
+}

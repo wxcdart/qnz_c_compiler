@@ -745,6 +745,15 @@ static size_t zero_cc_measure_array_init_at(ZeroCCCompiler *c, ZeroCCType *elem,
             }
         }
     }
+    /* C99 6.7.8p12: a top-level `[N]` designator forces the inferred bound to
+     * at least N+1 (`int a[] = {[3] = 7, [0] = 1}` is a 4-element array, not
+     * the 2 that element counting gives). The implicitly initialized elements
+     * are zero-filled full-size objects, so pad `total` with elem_sz each. */
+    int64_t dmax = zc_designator_max_index(c, brace_pos);
+    if (dmax >= 0 && (size_t)(dmax + 1) > count) {
+        total += ((size_t)(dmax + 1) - count) * elem_sz;
+        count = (size_t)(dmax + 1);
+    }
     if (out_count) *out_count = count;
     return total;
 }

@@ -1,3 +1,17 @@
+## [Sprint 132] - 2026-11-08 - Unsized-array sizing from designators (C99 6.7.8p12 / C23 6.7.10)
+
+**Bug fix** — `T a[] = { [N] = ... }` must infer the array bound from the **maximum designator index + 1**, not from the initializer-element count. zerocc counted elements, so `int a[] = { [3] = 7, [0] = 1 }` was sized 2 and then rejected by the initializer checker with the spurious `array initializer index 3 exceeds array bound 2`. Verified against gcc-15: this is **C99 6.7.8p12 behavior** (gcc accepts it under `-std=c99`/`c11`/`c23`/`gnu23`), so it is a correctness fix, not a C23-only feature — it applies in every dialect.
+
+**Implementation**:
+- New shared pure probe `zc_designator_max_index()` (`parser/init_common.{c,h}`): a token-only scan of a brace list that returns the max top-level `[N]` designator index (the range `hi` for `[lo ... hi]`), or -1 when none. Designators are recognized at element-start (right after `{` or a top-level `,`) where `[` is unambiguously a designator (a subscript always follows an expression); the index is evaluated with `zero_cc_eval_const_expr` under a save/restore of `c->token_pos` so the scan stays a pure probe. Both sizing sites include `init_common.h`, so one copy links in.
+- File-scope sizing (`jit/compile_unit.c`): after the top-level element count, `count = max(count, dmax + 1)` — guarded to `dims[0] == 0` because a top-level designator names an element of the *outermost* dimension; in `T a[2][] = {...}` it names a known outer row, so the floor must not apply there.
+- Local-scope sizing (`parser/decl_local.c` `zero_cc_measure_array_init_at`): same floor, padding `total` with `elem_sz` per added element so the caller's `pre_sz / base->size` division yields the right bound (implicitly initialized elements are zero-filled full-size objects).
+- The initializer checker's existing `dhi >= array_len` bound check now passes because the inferred bound is correct — no checker change.
+
+**Regression test**: `test/jit/designator_array_size.c` — file-scope int/char/struct-row, local-scope int, a `[1 ... 4]` range designator, zero-fill of implicit elements, and unchanged plain/trailing-comma inference. Runs in `make test` (JIT) and the `test-opt` sweep (JIT + AOT at -O0..-O3); host-gcc-compiled by `make all`.
+
+**Verification**: `make test` 185/185; `make test-opt` 148/148; new test passes in all 8 zerocc (JIT+AOT × -O0..-O3) runs and under `gcc-15 -std=gnu23 -Wall -Wextra`.
+
 ## [Sprint 131] - 2026-11-08 - constexpr (C23 6.7.2.4) and inline-assembly roadmap (Clang-style integrated assembler)
 
 **`constexpr` data declarations** (`src/zero_cc/jit/compile_unit.c`): file-scope `constexpr` previously failed with "unexpected token at file scope" (only the local-declaration path consumed `TK_CONSTEXPR`). The file-scope top-level loop now handles it at the top of the dispatch:

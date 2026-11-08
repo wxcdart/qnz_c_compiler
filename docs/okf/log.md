@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-08T05:51:09Z
+timestamp: 2026-11-08T06:00:30Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1158,3 +1158,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-08 — Updated `frontend-and-types.md`
 - Sprint 130/131: C23 completion Phase 0 (-std= dialect plumbing + __STDC_VERSION__) and true/false keywords (C23 6.4.4.1, dialect-gated revert to TK_IDENT outside c23/gnu23) + constexpr (C23 6.7.2.4, data-only, gcc-15 diagnostic); sizeof(true) _Bool type fix
+
+## 2026-11-08 — Updated `frontend-and-types.md`
+- Sprint 132: unsized-array bound inference from top-level [N] designators (C99 6.7.8p12 / C23 6.7.10) - zc_designator_max_index() probe + bound floor at both file-scope and local-scope sizing sites; regression test/jit/designator_array_size.c

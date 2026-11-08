@@ -1603,6 +1603,17 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                             }
                             if (commas > 0 && trailing_comma) commas--;
                             int64_t count = empty ? 1 : (commas + 1);
+                            /* C99 6.7.8p12: a top-level `[N]` designator forces the
+                             * inferred bound to at least N+1 (`int a[] = {[3] = 7}`
+                             * is a 4-element array, not the 2 that element counting
+                             * gives). A top-level designator names an element of the
+                             * OUTERMOST dimension, so apply only when the unsized
+                             * dimension is the first one; in `T a[2][] = {...}` it
+                             * names a known outer row. */
+                            if (dim_count > 0 && dims[0] == 0) {
+                                int64_t dmax = zc_designator_max_index(c, c->token_pos + 1);
+                                if (dmax >= 0 && (size_t)(dmax + 1) > (size_t)count) count = dmax + 1;
+                            }
                             if (!top_level_baced) {
                                 /* Flat initializer: elements fill the known
                                  * (non-inferred) dimensions. */
