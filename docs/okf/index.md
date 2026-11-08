@@ -55,6 +55,8 @@ Welcome to the **ZeroCC Knowledge Graph**. Start here to navigate architectural 
   - `ZeroCCTLSBackend` declare/finalize, `OP_TLS_LEA` lowering via `ir_emit_global_addr`, the x86-64 initial-exec idiom (`mov %fs:0` + `lea $var@tpoff` with `R_X86_64_TPOFF32`), `.tdata`/`.tbss` sections & symbols, and the JIT data-section fallback.
 - **[Scalar Float Pipeline (x86-64) & WSL2 RX-Page 128-Byte Read Limitation](./scalar-float-x86.md)**
   - Double-width scalar FP model, `VLOADSS/SD`/`VSTORESS/SD` emitters (movss/movsd + widen/narrow), XMM-vs-VEC classing of scalar V-loads, and the WSL2 GPF on 16-byte reads from RX pages (why float negation is `0.0 - x`).
+- **[Integrated Inline Assembly Roadmap](./inline-assembly-roadmap.md)**
+  - Phased architecture for Clang-style integrated inline assembly: Phase 1 AOT constraint solving and passthrough, Phase 2 lightweight JIT integrated assembler leveraging existing ISA emitters, and Phase 3 `asm goto` / advanced extensions.
 
 ---
 

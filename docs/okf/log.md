@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-08T06:38:15Z
+timestamp: 2026-11-08T14:18:50Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1173,3 +1173,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-08 — Updated `build-and-verification.md`
 - Sprint 134: make test-c23 gate (24/24 vs gcc-15) + opt_sweep baseline probe (uncompilable-while-gcc-builds is now a FAIL)
+
+## 2026-11-08 — Updated `inline-assembly-roadmap.md`
+- Add integrated inline assembly roadmap (Phase 1 AOT, Phase 2 JIT Integrated Assembler)
