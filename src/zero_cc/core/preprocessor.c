@@ -1349,6 +1349,57 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                         }
                         fclose(f);
                     }
+                } else if (active && strcmp(directive, "warning") == 0) {
+                    /* C23 6.9.1 #warning (GCC extension pre-C23): emit a
+                     * warning whose message is the directive's own text
+                     * (gcc: `warning: #warning "my text" [-Wcpp]`; zerocc
+                     * omits the [-W] tag per its diagnostic style).  The
+                     * argument is raw (quotes preserved); empty is legal.
+                     * `#pragma GCC diagnostic ignored "-Wcpp"` suppresses
+                     * it; `... error "-Werror"` escalates it to a hard
+                     * error (recorded via include_error - the
+                     * preprocessor's only failure channel, consumed by the
+                     * driver as a preprocess failure). */
+                    bool w_disabled = false;
+                    for (int i = 0; i < cpp->diagnostic_state.disabled_warning_count; i++) {
+                        if (cpp->diagnostic_state.disabled_warnings[i] &&
+                            strcmp(cpp->diagnostic_state.disabled_warnings[i], "cpp") == 0) {
+                            w_disabled = true;
+                            break;
+                        }
+                    }
+                    const char *arg_start = p;
+                    const int warn_line = (int)cpp->line_num; /* the directive's own line (a spliced argument advances line_num) */
+                    while (*p && *p != '\n') {
+                        if (*p == '\\' && p[1] == '\n') { p += 2; cpp->line_num++; continue; }
+                        p++;
+                    }
+                    if (!w_disabled) {
+                        char wmsg[256]; size_t wl = 0;
+                        for (const char *t = arg_start; t < p && wl < sizeof(wmsg) - 1; ) {
+                            if (*t == '\\' && t[1] == '\n') { t += 2; continue; } /* spliced */
+                            wmsg[wl++] = *t++;
+                        }
+                        while (wl > 0 && isspace((unsigned char)wmsg[wl - 1])) wl--;
+                        wmsg[wl] = '\0';
+                        bool as_error = cpp->diagnostic_state.warning_as_error;
+                        if (as_error) {
+                            /* Hard error: record via include_error (the
+                             * preprocessor's only failure channel) so the
+                             * driver prints it once and aborts - the same
+                             * single-print path as a missing #include. */
+                            if (cpp->include_error[0] == '\0') {
+                                snprintf(cpp->include_error, sizeof(cpp->include_error),
+                                         "%s:%d: error: #warning %s",
+                                         cpp->filename ? cpp->filename : "<stdin>",
+                                         warn_line, wmsg);
+                            }
+                        } else {
+                            fprintf(stderr, "%s:%d: warning: #warning %s\n",
+                                    cpp->filename ? cpp->filename : "<stdin>", warn_line,
+                                    wmsg);
+                        }
+                    }
                 }
 
                 while (*p && *p != '\n') {

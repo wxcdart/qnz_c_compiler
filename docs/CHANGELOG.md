@@ -1,3 +1,15 @@
+## [Sprint 133] - 2026-11-08 - `#warning` directive (C23 6.9.1)
+
+**`#warning` was silently ignored** — the preprocessor's directive dispatch had no branch for it, so the line fell through to the common skip-tail. Now it emits a gcc-matching diagnostic (the C23 completion list's last gap before the differential gate):
+- Message is the directive's **own raw text** (quotes preserved, empty argument legal, trailing whitespace trimmed): `file:line: warning: #warning "my warning text"` — matching gcc's message body (zerocc omits the `[-Wcpp]` tag per its diagnostic style, and preprocessor diagnostics follow the `#pragma message` stderr pattern, since the parser `DiagBuf` is unavailable at preprocess time).
+- Argument capture follows spliced lines (backslash-newline merged, line number stays the directive's own line) and reports the **included file's** name when the directive comes from a header.
+- Inactive conditional groups (`#if 0`) stay silent, like all other directives.
+- `#pragma GCC diagnostic` keys wire into the existing pragma state: `ignored "-Wcpp"` suppresses (checked against `diagnostic_state.disabled_warnings`), `warning "-Wcpp"` re-enables, and `error "-Werror"` escalates to a hard failure recorded via `include_error` (the preprocessor's only failure channel — the driver prints it once and aborts, the same single-print path as a missing `#include`).
+
+**Regression test**: `test/jit/warning_directive.c` — suppressed + re-enabled + plain forms, an inactive-group `#warning`, exit-0 semantics (warnings must not fail the build); runs in `make test` (JIT) and the `test-opt` sweep (JIT + AOT × -O0..-O3). The stderr text itself is differential-tested by the upcoming `tools/c23/test_c23.py` gate.
+
+**Verification**: `make test` 186/186; `make test-opt` 149/149; 9-case behavior matrix vs gcc-15 (basic / no-args / spaced `#` / spliced / EOF-no-newline / included-file / inactive-group / suppress-toggle / -Werror-escalation) — all match.
+
 ## [Sprint 132] - 2026-11-08 - Unsized-array sizing from designators (C99 6.7.8p12 / C23 6.7.10)
 
 **Bug fix** — `T a[] = { [N] = ... }` must infer the array bound from the **maximum designator index + 1**, not from the initializer-element count. zerocc counted elements, so `int a[] = { [3] = 7, [0] = 1 }` was sized 2 and then rejected by the initializer checker with the spurious `array initializer index 3 exceeds array bound 2`. Verified against gcc-15: this is **C99 6.7.8p12 behavior** (gcc accepts it under `-std=c99`/`c11`/`c23`/`gnu23`), so it is a correctness fix, not a C23-only feature — it applies in every dialect.

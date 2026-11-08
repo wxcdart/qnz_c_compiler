@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-08T06:00:30Z
+timestamp: 2026-11-08T06:02:59Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1161,3 +1161,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-08 — Updated `frontend-and-types.md`
 - Sprint 132: unsized-array bound inference from top-level [N] designators (C99 6.7.8p12 / C23 6.7.10) - zc_designator_max_index() probe + bound floor at both file-scope and local-scope sizing sites; regression test/jit/designator_array_size.c
+
+## 2026-11-08 — Updated `architecture-pipeline.md`
+- Sprint 133: #warning directive (C23 6.9.1) - preprocessor emits warning: #warning "text" (raw directive text); #pragma GCC diagnostic -Wcpp/-Werror keys suppress/escalate; regression test/jit/warning_directive.c
