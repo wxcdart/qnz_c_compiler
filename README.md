@@ -369,24 +369,50 @@ tools/setup_musl_cross.sh --arch riscv32 --ccbin riscv64-linux-gnu-gcc --extra "
 
 ## Building
 
+ZeroCC is a single static binary with no runtime dependencies beyond libc.
+
 ```bash
-make           # Build zerocc, zero_rt.a (all ISAs), and all tests
-make test      # Run the full regression suite (190 tests)
-make test-opt  # Optimizer sweep at -O0..-O3, JIT + AOT, via zerocc itself (150 tests)
-make test-c23  # C23 differential conformance gate vs gcc-15 (24 tests)
-make test-asm  # Inline-assembly Phase 1 gate: test/asm/*.c on the -S text path, -O0..-O3, vs host gcc
-make test-project-diff # Project-differential gate (cJSON, zlib, sqlite3.c at -O0/-O2)
-make test-driver   # Multi-TU driver tests (tools/driver_tests.py)
-make test-linker   # Own-linker differential tests (tools/linker_tests.py)
-make test-isa-qemu # Raw-emitter QEMU gate for all 4 ISAs (needs qemu-user-static + tools/setup_musl_cross.sh)
-make test-isa128   # Cross-ISA __int128 raw-emitter QEMU gate
-make test-san      # zero_san flag-ON soundness sweep (tools/san_sweep.py)
-make test-torture  # GCC c-torture conformance gate (tools/torture_run.py)
-make asan / make test-asan   # ASan+UBSan build / run
-make clean     # Clean build artifacts
+# One-command dev environment setup (Ubuntu/Debian/Fedora/Arch/macOS)
+./tools/setup_dev_env.sh
+
+# Or manually:
+# 1. Host C compiler: GCC >= 13 or Clang >= 14 (set CC= if non-default)
+# 2. Reference GCC 15 (mandatory for C23 gate + c-torture)
+#    Ubuntu:  sudo apt install gcc-15
+#    Fedora:  sudo dnf install gcc15
+#    Arch:    sudo pacman -S gcc15
+#    macOS:   brew install gcc@15
+# 3. Cross toolchains (for ISA gates) - three options:
+#    a) System packages (default):
+#       Ubuntu:  sudo apt install gcc-aarch64-linux-gnu gcc-riscv64-linux-gnu qemu-user-static
+#       Fedora:  sudo dnf install gcc-aarch64-linux-gnu gcc-riscv64-linux-gnu qemu-user-static
+#       Arch:    sudo pacman -S aarch64-linux-gnu-gcc riscv64-linux-gnu-gcc qemu-user-static
+#    b) Bootlin gcc-15.3 (uniform C23 cross reference):
+#       USE_BOOTLIN=1 ./tools/setup_dev_env.sh
+#    c) Docker (no root, works everywhere including CI):
+#       USE_DOCKER=1 ./tools/setup_dev_env.sh
+#       (auto-falls back to Bootlin if running inside a container)
+# 4. Build:
+make -j$(nproc) build/bin/zerocc
+
+# Quick sanity:
+./build/bin/zerocc --run -O0 test/jit/basic.c
+```
 ```
 
-**Embedding** the library in your own program (compile the `src/zero_cc/` sources with your own `main`; there is no prebuilt compiler archive):
+### Test Gates
+
+```bash
+make test              # Full regression suite (194 tests)
+make test-opt          # Optimizer sweep -O0..-O3, JIT + AOT (150 tests)
+make test-c23          # C23 differential gate vs gcc-15 (24 cases)
+make test-asm          # Inline-asm Phase 1 gate: test/asm/*.c on -S text path
+make test-isa-qemu     # Raw-emitter QEMU gate (all 4 ISAs, needs cross toolchains + QEMU)
+make test-isa128       # Cross-ISA __int128 gate
+make test-torture      # GCC c-torture conformance gate (needs gcc-15)
+make asan              # ASan+UBSan build of compiler itself
+make test-san          # zero_san flag-ON soundness sweep
+``` the library in your own program (compile the `src/zero_cc/` sources with your own `main`; there is no prebuilt compiler archive):
 
 ```bash
 gcc -Wall -Isrc -Iinclude -fcommon your_main.c $(find src/zero_cc -name '*.c') -o your_app
