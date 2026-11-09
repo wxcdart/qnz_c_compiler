@@ -303,9 +303,9 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
                 opts->std_dialect = ZC_STD_C11;
             } else if (strcmp(v, "gnu11") == 0 || strcmp(v, "gnu17") == 0) {
                 opts->std_dialect = ZC_STD_GNU11;
-            } else if (strcmp(v, "c23") == 0) {
+            } else if (strcmp(v, "c23") == 0 || strcmp(v, "c2y") == 0) {
                 opts->std_dialect = ZC_STD_C23;
-            } else if (strcmp(v, "gnu23") == 0) {
+            } else if (strcmp(v, "gnu23") == 0 || strcmp(v, "gnu2y") == 0) {
                 opts->std_dialect = ZC_STD_GNU23;
             } else if (strcmp(v, "c89") == 0) {
                 opts->std_dialect = ZC_STD_C99; /* C89 leniency on top of C99 */

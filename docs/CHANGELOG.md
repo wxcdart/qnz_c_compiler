@@ -1,3 +1,46 @@
+## [Sprint 141] - 2026-11-09 - c-torture reference made MANDATORY gcc-15 (per-test `-std` dialects pass through)
+
+The gate's reference compiler is now **gcc-15, required**: `tools/torture_run.py`
+defaults to `gcc-15` and hard-fails at startup when it is absent (no silent
+fallback to an older reference). Rationale: the corpus's C23-era tests
+(`dg-options "-std=c2y"`/`"-std=gnu23"` — the `uabs` family, the fixed-enum
+`pr111059`/`pr111911` clusters) only build under it, and the C23 differential
+gate (`tools/c23/test_c23.py`) already uses gcc-15, so both conformance gates
+now share one reference. Each test's own `dg-options`/`.x` flags — including
+its `-std=` dialect — are passed to both the reference and zerocc.
+
+**zerocc driver**: `-std=c2y`/`-std=gnu2y` (GCC's C23 working-draft names,
+used by the `uabs` family) are now accepted aliases of `c23`/`gnu23` —
+previously they warned "unknown standard" and silently fell back to the
+legacy dialect.
+
+**Baseline re-verified under gcc-15 and ratcheted**:
+- **PASS 3,760 -> 3,762** (+4): `execute/builtins/uabs-1.c` (NO-REF->PASS,
+  needs the Sprint 140 `uabs`/`ulabs`/`ullabs`/`umaxabs` builtins),
+  `execute/pr119291.c` + `execute/builtins/stpncpy-chk.c` (REF-BUG->PASS,
+  the gcc-14 `-O1` reference crashes are fixed in gcc-15),
+  `compile/pr123703.c` (NO-REF->PASS, documented gcc-14 bug).
+- **3 honest bucket-moves to SKIP-C89** (all zerocc-strictness divergences
+  the gcc-15 triage now classifies instead of hiding as NO-REF/PASS):
+  `compile/asmgoto-3.c` + `compile/pr98096.c` (PASS->SKIP-C89 — the asm
+  Phase 3 stricter lowering landed after the gcc-14 baseline: the `=c`/rcx
+  constraint is reserved for shift counts in zerocc's LRA, and out-of-range
+  `%N` template references are rejected where GCC accepts them in
+  comment-only templates), `execute/pr117432.c` (NO-REF->SKIP-C89 — C23
+  anonymous `(...)` variadics; gcc-15 builds it under `-std=gnu23`, zerocc
+  rejects; the run also exposed a `va_start` misdiagnostic).
+- **NO-REF 26 -> 23, REF-BUG 8 -> 6** (the four leaves above); the remaining
+  NO-REF is genuinely host-constrained (target-specific `-G0`/`-mno-eabi`/
+  newer `-march` flags, 32-bit-mode, `uabs-{2,3}` gcc-15 reference-build
+  failures, a documented gcc-15 bug).
+- **0 MISCOMPILE, 0 REJECT, 0 TIMEOUT** — zero regressions across all 3,940
+  tests (3,934 main sweep + 6 heavy chunk).
+
+**Verification**: full gate under gcc-15 green vs the ratcheted baseline;
+`make test` 194/194; `make test-opt` 93 ok / 0 failed (+58 documented
+embedding skips); `make test-c23` 24/24; `make test-asm` 72/72;
+`tools/style_check.py` 0 errors; OKF lint clean.
+
 ## [Sprint 139] - 2026-11-08 - Inline assembly Phase 4: File-scope asm & Multi-ISA text emission
 
 **Plan item #12 Phase 4 is complete**: Top-level file-scope inline assembly (`__asm__("...")`) is now supported across all execution paths (AOT text `#APP`, in-memory JIT `--run`, and raw binary AOT `ZC_RAW_AOT=1`), multi-ISA text inline assembly is enabled for AArch64 and RISC-V (64/32-bit), and parameter promotion/inlining are guarded against asm statements via `zero_cc_ast_has_asm`.

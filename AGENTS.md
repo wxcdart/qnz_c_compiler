@@ -33,7 +33,7 @@ Before scanning the 80+ historical files in `docs/`, **always consult the Open K
   make test
   make test-opt            # optimizer sweep: -O0..-O3, JIT + AOT, via zerocc itself
   make test-san            # zero_san flag-ON soundness sweep: test/san san_ok_*/san_trap_* at -O0..-O3 in JIT + AOT + cross-ISA qemu smoke
-  make test-torture        # GCC c-torture conformance gate (ratcheted against test/torture/baseline.json)
+  make test-torture        # GCC c-torture conformance gate (ratcheted against test/torture/baseline.json; MANDATORY gcc-15 reference — the gate hard-fails without it, TORTURE_GCC overrides)
   make test-c23            # C23 differential conformance gate: feature-tagged C23 cases (std_version, true/false, constexpr, nullptr, designator sizing, #warning, c23_misc) at -O0..-O3 in JIT + AOT, diffed against a reference gcc (C23_GCC override, else gcc-15/14/gcc) with the matching -std flag (tools/c23/test_c23.py)
   make test-asm            # inline-assembly Phase 1 gate: every test/asm/*.c on the AOT text path (-S) at -O0..-O3, assembled+linked with host gcc, diffed (rc+stdout) vs a host-gcc -O2 reference (tools/asm_diff.py)
   make test-project-diff   # project-differential gate: test/projects/ (cJSON, zlib, sqlite3.c) must compile under zerocc at -O0/-O2, diffed against host-gcc acceptance (tools/project_diff.py)

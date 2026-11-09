@@ -77,12 +77,21 @@ RUN_MODES = ["jit", "aot"]
 COMPILE_LEVELS = [0, 2]
 RUN_TIMEOUT = 5
 BUILD_TIMEOUT = 10
-# Reference compiler: override with TORTURE_GCC. Default: gcc-14 when
-# installed (C23 `dg-options "-std=gnu23"` tests need it; the baseline is
-# recorded against gcc-14), else the plain `gcc`. The refcache key includes
-# the compiler name so cached references never mix across switches.
-GCC = os.environ.get("TORTURE_GCC") or (
-    shutil.which("gcc-14") if shutil.which("gcc-14") else "gcc")
+# Reference compiler: gcc-15 is MANDATORY (Sprint 141) - the corpus's
+# C23-era tests (dg-options "-std=c2y"/"-std=gnu23", e.g. the uabs family
+# and the fixed-enum pr111059/pr111911 clusters) only build under it, and
+# the C23 differential gate (tools/c23/test_c23.py) already uses it, so
+# both conformance gates share one reference.  Override with TORTURE_GCC
+# for special runs (the refcache key includes the compiler name, so cached
+# references never mix across switches); the gate hard-fails rather than
+# silently degrading to an older reference.
+GCC = os.environ.get("TORTURE_GCC")
+if not GCC:
+    if not shutil.which("gcc-15"):
+        raise SystemExit(
+            "torture_run: gcc-15 is required as the c-torture reference "
+            "(install it or point TORTURE_GCC at a suitable compiler)")
+    GCC = "gcc-15"
 KEEP = False  # --keep: retain work artifacts instead of unlinking
 
 # dg-require-effective-target tokens zerocc cannot satisfy (GNU extensions /
