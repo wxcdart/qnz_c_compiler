@@ -1600,7 +1600,13 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
             return true;
         }
 
-        /* llabs() / labs() / imaxabs() / abs() - integer absolute value.
+        /* llabs() / labs() / imaxabs() / abs() / uabs() / ulabs() /
+         * ullabs() / umaxabs() - integer absolute value.
+         *
+         * uabs/ulabs (c-torture execute/builtins/uabs-1..3): GCC treats
+         * them as builtins too - the same inline abs sequence, the result
+         * just has the unsigned type (the |INT_MIN| bit pattern is the
+         * correct unsigned value, so the shared lowering is exact).
          *
          * GCC semantics (calibrated against gcc-14 at -O0/-O1/-O2, 2026):
          * the builtin is used at every builtin-recognized call site -
@@ -1618,10 +1624,18 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
              strcmp(callee->s.str, "llabs") == 0 ||
              strcmp(callee->s.str, "__builtin_labs") == 0 ||
              strcmp(callee->s.str, "labs") == 0 ||
+             strcmp(callee->s.str, "__builtin_ulabs") == 0 ||
+             strcmp(callee->s.str, "ulabs") == 0 ||
+             strcmp(callee->s.str, "__builtin_ullabs") == 0 ||
+             strcmp(callee->s.str, "ullabs") == 0 ||
+             strcmp(callee->s.str, "__builtin_umaxabs") == 0 ||
+             strcmp(callee->s.str, "umaxabs") == 0 ||
              strcmp(callee->s.str, "__builtin_imaxabs") == 0 ||
              strcmp(callee->s.str, "imaxabs") == 0 ||
              strcmp(callee->s.str, "__builtin_abs") == 0 ||
-             strcmp(callee->s.str, "abs") == 0)) {
+             strcmp(callee->s.str, "abs") == 0 ||
+             strcmp(callee->s.str, "__builtin_uabs") == 0 ||
+             strcmp(callee->s.str, "uabs") == 0)) {
             const char *bname = callee->s.str;
             const char *bplain =
                 (strncmp(bname, "__builtin_", 10) == 0) ? bname + 10 : bname;
@@ -1629,7 +1643,18 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
             bool b_builtin = b_builtin_form || !zero_cc_no_builtin(c, bplain);
             if (b_builtin) {
             bool is_32bit = (strcmp(callee->s.str, "__builtin_abs") == 0 ||
-                             strcmp(callee->s.str, "abs") == 0);
+                             strcmp(callee->s.str, "abs") == 0 ||
+                             strcmp(callee->s.str, "__builtin_uabs") == 0 ||
+                             strcmp(callee->s.str, "uabs") == 0);
+            /* uabs/ulabs return the UNSIGNED type: the 32-bit result must
+             * be zero-extended, not sign-extended, or a consumer in an
+             * unsigned context (cmp against 1U+INT_MAX etc.) sees
+             * 0xFFFFFFFF80000000 where 0x0000000080000000 belongs
+             * (c-torture uabs-2 `uabs(imin-1) != 1U+INT_MAX`).  The 64-bit
+             * paths need no tail extend (the 64-bit abs bits are correct
+             * for both readings, incl. LONG_MIN). */
+            bool is_uabs32 = (strcmp(callee->s.str, "__builtin_uabs") == 0 ||
+                              strcmp(callee->s.str, "uabs") == 0);
             int arg_temp = lower_expr(c, arena, node->right);
             if (is_32bit) {
                 ir_emit_sext(c, arg_temp, 4);
@@ -1651,7 +1676,8 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
             ir_emit_mov_reg(c, res_temp, arg_temp);
             ir_emit_label(c, end_label);
             if (is_32bit) {
-                ir_emit_sext(c, res_temp, 4);
+                if (is_uabs32) ir_emit_zext(c, res_temp, 4);
+                else ir_emit_sext(c, res_temp, 4);
             }
             c->last_expr_is_float = 0;
             *out_temp = res_temp;
