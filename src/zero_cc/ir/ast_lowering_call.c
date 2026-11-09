@@ -232,11 +232,11 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                     "__strcat_chk", "__strncpy_chk", "__stpncpy_chk",
                     "__strncat_chk",
                 };
-                bool is_chk = false;
+                int chk_idx = -1;
                 for (size_t ci = 0; ci < sizeof(chk_names) / sizeof(chk_names[0]); ci++) {
-                    if (strcmp(base_fn, chk_names[ci]) == 0) { is_chk = true; break; }
+                    if (strcmp(base_fn, chk_names[ci]) == 0) { chk_idx = (int)ci; break; }
                 }
-                if (is_chk) {
+                if (chk_idx >= 0) {
                     char plain_name[128];
                     snprintf(plain_name, sizeof(plain_name), "%s", base_fn + 2);
                     plain_name[strlen(plain_name) - 4] = '\0'; /* strip _chk */
@@ -267,6 +267,8 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                         name = plain_fn->name;
                     } else if (zero_cc_find_function(c, base_fn)) {
                         name = base_fn;
+                    } else {
+                        name = chk_names[chk_idx];
                     }
                 } else {
                     if (zero_cc_find_function(c, base_fn)) {
@@ -279,8 +281,11 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                  * calls X - GCC's behavior for the `__builtin_strpbrk` /
                  * `__builtin_strcspn` / ... alias family (c-torture
                  * execute/builtins).  Unknown base names keep the literal
-                 * `__builtin_X` symbol (implicit-declaration path). */
-                if (zero_cc_find_function(c, base_fn)) {
+                 * `__builtin_X` symbol (implicit-declaration path), except
+                 * FORTIFY __X_chk aliases (__sprintf_chk, __vsprintf_chk)
+                 * whose library target is always X even when undeclared. */
+                if (zero_cc_find_function(c, base_fn) ||
+                    (strncmp(base_fn, "__", 2) == 0 && strstr(base_fn, "_chk") != NULL)) {
                     name = base_fn;
                 }
             }

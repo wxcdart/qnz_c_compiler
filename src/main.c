@@ -1068,7 +1068,8 @@ static int compile_object_single(CompileOptions *opts, const char *input,
                     break;
                 }
             }
-            if (symbol_idx == 0 && dlsym(RTLD_DEFAULT, alias)) {
+            bool is_chk_alias = (strncmp(alias, "__", 2) == 0 && strstr(alias, "_chk") != NULL);
+            if (symbol_idx == 0 && (dlsym(RTLD_DEFAULT, alias) || is_chk_alias)) {
                 elf_writer_add_symbol(&elf_ctx, alias, ELF_STB_GLOBAL,
                                       ELF_STT_FUNC, SHN_UNDEF, 0, 0);
                 symbol_idx = (int)elf_ctx.symbol_count;

@@ -45,12 +45,28 @@ void loop_analysis_free(LoopAnalysisState *state) {
         state->loops[i].is_invariant = NULL;
     }
     free(state->loops);
-    free(state->dominators);
-    free(state->post_dominators);
+    /* dominators / post_dominators are NON-OWNING views into the cached
+     * CFG (Sprint 149) - released with the CFG cache, not here. */
     state->loops = NULL;
     state->dominators = NULL;
     state->post_dominators = NULL;
     state->loop_count = 0;
+}
+
+/**
+ * Fill the dominator scaffolding (Sprint 149): non-owning views into the
+ * cached CFG's idom / post-idom arrays.  Cheap once computed (cached on
+ * the snapshot); called from detect_loops so LICM's state carries the
+ * data for the loop-unroll and dominance-based LICM work that follows.
+ */
+bool loop_analyze(ZeroCCCompiler *c, LoopAnalysisState *state) {
+    if (!c || !state) return false;
+    const int *idom = cfg_idom(c);
+    const int *pidom = cfg_post_idom(c);
+    if (!idom || !pidom) return false;
+    state->dominators = (int *)idom;
+    state->post_dominators = (int *)pidom;
+    return true;
 }
 
 /**
@@ -68,6 +84,10 @@ static void detect_loops(ZeroCCCompiler *c, LoopAnalysisState *state) {
 
     if (!c || !cfg_build(c)) return;
     ZeroCCCFG *cfg = &c->cfg_cache;
+
+    /* Dominator scaffolding (Sprint 149): best-effort - a dataflow OOM
+     * leaves the views NULL without disturbing loop detection. */
+    loop_analyze(c, state);
 
     int nloops = cfg->loop_count;
     if (nloops > MAX_LOOPS) nloops = MAX_LOOPS;

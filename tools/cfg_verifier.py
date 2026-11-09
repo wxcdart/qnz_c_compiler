@@ -16,6 +16,12 @@ Checks per function:
      predecessor must itself be reachable
   5. loops: C-reported backedge set == Python-computed backedge set
      (compared as (header_pos, from_pos) pairs)
+  6. dominators: C-reported idom == Python idom (independent
+     round-robin set dataflow over the reported pred/succ lists -
+     different schedule and representation than the C worklist+bitset)
+  7. post-dominators: C-reported post_idom == Python post_idom (the
+     same computation on the reverse CFG with a synthetic entry above
+     all exit blocks; an exit reports itself)
 
 Unreachable blocks (unreachable tails after returns, orphaned constant
 blocks emitted by lowering) are reported as WARNINGS, not failures - they
@@ -38,14 +44,14 @@ ZEROCC = os.path.join(ROOT, "build", "bin", "zerocc")
 SWEEP_CORPUS = ["test/jit", "test/aot", "test/licm", "test/inline_audit"]
 CFG_UNIT_DIR = "test/cfg"
 
-TERMINAL_OPS = {"JMP", "JE", "JNE", "JL", "JLE", "JG", "JCOND", "RET", "EPILOGUE"}
+TERMINAL_OPS = {"JMP", "JMP_INDIRECT", "JE", "JNE", "JL", "JLE", "JG", "JCOND", "RET", "EPILOGUE"}
 BRANCH_OPS = {"JE", "JNE", "JL", "JLE", "JG", "JCOND"}
 
 IR_LINE = re.compile(r"^\s*(\d+):\s+(.*)$")
 LABEL_LINE = re.compile(r"^(L\d+):\s*\[")
 JUMP_TGT = re.compile(r"\bL(\d+)\b")
 CFG_BLOCK = re.compile(
-    r"^bb(\d+): \[(\d+)\.\.(\d+)\] succ=(bb\d+(?:,bb\d+)*)? pred=(bb\d+(?:,bb\d+)*)? loop_header=([01])$")
+    r"^bb(\d+): \[(\d+)\.\.(\d+)\] succ=(bb\d+(?:,bb\d+)*)? pred=(bb\d+(?:,bb\d+)*)? loop_header=([01])(?: idom=(bb\d+|-) post_idom=(bb\d+|-))?$")
 CFG_BBLIST = re.compile(r"bb(\d+)")
 CFG_LOOP = re.compile(r"^  bb(\d+)->bb(\d+)$")
 CFG_SUMMARY = re.compile(r"^(\d+) blocks, (\d+) reachable, (\d+) loops$")
@@ -96,8 +102,10 @@ def parse_ir_functions(dump):
 
 def parse_cfg_functions(dump):
     """Parse -dump-cfg text into [(fn, blocks, loops, summary)] with
-    blocks=[(start, end_excl, succs, preds, loop_header)],
-    loops=[(from_block, header_block)], summary=(nblocks,nreach,nloops)."""
+    blocks=[(start, end_excl, succs, preds, loop_header, idom, post_idom)]
+    (idom/post_idom are -1 for "-", None when the C side omitted the
+    fields), loops=[(from_block, header_block)],
+    summary=(nblocks,nreach,nloops)."""
     fns = []
     cur = None
     in_loops = False
@@ -117,8 +125,12 @@ def parse_cfg_functions(dump):
         if m and not in_loops:
             succs = [int(x) for x in CFG_BBLIST.findall(m.group(4) or "")]
             preds = [int(x) for x in CFG_BBLIST.findall(m.group(5) or "")]
+            idom = (None if m.group(7) is None
+                    else -1 if m.group(7) == "-" else int(m.group(7)[2:]))
+            pidom = (None if m.group(8) is None
+                     else -1 if m.group(8) == "-" else int(m.group(8)[2:]))
             cur[1].append((int(m.group(2)), int(m.group(3)) + 1,
-                           succs, preds, m.group(6) == "1"))
+                           succs, preds, m.group(6) == "1", idom, pidom))
             continue
         m = CFG_LOOP.match(line)
         if m and in_loops:
@@ -164,6 +176,10 @@ def python_build_cfg(insns):
         if op == "JMP":
             if tgt in label_block:
                 succs[b].add(label_block[tgt])
+        elif op == "JMP_INDIRECT":
+            # C rule: an indirect jump can target any block that starts
+            # with an OP_LABEL (all of them, no fallthrough).
+            succs[b].update(label_block.values())
         elif op in BRANCH_OPS:
             if tgt in label_block:
                 succs[b].add(label_block[tgt])
@@ -204,7 +220,7 @@ def check_function(fn_name, insns, blocks, loops, summary):
     if len(blocks) != len(pb):
         errors.append("block count mismatch: C=%d python=%d" % (len(blocks), len(pb)))
         return errors, warnings, -1
-    for b, (cs, ce, _s, _p, _lh) in enumerate(blocks):
+    for b, (cs, ce, _s, _p, _lh, _id, _pid) in enumerate(blocks):
         if (cs, ce) != pb[b]:
             errors.append("bb%d range mismatch: C=[%d..%d) python=[%d..%d)"
                           % (b, cs, ce, pb[b][0], pb[b][1]))
@@ -226,7 +242,7 @@ def check_function(fn_name, insns, blocks, loops, summary):
                               % (idx, tgt, pos))
 
     # 3. pred/succ mutual consistency (C report)
-    for b, (cs, ce, succs, preds, _lh) in enumerate(blocks):
+    for b, (cs, ce, succs, preds, _lh, _id, _pid) in enumerate(blocks):
         for s in succs:
             if s >= len(blocks):
                 errors.append("bb%d succ %d out of range" % (b, s))
@@ -250,7 +266,7 @@ def check_function(fn_name, insns, blocks, loops, summary):
                 if s < len(blocks) and s not in reach:
                     reach.add(s)
                     changed = True
-    for b, (cs, ce, succs, preds, _lh) in enumerate(blocks):
+    for b, (cs, ce, succs, preds, _lh, _id, _pid) in enumerate(blocks):
         for p in preds:
             if p in reach and b not in reach:
                 errors.append("bb%d unreachable but has reachable pred bb%d" % (b, p))
@@ -280,15 +296,164 @@ def check_function(fn_name, insns, blocks, loops, summary):
         if summary[2] != len(loops):
             errors.append("summary loop count %d != listed %d" % (summary[2], len(loops)))
 
+    # 6/7. dominators and post-dominators vs the independent computation
+    have_dom = all(bl[5] is not None and bl[6] is not None for bl in blocks)
+    if not have_dom:
+        warnings.append("idom/post_idom fields missing from C dump "
+                        "(dominator dataflow allocation failed?)")
+    else:
+        idom_c = [bl[5] for bl in blocks]
+        pidom_c = [bl[6] for bl in blocks]
+        idom_py, pidom_py = python_dominators(blocks)
+        if idom_c != idom_py:
+            errors.append("idom mismatch: C=%s python=%s" % (idom_c, idom_py))
+        if pidom_c != pidom_py:
+            errors.append("post_idom mismatch: C=%s python=%s" % (pidom_c, pidom_py))
+
     return errors, warnings, len(reach)
+
+
+def invert_preds(preds, total):
+    """Successor lists by inverting predecessor lists."""
+    succs = [[] for _ in range(total)]
+    for v in range(total):
+        for p in preds[v]:
+            if 0 <= p < total:
+                succs[p].append(v)
+    return succs
+
+
+def python_rpo(succs, entry, total):
+    """Reverse postorder over succs from entry (iterative DFS)."""
+    state = [0] * total  # 0 unvisited, 1 on stack, 2 done
+    next_s = [0] * total
+    post = []
+    stack = [entry]
+    state[entry] = 1
+    while stack:
+        u = stack[-1]
+        if next_s[u] < len(succs[u]):
+            v = succs[u][next_s[u]]
+            next_s[u] += 1
+            if state[v] == 0:
+                state[v] = 1
+                stack.append(v)
+        else:
+            state[u] = 2
+            stack.pop()
+            post.append(u)
+    rpo = [-1] * total
+    for k in range(len(post) - 1, -1, -1):
+        rpo[post[k]] = len(post) - 1 - k
+    return rpo
+
+
+def python_idom(preds, succs, entry, reach):
+    """Meet-over-preds dominator dataflow to fixpoint (round-robin
+    schedule, Python sets) then idom = deepest (max RPO) dominator-set
+    member other than the block itself.  Independent implementation of
+    the same equations the C side runs with a worklist + bitsets."""
+    total = len(preds)
+    reach = [b in reach for b in range(total)]
+    rpo = python_rpo(succs, entry, total)
+    D = [None] * total
+    for b in range(total):
+        if not reach[b]:
+            D[b] = None
+        elif b == entry:
+            D[b] = {entry}
+        else:
+            D[b] = set(range(total))
+    changed = True
+    while changed:
+        changed = False
+        for b in range(total):
+            if b == entry or D[b] is None:
+                continue
+            inter = None
+            for p in preds[b]:
+                if not reach[p]:
+                    continue
+                inter = D[p] if inter is None else (inter & D[p])
+            if inter is None:
+                continue
+            new = {b} | inter
+            if new != D[b]:
+                D[b] = new
+                changed = True
+    idom = [-1] * total
+    for b in range(total):
+        if D[b] is None:
+            continue
+        if b == entry:
+            idom[b] = entry
+            continue
+        best, best_rpo = -1, -1
+        for d in D[b]:
+            if d == b:
+                continue
+            if best < 0 or rpo[d] > best_rpo:
+                best, best_rpo = d, rpo[d]
+        idom[b] = best
+    return idom
+
+
+def python_dominators(blocks):
+    """(idom, post_idom) arrays computed independently from the C-
+    reported block structure (already cross-checked against the IR).
+    idom[b] = -1 when b is unreachable from entry; post_idom[b] = -1
+    when b cannot reach an exit; an exit (or a block with no closer
+    post-dominator) reports itself."""
+    n = len(blocks)
+    if n == 0:
+        return [], []
+    # forward graph (entry = 0)
+    preds_f = [list(b[3]) for b in blocks]
+    preds_f.append([])
+    succs_f = invert_preds(preds_f, n + 1)
+    reach_f = set([0])
+    changed = True
+    while changed:
+        changed = False
+        for b in list(reach_f):
+            for s in succs_f[b]:
+                if s not in reach_f:
+                    reach_f.add(s)
+                    changed = True
+    idom_f = python_idom(preds_f, succs_f, 0, reach_f)
+    # reverse graph (entry = synthetic X above all exit blocks)
+    X = n
+    preds_r = [list(b[2]) for b in blocks]
+    for b in range(n):
+        if not preds_r[b]:
+            preds_r[b].append(X)
+    preds_r.append([])
+    succs_r = invert_preds(preds_r, n + 1)
+    reach_r = set([X])
+    changed = True
+    while changed:
+        changed = False
+        for b in list(reach_r):
+            for s in succs_r[b]:
+                if s not in reach_r:
+                    reach_r.add(s)
+                    changed = True
+    idom_r = python_idom(preds_r, succs_r, X, reach_r)
+    idom_p = []
+    for b in range(n):
+        v = idom_r[b]
+        if v == X:
+            v = b
+        idom_p.append(v)
+    return idom_f[:n], idom_p
 
 
 def write_dot(path, fn_name, blocks):
     lines = ["digraph %s {" % re.sub(r"\W", "_", fn_name)]
-    for b, (s, e, succs, preds, lh) in enumerate(blocks):
+    for b, (s, e, succs, preds, lh, _id, _pid) in enumerate(blocks):
         lines.append('  bb%d [label="bb%d\\n[%d..%d)%s"];'
                      % (b, b, s, e - 1, " (header)" if lh else ""))
-    for b, (s, e, succs, preds, lh) in enumerate(blocks):
+    for b, (s, e, succs, preds, lh, _id, _pid) in enumerate(blocks):
         for s2 in succs:
             lines.append("  bb%d -> bb%d;" % (b, s2))
     lines.append("}")

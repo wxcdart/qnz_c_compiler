@@ -37,8 +37,13 @@ typedef struct {
     LoopInfo *loops;
     int loop_count;
     int capacity;
-    int *dominators;     /* dominators[i] = index of immediate dominator */
-    int *post_dominators;
+    int *dominators;     /* dominators[i] = index of immediate dominator,
+                          * -1 = unreachable from entry.  NON-OWNING view
+                          * into the cached CFG (Sprint 149): filled by
+                          * loop_analyze / detect_loops, freed by the CFG
+                          * cache, never by loop_analysis_free. */
+    int *post_dominators; /* post-dominator analogue, same ownership; -1 =
+                           * cannot reach any exit. */
     int ir_count;
 } LoopAnalysisState;
 
@@ -53,9 +58,13 @@ void loop_analysis_init(LoopAnalysisState *state);
 void loop_analysis_free(LoopAnalysisState *state);
 
 /**
- * Analyze loops in current IR
+ * Fill state->dominators / state->post_dominators with non-owning views
+ * into the cached CFG's idom / post-idom arrays (Sprint 149: meet-over-
+ * predecessors dataflow on the block CFG, see cfg.h).  The views stay
+ * valid until the cached CFG is rebuilt (cfg_invalidate) or freed.
+ * Returns false on OOM (the views remain NULL).
  */
-void loop_analyze(LoopAnalysisState *state);
+bool loop_analyze(ZeroCCCompiler *c, LoopAnalysisState *state);
 
 /**
  * Loop-invariant code motion

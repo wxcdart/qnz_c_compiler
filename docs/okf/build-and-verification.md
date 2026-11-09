@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 165-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-11-09T05:15:58Z
+timestamp: 2026-11-09T22:29:28Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -160,7 +160,9 @@ python3 tools/type_tag_verifier.py --verify-all
 
 # Verify the CFG layer (-dump-cfg) against an independent Python recomputation
 # of blocks/loops from -dump-ir: tiling, jump targets, pred/succ consistency,
-# reachability, C-vs-Python loop-set equality. Skips non-standalone tests.
+# reachability, C-vs-Python loop-set equality, and Sprint 149 dominator /
+# post-dominator dataflow (checks 6/7: idom and post_idom cross-checked vs
+# Python round-robin set dataflow). Skips non-standalone tests.
 python3 tools/cfg_verifier.py --verify-all
 
 # Dump a function's CFG (stable plain text: blocks, succ/pred, loop headers)

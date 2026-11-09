@@ -1,3 +1,30 @@
+## [Sprint 149] - 2026-11-09 - Dominator & Post-Dominator CFG Dataflow (Plan Item 8a)
+
+ZeroCC implements meet-over-predecessors bitset dataflow to compute immediate dominators (`idom`) and post-dominators (`post_idom`) on the control flow graph (`src/zero_cc/opt/cfg.c`, `cfg.h`), completing development plan item 8a:
+
+- **Dominator / Post-Dominator Dataflow Engine (`src/zero_cc/opt/cfg.c`, `cfg.h`)**:
+  - Implemented iterative dataflow over dominator bitsets ($D(\text{entry}) = \{\text{entry}\}$, $D(b) = \{b\} \cup \bigcap_{p \in \text{preds}(b)} D(p)$) seeded in reverse postorder (RPO) with worklist-driven fixpoint convergence.
+  - Immediate dominator `idom(b)` computed as the deepest RPO member of $D(b) \setminus \{b\}$.
+  - Reverse CFG pass with a synthetic entry $X$ above all terminal sink/exit blocks computes post-dominators (`post_idom`); exit blocks report themselves, matching the entry block convention.
+  - 64 MB soft allocation cap defends against pathological graphs; returns NULL on OOM without corrupting CFG cache.
+  - Queries: `cfg_idom()`, `cfg_post_idom()`, `cfg_block_dominates(cfg, a, b)`, `cfg_block_post_dominates(cfg, a, b)` with $O(\text{chain depth})$ tree walks.
+  - `-dump-cfg` augmented to display `idom=bbX post_idom=bbY` per block.
+- **Loop Analysis Integration (`src/zero_cc/opt/opt_loop.c`, `opt_loop.h`)**:
+  - `loop_analyze(c, state)` populates `state->dominators` and `state->post_dominators` with non-owning views into the cached CFG's `idom`/`post_idom` tables.
+  - `detect_loops` calls `loop_analyze`; `loop_analysis_free` updated so non-owning views are retained by the CFG cache.
+- **CFG Verifier Extensions & Bugfix (`tools/cfg_verifier.py`)**:
+  - Added Check 6 (`dominators`): verifies C-reported `idom` against an independent Python round-robin set dataflow implementation.
+  - Added Check 7 (`post-dominators`): verifies C-reported `post_idom` against independent Python reverse CFG dataflow.
+  - Fixed pre-existing omission in `TERMINAL_OPS`: added `JMP_INDIRECT` so computed gotos (e.g. `computed_goto_test.c`) no longer trigger false block-boundary warnings.
+- **Multi-TU Fortify Alias Fix (`src/zero_cc/ir/ast_lowering_call.c`, `src/main.c`)**:
+  - Fixed undefined reference to `__builtin___*_chk` under static musl: lowered undeclared FORTIFY `chk_names` (`__memset_chk`, `__memcpy_chk`, etc.) and printf-family chk wrappers (`__sprintf_chk`, `__vsprintf_chk`) directly to library symbol `base_fn` instead of retaining the `__builtin_` prefix.
+  - Added fallback in `compile_object_single` (`main.c`) to materialize `_chk` aliases as external `SHN_UNDEF` ELF symbols even when host `dlsym` cannot resolve them in a static binary.
+  - Restored 100% green gate across all 17 `chk.c` torture tests (11 PASS, 5 REF-BUG, 1 SKIP-SUPPORT).
+- **Verification**:
+  - Added unit test `test/cfg/dominators.c` with complex CFG topologies: nested loops, goto side-entries, multi-exit conditionals, and switch fallthroughs.
+  - `tools/cfg_verifier.py --verify-all`: 161 files, 0 failed, 100% agreement between C and Python dataflow.
+  - Full optimizer sweep (`make test-opt`): 96 ok / 0 failed across -O0..-O3 in JIT and AOT modes.
+
 ## [Sprint 148] - 2026-11-09 - Native `ar` Static Archive Writer (`zerocc --ar`) & Self-Contained Toolchain
 
 ZeroCC implements a clean-room, native Unix/GNU static archive writer (`src/zero_cc/linker/ar_writer.c`, `ar_writer.h`), replacing host `ar` and completing full toolchain self-sufficiency for static library creation:
