@@ -859,7 +859,9 @@ bool zero_cc_parse_local_decl(ZeroCCCompiler *c,  /* Sprint 114: defined in decl
             c->tokens[c->token_pos].type == TK_STATIC ||
             c->tokens[c->token_pos].type == TK_EXTERN ||
             c->tokens[c->token_pos].type == TK_THREAD_LOCAL ||
-            c->tokens[c->token_pos].type == TK_REGISTER)) {
+            c->tokens[c->token_pos].type == TK_REGISTER ||
+            c->tokens[c->token_pos].type == TK_INLINE ||
+            c->tokens[c->token_pos].type == TK_AUTO)) {
         if (c->tokens[c->token_pos].type == TK_CONST || c->tokens[c->token_pos].type == TK_CONSTEXPR) {
             is_const = true;
             c->token_pos++;
@@ -897,6 +899,12 @@ bool zero_cc_parse_local_decl(ZeroCCCompiler *c,  /* Sprint 114: defined in decl
             c->token_pos++;
         } else if (c->tokens[c->token_pos].type == TK_EXTERN) {
             is_extern = true;
+            c->token_pos++;
+        } else if (c->tokens[c->token_pos].type == TK_INLINE) {
+            /* `inline` on a block-scope function definition (c-torture
+             * execute/20010605-1, compile/20010903-2): the nested-function
+             * trampoline model has no inline expansion, so the specifier
+             * is accepted and otherwise ignored (like C's `auto`). */
             c->token_pos++;
         } else {
             c->token_pos++;

@@ -1,3 +1,28 @@
+## [Sprint 138] - 2026-11-08 - c-torture `SKIP-C89` strictness burn-down + opt-sweep gate integrity
+
+The c-torture `SKIP-C89` triage (zerocc rejects *and* `gcc -std=c11/c99 -pedantic-errors` rejects) had been masking **strictness divergences** that non-pedantic gcc accepts — the triage conflated "ISO-forbidden extension" with "conformance gap". This sprint burns down the actionable clusters, each verified differentially against `gcc -std=gnu11` (with the tests' own `-fpermissive` dg-options where present):
+
+**Frontend strictness fixes** (13 tests `SKIP-C89` -> `PASS`, zero regressions):
+1. **Complex integer struct/union members** (`compile/pr42196-1..4`): `member_cx_scalar` in the member-declaration path was gated on `TK_DOUBLE_KW`/`TK_FLOAT_KW`, so `struct S { __complex__ int ci; };` was built as a plain 4-byte `int` member and `__real__ s.ci` REJECTed ("'__real__' applied to a non-complex value"). The gate now covers every real-scalar element (int/signed/unsigned/short/char/bool/long), including the pointer-to-complex-member pointee sizing (element size x2).
+2. **Flexible pointer-array members** (`compile/pr16566-3`): `struct P { int n; struct S *tab[]; };` — the member path only wrapped pointer members in `TYPE_ARRAY` when `is_ptr && is_array && !is_flexible`; the flexible case fell out and left a bare `TYPE_PTR`, so `p->tab[0]` subscripted a pointer. Condition widened to `is_ptr && (is_array || is_flexible)` in the struct and union branches.
+3. **Permissive pointer<->pointer conversion** (`compile/pr90275-2`, `compile/pr43635`, plus bonus `compile/pr115881`, `compile/pr44063`): `type_compatible_assign` now accepts any pointer<->pointer conversion (assignment, compound-assign, return, call argument, initialization), matching GCC's C99 behavior (6.5.16.1p2 implementation-defined; GCC warns, never errors). Qualifier-discard still rejected. `test/semantic/promote_test.c` assertion updated.
+4. **Wide string literals into integer-pointer targets** (`compile/regs-arg-size`): the initializer check accepted string literals only for `char` arrays/pointers; ZeroCC types wide literals as `int*`, so `wchar_t *fmt = L"%s";` with a user `typedef unsigned short wchar_t;` REJECTed. Now any integer-pointer target (the permissive stand-in for the test's `-fpermissive`).
+5. **`sizeof` of a subscripted string literal** (`compile/split-path-5`): `sizeof (""[__x])` (the glibc ctype idiom) — the type-walker string primary lacked the postfix `[...]` peel. Added (same loop as the ident primary).
+6. **`inline`/`auto` on block-scope nested function definitions** (`execute/20010605-1`, `compile/20010903-2`): the local-declaration storage-specifier loop lacked `TK_INLINE`/`TK_AUTO`. Now accepted (`inline` ignored — the trampoline model has no inline expansion).
+
+**Gate integrity (latent `make test-opt` bugs, found while verifying this sprint)**:
+- The sweep's zerocc and gcc compile commands did not pass `-Iinclude -Isrc`, so the 58 **embedding tests** (including `zero_cc.h` to drive the compiler API) *failed to compile* — their "baseline" was a masqueraded compile failure (rc=1/255) that every `-O` level "matched" without running. The sweep now passes the include paths.
+- The embedding tests still cannot link standalone (they call zerocc internals like `arena_alloc` that only the zerocc library/process provides) — the sweep now **explicitly skips them** with a documented reason (real coverage: `make test`, which links them against the zerocc library). Post-fix: the ~93 standalone tests sweep in all applicable modes with **zero** "AOT baseline unavailable" / "gcc reference unavailable" skips.
+- The virtual `<elf.h>` lacked `EM_RISCV`, `EM_386`, `STB_LOCAL`, `STB_WEAK`, `SHN_UNDEF`, which the embedder headers in `zero_cc.h` use — completed.
+
+**Verification**:
+- c-torture gate: **PASS 3,747 -> 3,760** (`SKIP-C89` 43 -> 30), **0 regressions** (main sweep 3,934 + heavy chunk 6 = 3,940); baseline ratcheted.
+- `make test`: **191/191**; `make test-opt`: **93 swept, 0 failed** (+58 documented embedding skips, 1 nondeterministic); `make test-c23`: **24/24**; `make test-asm`: **36/36**.
+- Diag battery: **8/8 categories, no regressions** (the permissive-pointer change loses no error category).
+- `sret_verifier`: 6/6; type-tag verifier: OK (162 files); style check: 0 errors.
+
+Remaining `SKIP-C89` (30): the genuinely-unsupported clusters — imaginary literal suffix `200i`, block-scope struct tag redefinition with different VLA layout, flexible-array-member initializers, attr/prototype redeclaration edges, `pr38789` (needs inline asm Phase 2 — now landed, re-attempt in a future sprint), `misalign.c` (needs `mode(...)`/packed unaligned layout).
+
 ## [Sprint 136] - 2026-11-08 - Inline assembly Phase 2: x86-64 integrated inline assembler (JIT `--run` and raw AOT `ZC_RAW_AOT=1`)
 
 **Plan item #12 Phase 2 is complete**: non-empty GNU `__asm__` templates on x86-64 can now be assembled and executed directly in-memory under `--run` (JIT) and in standalone raw ELF object generation (`ZC_RAW_AOT=1`) without invoking an external assembler or compiler.
