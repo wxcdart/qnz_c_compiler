@@ -76,15 +76,28 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
          strcmp(c->tokens[c->token_pos].str_val, "asm") == 0)) {
         c->token_pos++;
         int asm_volatile = 0;
-        if (c->token_pos < c->token_count &&
-            ((c->tokens[c->token_pos].type == TK_IDENT &&
-              c->tokens[c->token_pos].str_val &&
-              (strcmp(c->tokens[c->token_pos].str_val, "__volatile__") == 0 ||
-               strcmp(c->tokens[c->token_pos].str_val, "__volatile") == 0 ||
-               strcmp(c->tokens[c->token_pos].str_val, "volatile") == 0)) ||
-             c->tokens[c->token_pos].type == TK_VOLATILE)) {
-            c->token_pos++;
-            asm_volatile = 1;
+        int asm_goto = 0;
+        while (c->token_pos < c->token_count) {
+            if ((c->tokens[c->token_pos].type == TK_IDENT &&
+                 c->tokens[c->token_pos].str_val &&
+                 (strcmp(c->tokens[c->token_pos].str_val, "__volatile__") == 0 ||
+                  strcmp(c->tokens[c->token_pos].str_val, "__volatile") == 0 ||
+                  strcmp(c->tokens[c->token_pos].str_val, "volatile") == 0)) ||
+                c->tokens[c->token_pos].type == TK_VOLATILE) {
+                c->token_pos++;
+                asm_volatile = 1;
+            } else if ((c->tokens[c->token_pos].type == TK_IDENT &&
+                        c->tokens[c->token_pos].str_val &&
+                        (strcmp(c->tokens[c->token_pos].str_val, "__goto__") == 0 ||
+                         strcmp(c->tokens[c->token_pos].str_val, "__goto") == 0 ||
+                         strcmp(c->tokens[c->token_pos].str_val, "goto") == 0)) ||
+                       c->tokens[c->token_pos].type == TK_GOTO) {
+                c->token_pos++;
+                asm_goto = 1;
+                asm_volatile = 1;
+            } else {
+                break;
+            }
         }
         bool asm_paren = false;
         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
@@ -140,6 +153,8 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
         char last_constraint[32] = {0};
         char asm_clobbers[8][16] = {{0}};
         int asm_clobber_count = 0;
+        char asm_labels[8][64] = {{0}};
+        int asm_label_count = 0;
 
         bool asm_bail = false;
         while (c->token_pos < c->token_count &&
@@ -156,6 +171,22 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                 c->token_pos++;
             } else if (ot == TK_COMMA) {
                 last_constraint[0] = '\0';
+                c->token_pos++;
+            } else if (ot == TK_LBRACKET && (colon_section == 1 || colon_section == 2)) {
+                /* Symbolic operand name: [name] */
+                c->token_pos++;
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
+                    c->token_pos++;
+                }
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACKET) {
+                    c->token_pos++;
+                }
+            } else if (ot == TK_IDENT && colon_section == 4) {
+                const char *s = c->tokens[c->token_pos].str_val;
+                if (s && asm_label_count < 8) {
+                    snprintf(asm_labels[asm_label_count], sizeof(asm_labels[0]), "%s", s);
+                    asm_label_count++;
+                }
                 c->token_pos++;
             } else if (ot == TK_STRING) {
                 const char *s = c->tokens[c->token_pos].str_val;
@@ -279,20 +310,20 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                 }
             }
         }
-        if (asm_nonempty && asm_bail) {
+        if ((asm_nonempty || asm_goto) && asm_bail) {
             free(asm_tpl);
             diag_report_error_at_token(c,
                 "GNU asm statement: operand list not understood");
             c->had_error = 1;
             return head_stmt;
         }
-        if (asm_nonempty) {
-            /* Non-empty GNU template (Sprint 135, Phase 1): record the
+        if (asm_nonempty || asm_goto) {
+            if (!asm_tpl) {
+                asm_tpl = strdup("");
+            }
+            /* Non-empty GNU template / asm goto (Sprint 135/137): record the
              * payload and emit a NODE_ASM for the lowering to turn into an
-             * OP_ASM. Support scope (x86-64 AOT text path, constraint subset
-             * r/m/=/+ /0-7 / a b c d S D, "memory"/"cc"/GPR clobbers) is
-             * validated there with clean diagnostics; the parser stays
-             * permissive so recovery/structure handling is unchanged. */
+             * OP_ASM. */
             if (c->asm_stmt_count >= c->asm_stmt_cap) {
                 size_t ncap = c->asm_stmt_cap ? c->asm_stmt_cap * 2 : 8;
                 ZeroCCAsmStmt *ns = realloc(c->asm_stmts, ncap * sizeof(ZeroCCAsmStmt));
@@ -322,6 +353,11 @@ ASTRef zero_cc_parse_stmt_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, SemConte
                 snprintf(as->clobber_names[i], sizeof(as->clobber_names[i]), "%s", asm_clobbers[i]);
             }
             as->clobber_count = asm_clobber_count > ZC_ASM_MAX_CLOBBERS ? ZC_ASM_MAX_CLOBBERS : asm_clobber_count;
+            for (int i = 0; i < asm_label_count && i < ZC_ASM_MAX_LABELS; i++) {
+                snprintf(as->goto_labels[i], sizeof(as->goto_labels[i]), "%s", asm_labels[i]);
+            }
+            as->goto_label_count = asm_label_count > ZC_ASM_MAX_LABELS ? ZC_ASM_MAX_LABELS : asm_label_count;
+            as->is_goto = asm_goto;
             as->is_volatile = asm_volatile;
             as->line = line;
             as->col = col;

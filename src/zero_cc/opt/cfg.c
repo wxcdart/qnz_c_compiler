@@ -139,7 +139,14 @@ bool cfg_build(ZeroCCCompiler *c) {
         Instr *ins = ir_get(c, i);
         if (!ins) continue;
         if (ins->op == OP_LABEL) leader[i] = true;
-        if (i + 1 < count && cfg_is_terminal((int)ins->op)) leader[i + 1] = true;
+        if (i + 1 < count) {
+            if (cfg_is_terminal((int)ins->op)) {
+                leader[i + 1] = true;
+            } else if (ins->op == OP_ASM) {
+                const IRAsmArgs *aa = ir_asm_args_find(c, i);
+                if (aa && aa->is_goto) leader[i + 1] = true;
+            }
+        }
     }
 
     /* ---- build blocks (contiguous leader..leader-1 ranges) ---- */
@@ -209,6 +216,18 @@ bool cfg_build(ZeroCCCompiler *c) {
                     cfg_add_succ(&blocks[b], tb, nblocks);
                 }
             }
+        } else if (op == OP_ASM) {
+            const IRAsmArgs *aa = ir_asm_args_find(c, last);
+            if (aa && aa->is_goto) {
+                for (int gi = 0; gi < aa->goto_label_count; gi++) {
+                    int lid = (int)aa->goto_labels[gi];
+                    if (lid >= 0 && lid <= max_label) {
+                        int pos = label_to_pos[lid];
+                        if (pos >= 0) cfg_add_succ(&blocks[b], label_to_block[lid], nblocks);
+                    }
+                }
+            }
+            cfg_add_succ(&blocks[b], b + 1, nblocks); /* fallthrough */
         } else {
             cfg_add_succ(&blocks[b], b + 1, nblocks); /* fallthrough (clamped/deduped) */
         }

@@ -1,3 +1,35 @@
+## [Sprint 137] - 2026-11-08 - Inline assembly Phase 3: `asm goto`, CFG integration, label interpolation, and dialect alternatives
+
+**Plan item #12 Phase 3 is complete**: GNU extended `asm goto` statements on x86-64 can now branch directly to C labels across all compilation and execution paths (AOT text `-S`, in-memory JIT `--run`, and raw binary AOT `ZC_RAW_AOT=1`), with full CFG edge construction, label operand expansion (`%l0`..`%lN` and symbolic `%l[name]`), in-memory machine-code branch resolution, and `{att | intel}` dialect alternative filtering.
+
+**Implementation**:
+- **Parser & AST (`src/zero_cc/parser/ast_stmt.h`, `parser.h`)**:
+  - Extended parser to recognize `asm goto` (and `asm volatile goto` / `asm goto volatile`).
+  - Added support for 5th section in GNU asm syntax: `: goto_labels` list of target identifiers.
+  - Added support for symbolic operand identifiers `[name]` in output, input, and label sections.
+  - Allowed earlyclobber `&` on output constraints.
+  - Added `is_goto`, `goto_labels[ZC_ASM_MAX_LABELS][64]`, and `goto_label_count` to `ZeroCCAsmStmt`.
+- **IR & Lowering (`src/zero_cc/ir/ir.h`, `ast_lowering_stmt.c`)**:
+  - Added `is_goto`, `goto_label_names`, `goto_labels` (target IR label IDs), and `goto_label_count` to `IRAsmArgs`.
+  - In `lower_asm_stmt`, resolved label names into IR labels via `get_or_create_user_ir_label()`.
+  - Set `has_memory = 1` for all `asm goto` blocks to enforce optimizer barrier semantics and prevent unsafe code motion across blocks.
+  - Template validation extended to validate label references (`%l0`..`%lN` and symbolic `%l[name]`).
+- **Control Flow Graph (`src/zero_cc/opt/cfg.c`)**:
+  - In leader identification: marked the instruction immediately following `OP_ASM` as a basic block leader if `aa->is_goto`.
+  - In edge construction: for `OP_ASM` with `is_goto`, created outgoing CFG edges to every target label block (`label_to_block[target_label]`) and to the fallthrough block (`b + 1`).
+- **AOT Text Emission (`src/zero_cc/isa/x86_64_asm.c`)**:
+  - Added `x86_filter_dialect` to extract default AT&T dialect from `{att_syntax | intel_syntax}` templates.
+  - Implemented label interpolation: `%l[name]` and `%lN` expand to `.L<func_idx>_<ir_label>`.
+- **JIT & Raw MC Emitters (`src/zero_cc/isa/x86_64_inline_asm.c`, `ast_lowering_mc.c`)**:
+  - Added `ASM_OP_LABEL` operand kind to integrated inline assembler parser.
+  - Added `x86_mc_filter_dialect` for `{att | intel}` syntax stripping before MC operand processing.
+  - Interpolated `%l[name]` and `%lN` to `.L<ir_label>`.
+  - Implemented jump instructions (`jmp`, `je`, `jne`, `jl`, `jle`, `jg`, `jge`, `jb`, `jae`, `jbe`, `ja`, `js`, `jns`, `jo`, `jno`, `jp`, `jnp`) targeting `ASM_OP_LABEL`, calling `zc_mc_record_or_patch_label` to patch forward branch displacements or compute backward offsets directly into emitted machine code bytes.
+- **Verification**:
+  - Added [`test/asm/asm_goto.c`](file:///home/ubuntu/dev/qnz_c_compiler/test/asm/asm_goto.c) covering unconditional jumps, conditional branch fallthrough/taken execution, multi-target jumps, `asm goto` with outputs, empty templates, and dialect alternatives across `-O0..-O3`.
+  - `tools/asm_diff.py` passed 48/48 runs cleanly across `text`, `jit`, and `raw` paths.
+  - Regressions all green: `make test` (192/192), `make test-opt` (151/151), `make test-c23` (24/24), `tools/style_check.py` (0 errors).
+
 ## [Sprint 136] - 2026-11-08 - Inline assembly Phase 2: x86-64 integrated inline assembler (JIT `--run` and raw AOT `ZC_RAW_AOT=1`)
 
 **Plan item #12 Phase 2 is complete**: non-empty GNU `__asm__` templates on x86-64 can now be assembled and executed directly in-memory under `--run` (JIT) and in standalone raw ELF object generation (`ZC_RAW_AOT=1`) without invoking an external assembler or compiler.

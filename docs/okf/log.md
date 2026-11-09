@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-08T23:37:55Z
+timestamp: 2026-11-08T23:59:36Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1203,3 +1203,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-08 — Updated `ir-and-regalloc.md`
 - Sprint 136: OP_ASM machine code emitter vtable hook (emit_inline_asm_mc)
+
+## 2026-11-08 — Updated `inline-assembly-roadmap.md`
+- Sprint 137: Phase 3 asm goto & dialect alternative support

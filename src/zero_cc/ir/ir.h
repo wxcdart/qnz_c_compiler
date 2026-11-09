@@ -81,6 +81,8 @@ typedef struct {
     int32_t  temp;       /* value temp (r) / address temp (m) */
 } IRAsmOperand;
 
+#define IR_ASM_MAX_LABELS   8
+
 typedef struct {
     size_t instr_index;
     const char *template_str;  /* concatenated template (NUL-terminated) */
@@ -90,6 +92,10 @@ typedef struct {
                                  * 3=rdx 4=rsi 5=rdi 6..13=r8..r15); 0 = none */
     int has_memory;            /* "memory" clobber or volatile: full memory
                                  * barrier (DCE/LICM/GVN/mem2reg respect it) */
+    int is_goto;
+    char goto_label_names[IR_ASM_MAX_LABELS][64];
+    uint16_t goto_labels[IR_ASM_MAX_LABELS];
+    int goto_label_count;
 } IRAsmArgs;
 
 typedef struct {

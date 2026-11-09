@@ -4,7 +4,7 @@ title: Integrated Inline Assembly Roadmap
 description: Architectural roadmap and design for Clang-style integrated inline assembly in ZeroCC across AOT and JIT modes.
 resource: backend/inline-asm
 tags: [inline-asm, roadmap, jit, aot, register-allocation, isa, assembly]
-timestamp: 2026-11-08T23:37:51Z
+timestamp: 2026-11-08T23:59:36Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -12,10 +12,11 @@ status: active
 
 # Integrated Inline Assembly Roadmap
 
-> **Status (Sprint 136):** **Phase 1 & Phase 2 are complete** for x86-64:
+> **Status (Sprint 137):** **Phases 1, 2, and 3 are complete** for x86-64:
 > - **Phase 1 (AOT text path)**: Non-empty GNU asm templates lower to `OP_ASM` (operand side table `IRAsmArgs`), the LRA honors `no_spill`/fixed-register/`forbidden_mask` operand constraints, and the substituted template is emitted between `#APP`/`#NO_APP` in the `.s` stream.
 > - **Phase 2 (JIT & Raw Binary AOT)**: Integrated x86-64 inline assembler (`src/zero_cc/isa/x86_64_inline_asm.c`) tokenizes interpolated AT&T assembly statements, encodes Tier 1 & Tier 2 instructions directly into `c->text_section`, allowing `--run` (JIT) and `ZC_RAW_AOT=1` (raw ELF emission) to execute non-empty templates without invoking external assemblers.
-> Differential gate: `make test-asm` (`tools/asm_diff.py`) sweeps all 3 execution paths (`text`, `jit`, `raw`) at `-O0..-O3`.
+> - **Phase 3 (asm goto & Dialects)**: `asm goto` statements parsed with C label target lists, CFG edges wired to labels + fallthrough, `%l0`..`%lN` and symbolic `%l[name]` label operand expansion, forward/backward branch displacement patching in machine code emission, and dialect alternatives `{att | intel}` automatically resolved.
+> Differential gate: `make test-asm` (`tools/asm_diff.py`) sweeps all 3 execution paths (`text`, `jit`, `raw`) at `-O0..-O3` (48/48 runs passed).
 
 This document outlines the architectural plan for bringing first-class **inline assembly (`__asm__` / `asm`)** support to ZeroCC, progressing from AOT constraint-solving and register-allocation passthrough to a Clang-style **integrated assembler** for in-memory JIT execution (`--run`).
 
@@ -123,13 +124,20 @@ flowchart TD
 
 ---
 
-### Phase 3: Advanced GNU Extensions (Milestone 3)
+### Phase 3: Advanced GNU Extensions (Milestone 3) — ✅ IMPLEMENTED (Sprint 137)
 
 1. **`asm goto` Support**:
-   - Parse `asm goto ( "..." : : inputs : clobbers : labels )`.
-   - Connect inline asm blocks to the Control Flow Graph (`src/zero_cc/opt/cfg.c`), creating outgoing CFG edges to the specified C label targets.
-2. **Intel Dialect Support (`-masm=intel`)**:
-   - Add support for `.intel_syntax noprefix` inside template strings on x86-64.
+   - Parse `asm [volatile] goto ( "..." : outputs : inputs : clobbers : labels )`.
+   - Propagate goto label names and IDs to `IRAsmArgs.goto_labels` and `IRAsmArgs.goto_label_names`.
+   - Set `has_memory = 1` for all `asm goto` blocks (full optimizer barrier preventing unsafe code motion).
+   - Connect inline asm blocks to the Control Flow Graph (`src/zero_cc/opt/cfg.c`), splitting basic blocks at `OP_ASM` (making the subsequent instruction a block leader) and creating outgoing CFG edges from the asm block to each target label block as well as the fallthrough successor block.
+   - Interpolate label operands `%l0`..`%lN` and symbolic `%l[name]` in both AOT (`x86_64_asm.c`) and JIT/MC (`x86_64_inline_asm.c`) paths into target assembly labels (`.L<func_idx>_<ir_label>`).
+   - Integrated assembler branch resolution: in `ast_lowering_mc.c` and `x86_64_inline_asm.c`, conditional jumps (`je`, `jne`, `jl`, `jle`, `jg`, `jge`, `jb`, `jae`, `jbe`, `ja`, etc.) and unconditional jumps (`jmp`) targeting `ASM_OP_LABEL` record forward patch sites or resolve backward branch displacements via `zc_mc_record_or_patch_label`.
+2. **Dialect Alternatives (`{att | intel}`)**:
+   - Added pre-filtering dialect extractors `x86_filter_dialect` and `x86_mc_filter_dialect` that evaluate `{att_syntax | intel_syntax}` alternative blocks inside template strings, selecting the default AT&T dialect prior to operand interpolation.
+3. **Verification**:
+   - Added `test/asm/asm_goto.c` exercising unconditional jumps, conditional branch fallthrough/taken paths, multi-target jumps, `asm goto` with outputs, empty templates, and dialect alternatives across `-O0..-O3`.
+   - All 48/48 runs pass cleanly under `tools/asm_diff.py` across text (`-S`), JIT (`--run`), and raw AOT (`ZC_RAW_AOT=1`).
 
 ---
 

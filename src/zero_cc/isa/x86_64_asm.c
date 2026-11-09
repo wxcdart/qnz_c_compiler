@@ -1530,6 +1530,26 @@ static const char *x86_asm_mov_suffix(int width) {
     }
 }
 
+static void x86_filter_dialect(const char *in, char *out, size_t out_cap) {
+    size_t o = 0;
+    while (*in && o + 1 < out_cap) {
+        if (*in == '{') {
+            const char *end_brace = strchr(in, '}');
+            const char *pipe_ch = end_brace ? memchr(in, '|', (size_t)(end_brace - in)) : NULL;
+            if (end_brace && pipe_ch) {
+                in++;
+                while (in < pipe_ch && o + 1 < out_cap) {
+                    out[o++] = *in++;
+                }
+                in = end_brace + 1;
+                continue;
+            }
+        }
+        out[o++] = *in++;
+    }
+    out[o] = '\0';
+}
+
 static void x86_emit_inline_asm_asm(ZeroCCCompiler *c, size_t idx, FILE *out) {
     const Instr *instr = ir_get(c, idx);
     if (!instr) return;
@@ -1586,7 +1606,9 @@ static void x86_emit_inline_asm_asm(ZeroCCCompiler *c, size_t idx, FILE *out) {
      * C preprocessor is off, so backslashes, leading tabs and '#' in the
      * user text cannot be mangled by macro/continuation processing. */
     fprintf(out, "#APP\n\t/* GNU asm */\n\t");
-    const char *p = aa->template_str;
+    char filtered_tpl[4096];
+    x86_filter_dialect(aa->template_str, filtered_tpl, sizeof(filtered_tpl));
+    const char *p = filtered_tpl;
     fprintf(out, "\t");
     while (*p) {
         if (*p == '%' && p[1]) {
@@ -1595,6 +1617,44 @@ static void x86_emit_inline_asm_asm(ZeroCCCompiler *c, size_t idx, FILE *out) {
                 fputc('%', out);
                 p++;
                 continue;
+            }
+            if (*p == 'l') {
+                if (p[1] == '[') {
+                    p += 2;
+                    char lname[64];
+                    int llen = 0;
+                    while (*p && *p != ']' && llen < 63) lname[llen++] = *p++;
+                    lname[llen] = '\0';
+                    if (*p == ']') p++;
+                    int target_lbl = -1;
+                    for (int li = 0; li < aa->goto_label_count; li++) {
+                        if (strcmp(aa->goto_label_names[li], lname) == 0) {
+                            target_lbl = (int)aa->goto_labels[li];
+                            break;
+                        }
+                    }
+                    if (target_lbl >= 0) {
+                        fprintf(out, ".L%zu_%u", (size_t)c->lowering.current_func_idx, (unsigned)target_lbl);
+                    } else {
+                        fprintf(out, "%%bad_label");
+                    }
+                    continue;
+                } else if (p[1] >= '0' && p[1] <= '9') {
+                    int n = p[1] - '0';
+                    p += 2;
+                    int target_lbl = -1;
+                    if (n >= aa->op_count && (n - aa->op_count) < aa->goto_label_count) {
+                        target_lbl = (int)aa->goto_labels[n - aa->op_count];
+                    } else if (n < aa->goto_label_count) {
+                        target_lbl = (int)aa->goto_labels[n];
+                    }
+                    if (target_lbl >= 0) {
+                        fprintf(out, ".L%zu_%u", (size_t)c->lowering.current_func_idx, (unsigned)target_lbl);
+                    } else {
+                        fprintf(out, "%%bad_label");
+                    }
+                    continue;
+                }
             }
             if (*p >= '0' && *p <= '9') {
                 int n = *p - '0';

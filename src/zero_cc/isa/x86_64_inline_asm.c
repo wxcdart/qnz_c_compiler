@@ -10,12 +10,15 @@
 #include "zero_cc/ir/ir.h"
 #include "zero_cc/ir/machine_emitter.h"
 
+void zc_mc_record_or_patch_label(ZeroCCCompiler *c, size_t patch_pos, uint16_t label_idx);
+
 /* Operand representation for lightweight x86-64 integrated assembler */
 typedef enum {
     ASM_OP_NONE = 0,
     ASM_OP_REG,
     ASM_OP_IMM,
     ASM_OP_MEM,
+    ASM_OP_LABEL,
 } AsmOperandKind;
 
 typedef struct {
@@ -97,6 +100,16 @@ static const char *x86_parse_operand(const char *p, AsmOperand *op) {
             return asm_skip_ws(p);
         }
         return NULL;
+    }
+
+    /* Label operand: .L<id> */
+    if (*p == '.' && p[1] == 'L') {
+        p += 2;
+        char *end;
+        uint16_t label_id = (uint16_t)strtoul(p, &end, 10);
+        op->kind = ASM_OP_LABEL;
+        op->imm = (int64_t)label_id;
+        return asm_skip_ws(end);
     }
 
     /* Memory: [disp] ( %base [, %index [, scale]] ) */
@@ -207,6 +220,26 @@ static void x86_emit_mov_reg_width(ZeroCCCompiler *c, int dst, int src, int widt
     }
 }
 
+static void x86_mc_filter_dialect(const char *in, char *out, size_t out_cap) {
+    size_t o = 0;
+    while (*in && o + 1 < out_cap) {
+        if (*in == '{') {
+            const char *end_brace = strchr(in, '}');
+            const char *pipe_ch = end_brace ? memchr(in, '|', (size_t)(end_brace - in)) : NULL;
+            if (end_brace && pipe_ch) {
+                in++;
+                while (in < pipe_ch && o + 1 < out_cap) {
+                    out[o++] = *in++;
+                }
+                in = end_brace + 1;
+                continue;
+            }
+        }
+        out[o++] = *in++;
+    }
+    out[o] = '\0';
+}
+
 /* Interpolate template string into expanded AT&T text buffer */
 static int x86_interpolate_template(ZeroCCCompiler *c, size_t idx, char *buf, size_t buf_cap) {
     const Instr *instr = ir_get(c, idx);
@@ -224,7 +257,9 @@ static int x86_interpolate_template(ZeroCCCompiler *c, size_t idx, char *buf, si
     while (*_s) { EMIT_CH(*_s++); } \
 } while(0)
 
-    const char *p = aa->template_str;
+    char filtered_tpl[4096];
+    x86_mc_filter_dialect(aa->template_str, filtered_tpl, sizeof(filtered_tpl));
+    const char *p = filtered_tpl;
     while (*p) {
         if (*p == '%' && p[1]) {
             p++;
@@ -232,6 +267,48 @@ static int x86_interpolate_template(ZeroCCCompiler *c, size_t idx, char *buf, si
                 EMIT_CH('%');
                 p++;
                 continue;
+            }
+            if (*p == 'l') {
+                if (p[1] == '[') {
+                    p += 2;
+                    char lname[64];
+                    int llen = 0;
+                    while (*p && *p != ']' && llen < 63) lname[llen++] = *p++;
+                    lname[llen] = '\0';
+                    if (*p == ']') p++;
+                    int target_lbl = -1;
+                    for (int li = 0; li < aa->goto_label_count; li++) {
+                        if (strcmp(aa->goto_label_names[li], lname) == 0) {
+                            target_lbl = (int)aa->goto_labels[li];
+                            break;
+                        }
+                    }
+                    if (target_lbl >= 0) {
+                        char lbuf[32];
+                        snprintf(lbuf, sizeof(lbuf), ".L%d", target_lbl);
+                        EMIT_STR(lbuf);
+                    } else {
+                        EMIT_STR("%bad_label");
+                    }
+                    continue;
+                } else if (p[1] >= '0' && p[1] <= '9') {
+                    int n = p[1] - '0';
+                    p += 2;
+                    int target_lbl = -1;
+                    if (n >= aa->op_count && (n - aa->op_count) < aa->goto_label_count) {
+                        target_lbl = (int)aa->goto_labels[n - aa->op_count];
+                    } else if (n < aa->goto_label_count) {
+                        target_lbl = (int)aa->goto_labels[n];
+                    }
+                    if (target_lbl >= 0) {
+                        char lbuf[32];
+                        snprintf(lbuf, sizeof(lbuf), ".L%d", target_lbl);
+                        EMIT_STR(lbuf);
+                    } else {
+                        EMIT_STR("%bad_label");
+                    }
+                    continue;
+                }
             }
             if (*p >= '0' && *p <= '9') {
                 int n = *p - '0';
@@ -355,6 +432,60 @@ static int x86_assemble_single_stmt(ZeroCCCompiler *c, const char *stmt) {
     }
 
     if (is_lock) me_emit_u8(c, 0xF0);
+
+    /* --- Branch instructions (asm goto) --- */
+    if (op1.kind == ASM_OP_LABEL) {
+        uint16_t lbl = (uint16_t)op1.imm;
+        uint8_t jcc_code = 0;
+        bool is_jmp = false;
+        if (strcmp(mnem, "jmp") == 0) {
+            is_jmp = true;
+        } else if (strcmp(mnem, "je") == 0 || strcmp(mnem, "jz") == 0) {
+            jcc_code = 0x84;
+        } else if (strcmp(mnem, "jne") == 0 || strcmp(mnem, "jnz") == 0) {
+            jcc_code = 0x85;
+        } else if (strcmp(mnem, "jl") == 0 || strcmp(mnem, "jnge") == 0) {
+            jcc_code = 0x8C;
+        } else if (strcmp(mnem, "jge") == 0 || strcmp(mnem, "jnl") == 0) {
+            jcc_code = 0x8D;
+        } else if (strcmp(mnem, "jle") == 0 || strcmp(mnem, "jng") == 0) {
+            jcc_code = 0x8E;
+        } else if (strcmp(mnem, "jg") == 0 || strcmp(mnem, "jnle") == 0) {
+            jcc_code = 0x8F;
+        } else if (strcmp(mnem, "jb") == 0 || strcmp(mnem, "jc") == 0 || strcmp(mnem, "jnae") == 0) {
+            jcc_code = 0x82;
+        } else if (strcmp(mnem, "jae") == 0 || strcmp(mnem, "jnc") == 0 || strcmp(mnem, "jnb") == 0) {
+            jcc_code = 0x83;
+        } else if (strcmp(mnem, "jbe") == 0 || strcmp(mnem, "jna") == 0) {
+            jcc_code = 0x86;
+        } else if (strcmp(mnem, "ja") == 0 || strcmp(mnem, "jnbe") == 0) {
+            jcc_code = 0x87;
+        } else if (strcmp(mnem, "js") == 0) {
+            jcc_code = 0x88;
+        } else if (strcmp(mnem, "jns") == 0) {
+            jcc_code = 0x89;
+        } else if (strcmp(mnem, "jo") == 0) {
+            jcc_code = 0x80;
+        } else if (strcmp(mnem, "jno") == 0) {
+            jcc_code = 0x81;
+        } else if (strcmp(mnem, "jp") == 0 || strcmp(mnem, "jpe") == 0) {
+            jcc_code = 0x8A;
+        } else if (strcmp(mnem, "jnp") == 0 || strcmp(mnem, "jpo") == 0) {
+            jcc_code = 0x8B;
+        } else {
+            return -1;
+        }
+        if (is_jmp) {
+            me_emit_u8(c, 0xE9);
+        } else {
+            me_emit_u8(c, 0x0F);
+            me_emit_u8(c, jcc_code);
+        }
+        size_t patch_pos = me_get_offset(c);
+        me_emit_u32(c, 0);
+        zc_mc_record_or_patch_label(c, patch_pos, lbl);
+        return 0;
+    }
 
     /* --- MOV --- */
     if (strcmp(mnem, "mov") == 0) {

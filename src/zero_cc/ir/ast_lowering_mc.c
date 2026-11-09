@@ -41,6 +41,35 @@ void emit_prologue_mc(ZeroCCCompiler *c, size_t frame_size) {
     }
 }
 
+typedef struct {
+    bool *defined;
+    size_t *offsets;
+    size_t **patches;
+    size_t *patch_counts;
+    size_t *patch_caps;
+    size_t count;
+} MCLabelPatchState;
+
+void zc_mc_record_or_patch_label(ZeroCCCompiler *c, size_t patch_pos, uint16_t label_idx) {
+    MCLabelPatchState *ls = (MCLabelPatchState *)c->mc_label_state;
+    if (!ls || label_idx >= ls->count) return;
+    if (ls->defined[label_idx]) {
+        BE(c)->patch_jmp(c, patch_pos, ls->offsets[label_idx]);
+    } else {
+        if (ls->patch_counts[label_idx] >= ls->patch_caps[label_idx]) {
+            size_t new_cap = ls->patch_caps[label_idx] ? ls->patch_caps[label_idx] * 2 : 4;
+            size_t *new_patches = (size_t *)realloc(ls->patches[label_idx], new_cap * sizeof(size_t));
+            if (new_patches) {
+                ls->patches[label_idx] = new_patches;
+                ls->patch_caps[label_idx] = new_cap;
+            }
+        }
+        if (ls->patches[label_idx] && ls->patch_counts[label_idx] < ls->patch_caps[label_idx]) {
+            ls->patches[label_idx][ls->patch_counts[label_idx]++] = patch_pos;
+        }
+    }
+}
+
 /* Emit machine code from IR with allocated registers */
 void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
     const Instr *instrs = ir_get_buffer(c);
@@ -52,6 +81,16 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
     size_t *label_patch_counts = label_count ? (size_t *)calloc(label_count, sizeof(size_t)) : NULL;
     size_t *label_patch_caps = label_count ? (size_t *)calloc(label_count, sizeof(size_t)) : NULL;
     int call_idx = 0;
+
+    MCLabelPatchState ls = {
+        .defined = label_defined,
+        .offsets = label_offsets,
+        .patches = label_patches,
+        .patch_counts = label_patch_counts,
+        .patch_caps = label_patch_caps,
+        .count = label_count,
+    };
+    c->mc_label_state = &ls;
 
     for (size_t i = 0; i < count; i++) {
         const Instr *instr = &instrs[i];
@@ -1993,6 +2032,8 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
             }
         }
     }
+
+    c->mc_label_state = NULL;
 
     for (size_t i = 0; i < label_count; i++) {
         free(label_patches ? label_patches[i] : NULL);

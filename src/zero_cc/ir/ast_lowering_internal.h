@@ -712,6 +712,7 @@ struct ZCAtomicBuiltinEntry {
 };
 extern const struct ZCAtomicBuiltinEntry zc_atomic_builtin_table[37];  /* defined in ast_lowering_builtin_helpers.c; count must match */
 uint16_t get_or_create_user_ir_label(ZeroCCCompiler *c, const char *name);
+void zc_mc_record_or_patch_label(ZeroCCCompiler *c, size_t patch_pos, uint16_t label_idx);
 
 /* GNU `__attribute__((scalar_storage_order("big-endian")))`: the
  * bit-field allocation unit's BYTES are stored in big-endian order.

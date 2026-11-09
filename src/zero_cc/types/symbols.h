@@ -332,6 +332,9 @@ typedef struct ZeroCCCompiler {
     /* Label patcher state - Task 62: Unified label resolution */
     LabelPatcherState label_patcher;
 
+    /* Machine-code emitter label resolution / patching context (Sprint 137, asm goto) */
+    void *mc_label_state;
+
     /* Stable string pool (chunked): interned copies of identifiers, labels,
      * member names and string literals referenced by AST nodes. Chunks are
      * never realloc'd, so interned pointers stay valid across token-buffer

@@ -141,8 +141,9 @@ typedef struct ZeroCCASTNode {
  * this in; the lowering (ast_lowering_stmt.c) consumes it and builds OP_ASM.
  * Constraint strings are the unquoted literal text ("=r", "0", "m", ...);
  * clobber_names hold bare clobber tokens ("memory", "cc", "rcx", ...). */
-#define ZC_ASM_MAX_OPS     8
+#define ZC_ASM_MAX_OPS      8
 #define ZC_ASM_MAX_CLOBBERS 8
+#define ZC_ASM_MAX_LABELS   8
 
 typedef struct ZeroCCAsmStmt {
     const char *template_str;   /* concatenated template (malloc'd, NUL-terminated) */
@@ -154,6 +155,9 @@ typedef struct ZeroCCAsmStmt {
     int         in_count;
     char        clobber_names[ZC_ASM_MAX_CLOBBERS][16];
     int         clobber_count;
+    char        goto_labels[ZC_ASM_MAX_LABELS][64];
+    int         goto_label_count;
+    int         is_goto;
     int         is_volatile;
     uint32_t    line;
     uint32_t    col;

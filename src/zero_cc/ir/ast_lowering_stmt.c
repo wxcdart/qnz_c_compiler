@@ -176,6 +176,15 @@ static void lower_asm_stmt(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNo
     aa.template_str = as->template_str;
     aa.op_count = 0;
     aa.has_memory = as->is_volatile;  /* volatile asm: full memory barrier */
+    aa.is_goto = as->is_goto;
+    aa.goto_label_count = as->goto_label_count;
+    for (int i = 0; i < as->goto_label_count; i++) {
+        snprintf(aa.goto_label_names[i], sizeof(aa.goto_label_names[i]), "%s", as->goto_labels[i]);
+        aa.goto_labels[i] = get_or_create_user_ir_label(c, as->goto_labels[i]);
+    }
+    if (as->is_goto) {
+        aa.has_memory = 1;
+    }
 
     /* --- Clobbers --- */
     for (int i = 0; i < as->clobber_count; i++) {
@@ -222,9 +231,7 @@ static void lower_asm_stmt(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNo
             return;
         }
         if (cs[off] == '&') {
-            diag_report_error_at_token(c, "asm earlyclobber '&' operand not supported in Phase 1");
-            c->had_error = 1;
-            return;
+            off++;
         }
         char body = cs[off];
         if (cs[off + 1] != '\0' && body != 'r' && body != 'm') {
@@ -440,8 +447,46 @@ static void lower_asm_stmt(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNo
     for (const char *tp = as->template_str; *tp; tp++) {
         if (*tp != '%' || !tp[1]) continue;
         if (tp[1] == '%') { tp++; continue; }
+        if (tp[1] == 'l') {
+            if (tp[2] >= '0' && tp[2] <= '9') {
+                int n = tp[2] - '0';
+                if (n >= aa.op_count + aa.goto_label_count && n >= aa.goto_label_count) {
+                    diag_report_error_at_token(c, "asm template references an out-of-range label operand");
+                    c->had_error = 1;
+                    return;
+                }
+                tp += 2;
+                continue;
+            } else if (tp[2] == '[') {
+                const char *close_b = strchr(tp + 3, ']');
+                if (!close_b) {
+                    diag_report_error_at_token(c, "asm template has unclosed '%l['");
+                    c->had_error = 1;
+                    return;
+                }
+                char lname[64];
+                size_t llen = (size_t)(close_b - (tp + 3));
+                if (llen >= sizeof(lname)) llen = sizeof(lname) - 1;
+                memcpy(lname, tp + 3, llen);
+                lname[llen] = '\0';
+                bool found = false;
+                for (int li = 0; li < aa.goto_label_count; li++) {
+                    if (strcmp(aa.goto_label_names[li], lname) == 0) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    diag_report_error_at_token(c, "asm template references an unknown label operand '%s'", lname);
+                    c->had_error = 1;
+                    return;
+                }
+                tp = close_b;
+                continue;
+            }
+        }
         if (tp[1] < '0' || tp[1] > '9') continue;
-        if (tp[1] - '0' >= aa.op_count) {
+        if (tp[1] - '0' >= aa.op_count + aa.goto_label_count) {
             diag_report_error_at_token(c, "asm template references an out-of-range operand");
             c->had_error = 1;
             return;
