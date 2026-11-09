@@ -347,6 +347,8 @@ ZeroCC development and verification rely on a combination of host build tools, r
 > - **GCC 15 (host, x86-64 only)** → drives the **C23 differential gate** (`make test-c23`, 24 feature-tagged cases across dialects) and the **c-torture gate** (`make test-torture`). The ISA gate `test-isa128` also uses host gcc-15 as its **oracle** (it builds an x86-64 static reference to compute expected 128-bit values while the target runs under QEMU).
 > - **Cross GCC 13.3 (aarch64-linux-gnu-gcc, riscv64-linux-gnu-gcc)** → drives the **cross-ISA differential gates** (`make test-isa-qemu`, `make test-isa128` `-S` path). The ISA corpora (`test/isa_qemu/`, `test/jit/int128_*.c`) are **C99/C11 + int128/float128 only** — no C23 syntax — so gcc-13.3 is a correct oracle. Cross gcc-15 (Bootlin) exists but is **deferred until the ISA corpora grow C23 test cases** (see [OKF decision note](docs/okf/build-and-verification.md#decision-sprint-142)).
 
+> **Reference tracking policy** — we follow the [GCC C status page](https://gcc.gnu.org/projects/c-status.html) for C standard support. The primary reference compiler tracks the **latest stable GCC with complete support for the highest ratified C standard** (currently GCC 15 for C23). When a new C standard is ratified and GCC ships complete support in a stable release, we migrate the differential gates to that version (ratcheting the c-torture baseline). Experimental/pre-release support (e.g., GCC 16's C2y draft support) is **not** used as the primary reference; it may be added as an optional informational probe (`make test-gcc-trunk`) but never replaces the ratified baseline.
+
 ### Environment Setup
 
 ```bash
