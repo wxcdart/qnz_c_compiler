@@ -214,21 +214,31 @@ $(ZC_DLCFN_OBJ): zero_rt/dlfcn/dlfcn.c $(ZC_CC)
 	@mkdir -p $(dir $@)
 	$(ZC_CC) $(CFLAGS) -c $< -o $@
 
+# zero_rt's own libgcc complex-division helpers (host side): zerocc's
+# complex `/` lowering calls __div{sc3,dc3,tc3}, which the JIT resolves via
+# dlsym on the executable's own .symtab.  A static build has no libgcc_s to
+# dlopen, so these objects provide the symbols (self-hosting, like dlfcn).
+# Without them: "undefined reference to '__divdc3'" (c-torture ieee).
+ZC_COMPLEX_OBJ := $(BUILD_DIR)/obj/zero_rt/jit_complex.o
+$(ZC_COMPLEX_OBJ): zero_rt/complex/complex.c $(ZC_CC)
+	@mkdir -p $(dir $@)
+	$(ZC_CC) $(CFLAGS) -c $< -o $@
+
 # ZeroCC CLI driver (static-musl: see ZC_MUSL_LINK at the top of this file).
 # The former --export-dynamic-symbol=zc_*128 flags are gone: a static binary
 # has no dynamic symbol table, and the JIT resolves those helpers through
 # zero_rt's dlfcn (dlsym on the executable's own .symtab).
 ZEROCCLIB_OBJS = $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS)
-build/bin/zerocc: src/main.c $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ) $(ZC_DLCFN_OBJ) $(ZC_CC)
+build/bin/zerocc: src/main.c $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ) $(ZC_DLCFN_OBJ) $(ZC_COMPLEX_OBJ) $(ZC_CC)
 	@mkdir -p build/bin
-	$(ZC_CC) $(CFLAGS) $(ZC_MUSL_LINK) -o $@ src/main.c $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ) $(ZC_DLCFN_OBJ) $(LDFLAGS)
+	$(ZC_CC) $(CFLAGS) $(ZC_MUSL_LINK) -o $@ src/main.c $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ) $(ZC_DLCFN_OBJ) $(ZC_COMPLEX_OBJ) $(LDFLAGS)
 
 .PHONY: zerocc
 zerocc: build/bin/zerocc
 
-$(TEST_BIN_DIR)/%: test/%.c $(ZC_CC) $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS) $(ZC_DLCFN_OBJ)
+$(TEST_BIN_DIR)/%: test/%.c $(ZC_CC) $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS) $(ZC_DLCFN_OBJ) $(ZC_COMPLEX_OBJ)
 	@mkdir -p $(dir $@)
-	$(ZC_CC) $(CFLAGS) $(ZC_MUSL_LINK) $< $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS) $(ZC_DLCFN_OBJ) $(LDFLAGS) -o $@
+	$(ZC_CC) $(CFLAGS) $(ZC_MUSL_LINK) $< $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS) $(ZC_DLCFN_OBJ) $(ZC_COMPLEX_OBJ) $(LDFLAGS) -o $@
 
 test: all
 	@python3 tools/test_runner.py
@@ -306,7 +316,8 @@ ZERO_RT_OBJS = $(BUILD_DIR)/obj/zero_rt/os.o \
                $(BUILD_DIR)/obj/zero_rt/heap.o $(BUILD_DIR)/obj/zero_rt/string.o \
                $(BUILD_DIR)/obj/zero_rt/exit.o $(BUILD_DIR)/obj/zero_rt/stdio.o \
                $(BUILD_DIR)/obj/zero_rt/d2s.o $(BUILD_DIR)/obj/zero_rt/d2fixed.o \
-               $(BUILD_DIR)/obj/zero_rt/int128.o $(BUILD_DIR)/obj/zero_rt/errno.o
+               $(BUILD_DIR)/obj/zero_rt/int128.o $(BUILD_DIR)/obj/zero_rt/errno.o \
+               $(BUILD_DIR)/obj/zero_rt/complex.o
 $(BUILD_DIR)/lib/zero_rt.a: $(ZERO_RT_OBJS)
 	@mkdir -p $(dir $@)
 	ar rcs $@ $^
@@ -328,6 +339,9 @@ $(BUILD_DIR)/obj/zero_rt/stdio.o: zero_rt/core/stdio.c zero_rt/rt_os.h $(BUILD_D
 $(BUILD_DIR)/obj/zero_rt/int128.o: zero_rt/core/int128.c $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc -c $< $(ZERO_RT_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt/complex.o: zero_rt/complex/complex.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc -c $< $(ZERO_RT_CFLAGS) -o $@
 $(BUILD_DIR)/obj/zero_rt/d2s.o: third_party/vendor/ryu/ryu/d2s.c $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc -c $< -Ithird_party/vendor/ryu -o $@
@@ -343,7 +357,8 @@ ZERO_RT_AARCH64_OBJS = $(BUILD_DIR)/obj/zero_rt_aarch64/os.o \
                        $(BUILD_DIR)/obj/zero_rt_aarch64/heap.o $(BUILD_DIR)/obj/zero_rt_aarch64/string.o \
                        $(BUILD_DIR)/obj/zero_rt_aarch64/exit.o $(BUILD_DIR)/obj/zero_rt_aarch64/stdio.o \
                        $(BUILD_DIR)/obj/zero_rt_aarch64/d2s.o $(BUILD_DIR)/obj/zero_rt_aarch64/d2fixed.o \
-                       $(BUILD_DIR)/obj/zero_rt_aarch64/int128.o $(BUILD_DIR)/obj/zero_rt_aarch64/errno.o
+                       $(BUILD_DIR)/obj/zero_rt_aarch64/int128.o $(BUILD_DIR)/obj/zero_rt_aarch64/errno.o \
+                       $(BUILD_DIR)/obj/zero_rt_aarch64/complex.o
 $(BUILD_DIR)/lib/zero_rt_aarch64.a: $(ZERO_RT_AARCH64_OBJS)
 	@mkdir -p $(dir $@)
 	ar rcs $@ $^
@@ -365,6 +380,9 @@ $(BUILD_DIR)/obj/zero_rt_aarch64/stdio.o: zero_rt/core/stdio.c zero_rt/rt_os.h $
 $(BUILD_DIR)/obj/zero_rt_aarch64/int128.o: zero_rt/core/int128.c $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --target aarch64 -c $< $(ZERO_RT_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_aarch64/complex.o: zero_rt/complex/complex.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target aarch64 -c $< $(ZERO_RT_CFLAGS) -o $@
 $(BUILD_DIR)/obj/zero_rt_aarch64/d2s.o: third_party/vendor/ryu/ryu/d2s.c $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --target aarch64 -c $< -Ithird_party/vendor/ryu -o $@
@@ -380,7 +398,8 @@ ZERO_RT_RISCV64_OBJS = $(BUILD_DIR)/obj/zero_rt_riscv64/os.o \
                        $(BUILD_DIR)/obj/zero_rt_riscv64/heap.o $(BUILD_DIR)/obj/zero_rt_riscv64/string.o \
                        $(BUILD_DIR)/obj/zero_rt_riscv64/exit.o $(BUILD_DIR)/obj/zero_rt_riscv64/stdio.o \
                        $(BUILD_DIR)/obj/zero_rt_riscv64/d2s.o $(BUILD_DIR)/obj/zero_rt_riscv64/d2fixed.o \
-                       $(BUILD_DIR)/obj/zero_rt_riscv64/int128.o $(BUILD_DIR)/obj/zero_rt_riscv64/errno.o
+                       $(BUILD_DIR)/obj/zero_rt_riscv64/int128.o $(BUILD_DIR)/obj/zero_rt_riscv64/errno.o \
+                       $(BUILD_DIR)/obj/zero_rt_riscv64/complex.o
 $(BUILD_DIR)/lib/zero_rt_riscv64.a: $(ZERO_RT_RISCV64_OBJS)
 	@mkdir -p $(dir $@)
 	ar rcs $@ $^
@@ -400,6 +419,9 @@ $(BUILD_DIR)/obj/zero_rt_riscv64/stdio.o: zero_rt/core/stdio.c zero_rt/rt_os.h $
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --target riscv64 -c $< $(ZERO_RT_CFLAGS) -o $@
 $(BUILD_DIR)/obj/zero_rt_riscv64/int128.o: zero_rt/core/int128.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target riscv64 -c $< $(ZERO_RT_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_riscv64/complex.o: zero_rt/complex/complex.c $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --target riscv64 -c $< $(ZERO_RT_CFLAGS) -o $@
 $(BUILD_DIR)/obj/zero_rt_riscv64/d2s.o: third_party/vendor/ryu/ryu/d2s.c $(BUILD_DIR)/bin/zerocc

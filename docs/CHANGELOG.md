@@ -35,7 +35,19 @@ differential-tested against system-gcc object shapes:
     be byte-identical, the PIE image must be a real `ET_DYN` with a
     non-empty `.rela.dyn`, and a PIE link of an aarch64 object must fail
     cleanly).
-- Docs: `docs/okf/own-linker.md` (thunk pool + static-PIE sections).
+- **`zero_rt` complex double division (`zero_rt/complex/complex.c`)**:
+  - Closes Toolchain Independence Item #3 and resolves the static-musl c-torture
+    JIT regressions (`execute/ieee/cdivchk{d,ld}.c`). In static musl builds,
+    `dlopen("libgcc_s.so.1")` cannot load runtime helpers; `zero_rt/complex/complex.c`
+    supplies `__divdc3` as an MIT-licensed clean-room implementation compiled
+    with host CC and linked into `zerocc` (as `ZC_COMPLEX_OBJ`), allowing JIT
+    `dlsym(RTLD_DEFAULT, "__divdc3")` to resolve it from the process's own `.symtab`.
+  - Implements scaled Smith's algorithm (CACM 1962, Alg 116) with subnormal
+    scaling (`1.0/DBL_EPSILON`), alternate ratio ordering, and ISO C99 Annex G.5.1
+    infinity/NaN recovery. Verified 4/4 vectors on `cdivchkd.c` within the 6-bit ULP tolerance.
+  - Development plan updated with dual-path threading architecture (musl POSIX
+    vs freestanding `zero_rt` C11 `<threads.h>` + minimal pthread shims via `clone`/`futex`).
+- Docs: `docs/okf/own-linker.md` (thunk pool + static-PIE sections), `docs/okf/zero-rt.md`.
 
 Gates: `make test-linker` 21/21, `test/linker/far_thunk` + `test/linker/pie_test`
 green, full suite 194/194, `make test-opt` 93 ok / 0 failed.
