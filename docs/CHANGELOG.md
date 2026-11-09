@@ -1,3 +1,27 @@
+## [Sprint 148] - 2026-11-09 - Native `ar` Static Archive Writer (`zerocc --ar`) & Self-Contained Toolchain
+
+ZeroCC implements a clean-room, native Unix/GNU static archive writer (`src/zero_cc/linker/ar_writer.c`, `ar_writer.h`), replacing host `ar` and completing full toolchain self-sufficiency for static library creation:
+
+- **Native Archive Writer (`src/zero_cc/linker/ar_writer.c`, `ar_writer.h`)**:
+  - Emits standard deterministic Unix `ar` archives with `!<arch>\n` magic header.
+  - Generates GNU symbol index table (`/` member) with ELF symbol indexing: extracts defined global/weak symbols from 32-bit and 64-bit ELF members (`zc_elf_symtab`), writing big-endian 32-bit symbol count, member header offset array, and null-terminated string table with 2-byte alignment padding.
+  - Generates GNU long filename table (`//` member) for member names exceeding 15 characters, encoding member headers as `/<offset>` referencing the `//` payload.
+  - Emits standard 60-byte member headers with deterministic timestamp/uid/gid (`0`), octal permissions (`644` for files, `0` for special index tables), and decimal sizes.
+- **Archive Reader Dual-Format Parity (`src/zero_cc/linker/ar_reader.c`)**:
+  - Updated `ar_reader.c` to parse the GNU long-name table (`//` member) and resolve `/<offset>` member names in addition to BSD `#1/NNN` long names.
+  - Normalized short member names by trimming GNU trailing `/`.
+- **Driver Integration (`src/main.c`, `driver_opts.h`)**:
+  - Supports `zerocc --ar [options] <archive-file> [files...]` and `zerocc-ar` tool mode.
+  - Supports standard commands: `rcs`, `crs`, `rc`, `t` (table of contents), `x` (extract), `v` (verbose), `D` (deterministic).
+  - Handles in-place member replacement and incremental addition to existing archives.
+- **Build System Self-Sufficiency (`Makefile`)**:
+  - Replaced host `ar rcs` with `$(BUILD_DIR)/bin/zerocc --ar rcs` across all runtime archive build targets: `zero_rt.a` (x86-64), `zero_rt_aarch64.a` (AArch64), `zero_rt_riscv64.a` (RISC-V 64), and `zero_rt_riscv32.a` (RISC-V 32).
+  - Removed host `ar` requirement from `tools/linker_tests.py`.
+- **Verification**:
+  - Byte-level differential verification against GNU `ar`: identical header structure, symbol index offsets, and member payloads.
+  - Added native `ar` suite in `tools/linker_tests.py` (`case_ar_tests`): archive creation, table of contents, differential check vs system `ar -t`, member extraction, host GCC linkage, and own-linker (`--zerocc-link`) linkage (45/45 own-linker tests pass).
+  - Cross-ISA raw emitter QEMU battery: 59/59 tests pass across x86-64, aarch64, riscv64, and riscv32.
+
 ## [Sprint 147] - 2026-11-09 - Cross-ISA Stack Protection (-fstack-protector[-all|-strong])
 
 ZeroCC gains GCC/Clang-compatible stack smashing protection across all 4 target ISAs (x86-64, aarch64, riscv64, riscv32) in both direct machine-code (JIT / `--zerocc-link`) and text assembly (`-S`) paths:

@@ -4,7 +4,7 @@ title: Zero_RT — ZeroCC's Own Freestanding Runtime (Linux x86-64 + AArch64/RIS
 description: The zero_rt/ runtime (heap, strings, exit, minimal stdio with Ryū float formatting) compiled by zerocc itself, auto-linked by --zerocc-link, and the zeroc_main_wrapper entry routing that makes atexit work on a plain return from main.
 resource: zero-rt
 tags: [zero-rt, runtime, freestanding, heap, stdio, ryu, zero-cc-link, phase-0]
-timestamp: 2026-11-09T21:18:07Z
+timestamp: 2026-11-09T21:42:57Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -50,7 +50,7 @@ Virtual freestanding headers in [`src/zero_cc/core/virtual_headers.h`](../../src
 
 ## Build & Self-Compilation
 
-`make all` builds `build/lib/zero_rt.a` **with zerocc itself** (`$(BUILD_DIR)/bin/zerocc -c zero_rt/... -O0`), then archives the objects with the system `ar` (the own linker reads classic archives; *writing* archives is a follow-up). The same rule also builds the cross archives `build/lib/zero_rt_aarch64.a`, `build/lib/zero_rt_riscv64.a`, and `build/lib/zero_rt_riscv32.a` (zerocc `--target aarch64` / `--target riscv64` / `--target riscv32` self-compilation). The rules depend on `build/bin/zerocc`, so a compiler change rebuilds the runtime. Dead pre-Phase-0 Python tools live in `tools/archive/`.
+`make all` builds `build/lib/zero_rt.a` **with zerocc itself** (`$(BUILD_DIR)/bin/zerocc -c zero_rt/... -O0`), then archives the objects with zerocc's own native archive writer (`$(BUILD_DIR)/bin/zerocc --ar rcs`, Sprint 148), achieving complete toolchain independence from host `ar`. The same rule also builds the cross archives `build/lib/zero_rt_aarch64.a`, `build/lib/zero_rt_riscv64.a`, and `build/lib/zero_rt_riscv32.a` (zerocc `--target aarch64` / `--target riscv64` / `--target riscv32` self-compilation + `--ar rcs`). The rules depend on `build/bin/zerocc`, so a compiler change rebuilds the runtime. Dead pre-Phase-0 Python tools live in `tools/archive/`.
 
 ## Auto-Linking (`--zerocc-link`)
 

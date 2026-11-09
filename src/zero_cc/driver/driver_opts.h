@@ -79,8 +79,9 @@ static void print_usage(const char *prog) {
     fprintf(stderr, "  -v, --verbose   Verbose output\n");
     fprintf(stderr, "  --version       Print version\n");
     fprintf(stderr, "  -h, --help      Show this help\n");
-    fprintf(stderr, "  --target <arch> Target architecture (x86-64, aarch64, riscv64)\n");
-    fprintf(stderr, "  --zerocc-link  With -o: link with ZeroCC's own linker (T2; x86-64, aarch64, riscv64)\n");
+    fprintf(stderr, "  --target <arch> Target architecture (x86-64, aarch64, riscv64, riscv32)\n");
+    fprintf(stderr, "  --zerocc-link  With -o: link with ZeroCC's own linker (T2; all 4 target ISAs)\n");
+    fprintf(stderr, "  --ar [options]  Archive tool (create/update static archive, e.g. --ar rcs lib.a obj...)\n");
     fprintf(stderr, "  --zerocc-link-pie  Static-PIE (ET_DYN, self-relocating _start) variant of --zerocc-link (x86-64)\n");
     fprintf(stderr, "  -MMD            Generate dependency file\n");
     fprintf(stderr, "  -MF <file>      Write dependency output to <file>\n");

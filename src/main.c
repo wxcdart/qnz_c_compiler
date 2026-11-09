@@ -28,6 +28,7 @@
 #include "zero_cc/types/global_vars.h"
 #include "zero_cc/core/multi_tu.h"
 #include "zero_cc/linker/linker.h"
+#include "zero_cc/linker/ar_writer.h"
 
 #include "zero_cc/driver/driver_opts.h"
 #include "zero_cc/driver/driver_asm.h"
@@ -1680,6 +1681,14 @@ static int compile_object_cross(CompileOptions *opts) {
 }
 
 int main(int argc, char **argv) {
+    /* Check for `zerocc --ar` or `zerocc -ar` or `zerocc-ar` tool invocation */
+    if (argc >= 2 && (strcmp(argv[1], "--ar") == 0 || strcmp(argv[1], "-ar") == 0)) {
+        return zc_ar_main(argc - 1, argv + 1);
+    }
+    if (strstr(argv[0], "zerocc-ar") != NULL) {
+        return zc_ar_main(argc, argv);
+    }
+
     /* Stale-build guard: catch object files compiled against an older
      * ZeroCCASTNode layout before they corrupt the AST at runtime. */
     if (zero_cc_ast_node_size() != sizeof(ZeroCCASTNode)) {

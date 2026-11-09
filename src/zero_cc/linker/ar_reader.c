@@ -76,6 +76,9 @@ int zc_ar_open(const char *path, ZcAr *a, char *err, size_t errsz) {
     }
 
     size_t off = 8;
+    const char *gnu_strtab = NULL;
+    size_t gnu_strtab_len = 0;
+
     while (off + 60 <= (size_t)sz) {
         const uint8_t *h = buf + off;
         char name[17];
@@ -106,8 +109,24 @@ int zc_ar_open(const char *path, ZcAr *a, char *err, size_t errsz) {
         }
         const uint8_t *data = buf + off + 60;
 
-        /* Long-name member: "#1/NNN" - the name is the first NNN bytes of
-         * the payload, terminated by '/'. */
+        /* If this is the GNU long-name table member "//", record it. */
+        if (strcmp(name, "//") == 0) {
+            gnu_strtab = (const char *)data;
+            gnu_strtab_len = payload;
+            off += 60 + payload + (payload & 1);
+            continue;
+        }
+
+        /* Skip symbol table members. */
+        if (strcmp(name, "/") == 0 ||
+            strcmp(name, "__.SYMDEF") == 0 ||
+            strcmp(name, "__.SYMDEF SORTED") == 0 ||
+            strcmp(name, "Sym64 Table") == 0) {
+            off += 60 + payload + (payload & 1);
+            continue;
+        }
+
+        /* Long-name member: "#1/NNN" (BSD) or "/offset" (GNU). */
         char *mname = NULL;
         if (strncmp(name, "#1/", 3) == 0) {
             uint64_t nlen = 0;
@@ -125,14 +144,31 @@ int zc_ar_open(const char *path, ZcAr *a, char *err, size_t errsz) {
             mname[nlen] = '\0';
             data += nlen + 1;
             payload -= (size_t)nlen + 1;
-        } else {
-            /* Skip index / symbol-table members. */
-            if (strcmp(name, "//") == 0 || strcmp(name, "/") == 0 ||
-                strcmp(name, "__.SYMDEF") == 0 ||
-                strcmp(name, "__.SYMDEF SORTED") == 0 ||
-                strcmp(name, "Sym64 Table") == 0) {
-                off += 60 + payload + (payload & 1);
-                continue;
+        } else if (name[0] == '/' && isdigit((unsigned char)name[1]) && gnu_strtab) {
+            uint64_t str_off = 0;
+            if (parse_dec((const char *)name + 1, strlen(name + 1), &str_off) == 0 &&
+                str_off < gnu_strtab_len) {
+                const char *entry = gnu_strtab + str_off;
+                size_t max_len = gnu_strtab_len - (size_t)str_off;
+                size_t elen = 0;
+                while (elen < max_len && entry[elen] != '/' && entry[elen] != '\n' && entry[elen] != '\0') {
+                    elen++;
+                }
+                mname = (char *)malloc(elen + 1);
+                if (!mname) {
+                    snprintf(err, errsz, "out of memory");
+                    return -1;
+                }
+                memcpy(mname, entry, elen);
+                mname[elen] = '\0';
+            }
+        }
+
+        if (!mname) {
+            /* Standard short name: strip trailing '/' if present (GNU convention: "foo.o/") */
+            size_t nlen = strlen(name);
+            if (nlen > 1 && name[nlen - 1] == '/') {
+                name[nlen - 1] = '\0';
             }
             mname = strdup(name);
             if (!mname) {

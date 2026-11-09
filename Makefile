@@ -89,6 +89,7 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	src/zero_cc/jit/compile.o \
 	src/zero_cc/linker/elf_reader.o \
 	src/zero_cc/linker/ar_reader.o \
+	src/zero_cc/linker/ar_writer.o \
 	src/zero_cc/linker/linker.o \
 	src/zero_cc/types/string_pool.o)
 
@@ -318,9 +319,9 @@ ZERO_RT_OBJS = $(BUILD_DIR)/obj/zero_rt/os.o \
                $(BUILD_DIR)/obj/zero_rt/d2s.o $(BUILD_DIR)/obj/zero_rt/d2fixed.o \
                $(BUILD_DIR)/obj/zero_rt/int128.o $(BUILD_DIR)/obj/zero_rt/errno.o \
                $(BUILD_DIR)/obj/zero_rt/complex.o $(BUILD_DIR)/obj/zero_rt/thread.o
-$(BUILD_DIR)/lib/zero_rt.a: $(ZERO_RT_OBJS)
+$(BUILD_DIR)/lib/zero_rt.a: $(ZERO_RT_OBJS) $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
-	ar rcs $@ $^
+	$(BUILD_DIR)/bin/zerocc --ar rcs $@ $(ZERO_RT_OBJS)
 $(BUILD_DIR)/obj/zero_rt/os.o: zero_rt/linux/os.c zero_rt/rt_os.h $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc -c $< $(ZERO_RT_CFLAGS) -o $@
@@ -362,9 +363,9 @@ ZERO_RT_AARCH64_OBJS = $(BUILD_DIR)/obj/zero_rt_aarch64/os.o \
                        $(BUILD_DIR)/obj/zero_rt_aarch64/d2s.o $(BUILD_DIR)/obj/zero_rt_aarch64/d2fixed.o \
                        $(BUILD_DIR)/obj/zero_rt_aarch64/int128.o $(BUILD_DIR)/obj/zero_rt_aarch64/errno.o \
                        $(BUILD_DIR)/obj/zero_rt_aarch64/complex.o $(BUILD_DIR)/obj/zero_rt_aarch64/thread.o
-$(BUILD_DIR)/lib/zero_rt_aarch64.a: $(ZERO_RT_AARCH64_OBJS)
+$(BUILD_DIR)/lib/zero_rt_aarch64.a: $(ZERO_RT_AARCH64_OBJS) $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
-	ar rcs $@ $^
+	$(BUILD_DIR)/bin/zerocc --ar rcs $@ $(ZERO_RT_AARCH64_OBJS)
 $(BUILD_DIR)/obj/zero_rt_aarch64/os.o: zero_rt/linux/os.c zero_rt/rt_os.h $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --target aarch64 -c $< $(ZERO_RT_CFLAGS) -o $@
@@ -406,9 +407,9 @@ ZERO_RT_RISCV64_OBJS = $(BUILD_DIR)/obj/zero_rt_riscv64/os.o \
                        $(BUILD_DIR)/obj/zero_rt_riscv64/d2s.o $(BUILD_DIR)/obj/zero_rt_riscv64/d2fixed.o \
                        $(BUILD_DIR)/obj/zero_rt_riscv64/int128.o $(BUILD_DIR)/obj/zero_rt_riscv64/errno.o \
                        $(BUILD_DIR)/obj/zero_rt_riscv64/complex.o $(BUILD_DIR)/obj/zero_rt_riscv64/thread.o
-$(BUILD_DIR)/lib/zero_rt_riscv64.a: $(ZERO_RT_RISCV64_OBJS)
+$(BUILD_DIR)/lib/zero_rt_riscv64.a: $(ZERO_RT_RISCV64_OBJS) $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
-	ar rcs $@ $^
+	$(BUILD_DIR)/bin/zerocc --ar rcs $@ $(ZERO_RT_RISCV64_OBJS)
 $(BUILD_DIR)/obj/zero_rt_riscv64/os.o: zero_rt/linux/os.c zero_rt/rt_os.h $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --target riscv64 -c $< $(ZERO_RT_CFLAGS) -o $@
@@ -450,9 +451,9 @@ ZERO_RT_RISCV32_OBJS = $(BUILD_DIR)/obj/zero_rt_riscv32/os.o \
                        $(BUILD_DIR)/obj/zero_rt_riscv32/d2s.o $(BUILD_DIR)/obj/zero_rt_riscv32/d2fixed.o \
                        $(BUILD_DIR)/obj/zero_rt_riscv32/int128.o $(BUILD_DIR)/obj/zero_rt_riscv32/errno.o \
                        $(BUILD_DIR)/obj/zero_rt_riscv32/complex.o $(BUILD_DIR)/obj/zero_rt_riscv32/thread.o
-$(BUILD_DIR)/lib/zero_rt_riscv32.a: $(ZERO_RT_RISCV32_OBJS)
+$(BUILD_DIR)/lib/zero_rt_riscv32.a: $(ZERO_RT_RISCV32_OBJS) $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
-	ar rcs $@ $^
+	$(BUILD_DIR)/bin/zerocc --ar rcs $@ $(ZERO_RT_RISCV32_OBJS)
 $(BUILD_DIR)/obj/zero_rt_riscv32/os.o: zero_rt/linux/os.c zero_rt/rt_os.h $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --target riscv32 -c $< $(ZERO_RT_CFLAGS) -o $@

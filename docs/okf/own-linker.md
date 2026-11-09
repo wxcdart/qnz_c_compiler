@@ -4,7 +4,7 @@ title: ZeroCC Own Linker (T2) - ELF Reader, ar Reader, Static ET_EXEC/PIE Output
 description: ZeroCC's own static linker - the ELF64-LE object reader, the classic ar archive reader with greedy member extraction, symbol resolution, section layout at conventional x86-64/AArch64/RISC-V64 bases, the x86-64 far-rel32 detour-thunk pool, the static-PIE (ET_DYN) self-relocating link, supported relocation sets, and per-ISA generated _start stubs. Gate: make test-linker (21/21) + test/linker/far_thunk.c + test/linker/pie_test.c.
 resource: linker
 tags: [linker, elf, ar, aot, x86-64, aarch64, riscv64, relocations, zero-rt, static-pie, thunks]
-timestamp: 2026-11-09T19:44:53Z
+timestamp: 2026-11-09T21:42:57Z
 generated: pi-agent
 verified: engineering-lead
 status: active
@@ -34,7 +34,8 @@ linker** → T3 runtime): zero_rt Phase 0 is its first customer.
 | File | Role |
 |---|---|
 | `elf_reader.{h,c}` | Minimal ELF64-LE **ET_REL** parser: section headers (name-resolved), `.symtab` + strtab, `SHT_RELA` sections bound to their target via `sh_info`. Accepts `e_machine` `EM_X86_64`, `EM_AARCH64`, `EM_RISCV` (243) and records it; all copies are bounds-checked; little-endian loads are explicit. |
-| `ar_reader.{h,c}` | Classic `ar` archive reader (GNU/BSD/LLVM ar): 60-byte member headers, long-name (`#1/NNN`) members, index-member skipping (`//`, `__.SYMDEF`, `Sym64 Table`). Members are returned as views into the archive image. |
+| `ar_reader.{h,c}` | Classic `ar` archive reader (GNU/BSD/LLVM ar): 60-byte member headers, long-name (`#1/NNN` BSD and `/offset` GNU via `//` member), index-member skipping (`//`, `__.SYMDEF`, `Sym64 Table`). Members are returned as views into the archive image. |
+| `ar_writer.{h,c}` | Native `ar` archive writer (Sprint 148): creates standard deterministic GNU-format `.a` static archives with `/` ELF symbol index table (big-endian symbol count, offset array, and symbol names) and `//` long filename table for names > 15 characters. CLI driver `--ar` (`rcs`, `t`, `x`). Replaces host system `ar` in runtime archive generation (`zero_rt*.a`). |
 | `linker.{h,c}` | `zero_cc_link_exec(out, objects, archives, err)`: the pipeline below. |
 
 Driver integration (`src/main.c`): `--zerocc-link` (with `-o`) selects the

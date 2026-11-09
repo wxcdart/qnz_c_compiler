@@ -50,6 +50,11 @@ def zc(args, timeout=120):
     return p.returncode, p.stdout, p.stderr
 
 
+def make_archive(lib_path, members):
+    rc, out, err = zc(["--ar", "rcs", lib_path] + list(members))
+    return rc == 0, err
+
+
 def compile_objs(workdir, names):
     """Compile each source to <workdir>/<stem>.o with zerocc. -> [paths]"""
     objs = []
@@ -113,10 +118,9 @@ def case_link_run(name, sources, expect_rc=0, diff=True, archives_of=(),
         archives = []
         if ar_members:
             lib = os.path.join(work, "libmembers.a")
-            p = subprocess.run(["ar", "rcs", lib] + ar_members,
-                               capture_output=True, text=True)
-            if p.returncode != 0:
-                check(name, False, f"ar failed: {p.stderr}")
+            ok, err_ar = make_archive(lib, ar_members)
+            if not ok:
+                check(name, False, f"ar failed: {err_ar}")
                 return
             archives.append(lib)
 
@@ -182,10 +186,9 @@ def case_aarch64_run(name, sources, expect_rc=0, archives_of=()):
         archives = []
         if ar_members:
             lib = os.path.join(work, "libmembers.a")
-            p = subprocess.run(["ar", "rcs", lib] + ar_members,
-                               capture_output=True, text=True)
-            if p.returncode != 0:
-                check(name, False, f"ar failed: {p.stderr}")
+            ok, err_ar = make_archive(lib, ar_members)
+            if not ok:
+                check(name, False, f"ar failed: {err_ar}")
                 return
             archives.append(lib)
         exe = os.path.join(work, "app_own")
@@ -241,10 +244,9 @@ def case_riscv64_run(name, sources, expect_rc=0, archives_of=()):
         archives = []
         if ar_members:
             lib = os.path.join(work, "libmembers.a")
-            p = subprocess.run(["ar", "rcs", lib] + ar_members,
-                               capture_output=True, text=True)
-            if p.returncode != 0:
-                check(name, False, f"ar failed: {p.stderr}")
+            ok, err_ar = make_archive(lib, ar_members)
+            if not ok:
+                check(name, False, f"ar failed: {err_ar}")
                 return
             archives.append(lib)
         exe = os.path.join(work, "app_own")
@@ -300,10 +302,9 @@ def case_riscv32_run(name, sources, expect_rc=0, archives_of=()):
         archives = []
         if ar_members:
             lib = os.path.join(work, "libmembers.a")
-            p = subprocess.run(["ar", "rcs", lib] + ar_members,
-                               capture_output=True, text=True)
-            if p.returncode != 0:
-                check(name, False, f"ar failed: {p.stderr}")
+            ok, err_ar = make_archive(lib, ar_members)
+            if not ok:
+                check(name, False, f"ar failed: {err_ar}")
                 return
             archives.append(lib)
         exe = os.path.join(work, "app_own")
@@ -439,12 +440,82 @@ def case_stack_protect_run():
                 check(f"stack_smash_{arch}", ok, f"rc={p.returncode} err={p.stderr!r}")
 
 
+def case_ar_tests():
+    """Test native ar writer and reader functionality."""
+    with tempfile.TemporaryDirectory(prefix="zerocc_t2_ar_") as work:
+        src1 = os.path.join(work, "short.c")
+        src2 = os.path.join(work, "a_member_with_a_very_long_name.c")
+        with open(src1, "w") as f:
+            f.write("int short_fn(void) { return 10; }\n")
+        with open(src2, "w") as f:
+            f.write("int long_named_fn(void) { return 20; }\n")
+        o1 = os.path.join(work, "short.o")
+        o2 = os.path.join(work, "a_member_with_a_very_long_name.o")
+        rc1, _, _ = zc(["-c", src1, "-o", o1])
+        rc2, _, _ = zc(["-c", src2, "-o", o2])
+        if rc1 != 0 or rc2 != 0:
+            check("ar_writer_compile", False, "failed to compile test objects")
+            return
+        lib = os.path.join(work, "testlib.a")
+        # 1. Create archive with rcs
+        ok, err = make_archive(lib, [o1, o2])
+        check("ar_writer_create", ok, err)
+
+        # 2. Table of contents with `zerocc --ar t`
+        rc, out, err = zc(["--ar", "t", lib])
+        lines = [line.strip() for line in out.strip().splitlines() if line.strip()]
+        ok_toc = (rc == 0 and "short.o" in lines and "a_member_with_a_very_long_name.o" in lines)
+        check("ar_writer_toc", ok_toc, f"toc={lines!r}")
+
+        # 3. Differential with system ar (if present)
+        sys_ar = shutil.which("ar")
+        if sys_ar:
+            p = subprocess.run([sys_ar, "t", lib], capture_output=True, text=True)
+            sys_lines = [line.strip() for line in p.stdout.strip().splitlines() if line.strip()]
+            check("ar_writer_sys_ar_diff", p.returncode == 0 and sys_lines == lines,
+                  f"sys={sys_lines!r} vs zc={lines!r}")
+
+        # 4. Extract with `zerocc --ar x`
+        extdir = os.path.join(work, "ext")
+        os.makedirs(extdir, exist_ok=True)
+        ext_lib = os.path.join(extdir, "testlib.a")
+        shutil.copyfile(lib, ext_lib)
+        cwd = os.getcwd()
+        try:
+            os.chdir(extdir)
+            rc, out, err = zc(["--ar", "x", "testlib.a"])
+            ext_ok = (rc == 0 and os.path.exists("short.o") and
+                      os.path.exists("a_member_with_a_very_long_name.o"))
+            check("ar_writer_extract", ext_ok, f"rc={rc} err={err}")
+        finally:
+            os.chdir(cwd)
+
+        # 5. Link against the created archive with host gcc
+        main_c = os.path.join(work, "main.c")
+        with open(main_c, "w") as f:
+            f.write("extern int short_fn(void); extern int long_named_fn(void);\n"
+                    "int main(void) { return short_fn() + long_named_fn() - 30; }\n")
+        exe_gcc = os.path.join(work, "app_gcc")
+        p = subprocess.run(["gcc", main_c, lib, "-o", exe_gcc], capture_output=True, text=True)
+        if p.returncode == 0:
+            prun = subprocess.run([exe_gcc], capture_output=True, text=True)
+            check("ar_writer_gcc_link", prun.returncode == 0, f"rc={prun.returncode}")
+        else:
+            check("ar_writer_gcc_link", False, p.stderr.strip())
+
+        # 6. Link against the created archive with zerocc --zerocc-link
+        exe_own = os.path.join(work, "app_own")
+        rc, out, err = zc([main_c, lib, "--zerocc-link", "-o", exe_own])
+        if rc == 0:
+            prun = subprocess.run([exe_own], capture_output=True, text=True)
+            check("ar_writer_own_link", prun.returncode == 0, f"rc={prun.returncode}")
+        else:
+            check("ar_writer_own_link", False, err.strip())
+
+
 def main():
     if not os.path.exists(BIN):
         print("build/bin/zerocc missing - run `make build/bin/zerocc` first")
-        return 2
-    if shutil.which("ar") is None:
-        print("ar missing - cannot run the archive cases")
         return 2
 
     print("-- functional (own linker + gcc differential) --")
@@ -474,6 +545,9 @@ def main():
 
     print("-- stack protector (-fstack-protector cross-ISA) --")
     case_stack_protect_run()
+
+    print("-- native ar archive writer & reader --")
+    case_ar_tests()
 
     print("-- error paths --")
     case_link_error("dup_def", ["dup_a.c", "dup_b.c"], "multiple definition")
