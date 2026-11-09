@@ -314,6 +314,11 @@ typedef struct ZeroCCCompiler {
     size_t asm_stmt_count;
     size_t asm_stmt_cap;
 
+    /* File-scope inline asm templates (Sprint 138, Phase 4) */
+    char **file_scope_asm;
+    size_t file_scope_asm_count;
+    size_t file_scope_asm_cap;
+
     /* Inline-asm operand temps for the function being lowered (Sprint 135).
      * Parallel lists, reset per function: operand temps are marked no_spill
      * in LRA (the template references them at the OP_ASM site), and a fixed

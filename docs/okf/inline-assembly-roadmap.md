@@ -4,7 +4,7 @@ title: Integrated Inline Assembly Roadmap
 description: Architectural roadmap and design for Clang-style integrated inline assembly in ZeroCC across AOT and JIT modes.
 resource: backend/inline-asm
 tags: [inline-asm, roadmap, jit, aot, register-allocation, isa, assembly]
-timestamp: 2026-11-08T23:59:36Z
+timestamp: 2026-11-09T00:38:59Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -12,11 +12,12 @@ status: active
 
 # Integrated Inline Assembly Roadmap
 
-> **Status (Sprint 137):** **Phases 1, 2, and 3 are complete** for x86-64:
+> **Status (Sprint 138):** **Phases 1, 2, 3, and 4 are complete**:
 > - **Phase 1 (AOT text path)**: Non-empty GNU asm templates lower to `OP_ASM` (operand side table `IRAsmArgs`), the LRA honors `no_spill`/fixed-register/`forbidden_mask` operand constraints, and the substituted template is emitted between `#APP`/`#NO_APP` in the `.s` stream.
 > - **Phase 2 (JIT & Raw Binary AOT)**: Integrated x86-64 inline assembler (`src/zero_cc/isa/x86_64_inline_asm.c`) tokenizes interpolated AT&T assembly statements, encodes Tier 1 & Tier 2 instructions directly into `c->text_section`, allowing `--run` (JIT) and `ZC_RAW_AOT=1` (raw ELF emission) to execute non-empty templates without invoking external assemblers.
 > - **Phase 3 (asm goto & Dialects)**: `asm goto` statements parsed with C label target lists, CFG edges wired to labels + fallthrough, `%l0`..`%lN` and symbolic `%l[name]` label operand expansion, forward/backward branch displacement patching in machine code emission, and dialect alternatives `{att | intel}` automatically resolved.
-> Differential gate: `make test-asm` (`tools/asm_diff.py`) sweeps all 3 execution paths (`text`, `jit`, `raw`) at `-O0..-O3` (48/48 runs passed).
+> - **Phase 4 (File-Scope Asm & Multi-ISA AOT)**: Top-level `__asm__("...")` statements at translation unit scope across text AOT (`#APP`), in-memory JIT (`emit_filescope_asm_mc`), and raw AOT; Multi-ISA AOT text (`-S`) generation enabled for AArch64 and RISC-V 64/32 with operand formatting (`%wN`/`%xN`, `0(reg)`), register clobber normalization, and goto branch expansion; `zero_cc_ast_has_asm` guards parameter promotion and inlining for asm-containing functions.
+> Differential gate: `make test-asm` (`tools/asm_diff.py`) sweeps all 3 execution paths (`text`, `jit`, `raw`) at `-O0..-O3` (72/72 runs passed); AArch64 and RISC-V 64 tested under QEMU across `-O0..-O3`.
 
 This document outlines the architectural plan for bringing first-class **inline assembly (`__asm__` / `asm`)** support to ZeroCC, progressing from AOT constraint-solving and register-allocation passthrough to a Clang-style **integrated assembler** for in-memory JIT execution (`--run`).
 
@@ -138,6 +139,30 @@ flowchart TD
 3. **Verification**:
    - Added `test/asm/asm_goto.c` exercising unconditional jumps, conditional branch fallthrough/taken paths, multi-target jumps, `asm goto` with outputs, empty templates, and dialect alternatives across `-O0..-O3`.
    - All 48/48 runs pass cleanly under `tools/asm_diff.py` across text (`-S`), JIT (`--run`), and raw AOT (`ZC_RAW_AOT=1`).
+
+---
+
+### Phase 4: File-Scope Assembly & Multi-ISA Text Support (Milestone 4) — ✅ IMPLEMENTED (Sprint 138)
+
+1. **File-Scope Inline Assembly (`__asm__("...")`)**:
+   - Top-level `__asm__ [volatile] ("template"*) ;` parsed at translation unit scope.
+   - Stored in `c->file_scope_asm` and managed via `zero_cc_compiler_free`.
+   - AOT mode: emitted directly into `.s` assembly stream wrapped in `#APP` / `#NO_APP`.
+   - JIT & raw AOT mode: backend hook `.emit_filescope_asm_mc` (`x86_emit_filescope_asm_mc`) assembles directives and instructions into `c->text_section`, skips `.globl`, `.text`, `.type` directives, extracts labels, and registers global functions in `c->functions` with appropriate text offsets so caller expressions can resolve and call them.
+   - Updated prototype resolution in `compile_unit.c` so forward prototypes (`int fn();`) correctly update existing function entries registered by file-scope assembly without overwriting text offsets.
+2. **Multi-ISA AOT Text Support**:
+   - Lowering enabled on `ISA_AARCH64`, `ISA_RISCV64`, and `ISA_RISCV32` in AOT text mode (`c->emit_asm`).
+   - Clobber register validation generalized across targets: stack/frame pointer protection checks `BE(c)->sp_reg` / `BE(c)->fp_reg`; register name mapping normalizes AArch64 `wN` -> `xN` and RISC-V `xN` -> ABI names.
+   - Target-specific text operand interpolation:
+     - **AArch64 (`aarch64_asm.c`)**: `%0`..`%9`, `%w0`..`%w9` (32-bit registers), `%x0`..`%x9` (64-bit registers), memory operands `[reg]`, goto labels `%l0`/`%l[name]`, input digit matching materialization (`mov <out>, <in>`).
+     - **RISC-V (`riscv_asm.c`)**: `%0`..`%9`, memory operands `0(reg)`, goto labels `%l0`/`%l[name]`, input digit matching materialization (`mv <out>, <in>`).
+3. **Parameter Promotion and Inlining Safety**:
+   - Identified and fixed latent bug where parameter promotion promoted variables modified by `NODE_ASM` outputs into virtual registers with zero stack offset. Added `zero_cc_ast_has_asm` to disallow parameter promotion and function inlining when functions contain inline assembly, guaranteeing a proper stack frame and frame slots for operand address resolution.
+4. **Verification**:
+   - Added `test/asm/asm_filescope.c` (testing file-scope asm in text AOT, JIT `--run`, and raw AOT `ZC_RAW_AOT=1`).
+   - Added `test/asm/asm_multi_isa.c` (exercising math, in/out operands, and asm goto across x86-64, AArch64, and RISC-V 64).
+   - `make test-asm` (`tools/asm_diff.py`) sweeps all 6 tests x 4 optimization levels x 3 execution paths (72/72 passing).
+   - QEMU cross-ISA differential execution: `asm_multi_isa.c` runs clean on `qemu-aarch64-static` and `qemu-riscv64-static` at `-O0`, `-O1`, `-O2`, `-O3`.
 
 ---
 

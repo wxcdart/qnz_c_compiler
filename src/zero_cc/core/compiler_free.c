@@ -62,6 +62,18 @@ void zero_cc_compiler_free(ZeroCCCompiler *c) {
     c->asm_stmts = NULL;
     c->asm_stmt_count = 0;
     c->asm_stmt_cap = 0;
+
+    /* File-scope inline asm (Sprint 138, Phase 4) */
+    if (c->file_scope_asm) {
+        for (size_t i = 0; i < c->file_scope_asm_count; i++) {
+            free(c->file_scope_asm[i]);
+        }
+        free(c->file_scope_asm);
+        c->file_scope_asm = NULL;
+        c->file_scope_asm_count = 0;
+        c->file_scope_asm_cap = 0;
+    }
+
     free(c->asm_operand_temps);
     free(c->asm_fixed_regs);
     c->asm_operand_temps = NULL;

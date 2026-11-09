@@ -79,9 +79,13 @@ static int zc_asm_fixed_letter_reg(const char ch) {
  * never hold an asm operand. Returns 1 on success (pool set), 0 after
  * reporting a clean diagnostic. */
 static int zc_asm_fixed_letter_ok(ZeroCCCompiler *c, char body, int *pool) {
+    if (BE(c)->isa != ISA_X86_64) {
+        diag_report_error_at_token(c, "fixed-register asm constraints (a/b/d/S/D) are x86-64 specific");
+        return 0;
+    }
     int p = zc_asm_fixed_letter_reg(body);
     if (p < 0) {
-        diag_report_error_at_token(c, "asm constraint not supported in Phase 1 (r/m/a/b/d/S/D)");
+        diag_report_error_at_token(c, "asm constraint not supported (r/m/a/b/d/S/D)");
         return 0;
     }
     if (p == 1) {
@@ -163,9 +167,10 @@ static void lower_asm_stmt(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNo
         c->had_error = 1;
         return;
     }
-    if (BE(c)->isa != ISA_X86_64) {
+    if (BE(c)->isa != ISA_X86_64 && BE(c)->isa != ISA_AARCH64 &&
+        BE(c)->isa != ISA_RISCV64 && BE(c)->isa != ISA_RISCV32) {
         diag_report_error_at_token(c,
-            "inline asm Phase 1 targets x86-64 (template text is ISA-specific)");
+            "inline asm is not supported on this target architecture");
         c->had_error = 1;
         return;
     }
@@ -193,16 +198,23 @@ static void lower_asm_stmt(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNo
         if (strcmp(cb, "cc") == 0) continue;  /* IR keeps no implicit flags */
         int pool = -1;
         for (int r = 0; r < BE(c)->regs->num_int_regs; r++) {
-            if (strcmp(cb, BE(c)->get_hw_reg_name(r)) == 0) { pool = r; break; }
+            const char *hw_n = BE(c)->get_hw_reg_name(r);
+            if (hw_n && strcmp(cb, hw_n) == 0) { pool = r; break; }
+            if (BE(c)->isa == ISA_AARCH64 && cb[0] == 'w' && hw_n && hw_n[0] == 'x' && strcmp(cb + 1, hw_n + 1) == 0) {
+                pool = r; break;
+            }
+            if ((BE(c)->isa == ISA_RISCV64 || BE(c)->isa == ISA_RISCV32) && cb[0] == 'x' && atoi(cb + 1) == r) {
+                pool = r; break;
+            }
         }
         if (pool < 0) {
             diag_report_error_at_token(c,
-                "inline asm clobber not supported in Phase 1 (memory/cc/rax..r15)");
+                "inline asm clobber register not recognized for target architecture");
             c->had_error = 1;
             return;
         }
-        if (pool == 4 || pool == 5) {  /* rsp / rbp */
-            diag_report_error_at_token(c, "inline asm cannot clobber rsp/rbp");
+        if (pool == BE(c)->sp_reg || pool == BE(c)->fp_reg) {
+            diag_report_error_at_token(c, "inline asm cannot clobber stack pointer or frame pointer");
             c->had_error = 1;
             return;
         }

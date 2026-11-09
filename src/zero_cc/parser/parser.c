@@ -254,6 +254,14 @@ bool zero_cc_ast_has_label_goto(ZeroCCASTArena *arena, ASTRef root) {
     return zero_cc_ast_walk(arena, root, 0, zero_cc_ast_pred_label_goto, 0);
 }
 
+static bool zero_cc_ast_pred_asm(ZeroCCASTNode *n, size_t ctx) {
+    (void)ctx;
+    return n->tag == NODE_ASM;
+}
+bool zero_cc_ast_has_asm(ZeroCCASTArena *arena, ASTRef root) {
+    return zero_cc_ast_walk(arena, root, 0, zero_cc_ast_pred_asm, 0);
+}
+
 /* True if the body takes the address of a value parameter (&param).
  * Inlined parameters are bound to virtual registers with no stack slot,
  * so &param lowers to an invalid LEA (the Sprint 35 Phase 1 audit found

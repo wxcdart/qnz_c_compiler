@@ -1283,8 +1283,144 @@ static void aarch64_emit_trunc128_64_asm(ZeroCCCompiler *c, int dst, int slo, FI
         fprintf(out, "\tmov\t%s, %s\n", BE(c)->get_hw_reg_name(dst), BE(c)->get_hw_reg_name(slo));
 }
 
+static const char *aarch64_asm_operand_reg_name(int phys_reg, int width) {
+    static const char *const w_names[32] = {
+        "w0", "w1", "w2", "w3", "w4", "w5", "w6", "w7",
+        "w8", "w9", "w10", "w11", "w12", "w13", "w14", "w15",
+        "w16", "w17", "w18", "w19", "w20", "w21", "w22", "w23",
+        "w24", "w25", "w26", "w27", "w28", "w29", "w30", "wzr"
+    };
+    static const char *const x_names[32] = {
+        "x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7",
+        "x8", "x9", "x10", "x11", "x12", "x13", "x14", "x15",
+        "x16", "x17", "x18", "x19", "x20", "x21", "x22", "x23",
+        "x24", "x25", "x26", "x27", "x28", "x29", "x30", "sp"
+    };
+    if (phys_reg < 0 || phys_reg >= 32) return (width <= 32) ? "w0" : "x0";
+    return (width <= 32) ? w_names[phys_reg] : x_names[phys_reg];
+}
+
+static void aarch64_emit_inline_asm_asm(ZeroCCCompiler *c, size_t idx, FILE *out) {
+    const Instr *instr = ir_get(c, idx);
+    if (!instr) return;
+    const IRAsmArgs *aa = ir_asm_args_find(c, idx);
+    if (!aa || !aa->template_str) return;
+
+    int first_out = -1;
+    for (int o = 0; o < aa->op_count; o++) {
+        if (aa->ops[o].kind == ZC_ASM_OP_OUT_R || aa->ops[o].kind == ZC_ASM_OP_INOUT_R ||
+            aa->ops[o].kind == ZC_ASM_OP_OUT_M) {
+            first_out = o;
+            break;
+        }
+    }
+    for (int o = 0; o < aa->op_count; o++) {
+        const IRAsmOperand *op = &aa->ops[o];
+        if (op->digit < 0 || first_out < 0) continue;
+        int out_pos = first_out + op->digit;
+        if (out_pos < 0 || out_pos >= aa->op_count) continue;
+        const IRAsmOperand *oop = &aa->ops[out_pos];
+        int width = oop->width ? oop->width : 64;
+        int out_phys = regalloc_get_reg_for_temp(&c->regalloc, oop->temp);
+        int in_phys = regalloc_get_reg_for_temp(&c->regalloc, op->temp);
+        const char *in_n = aarch64_asm_operand_reg_name(in_phys, width);
+        const char *out_n = aarch64_asm_operand_reg_name(out_phys, width);
+        if (strcmp(in_n, out_n) != 0) {
+            fprintf(out, "\tmov\t%s, %s\n", out_n, in_n);
+        }
+    }
+
+    fprintf(out, "#APP\n\t/* GNU asm */\n\t");
+    const char *p = aa->template_str;
+    while (*p) {
+        if (*p == '%' && p[1]) {
+            p++;
+            if (*p == '%') {
+                fputc('%', out);
+                p++;
+                continue;
+            }
+            if (*p == 'l') {
+                if (p[1] == '[') {
+                    p += 2;
+                    char lname[64];
+                    int llen = 0;
+                    while (*p && *p != ']' && llen < 63) lname[llen++] = *p++;
+                    lname[llen] = '\0';
+                    if (*p == ']') p++;
+                    int target_lbl = -1;
+                    for (int li = 0; li < aa->goto_label_count; li++) {
+                        if (strcmp(aa->goto_label_names[li], lname) == 0) {
+                            target_lbl = (int)aa->goto_labels[li];
+                            break;
+                        }
+                    }
+                    if (target_lbl >= 0) {
+                        fprintf(out, ".L%zu_%u", (size_t)c->lowering.current_func_idx, (unsigned)target_lbl);
+                    } else {
+                        fprintf(out, "%%bad_label");
+                    }
+                    continue;
+                } else if (p[1] >= '0' && p[1] <= '9') {
+                    int n = p[1] - '0';
+                    p += 2;
+                    int target_lbl = -1;
+                    if (n >= aa->op_count && (n - aa->op_count) < aa->goto_label_count) {
+                        target_lbl = (int)aa->goto_labels[n - aa->op_count];
+                    } else if (n < aa->goto_label_count) {
+                        target_lbl = (int)aa->goto_labels[n];
+                    }
+                    if (target_lbl >= 0) {
+                        fprintf(out, ".L%zu_%u", (size_t)c->lowering.current_func_idx, (unsigned)target_lbl);
+                    } else {
+                        fprintf(out, "%%bad_label");
+                    }
+                    continue;
+                }
+            }
+            int width_override = 0;
+            if (*p == 'w') { width_override = 32; p++; }
+            else if (*p == 'x') { width_override = 64; p++; }
+
+            int op_idx = -1;
+            if (*p >= '0' && *p <= '9') {
+                op_idx = *p - '0';
+                p++;
+            }
+
+            if (op_idx >= 0 && op_idx < aa->op_count) {
+                const IRAsmOperand *op = &aa->ops[op_idx];
+                int target_op = (op->digit >= 0 && first_out >= 0) ? (first_out + op->digit) : op_idx;
+                const IRAsmOperand *top = &aa->ops[target_op];
+                if (top->kind == ZC_ASM_OP_OUT_M || top->kind == ZC_ASM_OP_IN_M) {
+                    int phys = regalloc_get_reg_for_temp(&c->regalloc, top->temp);
+                    fprintf(out, "[%s]", aarch64_asm_operand_reg_name(phys, 64));
+                } else {
+                    int w = width_override ? width_override : (top->width ? top->width : 64);
+                    int phys = regalloc_get_reg_for_temp(&c->regalloc, top->temp);
+                    fprintf(out, "%s", aarch64_asm_operand_reg_name(phys, w));
+                }
+            } else {
+                fputc('%', out);
+                if (width_override == 32) fputc('w', out);
+                else if (width_override == 64) fputc('x', out);
+            }
+            continue;
+        }
+        if (*p == '\n') {
+            fprintf(out, "\n\t");
+            p++;
+            continue;
+        }
+        fputc(*p, out);
+        p++;
+    }
+    fprintf(out, "\n#NO_APP\n");
+}
+
 /* Initialize AArch64 assembly emission functions in backend */
 void aarch64_init_asm_emission(ZeroCCISABackend *be) {
+    be->emit_inline_asm_asm = aarch64_emit_inline_asm_asm;
     be->emit_prologue_asm = aarch64_emit_prologue_asm;
     be->emit_epilogue_asm = aarch64_emit_epilogue_asm;
     be->get_hw_reg_name = aarch64_get_hw_reg_name;

@@ -1206,6 +1206,7 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
                 if (inline_ok) {
                     if (zero_cc_ast_has_local_decl(&arena, body) ||
                         zero_cc_ast_has_label_goto(&arena, body) ||
+                        zero_cc_ast_has_asm(&arena, body) ||
                         /* __builtin_apply_args snapshots the CURRENT
                          * function's parameters - an inlined body would
                          * capture the caller's table (or none) instead of

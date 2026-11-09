@@ -847,4 +847,50 @@ static void x86_emit_inline_asm_mc(ZeroCCCompiler *c, size_t idx) {
     }
 }
 
+static void x86_emit_filescope_asm_mc(ZeroCCCompiler *c, const char *asm_str) {
+    if (!asm_str) return;
+    char filtered[4096];
+    x86_mc_filter_dialect(asm_str, filtered, sizeof(filtered));
+    char *cur = filtered;
+    while (*cur) {
+        char *end = cur;
+        while (*end && *end != ';' && *end != '\n') end++;
+        char saved = *end;
+        *end = '\0';
+
+        char *line = (char *)asm_skip_ws(cur);
+        char *t = line + strlen(line);
+        while (t > line && (t[-1] == ' ' || t[-1] == '\t' || t[-1] == '\r')) {
+            *--t = '\0';
+        }
+
+        if (*line) {
+            if (*line == '.') {
+                /* Assembler directives (.globl, .type, .text, etc.) skipped in JIT */
+            } else if (line[strlen(line) - 1] == ':') {
+                /* Label definition */
+                line[strlen(line) - 1] = '\0';
+                const char *lbl_name = asm_skip_ws(line);
+                ZeroCCFunction *fn = zero_cc_find_function(c, lbl_name);
+                if (fn) {
+                    fn->is_prototype = false;
+                    fn->text_offset = c->text_section.length;
+                } else if (c->function_count < ZERO_CC_MAX_FUNCTIONS) {
+                    ZeroCCFunction *nfn = &c->functions[c->function_count++];
+                    memset(nfn, 0, sizeof(*nfn));
+                    snprintf(nfn->name, sizeof(nfn->name), "%s", lbl_name);
+                    nfn->return_type.tag = TYPE_INT32;
+                    nfn->return_type.size = 4;
+                    nfn->text_offset = c->text_section.length;
+                }
+            } else {
+                (void)x86_assemble_single_stmt(c, line);
+            }
+        }
+
+        if (!saved) break;
+        cur = end + 1;
+    }
+}
+
 #endif /* ZERO_CC_ISA_X86_64_INLINE_ASM_C */

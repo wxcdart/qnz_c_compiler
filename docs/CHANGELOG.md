@@ -1,3 +1,31 @@
+## [Sprint 139] - 2026-11-08 - Inline assembly Phase 4: File-scope asm & Multi-ISA text emission
+
+**Plan item #12 Phase 4 is complete**: Top-level file-scope inline assembly (`__asm__("...")`) is now supported across all execution paths (AOT text `#APP`, in-memory JIT `--run`, and raw binary AOT `ZC_RAW_AOT=1`), multi-ISA text inline assembly is enabled for AArch64 and RISC-V (64/32-bit), and parameter promotion/inlining are guarded against asm statements via `zero_cc_ast_has_asm`.
+
+**Implementation**:
+- **File-Scope Inline Assembly (`src/zero_cc/jit/compile_unit.c`, `src/zero_cc/core/compiler_free.c`, `src/zero_cc/types/symbols.h`)**:
+  - Parsed top-level `__asm__ [volatile] ("template"*) ;` at translation unit scope.
+  - Stored in `c->file_scope_asm` and freed cleanly in `zero_cc_compiler_free()`.
+  - In AOT mode: emitted directly into `.s` assembly stream wrapped between `#APP` and `#NO_APP`.
+  - In JIT / raw AOT mode: wired `BE(c)->emit_filescope_asm_mc` (`x86_emit_filescope_asm_mc`), assembling statements into `c->text_section`, stripping directives (`.globl`, `.text`, `.type`), and registering function labels into `c->functions` with appropriate text offsets so caller expressions can resolve and call them.
+  - Updated multi-declarator prototype resolution in `zero_cc_compile_c99` to update existing function symbols registered by file-scope asm while setting `fn2->is_prototype = true` for new declarations.
+- **Multi-ISA AOT Text Support (`src/zero_cc/ir/ast_lowering_stmt.c`, `src/zero_cc/isa/aarch64_asm.c`, `src/zero_cc/isa/riscv_asm.c`)**:
+  - Lowering enabled on `ISA_AARCH64`, `ISA_RISCV64`, and `ISA_RISCV32` in AOT text mode (`c->emit_asm`).
+  - Generalized clobber validation: stack pointer and frame pointer protection checks `BE(c)->sp_reg` / `BE(c)->fp_reg`; register name mapping normalizes AArch64 `wN` -> `xN` and RISC-V `xN` -> ABI names.
+  - Target-specific text operand interpolation:
+    - **AArch64 (`aarch64_asm.c`)**: `%0`..`%9`, `%w0`..`%w9` (32-bit registers), `%x0`..`%x9` (64-bit registers), memory operands `[reg]`, goto labels `%l0`/`%l[name]`, input digit matching materialization (`mov <out>, <in>`).
+    - **RISC-V (`riscv_asm.c`)**: `%0`..`%9`, memory operands `0(reg)`, goto labels `%l0`/`%l[name]`, input digit matching materialization (`mv <out>, <in>`).
+- **Parameter Promotion & Inlining Safety (`src/zero_cc/parser/parser.c`, `parser.h`, `src/zero_cc/ir/ast_lowering.c`, `src/zero_cc/jit/compile.c`)**:
+  - Implemented `zero_cc_ast_has_asm(arena, root)` to detect inline assembly statements in function ASTs.
+  - Disallowed parameter promotion (`can_promote_params`) for functions containing inline assembly, ensuring full stack frame allocation so operand addresses calculated via `zero_cc_lower_lvalue_addr` are valid frame slots.
+  - Disallowed call-site inlining for functions containing inline assembly to avoid register clobber/label collisions.
+- **Verification**:
+  - Added [`test/asm/asm_filescope.c`](file:///home/ubuntu/dev/qnz_c_compiler/test/asm/asm_filescope.c) testing file-scope asm across text AOT, JIT `--run`, and raw AOT `ZC_RAW_AOT=1`.
+  - Added [`test/asm/asm_multi_isa.c`](file:///home/ubuntu/dev/qnz_c_compiler/test/asm/asm_multi_isa.c) exercising ALU operations, input/output constraints, digit matching, and `asm goto` across x86-64, AArch64, and RISC-V 64.
+  - `make test-asm` (`tools/asm_diff.py`): 72/72 runs passed cleanly across all 3 execution paths.
+  - Cross-ISA QEMU verification: `asm_multi_isa.c` tested cleanly under `qemu-aarch64-static` and `qemu-riscv64-static` at `-O0..-O3`.
+  - Regressions all green: `make test-opt` (151/151), `make test-c23` (24/24), `type_tag_verifier` (OK), `sret_verifier` (6/6), `style_check` (0 errors).
+
 ## [Sprint 137] - 2026-11-08 - Inline assembly Phase 3: `asm goto`, CFG integration, label interpolation, and dialect alternatives
 
 **Plan item #12 Phase 3 is complete**: GNU extended `asm goto` statements on x86-64 can now branch directly to C labels across all compilation and execution paths (AOT text `-S`, in-memory JIT `--run`, and raw binary AOT `ZC_RAW_AOT=1`), with full CFG edge construction, label operand expansion (`%l0`..`%lN` and symbolic `%l[name]`), in-memory machine-code branch resolution, and `{att | intel}` dialect alternative filtering.

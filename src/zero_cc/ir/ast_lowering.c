@@ -369,6 +369,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         if (!fn->is_variadic && fn->ret_struct_sz <= 16 &&
             c->local_count == fn->param_count &&
             !zero_cc_ast_has_call(arena, root, NULL) &&
+            !zero_cc_ast_has_asm(arena, root) &&
             !zero_cc_param_captured_by_nested(c, fn) &&
             !zero_cc_fn_has_capture_mirror(c, fn)) {
             /* Member access on a parameter (p->m / s.m) is rejected: the

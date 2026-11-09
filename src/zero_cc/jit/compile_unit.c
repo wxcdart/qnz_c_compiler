@@ -735,6 +735,67 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
             continue;
         }
 
+        /* Top-level file-scope inline assembly: __asm__ [volatile] ("template"*) ; */
+        if (c->tokens[c->token_pos].type == TK_IDENT) {
+            const char *id = c->tokens[c->token_pos].allocated_str ?
+                             c->tokens[c->token_pos].allocated_str :
+                             c->tokens[c->token_pos].str_val;
+            if (id && (strcmp(id, "__asm__") == 0 || strcmp(id, "__asm") == 0 || strcmp(id, "asm") == 0)) {
+                size_t probe = c->token_pos + 1;
+                if (probe < c->token_count && (c->tokens[probe].type == TK_VOLATILE ||
+                    (c->tokens[probe].type == TK_IDENT &&
+                     c->tokens[probe].str_val &&
+                     (strcmp(c->tokens[probe].str_val, "__volatile__") == 0 ||
+                      strcmp(c->tokens[probe].str_val, "volatile") == 0)))) {
+                    probe++;
+                }
+                if (probe < c->token_count && c->tokens[probe].type == TK_LPAREN) {
+                    c->token_pos = probe + 1; /* skip __asm__ [volatile] ( */
+                    /* Accumulate string literals */
+                    char *asm_buf = NULL;
+                    size_t asm_len = 0;
+                    while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STRING) {
+                        const char *s = c->tokens[c->token_pos].allocated_str ?
+                                        c->tokens[c->token_pos].allocated_str :
+                                        c->tokens[c->token_pos].str_val;
+                        if (s) {
+                            size_t slen = strlen(s);
+                            char *nb = (char *)realloc(asm_buf, asm_len + slen + 1);
+                            if (nb) {
+                                asm_buf = nb;
+                                memcpy(asm_buf + asm_len, s, slen);
+                                asm_len += slen;
+                                asm_buf[asm_len] = '\0';
+                            }
+                        }
+                        c->token_pos++;
+                    }
+                    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) {
+                        c->token_pos++;
+                    }
+                    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) {
+                        c->token_pos++;
+                    }
+                    if (asm_buf) {
+                        /* Record in c->file_scope_asm */
+                        if (c->file_scope_asm_count >= c->file_scope_asm_cap) {
+                            size_t ncap = c->file_scope_asm_cap ? c->file_scope_asm_cap * 2 : 8;
+                            c->file_scope_asm = (char **)realloc(c->file_scope_asm, ncap * sizeof(char *));
+                            c->file_scope_asm_cap = ncap;
+                        }
+                        c->file_scope_asm[c->file_scope_asm_count++] = asm_buf;
+                        /* Emit to .s if open */
+                        if (c->asm_out) {
+                            fprintf(c->asm_out, "#APP\n\t%s\n#NO_APP\n", asm_buf);
+                        } else if (!c->emit_asm && BE(c)->emit_filescope_asm_mc) {
+                            BE(c)->emit_filescope_asm_mc(c, asm_buf);
+                        }
+                    }
+                    continue;
+                }
+            }
+        }
+
         /* Extern symbol declarations */
         if (c->tokens[c->token_pos].type == TK_EXTERN) {
             c->token_pos++; /* skip extern */
@@ -2607,26 +2668,29 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                 if (zero_cc_parse_fn_declarator(c, NULL,
                                     &p2t, &p2n, &p2cap, &p2count, &p2var, &p2proto,
                                     &p2arena, p2dims, NULL)) {
-                                    if (c->function_count < ZERO_CC_MAX_FUNCTIONS) {
-                                        ZeroCCFunction *fn2 = &c->functions[c->function_count++];
+                                    ZeroCCFunction *fn2 = zero_cc_find_function(c, fn2_name);
+                                    if (!fn2 && c->function_count < ZERO_CC_MAX_FUNCTIONS) {
+                                        fn2 = &c->functions[c->function_count++];
                                         memset(fn2, 0, sizeof(*fn2));
                                         snprintf(fn2->name, sizeof(fn2->name), "%s", fn2_name);
                                         fn2->text_offset = 0;
+                                        fn2->is_prototype = true;
+                                    }
+                                    if (fn2) {
                                         fn2->param_count = p2count;
                                         fn2->return_type = gtype;
                                         fn2->returns_struct = (gtype.tag == TYPE_STRUCT || gtype.tag == TYPE_UNION);
                                         fn2->ret_struct_sz = gtype.size;
                                         fn2->is_variadic = p2var;
-                                        fn2->is_prototype = true;
                                         fn2->has_prototype = p2proto;
                                         if (p2count > 0) {
-                                            Arena *farena = zero_cc_get_fn_arena(c);
-                                            fn2->param_names = (const char **)arena_alloc(farena, p2count * sizeof(const char *));
-                                            fn2->param_types = (ZeroCCType *)arena_alloc(farena, p2count * sizeof(ZeroCCType));
-                                            for (size_t i = 0; i < p2count; i++) {
-                                                fn2->param_types[i] = p2t[i];
-                                                fn2->param_names[i] = p2n[i];
-                                            }
+                                             Arena *farena = zero_cc_get_fn_arena(c);
+                                             fn2->param_names = (const char **)arena_alloc(farena, p2count * sizeof(const char *));
+                                             fn2->param_types = (ZeroCCType *)arena_alloc(farena, p2count * sizeof(ZeroCCType));
+                                             for (size_t i = 0; i < p2count; i++) {
+                                                 fn2->param_types[i] = p2t[i];
+                                                 fn2->param_names[i] = p2n[i];
+                                             }
                                         }
                                     }
                                     if (p2arena) { zero_cc_ast_arena_free(p2arena); free(p2arena); }

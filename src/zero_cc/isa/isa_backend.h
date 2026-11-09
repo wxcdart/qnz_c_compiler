@@ -140,6 +140,9 @@ typedef struct ZeroCCISABackend {
      * assemble the template into machine code bytes in-memory for JIT/raw AOT. */
     void (*emit_inline_asm_mc)(ZeroCCCompiler *c, size_t instr_index);
 
+    /* GNU file-scope inline asm machine code emission (Sprint 138, Phase 4). */
+    void (*emit_filescope_asm_mc)(ZeroCCCompiler *c, const char *asm_str);
+
     /* Vector instruction emission (SSE2/NEON/RVV) */
     void (*emit_vload_asm)(ZeroCCCompiler *c, int dst, int base, int32_t offset, FILE *out);
     void (*emit_vstore_asm)(ZeroCCCompiler *c, int src, int base, int32_t offset, FILE *out);

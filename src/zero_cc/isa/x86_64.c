@@ -2529,6 +2529,7 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_epilogue = x86_emit_epilogue,
     .get_code_offset = x86_get_code_offset,
     .emit_inline_asm_mc = x86_emit_inline_asm_mc,
+    .emit_filescope_asm_mc = x86_emit_filescope_asm_mc,
 
     .emit_prologue_asm = x86_emit_prologue_asm,
     .emit_epilogue_asm = x86_emit_epilogue_asm,

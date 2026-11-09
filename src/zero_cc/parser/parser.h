@@ -188,6 +188,7 @@ ASTRef zero_cc_ast_clone(ZeroCCASTArena *src_arena, ASTRef root, ZeroCCASTArena 
 bool zero_cc_ast_has_call(ZeroCCASTArena *arena, ASTRef root, const char *target_name);
 bool zero_cc_ast_has_local_decl(ZeroCCASTArena *arena, ASTRef root);
 bool zero_cc_ast_has_label_goto(ZeroCCASTArena *arena, ASTRef root);
+bool zero_cc_ast_has_asm(ZeroCCASTArena *arena, ASTRef root);
 bool zero_cc_ast_addr_of_param(ZeroCCASTArena *arena, ASTRef root,
                                const char *param_names[], int param_count);
 bool zero_cc_ast_member_on_param(ZeroCCASTArena *arena, ASTRef root,

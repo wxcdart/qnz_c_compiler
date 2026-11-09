@@ -1392,8 +1392,120 @@ static void riscv_emit_trunc128_64_asm(ZeroCCCompiler *c, int dst, int slo, FILE
         fprintf(out, "\tmv\t%s, %s\n", BE(c)->get_hw_reg_name(dst), BE(c)->get_hw_reg_name(slo));
 }
 
+static void riscv_emit_inline_asm_asm(ZeroCCCompiler *c, size_t idx, FILE *out) {
+    const Instr *instr = ir_get(c, idx);
+    if (!instr) return;
+    const IRAsmArgs *aa = ir_asm_args_find(c, idx);
+    if (!aa || !aa->template_str) return;
+
+    int first_out = -1;
+    for (int o = 0; o < aa->op_count; o++) {
+        if (aa->ops[o].kind == ZC_ASM_OP_OUT_R || aa->ops[o].kind == ZC_ASM_OP_INOUT_R ||
+            aa->ops[o].kind == ZC_ASM_OP_OUT_M) {
+            first_out = o;
+            break;
+        }
+    }
+    for (int o = 0; o < aa->op_count; o++) {
+        const IRAsmOperand *op = &aa->ops[o];
+        if (op->digit < 0 || first_out < 0) continue;
+        int out_pos = first_out + op->digit;
+        if (out_pos < 0 || out_pos >= aa->op_count) continue;
+        const IRAsmOperand *oop = &aa->ops[out_pos];
+        int out_phys = regalloc_get_reg_for_temp(&c->regalloc, oop->temp);
+        int in_phys = regalloc_get_reg_for_temp(&c->regalloc, op->temp);
+        const char *in_n = riscv_get_hw_reg_name(in_phys);
+        const char *out_n = riscv_get_hw_reg_name(out_phys);
+        if (strcmp(in_n, out_n) != 0) {
+            fprintf(out, "\tmv\t%s, %s\n", out_n, in_n);
+        }
+    }
+
+    fprintf(out, "#APP\n\t/* GNU asm */\n\t");
+    const char *p = aa->template_str;
+    while (*p) {
+        if (*p == '%' && p[1]) {
+            p++;
+            if (*p == '%') {
+                fputc('%', out);
+                p++;
+                continue;
+            }
+            if (*p == 'l') {
+                if (p[1] == '[') {
+                    p += 2;
+                    char lname[64];
+                    int llen = 0;
+                    while (*p && *p != ']' && llen < 63) lname[llen++] = *p++;
+                    lname[llen] = '\0';
+                    if (*p == ']') p++;
+                    int target_lbl = -1;
+                    for (int li = 0; li < aa->goto_label_count; li++) {
+                        if (strcmp(aa->goto_label_names[li], lname) == 0) {
+                            target_lbl = (int)aa->goto_labels[li];
+                            break;
+                        }
+                    }
+                    if (target_lbl >= 0) {
+                        fprintf(out, ".L%zu_%u", (size_t)c->lowering.current_func_idx, (unsigned)target_lbl);
+                    } else {
+                        fprintf(out, "%%bad_label");
+                    }
+                    continue;
+                } else if (p[1] >= '0' && p[1] <= '9') {
+                    int n = p[1] - '0';
+                    p += 2;
+                    int target_lbl = -1;
+                    if (n >= aa->op_count && (n - aa->op_count) < aa->goto_label_count) {
+                        target_lbl = (int)aa->goto_labels[n - aa->op_count];
+                    } else if (n < aa->goto_label_count) {
+                        target_lbl = (int)aa->goto_labels[n];
+                    }
+                    if (target_lbl >= 0) {
+                        fprintf(out, ".L%zu_%u", (size_t)c->lowering.current_func_idx, (unsigned)target_lbl);
+                    } else {
+                        fprintf(out, "%%bad_label");
+                    }
+                    continue;
+                }
+            }
+
+            int op_idx = -1;
+            if (*p >= '0' && *p <= '9') {
+                op_idx = *p - '0';
+                p++;
+            }
+
+            if (op_idx >= 0 && op_idx < aa->op_count) {
+                const IRAsmOperand *op = &aa->ops[op_idx];
+                int target_op = (op->digit >= 0 && first_out >= 0) ? (first_out + op->digit) : op_idx;
+                const IRAsmOperand *top = &aa->ops[target_op];
+                if (top->kind == ZC_ASM_OP_OUT_M || top->kind == ZC_ASM_OP_IN_M) {
+                    int phys = regalloc_get_reg_for_temp(&c->regalloc, top->temp);
+                    fprintf(out, "0(%s)", riscv_get_hw_reg_name(phys));
+                } else {
+                    int phys = regalloc_get_reg_for_temp(&c->regalloc, top->temp);
+                    fprintf(out, "%s", riscv_get_hw_reg_name(phys));
+                }
+            } else {
+                fputc('%', out);
+            }
+            continue;
+        }
+        if (*p == '\n') {
+            fprintf(out, "\n\t");
+            p++;
+            continue;
+        }
+        fputc(*p, out);
+        p++;
+    }
+    fprintf(out, "\n#NO_APP\n");
+}
+
 /* Initialize RISC-V assembly emission functions in backend */
 void riscv64_init_asm_emission(ZeroCCISABackend *be) {
+    be->emit_inline_asm_asm = riscv_emit_inline_asm_asm;
     be->emit_prologue_asm = riscv_emit_prologue_asm;
     be->emit_epilogue_asm = riscv_emit_epilogue_asm;
     be->get_hw_reg_name = riscv_get_hw_reg_name;
