@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-09T04:12:12Z
+timestamp: 2026-11-09T05:15:51Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1236,3 +1236,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-09 — Updated `zero-rt.md`
 - Sprint 143: dlfcn self-hosting note (unchanged file, timestamp bump)
+
+## 2026-11-09 — Updated `own-linker.md`
+- Sprint 144: own linker gains the x86-64 far-rel32 detour-thunk pool (far call/jmp re-aimed at 14-byte ff25+abs64 slots; far rip-relative data refs hard-error) and a static-PIE link (--zerocc-link-pie, x86-64: ET_DYN base-0 layout, R_64->RELATIVE .rela.dyn, RWX first PT_LOAD, 95-byte self-relocating _start stub that mprotects RX and applies absolute writes; pinned by test/linker/far_thunk.c + test/linker/pie_test.c)

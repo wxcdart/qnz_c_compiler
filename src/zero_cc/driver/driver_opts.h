@@ -39,6 +39,7 @@ typedef struct {
     ZeroCCStdDialect std_dialect;   /* -std= dialect (default ZC_STD_GNU11) */
     int link_mode;        /* Link with system linker (default when -o specified) */
     int zerocc_link;      /* --zerocc-link: link with ZeroCC's own linker (T2) */
+    int zerocc_link_pie;  /* --zerocc-link-pie: static-PIE variant (x86-64) */
     int no_zerocc_rt;     /* --no-zerocc-rt: don't auto-link zero_rt.a */
     const char *libs[32]; /* -l<lib> */
     int lib_count;
@@ -75,6 +76,7 @@ static void print_usage(const char *prog) {
     fprintf(stderr, "  -h, --help      Show this help\n");
     fprintf(stderr, "  --target <arch> Target architecture (x86-64, aarch64, riscv64)\n");
     fprintf(stderr, "  --zerocc-link  With -o: link with ZeroCC's own linker (T2; x86-64, aarch64, riscv64)\n");
+    fprintf(stderr, "  --zerocc-link-pie  Static-PIE (ET_DYN, self-relocating _start) variant of --zerocc-link (x86-64)\n");
     fprintf(stderr, "  -MMD            Generate dependency file\n");
     fprintf(stderr, "  -MF <file>      Write dependency output to <file>\n");
     fprintf(stderr, "  -MT <target>    Set target name in dependency file\n");
@@ -189,6 +191,10 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
         }
         else if (strcmp(arg, "--zerocc-link") == 0) {
             opts->zerocc_link = 1;
+        }
+        else if (strcmp(arg, "--zerocc-link-pie") == 0) {
+            opts->zerocc_link = 1;
+            opts->zerocc_link_pie = 1;
         }
         else if (strcmp(arg, "-MMD") == 0) {
             opts->gen_deps = 1;

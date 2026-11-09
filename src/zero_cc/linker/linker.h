@@ -21,6 +21,12 @@
  * Entry point: `_start` if the inputs define one (a CRT object), otherwise
  * `main` (ZeroCC programs use the no-argument main). This is what makes the
  * own linker the first customer of zero_rt: no system libc, no crt files.
+ *
+ * Static PIE: `zero_cc_link_exec_pie` (x86-64 only) emits an ET_DYN image
+ * laid out from base 0 with a `.rela.dyn` section; the linker's `_start`
+ * stub applies the R_X86_64_RELATIVE entries at startup, turning every
+ * absolute (R_X86_64_64) reference into load-time-relocatable code, so the
+ * kernel may place the image at an arbitrary base.
  */
 #include <stddef.h>
 
@@ -34,6 +40,12 @@ int zero_cc_link_exec(const char *out_path,
                       const char *const *objects, int object_count,
                       const char *const *archives, int archive_count,
                       char *err, size_t errsz);
+
+/* Static-PIE (ET_DYN, self-relocating _start) link; x86-64 only. */
+int zero_cc_link_exec_pie(const char *out_path,
+                          const char *const *objects, int object_count,
+                          const char *const *archives, int archive_count,
+                          char *err, size_t errsz);
 
 #ifdef __cplusplus
 }

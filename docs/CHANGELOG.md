@@ -1,3 +1,45 @@
+## [Sprint 144] - 2026-11-09 - Own linker: far-rel32 detour thunks + static-PIE (self-relocating) link
+
+ZeroCC's own linker (`src/zero_cc/linker/`) gains two x86-64 capabilities, both
+differential-tested against system-gcc object shapes:
+
+- **Far-rel32 detour thunk pool** (`--zerocc-link`):
+  - A `PC32`/`PLT32` whose final delta exceeds ±2 GB used to be **silently
+    truncated** to `int32` (wrapped displacement, broken binary). Layout now
+    reserves a 14-byte-per-slot pool at the end of `.text` (one slot per
+    rel32 relocation); out-of-range **`call` (`e8`)** and **`jmp` (`e9`)**
+    sites are re-aimed at a pool slot holding the detour sequence
+    `ff 25 00 00 00 00` + 8-byte absolute target, near sites patch directly
+    as before.
+  - A far **rip-relative data reference** is now a hard error
+    (`rip-relative data reference`) instead of a silent miscompile —
+    executing a thunk is not a value source.
+  - Pinned by `test/linker/far_thunk.c` (synthetic objects, ~3 GB far call
+    in a 4 GB `.bss`; far `lea` must fail cleanly).
+- **Static PIE** (`--zerocc-link-pie`, x86-64 only, `zero_cc_link_exec_pie`):
+  - Emits a **`ET_DYN`** image with no `.dynamic`: layout from base 0, every
+    `R_X86_64_64` converted to an `R_X86_64_RELATIVE` entry in a new
+    `.rela.dyn` section (24 B/slot, inside the RX segment),
+    `R_X86_64_{32,32S}` are hard errors, and inputs may not define `_start`.
+  - The first `PT_LOAD` is emitted **RWX** (`PF_R|PF_W|PF_X`); the
+    linker-generated 95-byte **self-relocating `_start` stub** (assembled and
+    verified, embedded with four link-time-patched fields) applies the
+    `.rela.dyn` entries — absolute writes, `site = base + addend` — then
+    `mprotect`s the segment back to RX and calls `main` /
+    `zeroc_main_wrapper` with the kernel's `argc`/`argv`. The RWX segment is
+    required: the stub executes from the very pages it rewrites (plain RX
+    faults on the write; an RW re-protection faults on the next instruction
+    fetch under Linux W^X).
+  - Pinned by `test/linker/pie_test.c` (two-TU program with a static global,
+    static string, and a cross-TU function pointer; EXEC vs PIE output must
+    be byte-identical, the PIE image must be a real `ET_DYN` with a
+    non-empty `.rela.dyn`, and a PIE link of an aarch64 object must fail
+    cleanly).
+- Docs: `docs/okf/own-linker.md` (thunk pool + static-PIE sections).
+
+Gates: `make test-linker` 21/21, `test/linker/far_thunk` + `test/linker/pie_test`
+green, full suite 194/194, `make test-opt` 93 ok / 0 failed.
+
 ## [Sprint 143] - 2026-11-09 - Remove host-glibc dependency: static musl build + self-hosting dlfcn
 
 ZeroCC compiler binaries and test executables linking the compiler library are now

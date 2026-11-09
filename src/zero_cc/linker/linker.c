@@ -20,6 +20,7 @@
 #include "zero_cc/linker/linker.h"
 
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -46,6 +47,14 @@
 #define SHF_EXECINSTR 0x4
 
 #define ET_EXEC 2
+#define ET_DYN 3
+/* Static-PIE self-relocating _start stub (x86-64; see the emission in
+ * emit_exec).  The first PT_LOAD is emitted RWX so the stub can execute
+ * and write while applying the .rela.dyn entries; the final mprotect
+ * (R+X) restores the intended protections before the target is called.
+ *  Each entry is an absolute write - the placeholder sites are zero, so
+ *  the site must end up as base + addend (not 0 + addend). */
+#define ZC_PIE_STUB_SIZE 95
 #define EM_X86_64 62
 #define EM_AARCH64 183
 #define EM_RISCV 243
@@ -75,6 +84,11 @@ typedef struct {
     uint64_t size;
     uint8_t stype;      /* STT for the output symtab */
 } ZcLinkSym;
+
+typedef struct {
+    uint64_t r_offset; /* in-image offset of the 8-byte site (base 0) */
+    uint64_t r_addend; /* loaded value = image_base + r_addend */
+} ZcRelaDyn;
 
 typedef struct {
     char name[16];
@@ -112,6 +126,25 @@ typedef struct {
     /* The stub's call target: "zeroc_main_wrapper" when zero_rt was linked
      * (runs atexit on a plain `return` from main), else "main". */
     const char *stub_target;
+    /* x86-64 far-rel32 thunk pool (detour-style): reserved at the end of
+     * .text during layout, 14 bytes per slot -
+     *   ff 25 00 00 00 00   jmp [rip+0]
+     *   <8-byte absolute target>
+     * A 32-bit relative relocation (call/jmp/rip-relative data access) whose
+     * final delta is outside +-2GB is re-aimed at a pool slot, which is
+     * always in range as long as .text itself stays under 2GB.  Unclaimed
+     * slots remain zero and are never executed. */
+    uint64_t text_thunk_base; /* offset within .text where the pool starts */
+    size_t text_thunk_used;
+    /* Static-PIE (ET_DYN) link: sections are laid out from base 0, every
+     * R_X86_64_64 becomes an R_X86_64_RELATIVE entry in .rela.dyn, and the
+     * linker-generated _start stub applies them at startup (musl 1.2.6 has
+     * no static-PIE self-relocation of its own). */
+    bool pie;
+    ZcRelaDyn *rela_dyn;
+    size_t rela_dyn_count, rela_dyn_cap;
+    size_t rela_slots;       /* reserved .rela.dyn slots (upper bound) */
+    uint64_t rela_dyn_vma, rela_dyn_size; /* 0 = no .rela.dyn section */
 } ZcLink;
 
 static uint64_t align_up(uint64_t v, uint64_t a) {
@@ -486,6 +519,7 @@ static int layout_sections(ZcLink *L, char *err, size_t errsz) {
             ZcOutSec *os = &L->outsec[out];
             if (out == 0 && os->cursor == 0 && L->stub_at_front) {
                 size_t stub_sz = (L->machine == EM_RISCV) ? 20 : 16;
+                if (L->pie) stub_sz = ZC_PIE_STUB_SIZE; /* self-relocating */
                 if (outsec_zero_extend(os, stub_sz) != 0) {
                     snprintf(err, errsz, "out of memory");
                     return -1;
@@ -519,18 +553,69 @@ static int layout_sections(ZcLink *L, char *err, size_t errsz) {
         }
     }
 
-    /* VMAs: .text at the per-machine base; .rodata packed 8-aligned after
-     * it; .data and .bss page-aligned (each may anchor the RW PT_LOAD
-     * segment). */
-    uint64_t v = (L->machine == EM_RISCV) ? 0x10000ULL :
+    /* Reserve the x86-64 far-rel32 thunk pool at the end of .text, before
+     * VMA assignment, so .rodata/.data/.bss and every symbol VMA land
+     * after the pool.  Bound: one 14-byte slot per PC32/PLT32 relocation
+     * (usually only a handful are actually far). */
+    if (L->machine == EM_X86_64) {
+        size_t pc32_cnt = 0, r64_cnt = 0;
+        for (int oi = 0; oi < L->obj_count; oi++) {
+            ZcElfObj *o = L->objs[oi];
+            for (int si = 0; si < o->shnum; si++) {
+                const ZcSection *rs = &o->secs[si];
+                if (rs->type != SHT_RELA || rs->info >= o->shnum) continue;
+                if (outsec_for_name(o->secs[rs->info].name) < 0) continue;
+                for (size_t r = 0; r < rs->reloc_count; r++) {
+                    if (rs->relocs[r].type == 2 /* R_X86_64_PC32 */ ||
+                        rs->relocs[r].type == 4 /* R_X86_64_PLT32 */)
+                        pc32_cnt++;
+                    else if (rs->relocs[r].type == 1 /* R_X86_64_64 */)
+                        r64_cnt++;
+                }
+            }
+        }
+        if (pc32_cnt > 0) {
+            ZcOutSec *ttext = &L->outsec[0];
+            L->text_thunk_base = ttext->cursor;
+            if (outsec_zero_extend(ttext,
+                                   ttext->cursor + 14 * pc32_cnt) != 0) {
+                snprintf(err, errsz, "out of memory");
+                return -1;
+            }
+        }
+        if (L->pie) {
+            /* .rela.dyn: one slot per R_64 (absolute -> RELATIVE) plus one
+             * per PC32 as a bound (far ones become thunks whose abs64 field
+             * is itself a RELATIVE target).  Placed after the RX content,
+             * 8-aligned, before the page-aligned RW sections.  In PIE the
+             * layout base is 0, so the RX end is computable from cursors. */
+            L->rela_slots = r64_cnt + pc32_cnt;
+            uint64_t rx_end = L->outsec[0].cursor;
+            if (L->outsec[1].cursor > 0)
+                rx_end = align_up(rx_end, 8) + L->outsec[1].cursor;
+            L->rela_dyn_vma = align_up(rx_end, 8);
+            L->rela_dyn_size = 24 * L->rela_slots;
+        }
+    }
+
+    /* VMAs: .text at the per-machine base (base 0 for static PIE); .rodata
+     * packed 8-aligned after it; .data and .bss page-aligned (each may
+     * anchor the RW PT_LOAD segment), after the .rela.dyn region in PIE. */
+    uint64_t v = (L->pie && L->machine == EM_X86_64) ? 0 : (L->machine == EM_RISCV) ? 0x10000ULL :
                  (L->machine == EM_AARCH64) ? 0x400000ULL : ZC_TEXT_BASE;
     for (int i = 0; i < 3; i++) {
         if (L->outsec[i].cursor == 0) continue;
         uint64_t al = (i == 0) ? 16 : ((i == 2) ? ZC_PAGE : 8);
+        if (i == 2 && L->pie && L->rela_dyn_size > 0)
+            v = align_up(v, 8) + L->rela_dyn_size;
         v = align_up(v, al);
         L->outsec[i].vma = v;
         L->outsec[i].size = L->outsec[i].cursor;
         v = L->outsec[i].vma + L->outsec[i].cursor;
+    }
+    if (L->pie && L->rela_dyn_size > 0 && L->outsec[2].cursor == 0) {
+        /* No .data: the .bss (if any) must still clear the rela region. */
+        v = L->rela_dyn_vma + L->rela_dyn_size;
     }
     if (L->have_bss) {
         uint64_t al = (L->outsec[2].cursor > 0) ? 8 : ZC_PAGE;
@@ -589,6 +674,20 @@ static int layout_sections(ZcLink *L, char *err, size_t errsz) {
 }
 
 /* ---------------- relocations ---------------- */
+
+static int rela_dyn_add(ZcLink *L, uint64_t r_offset, uint64_t r_addend) {
+    if (L->rela_dyn_count >= L->rela_dyn_cap) {
+        size_t nc = L->rela_dyn_cap ? L->rela_dyn_cap * 2 : 64;
+        ZcRelaDyn *nr = realloc(L->rela_dyn, nc * sizeof(ZcRelaDyn));
+        if (!nr) return -1;
+        L->rela_dyn = nr;
+        L->rela_dyn_cap = nc;
+    }
+    L->rela_dyn[L->rela_dyn_count].r_offset = r_offset;
+    L->rela_dyn[L->rela_dyn_count].r_addend = r_addend;
+    L->rela_dyn_count++;
+    return 0;
+}
 
 static int apply_relocations(ZcLink *L, char *err, size_t errsz) {
     typedef struct {
@@ -954,22 +1053,124 @@ static int apply_relocations(ZcLink *L, char *err, size_t errsz) {
                 }
                 switch (rel->type) {
                 case 1:  /* R_X86_64_64 */
-                    for (int b = 0; b < 8; b++)
-                        site[b] = (uint8_t)((uint64_t)(S + A) >> (8 * b));
+                    if (L->pie) {
+                        /* Static PIE: the absolute value is only known once
+                         * the kernel has chosen the load base, so the site
+                         * becomes an R_X86_64_RELATIVE entry applied by the
+                         * _start stub: value = base + r_addend. */
+                        if (rela_dyn_add(L, P, (uint64_t)(S + A)) != 0) {
+                            snprintf(err, errsz, "out of memory");
+                            return -1;
+                        }
+                    } else {
+                        for (int b = 0; b < 8; b++)
+                            site[b] = (uint8_t)((uint64_t)(S + A) >> (8 * b));
+                    }
                     break;
                 case 2:  /* R_X86_64_PC32 */
                 case 4:  /* R_X86_64_PLT32 (static: no PLT stubs needed) */
                 {
-                    int32_t d = (int32_t)(S + A - (int64_t)P);
-                    for (int b = 0; b < 4; b++)
-                        site[b] = (uint8_t)((uint32_t)d >> (8 * b));
+                    int64_t d64 = (S + A) - (int64_t)P;
+                    if (d64 > (int64_t)INT32_MIN && d64 < (int64_t)INT32_MAX) {
+                        int32_t d = (int32_t)d64;
+                        for (int b = 0; b < 4; b++)
+                            site[b] = (uint8_t)((uint32_t)d >> (8 * b));
+                    } else {
+                        /* Far target (>2GB away): detour-style thunk.  The
+                         * 32-bit relative site is re-aimed at a
+                         * `jmp [rip+0]; abs64` slot in the pool reserved at
+                         * the end of .text (in rel32 range as long as .text
+                         * itself is <2GB).  The re-aim preserves semantics
+                         * only for control transfer, so the site must be a
+                         * `call` (e8) or `jmp` (e9).  A far rip-relative
+                         * DATA reference (lea/mov [rip+disp], ...) cannot be
+                         * served by an executed thunk - it needs an
+                         * instruction rewrite (see the displaced-code
+                         * follow-up) - and is a hard error instead of a
+                         * silent int32 truncation. */
+                        uint8_t m = 0;
+                        if (P - os->vma >= 1)
+                            m = os->content[P - os->vma - 1];
+                        if (m != 0xe8 && m != 0xe9) {
+                            snprintf(err, errsz,
+                                     "far %s to `%s' in %s at 0x%lx is a "
+                                     "rip-relative data reference (0x%02x at "
+                                     "the site); only call/jmp can be "
+                                     "re-aimed at a thunk - needs an "
+                                     "instruction rewrite",
+                                     (rel->type == 4) ? "PLT32" : "PC32",
+                                     sym->name, o->path, (unsigned long)P,
+                                     m);
+                            return -1;
+                        }
+                        if (L->text_thunk_base + 14 * L->text_thunk_used >=
+                            L->outsec[0].size) {
+                            snprintf(err, errsz,
+                                     "thunk pool exhausted for far %s to `%s' in %s",
+                                     (rel->type == 4) ? "PLT32" : "PC32",
+                                     sym->name, o->path);
+                            return -1;
+                        }
+                        uint64_t T = L->outsec[0].vma + L->text_thunk_base +
+                                     14 * L->text_thunk_used;
+                        uint8_t *tp = L->outsec[0].content +
+                                      (T - L->outsec[0].vma);
+                        static const uint8_t zc_thunk_hdr[6] =
+                            { 0xff, 0x25, 0x00, 0x00, 0x00, 0x00 };
+                        memcpy(tp, zc_thunk_hdr, 6);
+                        /* Absolute target = the address the PC-relative
+                         * reference denotes: (P+4) + (S+A-P) = S+A+4.  (For
+                         * zerocc/bfd-style objects A is -4, so this is the
+                         * bare symbol value S. */
+                        uint64_t tgt = (uint64_t)(S + A) + 4;
+                        memcpy(tp + 6, &tgt, 8);
+                        if (L->pie) {
+                            /* PIE: the slot's abs64 cannot be a literal;
+                             * it is filled at load time by the _start stub
+                             * as an R_X86_64_RELATIVE entry. */
+                            memset(tp + 6, 0, 8);
+                            if (rela_dyn_add(L, T + 6, tgt) != 0) {
+                                snprintf(err, errsz, "out of memory");
+                                return -1;
+                            }
+                        }
+                        L->text_thunk_used++;
+                        /* The site's rel32 is relative to P+4 (next
+                         * instruction), like the direct patch. */
+                        int64_t d2 = (int64_t)T - (int64_t)P - 4;
+                        if (d2 <= (int64_t)INT32_MIN ||
+                            d2 >= (int64_t)INT32_MAX) {
+                            snprintf(err, errsz,
+                                     "thunk out of rel32 range (is .text >2GB?) for far %s to `%s' in %s",
+                                     (rel->type == 4) ? "PLT32" : "PC32",
+                                     sym->name, o->path);
+                            return -1;
+                        }
+                        int32_t d = (int32_t)d2;
+                        for (int b = 0; b < 4; b++)
+                            site[b] = (uint8_t)((uint32_t)d >> (8 * b));
+                    }
                     break;
                 }
                 case 10: /* R_X86_64_32 */
+                    if (L->pie) {
+                        snprintf(err, errsz,
+                                 "R_X86_64_32 to `%s' in %s: 32-bit absolute "
+                                 "references cannot be expressed in a PIE "
+                                 "image", sym->name, o->path);
+                        return -1;
+                    }
                     for (int b = 0; b < 4; b++)
                         site[b] = (uint8_t)((uint32_t)(uint64_t)(S + A) >> (8 * b));
                     break;
                 case 11: /* R_X86_64_32S */
+                    if (L->pie) {
+                        snprintf(err, errsz,
+                                 "R_X86_64_32S to `%s' in %s: 32-bit signed "
+                                 "absolute references cannot be expressed in "
+                                 "a PIE image", sym->name, o->path);
+                        return -1;
+                    }
                     for (int b = 0; b < 4; b++)
                         site[b] = (uint8_t)((uint32_t)(int32_t)(S + A) >> (8 * b));
                     break;
@@ -1023,6 +1224,10 @@ static int emit_exec(ZcLink *L, const char *out_path, uint64_t entry,
     uint64_t rx_end_vma = (rodata->size > 0)
                               ? rodata->vma + rodata->size
                               : text->vma + text->size;
+    if (L->pie && L->rela_dyn_size > 0) {
+        uint64_t rela_end = L->rela_dyn_vma + L->rela_dyn_size;
+        if (rela_end > rx_end_vma) rx_end_vma = rela_end;
+    }
     uint64_t rx_filesz = rx_end_vma - rx_vma; /* includes inter-section gaps */
     text->file_off = rx_off;
     rodata->file_off = rx_off + (rodata->vma - text->vma);
@@ -1048,8 +1253,11 @@ static int emit_exec(ZcLink *L, const char *out_path, uint64_t entry,
             if (present) out_shndx[k] = t++;
         }
     }
+    int sh_rela = 0; /* 0 = no .rela.dyn section (non-PIE, or no R_64s) */
     int sh_symtab = 1 + (out_shndx[0] != 0) + (out_shndx[1] != 0) +
                     (out_shndx[2] != 0) + (out_shndx[3] != 0);
+    if (L->pie && L->rela_dyn_count > 0) sh_rela = sh_symtab;
+    sh_symtab += (sh_rela != 0);
     int sh_strtab = sh_symtab + 1;
     int sh_shstrtab = sh_symtab + 2;
     int nsecs = sh_shstrtab + 1;
@@ -1080,14 +1288,15 @@ static int emit_exec(ZcLink *L, const char *out_path, uint64_t entry,
         str_size += n + 1;
     }
 
-    const char *secnames[7] = {
-        ".text", ".rodata", ".data", ".bss", ".symtab", ".strtab", ".shstrtab"
+    const char *secnames[8] = {
+        ".text", ".rodata", ".data", ".bss", ".rela.dyn",
+        ".symtab", ".strtab", ".shstrtab"
     };
     size_t shs_size = 0;
-    uint32_t shs_off[7];
+    uint32_t shs_off[8];
     {
         size_t off = 1; /* leading NUL */
-        for (int i = 0; i < 7; i++) {
+        for (int i = 0; i < 8; i++) {
             shs_off[i] = (uint32_t)off;
             size_t n = strlen(secnames[i]);
             off += n + 1;
@@ -1097,7 +1306,7 @@ static int emit_exec(ZcLink *L, const char *out_path, uint64_t entry,
     uint8_t *shstrtab = calloc(1, shs_size);
     {
         size_t off = 1;
-        for (int i = 0; i < 7; i++) {
+        for (int i = 0; i < 8; i++) {
             size_t n = strlen(secnames[i]);
             memcpy(shstrtab + off, secnames[i], n + 1);
             off += n + 1;
@@ -1129,7 +1338,7 @@ static int emit_exec(ZcLink *L, const char *out_path, uint64_t entry,
     put8(&p, 1); /* ELF version */
     put8(&p, 0); /* SYSV */
     for (int i = 0; i < 8; i++) put8(&p, 0);
-    put16(&p, ET_EXEC);
+    put16(&p, L->pie ? ET_DYN : ET_EXEC);
     put16(&p, L->machine);
     put32(&p, 1);          /* e_version */
     put64(&p, entry);      /* e_entry */
@@ -1147,7 +1356,10 @@ static int emit_exec(ZcLink *L, const char *out_path, uint64_t entry,
     p = img + 64;
     if (have_rx) {
         put32(&p, PT_LOAD);
-        put32(&p, PF_R | PF_X);
+        /* Static PIE: the segment starts RWX so the self-relocating _start
+         * stub can both execute and write the relocated sites; it
+         * mprotects the segment back to RX at the end of relocation. */
+        put32(&p, L->pie ? (PF_R | PF_W | PF_X) : (PF_R | PF_X));
         put64(&p, rx_off);
         put64(&p, rx_vma);
         put64(&p, rx_vma);
@@ -1171,6 +1383,18 @@ static int emit_exec(ZcLink *L, const char *out_path, uint64_t entry,
     if (rodata->size)
         memcpy(img + rodata->file_off, rodata->content, rodata->size);
     if (data->size) memcpy(img + data->file_off, data->content, data->size);
+
+    /* .rela.dyn (static PIE): Elf64_Rela entries applied by the _start
+     * stub; the RX PT_LOAD above already spans this region. */
+    if (L->pie && L->rela_dyn_count > 0) {
+        uint64_t ro = rx_off + (L->rela_dyn_vma - rx_vma);
+        for (size_t i = 0; i < L->rela_dyn_count; i++) {
+            uint8_t *e = img + ro + i * 24;
+            put64(&e, L->rela_dyn[i].r_offset);
+            put64(&e, 8 /* R_X86_64_RELATIVE */);
+            put64(&e, L->rela_dyn[i].r_addend);
+        }
+    }
 
     /* Patch the _start stub (reserved at .text offset 0).  x86-64 (16 B):
      *   +0: 31 f9          xor %rbp,%rbp
@@ -1227,6 +1451,59 @@ static int emit_exec(ZcLink *L, const char *out_path, uint64_t entry,
             st[8] = 0x01; st[9] = 0x00; st[10] = 0x00; st[11] = 0xd4;
             /* nop (pad to the 16-byte reservation): 0xD503201F */
             st[12] = 0x1f; st[13] = 0x20; st[14] = 0x03; st[15] = 0xd5;
+        } else if (L->pie) {
+            /* Static-PIE self-relocating _start (ZC_PIE_STUB_SIZE bytes,
+             * assembled and verified; patch fields:
+             *   +0x0a RX_LEN (imm32, sign-extended)   - the RX segment size
+             *   +0x11 .rela.dyn rip-relative disp32   (lea at 0x0e, next-ip 0x15)
+             *   +0x16 entry count (imm32)             (mov ecx at 0x15)
+             *   +0x52 call rel32                      (call at 0x51, next-ip 0x56)
+             * Bytes:
+             *   lea rdi,[rip-7]        rdi = image base
+             *   mov r9, RX_LEN
+             *   lea rsi,[.rela.dyn]
+             *   mov ecx, N
+             *   loop: mov rax,[rsi]; mov rbx,[rsi+16];
+             *         lea r8,[rdi+rbx]; mov [rdi+rax],r8; add rsi,24; loop
+             *   mov eax,10; mov rsi,r9; mov edx,5; mov r10,0; syscall
+             *        mprotect(base, RX_LEN, RX)
+             *   mov rdi,[rsp]; mov rsi,[rsp+8]; xor rbp,rbp
+             *   call <target>; mov edi,eax; mov eax,60; syscall
+             */
+            static const uint8_t pie_stub[ZC_PIE_STUB_SIZE] = {
+                0x48, 0x8d, 0x3d, 0xf9, 0xff, 0xff, 0xff, 0x49, 0xc7, 0xc1,
+                0x00, 0x00, 0x00, 0x00, 0x48, 0x8d, 0x35, 0x00, 0x00, 0x00,
+                0x00, 0xb9, 0x00, 0x00, 0x00, 0x00, 0x48, 0x8b, 0x06, 0x48,
+                0x8b, 0x5e, 0x10, 0x4c, 0x8d, 0x04, 0x1f, 0x4c, 0x89, 0x04,
+                0x07, 0x48, 0x83, 0xc6, 0x18, 0xe2, 0xeb, 0xb8, 0x0a, 0x00,
+                0x00, 0x00, 0x4c, 0x89, 0xce, 0xba, 0x05, 0x00, 0x00, 0x00,
+                0x49, 0xc7, 0xc2, 0x00, 0x00, 0x00, 0x00, 0x0f, 0x05, 0x48,
+                0x8b, 0x3c, 0x24, 0x48, 0x8b, 0x74, 0x24, 0x08, 0x48, 0x31,
+                0xed, 0xe8, 0x00, 0x00, 0x00, 0x00, 0x89, 0xc7, 0xb8, 0x3c,
+                0x00, 0x00, 0x00, 0x0f, 0x05,
+            };
+            if (rx_filesz >= 0x80000000ULL) {
+                snprintf(err, errsz,
+                         "static-PIE link: RX segment %llu bytes exceeds "
+                         "the stub's 32-bit mprotect length (is .text >2GB?)",
+                         (unsigned long long)rx_filesz);
+                return -1;
+            }
+            memcpy(st, pie_stub, ZC_PIE_STUB_SIZE);
+            /* +0x0a: RX_LEN */
+            uint32_t rxlen = (uint32_t)rx_filesz;
+            memcpy(st + 0x0a, &rxlen, 4);
+            /* +0x11: .rela.dyn disp32 (lea at 0x0e, next-ip 0x15) */
+            int32_t d_list = L->rela_dyn_count > 0
+                ? (int32_t)(L->rela_dyn_vma - (text->vma + 0x15))
+                : 0; /* self-ref; count 0 skips the loop */
+            memcpy(st + 0x11, &d_list, 4);
+            /* +0x16: entry count */
+            uint32_t cnt = (uint32_t)L->rela_dyn_count;
+            memcpy(st + 0x16, &cnt, 4);
+            /* +0x52: call rel32 (call at 0x51, next-ip 0x56) */
+            int32_t rel = (int32_t)(main_vma - (text->vma + 0x56));
+            memcpy(st + 0x52, &rel, 4);
         } else {
             st[0] = 0x31; st[1] = 0xf9;
             st[2] = 0xe8;
@@ -1333,8 +1610,22 @@ static int emit_exec(ZcLink *L, const char *out_path, uint64_t entry,
             put64(&sh, 0);  /* entsize */
             idx++;
         }
+        if (sh_rela != 0) {
+            /* .rela.dyn (static PIE) */
+            put32(&sh, shs_off[4]);
+            put32(&sh, SHT_RELA);
+            put64(&sh, (uint64_t)SHF_ALLOC);
+            put64(&sh, L->rela_dyn_vma);
+            put64(&sh, rx_off + (L->rela_dyn_vma - rx_vma));
+            put64(&sh, 24 * L->rela_dyn_count);
+            put32(&sh, 0);  /* link */
+            put32(&sh, 0);  /* info */
+            put64(&sh, 8);  /* addralign */
+            put64(&sh, 24); /* entsize */
+            idx++;
+        }
         /* .symtab */
-        put32(&sh, shs_off[4]);
+        put32(&sh, shs_off[5]);
         put32(&sh, SHT_SYMTAB);
         put64(&sh, 0);
         put64(&sh, 0);
@@ -1346,7 +1637,7 @@ static int emit_exec(ZcLink *L, const char *out_path, uint64_t entry,
         put64(&sh, 24);
         idx++;
         /* .strtab */
-        put32(&sh, shs_off[5]);
+        put32(&sh, shs_off[6]);
         put32(&sh, SHT_STRTAB);
         put64(&sh, 0);
         put64(&sh, 0);
@@ -1358,7 +1649,7 @@ static int emit_exec(ZcLink *L, const char *out_path, uint64_t entry,
         put64(&sh, 0);
         idx++;
         /* .shstrtab */
-        put32(&sh, shs_off[6]);
+        put32(&sh, shs_off[7]);
         put32(&sh, SHT_STRTAB);
         put64(&sh, 0);
         put64(&sh, 0);
@@ -1399,10 +1690,11 @@ oom:
     return -1;
 }
 
-int zero_cc_link_exec(const char *out_path,
-                      const char *const *objects, int object_count,
-                      const char *const *archives, int archive_count,
-                      char *err, size_t errsz) {
+static int zero_cc_link_exec_impl(const char *out_path,
+                                  const char *const *objects, int object_count,
+                                  const char *const *archives,
+                                  int archive_count, bool pie,
+                                  char *err, size_t errsz) {
     if (object_count == 0 && archive_count == 0) {
         snprintf(err, errsz, "no input files to link");
         return -1;
@@ -1412,10 +1704,16 @@ int zero_cc_link_exec(const char *out_path,
         snprintf(err, errsz, "out of memory");
         return -1;
     }
+    L->pie = pie;
 
     int rc = -1;
     for (int i = 0; i < object_count; i++) {
         if (load_input_file(L, objects[i], err, errsz) != 0) goto done;
+    }
+    if (pie && L->machine != EM_X86_64) {
+        snprintf(err, errsz,
+                 "static-PIE link (--zerocc-link-pie) is x86-64 only");
+        goto done;
     }
     if (resolve_symbols(L, err, errsz) != 0) goto done;
     if (archive_count > 0) {
@@ -1430,6 +1728,12 @@ int zero_cc_link_exec(const char *out_path,
         goto done;
     }
     if (layout_sections(L, err, errsz) != 0) goto done;
+    if (pie && !L->stub_at_front) {
+        snprintf(err, errsz,
+                 "static-PIE link requires the linker's self-relocating "
+                 "_start stub; do not supply a CRT _start object");
+        goto done;
+    }
     if (apply_relocations(L, err, errsz) != 0) goto done;
 
     /* Entry: _start if defined (a CRT object), else the linker's _start
@@ -1482,6 +1786,23 @@ done:
     for (int i = 0; i < 4; i++) free(L->outsec[i].content);
     free(L->syms);
     free(L->map);
+    free(L->rela_dyn);
     free(L);
     return rc;
+}
+
+int zero_cc_link_exec(const char *out_path,
+                      const char *const *objects, int object_count,
+                      const char *const *archives, int archive_count,
+                      char *err, size_t errsz) {
+    return zero_cc_link_exec_impl(out_path, objects, object_count, archives,
+                                  archive_count, false, err, errsz);
+}
+
+int zero_cc_link_exec_pie(const char *out_path,
+                          const char *const *objects, int object_count,
+                          const char *const *archives, int archive_count,
+                          char *err, size_t errsz) {
+    return zero_cc_link_exec_impl(out_path, objects, object_count, archives,
+                                  archive_count, true, err, errsz);
 }

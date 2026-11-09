@@ -1539,9 +1539,13 @@ static int compile_and_link(CompileOptions *opts) {
             if (opts->verbose) printf("Linking zero_rt: %s\n", rt_path);
         }
 
-        int lr = zero_cc_link_exec(output, objs_ref, obj_count,
-                                   arch_paths, arch_count, link_err,
-                                   sizeof link_err);
+        int lr = opts->zerocc_link_pie
+                     ? zero_cc_link_exec_pie(output, objs_ref, obj_count,
+                                             arch_paths, arch_count, link_err,
+                                             sizeof link_err)
+                     : zero_cc_link_exec(output, objs_ref, obj_count,
+                                         arch_paths, arch_count, link_err,
+                                         sizeof link_err);
         for (int i = 0; i < obj_count; i++) {
             if (obj_temp[i] && !getenv("ZC_KEEP_OBJ")) unlink(obj_paths[i]);
         }

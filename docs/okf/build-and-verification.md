@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 165-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-11-09T04:12:12Z
+timestamp: 2026-11-09T05:15:58Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -199,7 +199,11 @@ python3 tools/prologue_epilogue_verifier.py
 
 # Own-linker (T2) differential battery: link zerocc objects + .a archives with
 # --zerocc-link into a static ET_EXEC, run it, and compare against a
-# gcc -no-pie link of the same objects (21/21 as of Sprint 100)
+# gcc -no-pie link of the same objects (21/21 as of Sprint 100).
+# The own linker also supports the x86-64 far-rel32 detour-thunk pool and a
+# static-PIE (ET_DYN, self-relocating _start) link via --zerocc-link-pie;
+# both are pinned by the driver tests test/linker/far_thunk.c and
+# test/linker/pie_test.c (built/run by the normal suite, see own-linker.md).
 make test-linker
 
 # C style/convention checker (ruff-style; codifies docs/coding_style.md):
