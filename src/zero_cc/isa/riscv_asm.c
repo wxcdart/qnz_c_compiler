@@ -788,6 +788,56 @@ static void riscv_emit_syscall_asm(ZeroCCCompiler *c, int arg_count, const int *
     fprintf(out, "\taddi\tsp, sp, %d\n", n_save * slot);
 }
 
+/* OS clone (SYS_clone = 220). Arguments: flags, child_sp, ptid, tls, ctid */
+static void riscv_emit_clone_asm(ZeroCCCompiler *c, int arg_count, const int *arg_temps, FILE *out) {
+    static const int clone_regs[5] = {10, 11, 12, 13, 14}; /* a0-a4 */
+    int is_rv32 = (BE(c)->isa == ISA_RISCV32);
+    int slot = is_rv32 ? 4 : 8;
+    const char *st = is_rv32 ? "sw" : "sd";
+    const char *ld = is_rv32 ? "lw" : "ld";
+    int32_t spill_base_offset = c->regalloc.spill_base_offset;
+    int n = (arg_count < 5) ? arg_count : 5;
+    if (n > 0) {
+        int alloc_bytes = ((n * slot) + 15) & ~15;
+        fprintf(out, "\taddi\tsp, sp, -%d\n", alloc_bytes);
+        for (int a = 0; a < n; a++) {
+            int temp = arg_temps[a];
+            int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, temp);
+            if (sp >= 0) {
+                int32_t off = spill_base_offset + (sp + 1) * 8;
+                BE(c)->emit_load_asm(c, 6 /* t1 */, zero_cc_frame_base_reg(c),
+                                     zero_cc_frame_disp_at(c, -off, alloc_bytes), out);
+                fprintf(out, "\t%s\tt1, %d(sp)\n", st, a * slot);
+            } else {
+                fprintf(out, "\t%s\t%s, %d(sp)\n", st,
+                        BE(c)->get_hw_reg_name(regalloc_get_reg_for_temp(&c->regalloc, temp)), a * slot);
+            }
+        }
+        for (int a = n - 1; a >= 0; a--) {
+            fprintf(out, "\t%s\t%s, %d(sp)\n", ld,
+                    BE(c)->get_hw_reg_name(clone_regs[a]), a * slot);
+        }
+        fprintf(out, "\taddi\tsp, sp, %d\n", alloc_bytes);
+    }
+    fprintf(out, "\tli\ta7, 220\n");
+    fprintf(out, "\tecall\n");
+    fprintf(out, "\tbnez\ta0, 1f\n");
+    fprintf(out, "\tmv\ts0, zero\n");
+    if (is_rv32) {
+        fprintf(out, "\tlw\ta1, 0(sp)\n");
+        fprintf(out, "\tlw\ta0, 4(sp)\n");
+    } else {
+        fprintf(out, "\tld\ta1, 0(sp)\n");
+        fprintf(out, "\tld\ta0, 8(sp)\n");
+    }
+    fprintf(out, "\taddi\tsp, sp, 16\n");
+    fprintf(out, "\tjalr\ta1\n");
+    fprintf(out, "\tli\ta7, 93\n");
+    fprintf(out, "\tecall\n");
+    fprintf(out, "\tebreak\n");
+    fprintf(out, "1:\n");
+}
+
 /* LABEL: label: */
 static void riscv_emit_label_asm(ZeroCCCompiler *, const char *label, FILE *out) {
     fprintf(out, "%s:\n", label);
@@ -1556,6 +1606,7 @@ void riscv64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_call_asm = riscv_emit_call_asm;
     be->emit_ret_asm = riscv_emit_ret_asm;
     be->emit_syscall_asm = riscv_emit_syscall_asm;
+    be->emit_clone_asm = riscv_emit_clone_asm;
     be->emit_label_asm = riscv_emit_label_asm;
     be->emit_jmp_asm = riscv_emit_jmp_asm;
     be->emit_jeq_asm = riscv_emit_jeq_asm;

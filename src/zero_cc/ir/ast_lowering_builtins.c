@@ -2263,6 +2263,32 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
                 return true;
             }
 
+            /* Intercept __zerocc_clone (zero_rt thread boundary):
+             * __zerocc_clone(flags, child_sp, ptid, tls, ctid) - 5 integer
+             * arguments, returns child TID in parent (0 in child). Lowers
+             * to OP_CLONE; backend sets up SYS_clone arguments and emits
+             * the child entry trampoline. */
+            if (strcmp(name, "__zerocc_clone") == 0) {
+                int clone_arg_temps[8] = {0};
+                int clone_arg_count = 0;
+                ASTRef clone_arg = node->right;
+                while (clone_arg != AST_NULL && clone_arg_count < 8) {
+                    clone_arg_temps[clone_arg_count++] = (int)lower_expr(c, arena, clone_arg);
+                    ZeroCCASTNode *an = zero_cc_ast_get(arena, clone_arg);
+                    clone_arg = (an && an->next != AST_NULL) ? an->next : AST_NULL;
+                }
+                if (clone_arg_count < 2) {
+                    diag_report_error_at_token(c,
+                        "__zerocc_clone requires at least flags and child_sp arguments");
+                    *out_temp = VREG_0;
+                    return true;
+                }
+                ir_emit_clone(c, clone_arg_count, clone_arg_temps);
+                c->last_expr_is_float = 0;
+                *out_temp = VREG_0;
+                return true;
+            }
+
             /* C11/GNU atomic-builtin intercept (table: zc_atomic_builtin_table).
              * Access width comes from the pointer operand's pointee type;
              * narrow integer value operands are extended at the value

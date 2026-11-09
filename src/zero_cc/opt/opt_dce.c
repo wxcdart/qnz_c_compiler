@@ -42,7 +42,7 @@ void opt_flag_dce(ZeroCCCompiler *c) {
                 next->op == OP_JL || next->op == OP_JLE ||
                 next->op == OP_JG || next->op == OP_RET ||
                 next->op == OP_LABEL || next->op == OP_CALL ||
-                next->op == OP_SYSCALL || next->op == OP_JMP_INDIRECT ||
+                next->op == OP_SYSCALL || next->op == OP_CLONE || next->op == OP_JMP_INDIRECT ||
                 next->op == OP_SETJMP || next->op == OP_LONGJMP) {
                 break;
             }
@@ -111,6 +111,7 @@ static int instr_has_side_effects(Instr *instr) {
         case OP_CALL:
         case OP_CALL_INDIRECT:
         case OP_SYSCALL:
+        case OP_CLONE:
         case OP_SETJMP:
         case OP_LONGJMP:
         case OP_RET:
@@ -237,7 +238,8 @@ static void mark_uses(ZeroCCCompiler *c, Instr *instr) {
 
         case OP_CALL:
         case OP_SYSCALL:
-            // Special handling for call/syscall - mark all argument temps
+        case OP_CLONE:
+            // Special handling for call/syscall/clone - mark all argument temps
             mark_call_args_live(c, instr);
             return;
 
@@ -278,9 +280,9 @@ static int liveness_backward_sweep(ZeroCCCompiler *c, int count) {
         Instr *instr = ir_get(c, i);
         if (!instr || instr->op == OP_DEAD) continue;
 
-        /* Special handling for OP_CALL/OP_SYSCALL: temp_dest holds arg_count,
+        /* Special handling for OP_CALL/OP_SYSCALL/OP_CLONE: temp_dest holds arg_count,
          * not a temp ID. Always mark arguments as live - both have side effects. */
-        if (instr->op == OP_CALL || instr->op == OP_SYSCALL) {
+        if (instr->op == OP_CALL || instr->op == OP_SYSCALL || instr->op == OP_CLONE) {
             mark_uses(c, instr);
             continue;
         }
@@ -360,7 +362,7 @@ void opt_eliminate_dead_code(ZeroCCCompiler *c) {
     for (int i = 0; i < count; i++) {
         Instr *instr = ir_get(c, i);
         if (!instr || instr->op == OP_DEAD) continue;
-        if (instr->op == OP_CALL || instr->op == OP_SYSCALL) continue; /* calls always kept */
+        if (instr->op == OP_CALL || instr->op == OP_SYSCALL || instr->op == OP_CLONE) continue; /* calls always kept */
         if (instr->temp_dest == TEMP_NONE) continue; /* no result to be dead */
         if (is_live(instr->temp_dest) || instr_has_side_effects(instr)) continue;
         instr->op = OP_DEAD;
@@ -379,8 +381,8 @@ void opt_eliminate_dead_code(ZeroCCCompiler *c) {
                 Instr *dst = ir_get(c, write_idx);
                 *dst = *instr;
 
-                // Update call args table index if this is a call/syscall
-                if ((instr->op == OP_CALL || instr->op == OP_SYSCALL) && c) {
+                // Update call args table index if this is a call/syscall/clone
+                if ((instr->op == OP_CALL || instr->op == OP_SYSCALL || instr->op == OP_CLONE) && c) {
                     IRCallArgsArena *call_arena = &c->ir_call_args;
                     for (size_t t = 0; t < call_arena->count; t++) {
                         IRCallArgs *entry = &call_arena->table[t];

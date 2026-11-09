@@ -577,35 +577,50 @@ static void aarch64_emit_vla_alloc(ZeroCCCompiler *c, int dst_reg, int size_reg)
 
 /* atomic_cmpxchg - atomic compare and exchange */
 static void aarch64_emit_atomic_cmpxchg(ZeroCCCompiler *c, int dst, int addr, int expected, int desired, int width) {
-    (void)width; /* fixed-width 32-bit exclusive sequence below */
-    /* ldxr dst, [addr] (load exclusive) */
-    arm64_emit_u32(c, 0x885F7C00 | (addr << 5) | dst);
+    uint32_t sz = (width == 8) ? 0x40000000 : 0;
+    /* 1: ldxr dst, [addr] */
+    arm64_emit_u32(c, 0x885F7C00 | sz | (addr << 5) | dst);
     /* cmp dst, expected */
-    arm64_emit_u32(c, 0xEB00001F | (expected << 16) | (dst << 5));
-    /* b.ne skip (placeholder) */
-    arm64_emit_u32(c, 0x54000000);
-    /* stxr wtmp, desired, [addr] (store exclusive) */
-    arm64_emit_u32(c, 0x88007C00 | (addr << 5) | desired);
+    if (width == 8) {
+        arm64_emit_u32(c, 0xEB00001F | (expected << 16) | (dst << 5));
+    } else {
+        arm64_emit_u32(c, 0x6B00001F | (expected << 16) | (dst << 5));
+    }
+    /* b.ne 2f (+12 bytes = +3 insns) */
+    arm64_emit_u32(c, 0x54000061);
+    /* stxr w16, desired, [addr] */
+    arm64_emit_u32(c, 0x88107C00 | sz | (addr << 5) | desired);
+    /* cbnz w16, 1b (-16 bytes = -4 insns) */
+    arm64_emit_u32(c, 0x35FFFF90);
+    /* 2: */
 }
 
 /* atomic_xadd - atomic add and return old value */
 static void aarch64_emit_atomic_xadd(ZeroCCCompiler *c, int dst, int addr, int value, int width) {
-    (void)width; /* fixed-width 32-bit exclusive sequence below */
-    /* ldxr dst, [addr] */
-    arm64_emit_u32(c, 0x885F7C00 | (addr << 5) | dst);
-    /* add tmp, dst, value */
-    arm64_emit_u32(c, 0x8B000000 | (value << 16) | (dst << 5) | dst);
-    /* stlxr wtmp, dst, [addr] */
-    arm64_emit_u32(c, 0x881F7C00 | (addr << 5) | dst);
+    uint32_t sz = (width == 8) ? 0x40000000 : 0;
+    /* 1: ldaxr dst, [addr] */
+    arm64_emit_u32(c, 0x885FFC00 | sz | (addr << 5) | dst);
+    /* add x16/w16, dst, value */
+    if (width == 8) {
+        arm64_emit_u32(c, 0x8B000000 | (value << 16) | (dst << 5) | 16);
+    } else {
+        arm64_emit_u32(c, 0x0B000000 | (value << 16) | (dst << 5) | 16);
+    }
+    /* stlxr w17, w16/x16, [addr] */
+    arm64_emit_u32(c, 0x8811FC00 | sz | (addr << 5) | 16);
+    /* cbnz w17, 1b (-12 bytes = -3 insns) */
+    arm64_emit_u32(c, 0x35FFFFB1);
 }
 
 /* atomic_xchg - atomic exchange */
 static void aarch64_emit_atomic_xchg(ZeroCCCompiler *c, int dst_reg, int addr_reg, int val_reg, int width) {
-    /* ldaxr dst, [addr] (load acquire exclusive) */
-    arm64_emit_u32(c, 0x887F7C00 | (addr_reg << 5) | dst_reg);
-    /* stlxr wtmp, val, [addr] (store release exclusive) */
-    arm64_emit_u32(c, 0x881F7C00 | (addr_reg << 5) | val_reg);
-    (void)width;
+    uint32_t sz = (width == 8) ? 0x40000000 : 0;
+    /* 1: ldaxr dst, [addr] */
+    arm64_emit_u32(c, 0x885FFC00 | sz | (addr_reg << 5) | dst_reg);
+    /* stlxr w16, val, [addr] */
+    arm64_emit_u32(c, 0x8810FC00 | sz | (addr_reg << 5) | val_reg);
+    /* cbnz w16, 1b (-8 bytes = -2 insns) */
+    arm64_emit_u32(c, 0x35FFFFD0);
 }
 
 static void aarch64_emit_atomic_or(ZeroCCCompiler *c, int dst, int addr, int val, int width) {
@@ -632,7 +647,7 @@ static void aarch64_emit_atomic_xor(ZeroCCCompiler *c, int dst, int addr, int va
 static void aarch64_emit_atomic_cmpxchg_bool(ZeroCCCompiler *c, int dst, int addr, int expected, int desired, int width) {
     aarch64_emit_atomic_cmpxchg(c, dst, addr, expected, desired, width);
     /* cset dst, eq */
-    arm64_emit_u32(c, 0x9A9F17E0 | (dst & 0x1F));
+    arm64_emit_u32(c, 0x1A9F17E0 | (dst & 0x1F));
 }
 
 /* mfence - memory fence */
@@ -840,6 +855,53 @@ static void aarch64_emit_syscall(ZeroCCCompiler *c, int arg_count, const int *ar
     for (size_t r = sizeof(clobbered_live_regs) / sizeof(clobbered_live_regs[0]); r-- > 0; ) {
         if (BE(c)->emit_pop_reg) BE(c)->emit_pop_reg(c, clobbered_live_regs[r]);
     }
+}
+
+/* OS clone (SYS_clone = 220). Arguments: flags, child_sp, ptid, tls, ctid */
+static void aarch64_emit_clone(ZeroCCCompiler *c, int arg_count, const int *arg_temps) {
+    static const int clone_regs[5] = {0, 1, 2, 3, 4}; /* x0-x4 */
+    int32_t spill_base_offset = c->regalloc.spill_base_offset;
+    int n = (arg_count < 5) ? arg_count : 5;
+    int src_regs[8] = {0};
+    for (int a = 0; a < n; a++) {
+        int temp = arg_temps[a];
+        int src_reg;
+        int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, temp);
+        if (sp >= 0) {
+            int32_t off = spill_base_offset + (sp + 1) * 8;
+            if (BE(c)->emit_load) BE(c)->emit_load(c, BE(c)->scratch_reg2, BE(c)->fp_reg, -off);
+            src_reg = BE(c)->scratch_reg2;
+        } else {
+            src_reg = regalloc_get_reg_for_temp(&c->regalloc, temp);
+        }
+        src_regs[a] = src_reg;
+        if (src_reg != clone_regs[a] && BE(c)->emit_push_reg) {
+            BE(c)->emit_push_reg(c, src_reg);
+        }
+    }
+    for (int a = n - 1; a >= 0; a--) {
+        if (src_regs[a] == clone_regs[a]) continue;
+        if (BE(c)->emit_pop_reg) BE(c)->emit_pop_reg(c, clone_regs[a]);
+    }
+    /* mov x8, #220 */
+    arm64_emit_u32(c, 0xd2801b88);
+    /* svc #0 */
+    arm64_emit_u32(c, 0xd4000001);
+    /* cbnz x0, +28 (7 instructions = 28 bytes) */
+    arm64_emit_u32(c, 0xb50000e0);
+    /* Child path: */
+    /* mov x29, #0 */
+    arm64_emit_u32(c, 0xd280001d);
+    /* ldp x1, x0, [sp], #16 */
+    arm64_emit_u32(c, 0xa8c103e1);
+    /* blr x1 */
+    arm64_emit_u32(c, 0xd63f0020);
+    /* mov x8, #93 (SYS_exit) */
+    arm64_emit_u32(c, 0xd2800ba8);
+    /* svc #0 */
+    arm64_emit_u32(c, 0xd4000001);
+    /* brk #0 */
+    arm64_emit_u32(c, 0xd4200000);
 }
 
 /* stack_align - ensure 16-byte stack alignment (AArch64 already handles this) */
@@ -1931,6 +1993,7 @@ ZeroCCISABackend aarch64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_jmp_reg = aarch64_emit_jmp_reg,
     .emit_lea_label = aarch64_emit_lea_label,
     .emit_syscall = aarch64_emit_syscall,
+    .emit_clone = aarch64_emit_clone,
     .emit_ret = aarch64_emit_ret,
 
     .emit_load_fp = aarch64_emit_load_fp,

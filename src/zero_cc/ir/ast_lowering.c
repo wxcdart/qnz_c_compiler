@@ -1151,6 +1151,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     for (size_t i = 0; i < ir_count; i++) {
         if (ir_buf[i].op == OP_CALL || ir_buf[i].op == OP_CALL_INDIRECT ||
             ir_buf[i].op == OP_VLA_ALLOC || ir_buf[i].op == OP_SYSCALL ||
+            ir_buf[i].op == OP_CLONE ||
             ir_buf[i].op == OP_SETJMP || ir_buf[i].op == OP_LONGJMP) {
             is_leaf = false;
             break;

@@ -1,3 +1,29 @@
+## [Sprint 146] - 2026-11-09 - C11 <threads.h> Multithreading Runtime & Cross-ISA Atomic Engine
+
+ZeroCC gains a complete freestanding multithreading runtime (`zero_rt/core/thread.c`) providing ISO C11 `<threads.h>` and POSIX `pthread_*` shims, powered by an architectural `__zerocc_clone` intrinsic and robust atomic LL/SC loops across all 4 target ISAs (x86-64, aarch64, riscv64, riscv32):
+
+- **Compiler Intrinsic `__zerocc_clone` (`OP_CLONE`)**:
+  - Added `OP_CLONE` instruction across IR (`src/zero_cc/ir/ir.h`, `ast_lowering_builtins.c`, `live_range.h`, `opt/*`).
+  - Implemented `emit_clone` and `emit_clone_asm` in backend vtable (`src/zero_cc/isa/isa_backend.h`):
+    - **x86-64**: Linux syscall 56 (`clone`), child trampoline pops `fn` and `arg`, calls `fn(arg)`, exits via `SYS_exit` (60).
+    - **AArch64**: Linux syscall 220 (`clone`), child trampoline loads `x1` (`fn`) and `x0` (`arg`) from `sp`, `blr x1`, exits via `SYS_exit` (93).
+    - **RISC-V 64 / RISC-V 32**: Linux syscall 220 (`clone`), child trampoline loads `a1` (`fn`) and `a0` (`arg`) from `sp`, `jalr a1`, exits via `SYS_exit` (93).
+- **Atomic Operations & CAS Hardware Loops**:
+  - Fixed AArch64 atomic CAS (`aarch64_emit_atomic_cmpxchg`): replaced broken 0-offset self-branch placeholder with standard ARM64 LL/SC retry loop (`ldxr`, `cmp`, `b.ne 2f`, `stxr w16`, `cbnz w16, 1b`, `2:`).
+  - Fixed AArch64 `aarch64_emit_atomic_xadd` and `aarch64_emit_atomic_xchg` to use retry loops on store-exclusive contention.
+  - Implemented RISC-V atomic CAS (`riscv64_emit_atomic_cmpxchg`) with `lr.w.aq`/`sc.w.rl` retry loop using non-allocatable scratch register `t5` (`RV64_T5`), and atomic xadd/xchg/or/and/xor using native single-instruction AMO instructions (`amoadd`, `amoswap`, `amoor`, `amoand`, `amoxor`).
+- **Freestanding Threading Runtime (`zero_rt/core/thread.c`)**:
+  - Full C11 `<threads.h>` API: `thrd_create`, `thrd_join`, `thrd_detach`, `thrd_exit`, `thrd_yield`, `thrd_current`, `thrd_equal`, `thrd_sleep`, `mtx_init`, `mtx_lock`, `mtx_trylock`, `mtx_unlock`, `mtx_destroy`, `cnd_init`, `cnd_wait`, `cnd_signal`, `cnd_broadcast`, `cnd_destroy`, `call_once`.
+  - Full POSIX shims: `pthread_create`, `pthread_join`, `pthread_detach`, `pthread_exit`, `pthread_self`, `pthread_equal`, `pthread_once`, `pthread_mutex_*`, `pthread_cond_*`.
+  - High-performance Ulrich Drepper 3-state futex mutex (`0=unlocked`, `1=uncontended`, `2=contended`) with zero-allocation stack allocation (1 MiB default mmap stack with guard page).
+  - Futex domain alignment (`RT_FUTEX_WAIT = 0`, `RT_FUTEX_WAKE = 1` process-shared) matching kernel `CLONE_CHILD_CLEARTID` wakeups on thread exit.
+  - Thread-safe heap (`zero_rt/core/heap.c`): wrapped `malloc`, `free`, and `realloc` with an internal futex lock; fixed signed pointer error comparisons in `rt_arena_init` and `rt_grow_arena`.
+- **Verification**:
+  - Compiled and archived `thread.o` into all 4 runtime archives (`zero_rt.a`, `zero_rt_aarch64.a`, `zero_rt_riscv64.a`, `zero_rt_riscv32.a`).
+  - Added `test/jit/thread_test.c` (C11 threads, mutex contention across 4 threads with 40,000 iterations, condition variables, call_once, concurrent malloc/free) and `test/jit/pthread_test.c` (POSIX shims).
+  - Added multithreading cases to `tools/linker_tests.py`: all 31/31 own-linker tests pass cleanly across x86-64, aarch64, riscv64, and riscv32 under native execution and QEMU.
+  - Verified under JIT (`--run`), host AOT, and `--zerocc-link`.
+
 ## [Sprint 145] - 2026-11-09 - RV32 own linker & zero_rt_riscv32.a (all 4 target ISAs complete under --zerocc-link)
 
 ZeroCC's own linker (`src/zero_cc/linker/`) gains 32-bit RISC-V (`rv32`) support, completing the self-contained toolchain across all 4 target ISAs (x86-64, aarch64, riscv64, riscv32):

@@ -1976,6 +1976,70 @@ static void x86_emit_syscall(ZeroCCCompiler *c, int arg_count, const int *arg_te
     me_emit_u8(c, 0x05); /* syscall */
 }
 
+/* OS clone (SYS_clone = 56). Arguments: flags, child_sp, ptid, tls, ctid */
+static void x86_emit_clone(ZeroCCCompiler *c, int arg_count, const int *arg_temps) {
+    static const int clone_regs[5] = {7 /* rdi */, 6 /* rsi */, 2 /* rdx */, 8 /* r8 */, 10 /* r10 */};
+    int32_t spill_base_offset = c->regalloc.spill_base_offset;
+    int n = (arg_count < 5) ? arg_count : 5;
+    int src_regs[8] = {0};
+    for (int a = 0; a < n; a++) {
+        int temp = arg_temps[a];
+        int src_reg;
+        int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, temp);
+        if (sp >= 0) {
+            int32_t off = spill_base_offset + (sp + 1) * 8;
+            if (BE(c)->emit_load) BE(c)->emit_load(c, BE(c)->scratch_reg2, BE(c)->fp_reg, -off);
+            src_reg = BE(c)->scratch_reg2;
+        } else {
+            src_reg = regalloc_get_reg_for_temp(&c->regalloc, temp);
+        }
+        src_regs[a] = src_reg;
+        if (src_reg != clone_regs[a] && BE(c)->emit_push_reg) {
+            BE(c)->emit_push_reg(c, src_reg);
+        }
+    }
+    for (int a = n - 1; a >= 0; a--) {
+        if (src_regs[a] == clone_regs[a]) continue;
+        if (BE(c)->emit_pop_reg) BE(c)->emit_pop_reg(c, clone_regs[a]);
+    }
+    /* mov $56, %eax */
+    me_emit_u8(c, 0xb8);
+    me_emit_u32(c, 56);
+    /* syscall */
+    me_emit_u8(c, 0x0f);
+    me_emit_u8(c, 0x05);
+    /* test %rax, %rax */
+    me_emit_u8(c, 0x48);
+    me_emit_u8(c, 0x85);
+    me_emit_u8(c, 0xc0);
+    /* jnz +17 */
+    me_emit_u8(c, 0x75);
+    me_emit_u8(c, 0x11);
+    /* Child path: */
+    /* xor %ebp, %ebp */
+    me_emit_u8(c, 0x31);
+    me_emit_u8(c, 0xed);
+    /* pop %rax (fn) */
+    me_emit_u8(c, 0x58);
+    /* pop %rdi (arg) */
+    me_emit_u8(c, 0x5f);
+    /* call *%rax */
+    me_emit_u8(c, 0xff);
+    me_emit_u8(c, 0xd0);
+    /* mov %rax, %rdi */
+    me_emit_u8(c, 0x48);
+    me_emit_u8(c, 0x89);
+    me_emit_u8(c, 0xc7);
+    /* mov $60, %eax */
+    me_emit_u8(c, 0xb8);
+    me_emit_u32(c, 60);
+    /* syscall */
+    me_emit_u8(c, 0x0f);
+    me_emit_u8(c, 0x05);
+    /* hlt */
+    me_emit_u8(c, 0xf4);
+}
+
 /* cmp src_reg, 0 */
 static void x86_emit_cmp_zero(ZeroCCCompiler *c, int src_reg) {
     x86_alu(c, 0x85, src_reg, src_reg);  /* test src_reg, src_reg */
@@ -2674,6 +2738,7 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_trap = x86_emit_trap,
     .emit_trap_asm = x86_emit_trap_asm,
     .emit_syscall = x86_emit_syscall,
+    .emit_clone = x86_emit_clone,
     .emit_cmp_zero = x86_emit_cmp_zero,
     .emit_not = x86_emit_not,
     .emit_lnot = x86_emit_lnot,

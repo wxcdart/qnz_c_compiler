@@ -112,11 +112,11 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
         int phys_src2 = (instr->temp_src2== TEMP_NONE) ? BE(c)->fp_reg : regalloc_get_reg_for_temp(&c->regalloc, instr->temp_src2);
 
         /* Check for spilled temps that need reloading / storing.
-         * OP_CALL / OP_SYSCALL pack arg_count in temp_dest and resolve their
+         * OP_CALL / OP_SYSCALL / OP_CLONE pack arg_count in temp_dest and resolve their
          * argument temps themselves (from the side table). */
-        int spill_src1 = (instr->op == OP_CALL || instr->op == OP_SYSCALL) ? -1 : regalloc_get_spill_slot_for_temp(&c->regalloc, instr->temp_src1);
-        int spill_src2 = (instr->op == OP_CALL || instr->op == OP_SYSCALL) ? -1 : regalloc_get_spill_slot_for_temp(&c->regalloc, instr->temp_src2);
-        int spill_dst  = (instr->op == OP_CALL || instr->op == OP_SYSCALL) ? -1 : regalloc_get_spill_slot_for_temp(&c->regalloc, instr->temp_dest);
+        int spill_src1 = (instr->op == OP_CALL || instr->op == OP_SYSCALL || instr->op == OP_CLONE) ? -1 : regalloc_get_spill_slot_for_temp(&c->regalloc, instr->temp_src1);
+        int spill_src2 = (instr->op == OP_CALL || instr->op == OP_SYSCALL || instr->op == OP_CLONE) ? -1 : regalloc_get_spill_slot_for_temp(&c->regalloc, instr->temp_src2);
+        int spill_dst  = (instr->op == OP_CALL || instr->op == OP_SYSCALL || instr->op == OP_CLONE) ? -1 : regalloc_get_spill_slot_for_temp(&c->regalloc, instr->temp_dest);
 
         /* --- 128-bit (GPR128) spill handling (Sprint 109 GPR128 spill fix) ---
          * A spilled REG_CLASS_GPR128 temp must reload BOTH halves (slot and
@@ -875,6 +875,30 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                     if (instr->temp_dest > 1 && instr->temp_src2 != TEMP_NONE) s_arg_temps[s_arg_count++] = (int)instr->temp_src2;
                 }
                 BE(c)->emit_syscall(c, s_arg_count, s_arg_temps);
+                break;
+            }
+
+            case OP_CLONE: {
+                if (!BE(c)->emit_clone) {
+                    c->had_error = true;
+                    snprintf(c->error_msg, sizeof(c->error_msg),
+                             "__zerocc_clone is not supported on this target");
+                    break;
+                }
+                int s_arg_temps[8] = {0};
+                int s_arg_count = 0;
+                const IRCallArgs *s_args = ir_call_args_find(c, i);
+                if (s_args) {
+                    for (int a = 0; a < s_args->count && a < 5; a++) {
+                        if (s_args->is_fp[a] != 0) continue;
+                        s_arg_temps[s_arg_count++] = (int)s_args->temps[a];
+                    }
+                }
+                if (s_arg_count == 0 && instr->temp_dest > 0) {
+                    if (instr->temp_src1 != TEMP_NONE) s_arg_temps[s_arg_count++] = (int)instr->temp_src1;
+                    if (instr->temp_dest > 1 && instr->temp_src2 != TEMP_NONE) s_arg_temps[s_arg_count++] = (int)instr->temp_src2;
+                }
+                BE(c)->emit_clone(c, s_arg_count, s_arg_temps);
                 break;
             }
 

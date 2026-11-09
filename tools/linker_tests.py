@@ -334,6 +334,53 @@ def case_riscv32_run(name, sources, expect_rc=0, archives_of=()):
         check(name, True)
 
 
+def case_thread_run(name, src_file):
+    """Test threading (C11 threads.h / POSIX pthread) across all ISAs with own-linker."""
+    path = os.path.join(ROOT, src_file)
+    with tempfile.TemporaryDirectory(prefix="zerocc_t2_thrd_") as work:
+        # x86-64 native
+        exe_x86 = os.path.join(work, "thrd_x86")
+        rc, out, err = zc(["--zerocc-link", path, "-o", exe_x86])
+        if rc != 0:
+            check(f"{name}_x86_64", False, f"link failed: {err.strip()}")
+        else:
+            p = subprocess.run([exe_x86], capture_output=True, text=True, timeout=30)
+            check(f"{name}_x86_64", p.returncode == 0, f"rc={p.returncode}")
+
+        # aarch64 QEMU
+        qemu_a64 = shutil.which("qemu-aarch64-static")
+        if qemu_a64:
+            exe_a64 = os.path.join(work, "thrd_a64")
+            rc, out, err = zc(["--target", "aarch64", "--zerocc-link", path, "-o", exe_a64])
+            if rc != 0:
+                check(f"{name}_aarch64", False, f"link failed: {err.strip()}")
+            else:
+                p = subprocess.run([qemu_a64, exe_a64], capture_output=True, text=True, timeout=30)
+                check(f"{name}_aarch64", p.returncode == 0, f"rc={p.returncode}")
+
+        # riscv64 QEMU
+        qemu_rv64 = shutil.which("qemu-riscv64-static")
+        if qemu_rv64:
+            exe_rv64 = os.path.join(work, "thrd_rv64")
+            rc, out, err = zc(["--target", "riscv64", "--zerocc-link", path, "-o", exe_rv64])
+            if rc != 0:
+                check(f"{name}_riscv64", False, f"link failed: {err.strip()}")
+            else:
+                p = subprocess.run([qemu_rv64, exe_rv64], capture_output=True, text=True, timeout=30)
+                check(f"{name}_riscv64", p.returncode == 0, f"rc={p.returncode}")
+
+        # riscv32 QEMU
+        qemu_rv32 = shutil.which("qemu-riscv32-static")
+        if qemu_rv32:
+            exe_rv32 = os.path.join(work, "thrd_rv32")
+            rc, out, err = zc(["--target", "riscv32", "--zerocc-link", path, "-o", exe_rv32])
+            if rc != 0:
+                check(f"{name}_riscv32", False, f"link failed: {err.strip()}")
+            else:
+                p = subprocess.run([qemu_rv32, exe_rv32], capture_output=True, text=True, timeout=30)
+                check(f"{name}_riscv32", p.returncode == 0, f"rc={p.returncode}")
+
+
 def main():
     if not os.path.exists(BIN):
         print("build/bin/zerocc missing - run `make build/bin/zerocc` first")
@@ -362,6 +409,10 @@ def main():
     print("-- archives (member extraction) --")
     case_link_run("ar_str2", ["str2_main.c", "str2_impl.c"], archives_of=(1,))
     case_link_run("ar_hi", ["hi_main.c", "hi_impl.c"], archives_of=(1,))
+
+    print("-- multithreading (C11 threads + pthread cross-ISA) --")
+    case_thread_run("c11_threads", "test/jit/thread_test.c")
+    case_thread_run("posix_pthreads", "test/jit/pthread_test.c")
 
     print("-- error paths --")
     case_link_error("dup_def", ["dup_a.c", "dup_b.c"], "multiple definition")

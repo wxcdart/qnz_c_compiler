@@ -198,6 +198,10 @@ typedef enum {
                              * into the target's syscall argument registers and
                              * issues the syscall instruction; the result is in
                              * VREG_0 (rax). Clobbers like a call. */
+    OP_CLONE,               /* OS clone intrinsic (zero_rt thread boundary).
+                             * Arguments (flags, child_sp, ptid, tls, ctid) are
+                             * packed like OP_SYSCALL in the IRCallArgs table.
+                             * Emits clone syscall and child startup trampoline. */
     /* SIMD/Vector operations (32) */
     OP_VADDSS,     /* scalar single-precision add */
     OP_VSUBSS,     /* scalar single-precision sub */
@@ -447,6 +451,7 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_ATOMIC_XOR: return "ATOMIC_XOR";
         case OP_ATOMIC_CMPXCHG: return "ATOMIC_CMPXCHG";
         case OP_SYSCALL: return "SYSCALL";
+        case OP_CLONE: return "CLONE";
         case OP_ATOMIC_CMPXCHG_BOOL: return "ATOMIC_CMPXCHG_BOOL";
         case OP_ATOMIC_XCHG: return "ATOMIC_XCHG";
         case OP_MFENCE: return "MFENCE";
@@ -987,6 +992,17 @@ static inline void ir_emit_call(ZeroCCCompiler *c, const char *fn_name) {
  * The result is in VREG_0 (the ABI return register). */
 static inline void ir_emit_syscall(ZeroCCCompiler *c, int arg_count, const int *arg_temps) {
     ir_emit(c, (Instr){.op = OP_SYSCALL,
+                    .temp_dest = (uint16_t)arg_count,
+                    .temp_src1 = (arg_count > 0) ? (uint16_t)arg_temps[0] : TEMP_NONE,
+                    .temp_src2 = (arg_count > 1) ? (uint16_t)arg_temps[1] : TEMP_NONE,
+                    .imm = 0, .imm64 = 0, .label_idx = 0});
+    ir_call_args_record(c, ir_get_count(c) - 1, arg_count, arg_temps, NULL, NULL);
+}
+
+/* Emit the OS clone intrinsic. Arguments (flags, child_sp, ptid, tls, ctid)
+ * are packed like OP_SYSCALL: count in temp_dest, full list in IRCallArgs. */
+static inline void ir_emit_clone(ZeroCCCompiler *c, int arg_count, const int *arg_temps) {
+    ir_emit(c, (Instr){.op = OP_CLONE,
                     .temp_dest = (uint16_t)arg_count,
                     .temp_src1 = (arg_count > 0) ? (uint16_t)arg_temps[0] : TEMP_NONE,
                     .temp_src2 = (arg_count > 1) ? (uint16_t)arg_temps[1] : TEMP_NONE,

@@ -363,12 +363,12 @@ static void live_range_compute(LiveRangeAnalyzer *lra, RegAllocator *ra, ZeroCCC
      * is read. */
     for (size_t i = 0; i < instr_count; i++) {
         Instr *ins = ir_get(c, i);
-        if (ins && (ins->op == OP_CALL || ins->op == OP_SYSCALL)) {
+        if (ins && (ins->op == OP_CALL || ins->op == OP_SYSCALL || ins->op == OP_CLONE)) {
             size_t end0 = i, end2 = i;
             for (size_t k = i + 1; k < instr_count && k <= i + 6; k++) {
                 Instr *nxt = ir_get(c, k);
                 if (!nxt) break;
-                if (nxt->op == OP_CALL || nxt->op == OP_SYSCALL) break;
+                if (nxt->op == OP_CALL || nxt->op == OP_SYSCALL || nxt->op == OP_CLONE) break;
                 if (nxt->temp_src1 == VREG_0 || nxt->temp_src2 == VREG_0) end0 = k;
                 if (nxt->temp_src1 == VREG_2 || nxt->temp_src2 == VREG_2) end2 = k;
             }
@@ -548,7 +548,7 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
             live_range_record_call(lra, i);
         }
 
-        if (instr->op == OP_CALL || instr->op == OP_SYSCALL) {
+        if (instr->op == OP_CALL || instr->op == OP_SYSCALL || instr->op == OP_CLONE) {
             live_range_record_call(lra, i);
             const IRCallArgs *full_args = ir_call_args_find(c, i);
             if (full_args) {

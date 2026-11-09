@@ -701,6 +701,44 @@ static void aarch64_emit_syscall_asm(ZeroCCCompiler *c, int arg_count, const int
     fprintf(out, "\tadd\tsp, sp, #%d\n", save_bytes);
 }
 
+/* OS clone (SYS_clone = 220). Arguments: flags, child_sp, ptid, tls, ctid */
+static void aarch64_emit_clone_asm(ZeroCCCompiler *c, int arg_count, const int *arg_temps, FILE *out) {
+    static const char *clone_reg_names[5] = {"x0", "x1", "x2", "x3", "x4"};
+    int32_t spill_base_offset = c->regalloc.spill_base_offset;
+    int n = (arg_count < 5) ? arg_count : 5;
+    if (n > 0) {
+        int alloc_bytes = ((n * 8) + 15) & ~15;
+        fprintf(out, "\tsub\tsp, sp, #%d\n", alloc_bytes);
+        for (int a = 0; a < n; a++) {
+            int temp = arg_temps[a];
+            int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, temp);
+            if (sp >= 0) {
+                int32_t off = spill_base_offset + (sp + 1) * 8;
+                BE(c)->emit_load_asm(c, 9 /* x9 */, zero_cc_frame_base_reg(c),
+                                     zero_cc_frame_disp_at(c, -off, alloc_bytes), out);
+                fprintf(out, "\tstr\tx9, [sp, #%d]\n", a * 8);
+            } else {
+                fprintf(out, "\tstr\t%s, [sp, #%d]\n",
+                        BE(c)->get_hw_reg_name(regalloc_get_reg_for_temp(&c->regalloc, temp)), a * 8);
+            }
+        }
+        for (int a = 0; a < n; a++) {
+            fprintf(out, "\tldr\t%s, [sp, #%d]\n", clone_reg_names[a], a * 8);
+        }
+        fprintf(out, "\tadd\tsp, sp, #%d\n", alloc_bytes);
+    }
+    fprintf(out, "\tmov\tx8, #220\n");
+    fprintf(out, "\tsvc\t#0\n");
+    fprintf(out, "\tcbnz\tx0, 1f\n");
+    fprintf(out, "\tmov\tx29, #0\n");
+    fprintf(out, "\tldp\tx1, x0, [sp], #16\n");
+    fprintf(out, "\tblr\tx1\n");
+    fprintf(out, "\tmov\tx8, #93\n");
+    fprintf(out, "\tsvc\t#0\n");
+    fprintf(out, "\tbrk\t#0\n");
+    fprintf(out, "1:\n");
+}
+
 /* LABEL: label: */
 static void aarch64_emit_label_asm(ZeroCCCompiler *, const char *label, FILE *out) {
     fprintf(out, "%s:\n", label);
@@ -1471,6 +1509,7 @@ void aarch64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_deref_asm = aarch64_emit_deref_asm;
     be->emit_call_asm = aarch64_emit_call_asm;
     be->emit_syscall_asm = aarch64_emit_syscall_asm;
+    be->emit_clone_asm = aarch64_emit_clone_asm;
     be->emit_ret_asm = aarch64_emit_ret_asm;
     be->emit_label_asm = aarch64_emit_label_asm;
     be->emit_jmp_asm = aarch64_emit_jmp_asm;

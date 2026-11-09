@@ -37,13 +37,30 @@ typedef struct {
 static uint8_t   *g_lo = 0;   /* arena start */
 static uintptr_t  g_hi = 0;   /* arena end (one past) */
 static int        g_ready = 0;
+static int        g_heap_lock = 0;
+
+static void heap_lock(void) {
+    while (1) {
+        int expected = 0;
+        if (__atomic_compare_exchange_n(&g_heap_lock, &expected, 1, 0,
+                                        __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+            return;
+        }
+        zeroc_rt_futex_wait(&g_heap_lock, 1, 0);
+    }
+}
+
+static void heap_unlock(void) {
+    __atomic_store_n(&g_heap_lock, 0, __ATOMIC_RELEASE);
+    zeroc_rt_futex_wake(&g_heap_lock, 1);
+}
 
 static int rt_free_flag(const RtHdr *h) { return (h->size & RT_FREE_BIT) != 0; }
 static uintptr_t rt_size(const RtHdr *h) { return h->size & ~RT_FREE_BIT; }
 
 static int rt_arena_init(void) {
     uintptr_t base = zeroc_rt_brk(0);
-    if (base == 0 || (unsigned long)base >= (unsigned long)-4095UL) return -1;
+    if (base == 0 || ((intptr_t)base < 0 && (intptr_t)base >= -4095)) return -1;
     uintptr_t start = (base + RT_PAGE - 1) & ~(RT_PAGE - 1);
     uintptr_t end = start + RT_INIT_ARENA;
     if (zeroc_rt_brk(end) != end) return -1;
@@ -97,7 +114,7 @@ static void *rt_alloc(uintptr_t need) {
         /* No fit: grow the arena (the sentinel is always free). */
         RtHdr *sent = rt_sentinel();
         uintptr_t new_hi = g_hi + RT_GROWTH;
-        if ((unsigned long)new_hi >= (unsigned long)-4095UL || zeroc_rt_brk(new_hi) != new_hi) return 0;
+        if (((intptr_t)new_hi < 0 && (intptr_t)new_hi >= -4095) || zeroc_rt_brk(new_hi) != new_hi) return 0;
         sent->size += RT_GROWTH;
         g_hi = new_hi;
     }
@@ -106,7 +123,10 @@ static void *rt_alloc(uintptr_t need) {
 void *malloc(size_t n) {
     uintptr_t need = (n + (RT_ALIGN - 1)) & ~(uintptr_t)(RT_ALIGN - 1);
     if (need < RT_MIN_PAYLOAD) need = RT_MIN_PAYLOAD;
-    return rt_alloc(need);
+    heap_lock();
+    void *p = rt_alloc(need);
+    heap_unlock();
+    return p;
 }
 
 void *calloc(size_t nmemb, size_t size) {
@@ -121,7 +141,7 @@ void *calloc(size_t nmemb, size_t size) {
     return p;
 }
 
-void free(void *ptr) {
+static void rt_free_unlocked(void *ptr) {
     if (!ptr) return;
     if (!g_ready) return; /* heap was never initialized - nothing to free */
     if ((uint8_t *)ptr < g_lo || (uint8_t *)ptr >= (uint8_t *)g_hi) {
@@ -149,11 +169,18 @@ void free(void *ptr) {
     }
 }
 
+void free(void *ptr) {
+    heap_lock();
+    rt_free_unlocked(ptr);
+    heap_unlock();
+}
+
 void *realloc(void *ptr, size_t n) {
     if (!ptr) return malloc(n);
     if (n == 0) { free(ptr); return 0; }
     uintptr_t need = (n + (RT_ALIGN - 1)) & ~(uintptr_t)(RT_ALIGN - 1);
     if (need < RT_MIN_PAYLOAD) need = RT_MIN_PAYLOAD;
+    heap_lock();
     RtHdr *h = (RtHdr *)ptr - 1;
     if (rt_size(h) >= need) {
         /* Shrink: split off the tail if worthwhile. */
@@ -169,15 +196,20 @@ void *realloc(void *ptr, size_t n) {
                 nxt->prev_size = rest_sz;
             }
         }
+        heap_unlock();
         return ptr;
     }
-    void *np = malloc(n);
-    if (!np) return 0;
+    void *np = rt_alloc(need);
+    if (!np) {
+        heap_unlock();
+        return 0;
+    }
     size_t copy = n < rt_size(h) ? n : (size_t)rt_size(h);
     uint8_t *d = (uint8_t *)np;
     uint8_t *s = (uint8_t *)ptr;
     size_t i;
     for (i = 0; i < copy; i++) d[i] = s[i];
-    free(ptr);
+    rt_free_unlocked(ptr);
+    heap_unlock();
     return np;
 }

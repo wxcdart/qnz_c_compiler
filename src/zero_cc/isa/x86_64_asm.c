@@ -230,6 +230,58 @@ static void x86_emit_syscall_asm(ZeroCCCompiler *c, int arg_count, const int *ar
     fprintf(out, "\tsyscall\n");
 }
 
+/* OS clone (SYS_clone = 56). Arguments: flags, child_sp, ptid, tls, ctid */
+static void x86_emit_clone_asm(ZeroCCCompiler *c, int arg_count, const int *arg_temps, FILE *out) {
+    static const char *clone_reg_names[5] = {"rdi", "rsi", "rdx", "r8", "r10"};
+    int32_t spill_base_offset = c->regalloc.spill_base_offset;
+    int n = (arg_count < 5) ? arg_count : 5;
+    int32_t extra_sp = 0;
+    for (int a = 0; a < n; a++) {
+        int temp = arg_temps[a];
+        const char *src_name;
+        int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, temp);
+        if (sp >= 0) {
+            int32_t off = spill_base_offset + (sp + 1) * 8;
+            fprintf(out, "\tmovq\t%d(%%%s),%%r11\n",
+                    (int)zero_cc_frame_disp_at(c, -off, extra_sp),
+                    BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c)));
+            src_name = "r11";
+        } else {
+            src_name = BE(c)->get_hw_reg_name(regalloc_get_reg_for_temp(&c->regalloc, temp));
+        }
+        if (strcmp(src_name, clone_reg_names[a]) != 0) {
+            fprintf(out, "\tpushq\t%%%s\n", src_name);
+            extra_sp += 8;
+        }
+    }
+    for (int a = n - 1; a >= 0; a--) {
+        int temp = arg_temps[a];
+        int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, temp);
+        const char *src_name;
+        if (sp >= 0) {
+            src_name = "r11";
+        } else {
+            src_name = BE(c)->get_hw_reg_name(regalloc_get_reg_for_temp(&c->regalloc, temp));
+        }
+        if (strcmp(src_name, clone_reg_names[a]) != 0) {
+            fprintf(out, "\tpopq\t%%%s\n", clone_reg_names[a]);
+        }
+    }
+    fprintf(out, "\tmovq\t$56, %%rax\n");
+    fprintf(out, "\tsyscall\n");
+    fprintf(out, "\ttestq\t%%rax, %%rax\n");
+    fprintf(out, "\tjnz\t1f\n");
+    fprintf(out, "\txorl\t%%ebp, %%ebp\n");
+    fprintf(out, "\tpopq\t%%rax\n");
+    fprintf(out, "\tpopq\t%%rdi\n");
+    fprintf(out, "\tcall\t*%%rax\n");
+    fprintf(out, "\tmovq\t%%rax, %%rdi\n");
+    fprintf(out, "\tmovl\t$60, %%eax\n");
+    fprintf(out, "\tsyscall\n");
+    fprintf(out, "\thlt\n");
+    fprintf(out, "1:\n");
+}
+
 /* LOAD: mov offset(base), dst */
 static void x86_emit_load_asm(ZeroCCCompiler *c, int dst, int base, int32_t offset, FILE *out) {
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
@@ -1717,6 +1769,7 @@ void x86_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_mov_imm_asm = x86_emit_mov_imm_asm;
     be->emit_mov_reg_asm = x86_emit_mov_reg_asm;
     be->emit_syscall_asm = x86_emit_syscall_asm;
+    be->emit_clone_asm = x86_emit_clone_asm;
     be->emit_inline_asm_asm = x86_emit_inline_asm_asm;
     be->emit_load_asm = x86_emit_load_asm;
     be->emit_store_asm = x86_emit_store_asm;

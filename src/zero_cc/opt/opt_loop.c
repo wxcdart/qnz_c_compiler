@@ -305,6 +305,7 @@ static bool instr_has_moving_side_effects(Instr *instr) {
         case OP_CALL:
         case OP_CALL_INDIRECT:
         case OP_SYSCALL:
+        case OP_CLONE:
         case OP_RET:
         case OP_STORE_BYTE:
         case OP_STORE_16:
@@ -397,7 +398,7 @@ void opt_licm(ZeroCCCompiler *c) {
         for (int i = 0; i < loop->body_count; i++) {
             Instr *ins = ir_get(c, loop->body_indices[i]);
             if (ins && (ins->op == OP_CALL || ins->op == OP_CALL_INDIRECT ||
-                          ins->op == OP_SYSCALL)) {
+                          ins->op == OP_SYSCALL || ins->op == OP_CLONE)) {
                 loop_has_call = true;
                 break;
             }

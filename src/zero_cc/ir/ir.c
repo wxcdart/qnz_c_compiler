@@ -471,6 +471,8 @@ void ir_dump(const ZeroCCCompiler *c, FILE *f) {
                                  break;
             case OP_SYSCALL: fprintf(f, "SYSCALL args=%u", instr->temp_dest);
                              break;
+            case OP_CLONE: fprintf(f, "CLONE args=%u", instr->temp_dest);
+                           break;
             case OP_STORE_BYTE: fprintf(f, "STORE_BYTE [fp%+d], r%u", (int)instr->imm, instr->temp_src1);
                                 break;
             case OP_STORE_16: fprintf(f, "STORE_16 [fp%+d], r%u", (int)instr->imm, instr->temp_src1);

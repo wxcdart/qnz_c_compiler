@@ -4,7 +4,7 @@ title: Zero_RT — ZeroCC's Own Freestanding Runtime (Linux x86-64 + AArch64/RIS
 description: The zero_rt/ runtime (heap, strings, exit, minimal stdio with Ryū float formatting) compiled by zerocc itself, auto-linked by --zerocc-link, and the zeroc_main_wrapper entry routing that makes atexit work on a plain return from main.
 resource: zero-rt
 tags: [zero-rt, runtime, freestanding, heap, stdio, ryu, zero-cc-link, phase-0]
-timestamp: 2026-11-09T19:44:57Z
+timestamp: 2026-11-09T20:32:36Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -30,7 +30,13 @@ status: active
 
 ZeroCC follows a **runtime-follows-link-mode** dual-path model for multithreading:
 1. **Full POSIX Path (musl / host link)**: Programs requiring full POSIX compliance (cancellation points, thread-specific keys, signal masks, robust mutexes) link against musl `libc.a` / host libc, providing complete `pthreads` functionality.
-2. **Freestanding Path (`zero_rt` & `--zerocc-link`)**: To maintain a small, zero-dependency, self-contained runtime without dragging in full POSIX runtime complexity, `zero_rt` provides a lightweight ISO C11 `<threads.h>` runtime (`thrd_create`, `thrd_join`, `thrd_detach`, `thrd_exit`, `mtx_*`, `cnd_*`) plus minimal `pthread_*` compatibility wrappers (~400 LOC). On Linux, this is built directly on `SYS_clone` (with `CLONE_VM|CLONE_FS|CLONE_FILES|CLONE_SIGHAND|CLONE_THREAD|CLONE_SYSVSEM|CLONE_CHILD_CLEARTID`), `SYS_futex`, and `SYS_mmap` with stack guard pages, with an internal mutex guarding `zero_rt/core/heap.c` allocations.
+2. **Freestanding Path (`zero_rt` & `--zerocc-link`)** (Sprint 146): To maintain a small, zero-dependency, self-contained runtime without dragging in full POSIX runtime complexity, `zero_rt` provides a lightweight ISO C11 `<threads.h>` runtime (`thrd_create`, `thrd_join`, `thrd_detach`, `thrd_exit`, `thrd_yield`, `thrd_current`, `thrd_equal`, `thrd_sleep`, `mtx_*`, `cnd_*`, `call_once`) plus POSIX `pthread_*` compatibility wrappers (`zero_rt/core/thread.c`).
+   - **`__zerocc_clone` Intrinsic (`OP_CLONE`)**: Lowered in IR across all 4 ISAs (`x86_64`, `aarch64`, `riscv64`, `riscv32`) in both raw machine-code and GAS text assembly emitters, invoking Linux `SYS_clone` (syscall 56 on x86-64, 220 on arm64/riscv) with a child trampoline that pops the thread function and argument, executes the entry point, and invokes `SYS_exit` with the return code.
+   - **Ulrich Drepper 3-State Mutex**: State `0` (unlocked), `1` (locked uncontended), `2` (locked contended). Fast paths execute single-instruction atomic CAS / fetch-sub; slow path suspends via Linux `SYS_futex` (`FUTEX_WAIT`, `FUTEX_WAKE`).
+   - **Futex Domain Alignment**: Uses standard process-shared futexes (`FUTEX_WAIT = 0`, `FUTEX_WAKE = 1`) matching kernel `CLONE_CHILD_CLEARTID` wakeups on thread exit, avoiding lost wakeups in `thrd_join` / `pthread_join`.
+   - **Thread-Safe Heap**: `zero_rt/core/heap.c` protects `malloc`, `free`, and `realloc` with an internal futex spin-wait lock.
+   - **Atomic LL/SC Hardware CAS Loops**: Fixed AArch64 and RISC-V atomic CAS sequences to use proper LL/SC retry loops (`ldxr`/`stxr` + `cbnz`, `lr`/`sc` + `bnez`), eliminating spurious branch hangs.
+   - **Verification**: `test/jit/thread_test.c` and `test/jit/pthread_test.c` differential-tested and validated under `--zerocc-link` natively on x86-64 and under QEMU on AArch64, RISC-V 64, and RISC-V 32 (`tools/linker_tests.py`, 31/31 passed).
 
 Virtual freestanding headers in [`src/zero_cc/core/virtual_headers.h`](../../src/zero_cc/core/virtual_headers.h) (extracted from `core/preprocessor.h` in Sprint 80, with preprocessor expansion in [`src/zero_cc/core/preprocessor.c`](../../src/zero_cc/core/preprocessor.c)) provide `inttypes.h` (`stdint.h` + `PRI*`/`SCN*` macros), `assert.h` (always-evaluated, `abort()` on failure), `atexit` in `stdlib.h`, `immintrin.h` (Sprint 89), and full `<stdio.h>` stream declarations including `freopen`, `feof`, `ferror`, `clearerr`, and `ungetc` (Sprint 106). Non-local jumps (`setjmp`/`longjmp`, `__builtin_setjmp`/`__builtin_longjmp`) are lowered directly to inline multi-ISA `OP_SETJMP`/`OP_LONGJMP` instructions across all 4 ISAs (Sprint 88) without requiring any host libc helper.
 

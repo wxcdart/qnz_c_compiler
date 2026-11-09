@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-09T19:44:57Z
+timestamp: 2026-11-09T20:32:36Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1248,3 +1248,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-09 — Updated `zero-rt.md`
 - Sprint 145: RV32 zero_rt_riscv32.a and pointer-size agnostic heap/os
+
+## 2026-11-09 — Updated `zero-rt.md`
+- Sprint 146: C11 <threads.h> multithreading runtime, __zerocc_clone intrinsic, futex mutex/cond, pthread shims, and cross-ISA verification

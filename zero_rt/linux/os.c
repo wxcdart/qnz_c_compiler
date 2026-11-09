@@ -23,10 +23,10 @@ int zeroc_rt_write(int fd, const void *buf, uint64_t count) {
  * "brk(end) returns end on success, the current break on failure", so
  * translate: query first, then compare the return against the query. */
 uintptr_t zeroc_rt_brk(uintptr_t addr) {
-    uintptr_t cur = (uintptr_t)__zerocc_syscall(RT_SYS_BRK, 0, 0, 0, 0, 0, 0);
-    if (addr == 0) return cur;
-    uintptr_t ret = (uintptr_t)__zerocc_syscall(RT_SYS_BRK, (long)addr, 0, 0, 0, 0, 0);
-    if ((unsigned long)ret >= (unsigned long)-4095UL) return cur;  /* -ENOMEM wrapped: failure */
+    long cur = __zerocc_syscall(RT_SYS_BRK, 0, 0, 0, 0, 0, 0);
+    if (addr == 0) return (uintptr_t)cur;
+    long ret = __zerocc_syscall(RT_SYS_BRK, (long)addr, 0, 0, 0, 0, 0);
+    if (ret < 0 && ret >= -4095) return (uintptr_t)cur;  /* -ENOMEM: failure */
     return addr;                          /* success: the requested break */
 }
 
@@ -42,13 +42,13 @@ static uintptr_t arena_cur = 0;
 
 uintptr_t zeroc_rt_brk(uintptr_t addr) {
     if (arena_base == 0) {
-        uintptr_t p = (uintptr_t)__zerocc_syscall(RT_SYS_MMAP, 0, RT_ARENA_SIZE,
-                                                  RT_PROT_READ | RT_PROT_WRITE,
-                                                  RT_MAP_PRIVATE | RT_MAP_ANONYMOUS,
-                                                  (long)-1, 0);
-        if ((unsigned long)p >= (unsigned long)-4095UL) return 0;   /* mmap error (wrapped) */
-        arena_base = p;
-        arena_cur = p;
+        long p = __zerocc_syscall(RT_SYS_MMAP, 0, RT_ARENA_SIZE,
+                                  RT_PROT_READ | RT_PROT_WRITE,
+                                  RT_MAP_PRIVATE | RT_MAP_ANONYMOUS,
+                                  (long)-1, 0);
+        if (p < 0 && p >= -4095) return 0;   /* mmap error */
+        arena_base = (uintptr_t)p;
+        arena_cur = (uintptr_t)p;
     }
     if (addr == 0) return arena_cur;
     if (addr < arena_cur || addr > arena_base + RT_ARENA_SIZE) return arena_cur;
@@ -65,4 +65,82 @@ int zeroc_rt_getpid(void) {
 void zeroc_rt_exit_group(int code) {
     __zerocc_syscall(RT_SYS_EXIT_GROUP, (long)code, 0, 0, 0, 0, 0);
     for (;;) { } /* unreachable */
+}
+
+long zeroc_rt_clone(int (*fn)(void *), void *child_stack, unsigned long flags,
+                    void *arg, int *ptid, void *tls, int *ctid) {
+    /* Align stack to 16 bytes */
+    uintptr_t sp = ((uintptr_t)child_stack) & ~15UL;
+#if defined(__riscv) && __riscv_xlen == 32
+    uint32_t *p = (uint32_t *)sp;
+    *--p = 0; /* padding to maintain 16-byte alignment */
+    *--p = 0;
+    *--p = (uint32_t)(uintptr_t)arg;
+    *--p = (uint32_t)(uintptr_t)fn;
+    sp = (uintptr_t)p;
+#else
+    uint64_t *p = (uint64_t *)sp;
+    *--p = (uint64_t)(uintptr_t)arg;
+    *--p = (uint64_t)(uintptr_t)fn;
+    sp = (uintptr_t)p;
+#endif
+    return __zerocc_clone(flags, (void *)sp, ptid, tls, ctid);
+}
+
+int zeroc_rt_futex_wait(int *uaddr, int val, const void *timeout) {
+    long ret = __zerocc_syscall(RT_SYS_FUTEX, (long)uaddr, (long)RT_FUTEX_WAIT,
+                                (long)val, (long)timeout, 0, 0);
+#ifdef RT_SYS_FUTEX_TIME64
+    if (ret == -38 /* -ENOSYS */) {
+        ret = __zerocc_syscall(RT_SYS_FUTEX_TIME64, (long)uaddr, (long)RT_FUTEX_WAIT,
+                               (long)val, (long)timeout, 0, 0);
+    }
+#endif
+    return (int)ret;
+}
+
+int zeroc_rt_futex_wake(int *uaddr, int count) {
+    long ret = __zerocc_syscall(RT_SYS_FUTEX, (long)uaddr, (long)RT_FUTEX_WAKE,
+                                (long)count, 0, 0, 0);
+#ifdef RT_SYS_FUTEX_TIME64
+    if (ret == -38 /* -ENOSYS */) {
+        ret = __zerocc_syscall(RT_SYS_FUTEX_TIME64, (long)uaddr, (long)RT_FUTEX_WAKE,
+                               (long)count, 0, 0, 0);
+    }
+#endif
+    return (int)ret;
+}
+
+void *zeroc_rt_mmap(void *addr, uint64_t length, int prot, int flags, int fd, int64_t offset) {
+    long ret = __zerocc_syscall(RT_SYS_MMAP, (long)addr, (long)length,
+                                (long)prot, (long)flags, (long)fd, (long)offset);
+    if (ret < 0 && ret >= -4095) {
+        return RT_MAP_FAILED;
+    }
+    return (void *)ret;
+}
+
+int zeroc_rt_munmap(void *addr, uint64_t length) {
+    return (int)__zerocc_syscall(RT_SYS_MUNMAP, (long)addr, (long)length, 0, 0, 0, 0);
+}
+
+int zeroc_rt_mprotect(void *addr, uint64_t length, int prot) {
+    return (int)__zerocc_syscall(RT_SYS_MPROTECT, (long)addr, (long)length, (long)prot, 0, 0, 0);
+}
+
+int zeroc_rt_sched_yield(void) {
+    return (int)__zerocc_syscall(RT_SYS_SCHED_YIELD, 0, 0, 0, 0, 0, 0);
+}
+
+int zeroc_rt_gettid(void) {
+    return (int)__zerocc_syscall(RT_SYS_GETTID, 0, 0, 0, 0, 0, 0);
+}
+
+void zeroc_rt_exit(int status) {
+    __zerocc_syscall(RT_SYS_EXIT, (long)status, 0, 0, 0, 0, 0);
+    for (;;) { } /* unreachable */
+}
+
+int zeroc_rt_nanosleep(const void *req, void *rem) {
+    return (int)__zerocc_syscall(RT_SYS_NANOSLEEP, (long)req, (long)rem, 0, 0, 0, 0);
 }

@@ -129,6 +129,7 @@ typedef struct ZeroCCISABackend {
     /* Like emit_call_asm: arg_temps are temp ids (number first), resolved
      * against the register allocation by the backend. */
     void (*emit_syscall_asm)(ZeroCCCompiler *c, int arg_count, const int *arg_temps, FILE *out);
+    void (*emit_clone_asm)(ZeroCCCompiler *c, int arg_count, const int *arg_temps, FILE *out);
 
     /* GNU inline asm (Sprint 135, Phase 1): interpolate the operand
      * specifiers (from the IRAsmArgs side table) into the template and
@@ -381,6 +382,7 @@ typedef struct ZeroCCISABackend {
      * (VREG_0). NULL on targets without syscall support yet (the dispatcher
      * reports a compile error). */
     void (*emit_syscall)(ZeroCCCompiler *c, int arg_count, const int *arg_temps);
+    void (*emit_clone)(ZeroCCCompiler *c, int arg_count, const int *arg_temps);
     void (*emit_cmp_zero)(ZeroCCCompiler *c, int src_reg);
     void (*emit_not)(ZeroCCCompiler *c, int dst_reg, int src_reg);
     void (*emit_lnot)(ZeroCCCompiler *c, int dst_reg, int src_reg);

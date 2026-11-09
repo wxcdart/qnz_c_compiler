@@ -786,6 +786,28 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             return;
         }
 
+        case OP_CLONE: {
+            const IRCallArgs *clone_args = ir_call_args_find(c, idx);
+            if (BE(c)->emit_clone_asm) {
+                if (clone_args) {
+                    int unpacked_temps[IR_CALL_MAX_ARGS];
+                    int n = 0;
+                    for (int i = 0; i < clone_args->count && n < 5; i++) {
+                        if (clone_args->is_fp[i] != 0) continue;
+                        unpacked_temps[n++] = (int)clone_args->temps[i];
+                    }
+                    BE(c)->emit_clone_asm(c, n, unpacked_temps, out);
+                } else if (instr->temp_dest > 0) {
+                    int fallback[2] = {(int)instr->temp_src1, (int)instr->temp_src2};
+                    int n = (instr->temp_dest > 1 && instr->temp_src2 != TEMP_NONE) ? 2 : 1;
+                    BE(c)->emit_clone_asm(c, n, fallback, out);
+                }
+            } else {
+                fprintf(out, "\t# CLONE (unsupported on this target)\n");
+            }
+            return;
+        }
+
         case OP_RET:
             if (BE(c)->emit_ret_asm) {
                 BE(c)->emit_ret_asm(c, out);
