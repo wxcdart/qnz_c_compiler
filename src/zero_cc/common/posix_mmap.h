@@ -122,9 +122,13 @@ static inline void zero_posix_usleep(uint64_t usec) {
 #if defined(ZERO_PLATFORM_WINDOWS)
     Sleep((DWORD)((usec + 999) / 1000));
 #elif !defined(ZERO_FREESTANDING) && !defined(ZERO_NO_POSIX) && !defined(ZERO_NOLIBC)
-    #ifndef _POSIX_C_SOURCE
-        #error "_POSIX_C_SOURCE not defined"
-    #endif
+    /* nanosleep: needs a POSIX-capable feature mode. glibc defines
+     * _POSIX_C_SOURCE by default; musl's default mode exposes it via
+     * _XOPEN_SOURCE/_DEFAULT_SOURCE instead, so accept those too. */
+#if !defined(_POSIX_C_SOURCE) && !defined(_XOPEN_SOURCE) \
+    && !defined(_GNU_SOURCE) && !defined(_DEFAULT_SOURCE)
+    #error "no POSIX feature mode defined (nanosleep unavailable)"
+#endif
     struct timespec req;
     req.tv_sec = (time_t)(usec / 1000000);
     req.tv_nsec = (long)((usec % 1000000) * 1000L);

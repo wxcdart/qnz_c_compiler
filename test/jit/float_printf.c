@@ -11,6 +11,7 @@ int main(void) {
         "}\n";
     
     ZeroCCCompiler *comp = calloc(1, sizeof(ZeroCCCompiler));
+    comp->jit_mode = 1;
     char *prep = zero_cc_preprocess(src, NULL);
     zero_cc_tokenize_c99(prep, comp);
     free(prep);

@@ -9,7 +9,7 @@
 /* global multi-declarator initializers (the original repro) */
 char a[] = "ozz", b[] = "oxx";
 char x1[] = "aa", x2[] = "bb";
-int y1[2] = {1, 2}, y2[2] = {3, 4};
+int ia1[2] = {1, 2}, ia2[2] = {3, 4};
 
 struct P { int v; int w; };
 struct P p1 = {10, 1}, p2 = {20, 2};
@@ -26,8 +26,8 @@ int main(void) {
     r += !(x1[0] == 'a' && x1[2] == 0 && x2[0] == 'b' && x2[2] == 0);
 
     /* int[]: every element of BOTH declarators */
-    r += !(y1[0] == 1 && y1[1] == 2);
-    r += !(y2[0] == 3 && y2[1] == 4);
+    r += !(ia1[0] == 1 && ia1[1] == 2);
+    r += !(ia2[0] == 3 && ia2[1] == 4);
 
     /* struct: every member of BOTH declarators */
     r += !(p1.v == 10 && p1.w == 1);
@@ -88,6 +88,6 @@ int main(void) {
         r += !(i2[0] == 3 && i2[2] == 5);
     }
 
-    printf("%s %s %d %d %d %d\n", a, b, y2[1], p2.v, u2.i, y1[0]);
+    printf("%s %s %d %d %d %d\n", a, b, ia2[1], p2.v, u2.i, ia1[0]);
     return r;
 }

@@ -17,7 +17,6 @@ LDFLAGS ?=
 BUILD_DIR ?= build
 OBJ_DIR ?= $(BUILD_DIR)/obj
 TEST_BIN_DIR ?= $(BUILD_DIR)/test
-
 # test/diag/*.c is the diagnostics-battery corpus (deliberately invalid C,
 # consumed by tools/diag_battery.py) — not test drivers; keep it out of the
 # test binary glob.  test/jit/builtin_apply.c uses __builtin_apply, which
@@ -103,6 +102,38 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 
 all: $(TESTS) build/bin/zerocc build/lib/zero_rt.a build/lib/zero_rt_aarch64.a build/lib/zero_rt_riscv64.a
 
+# --- Vendored static-musl host toolchain ----------------------------------
+# zerocc and every test binary that links the compiler library are built and
+# FULLY STATICALLY linked against the vendored musl (third_party/vendor/musl,
+# built in-tree by tools/musl_host_toolchain.sh). The shipped compiler
+# therefore has no host-libc (glibc) dependency at runtime (ldd: "not a
+# dynamic executable"). Consequences:
+#   - musl has no dynamic loader: its dlopen/dlsym/dlclose/dlerror are
+#     stubs, and the toolchain strips them from the installed libc.a.
+#     zero_rt/dlfcn/dlfcn.c supplies a working dlfcn (resolving against
+#     the executable's own ELF .symtab) that is linked ahead of the
+#     whole-archived libc, so the JIT keeps using dlsym(RTLD_DEFAULT) as
+#     before.
+#   - the link uses --whole-archive on musl libc.a so the ENTIRE musl C
+#     library is present in that symtab (printf/sin/malloc/... for JITed
+#     user code), not just what zerocc itself calls.
+#   - -no-pie: a static ET_EXEC keeps .symtab st_value addresses absolute,
+#     which the self-lookup relies on (ET_DYN is handled via /proc/self/maps
+#     anyway).
+MUSL_DIR := third_party/vendor/musl/musl-1.2.6
+MUSL_LIBC := $(BUILD_DIR)/musl/lib/libc.a
+HOST_GCC ?= $(CC)
+ZC_CC ?= $(BUILD_DIR)/bin/musl-gcc
+ZC_MUSL_LINK = -static -no-pie -Wl,--whole-archive $(MUSL_LIBC) -Wl,--no-whole-archive
+
+$(ZC_CC): $(MUSL_DIR)/VERSION
+	@HOST_GCC=$(HOST_GCC) BUILD_DIR=$(BUILD_DIR) sh tools/musl_host_toolchain.sh
+	@test -f $(MUSL_LIBC) || (echo "Error: vendored musl build failed" && exit 1)
+
+.PHONY: musl
+musl: $(ZC_CC)
+
+
 PARSER_HEADERS = src/zero_cc/parser/parser.h src/zero_cc/types/types.h \
 	$(wildcard src/zero_cc/parser/*.h) \
 	$(wildcard src/zero_cc/ir/*.h) \
@@ -111,57 +142,57 @@ PARSER_HEADERS = src/zero_cc/parser/parser.h src/zero_cc/types/types.h \
 	$(wildcard src/zero_cc/jit/*.h) \
 	$(wildcard src/zero_cc/common/*.h)
 
-$(LEXER_OBJ): src/zero_cc/lexer/lexer.c src/zero_cc/lexer/lexer.h src/zero_cc/types/types.h src/zero_cc/lexer/keywords.inc
+$(LEXER_OBJ): src/zero_cc/lexer/lexer.c src/zero_cc/lexer/lexer.h src/zero_cc/types/types.h src/zero_cc/lexer/keywords.inc $(ZC_CC)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(ZC_CC) $(CFLAGS) -c $< -o $@
 
-$(PARSER_OBJ): src/zero_cc/parser/parser.c $(PARSER_HEADERS)
+$(PARSER_OBJ): src/zero_cc/parser/parser.c $(PARSER_HEADERS) $(ZC_CC)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(ZC_CC) $(CFLAGS) -c $< -o $@
 
-$(TLS_OBJ): src/zero_cc/jit/tls_backend.c
+$(TLS_OBJ): src/zero_cc/jit/tls_backend.c $(ZC_CC)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(ZC_CC) $(CFLAGS) -c $< -o $@
 
-$(OBJ_DIR)/src/zero_cc/common/arena.o: src/zero_cc/common/arena.c
+$(OBJ_DIR)/src/zero_cc/common/arena.o: src/zero_cc/common/arena.c $(ZC_CC)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(ZC_CC) $(CFLAGS) -c $< -o $@
 
-$(OBJ_DIR)/src/zero_cc/semantic/type.o: src/zero_cc/semantic/type.c src/zero_cc/semantic/type.h
+$(OBJ_DIR)/src/zero_cc/semantic/type.o: src/zero_cc/semantic/type.c src/zero_cc/semantic/type.h $(ZC_CC)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(ZC_CC) $(CFLAGS) -c $< -o $@
 
-$(OBJ_DIR)/src/zero_cc/semantic/scope.o: src/zero_cc/semantic/scope.c src/zero_cc/semantic/scope.h
+$(OBJ_DIR)/src/zero_cc/semantic/scope.o: src/zero_cc/semantic/scope.c src/zero_cc/semantic/scope.h $(ZC_CC)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(ZC_CC) $(CFLAGS) -c $< -o $@
 
-$(OBJ_DIR)/src/zero_cc/semantic/promote.o: src/zero_cc/semantic/promote.c src/zero_cc/semantic/promote.h src/zero_cc/semantic/type.h
+$(OBJ_DIR)/src/zero_cc/semantic/promote.o: src/zero_cc/semantic/promote.c src/zero_cc/semantic/promote.h src/zero_cc/semantic/type.h $(ZC_CC)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(ZC_CC) $(CFLAGS) -c $< -o $@
 
-$(OBJ_DIR)/src/zero_cc/semantic/stmt.o: src/zero_cc/semantic/stmt.c src/zero_cc/semantic/stmt.h src/zero_cc/semantic/visitor.h src/zero_cc/semantic/promote.h
+$(OBJ_DIR)/src/zero_cc/semantic/stmt.o: src/zero_cc/semantic/stmt.c src/zero_cc/semantic/stmt.h src/zero_cc/semantic/visitor.h src/zero_cc/semantic/promote.h $(ZC_CC)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(ZC_CC) $(CFLAGS) -c $< -o $@
 
-$(OBJ_DIR)/src/zero_cc/semantic/visitor.o: src/zero_cc/semantic/visitor.c src/zero_cc/semantic/visitor.h src/zero_cc/semantic/stmt.h
+$(OBJ_DIR)/src/zero_cc/semantic/visitor.o: src/zero_cc/semantic/visitor.c src/zero_cc/semantic/visitor.h src/zero_cc/semantic/stmt.h $(ZC_CC)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(ZC_CC) $(CFLAGS) -c $< -o $@
 
-$(OBJ_DIR)/src/zero_cc/semantic/expr.o: src/zero_cc/semantic/expr.c src/zero_cc/semantic/expr.h src/zero_cc/semantic/type.h src/zero_cc/semantic/promote.h
+$(OBJ_DIR)/src/zero_cc/semantic/expr.o: src/zero_cc/semantic/expr.c src/zero_cc/semantic/expr.h src/zero_cc/semantic/type.h src/zero_cc/semantic/promote.h $(ZC_CC)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(ZC_CC) $(CFLAGS) -c $< -o $@
 
-$(OBJ_DIR)/src/zero_cc/semantic/decl.o: src/zero_cc/semantic/decl.c src/zero_cc/semantic/decl.h src/zero_cc/semantic/type.h src/zero_cc/semantic/promote.h src/zero_cc/semantic/scope.h
+$(OBJ_DIR)/src/zero_cc/semantic/decl.o: src/zero_cc/semantic/decl.c src/zero_cc/semantic/decl.h src/zero_cc/semantic/type.h src/zero_cc/semantic/promote.h src/zero_cc/semantic/scope.h $(ZC_CC)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(ZC_CC) $(CFLAGS) -c $< -o $@
 
-$(OBJ_DIR)/src/zero_cc/semantic/semantic.o: src/zero_cc/semantic/semantic.c src/zero_cc/semantic/semantic.h src/zero_cc/semantic/visitor.h
+$(OBJ_DIR)/src/zero_cc/semantic/semantic.o: src/zero_cc/semantic/semantic.c src/zero_cc/semantic/semantic.h src/zero_cc/semantic/visitor.h $(ZC_CC)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(ZC_CC) $(CFLAGS) -c $< -o $@
 
-$(OBJ_DIR)/%.o: %.c
+$(OBJ_DIR)/%.o: %.c $(ZC_CC)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(ZC_CC) $(CFLAGS) -c $< -o $@
 
 .SECONDARY: $(EXTRA_OBJS) $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ)
 
@@ -170,26 +201,34 @@ $(OBJ_DIR)/%.o: %.c
 # linked into zerocc and exported so the JIT resolves it via dlsym(RTLD_DEFAULT).
 # (The AOT zero_rt.a below compiles the same source with zerocc per-target.)
 JIT_INT128_OBJ := $(BUILD_DIR)/obj/zero_rt/jit_int128.o
-$(JIT_INT128_OBJ): zero_rt/core/int128.c
+$(JIT_INT128_OBJ): zero_rt/core/int128.c $(ZC_CC)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(ZC_CC) $(CFLAGS) -c $< -o $@
 
-# ZeroCC CLI driver
+# zero_rt's own dlfcn (host side): musl's dlopen/dlsym/dlclose/dlerror are
+# static-build stubs that the toolchain strips from libc.a, so this object
+# provides them (self-ELF .symtab resolution) and must be linked ahead of
+# the whole-archived libc.
+ZC_DLCFN_OBJ := $(BUILD_DIR)/obj/zero_rt/dlfcn.o
+$(ZC_DLCFN_OBJ): zero_rt/dlfcn/dlfcn.c $(ZC_CC)
+	@mkdir -p $(dir $@)
+	$(ZC_CC) $(CFLAGS) -c $< -o $@
+
+# ZeroCC CLI driver (static-musl: see ZC_MUSL_LINK at the top of this file).
+# The former --export-dynamic-symbol=zc_*128 flags are gone: a static binary
+# has no dynamic symbol table, and the JIT resolves those helpers through
+# zero_rt's dlfcn (dlsym on the executable's own .symtab).
 ZEROCCLIB_OBJS = $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS)
-build/bin/zerocc: src/main.c $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ)
+build/bin/zerocc: src/main.c $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ) $(ZC_DLCFN_OBJ) $(ZC_CC)
 	@mkdir -p build/bin
-	$(CC) $(CFLAGS) -o $@ src/main.c $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ) \
-	  -Wl,--export-dynamic-symbol=zc_udiv128 -Wl,--export-dynamic-symbol=zc_umod128 \
-	  -Wl,--export-dynamic-symbol=zc_sdiv128 -Wl,--export-dynamic-symbol=zc_smod128 \
-	  -Wl,--export-dynamic-symbol=zc_shl128_v -Wl,--export-dynamic-symbol=zc_shr128_v \
-	  -Wl,--export-dynamic-symbol=zc_sar128_v $(LDFLAGS)
+	$(ZC_CC) $(CFLAGS) $(ZC_MUSL_LINK) -o $@ src/main.c $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ) $(ZC_DLCFN_OBJ) $(LDFLAGS)
 
 .PHONY: zerocc
 zerocc: build/bin/zerocc
 
-$(TEST_BIN_DIR)/%: test/%.c $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS)
+$(TEST_BIN_DIR)/%: test/%.c $(ZC_CC) $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS) $(ZC_DLCFN_OBJ)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $< $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS) $(LDFLAGS) -o $@
+	$(ZC_CC) $(CFLAGS) $(ZC_MUSL_LINK) $< $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS) $(ZC_DLCFN_OBJ) $(LDFLAGS) -o $@
 
 test: all
 	@python3 tools/test_runner.py
