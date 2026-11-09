@@ -343,6 +343,10 @@ ZeroCC development and verification rely on a combination of host build tools, r
 | **gdb** | Any modern | GNU gdb 15.1 | Debugging JIT code pages, assembly inspection, and crash triaging (`scripts/gdb_zerocc.py`) | **Optional** |
 | **valgrind / perf** | Any | Valgrind 3.22 / Linux perf | Memory safety profiling and optimization pass profiling (`--profile-opts`) | **Optional** |
 
+> **Two separate reference roles** — don't conflate:
+> - **GCC 15 (host, x86-64 only)** → drives the **C23 differential gate** (`make test-c23`, 24 feature-tagged cases across dialects) and the **c-torture gate** (`make test-torture`). The ISA gate `test-isa128` also uses host gcc-15 as its **oracle** (it builds an x86-64 static reference to compute expected 128-bit values while the target runs under QEMU).
+> - **Cross GCC 13.3 (aarch64-linux-gnu-gcc, riscv64-linux-gnu-gcc)** → drives the **cross-ISA differential gates** (`make test-isa-qemu`, `make test-isa128` `-S` path). The ISA corpora (`test/isa_qemu/`, `test/jit/int128_*.c`) are **C99/C11 + int128/float128 only** — no C23 syntax — so gcc-13.3 is a correct oracle. Cross gcc-15 (Bootlin) exists but is **deferred until the ISA corpora grow C23 test cases** (see [OKF decision note](docs/okf/build-and-verification.md#decision-sprint-142)).
+
 ### Environment Setup
 
 ```bash
