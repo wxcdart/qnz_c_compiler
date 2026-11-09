@@ -19,30 +19,33 @@
 #include "rt_os.h"
 
 #define RT_ALIGN        16
-#define RT_FREE_BIT     (1ULL << 63)
-#define RT_HDR_SIZE     (2 * sizeof(uint64_t))
+#define RT_FREE_BIT     ((uintptr_t)1 << (sizeof(uintptr_t) * 8 - 1))
+#define RT_HDR_SIZE     16
 #define RT_MIN_PAYLOAD  16
-#define RT_PAGE         4096ULL
-#define RT_INIT_ARENA   (256 * 1024ULL)
-#define RT_GROWTH       (1024 * 1024ULL)
+#define RT_PAGE         4096UL
+#define RT_INIT_ARENA   (256 * 1024UL)
+#define RT_GROWTH       (1024 * 1024UL)
 
 typedef struct {
-    uint64_t size;       /* payload size | RT_FREE_BIT */
-    uint64_t prev_size;  /* previous block's payload size */
+    uintptr_t size;       /* payload size | RT_FREE_BIT */
+    uintptr_t prev_size;  /* previous block's payload size */
+#if __SIZEOF_POINTER__ == 4 || (defined(__riscv) && __riscv_xlen == 32)
+    uintptr_t _pad[2];
+#endif
 } RtHdr;
 
-static uint8_t  *g_lo = 0;   /* arena start */
-static uint64_t  g_hi = 0;   /* arena end (one past) */
-static int       g_ready = 0;
+static uint8_t   *g_lo = 0;   /* arena start */
+static uintptr_t  g_hi = 0;   /* arena end (one past) */
+static int        g_ready = 0;
 
 static int rt_free_flag(const RtHdr *h) { return (h->size & RT_FREE_BIT) != 0; }
-static uint64_t rt_size(const RtHdr *h) { return h->size & ~RT_FREE_BIT; }
+static uintptr_t rt_size(const RtHdr *h) { return h->size & ~RT_FREE_BIT; }
 
 static int rt_arena_init(void) {
-    uint64_t base = zeroc_rt_brk(0);
-    if (base == 0 || base > (1ULL << 40)) return -1;
-    uint64_t start = (base + RT_PAGE - 1) & ~(RT_PAGE - 1);
-    uint64_t end = start + RT_INIT_ARENA;
+    uintptr_t base = zeroc_rt_brk(0);
+    if (base == 0 || (unsigned long)base >= (unsigned long)-4095UL) return -1;
+    uintptr_t start = (base + RT_PAGE - 1) & ~(RT_PAGE - 1);
+    uintptr_t end = start + RT_INIT_ARENA;
     if (zeroc_rt_brk(end) != end) return -1;
     g_lo = (uint8_t *)start;
     g_hi = end;
@@ -64,18 +67,18 @@ static RtHdr *rt_sentinel(void) {
     }
 }
 
-static void *rt_alloc(uint64_t need) {
+static void *rt_alloc(uintptr_t need) {
     if (!g_ready && rt_arena_init() != 0) return 0;
     for (;;) {
         for (uint8_t *p = g_lo; ; ) {
             RtHdr *h = (RtHdr *)p;
-            uint64_t sz = rt_size(h);
+            uintptr_t sz = rt_size(h);
             uint8_t *end = (uint8_t *)(h + 1) + sz;
             if (rt_free_flag(h) && sz >= need) {
                 if (sz >= need + RT_HDR_SIZE + RT_MIN_PAYLOAD) {
                     /* Split off the requested prefix, keep the rest free. */
                     RtHdr *rest = (RtHdr *)((uint8_t *)(h + 1) + need);
-                    uint64_t rest_sz = sz - need - RT_HDR_SIZE;
+                    uintptr_t rest_sz = sz - need - RT_HDR_SIZE;
                     h->size = need;
                     rest->size = rest_sz | RT_FREE_BIT;
                     rest->prev_size = need;
@@ -93,22 +96,22 @@ static void *rt_alloc(uint64_t need) {
         }
         /* No fit: grow the arena (the sentinel is always free). */
         RtHdr *sent = rt_sentinel();
-        uint64_t new_hi = g_hi + RT_GROWTH;
-        if (new_hi > (1ULL << 40) || zeroc_rt_brk(new_hi) != new_hi) return 0;
+        uintptr_t new_hi = g_hi + RT_GROWTH;
+        if ((unsigned long)new_hi >= (unsigned long)-4095UL || zeroc_rt_brk(new_hi) != new_hi) return 0;
         sent->size += RT_GROWTH;
         g_hi = new_hi;
     }
 }
 
 void *malloc(size_t n) {
-    uint64_t need = (n + (RT_ALIGN - 1)) & ~(uint64_t)(RT_ALIGN - 1);
+    uintptr_t need = (n + (RT_ALIGN - 1)) & ~(uintptr_t)(RT_ALIGN - 1);
     if (need < RT_MIN_PAYLOAD) need = RT_MIN_PAYLOAD;
     return rt_alloc(need);
 }
 
 void *calloc(size_t nmemb, size_t size) {
     /* Overflow-safe: reject when nmemb * size would wrap. */
-    if (size != 0 && nmemb > (1ULL << 63) / size) return 0;
+    if (size != 0 && nmemb > (size_t)-1 / size) return 0;
     void *p = malloc(nmemb * size);
     if (p) {
         uint8_t *b = (uint8_t *)p;
@@ -149,15 +152,15 @@ void free(void *ptr) {
 void *realloc(void *ptr, size_t n) {
     if (!ptr) return malloc(n);
     if (n == 0) { free(ptr); return 0; }
-    uint64_t need = (n + (RT_ALIGN - 1)) & ~(uint64_t)(RT_ALIGN - 1);
+    uintptr_t need = (n + (RT_ALIGN - 1)) & ~(uintptr_t)(RT_ALIGN - 1);
     if (need < RT_MIN_PAYLOAD) need = RT_MIN_PAYLOAD;
     RtHdr *h = (RtHdr *)ptr - 1;
     if (rt_size(h) >= need) {
         /* Shrink: split off the tail if worthwhile. */
-        uint64_t sz = rt_size(h);
+        uintptr_t sz = rt_size(h);
         if (sz >= need + RT_HDR_SIZE + RT_MIN_PAYLOAD) {
             RtHdr *rest = (RtHdr *)((uint8_t *)(h + 1) + need);
-            uint64_t rest_sz = sz - need - RT_HDR_SIZE;
+            uintptr_t rest_sz = sz - need - RT_HDR_SIZE;
             h->size = need;
             rest->size = rest_sz | RT_FREE_BIT;
             rest->prev_size = need;

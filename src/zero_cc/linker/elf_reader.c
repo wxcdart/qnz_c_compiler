@@ -79,7 +79,7 @@ static char *xstrdup(const char *s, size_t n) {
 
 static int obj_load_core(const uint8_t *buf, size_t size, const char *path,
                          ZcElfObj *o, char *err, size_t errsz) {
-    if (size < EI_NIDENT + 64) {
+    if (size < EI_NIDENT + 36) {
         snprintf(err, errsz, "%s: file too small to be an ELF file", path);
         return -1;
     }
@@ -87,8 +87,17 @@ static int obj_load_core(const uint8_t *buf, size_t size, const char *path,
         snprintf(err, errsz, "%s: not an ELF file", path);
         return -1;
     }
-    if (buf[4] != 2) {
-        snprintf(err, errsz, "%s: only 64-bit ELF is supported", path);
+    if (buf[4] != 1 && buf[4] != 2) {
+        snprintf(err, errsz, "%s: unsupported ELF class %u", path, (unsigned)buf[4]);
+        return -1;
+    }
+    bool is_32 = (buf[4] == 1);
+    if (is_32 && size < 52) {
+        snprintf(err, errsz, "%s: file too small for 32-bit ELF header", path);
+        return -1;
+    }
+    if (!is_32 && size < 64) {
+        snprintf(err, errsz, "%s: file too small for 64-bit ELF header", path);
         return -1;
     }
     if (buf[5] != 1) {
@@ -106,12 +115,18 @@ static int obj_load_core(const uint8_t *buf, size_t size, const char *path,
     if (e_machine != EM_X86_64 && e_machine != EM_AARCH64 &&
         e_machine != EM_RISCV) {
         snprintf(err, errsz, "%s: unsupported ELF machine %u (the own linker "
-                 "supports x86-64, aarch64, and riscv64 objects)", path,
+                 "supports x86-64, aarch64, and riscv objects)", path,
                  (unsigned)e_machine);
+        return -1;
+    }
+    if (is_32 && e_machine != EM_RISCV) {
+        snprintf(err, errsz, "%s: unsupported 32-bit ELF machine %u (only riscv32 is supported)",
+                 path, (unsigned)e_machine);
         return -1;
     }
 
     o->machine = e_machine;
+    o->is_32 = is_32;
 
     o->data = (uint8_t *)malloc(size);
     if (!o->data) {
@@ -122,13 +137,14 @@ static int obj_load_core(const uint8_t *buf, size_t size, const char *path,
     o->size = size;
     o->path = strdup(path);
 
-    uint64_t shoff = le64(buf + 40);
-    uint16_t shentsize = le16(buf + 58);
-    uint16_t shnum = le16(buf + 60);
-    uint16_t shstrndx = le16(buf + 62);
+    uint64_t shoff = is_32 ? le32(buf + 32) : le64(buf + 40);
+    uint16_t shentsize = is_32 ? le16(buf + 46) : le16(buf + 58);
+    uint16_t shnum = is_32 ? le16(buf + 48) : le16(buf + 60);
+    uint16_t shstrndx = is_32 ? le16(buf + 50) : le16(buf + 62);
     (void)shentsize;
+    size_t shdr_stride = is_32 ? 40 : 64;
     if (shnum == 0 || shnum > ZC_ELF_MAX_SECTIONS || shoff == 0 ||
-        shoff + (uint64_t)shnum * 64 > size) {
+        shoff + (uint64_t)shnum * shdr_stride > size) {
         snprintf(err, errsz, "%s: bad section header table", path);
         return -1;
     }
@@ -147,17 +163,29 @@ static int obj_load_core(const uint8_t *buf, size_t size, const char *path,
     const uint8_t *shstrtab = NULL;
     size_t shstrtab_size = 0;
     for (uint16_t i = 0; i < shnum; i++) {
-        const uint8_t *p = buf + shoff + (size_t)i * 64;
+        const uint8_t *p = buf + shoff + (size_t)i * shdr_stride;
         ZcShdr h;
-        h.name = le32(p);
-        h.type = le32(p + 4);
-        h.flags = le32(p + 8);
-        h.addr = le64(p + 16);
-        h.offset = le64(p + 24);
-        h.size = le64(p + 32);
-        h.link = le32(p + 40);
-        h.info = le32(p + 44);
-        h.addralign = le64(p + 48);
+        if (is_32) {
+            h.name = le32(p);
+            h.type = le32(p + 4);
+            h.flags = le32(p + 8);
+            h.addr = le32(p + 12);
+            h.offset = le32(p + 16);
+            h.size = le32(p + 20);
+            h.link = le32(p + 24);
+            h.info = le32(p + 28);
+            h.addralign = le32(p + 32);
+        } else {
+            h.name = le32(p);
+            h.type = le32(p + 4);
+            h.flags = le32(p + 8);
+            h.addr = le64(p + 16);
+            h.offset = le64(p + 24);
+            h.size = le64(p + 32);
+            h.link = le32(p + 40);
+            h.info = le32(p + 44);
+            h.addralign = le64(p + 48);
+        }
 
         ZcSection *s = &o->secs[i];
         s->type = (uint16_t)h.type;
@@ -187,7 +215,7 @@ static int obj_load_core(const uint8_t *buf, size_t size, const char *path,
     /* Section names (bounds-checked against the shstrtab). */
     for (uint16_t i = 0; i < shnum; i++) {
         ZcSection *s = &o->secs[i];
-        uint32_t n = le32(buf + shoff + (size_t)i * 64);
+        uint32_t n = le32(buf + shoff + (size_t)i * shdr_stride);
         if (n >= shstrtab_size) {
             s->name = xstrdup("", 0);
         } else {
@@ -217,7 +245,7 @@ static int obj_load_core(const uint8_t *buf, size_t size, const char *path,
         }
         const ZcSection *st = &o->secs[s->link];
         s->strtab = (const char *)(buf + st->offset);
-        size_t entsize = 24;
+        size_t entsize = is_32 ? 16 : 24;
         if (s->size % entsize != 0) {
             snprintf(err, errsz, "%s: bad symtab size", path);
             return -1;
@@ -236,12 +264,21 @@ static int obj_load_core(const uint8_t *buf, size_t size, const char *path,
         for (size_t j = 0; j < cnt; j++) {
             const uint8_t *p = buf + s->offset + j * entsize;
             ZcSym sym;
-            sym.name = le32(p);
-            sym.info = p[4];
-            sym.other = p[5];
-            sym.shndx = le16(p + 6);
-            sym.value = le64(p + 8);
-            sym.size = le64(p + 16);
+            if (is_32) {
+                sym.name = le32(p);
+                sym.value = le32(p + 4);
+                sym.size = le32(p + 8);
+                sym.info = p[12];
+                sym.other = p[13];
+                sym.shndx = le16(p + 14);
+            } else {
+                sym.name = le32(p);
+                sym.info = p[4];
+                sym.other = p[5];
+                sym.shndx = le16(p + 6);
+                sym.value = le64(p + 8);
+                sym.size = le64(p + 16);
+            }
             ZcSymbol *z = &s->syms[j];
             z->value = sym.value;
             z->size = sym.size;
@@ -271,7 +308,8 @@ static int obj_load_core(const uint8_t *buf, size_t size, const char *path,
             snprintf(err, errsz, "%s: bad reloc target section", path);
             return -1;
         }
-        size_t cnt = s->size / 24;
+        size_t rela_entsize = is_32 ? 12 : 24;
+        size_t cnt = s->size / rela_entsize;
         if (cnt > ZC_ELF_MAX_RELOCS) {
             snprintf(err, errsz, "%s: too many relocations (%zu)", path, cnt);
             return -1;
@@ -283,15 +321,20 @@ static int obj_load_core(const uint8_t *buf, size_t size, const char *path,
         }
         s->reloc_count = cnt;
         for (size_t j = 0; j < cnt; j++) {
-            const uint8_t *p = buf + s->offset + j * 24;
-            ZcRela r;
-            r.offset = le64(p);
-            r.info = le64(p + 8);
-            r.addend = (int64_t)le64(p + 16);
-            s->relocs[j].offset = r.offset;
-            s->relocs[j].sym = (uint32_t)(r.info >> 32);
-            s->relocs[j].type = (uint32_t)(r.info & 0xffffffff);
-            s->relocs[j].addend = r.addend;
+            const uint8_t *p = buf + s->offset + j * rela_entsize;
+            if (is_32) {
+                s->relocs[j].offset = le32(p);
+                uint32_t info = le32(p + 4);
+                s->relocs[j].sym = info >> 8;
+                s->relocs[j].type = info & 0xff;
+                s->relocs[j].addend = (int32_t)le32(p + 8);
+            } else {
+                s->relocs[j].offset = le64(p);
+                uint64_t info = le64(p + 8);
+                s->relocs[j].sym = (uint32_t)(info >> 32);
+                s->relocs[j].type = (uint32_t)(info & 0xffffffff);
+                s->relocs[j].addend = (int64_t)le64(p + 16);
+            }
         }
     }
     return 0;

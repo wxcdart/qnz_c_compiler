@@ -1488,6 +1488,9 @@ static int compile_and_link(CompileOptions *opts) {
     } else if (target_isa == ISA_RISCV64) {
         rt_filename = "zero_rt_riscv64.a";
         env_var = "ZERO_RT_RISCV64_A";
+    } else if (target_isa == ISA_RISCV32) {
+        rt_filename = "zero_rt_riscv32.a";
+        env_var = "ZERO_RT_RISCV32_A";
     }
 
     char rt_path[2048] = "";
@@ -1495,7 +1498,7 @@ static int compile_and_link(CompileOptions *opts) {
     if (rt_env && rt_env[0]) {
         snprintf(rt_path, sizeof rt_path, "%s", rt_env);
     } else if (target_isa == ISA_X86_64 || target_isa == ISA_AARCH64 ||
-               target_isa == ISA_RISCV64) {
+               target_isa == ISA_RISCV64 || target_isa == ISA_RISCV32) {
         char self[512];
         ssize_t n = readlink("/proc/self/exe", self, sizeof self - 1);
         if (n > 0) {
@@ -1509,14 +1512,14 @@ static int compile_and_link(CompileOptions *opts) {
         }
     }
 
-    /* T2: ZeroCC's own linker (x86-64 + AArch64; zero_rt Phase 0 is its
+    /* T2: ZeroCC's own linker (x86-64, AArch64, RISC-V 64/32; zero_rt is its
      * first customer). */
     if (opts->zerocc_link) {
         if (target_isa != ISA_X86_64 && target_isa != ISA_AARCH64 &&
-            target_isa != ISA_RISCV64) {
+            target_isa != ISA_RISCV64 && target_isa != ISA_RISCV32) {
             fprintf(stderr,
                     "Error: --zerocc-link currently links x86-64, aarch64, "
-                    "and riscv64 objects only\n");
+                    "riscv64, and riscv32 objects only\n");
             for (int i = 0; i < obj_count; i++) unlink(obj_paths[i]);
             return 1;
         }

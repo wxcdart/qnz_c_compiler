@@ -22,11 +22,11 @@ int zeroc_rt_write(int fd, const void *buf, uint64_t count) {
  * (wrapped to a huge unsigned) on failure. The heap's contract is
  * "brk(end) returns end on success, the current break on failure", so
  * translate: query first, then compare the return against the query. */
-uint64_t zeroc_rt_brk(uint64_t addr) {
-    uint64_t cur = (uint64_t)__zerocc_syscall(RT_SYS_BRK, 0, 0, 0, 0, 0, 0);
+uintptr_t zeroc_rt_brk(uintptr_t addr) {
+    uintptr_t cur = (uintptr_t)__zerocc_syscall(RT_SYS_BRK, 0, 0, 0, 0, 0, 0);
     if (addr == 0) return cur;
-    uint64_t ret = (uint64_t)__zerocc_syscall(RT_SYS_BRK, (long)addr, 0, 0, 0, 0, 0);
-    if (ret > (1ULL << 48)) return cur;  /* -ENOMEM wrapped: failure */
+    uintptr_t ret = (uintptr_t)__zerocc_syscall(RT_SYS_BRK, (long)addr, 0, 0, 0, 0, 0);
+    if ((unsigned long)ret >= (unsigned long)-4095UL) return cur;  /* -ENOMEM wrapped: failure */
     return addr;                          /* success: the requested break */
 }
 
@@ -37,16 +37,16 @@ uint64_t zeroc_rt_brk(uint64_t addr) {
  * demo workloads; the heap's own 2^48 guard caps it long before). */
 #define RT_ARENA_SIZE (64ULL * 1024 * 1024)
 
-static uint64_t arena_base = 0;
-static uint64_t arena_cur = 0;
+static uintptr_t arena_base = 0;
+static uintptr_t arena_cur = 0;
 
-uint64_t zeroc_rt_brk(uint64_t addr) {
+uintptr_t zeroc_rt_brk(uintptr_t addr) {
     if (arena_base == 0) {
-        uint64_t p = (uint64_t)__zerocc_syscall(RT_SYS_MMAP, 0, RT_ARENA_SIZE,
-                                                RT_PROT_READ | RT_PROT_WRITE,
-                                                RT_MAP_PRIVATE | RT_MAP_ANONYMOUS,
-                                                (long)-1, 0);
-        if (p > (1ULL << 48)) return 0;   /* mmap error (wrapped) */
+        uintptr_t p = (uintptr_t)__zerocc_syscall(RT_SYS_MMAP, 0, RT_ARENA_SIZE,
+                                                  RT_PROT_READ | RT_PROT_WRITE,
+                                                  RT_MAP_PRIVATE | RT_MAP_ANONYMOUS,
+                                                  (long)-1, 0);
+        if ((unsigned long)p >= (unsigned long)-4095UL) return 0;   /* mmap error (wrapped) */
         arena_base = p;
         arena_cur = p;
     }

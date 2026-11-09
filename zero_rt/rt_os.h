@@ -63,7 +63,7 @@
 
 int      zeroc_rt_read(int fd, void *buf, uint64_t count);
 int      zeroc_rt_write(int fd, const void *buf, uint64_t count);
-uint64_t zeroc_rt_brk(uint64_t addr);      /* 0 = query current break */
+uintptr_t zeroc_rt_brk(uintptr_t addr);      /* 0 = query current break */
 int      zeroc_rt_getpid(void);
 void     zeroc_rt_exit_group(int code);    /* does not return */
 

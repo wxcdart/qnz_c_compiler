@@ -100,7 +100,7 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	test-c23 test-asm test-opt test-san \
 	valgrind test-valgrind
 
-all: $(TESTS) build/bin/zerocc build/lib/zero_rt.a build/lib/zero_rt_aarch64.a build/lib/zero_rt_riscv64.a
+all: $(TESTS) build/bin/zerocc build/lib/zero_rt.a build/lib/zero_rt_aarch64.a build/lib/zero_rt_riscv64.a build/lib/zero_rt_riscv32.a
 
 # --- Vendored static-musl host toolchain ----------------------------------
 # zerocc and every test binary that links the compiler library are built and
@@ -433,6 +433,47 @@ $(BUILD_DIR)/obj/zero_rt_riscv64/d2fixed.o: third_party/vendor/ryu/ryu/d2fixed.c
 $(BUILD_DIR)/obj/zero_rt_riscv64/errno.o: zero_rt/core/errno.c $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --target riscv64 -c $< $(ZERO_RT_CFLAGS) -o $@
+
+# zero_rt for RISC-V 32-bit
+ZERO_RT_RISCV32_OBJS = $(BUILD_DIR)/obj/zero_rt_riscv32/os.o \
+                       $(BUILD_DIR)/obj/zero_rt_riscv32/heap.o $(BUILD_DIR)/obj/zero_rt_riscv32/string.o \
+                       $(BUILD_DIR)/obj/zero_rt_riscv32/exit.o $(BUILD_DIR)/obj/zero_rt_riscv32/stdio.o \
+                       $(BUILD_DIR)/obj/zero_rt_riscv32/d2s.o $(BUILD_DIR)/obj/zero_rt_riscv32/d2fixed.o \
+                       $(BUILD_DIR)/obj/zero_rt_riscv32/int128.o $(BUILD_DIR)/obj/zero_rt_riscv32/errno.o \
+                       $(BUILD_DIR)/obj/zero_rt_riscv32/complex.o
+$(BUILD_DIR)/lib/zero_rt_riscv32.a: $(ZERO_RT_RISCV32_OBJS)
+	@mkdir -p $(dir $@)
+	ar rcs $@ $^
+$(BUILD_DIR)/obj/zero_rt_riscv32/os.o: zero_rt/linux/os.c zero_rt/rt_os.h $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target riscv32 -c $< $(ZERO_RT_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_riscv32/heap.o: zero_rt/core/heap.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target riscv32 -c $< $(ZERO_RT_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_riscv32/string.o: zero_rt/core/string.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target riscv32 -c $< $(ZERO_RT_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_riscv32/exit.o: zero_rt/core/exit.c zero_rt/rt_os.h $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target riscv32 -c $< $(ZERO_RT_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_riscv32/stdio.o: zero_rt/core/stdio.c zero_rt/rt_os.h $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target riscv32 -c $< $(ZERO_RT_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_riscv32/int128.o: zero_rt/core/int128.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target riscv32 -c $< $(ZERO_RT_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_riscv32/complex.o: zero_rt/complex/complex.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target riscv32 -c $< $(ZERO_RT_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_riscv32/d2s.o: third_party/vendor/ryu/ryu/d2s.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target riscv32 -c $< -Ithird_party/vendor/ryu -o $@
+$(BUILD_DIR)/obj/zero_rt_riscv32/d2fixed.o: third_party/vendor/ryu/ryu/d2fixed.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target riscv32 -c $< -Ithird_party/vendor/ryu -o $@
+$(BUILD_DIR)/obj/zero_rt_riscv32/errno.o: zero_rt/core/errno.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target riscv32 -c $< $(ZERO_RT_CFLAGS) -o $@
 
 # Cross-ISA raw-binary-emitter differential test under QEMU. Builds each
 # test/isa_qemu/*.c for every target ISA via zerocc's RAW binary emitter

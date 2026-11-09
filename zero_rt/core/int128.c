@@ -147,3 +147,53 @@ __int128 zc_sar128_v(uint64_t a0, uint64_t a1, uint64_t n) {
 }
 
 #endif /* ZERO_RT_USE_INT128_TYPE */
+
+/* --------------------------------------------------------------------------
+ * 64-bit software integer division and modulo helpers.
+ * Required on 32-bit architectures (e.g. RISC-V 32) that lack 64-bit hardware
+ * divide instructions. Provided under standard libgcc symbol names.
+ * -------------------------------------------------------------------------- */
+static uint64_t zc_udivmod64(uint64_t u, uint64_t v, uint64_t *rem) {
+    if (v == 0) {
+        if (rem) *rem = 0;
+        return 0;
+    }
+    uint64_t q = 0, r = 0;
+    for (int i = 63; i >= 0; i--) {
+        r = (r << 1) | ((u >> i) & 1ULL);
+        if (r >= v) {
+            r -= v;
+            q |= (1ULL << i);
+        }
+    }
+    if (rem) *rem = r;
+    return q;
+}
+
+uint64_t __udivdi3(uint64_t u, uint64_t v) {
+    return zc_udivmod64(u, v, 0);
+}
+
+uint64_t __umoddi3(uint64_t u, uint64_t v) {
+    uint64_t r = 0;
+    zc_udivmod64(u, v, &r);
+    return r;
+}
+
+int64_t __divdi3(int64_t a, int64_t b) {
+    int aneg = a < 0, bneg = b < 0;
+    uint64_t ua = aneg ? (uint64_t)-a : (uint64_t)a;
+    uint64_t ub = bneg ? (uint64_t)-b : (uint64_t)b;
+    uint64_t q = zc_udivmod64(ua, ub, 0);
+    return (aneg ^ bneg) ? -(int64_t)q : (int64_t)q;
+}
+
+int64_t __moddi3(int64_t a, int64_t b) {
+    int aneg = a < 0;
+    uint64_t ua = aneg ? (uint64_t)-a : (uint64_t)a;
+    uint64_t ub = (b < 0) ? (uint64_t)-b : (uint64_t)b;
+    uint64_t r = 0;
+    zc_udivmod64(ua, ub, &r);
+    return aneg ? -(int64_t)r : (int64_t)r;
+}
+

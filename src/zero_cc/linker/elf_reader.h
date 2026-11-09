@@ -73,6 +73,7 @@ typedef struct {
 
     uint16_t shnum;
     uint16_t machine;    /* e_machine (EM_X86_64=62 / EM_AARCH64=183 / EM_RISCV=243) */
+    bool is_32;          /* true if ELFCLASS32 (e.g. riscv32) */
     ZcSection *secs;      /* [shnum] */
 
     /* Convenience lookups (indices into secs) */

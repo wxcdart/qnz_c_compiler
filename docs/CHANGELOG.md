@@ -1,3 +1,21 @@
+## [Sprint 145] - 2026-11-09 - RV32 own linker & zero_rt_riscv32.a (all 4 target ISAs complete under --zerocc-link)
+
+ZeroCC's own linker (`src/zero_cc/linker/`) gains 32-bit RISC-V (`rv32`) support, completing the self-contained toolchain across all 4 target ISAs (x86-64, aarch64, riscv64, riscv32):
+
+- **ELF32 Reader & Writer (`src/zero_cc/linker/`)**:
+  - `elf_reader.c`: Reads 32-bit ELF headers (`Elf32_Ehdr`, 52 bytes), section headers (`Elf32_Shdr`, 40 bytes), symbol tables (`Elf32_Sym`, 16 bytes: `st_name`, `st_value`, `st_size`, `st_info`, `st_other`, `st_shndx`), and relocations (`Elf32_Rela`, 12 bytes). Tracks `is_32` on objects and links.
+  - `linker.c`: Implements ELF32 static executable emission (`Elf32_Ehdr` with `e_entry` at `0x00010000`, 32-byte `Elf32_Phdr` with `p_flags` at field 7). Handles relocations: `R_RISCV_32` (word relocate), `R_RISCV_BRANCH` (B-type 13-bit offset), `R_RISCV_JAL` (J-type 21-bit offset), `R_RISCV_CALL`/`R_RISCV_CALL_PLT` (auipc+jalr 32-bit), `R_RISCV_PCREL_HI20` (auipc 20-bit), `R_RISCV_PCREL_LO12_I` (I-type 12-bit), `R_RISCV_PCREL_LO12_S` (S-type 12-bit).
+- **`zero_rt_riscv32.a`**:
+  - Built with `zerocc --target riscv32 -c zero_rt/...` and archived into `build/lib/zero_rt_riscv32.a`.
+  - Added software 64-bit integer divide/modulo routines (`__udivdi3`, `__umoddi3`, `__divdi3`, `__moddi3`) in `zero_rt/core/int128.c` using CACM long division.
+  - Made `zero_rt/core/heap.c` pointer-size agnostic (`uintptr_t`, `RT_FREE_BIT` on MSB, 16-byte aligned `RtHdr`, wrapped address comparison).
+  - Fixed `zero_rt/linux/os.c` `zeroc_rt_brk` errno wrapping guard for 32-bit addresses.
+  - Driver (`src/main.c`) auto-links `zero_rt_riscv32.a` (or `$ZERO_RT_RISCV32_A`) when `--target riscv32 --zerocc-link` is invoked.
+- **Verification**:
+  - `tools/linker_tests.py`: Added `case_riscv32_run` (`rv32_hi`, `rv32_data`, `rv32_ar`); all 23/23 tests pass cleanly under QEMU and match `musl-gcc-riscv32 -static`.
+  - `tools/isa_qemu_diff.py --isa riscv32`: All 14/14 tests pass cleanly.
+  - Direct execution under `qemu-riscv32-static`: `malloc`/`free` and standalone exit codes verified.
+
 ## [Sprint 144] - 2026-11-09 - Own linker: far-rel32 detour thunks + static-PIE (self-relocating) link
 
 ZeroCC's own linker (`src/zero_cc/linker/`) gains two x86-64 capabilities, both

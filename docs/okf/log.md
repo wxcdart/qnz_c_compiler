@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-09T17:18:39Z
+timestamp: 2026-11-09T19:44:57Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1242,3 +1242,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-09 — Updated `zero-rt.md`
 - Sprint 144: Add complex.c (__divdc3 MIT clean-room) and document dual-path threading architecture (musl pthreads vs zero_rt C11 threads.h)
+
+## 2026-11-09 — Updated `own-linker.md`
+- Sprint 145: RV32 own linker & zero_rt_riscv32.a (all 4 target ISAs complete under --zerocc-link)
+
+## 2026-11-09 — Updated `zero-rt.md`
+- Sprint 145: RV32 zero_rt_riscv32.a and pointer-size agnostic heap/os

@@ -4,7 +4,7 @@ title: ZeroCC Own Linker (T2) - ELF Reader, ar Reader, Static ET_EXEC/PIE Output
 description: ZeroCC's own static linker - the ELF64-LE object reader, the classic ar archive reader with greedy member extraction, symbol resolution, section layout at conventional x86-64/AArch64/RISC-V64 bases, the x86-64 far-rel32 detour-thunk pool, the static-PIE (ET_DYN) self-relocating link, supported relocation sets, and per-ISA generated _start stubs. Gate: make test-linker (21/21) + test/linker/far_thunk.c + test/linker/pie_test.c.
 resource: linker
 tags: [linker, elf, ar, aot, x86-64, aarch64, riscv64, relocations, zero-rt, static-pie, thunks]
-timestamp: 2026-11-09T05:15:51Z
+timestamp: 2026-11-09T19:44:53Z
 generated: pi-agent
 verified: engineering-lead
 status: active
@@ -213,7 +213,6 @@ link):
   `gcc -no-pie` link of the same objects**; 2 archive cases (member
   extraction); 3 error cases (multiple definition, missing `main`,
   undefined symbol).
-- **unsupported-ISA rejection (1)**: `--target riscv32` errors cleanly.
 - **AArch64 (3)**: cross-TU call, `.data`-only globals+string case (adrp/add pairs),
   and archive case — each linked with `--target aarch64 --zerocc-link`, run under
   `qemu-aarch64-static`, and differentially compared against `musl-gcc-aarch64 -static`.
@@ -221,6 +220,10 @@ link):
   (pcrel_hi20/lo12_i pairs), and `rv64_ar` archive case — each linked with
   `--target riscv64 --zerocc-link`, run under `qemu-riscv64-static`, and differentially
   compared against `musl-gcc-riscv64 -static`.
+- **RISC-V32 (3)**: `rv32_hi` cross-TU call, `rv32_data` global data/pointer access
+  (pcrel_hi20/lo12_i pairs), and `rv32_ar` archive case — each linked with
+  `--target riscv32 --zerocc-link`, run under `qemu-riscv32-static`, and differentially
+  compared against `musl-gcc-riscv32 -static`.
 
 ## Latent emitter bug found by T2 (fixed)
 
@@ -241,9 +244,7 @@ sections and bind each symbol's `shndx` via `elf_writer_section_index`.
 
 ## Known limitations (documented, not bugs)
 
-- **32-bit targets** (`--target riscv32` is not yet supported in the own linker;
-  x86-64, aarch64, and riscv64 are fully supported).
-- **zero_rt cross targets (Sprint 55)**: `--zerocc-link` auto-links the per-target runtime archive (`zero_rt.a` x86-64, `zero_rt_aarch64.a`, `zero_rt_riscv64.a`), built by `make all` via zerocc self-compilation.
+- **zero_rt cross targets (Sprint 55, Sprint 143)**: `--zerocc-link` auto-links the per-target runtime archive (`zero_rt.a` x86-64, `zero_rt_aarch64.a`, `zero_rt_riscv64.a`, `zero_rt_riscv32.a`), built by `make all` via zerocc self-compilation.
 - No dynamic symbols/PLT stubs, no `GOTPCRELX`/`GOT32` materialization,
   no interposition/weak-alias lattice — correct for a fully static link
   of zeroc objects (and zero_rt), which is the intended customer.

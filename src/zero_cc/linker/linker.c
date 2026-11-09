@@ -116,6 +116,7 @@ typedef struct {
     int obj_count;
 
     uint16_t machine; /* e_machine of the inputs (all must agree) */
+    bool is_32;       /* true if 32-bit ELF (ELFCLASS32, e.g. riscv32) */
 
     ZcOutSec outsec[4]; /* .text .rodata .data .bss */
     ZcInsecMap *map;
@@ -204,10 +205,12 @@ static int add_object(ZcLink *L, const uint8_t *data, size_t size,
     }
     if (L->machine == 0) {
         L->machine = o->machine;
-    } else if (L->machine != o->machine) {
+        L->is_32 = o->is_32;
+    } else if (L->machine != o->machine || L->is_32 != o->is_32) {
         snprintf(err, errsz, "%s: mixed input architectures "
-                 "(e_machine %u vs %u); link one ISA at a time",
-                 path, (unsigned)o->machine, (unsigned)L->machine);
+                 "(e_machine %u/is_32 %d vs %u/is_32 %d); link one ISA at a time",
+                 path, (unsigned)o->machine, (int)o->is_32,
+                 (unsigned)L->machine, (int)L->is_32);
         zc_elf_obj_free(o);
         free(o);
         return -1;
@@ -953,6 +956,22 @@ static int apply_relocations(ZcLink *L, char *err, size_t errsz) {
                         for (int b = 0; b < 4; b++)
                             site[b] = (uint8_t)((uint32_t)(uint64_t)(S + A) >> (8 * b));
                         break;
+                    case 16: /* R_RISCV_BRANCH */
+                    {
+                        int64_t d = S + A - (int64_t)P;
+                        if ((d & 1) != 0 || d < -(1LL << 12) || d >= (1LL << 12)) {
+                            snprintf(err, errsz,
+                                     "R_RISCV_BRANCH out of range for `%s' at 0x%lx in %s",
+                                     sym->name, (unsigned long)P, o->path);
+                            free(pcrel_tab);
+                            return -1;
+                        }
+                        uint32_t u = (uint32_t)d & 0x1FFFu;
+                        uint32_t patch = ((u & 0x1000u) << 19) | ((u & 0x7E0u) << 20) |
+                                         ((u & 0x800u) >> 4) | ((u & 0x1Eu) << 7);
+                        nw = (w & 0x01FFF07Fu) | patch;
+                        break;
+                    }
                     case 17: /* R_RISCV_JAL */
                     {
                         int64_t d = S + A - (int64_t)P;
@@ -1313,15 +1332,19 @@ static int emit_exec(ZcLink *L, const char *out_path, uint64_t entry,
         }
     }
 
-    size_t symtab_size = nsyms * 24;
-    uint8_t *symtab = calloc(nsyms, 24);
+    size_t symtab_entsize = L->is_32 ? 16 : 24;
+    size_t symtab_size = nsyms * symtab_entsize;
+    uint8_t *symtab = calloc(nsyms, symtab_entsize);
+
+    size_t shdr_entsize = L->is_32 ? 40 : 64;
+    size_t shdr_table_size = (size_t)nsecs * shdr_entsize;
 
     /* File layout: shdrs after the RW content, then shstrtab, symtab,
      * strtab. */
     uint64_t sh_off = have_rw
         ? align_up(rw_off + data->size, 8)
         : align_up(rx_off + rx_filesz, 8);
-    uint64_t file_size = sh_off + (uint64_t)nsecs * 64 +
+    uint64_t file_size = sh_off + shdr_table_size +
                          shs_size + symtab_size + str_size;
 
     uint8_t *img = calloc(1, file_size);
@@ -1332,50 +1355,95 @@ static int emit_exec(ZcLink *L, const char *out_path, uint64_t entry,
 
     /* ELF header (e_entry = main or _start). */
     uint8_t *p = img;
-    put8(&p, 0x7f); put8(&p, 'E'); put8(&p, 'L'); put8(&p, 'F');
-    put8(&p, 2); /* 64-bit */
-    put8(&p, 1); /* little endian */
-    put8(&p, 1); /* ELF version */
-    put8(&p, 0); /* SYSV */
-    for (int i = 0; i < 8; i++) put8(&p, 0);
-    put16(&p, L->pie ? ET_DYN : ET_EXEC);
-    put16(&p, L->machine);
-    put32(&p, 1);          /* e_version */
-    put64(&p, entry);      /* e_entry */
-    put64(&p, 64);         /* e_phoff */
-    put64(&p, sh_off);     /* e_shoff */
-    put32(&p, (L->machine == EM_RISCV) ? 4 : 0); /* e_flags: EF_RISCV_FLOAT_ABI_DOUBLE */
-    put16(&p, 64);         /* e_ehsize */
-    put16(&p, 56);         /* e_phentsize */
-    put16(&p, (uint16_t)(have_rx + have_rw)); /* e_phnum */
-    put16(&p, 64);         /* e_shentsize */
-    put16(&p, (uint16_t)nsecs);
-    put16(&p, (uint16_t)sh_shstrtab);
+    if (L->is_32) {
+        put8(&p, 0x7f); put8(&p, 'E'); put8(&p, 'L'); put8(&p, 'F');
+        put8(&p, 1); /* 32-bit */
+        put8(&p, 1); /* little endian */
+        put8(&p, 1); /* ELF version */
+        put8(&p, 0); /* SYSV */
+        for (int i = 0; i < 8; i++) put8(&p, 0);
+        put16(&p, ET_EXEC);
+        put16(&p, L->machine);
+        put32(&p, 1);          /* e_version */
+        put32(&p, (uint32_t)entry); /* e_entry */
+        put32(&p, 52);         /* e_phoff */
+        put32(&p, (uint32_t)sh_off); /* e_shoff */
+        put32(&p, 0);          /* e_flags */
+        put16(&p, 52);         /* e_ehsize */
+        put16(&p, 32);         /* e_phentsize */
+        put16(&p, (uint16_t)(have_rx + have_rw)); /* e_phnum */
+        put16(&p, 40);         /* e_shentsize */
+        put16(&p, (uint16_t)nsecs);
+        put16(&p, (uint16_t)sh_shstrtab);
 
-    /* Program headers at 64. */
-    p = img + 64;
-    if (have_rx) {
-        put32(&p, PT_LOAD);
-        /* Static PIE: the segment starts RWX so the self-relocating _start
-         * stub can both execute and write the relocated sites; it
-         * mprotects the segment back to RX at the end of relocation. */
-        put32(&p, L->pie ? (PF_R | PF_W | PF_X) : (PF_R | PF_X));
-        put64(&p, rx_off);
-        put64(&p, rx_vma);
-        put64(&p, rx_vma);
-        put64(&p, rx_filesz);
-        put64(&p, rx_filesz);
-        put64(&p, ZC_PAGE);
-    }
-    if (have_rw) {
-        put32(&p, PT_LOAD);
-        put32(&p, PF_R | PF_W);
-        put64(&p, rw_off);
-        put64(&p, rw_vma);
-        put64(&p, rw_vma);
-        put64(&p, data->size);
-        put64(&p, data->size + (L->have_bss ? bss->memsz : 0));
-        put64(&p, ZC_PAGE);
+        /* Program headers at 52 */
+        p = img + 52;
+        if (have_rx) {
+            put32(&p, PT_LOAD);
+            put32(&p, (uint32_t)rx_off);
+            put32(&p, (uint32_t)rx_vma);
+            put32(&p, (uint32_t)rx_vma);
+            put32(&p, (uint32_t)rx_filesz);
+            put32(&p, (uint32_t)rx_filesz);
+            put32(&p, PF_R | PF_X);
+            put32(&p, ZC_PAGE);
+        }
+        if (have_rw) {
+            put32(&p, PT_LOAD);
+            put32(&p, (uint32_t)rw_off);
+            put32(&p, (uint32_t)rw_vma);
+            put32(&p, (uint32_t)rw_vma);
+            put32(&p, (uint32_t)data->size);
+            put32(&p, (uint32_t)(data->size + (L->have_bss ? bss->memsz : 0)));
+            put32(&p, PF_R | PF_W);
+            put32(&p, ZC_PAGE);
+        }
+    } else {
+        put8(&p, 0x7f); put8(&p, 'E'); put8(&p, 'L'); put8(&p, 'F');
+        put8(&p, 2); /* 64-bit */
+        put8(&p, 1); /* little endian */
+        put8(&p, 1); /* ELF version */
+        put8(&p, 0); /* SYSV */
+        for (int i = 0; i < 8; i++) put8(&p, 0);
+        put16(&p, L->pie ? ET_DYN : ET_EXEC);
+        put16(&p, L->machine);
+        put32(&p, 1);          /* e_version */
+        put64(&p, entry);      /* e_entry */
+        put64(&p, 64);         /* e_phoff */
+        put64(&p, sh_off);     /* e_shoff */
+        put32(&p, (L->machine == EM_RISCV) ? 4 : 0); /* e_flags: EF_RISCV_FLOAT_ABI_DOUBLE */
+        put16(&p, 64);         /* e_ehsize */
+        put16(&p, 56);         /* e_phentsize */
+        put16(&p, (uint16_t)(have_rx + have_rw)); /* e_phnum */
+        put16(&p, 64);         /* e_shentsize */
+        put16(&p, (uint16_t)nsecs);
+        put16(&p, (uint16_t)sh_shstrtab);
+
+        /* Program headers at 64. */
+        p = img + 64;
+        if (have_rx) {
+            put32(&p, PT_LOAD);
+            /* Static PIE: the segment starts RWX so the self-relocating _start
+             * stub can both execute and write the relocated sites; it
+             * mprotects the segment back to RX at the end of relocation. */
+            put32(&p, L->pie ? (PF_R | PF_W | PF_X) : (PF_R | PF_X));
+            put64(&p, rx_off);
+            put64(&p, rx_vma);
+            put64(&p, rx_vma);
+            put64(&p, rx_filesz);
+            put64(&p, rx_filesz);
+            put64(&p, ZC_PAGE);
+        }
+        if (have_rw) {
+            put32(&p, PT_LOAD);
+            put32(&p, PF_R | PF_W);
+            put64(&p, rw_off);
+            put64(&p, rw_vma);
+            put64(&p, rw_vma);
+            put64(&p, data->size);
+            put64(&p, data->size + (L->have_bss ? bss->memsz : 0));
+            put64(&p, ZC_PAGE);
+        }
     }
 
     /* Section contents. */
@@ -1521,71 +1589,194 @@ static int emit_exec(ZcLink *L, const char *out_path, uint64_t entry,
     /* .symtab */
     {
         uint8_t *sp = symtab;
-        /* null symbol */
-        memset(sp, 0, 24);
-        sp += 24;
-        for (size_t i = 0; i < L->sym_count; i++) {
-            ZcLinkSym *ls = &L->syms[i];
-            if (ls->is_section) {
-                put32(&sp, sym_stroff[i]);
-                *sp = (uint8_t)((0 << 4) | ZC_STT_SECTION); /* LOCAL */
+        if (L->is_32) {
+            /* null symbol */
+            memset(sp, 0, 16);
+            sp += 16;
+            for (size_t i = 0; i < L->sym_count; i++) {
+                ZcLinkSym *ls = &L->syms[i];
+                if (ls->is_section) {
+                    put32(&sp, sym_stroff[i]);
+                    put32(&sp, (uint32_t)ls->vma);
+                    put32(&sp, 0);
+                    *sp++ = (uint8_t)((0 << 4) | ZC_STT_SECTION); /* LOCAL */
+                    *sp++ = 0;
+                    uint16_t shndx = 0;
+                    for (int k = 0; k < 4; k++) {
+                        ZcOutSec *os = &L->outsec[k];
+                        bool present = (k == 3) ? L->have_bss
+                                    : (os->size > 0 || (k == 2 && data->vma != 0));
+                        if (present && ls->vma >= os->vma &&
+                            ls->vma < os->vma + (os->nobits ? os->memsz
+                                                            : os->size)) {
+                            shndx = (uint16_t)out_shndx[k];
+                            break;
+                        }
+                    }
+                    put16(&sp, shndx);
+                } else if (ls->obj != -1) {
+                    put32(&sp, sym_stroff[i]);
+                    put32(&sp, (uint32_t)ls->vma);
+                    put32(&sp, (uint32_t)ls->size);
+                    *sp++ = (uint8_t)((ZC_STB_GLOBAL << 4) | ls->stype);
+                    *sp++ = 0;
+                    uint16_t shndx = 0;
+                    for (int k = 0; k < 4; k++) {
+                        ZcOutSec *os = &L->outsec[k];
+                        bool present = (k == 3) ? L->have_bss
+                                    : (os->size > 0 || (k == 2 && data->vma != 0));
+                        if (present && ls->vma >= os->vma &&
+                            ls->vma < os->vma + (os->nobits ? os->memsz
+                                                            : os->size)) {
+                            shndx = (uint16_t)out_shndx[k];
+                            break;
+                        }
+                    }
+                    put16(&sp, shndx);
+                }
+            }
+            /* Section symbols for the output sections. */
+            for (int k = 0; k < 4; k++) {
+                ZcOutSec *os = &L->outsec[k];
+                bool present = (k == 3) ? L->have_bss
+                            : (os->size > 0 || (k == 2 && data->vma != 0));
+                if (!present) continue;
+                put32(&sp, shs_off[k]);
+                put32(&sp, (uint32_t)os->vma);
+                put32(&sp, (uint32_t)(os->nobits ? os->memsz : os->size));
+                *sp++ = (uint8_t)((0 << 4) | ZC_STT_SECTION);
+                *sp++ = 0;
+                put16(&sp, (uint16_t)out_shndx[k]);
+            }
+        } else {
+            /* null symbol */
+            memset(sp, 0, 24);
+            sp += 24;
+            for (size_t i = 0; i < L->sym_count; i++) {
+                ZcLinkSym *ls = &L->syms[i];
+                if (ls->is_section) {
+                    put32(&sp, sym_stroff[i]);
+                    *sp = (uint8_t)((0 << 4) | ZC_STT_SECTION); /* LOCAL */
+                    sp++;
+                    *sp = 0; sp++;
+                    uint16_t shndx = 0;
+                    for (int k = 0; k < 4; k++) {
+                        ZcOutSec *os = &L->outsec[k];
+                        bool present = (k == 3) ? L->have_bss
+                                    : (os->size > 0 || (k == 2 && data->vma != 0));
+                        if (present && ls->vma >= os->vma &&
+                            ls->vma < os->vma + (os->nobits ? os->memsz
+                                                            : os->size)) {
+                            shndx = (uint16_t)out_shndx[k];
+                            break;
+                        }
+                    }
+                    put16(&sp, shndx);
+                    put64(&sp, ls->vma);
+                    put64(&sp, 0);
+                } else if (ls->obj != -1) {
+                    put32(&sp, sym_stroff[i]);
+                    *sp = (uint8_t)((ZC_STB_GLOBAL << 4) | ls->stype);
+                    sp++;
+                    *sp = 0; sp++;
+                    uint16_t shndx = 0;
+                    for (int k = 0; k < 4; k++) {
+                        ZcOutSec *os = &L->outsec[k];
+                        bool present = (k == 3) ? L->have_bss
+                                    : (os->size > 0 || (k == 2 && data->vma != 0));
+                        if (present && ls->vma >= os->vma &&
+                            ls->vma < os->vma + (os->nobits ? os->memsz
+                                                            : os->size)) {
+                            shndx = (uint16_t)out_shndx[k];
+                            break;
+                        }
+                    }
+                    put16(&sp, shndx);
+                    put64(&sp, ls->vma);
+                    put64(&sp, ls->size);
+                }
+            }
+            /* Section symbols for the output sections. */
+            for (int k = 0; k < 4; k++) {
+                ZcOutSec *os = &L->outsec[k];
+                bool present = (k == 3) ? L->have_bss
+                            : (os->size > 0 || (k == 2 && data->vma != 0));
+                if (!present) continue;
+                put32(&sp, shs_off[k]);
+                *sp = (uint8_t)((0 << 4) | ZC_STT_SECTION);
                 sp++;
                 *sp = 0; sp++;
-                uint16_t shndx = 0;
-                for (int k = 0; k < 4; k++) {
-                    ZcOutSec *os = &L->outsec[k];
-                    bool present = (k == 3) ? L->have_bss
-                                : (os->size > 0 || (k == 2 && data->vma != 0));
-                    if (present && ls->vma >= os->vma &&
-                        ls->vma < os->vma + (os->nobits ? os->memsz
-                                                        : os->size)) {
-                        shndx = (uint16_t)out_shndx[k];
-                        break;
-                    }
-                }
-                put16(&sp, shndx);
-                put64(&sp, ls->vma);
-                put64(&sp, 0);
-            } else if (ls->obj != -1) {
-                put32(&sp, sym_stroff[i]);
-                *sp = (uint8_t)((ZC_STB_GLOBAL << 4) | ls->stype);
-                sp++;
-                *sp = 0; sp++;
-                uint16_t shndx = 0;
-                for (int k = 0; k < 4; k++) {
-                    ZcOutSec *os = &L->outsec[k];
-                    bool present = (k == 3) ? L->have_bss
-                                : (os->size > 0 || (k == 2 && data->vma != 0));
-                    if (present && ls->vma >= os->vma &&
-                        ls->vma < os->vma + (os->nobits ? os->memsz
-                                                        : os->size)) {
-                        shndx = (uint16_t)out_shndx[k];
-                        break;
-                    }
-                }
-                put16(&sp, shndx);
-                put64(&sp, ls->vma);
-                put64(&sp, ls->size);
+                put16(&sp, (uint16_t)out_shndx[k]);
+                put64(&sp, os->vma);
+                put64(&sp, os->nobits ? os->memsz : os->size);
             }
         }
-        /* Section symbols for the output sections. */
+    }
+
+    /* Section headers. */
+    if (L->is_32) {
+        uint8_t *sh = img + sh_off;
+        /* [0] NULL */
+        sh += 40;
+        int idx = 1;
         for (int k = 0; k < 4; k++) {
             ZcOutSec *os = &L->outsec[k];
             bool present = (k == 3) ? L->have_bss
                         : (os->size > 0 || (k == 2 && data->vma != 0));
             if (!present) continue;
-            put32(&sp, shs_off[k]);
-            *sp = (uint8_t)((0 << 4) | ZC_STT_SECTION);
-            sp++;
-            *sp = 0; sp++;
-            put16(&sp, (uint16_t)out_shndx[k]);
-            put64(&sp, os->vma);
-            put64(&sp, os->nobits ? os->memsz : os->size);
+            put32(&sh, shs_off[k]);
+            put32(&sh, os->nobits ? SHT_NOBITS : SHT_PROGBITS);
+            uint32_t flags = (uint32_t)SHF_ALLOC |
+                             (os->exec ? (uint32_t)SHF_EXECINSTR : 0) |
+                             (os->write ? (uint32_t)SHF_WRITE : 0);
+            put32(&sh, flags);
+            put32(&sh, (uint32_t)os->vma);
+            put32(&sh, (uint32_t)(os->nobits ? 0 : os->file_off));
+            put32(&sh, (uint32_t)(os->nobits ? os->memsz : os->size));
+            put32(&sh, 0);  /* link */
+            put32(&sh, 0);  /* info */
+            put32(&sh, 4);  /* addralign */
+            put32(&sh, 0);  /* entsize */
+            idx++;
         }
-    }
-
-    /* Section headers. */
-    {
+        /* .symtab */
+        put32(&sh, shs_off[5]);
+        put32(&sh, SHT_SYMTAB);
+        put32(&sh, 0);
+        put32(&sh, 0);
+        put32(&sh, (uint32_t)(sh_off + (uint64_t)nsecs * 40 + shs_size));
+        put32(&sh, (uint32_t)symtab_size);
+        put32(&sh, (uint32_t)sh_strtab);
+        put32(&sh, 1); /* info: one local (the null symbol) */
+        put32(&sh, 4);
+        put32(&sh, 16);
+        idx++;
+        /* .strtab */
+        put32(&sh, shs_off[6]);
+        put32(&sh, SHT_STRTAB);
+        put32(&sh, 0);
+        put32(&sh, 0);
+        put32(&sh, (uint32_t)(sh_off + (uint64_t)nsecs * 40 + shs_size + symtab_size));
+        put32(&sh, (uint32_t)str_size);
+        put32(&sh, 0);
+        put32(&sh, 0);
+        put32(&sh, 1);
+        put32(&sh, 0);
+        idx++;
+        /* .shstrtab */
+        put32(&sh, shs_off[7]);
+        put32(&sh, SHT_STRTAB);
+        put32(&sh, 0);
+        put32(&sh, 0);
+        put32(&sh, (uint32_t)(sh_off + (uint64_t)nsecs * 40));
+        put32(&sh, (uint32_t)shs_size);
+        put32(&sh, 0);
+        put32(&sh, 0);
+        put32(&sh, 1);
+        put32(&sh, 0);
+        idx++;
+        (void)idx;
+    } else {
         uint8_t *sh = img + sh_off;
         /* [0] NULL */
         sh += 64;
@@ -1664,10 +1855,11 @@ static int emit_exec(ZcLink *L, const char *out_path, uint64_t entry,
     }
 
     /* String/symbol tables into the image (after the section headers). */
-    memcpy(img + sh_off + (uint64_t)nsecs * 64, shstrtab, shs_size);
-    memcpy(img + sh_off + (uint64_t)nsecs * 64 + shs_size, symtab,
+    size_t shdr_stride = L->is_32 ? 40 : 64;
+    memcpy(img + sh_off + (uint64_t)nsecs * shdr_stride, shstrtab, shs_size);
+    memcpy(img + sh_off + (uint64_t)nsecs * shdr_stride + shs_size, symtab,
            symtab_size);
-    memcpy(img + sh_off + (uint64_t)nsecs * 64 + shs_size + symtab_size,
+    memcpy(img + sh_off + (uint64_t)nsecs * shdr_stride + shs_size + symtab_size,
            strtab, str_size);
 
     FILE *f = fopen(out_path, "wb");
