@@ -1,3 +1,38 @@
+## [Sprint 143] - 2026-11-09 - Remove host-glibc dependency: static musl build + self-hosting dlfcn
+
+ZeroCC compiler binaries and test executables linking the compiler library are now
+fully statically linked against the in-tree vendored musl (`third_party/vendor/musl/`),
+removing all host-glibc dependencies (`ldd build/bin/zerocc` -> "not a dynamic executable").
+
+- **Vendored static-musl host toolchain** (`tools/musl_host_toolchain.sh`, `Makefile`):
+  - Builds static `libc.a` from `third_party/vendor/musl/musl-1.2.6` into `build/musl/`.
+  - Emits `build/bin/musl-gcc` wrapper with custom specs.
+  - Links compiler and test binaries with `-static -no-pie -Wl,--whole-archive $(MUSL_LIBC) -Wl,--no-whole-archive`.
+  - The `--whole-archive` flag ensures all musl C library symbols (`printf`, `sin`, `malloc`, etc.)
+    are present in the binary's ELF `.symtab` for JIT execution of user programs.
+- **Self-hosting dlfcn for static binary** (`zero_rt/dlfcn/dlfcn.c`):
+  - Since musl's static `libc.a` ships dummy stubs for `dlopen`/`dlsym`/`dlclose`/`dlerror`,
+    the build strips those members from `libc.a`.
+  - `zero_rt/dlfcn/dlfcn.c` provides working implementations of the core four functions
+    by reading the running process's own ELF `.symtab` via `/proc/self/exe` (binary search over sorted table).
+  - Handles both `ET_EXEC` (absolute `st_value`) and `ET_DYN` (relocated via `/proc/self/maps`).
+- **JIT far-external-call trampoline pool** (`src/zero_cc/jit/execution.h`):
+  - A 5-byte `call rel32` only reaches +-2GB, but an in-process JIT page sits
+    ~128GB from the static main image, so external `dlsym`-resolved calls
+    (e.g. `printf`) were unreachable without `comp->jit_mode = 1` (which emits
+    the 11-byte `mov r11, imm64; call *r11` form).
+  - `zero_cc_execute_jit` now reserves a detour-style trampoline pool in the
+    same RWX-then-RX mapping (appended to the code region after rodata):
+    `ff 25 00 00 00 00` + 8-byte absolute target (14 bytes/slot). Far external
+    call sites are re-aimed at a nearby in-image trampoline, so the default
+    in-process path works with no `jit_mode` special-casing; near targets keep
+    the direct rel32 patch, `jit_mode = 1` keeps the absolute form, and pool
+    exhaustion / undefined symbols remain clean compile errors.
+  - `test/jit/float_printf.c` and `test/jit/rodata_demo_jit.c` stay at the
+    default `jit_mode = 0` and exercise the trampoline path.
+  - Renamed Bessel-colliding globals `y1`/`y2` to `ia1`/`ia2` in `test/jit/multi_decl_init.c`.
+  - Relaxed POSIX feature macro check in `posix_mmap.h` for musl's default mode.
+
 ## [Sprint 142] - 2026-11-09 - ISA gate reference oracles moved to gcc-15 (x86-64 + host ref builds)
 
 Follow-up to the Sprint 141 mandatory-gcc-15 policy: the cross-ISA

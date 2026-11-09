@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 165-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-11-09T02:46:18Z
+timestamp: 2026-11-09T04:12:12Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -17,6 +17,15 @@ Follow these workflows whenever modifying ZeroCC.
 ## 1. Building ZeroCC
 
 > **Note**: The Makefile target is `make all` or `make build/bin/zerocc` (there is no `make build` target). Incremental builds track header dependencies automatically via `-MMD -MP`.
+
+### Vendored Static-Musl Host Toolchain (Sprint 143)
+
+`build/bin/zerocc` and every test binary linking the ZeroCC compiler library are built fully statically against the vendored musl (`third_party/vendor/musl/musl-1.2.6`), removing all host-glibc runtime dependencies (`ldd build/bin/zerocc` reports "not a dynamic executable").
+
+- **Build script**: `tools/musl_host_toolchain.sh` builds static `libc.a` into `build/musl/` and emits `build/bin/musl-gcc` specs wrapper.
+- **Linker flags**: `-static -no-pie -Wl,--whole-archive $(MUSL_LIBC) -Wl,--no-whole-archive`. The `--whole-archive` flag ensures that the full libc symbol set (`printf`, `sin`, `malloc`, etc.) is retained in `.symtab` for JIT user programs.
+- **Self-hosting dlfcn**: Musl ships stubs for `dlopen`/`dlsym`/`dlclose`/`dlerror` in static mode. The build strips these from `libc.a`, and `zero_rt/dlfcn/dlfcn.c` implements them via `/proc/self/exe` ELF symbol table inspection.
+- **JIT external call convention**: x86 external calls are emitted as `call rel32` with a relocation. At JIT finalization, near targets (<=2GB) get the rel32 patched directly; far targets (the usual in-process layout, where host libc sits ~128GB from the JIT page) are re-aimed at a detour-style trampoline in a pool inside the same RX mapping (`ff 25 00 00 00 00` + 8-byte absolute target), so in-process tests need no special flag. Setting `comp->jit_mode = 1` before `zero_cc_compile_c99` instead makes the x86 backend emit the 11-byte absolute form (`mov r11, imm64; call *r11`, `is_abs_call`), which the CLI `--run` path uses. Undefined externals and pool exhaustion remain clean compile errors.
 
 ```bash
 # Build compiler binary and all test binaries

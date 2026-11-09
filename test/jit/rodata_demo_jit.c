@@ -9,7 +9,6 @@
 int main(void) {
     const char *src = "#include <stdio.h>\nint main(void) { printf(\"hello world\\n\"); return 0; }";
     ZeroCCCompiler *comp = calloc(1, sizeof(ZeroCCCompiler));
-    comp->jit_mode = 1;
     char *prep = zero_cc_preprocess(src, NULL);
     zero_cc_tokenize_c99(prep, comp);
     free(prep);

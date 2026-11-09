@@ -48,7 +48,9 @@ ZeroCC is a lightweight, embeddable C99/C11/C23 compiler (with GNU extensions) w
 - `__builtin_return_address` / `__builtin_frame_address` (Sprint 86)
 - Computed goto (`goto *ptr`) and labels as values (`&&label`) (Sprint 84)
 - Inline `OP_SETJMP` / `OP_LONGJMP` (Sprint 88)
-- JIT execution via `mmap` + `dlsym` host symbol resolution
+- JIT execution via `mmap` + self-hosting `dlfcn` (reading `/proc/self/exe`
+  ELF symbol table; compiler binary is statically linked against vendored musl
+  with zero host libc dependency)
 - **Two-pass code generation**: IR → optimization → linear-scan register
   allocation → machine code
 - **Optimization levels** `-O0`…`-O3` (constant folding, DCE, copy

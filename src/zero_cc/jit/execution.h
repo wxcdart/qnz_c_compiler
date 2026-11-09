@@ -30,9 +30,38 @@ static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
      * Code and rodata are mapped into code_page_sz and transitioned to RX (read+exec, no write).
      * Mutable data (.data) is mapped on a separate page boundary and remains RW (read+write, no exec).
      */
-    size_t code_len = c->text_section.length + c->rodata_section.length;
+
+    /* Detour-style trampoline pool for far external calls.
+     *
+     * A 5-byte `call rel32` reaches only +-2GB from the JIT image.  In an
+     * in-process JIT the host's libc typically lives ~128GB away (static
+     * main image at ~0x400000, JIT mmap at the top of the VA space), so
+     * external call sites whose target is out of rel32 range are re-aimed
+     * at a trampoline that lives in this same mapping:
+     *
+     *     ff 25 00 00 00 00     jmp [rip+0]
+     *     <8-byte absolute target>
+     *
+     * The pool is appended to the code region (after rodata, inside the
+     * page that gets the single RX transition), so no second mapping or
+     * extra W^X juggling is needed and the call site stays a normal
+     * `e8 rel32` (near: patched directly, far: near the pool).
+     *
+     * One slot per call relocation that is not already the 11-byte
+     * absolute form (is_abs_call) is a safe upper bound; usually zero
+     * slots are consumed. */
+    size_t tramp_slots = 0;
+    for (size_t i = 0; i < c->reloc_count; i++) {
+        if (c->relocs[i].is_call && !c->relocs[i].is_abs_call) tramp_slots++;
+    }
+    const size_t ZC_TRAMP_SIZE = 14; /* 6-byte jmp [rip+8] + 8-byte target */
+    size_t tramp_sz = tramp_slots * ZC_TRAMP_SIZE;
+    size_t tramp_base = c->text_section.length + c->rodata_section.length;
+
+    size_t code_len = c->text_section.length + c->rodata_section.length + tramp_sz;
     size_t code_page_sz = (code_len + page_sz - 1) & ~(page_sz - 1);
     if (code_page_sz == 0) code_page_sz = page_sz;
+    size_t tramp_used = 0;
 
     size_t data_len = c->data_section.length;
     /* Compute BSS size (zero-initialized globals above threshold) */
@@ -103,13 +132,31 @@ static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
                     uintptr_t call_site = (uintptr_t)mem + c->relocs[i].text_patch_offset + 4;
                     intptr_t delta = (intptr_t)host_fn - (intptr_t)call_site;
                     int32_t rel = (int32_t)delta;
-                    if ((intptr_t)rel != delta) {
-                        fprintf(stderr, "Compile error: external reference to '%s' >2GB away (requires jit_mode = 1)\n",
-                                c->relocs[i].target_symbol);
-                        zero_mmap_free(mem, total_sz);
-                        return -1;
+                    if ((intptr_t)rel == delta) {
+                        /* Near external target: patch the rel32 directly. */
+                        memcpy(c->text_section.data + c->relocs[i].text_patch_offset, &rel, 4);
+                    } else {
+                        /* Far external target (>2GB away - the usual
+                         * in-process JIT layout): install a trampoline in
+                         * the pool (same mapping, hence always in rel32
+                         * range) and re-aim the call at it. */
+                        if (tramp_used >= tramp_slots) {
+                            fprintf(stderr, "Compile error: trampoline pool exhausted for '%s'\n",
+                                    c->relocs[i].target_symbol);
+                            zero_mmap_free(mem, total_sz);
+                            return -1;
+                        }
+                        uint8_t *tp = (uint8_t *)mem + tramp_base + tramp_used * ZC_TRAMP_SIZE;
+                        tramp_used++;
+                        /* 6-byte instruction -> operand rip = tp+6; disp32
+                         * 0 keeps the 8-byte target immediately after the
+                         * instruction (classic detour layout, 14 bytes). */
+                        static const uint8_t zc_tramp_hdr[6] = { 0xff, 0x25, 0x00, 0x00, 0x00, 0x00 };
+                        memcpy(tp, zc_tramp_hdr, 6);
+                        memcpy(tp + 6, &host_fn, 8);
+                        int32_t tp_rel = (int32_t)((uintptr_t)tp - (intptr_t)call_site);
+                        memcpy(c->text_section.data + c->relocs[i].text_patch_offset, &tp_rel, 4);
                     }
-                    memcpy(c->text_section.data + c->relocs[i].text_patch_offset, &rel, 4);
                 } else {
                     /* Undefined external (JIT): clean compile error instead
                      * of a zeroed rel32 that jumps to address 0. */

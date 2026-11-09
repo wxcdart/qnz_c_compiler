@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-09T02:46:18Z
+timestamp: 2026-11-09T04:12:12Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1224,3 +1224,15 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-09 — Updated `build-and-verification.md`
 - Sprint 142: ISA gate reference oracles moved to gcc-15 (test-isa128 ref builds + x86-64 link; musl-gcc-x86_64 wrapper rebuilt with --ccbin gcc-15); cross targets keep the installed cross gcc (no cross gcc-15 builds exist)
+
+## 2026-11-09 — Updated `build-and-verification.md`
+- Sprint 143: remove host-glibc dependency via vendored static musl + self-hosting dlfcn
+
+## 2026-11-09 — Updated `zero-rt.md`
+- Sprint 143: document self-hosting dlfcn reading /proc/self/exe for static musl builds
+
+## 2026-11-09 — Updated `build-and-verification.md`
+- Sprint 143: JIT far-external-call trampoline pool (ff 25 0 + abs64) in the RX mapping; in-process JIT needs no jit_mode
+
+## 2026-11-09 — Updated `zero-rt.md`
+- Sprint 143: dlfcn self-hosting note (unchanged file, timestamp bump)
