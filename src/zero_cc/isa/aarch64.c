@@ -571,8 +571,16 @@ static void aarch64_emit_variadic_al_setup(ZeroCCCompiler *c, int num_fp_args) {
 
 /* vla_alloc - variable length array allocation */
 static void aarch64_emit_vla_alloc(ZeroCCCompiler *c, int dst_reg, int size_reg) {
-    /* sub dst, sp, size */
-    arm64_emit_u32(c, 0xCB0003E0 | (size_reg << 16) | 31 | dst_reg);
+    /* x16 = sp */
+    arm64_emit_u32(c, 0x910003F0);
+    /* x16 = x16 - size_reg */
+    arm64_emit_u32(c, 0xCB000210 | (size_reg << 16));
+    /* sp = x16 */
+    arm64_emit_u32(c, 0x9100021F);
+    /* dst_reg = x16 */
+    if (dst_reg != 16) {
+        arm64_emit_u32(c, 0xAA1003E0 | dst_reg);
+    }
 }
 
 /* atomic_cmpxchg - atomic compare and exchange */
@@ -803,6 +811,44 @@ static size_t aarch64_emit_lea_label(ZeroCCCompiler *c, int dst_reg) {
     uint32_t insn = 0x10000000 | (dst_reg & 0x1F); /* ADR dst_reg, 0 */
     arm64_emit_u32(c, insn);
     return patch_pos;
+}
+
+static void aarch64_emit_stack_guard_init(ZeroCCCompiler *c, int32_t slot_off) {
+    uint32_t adrp = 0x90000000u | 16u;
+    uint32_t add  = 0x91000000u | (16u << 5) | 16u;
+    arm64_emit_u32(c, adrp);
+    arm64_emit_u32(c, add);
+    if (c->reloc_count < ZERO_CC_MAX_RELOCS) {
+        ZeroCCReloc *r = &c->relocs[c->reloc_count++];
+        r->text_patch_offset = me_get_offset(c) - 4;
+        snprintf(r->target_symbol, sizeof(r->target_symbol), "__stack_chk_guard");
+        r->is_call = false;
+    }
+    arm64_emit_u32(c, 0xF9400210u); /* ldr x16, [x16] */
+    int base_reg = zero_cc_frame_base_reg(c);
+    int32_t disp = zero_cc_frame_disp(c, -slot_off);
+    aarch64_emit_store(c, 16, base_reg, disp);
+    arm64_emit_u32(c, 0xD2800010u); /* mov x16, #0 */
+}
+
+static void aarch64_emit_stack_guard_check(ZeroCCCompiler *c, int32_t slot_off) {
+    int base_reg = zero_cc_frame_base_reg(c);
+    int32_t disp = zero_cc_frame_disp(c, -slot_off);
+    aarch64_emit_load(c, 16, base_reg, disp);
+    uint32_t adrp = 0x90000000u | 17u;
+    uint32_t add  = 0x91000000u | (17u << 5) | 17u;
+    arm64_emit_u32(c, adrp);
+    arm64_emit_u32(c, add);
+    if (c->reloc_count < ZERO_CC_MAX_RELOCS) {
+        ZeroCCReloc *r = &c->relocs[c->reloc_count++];
+        r->text_patch_offset = me_get_offset(c) - 4;
+        snprintf(r->target_symbol, sizeof(r->target_symbol), "__stack_chk_guard");
+        r->is_call = false;
+    }
+    arm64_emit_u32(c, 0xF9400231u); /* ldr x17, [x17] */
+    arm64_emit_u32(c, 0xEB110210u); /* subs x16, x16, x17 */
+    arm64_emit_u32(c, 0x54000040u); /* b.eq +8 (skip bl) */
+    aarch64_emit_call(c, "__stack_chk_fail");
 }
 
 /* OS syscall (Linux AArch64 ABI): number in x8, args 1-6 in x0-x5, result
@@ -1905,6 +1951,8 @@ ZeroCCISABackend aarch64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_leave = aarch64_emit_leave,
     .emit_epilogue = aarch64_emit_epilogue,
     .get_code_offset = aarch64_get_code_offset,
+    .emit_stack_guard_init = aarch64_emit_stack_guard_init,
+    .emit_stack_guard_check = aarch64_emit_stack_guard_check,
 
     .emit_prologue_asm = aarch64_emit_prologue_asm,
     .emit_epilogue_asm = aarch64_emit_epilogue_asm,

@@ -132,6 +132,25 @@ static void x86_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
     }
 }
 
+static void x86_emit_stack_guard_init_asm(ZeroCCCompiler *c, int32_t slot_off, FILE *out) {
+    const char *base_name = BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c));
+    int32_t disp = zero_cc_frame_disp(c, -slot_off);
+    fprintf(out, "\tmovq\t%%fs:40, %%r11\n");
+    fprintf(out, "\tmovq\t%%r11, %d(%%%s)\n", (int)disp, base_name);
+    fprintf(out, "\txorq\t%%r11, %%r11\n");
+}
+
+static void x86_emit_stack_guard_check_asm(ZeroCCCompiler *c, int32_t slot_off, FILE *out) {
+    const char *base_name = BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c));
+    int32_t disp = zero_cc_frame_disp(c, -slot_off);
+    size_t fn_idx = c->lowering.current_func_idx;
+    fprintf(out, "\tmovq\t%d(%%%s), %%r11\n", (int)disp, base_name);
+    fprintf(out, "\tsubq\t%%fs:40, %%r11\n");
+    fprintf(out, "\tje\t.LSP_ok_%zu\n", fn_idx);
+    fprintf(out, "\tcall\t__stack_chk_fail\n");
+    fprintf(out, ".LSP_ok_%zu:\n", fn_idx);
+}
+
 /* Epilogue: restore callee-saved, leave, ret */
 static void x86_emit_epilogue_asm(ZeroCCCompiler *c) {
     FILE *out = c->asm_out;
@@ -1763,6 +1782,8 @@ static void x86_emit_inline_asm_asm(ZeroCCCompiler *c, size_t idx, FILE *out) {
 void x86_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_prologue_asm = x86_emit_prologue_asm;
     be->emit_epilogue_asm = x86_emit_epilogue_asm;
+    be->emit_stack_guard_init_asm = x86_emit_stack_guard_init_asm;
+    be->emit_stack_guard_check_asm = x86_emit_stack_guard_check_asm;
     be->get_hw_reg_name = x86_get_hw_reg_name;
     be->get_vec_reg_name = x86_get_vec_reg_name;
 

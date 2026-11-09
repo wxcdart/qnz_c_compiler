@@ -76,6 +76,8 @@
 #define RT_SYS_GETPID      39
 #define RT_SYS_CLONE       56
 #define RT_SYS_EXIT        60
+#define RT_SYS_ARCH_PRCTL  158
+#define RT_ARCH_SET_FS     0x1002
 #define RT_SYS_GETTID      186
 #define RT_SYS_FUTEX       202
 #define RT_SYS_EXIT_GROUP  231
@@ -115,6 +117,7 @@ int       zeroc_rt_write(int fd, const void *buf, uint64_t count);
 uintptr_t zeroc_rt_brk(uintptr_t addr);      /* 0 = query current break */
 int       zeroc_rt_getpid(void);
 void      zeroc_rt_exit_group(int code);    /* does not return */
+int       zeroc_rt_arch_prctl(int code, unsigned long addr);
 
 /* Threading and memory management OS boundary */
 long      zeroc_rt_clone(int (*fn)(void *), void *child_stack, unsigned long flags,

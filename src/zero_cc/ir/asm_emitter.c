@@ -39,6 +39,10 @@ void emit_prologue_asm(ZeroCCCompiler *c, size_t frame_size) {
     if (BE(c)->emit_prologue_asm) {
         BE(c)->emit_prologue_asm(c, frame_size);
     }
+    if (c->lowering.has_stack_protector && BE(c)->emit_stack_guard_init_asm) {
+        FILE *out = c->asm_out ? c->asm_out : stdout;
+        BE(c)->emit_stack_guard_init_asm(c, c->lowering.canary_stack_off, out);
+    }
 }
 
 
@@ -479,6 +483,7 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             }
             /* Option 2: Inline epilogue on early returns when no static-local mirror or CSR restore is required */
             if (instr->label_idx == c->lowering.epilogue_label &&
+                !c->lowering.has_stack_protector &&
                 c->lowering.static_local_rt_off == 0 &&
                 c->regalloc.used_callee_saved_gpr_mask == 0 &&
                 BE(c)->emit_epilogue_asm) {
@@ -1739,6 +1744,10 @@ void emit_ir_to_asm(ZeroCCCompiler *c, int32_t spill_base_offset) {
     }
 
     /* Emit epilogue */
+    if (c->lowering.has_stack_protector && BE(c)->emit_stack_guard_check_asm) {
+        FILE *out = c->asm_out ? c->asm_out : stdout;
+        BE(c)->emit_stack_guard_check_asm(c, c->lowering.canary_stack_off, out);
+    }
     if (BE(c)->emit_epilogue_asm) {
         BE(c)->emit_epilogue_asm(c);
     }

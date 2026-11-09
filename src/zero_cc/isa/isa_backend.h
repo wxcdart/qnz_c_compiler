@@ -62,10 +62,14 @@ typedef struct ZeroCCISABackend {
     void (*emit_leave)(ZeroCCCompiler *c);
     void (*emit_epilogue)(ZeroCCCompiler *c);
     size_t (*get_code_offset)(ZeroCCCompiler *c);
+    void (*emit_stack_guard_init)(ZeroCCCompiler *c, int32_t slot_off);
+    void (*emit_stack_guard_check)(ZeroCCCompiler *c, int32_t slot_off);
 
     /* Assembly emission (text output) */
     void (*emit_prologue_asm)(ZeroCCCompiler *c, size_t stack_size);
     void (*emit_epilogue_asm)(ZeroCCCompiler *c);
+    void (*emit_stack_guard_init_asm)(ZeroCCCompiler *c, int32_t slot_off, FILE *out);
+    void (*emit_stack_guard_check_asm)(ZeroCCCompiler *c, int32_t slot_off, FILE *out);
     const char *(*get_hw_reg_name)(int phys_reg);  /* Get register name by hardware number */
     const char *(*get_vec_reg_name)(int vec_reg_idx);  /* Get vector register name */
 

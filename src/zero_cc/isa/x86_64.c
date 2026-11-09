@@ -1234,6 +1234,35 @@ static void x86_emit_call(ZeroCCCompiler *c, const char *fn_name) {
     }
 }
 
+static void x86_emit_stack_guard_init(ZeroCCCompiler *c, int32_t slot_off) {
+    /* mov %fs:40, %r11: 64 4c 8b 1c 25 28 00 00 00 */
+    const uint8_t fs_load_r11[] = {0x64, 0x4c, 0x8b, 0x1c, 0x25, 0x28, 0x00, 0x00, 0x00};
+    me_emit_bytes(c, fs_load_r11, sizeof(fs_load_r11));
+    int base_reg = zero_cc_frame_base_reg(c);
+    int32_t disp = zero_cc_frame_disp(c, -slot_off);
+    x86_emit_store(c, X86_R11, base_reg, disp);
+    /* xor %r11, %r11: 4d 31 db */
+    const uint8_t xor_r11[] = {0x4d, 0x31, 0xdb};
+    me_emit_bytes(c, xor_r11, sizeof(xor_r11));
+}
+
+static void x86_emit_stack_guard_check(ZeroCCCompiler *c, int32_t slot_off) {
+    int base_reg = zero_cc_frame_base_reg(c);
+    int32_t disp = zero_cc_frame_disp(c, -slot_off);
+    x86_emit_load(c, X86_R11, base_reg, disp);
+    /* sub %fs:40, %r11: 64 4c 2b 1c 25 28 00 00 00 */
+    const uint8_t fs_sub_r11[] = {0x64, 0x4c, 0x2b, 0x1c, 0x25, 0x28, 0x00, 0x00, 0x00};
+    me_emit_bytes(c, fs_sub_r11, sizeof(fs_sub_r11));
+    /* je .Lok (over the call to __stack_chk_fail) */
+    me_emit_u8(c, 0x74); /* je rel8 */
+    size_t patch_jump = me_get_offset(c);
+    me_emit_u8(c, 0); /* placeholder */
+    x86_emit_call(c, "__stack_chk_fail");
+    size_t end_pos = me_get_offset(c);
+    int8_t disp8 = (int8_t)(end_pos - (patch_jump + 1));
+    c->text_section.data[patch_jump] = (uint8_t)disp8;
+}
+
 /* Floating point operations */
 static void x86_emit_load_fp(ZeroCCCompiler *c, int dst_reg, int base_reg, int32_t offset) {
     /* movsd xmm, [base + offset] */
@@ -2592,6 +2621,8 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_leave = x86_emit_leave,
     .emit_epilogue = x86_emit_epilogue,
     .get_code_offset = x86_get_code_offset,
+    .emit_stack_guard_init = x86_emit_stack_guard_init,
+    .emit_stack_guard_check = x86_emit_stack_guard_check,
     .emit_inline_asm_mc = x86_emit_inline_asm_mc,
     .emit_filescope_asm_mc = x86_emit_filescope_asm_mc,
 

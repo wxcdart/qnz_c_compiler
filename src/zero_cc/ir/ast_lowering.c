@@ -68,18 +68,38 @@ static void zc_prescan_mark_addr_of(ZeroCCCompiler *c, ZeroCCASTArena *arena, AS
     if (operand == AST_NULL) return;
     ZeroCCASTNode *n = zero_cc_ast_get(arena, operand);
     if (!n) return;
-    if (n->tag == NODE_MEMBER) {
+    if (n->tag == NODE_MEMBER || n->tag == NODE_INDEX) {
         zc_prescan_mark_addr_of(c, arena, n->left);
         return;
     }
     if (n->tag == NODE_IDENT && n->s.str) {
         for (size_t i = 0; i < c->local_count; i++) {
             ZeroCCSym *s = &c->locals[i];
-            if (s->is_static_local && strcmp(s->name, n->s.str) == 0) {
-                s->static_addr_taken = true;
+            if (strcmp(s->name, n->s.str) == 0) {
+                if (s->is_static_local) {
+                    s->static_addr_taken = true;
+                } else {
+                    s->addr_taken = true;
+                }
             }
         }
     }
+}
+
+static bool zc_type_contains_array(const ZeroCCType *t) {
+    if (!t) return false;
+    if (t->tag == TYPE_ARRAY) return true;
+    if (t->tag == TYPE_STRUCT || t->tag == TYPE_UNION) {
+        if (!t->members) return false;
+        for (size_t i = 0; i < t->member_count; i++) {
+            const ZeroCCStructMember *m = &t->members[i];
+            if (m->tag == TYPE_ARRAY) return true;
+            if ((m->tag == TYPE_STRUCT || m->tag == TYPE_UNION) && m->base) {
+                if (zc_type_contains_array(m->base)) return true;
+            }
+        }
+    }
+    return false;
 }
 
 /* Recursively visit every expression/statement sub-node of `ref`, marking
@@ -361,9 +381,45 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     /* Reset IR buffer */
     ir_reset(c);
 
+    /* Prescan AST for address-taken variables (both static locals and automatic locals) */
+    zero_cc_prescan_static_addr_taken(c, arena, root);
+
+    /* Determine stack protector requirements */
+    bool needs_protect = false;
+    if (c->stack_protector == 2) {
+        /* -fstack-protector-all: protect every function */
+        needs_protect = true;
+    } else if (c->stack_protector != 0) {
+        for (size_t i = 0; i < c->local_count; i++) {
+            ZeroCCSym *s = &c->locals[i];
+            if (s->is_vla) {
+                needs_protect = true;
+                break;
+            }
+            if (s->type.tag == TYPE_ARRAY) {
+                if (c->stack_protector == 3 || s->type.size >= 8) {
+                    needs_protect = true;
+                    break;
+                }
+            }
+            if (c->stack_protector == 3) {
+                if (zc_type_contains_array(&s->type)) {
+                    needs_protect = true;
+                    break;
+                }
+                if (s->addr_taken) {
+                    needs_protect = true;
+                    break;
+                }
+            }
+        }
+    }
+    c->lowering.has_stack_protector = needs_protect;
+    c->lowering.canary_stack_off = needs_protect ? c->canary_stack_offset : 0;
+
     /* Determine if incoming parameters can be kept directly in virtual registers (frameless leaf) */
     bool can_promote_params = false;
-    if (lowering_fn) {
+    if (!needs_protect && lowering_fn) {
         ZeroCCFunction *fn = lowering_fn;
         int max_int_params = (c->isa == ISA_X86_64) ? 3 : 8;
         if (!fn->is_variadic && fn->ret_struct_sz <= 16 &&
@@ -792,10 +848,6 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
      * allocator temps that may be mapped onto the return register, and the
      * return value is already live in VREG_0 by the time the epilogue runs.
      * (Must happen before the frame size is computed below.) */
-    /* Sprint 72: mark statics whose address is materialized (must precede
-     * lowering so every access site sees the flag). */
-    zero_cc_prescan_static_addr_taken(c, arena, root);
-
     c->lowering.static_local_rt_off = 0;
     c->lowering.static_local_rt2_off = 0;
     bool need_rt_slot = false;
@@ -1159,7 +1211,8 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     }
 
     /* Option 1: Leaf functions with no stack needs are frameless */
-    c->lowering.is_frameless = (is_leaf && total_frame_size == 0 &&
+    c->lowering.is_frameless = (!c->lowering.has_stack_protector &&
+                                is_leaf && total_frame_size == 0 &&
                                 c->regalloc.used_callee_saved_gpr_mask == 0 &&
                                 c->lowering.static_local_rt_off == 0 &&
                                 !c->lowering.has_frame_address);
@@ -1168,7 +1221,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
      * Leaf functions with <= 128 bytes can use the 128-byte Red Zone below %rsp directly
      * without adjusting %rsp. */
     size_t alloc_frame_size = total_frame_size;
-    if (c->isa == ISA_X86_64 && is_leaf && total_frame_size <= 128 && !c->lowering.has_frame_address &&
+    if (c->isa == ISA_X86_64 && !c->lowering.has_stack_protector && is_leaf && total_frame_size <= 128 && !c->lowering.has_frame_address &&
         !align_realign) {
         alloc_frame_size = 0;
     }
@@ -1276,6 +1329,9 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     /* Callee-saved register loads are now handled by OP_CALLEE_SAVE_LOADS IR instruction */
 
     /* Emit epilogue */
+    if (!c->emit_asm && c->lowering.has_stack_protector && BE(c)->emit_stack_guard_check) {
+        BE(c)->emit_stack_guard_check(c, c->lowering.canary_stack_off);
+    }
     BE(c)->emit_leave(c);
     BE(c)->emit_ret(c);
     regalloc_destroy(&c->regalloc);

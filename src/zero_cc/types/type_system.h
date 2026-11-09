@@ -218,6 +218,7 @@ typedef struct {
      * section directly. Set by a pre-scan before lowering (see
      * zero_cc_prescan_static_addr_taken in ast_lowering.c). */
     bool static_addr_taken;
+    bool addr_taken;                      /* Local variable address is taken in function body */
     bool is_extern;                       /* Block-scope extern declaration */
     /* C11 6.2.1: the block scope of this declaration has ended during
      * lowering (its enclosing NODE_BLOCK finished). The flat latest-wins

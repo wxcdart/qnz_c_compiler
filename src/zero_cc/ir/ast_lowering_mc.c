@@ -9,6 +9,9 @@ void emit_prologue_mc(ZeroCCCompiler *c, size_t frame_size) {
     if (BE(c)->emit_prologue) {
         BE(c)->emit_prologue(c, frame_size, 0);
     }
+    if (c->lowering.has_stack_protector && BE(c)->emit_stack_guard_init) {
+        BE(c)->emit_stack_guard_init(c, c->lowering.canary_stack_off);
+    }
     /* Sprint 99: snapshot the body-time SP (after frame setup, before any
      * VLA adjustment) for nonlocal-goto pair marshalling. */
     if (c->lowering.sp_snap_off > 0 && BE(c)->emit_store) {
@@ -1789,6 +1792,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                     }
                     /* Option 2: Inline epilogue on early returns when no static-local mirror or CSR reload is required */
                     if (instr->label_idx == c->lowering.epilogue_label &&
+                        !c->lowering.has_stack_protector &&
                         c->lowering.static_local_rt_off == 0 &&
                         c->regalloc.used_callee_saved_gpr_mask == 0 &&
                         BE(c)->emit_leave && BE(c)->emit_ret) {

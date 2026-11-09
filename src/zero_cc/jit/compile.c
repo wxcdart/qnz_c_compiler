@@ -981,6 +981,16 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
         }
         c->current_stack_frame = BE(c)->callee_save_frame_reserve; /* Reserve top of frame for callee-saves */
 
+        /* Stack protector canary slot: sits between local variables and
+         * the callee-saved register reserve / saved FP. */
+        if (c->stack_protector != 0) {
+            c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+            c->current_stack_frame += 8;
+            c->canary_stack_offset = c->current_stack_frame;
+        } else {
+            c->canary_stack_offset = 0;
+        }
+
         /* System V AMD64 ABI: >16 byte struct returns use hidden pointer in RDI.
          * Reserve an 8-byte stack slot for the hidden pointer before params. */
         if (fn->ret_struct_sz > 16) {
@@ -1290,6 +1300,13 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
                     for (size_t b = 0; b < c->local_hash_bucket_count; b++) c->local_hash_buckets[b] = -1;
                 }
                 c->current_stack_frame = BE(c)->callee_save_frame_reserve;
+                if (c->stack_protector != 0) {
+                    c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                    c->current_stack_frame += 8;
+                    c->canary_stack_offset = c->current_stack_frame;
+                } else {
+                    c->canary_stack_offset = 0;
+                }
                 /* System V AMD64 ABI: >16 byte struct returns use the hidden
                  * pointer in RDI; reserve its slot before the params (same
                  * as the top-level function path). */

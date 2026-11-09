@@ -416,6 +416,47 @@ static void riscv64_emit_call(ZeroCCCompiler *c, const char *func_name) {
     }
 }
 
+static void riscv_emit_stack_guard_init(ZeroCCCompiler *c, int32_t slot_off) {
+    /* auipc t5, 0; addi t5, t5, 0 */
+    uint32_t auipc = (uint32_t)(((uint32_t)RV64_T5 << 7) | 0x17u);
+    uint32_t addi  = (uint32_t)(((uint32_t)RV64_T5 << 15) | ((uint32_t)RV64_T5 << 7) | 0x13u);
+    riscv_emit_u32(c, auipc);
+    riscv_emit_u32(c, addi);
+    if (c->reloc_count < ZERO_CC_MAX_RELOCS) {
+        ZeroCCReloc *r = &c->relocs[c->reloc_count++];
+        r->text_patch_offset = me_get_offset(c) - 4;
+        snprintf(r->target_symbol, sizeof(r->target_symbol), "__stack_chk_guard");
+        r->is_call = false;
+    }
+    int f3 = (c->isa == ISA_RISCV32) ? 2 : 3;
+    riscv_emit_u32(c, rv64_I(RV_REG(RV64_T5), RV_REG(RV64_T5), f3, 0, 0x03)); /* ld/lw t5, 0(t5) */
+    int base_reg = zero_cc_frame_base_reg(c);
+    int32_t disp = zero_cc_frame_disp(c, -slot_off);
+    riscv64_emit_store(c, RV64_T5, base_reg, disp);
+    riscv_emit_u32(c, 0x00000F13); /* li/mv t5, zero */
+}
+
+static void riscv_emit_stack_guard_check(ZeroCCCompiler *c, int32_t slot_off) {
+    int base_reg = zero_cc_frame_base_reg(c);
+    int32_t disp = zero_cc_frame_disp(c, -slot_off);
+    riscv64_emit_load(c, RV64_T5, base_reg, disp);
+    /* auipc t6, 0; addi t6, t6, 0 */
+    uint32_t auipc = (uint32_t)(((uint32_t)RV64_T6 << 7) | 0x17u);
+    uint32_t addi  = (uint32_t)(((uint32_t)RV64_T6 << 15) | ((uint32_t)RV64_T6 << 7) | 0x13u);
+    riscv_emit_u32(c, auipc);
+    riscv_emit_u32(c, addi);
+    if (c->reloc_count < ZERO_CC_MAX_RELOCS) {
+        ZeroCCReloc *r = &c->relocs[c->reloc_count++];
+        r->text_patch_offset = me_get_offset(c) - 4;
+        snprintf(r->target_symbol, sizeof(r->target_symbol), "__stack_chk_guard");
+        r->is_call = false;
+    }
+    int f3 = (c->isa == ISA_RISCV32) ? 2 : 3;
+    riscv_emit_u32(c, rv64_I(RV_REG(RV64_T6), RV_REG(RV64_T6), f3, 0, 0x03)); /* ld/lw t6, 0(t6) */
+    riscv_emit_u32(c, 0x01ff0463); /* beq t5, t6, +8 */
+    riscv64_emit_call(c, "__stack_chk_fail");
+}
+
 static void riscv64_emit_ret(ZeroCCCompiler *c) {
     /* jalr zero, 0(ra) */
     riscv_emit_u32(c, 0x00008067);
@@ -1211,10 +1252,10 @@ static void riscv64_emit_variadic_al_setup(ZeroCCCompiler *c, int num_fp_args) {
 
 /* vla_alloc dst, size - variable length array allocation */
 static void riscv64_emit_vla_alloc(ZeroCCCompiler *c, int dst_reg, int size_reg) {
-    /* sub sp, sp, size */
-    riscv_emit_u32(c, 0x400001b3 | (2 << 7) | (2 << 15) | (size_reg << 20));
-    if (dst_reg != size_reg) {
-        riscv64_emit_mov_reg(c, dst_reg, size_reg);
+    /* sub sp, sp, size (sub x2, x2, size_reg): opcode 0x33, funct3 0, funct7 0x20 */
+    riscv_emit_u32(c, 0x40000033 | (2 << 7) | (2 << 15) | ((RV_REG(size_reg) & 0x1f) << 20));
+    if (dst_reg != 2) {
+        riscv64_emit_mov_reg(c, dst_reg, 2 /* sp */);
     }
 }
 
@@ -1784,6 +1825,8 @@ ZeroCCISABackend riscv64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_leave = riscv64_emit_leave,
     .emit_epilogue = riscv64_emit_epilogue,
     .get_code_offset = riscv64_get_code_offset,
+    .emit_stack_guard_init = riscv_emit_stack_guard_init,
+    .emit_stack_guard_check = riscv_emit_stack_guard_check,
 
     .emit_prologue_asm = riscv_emit_prologue_asm,
     .emit_epilogue_asm = riscv_emit_epilogue_asm,

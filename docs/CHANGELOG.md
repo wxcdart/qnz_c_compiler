@@ -1,3 +1,34 @@
+## [Sprint 147] - 2026-11-09 - Cross-ISA Stack Protection (-fstack-protector[-all|-strong])
+
+ZeroCC gains GCC/Clang-compatible stack smashing protection across all 4 target ISAs (x86-64, aarch64, riscv64, riscv32) in both direct machine-code (JIT / `--zerocc-link`) and text assembly (`-S`) paths:
+
+- **CLI Driver & Options (`src/zero_cc/driver/driver_opts.h`)**:
+  - Added `-fstack-protector` (level 1), `-fstack-protector-all` (level 2), `-fstack-protector-strong` (level 3), and `-fno-stack-protector` (level 0).
+  - Propagated `stack_protector` mode through compiler and lowering states.
+- **Canary Frame Allocation & Protection Heuristic (`src/zero_cc/jit/compile.c`, `ast_lowering.c`)**:
+  - Canary slot allocated at `c->canary_stack_offset = BE(c)->callee_save_frame_reserve + 8;`, positioned immediately between local variables and callee-saved registers / frame pointer / return address so any buffer overflow corrupts the canary before reaching saved control registers.
+  - Tracking address-taken locals (`ZeroCCSym.addr_taken`), local arrays (`TYPE_ARRAY`), structs containing arrays, and VLAs.
+  - Protection criteria:
+    - `-fstack-protector`: functions with arrays >= 8 bytes or VLAs.
+    - `-fstack-protector-strong`: functions with any array, struct containing array, address-taken local, or VLA.
+    - `-fstack-protector-all`: every function.
+  - Functions with stack protection disabled red-zone optimization, frameless elision, and early return inlining to ensure canary check always executes on exit.
+- **Cross-ISA Backend Canary Emission (`src/zero_cc/isa/`)**:
+  - Added `emit_stack_guard_init`, `emit_stack_guard_check`, `emit_stack_guard_init_asm`, `emit_stack_guard_check_asm` to `ZeroCCISABackend`.
+  - **x86-64**: Prologue loads `%fs:40` into scratch `r11`, stores into canary frame slot, clears `r11`. Epilogue loads slot into `r11`, `subq %fs:40, %r11; je .L_chk_ok; call __stack_chk_fail`.
+  - **AArch64**: Prologue loads `__stack_chk_guard` via `adrp`+`add` into scratch `x16`, stores into canary frame slot, clears `x16`. Epilogue loads slot into `x16`, loads guard into `x17`, `subs x16, x16, x17; b.eq .L_chk_ok; bl __stack_chk_fail`.
+  - **RISC-V 64 / RISC-V 32**: Prologue loads `__stack_chk_guard` via `auipc`+`addi` into scratch `t5`, stores into canary slot (`ld` / `lw`), clears `t5`. Epilogue loads slot into `t5`, loads guard into scratch `t6`, `beq t5, t6, .L_chk_ok; call __stack_chk_fail`.
+  - Also fixed AArch64 and RISC-V dynamic VLA allocation (`emit_vla_alloc` / `emit_vla_alloc_asm`): fixed SP decrement and destination register moving across both architectures.
+- **Freestanding Runtime Support (`zero_rt/core/exit.c`, `zero_rt/rt_os.h`, `zero_rt/linux/os.c`)**:
+  - Provided `uintptr_t __stack_chk_guard = 0x00000aff0a0d0a00ULL;` with terminator canary bytes (0x00, 0x0A, 0x0D, 0xFF).
+  - Provided `void __stack_chk_fail(void)` writing `*** stack smashing detected ***: terminated\n` to stderr and exiting with return code 127.
+  - On x86-64 freestanding / `--zerocc-link`, initialized `g_x86_tls_block[5]` with `__stack_chk_guard` and invoked `arch_prctl(ARCH_SET_FS, g_x86_tls_block)` in `zeroc_main_wrapper`.
+  - Automatically added undefined symbol entries in ELF writer for runtime relocation targets (`__stack_chk_fail`, `__stack_chk_guard`).
+- **Verification**:
+  - Added `test/jit/stack_protect.c` exercising array >= 8B, struct with array, address-taken local, and VLA.
+  - Added `case_stack_protect_run` in `tools/linker_tests.py`: positive and buffer overflow smash tests pass cleanly across all 4 ISAs (x86-64, aarch64, riscv64, riscv32) in both native and QEMU execution (39/39 own-linker tests pass).
+  - Full test suite: 197/197 tests pass cleanly.
+
 ## [Sprint 146] - 2026-11-09 - C11 <threads.h> Multithreading Runtime & Cross-ISA Atomic Engine
 
 ZeroCC gains a complete freestanding multithreading runtime (`zero_rt/core/thread.c`) providing ISO C11 `<threads.h>` and POSIX `pthread_*` shims, powered by an architectural `__zerocc_clone` intrinsic and robust atomic LL/SC loops across all 4 target ISAs (x86-64, aarch64, riscv64, riscv32):

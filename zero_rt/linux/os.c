@@ -67,6 +67,15 @@ void zeroc_rt_exit_group(int code) {
     for (;;) { } /* unreachable */
 }
 
+int zeroc_rt_arch_prctl(int code, unsigned long addr) {
+#if !RT_TARGET_AARCH64 && !RT_TARGET_RISCV
+    return (int)__zerocc_syscall(RT_SYS_ARCH_PRCTL, (long)code, (long)addr, 0, 0, 0, 0);
+#else
+    (void)code; (void)addr;
+    return -1;
+#endif
+}
+
 long zeroc_rt_clone(int (*fn)(void *), void *child_stack, unsigned long flags,
                     void *arg, int *ptid, void *tls, int *ctid) {
     /* Align stack to 16 bytes */

@@ -158,11 +158,13 @@ For detailed architectural invariants, consult the OKF Knowledge Graph in [`docs
    - **Later phases (per OKF, sequenced)**: bounds (large, cross-cutting, array-lvalue-only and inherently partial — parked unless v1 proves out + demand), leaks (cheap at-exit report in `zero_rt/heap.c`, no codegen, freestanding-only), **ASan/LSan out of scope** (shadow memory + ~49 per-access sites × 4 ISAs + a DWARF emitter; re-enter only if the goal shifts to production toolchain).
    - ~~Entry conditions (OKF §6)~~ — all met at start; the “compile a real project” differential gate remained owned as Verification & Scale track item 1 (no longer a blocker).
 
-2. **Canary stack (`-fstack-protector` / `-fstack-protector-all`)** — stack-smashing protection, independent of `zero_san`:
-   - Canary word in the prologue before the saved FP/RA (x86-64) and the equivalent slot on AArch64/RISC-V; `-fstack-protector` (frames with pointer locals or ≥ N bytes) and `-fstack-protector-all` (every non-leaf frame).
-   - Cookie: per-process random `__stack_chk_guard`, following zero_rt’s **runtime-follows-link-mode** pattern — host path → host libc cookie; freestanding `--zerocc-link` → `zero_rt` provides the guard (entropy via the OS boundary: `/dev/urandom` read, time+pid mixing fallback) and `__stack_chk_fail` (diagnostic via zero_rt stdio + exit).
-   - Cost: one load + compare + conditional trap per protected frame — small, localized to prologue/epilogue emission, and the existing `prologue_epilogue_verifier.py` (all 4 ISAs) already covers that surface.
-   - Value: security hardening without any full sanitizer; also the cheap precursor of the stack-frame redzones a future ASan phase would need.
+2. **Canary stack (`-fstack-protector` / `-fstack-protector-strong` / `-fstack-protector-all`)** — **Done (Sprint 147):** GCC/Clang-compatible stack-smashing protection across all 4 target ISAs (x86-64, aarch64, riscv64, riscv32):
+   - Canary frame slot placed between locals and callee-saved registers / frame pointer / return address.
+   - Protection criteria: `-fstack-protector` (arrays ≥ 8B, VLAs), `-fstack-protector-strong` (any array, struct with array, address-taken local, VLA), `-fstack-protector-all` (all functions).
+   - In prologue: canary initialized from `%fs:40` (x86-64) or `__stack_chk_guard` (aarch64/riscv64/riscv32).
+   - In epilogue: canary verified against guard; mismatches call `__stack_chk_fail`.
+   - Freestanding `zero_rt` provides `__stack_chk_guard` (0x00000aff0a0d0a00ULL) and `void __stack_chk_fail(void)` (diagnostic to stderr + exit 127); initializes `%fs:40` on x86-64 via `arch_prctl(ARCH_SET_FS)`.
+   - Verified across JIT, AOT, and `--zerocc-link` on all 4 ISAs with positive tests (`test/jit/stack_protect.c`) and negative smash trap tests (`tools/linker_tests.py`).
 
 3. **Loop unrolling** — next CFG-enabled optimization after `zero_san` (natural loops & reachability available on-demand via `opt/cfg.{h,c}`; dominators are scaffolded but unimplemented — see #8a):
    - **Full unroll** when the trip count is a compile-time constant — reuse the auto-vectorizer’s verified-constant-loop-bound prerequisite; cap the iteration count (e.g. ≤ 8) to bound code size.

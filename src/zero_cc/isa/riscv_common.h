@@ -114,6 +114,7 @@ static inline uint32_t rv64_FP(int rd, int rs1, int rs2, int funct5, int rm) {
 #define RV64_T5  30  /* large-immediate/offset address scratch (Sprint 109): never
                       * allocatable, never a 128-bit value scratch - the only GPR
                       * guaranteed free when a 12-bit displacement overflows. */
+#define RV64_T6  31
 
 /* Little-endian 32-bit instruction emit (defined once, used by all encoders) */
 static inline void riscv_emit_u32(ZeroCCCompiler *c, uint32_t insn) {

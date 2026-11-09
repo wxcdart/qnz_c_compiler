@@ -381,6 +381,64 @@ def case_thread_run(name, src_file):
                 check(f"{name}_riscv32", p.returncode == 0, f"rc={p.returncode}")
 
 
+def case_stack_protect_run():
+    """Test -fstack-protector across all ISAs with own-linker."""
+    path = os.path.join(ROOT, "test", "jit", "stack_protect.c")
+    with tempfile.TemporaryDirectory(prefix="zerocc_t2_sp_") as work:
+        # 1. Positive test:
+        for arch, qemu in [("x86_64", None),
+                           ("aarch64", shutil.which("qemu-aarch64-static")),
+                           ("riscv64", shutil.which("qemu-riscv64-static")),
+                           ("riscv32", shutil.which("qemu-riscv32-static"))]:
+            if arch != "x86_64" and not qemu:
+                continue
+            exe = os.path.join(work, f"sp_{arch}")
+            args = ["-fstack-protector-all", "--zerocc-link", path, "-o", exe]
+            if arch != "x86_64":
+                args = ["--target", arch] + args
+            rc, out, err = zc(args)
+            if rc != 0:
+                check(f"stack_protect_{arch}", False, f"link failed: {err.strip()}")
+            else:
+                cmd = [qemu, exe] if qemu else [exe]
+                p = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                check(f"stack_protect_{arch}", p.returncode == 0, f"rc={p.returncode}")
+
+        # 2. Negative test (buffer overflow -> stack smashing detected):
+        smash_src = os.path.join(work, "smash.c")
+        with open(smash_src, "w") as f:
+            f.write(
+                "void smash(void) {\n"
+                "    volatile char buf[8];\n"
+                "    for (int i = 0; i < 48; i++) {\n"
+                "        buf[i] = 'A';\n"
+                "    }\n"
+                "}\n"
+                "int main(void) {\n"
+                "    smash();\n"
+                "    return 0;\n"
+                "}\n"
+            )
+        for arch, qemu in [("x86_64", None),
+                           ("aarch64", shutil.which("qemu-aarch64-static")),
+                           ("riscv64", shutil.which("qemu-riscv64-static")),
+                           ("riscv32", shutil.which("qemu-riscv32-static"))]:
+            if arch != "x86_64" and not qemu:
+                continue
+            exe = os.path.join(work, f"smash_{arch}")
+            args = ["-fstack-protector-all", "--zerocc-link", smash_src, "-o", exe]
+            if arch != "x86_64":
+                args = ["--target", arch] + args
+            rc, out, err = zc(args)
+            if rc != 0:
+                check(f"stack_smash_{arch}", False, f"link failed: {err.strip()}")
+            else:
+                cmd = [qemu, exe] if qemu else [exe]
+                p = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                ok = (p.returncode == 127 and "stack smashing detected" in p.stderr)
+                check(f"stack_smash_{arch}", ok, f"rc={p.returncode} err={p.stderr!r}")
+
+
 def main():
     if not os.path.exists(BIN):
         print("build/bin/zerocc missing - run `make build/bin/zerocc` first")
@@ -413,6 +471,9 @@ def main():
     print("-- multithreading (C11 threads + pthread cross-ISA) --")
     case_thread_run("c11_threads", "test/jit/thread_test.c")
     case_thread_run("posix_pthreads", "test/jit/pthread_test.c")
+
+    print("-- stack protector (-fstack-protector cross-ISA) --")
+    case_stack_protect_run()
 
     print("-- error paths --")
     case_link_error("dup_def", ["dup_a.c", "dup_b.c"], "multiple definition")

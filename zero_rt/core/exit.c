@@ -33,7 +33,28 @@ void abort(void) {
     exit(134); /* SIGABRT status */
 }
 
+/* Stack smash protection symbols */
+uintptr_t __stack_chk_guard = (uintptr_t)0x00000aff0a0d0a00ULL;
+
+void __stack_chk_fail(void) {
+    const char msg[] = "*** stack smashing detected ***: terminated\n";
+    zeroc_rt_write(2, msg, sizeof(msg) - 1);
+    zeroc_rt_exit_group(127);
+    for (;;) { }
+}
+
+#if !RT_TARGET_AARCH64 && !RT_TARGET_RISCV
+static uintptr_t g_x86_tls_block[8];
+#endif
+
 void zeroc_main_wrapper(void) {
     extern int main(void);
+#if !RT_TARGET_AARCH64 && !RT_TARGET_RISCV
+    /* On x86-64, stack protector checks load canary from %fs:40.
+     * Set up FS segment base to point to g_x86_tls_block so %fs:40 (index 5)
+     * contains __stack_chk_guard. */
+    g_x86_tls_block[5] = __stack_chk_guard;
+    zeroc_rt_arch_prctl(RT_ARCH_SET_FS, (unsigned long)g_x86_tls_block);
+#endif
     exit(main());
 }

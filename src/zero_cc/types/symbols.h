@@ -78,6 +78,7 @@ typedef struct ZeroCCCompiler {
      * Set from NODE_BLOCK->aux.step (parse-time local_count + 1). */
     int32_t local_lookup_bound;
     int32_t current_stack_frame;
+    int32_t canary_stack_offset;          /* Dedicated frame slot offset for stack protector canary */
     size_t static_local_seq;              /* Sprint 37: unique mangle counter for static locals */
     int tu_index;                         /* Translation unit index in multi-TU builds (default 0) */
     size_t anon_struct_seq;               /* unique name counter for anonymous struct/union definitions */
@@ -301,6 +302,7 @@ typedef struct ZeroCCCompiler {
     int no_builtin_count;         /* -fno-builtin-<name> entries */
     char no_builtin_names[16][32];
     int sanitize_overflow;        /* -fsanitize=undefined: emit OP_OVF_TRAP after signed add/sub/mul */
+    int stack_protector;          /* -fstack-protector[-all|-strong]: 0=off, 1=basic, 2=all, 3=strong */
 
     /* IR arena - dynamic instruction buffer */
     IRArena ir_arena;              /* IR instruction arena */

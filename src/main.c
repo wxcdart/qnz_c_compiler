@@ -269,6 +269,7 @@ static ZeroCCCompiler *jit_compile_tu(CompileOptions *opts, const char *input, i
                  "%s", opts->no_builtin[nb]);
     }
     comp->sanitize_overflow = opts->sanitize_overflow != 0;
+    comp->stack_protector = opts->stack_protector;
     comp->std_dialect = opts->std_dialect;
 
     char *prep = preprocess_with_options(source, opts, input, opts->dep_target);
@@ -527,6 +528,7 @@ static int compile_object_single(CompileOptions *opts, const char *input,
                  "%s", opts->no_builtin[nb]);
     }
     comp->sanitize_overflow = opts->sanitize_overflow != 0;
+    comp->stack_protector = opts->stack_protector;
     comp->std_dialect = opts->std_dialect;
 
     /* Preprocess (with -I include dirs, -D defines, and -MMD/-MF/-MT) */
@@ -1070,6 +1072,12 @@ static int compile_object_single(CompileOptions *opts, const char *input,
                                       ELF_STT_FUNC, SHN_UNDEF, 0, 0);
                 symbol_idx = (int)elf_ctx.symbol_count;
             }
+        }
+        if (symbol_idx == 0 && r->target_symbol[0]) {
+            int sym_type = r->is_call ? ELF_STT_FUNC : ELF_STT_NOTYPE;
+            elf_writer_add_symbol(&elf_ctx, r->target_symbol, ELF_STB_GLOBAL,
+                                  sym_type, SHN_UNDEF, 0, 0);
+            symbol_idx = (int)elf_ctx.symbol_count;
         }
         if (r->is_call) {
             elf_writer_add_relocation(&elf_ctx, text_idx,  /* .text section */

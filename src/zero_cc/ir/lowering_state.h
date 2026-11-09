@@ -50,6 +50,8 @@ typedef struct {
     IREmitterContext ir_ctx;           /* IR emission state (call tracking) */
     uint16_t epilogue_label;           /* Synthetic epilogue label for returns */
     bool is_frameless;                 /* True when leaf function needs no stack frame */
+    bool has_stack_protector;          /* True when function has stack guard canary enabled */
+    int32_t canary_stack_off;          /* Frame slot offset (positive, fp-relative) holding canary */
     bool omit_frame_pointer;           /* Option 4: frame pointer omitted; frame slots are
                                           addressed from the stack pointer instead. Only set
                                           for functions with a fully static frame (no VLA). */

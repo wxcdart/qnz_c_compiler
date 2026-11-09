@@ -180,6 +180,30 @@ static void riscv_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
     }
 }
 
+static void riscv_emit_stack_guard_init_asm(ZeroCCCompiler *c, int32_t slot_off, FILE *out) {
+    const char *base_name = c->lowering.omit_frame_pointer ? "sp" : "s0";
+    int32_t disp = zero_cc_frame_disp(c, -slot_off);
+    const char *ld_op = (c->isa == ISA_RISCV32) ? "lw" : "ld";
+    const char *sd_op = (c->isa == ISA_RISCV32) ? "sw" : "sd";
+    fprintf(out, "\tlla\tt5, __stack_chk_guard\n");
+    fprintf(out, "\t%s\tt5, 0(t5)\n", ld_op);
+    fprintf(out, "\t%s\tt5, %d(%s)\n", sd_op, (int)disp, base_name);
+    fprintf(out, "\tmv\tt5, zero\n");
+}
+
+static void riscv_emit_stack_guard_check_asm(ZeroCCCompiler *c, int32_t slot_off, FILE *out) {
+    const char *base_name = c->lowering.omit_frame_pointer ? "sp" : "s0";
+    int32_t disp = zero_cc_frame_disp(c, -slot_off);
+    const char *ld_op = (c->isa == ISA_RISCV32) ? "lw" : "ld";
+    size_t fn_idx = c->lowering.current_func_idx;
+    fprintf(out, "\t%s\tt5, %d(%s)\n", ld_op, (int)disp, base_name);
+    fprintf(out, "\tlla\tt6, __stack_chk_guard\n");
+    fprintf(out, "\t%s\tt6, 0(t6)\n", ld_op);
+    fprintf(out, "\tbeq\tt5, t6, .LSP_ok_%zu\n", fn_idx);
+    fprintf(out, "\tcall\t__stack_chk_fail\n");
+    fprintf(out, ".LSP_ok_%zu:\n", fn_idx);
+}
+
 /* Epilogue: restore callee-saved, restore ra/s0, deallocate frame, ret */
 static void riscv_emit_epilogue_asm(ZeroCCCompiler *c) {
     FILE *out = c->asm_out ? c->asm_out : stdout;
@@ -987,7 +1011,8 @@ static void riscv_emit_fp_cvtsi_asm(ZeroCCCompiler *c, int int_dst, int fp_src, 
 static void riscv_emit_vla_alloc_asm(ZeroCCCompiler *c, int dst, int size, FILE *out) {
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
     const char *size_name = BE(c)->get_hw_reg_name(size);
-    fprintf(out, "\tsub\t%s, sp, %s\n", dst_name, size_name);
+    fprintf(out, "\tsub\tsp, sp, %s\n", size_name);
+    fprintf(out, "\tmv\t%s, sp\n", dst_name);
 }
 
 /* =========================================================================
@@ -1558,6 +1583,8 @@ void riscv64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_inline_asm_asm = riscv_emit_inline_asm_asm;
     be->emit_prologue_asm = riscv_emit_prologue_asm;
     be->emit_epilogue_asm = riscv_emit_epilogue_asm;
+    be->emit_stack_guard_init_asm = riscv_emit_stack_guard_init_asm;
+    be->emit_stack_guard_check_asm = riscv_emit_stack_guard_check_asm;
     be->get_hw_reg_name = riscv_get_hw_reg_name;
     be->get_vec_reg_name = riscv_get_vec_reg_name;
 

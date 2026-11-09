@@ -4,7 +4,7 @@ title: Zero_RT — ZeroCC's Own Freestanding Runtime (Linux x86-64 + AArch64/RIS
 description: The zero_rt/ runtime (heap, strings, exit, minimal stdio with Ryū float formatting) compiled by zerocc itself, auto-linked by --zerocc-link, and the zeroc_main_wrapper entry routing that makes atexit work on a plain return from main.
 resource: zero-rt
 tags: [zero-rt, runtime, freestanding, heap, stdio, ryu, zero-cc-link, phase-0]
-timestamp: 2026-11-09T20:32:36Z
+timestamp: 2026-11-09T21:18:07Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -37,6 +37,14 @@ ZeroCC follows a **runtime-follows-link-mode** dual-path model for multithreadin
    - **Thread-Safe Heap**: `zero_rt/core/heap.c` protects `malloc`, `free`, and `realloc` with an internal futex spin-wait lock.
    - **Atomic LL/SC Hardware CAS Loops**: Fixed AArch64 and RISC-V atomic CAS sequences to use proper LL/SC retry loops (`ldxr`/`stxr` + `cbnz`, `lr`/`sc` + `bnez`), eliminating spurious branch hangs.
    - **Verification**: `test/jit/thread_test.c` and `test/jit/pthread_test.c` differential-tested and validated under `--zerocc-link` natively on x86-64 and under QEMU on AArch64, RISC-V 64, and RISC-V 32 (`tools/linker_tests.py`, 31/31 passed).
+
+## Stack Protection Runtime Support (Sprint 147)
+
+ZeroCC supports GCC/Clang-compatible `-fstack-protector[-all|-strong]` across all 4 ISAs:
+- **Canary Guard & Failure Handler**: `zero_rt/core/exit.c` provides `uintptr_t __stack_chk_guard = 0x00000aff0a0d0a00ULL;` (terminator canary with NULL, LF, CR, 0xFF bytes) and `void __stack_chk_fail(void)` writing `*** stack smashing detected ***: terminated\n` to stderr (fd 2) and exiting with status 127 via `RT_SYS_EXIT_GROUP`.
+- **x86-64 `%fs:40` TLS Initialization**: Under freestanding execution (`--zerocc-link`), `zeroc_main_wrapper` allocates a static TLS block `g_x86_tls_block[8]`, sets `g_x86_tls_block[5] = __stack_chk_guard`, and issues `arch_prctl(ARCH_SET_FS, g_x86_tls_block)` (`RT_SYS_ARCH_PRCTL 158`, `RT_ARCH_SET_FS 0x1002`). This matches host glibc/musl ABI where `%fs:40` holds the canary, ensuring identical canary checking code across JIT, host AOT, and freestanding execution.
+- **AArch64 / RISC-V Guard Access**: On AArch64 and RISC-V, the compiler directly accesses `__stack_chk_guard` via PC-relative addressing (`adrp`+`add` or `auipc`+`addi`) and resolves through `zero_rt.a` or host libc.
+- **Canary Frame Slot Placement**: Positioned at `BE(c)->callee_save_frame_reserve + 8` between local variables and callee-saved registers / frame pointer / return address so overflows corrupt the canary first.
 
 Virtual freestanding headers in [`src/zero_cc/core/virtual_headers.h`](../../src/zero_cc/core/virtual_headers.h) (extracted from `core/preprocessor.h` in Sprint 80, with preprocessor expansion in [`src/zero_cc/core/preprocessor.c`](../../src/zero_cc/core/preprocessor.c)) provide `inttypes.h` (`stdint.h` + `PRI*`/`SCN*` macros), `assert.h` (always-evaluated, `abort()` on failure), `atexit` in `stdlib.h`, `immintrin.h` (Sprint 89), and full `<stdio.h>` stream declarations including `freopen`, `feof`, `ferror`, `clearerr`, and `ungetc` (Sprint 106). Non-local jumps (`setjmp`/`longjmp`, `__builtin_setjmp`/`__builtin_longjmp`) are lowered directly to inline multi-ISA `OP_SETJMP`/`OP_LONGJMP` instructions across all 4 ISAs (Sprint 88) without requiring any host libc helper.
 

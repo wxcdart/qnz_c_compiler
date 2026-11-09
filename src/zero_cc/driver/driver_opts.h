@@ -47,6 +47,7 @@ typedef struct {
     int gen_deps;           /* -MMD: generate dependency file */
     const char *dep_file;   /* -MF: dependency output file */
     const char *dep_target; /* -MT: target name in dependency file */
+    int stack_protector;    /* -fstack-protector[-all|-strong]: 0=off, 1=basic, 2=all, 3=strong */
 } CompileOptions;
 
 static void print_usage(const char *prog) {
@@ -64,6 +65,10 @@ static void print_usage(const char *prog) {
     fprintf(stderr, "  -O / -Os / -Oz / -Ofast  Aliases: 1 / 2 / 3 / 3\n");
     fprintf(stderr, "  -fomit-frame-pointer    Omit frame pointers for fixed-frame functions (default at -O1+)\n");
     fprintf(stderr, "  -fno-omit-frame-pointer Keep frame pointers (%%rbp/x29/s0) in every non-leaf function\n");
+    fprintf(stderr, "  -fstack-protector       Emit stack canaries for functions with >=8B arrays or VLAs\n");
+    fprintf(stderr, "  -fstack-protector-all   Emit stack canaries for all functions\n");
+    fprintf(stderr, "  -fstack-protector-strong Emit stack canaries for arrays, VLAs, or address-taken locals\n");
+    fprintf(stderr, "  -fno-stack-protector    Disable stack canaries (default)\n");
     fprintf(stderr, "  -I<dir>         Add include directory\n");
     fprintf(stderr, "  -isystem <dir>  Add system include directory\n");
     fprintf(stderr, "  -D<macro>       Define macro\n");
@@ -172,6 +177,18 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
         }
         else if (strcmp(arg, "-fno-omit-frame-pointer") == 0) {
             opts->omit_frame_pointer = 0;
+        }
+        else if (strcmp(arg, "-fstack-protector-all") == 0) {
+            opts->stack_protector = 2;
+        }
+        else if (strcmp(arg, "-fstack-protector-strong") == 0) {
+            opts->stack_protector = 3;
+        }
+        else if (strcmp(arg, "-fstack-protector") == 0) {
+            opts->stack_protector = 1;
+        }
+        else if (strcmp(arg, "-fno-stack-protector") == 0) {
+            opts->stack_protector = 0;
         }
         else if (strcmp(arg, "-fno-builtin") == 0) {
             /* GCC: disable all builtin function recognition - the
