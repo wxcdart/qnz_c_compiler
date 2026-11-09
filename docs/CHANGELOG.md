@@ -1,3 +1,40 @@
+## [Sprint 142] - 2026-11-09 - ISA gate reference oracles moved to gcc-15 (x86-64 + host ref builds)
+
+Follow-up to the Sprint 141 mandatory-gcc-15 policy: the cross-ISA
+differential gates now use gcc-15 everywhere a gcc-15 build exists.
+
+**`make test-isa128`** (`tools/isa128_diff.py`):
+- The reference oracle for **all** ISAs is now `gcc-15 -static -O2`
+  (was host `gcc` 13.3) — the ref is an x86-64 static binary run
+  natively to compute expected values while the target binary runs
+  under its own QEMU.
+- The x86-64 `-S`-path static link now uses `gcc-15` too.
+- `gcc-15` is preflighted (hard error with an install hint).
+
+**`make test-isa-qemu`** (`tools/isa_qemu_diff.py`):
+- The `musl-gcc-x86_64` reference wrapper was rebuilt via
+  `tools/setup_musl_cross.sh --arch x86_64 --ccbin gcc-15` (was
+  `--ccbin gcc` 13.3); the setup hint in the harness now documents
+  the gcc-15 ccbin.
+
+**Cross targets (aarch64/riscv64/riscv32) keep the installed cross
+gcc (13.3)**: no cross `gcc-15` toolchain builds exist for this host
+(checked — the ubuntu-toolchain PPA ships host-arch gcc-15 only;
+`gcc-15-{aarch64,riscv64}-linux-gnu` have no candidate), and
+building a cross gcc-15 from source is disproportionate for a test
+oracle. The corpora are C99/C11 + int128/float128 (no C23 syntax),
+so the cross reference version is not a constraint — documented in
+the OKF page, AGENTS.md, and the README prerequisites matrix.
+
+**Verification** (both gates fully re-run against the new oracles):
+- `make test-isa-qemu`: **59/59** (x86-64 15/15 under the gcc-15
+  musl reference; aarch64/riscv64/riscv32 unchanged) — 0
+  mismatch / 0 timeout / 0 build-fail.
+- `make test-isa128`: **144/144** (all ref builds + the x86-64 link
+  on gcc-15) — 0 mismatch / 0 timeout / 0 build-fail.
+- No zerocc code changed in this sprint (reference-only + docs);
+  `make test` 194/194, style 0 errors, OKF lint clean.
+
 ## [Sprint 141] - 2026-11-09 - c-torture reference made MANDATORY gcc-15 (per-test `-std` dialects pass through)
 
 The gate's reference compiler is now **gcc-15, required**: `tools/torture_run.py`

@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 165-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-11-09T00:20:03Z
+timestamp: 2026-11-09T02:46:18Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -47,7 +47,7 @@ All project headers are included **relative to the include roots `-Isrc -Iinclud
 | **Core Build** | `make` (4.0+), Host `gcc` (13.0+), `python3` (3.8+), `git` | Building compiler binaries, `zero_rt` runtimes, test harnesses, and running test orchestration scripts. |
 | **Dialect Conformance** | `gcc-15` (15.0+), `gcc-14` / `gcc-13` | Differential verification across dialects (`-std=gnu23`, `c23`, `c11`, `c99`, `gnu89`) via `make test-c23` (`tools/c23/test_c23.py`) and diagnostic tests (`tools/diag_battery.py`). Overridable via `C23_GCC`. |
 | **Cross-ISA Emulation** | `qemu-user-static` (8.0+), `aarch64-linux-gnu-gcc`, `riscv64-linux-gnu-gcc` | User-mode emulation under Linux for cross-ISA verification (`make test-isa128`). |
-| **Static Musl Reference** | `musl-gcc-<arch>` (in `~/.local/bin`, via `tools/setup_musl_cross.sh`) | Fully static reference binary generation for raw emitter differential testing (`make test-isa-qemu`). |
+| **Static Musl Reference** | `musl-gcc-<arch>` (in `~/.local/bin`, via `tools/setup_musl_cross.sh`) | Fully static reference binary generation for raw emitter differential testing (`make test-isa-qemu`); the x86_64 wrapper wraps `gcc-15` (Sprint 142), the cross wrappers wrap the installed cross gcc. |
 | **Workflow / Supervision** | `tmux` | Detaching and supervising long-running gates (such as `make test-torture`) without agent/shell command timeout. |
 | **Inspection & Profiling** | `gdb` (15+), `valgrind`, `perf` | JIT machine-code disassembly, stack-frame inspection, and `--profile-opts` pass timing. |
 
@@ -221,7 +221,7 @@ python3 tools/sret_verifier.py --target-all
 make test-isa-qemu
 
 # Cross-ISA __int128 gate: test/jit/int128_*.c x {x86-64, aarch64, riscv64} x
-# -O0..-O3 x {raw AOT, -S + cross-as} under QEMU, diffed vs gcc -static -O2.
+# -O0..-O3 x {raw AOT, -S + cross-as} under QEMU, diffed vs gcc-15 -static -O2.
 make test-isa128
 
 ### Cross-ISA Raw-Binary-Emitter Differential Test (`make test-isa-qemu`)
@@ -240,7 +240,11 @@ matching `qemu-*-static`, and diffs stdout + exit code.
 `qemu-riscv32-static`) **and** a per-ISA static-musl reference wrapper
 (`musl-gcc-<arch>`) installed by `tools/setup_musl_cross.sh` (which builds static
 musl with the system cross gcc — `aarch64-linux-gnu-gcc`,
-`riscv64-linux-gnu-gcc`, host `gcc` — and, for riscv32, a small rv32 libgcc shim).
+`riscv64-linux-gnu-gcc`, host **`gcc-15`** for x86_64 (Sprint 142 — uniform with the
+c-torture/C23 gates; rebuild with `--ccbin gcc-15`) — and, for riscv32, a small rv32 libgcc shim).
+No cross `gcc-15` builds exist for aarch64/riscv64, so the cross-target references
+stay on the installed cross toolchain; the corpus is C99/C11 + int128/float128, so the
+cross reference version is not a constraint.
 A uniform musl-static reference is used across all 4 ISAs so the differential
 baseline is consistent. The harness lists exactly what is missing if absent and
 prints the `setup_musl_cross.sh` command to build each reference.
@@ -254,8 +258,9 @@ value model and the `__float128` object model. For every `test/jit/int128_*.c` t
 return-ABI, arg-ABI, fnptr-signatures, float128, type/
 sizeof) and each ISA (`x86-64` native, `aarch64`, `riscv64`) it compiles at
 `-O0..-O3` in **both** AOT paths — the raw-binary link and `-S` +
-cross-assembler + static link — runs under `qemu-*-static` (x86-64 runs
-native), and diffs `(stdout, exit)` against a host `gcc -static -O2`
+cross-assembler + static link (x86-64 links with **`gcc-15`**, Sprint 142) —
+runs under `qemu-*-static` (x86-64 runs
+native), and diffs `(stdout, exit)` against a host `gcc-15 -static -O2`
 reference (the reference itself is the ground truth: a source whose expected
 constants are wrong fails the gate as REF-FAIL). Every Sprint 109 128-bit
 regression — the RISC-V `t5`/AArch64 `x16` large-offset scratch clobbers,

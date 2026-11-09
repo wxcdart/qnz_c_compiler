@@ -38,7 +38,7 @@ TEST_DIR = REPO / "test" / "isa_qemu"
 # runner, and the setup_musl_cross.sh args to (re)build that reference.
 ISAS = {
     "x86_64":  dict(target="x86-64",  ref="musl-gcc-x86_64",  qemu="qemu-x86_64-static",
-                    setup="--arch x86_64 --ccbin gcc --host x86_64-linux-musl"),
+                    setup="--arch x86_64 --ccbin gcc-15 --host x86_64-linux-musl"),
     "aarch64": dict(target="aarch64", ref="musl-gcc-aarch64", qemu="qemu-aarch64-static",
                     setup="--arch aarch64 --ccbin aarch64-linux-gnu-gcc"),
     "riscv64": dict(target="riscv64", ref="musl-gcc-riscv64", qemu="qemu-riscv64-static",

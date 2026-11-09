@@ -22,8 +22,11 @@ aarch64 / riscv64, across optimization levels and both AOT paths.
 Dependencies (required):
   - build/bin/zerocc (make build/bin/zerocc)
   - qemu-aarch64-static, qemu-riscv64-static (qemu-user-static)
-  - aarch64-linux-gnu-gcc, riscv64-linux-gnu-gcc (cross toolchains)
-  - host gcc (reference builds)
+  - aarch64-linux-gnu-gcc, riscv64-linux-gnu-gcc (cross toolchains - the
+    installed version; the corpus is C99/C11 + int128/float128, so the
+    cross reference version is not a constraint)
+  - host gcc-15 (x86_64 native reference - uniform with the c-torture /
+    C23 gates; no cross gcc-15 builds exist for aarch64/riscv64)
 
 Usage:
     python3 tools/isa128_diff.py                     # all ISAs, all levels
@@ -49,7 +52,7 @@ TEST_GLOB = "int128_*.c"
 # x86_64 is included as a native (no-QEMU) baseline producer/verifier.
 ISAS = {
     "x86_64":  dict(target="x86-64", qemu=None,
-                    link="gcc -static -no-pie", run_native=True),
+                    link="gcc-15 -static -no-pie", run_native=True),
     "aarch64": dict(target="aarch64", qemu="qemu-aarch64-static",
                     link="aarch64-linux-gnu-gcc -mabi=lp64 -march=armv8-a -static",
                     run_native=False),
@@ -66,8 +69,8 @@ def preflight(isas):
     missing = []
     if not ZEROC.exists():
         missing.append(f"{ZEROC} (run `make build/bin/zerocc` first)")
-    if shutil.which("gcc") is None:
-        missing.append("gcc (needed for reference builds)")
+    if shutil.which("gcc-15") is None:
+        missing.append("gcc-15 (reference oracle for all ISAs - uniform with the c-torture/C23 gates)")
     for isa in isas:
         cfg = ISAS[isa]
         if not cfg.get("run_native") and shutil.which(cfg["qemu"]) is None:
@@ -115,9 +118,12 @@ def build_asm(cfg, level, src, exe, work):
 
 
 def build_ref(src, exe):
-    """Host gcc reference (stronger than a zerocc-x86 baseline: validates
-    the expected constants against a known-good 128-bit implementation)."""
-    return run(["gcc", "-static", "-O2", str(src), "-o", str(exe)])
+    """Host gcc-15 reference (stronger than a zerocc-x86 baseline: validates
+    the expected constants against a known-good 128-bit implementation).
+    The ref is an x86-64 static binary run natively for every ISA - it
+    computes the expected values, while the target binary runs under its
+    own QEMU."""
+    return run(["gcc-15", "-static", "-O2", str(src), "-o", str(exe)])
 
 
 def run_exe(cfg, exe, timeout=15):

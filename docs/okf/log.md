@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-09T02:23:07Z
+timestamp: 2026-11-09T02:46:18Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1221,3 +1221,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-09 — Updated `c-torture-gate.md`
 - Sprint 141: c-torture reference made MANDATORY gcc-15 (per-test -std dialects pass through); baseline re-verified and ratcheted PASS 3760 -> 3762 (+uabs-1/pr119291/stpncpy-chk/pr123703), 3 honest SKIP-C89 bucket-moves (asmgoto-3, pr98096, pr117432), NO-REF 26 -> 23, REF-BUG 8 -> 6
+
+## 2026-11-09 — Updated `build-and-verification.md`
+- Sprint 142: ISA gate reference oracles moved to gcc-15 (test-isa128 ref builds + x86-64 link; musl-gcc-x86_64 wrapper rebuilt with --ccbin gcc-15); cross targets keep the installed cross gcc (no cross gcc-15 builds exist)
