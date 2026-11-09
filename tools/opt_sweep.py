@@ -91,7 +91,12 @@ def run_cmd(cmd: List[str], timeout: float) -> RunResult:
 
 
 def jit_run(zerocc: str, src: str, level: int, timeout: float) -> RunResult:
-    r = run_cmd([zerocc, "--run", f"-O{level}", src], timeout)
+    # -Iinclude -Isrc: corpus tests include the project headers ("zero_cc.h",
+    # "zero_cc/core/core.h").  Without the include paths a compile failure
+    # masquerades as a legitimate rc=1 *runtime* baseline (the Sprint 134
+    # probe only fires when the gcc reference builds, and gcc needs the same
+    # paths) - the whole per-level sweep for such a test becomes hollow.
+    r = run_cmd([zerocc, "--run", f"-O{level}", "-Iinclude", "-Isrc", src], timeout)
     if r.status == "ok" and r.rc is None:
         r.status = "compile-fail"
     return r
@@ -99,7 +104,7 @@ def jit_run(zerocc: str, src: str, level: int, timeout: float) -> RunResult:
 
 def aot_run(zerocc: str, src: str, level: int, out: str, timeout: float) -> Tuple[RunResult, RunResult]:
     """Returns (compile result, run result)."""
-    cr = run_cmd([zerocc, f"-O{level}", src, "-o", out], timeout)
+    cr = run_cmd([zerocc, f"-O{level}", "-Iinclude", "-Isrc", src, "-o", out], timeout)
     if cr.status != "ok":
         return cr, RunResult(cr.status)
     rr = run_cmd([out], timeout)
@@ -129,6 +134,7 @@ def main() -> int:
 
     # ---- corpus discovery: standalone .c files (have int main) ----------
     tests: List[str] = []
+    embed_skips: List[str] = []
     for d in args.corpus:
         dp = d if os.path.isabs(d) else os.path.join(ROOT, d)
         for f in sorted(glob.glob(os.path.join(dp, "*.c"))):
@@ -140,11 +146,25 @@ def main() -> int:
                 continue
             if not re.search(r"\bint\s+main\s*\(", src):
                 continue
+            if re.search(r'#include\s+"(zero_cc\.h|zero_cc/)', src):
+                # Embedding test: it includes the compiler's own headers and
+                # calls zerocc internals (arena_alloc, ...), which are not
+                # resolvable when compiled standalone (gcc and zerocc AOT
+                # both fail to link, and `zerocc --run` fails the in-process
+                # symbol link - a hollow rc=255 baseline that every -O level
+                # "matches" without running).  These are covered by `make
+                # test`, which builds them against the zerocc library.
+                embed_skips.append(name)
+                continue
             if args.only and (args.only not in name and not re.match(args.only, name)):
                 continue
             tests.append(name)
 
     reports: List[TestReport] = []
+    for name in embed_skips:
+        rep = TestReport(name=name, path=os.path.join(ROOT, *name.split("/")))
+        rep.skipped = "embedding test (links zerocc internals; covered by make test)"
+        reports.append(rep)
     tmpdir = tempfile.mkdtemp(prefix="opt_sweep_")
 
     for name in tests:
@@ -170,7 +190,7 @@ def main() -> int:
         gcc_builds = False
         if not args.no_gcc:
             g = os.path.join(tmpdir, f"{name.replace('/', '_')}.gcc")
-            gc = run_cmd([args.gcc, "-O2", "-o", g, path], args.timeout)
+            gc = run_cmd([args.gcc, "-O2", "-Iinclude", "-Isrc", "-o", g, path], args.timeout)
             if gc.status == "ok" and gc.rc == 0:
                 gr = run_cmd([g], args.timeout)
                 rep.gcc = gr

@@ -193,8 +193,10 @@ int main(void) {
     /* Same pointer types */
     assert(type_compatible_assign(t_ptr_int, t_ptr_int2));
 
-    /* Incompatible pointer types */
-    assert(!type_compatible_assign(t_ptr_int, t_ptr_char));
+    /* Permissive dialect (matches GCC's C99 mode): ANY pointer-to-pointer
+     * conversion is accepted (implementation-defined 6.5.16.1p2, warned
+     * not errored - c-torture compile/pr90275-2, pr43635, regs-arg-size). */
+    assert(type_compatible_assign(t_ptr_int, t_ptr_char));
 
     /* Array decays to pointer for assignment */
     assert(type_compatible_assign(t_ptr_int, t_arr10_int));

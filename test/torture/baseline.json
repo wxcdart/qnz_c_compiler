@@ -1,6 +1,6 @@
 {
  "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
- "generated": "2026-11-08T23:14:57Z",
+ "generated": "2026-11-09T00:19:30Z",
  "tests": {
   "compile/103818.c": {
    "class": "PASS",
@@ -827,12 +827,12 @@
    "note": ""
   },
   "compile/20010903-2.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "            ^; Compile error: unexpected token 'inline' in statement | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/20010911-1.c": {
    "class": "PASS",
@@ -1541,7 +1541,7 @@
   "compile/20030305-1.c": {
    "class": "EXPECTED-REJECT",
    "configs": {},
-   "note": "/home/ubuntu/dev/qnz_c_compiler/third_party/vendor/c-torture/compile/20030305-1.c:17:5: note: (near initialization for \u2018s2_array[2].s1_array\u2019)"
+   "note": "/home/ubuntu/dev/strictness-worktree/third_party/vendor/c-torture/compile/20030305-1.c:17:5: note: (near initialization for \u2018s2_array[2].s1_array\u2019)"
   },
   "compile/20030310-1.c": {
    "class": "PASS",
@@ -4049,12 +4049,12 @@
   "compile/920520-1.c": {
    "class": "NO-REF",
    "configs": {},
-   "note": "/home/ubuntu/dev/qnz_c_compiler/third_party/vendor/c-torture/compile/920520-1.c:5: Error: junk at end of line, first unrecognized character is `%'"
+   "note": "/home/ubuntu/dev/strictness-worktree/third_party/vendor/c-torture/compile/920520-1.c:5: Error: junk at end of line, first unrecognized character is `%'"
   },
   "compile/920521-1.c": {
    "class": "NO-REF",
    "configs": {},
-   "note": "/home/ubuntu/dev/qnz_c_compiler/third_party/vendor/c-torture/compile/920521-1.c:4: Error: no such instruction: `g'"
+   "note": "/home/ubuntu/dev/strictness-worktree/third_party/vendor/c-torture/compile/920521-1.c:4: Error: no such instruction: `g'"
   },
   "compile/920529-1.c": {
    "class": "PASS",
@@ -6967,7 +6967,7 @@
   "compile/dll.c": {
    "class": "NO-REF",
    "configs": {},
-   "note": "/home/ubuntu/dev/qnz_c_compiler/third_party/vendor/c-torture/compile/dll.c:24: error: expected \u2018{\u2019 at end of input"
+   "note": "/home/ubuntu/dev/strictness-worktree/third_party/vendor/c-torture/compile/dll.c:24: error: expected \u2018{\u2019 at end of input"
   },
   "compile/dm.c": {
    "class": "PASS",
@@ -8758,12 +8758,12 @@
    "note": "          ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
   },
   "compile/pr115881.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                                        ^; Compile error: incompatible initializer type for variable '_data' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr116009.c": {
    "class": "PASS",
@@ -9026,12 +9026,12 @@
    "note": ""
   },
   "compile/pr16566-3.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                              ^; Compile error: incompatible types in assignment | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr16808.c": {
    "class": "PASS",
@@ -9740,7 +9740,7 @@
   "compile/pr28865.c": {
    "class": "EXPECTED-REJECT",
    "configs": {},
-   "note": "/home/ubuntu/dev/qnz_c_compiler/third_party/vendor/c-torture/compile/pr28865.c:15:8: note: (near initialization for \u2018var_array[2]\u2019)"
+   "note": "/home/ubuntu/dev/strictness-worktree/third_party/vendor/c-torture/compile/pr28865.c:15:8: note: (near initialization for \u2018var_array[2]\u2019)"
   },
   "compile/pr28905.c": {
    "class": "PASS",
@@ -10825,7 +10825,7 @@
     "O0-aot": "REJECT",
     "O2-aot": "REJECT"
    },
-   "note": "    ^; Compile error: inline asm requires the AOT text path (-S, or ZC_TEXT_AOT=1 with -o); the JIT/raw-emitter path is Phase 2 | cfgs: O0-aot,O2-aot"
+   "note": "    ^; Compile error: asm constraint not supported in Phase 1 (r/m/a/b/d/S/D) | cfgs: O0-aot,O2-aot"
   },
   "compile/pr38807.c": {
    "class": "PASS",
@@ -11380,36 +11380,36 @@
    "note": ""
   },
   "compile/pr42196-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                  ^; Compile error: '__real__' applied to a non-complex value | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr42196-2.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                  ^; Compile error: '__real__' applied to a non-complex value | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr42196-3.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                       ^; Compile error: '__real__' applied to a non-complex value | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr42196-4.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                       ^; Compile error: '__real__' applied to a non-complex value | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr42234.c": {
    "class": "PASS",
@@ -11636,12 +11636,12 @@
    "note": ""
   },
   "compile/pr43635.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                ^; Compile error: incompatible initializer type for variable 'x' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr43636.c": {
    "class": "PASS",
@@ -11708,12 +11708,12 @@
    "note": ""
   },
   "compile/pr44063.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "<stdin>: error: passing incompatible type for argument 2 of function call; Compile error: passing incompatible type for argument 2 of function call | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr44119.c": {
    "class": "PASS",
@@ -14460,12 +14460,12 @@
    "note": ""
   },
   "compile/pr90275-2.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                 ^; Compile error: incompatible initializer type for variable 'd' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr90275.c": {
    "class": "PASS",
@@ -14969,12 +14969,12 @@
    "note": ""
   },
   "compile/regs-arg-size.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                                              ^; Compile error: incompatible initializer type for variable 'fmt' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/rel.c": {
    "class": "PASS",
@@ -15321,12 +15321,12 @@
    "note": ""
   },
   "compile/split-path-5.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                ^; Compile error: unexpected token 'unknown' in statement | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/split-path-6.c": {
    "class": "PASS",
@@ -17572,18 +17572,18 @@
    "note": ""
   },
   "execute/20010605-1.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "            ^; Compile error: unexpected token 'inline' in statement | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/20010605-2.c": {
    "class": "PASS",
@@ -32249,7 +32249,7 @@
   "execute/pr117432.c": {
    "class": "NO-REF",
    "configs": {},
-   "note": "/home/ubuntu/dev/qnz_c_compiler/third_party/vendor/c-torture/execute/pr117432.c:35:3: note: each undeclared identifier is reported only once for each function it appears in"
+   "note": "/home/ubuntu/dev/strictness-worktree/third_party/vendor/c-torture/execute/pr117432.c:35:3: note: each undeclared identifier is reported only once for each function it appears in"
   },
   "execute/pr117498.c": {
    "class": "PASS",
@@ -41963,10 +41963,10 @@
  "totals": {
   "EXPECTED-REJECT": 4,
   "NO-REF": 26,
-  "PASS": 3747,
+  "PASS": 3760,
   "REF-BUG": 8,
   "SKIP-BOGUS": 1,
-  "SKIP-C89": 43,
+  "SKIP-C89": 30,
   "SKIP-PTR": 1,
   "SKIP-REFSEM": 16,
   "SKIP-SUPPORT": 87,

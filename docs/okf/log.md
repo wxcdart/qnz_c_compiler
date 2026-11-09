@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-08T23:59:36Z
+timestamp: 2026-11-09T00:20:04Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1206,3 +1206,12 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-08 — Updated `inline-assembly-roadmap.md`
 - Sprint 137: Phase 3 asm goto & dialect alternative support
+
+## 2026-11-09 — Updated `frontend-and-types.md`
+- Sprint 138: SKIP-C89 strictness burn-down - complex integer struct/union members, flexible pointer-array members, permissive pointer conversion, wide string literal initializers, sizeof of subscripted string literals, inline/auto on nested fns (13 c-torture tests unblocked)
+
+## 2026-11-09 — Updated `build-and-verification.md`
+- Sprint 138: opt-sweep gate integrity - include paths for sweep compiles, explicit embedding-test skips, virtual <elf.h> completion
+
+## 2026-11-09 — Updated `c-torture-gate.md`
+- Sprint 138: baseline ratcheted PASS 3747 -> 3760 (SKIP-C89 43 -> 30, 13 strictness-burn-down tests, 0 regressions)

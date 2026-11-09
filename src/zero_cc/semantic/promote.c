@@ -381,8 +381,14 @@ bool type_compatible_assign(const TypeInfo *dst, const TypeInfo *src) {
                 return true;
             }
 
-            /* Pointers to compatible types */
-            return type_is_compatible(dst_base, src_base);
+            /* Pointers to compatible types - and, matching GCC's C99
+             * mode, ANY pointer-to-pointer conversion: 6.5.16.1p2 makes
+             * the converted representation implementation-defined, GCC
+             * warns but accepts (c-torture compile/pr90275-2
+             * `long long *d = a;` from a function designator,
+             * compile/pr43635 fn-ptr signature change) - permissive
+             * dialect, so accept without a warning. */
+            return true;
         }
 
         /* Integer 0 or null constant assignment to pointer */

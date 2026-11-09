@@ -318,15 +318,29 @@ static inline ZeroCCType zero_cc_type_of_primary(ZeroCCCompiler *c, size_t *pos)
         bool is_wide = c->tokens[*pos].is_wide;
         size_t slen = zero_cc_token_str_len(&c->tokens[*pos]);
         (*pos)++;
+        ZeroCCType ty;
         if (is_wide) {
             ZeroCCType elem = zero_cc_type_int();
             size_t num_elems = (slen / 4) + 1;
-            return zero_cc_type_array(&elem, (ssize_t)num_elems);
+            ty = zero_cc_type_array(&elem, (ssize_t)num_elems);
         } else {
             size_t len = slen + 1;
             ZeroCCType elem = zero_cc_type_char();
-            return zero_cc_type_array(&elem, (ssize_t)len);
+            ty = zero_cc_type_array(&elem, (ssize_t)len);
         }
+        /* Postfix subscripts on a string literal (`""[__x]` - the glibc
+         * ctype.h element-size idiom; c-torture compile/split-path-5):
+         * consume the index chain and peel to the element type, exactly
+         * like the identifier-primary postfix loop. */
+        while (*pos < c->token_count && c->tokens[*pos].type == TK_LBRACKET) {
+            (*pos)++;
+            zero_cc_type_of_equality(c, pos); /* consume index */
+            if (*pos < c->token_count && c->tokens[*pos].type == TK_RBRACKET) (*pos)++;
+            if (ty.tag == TYPE_ARRAY && ty.base) {
+                ty = *ty.base;
+            }
+        }
+        return ty;
     }
     /* Type keywords as primary (for sizeof(type)/_Alignof(type)) */
     if (t == TK_STRUCT || t == TK_UNION) {

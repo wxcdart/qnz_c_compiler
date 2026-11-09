@@ -124,7 +124,12 @@ TypeInfo *decl_handle_var(SemContext *ctx, ZeroCCASTNode *node) {
     if (init_t) {
         /* C11 6.7.9p13: a string literal may initialize a char array
          * (char / unsigned char).  The literal is typed char* in the
-         * semantic model, so the generic assign check would reject it. */
+         * semantic model, so the generic assign check would reject it.
+         * Wide literals (`L"..."`) are typed int* (the implementation
+         * wchar_t); a user `wchar_t` typedef may spell ANY integer width
+         * (c-torture compile/regs-arg-size typedefs it `unsigned short`
+         * and relies on -fpermissive) - permissive dialect: accept a
+         * string literal for any integer-pointer target. */
         bool str_lit_into_char_arr =
             (init_node && init_node->tag == NODE_STRING &&
              var_t && (
@@ -133,7 +138,12 @@ TypeInfo *decl_handle_var(SemContext *ctx, ZeroCCASTNode *node) {
                   var_t->details.array.base->kind == TYPE_KIND_CHAR) ||
                  (var_t->kind == TYPE_KIND_POINTER &&
                   var_t->details.pointer.base &&
-                  var_t->details.pointer.base->kind == TYPE_KIND_CHAR)));
+                  (var_t->details.pointer.base->kind == TYPE_KIND_CHAR ||
+                   var_t->details.pointer.base->kind == TYPE_KIND_SHORT ||
+                   var_t->details.pointer.base->kind == TYPE_KIND_INT ||
+                   var_t->details.pointer.base->kind == TYPE_KIND_LONG ||
+                   var_t->details.pointer.base->kind == TYPE_KIND_BOOL ||
+                   var_t->details.pointer.base->kind == TYPE_KIND_INT128))));
         if (!str_lit_into_char_arr && !type_compatible_assign(var_t, init_t)) {
             if (sym) scope_remove_symbol(ctx->current_scope, name);
             decl_error(ctx, node, "incompatible initializer type for variable '%s'", name);

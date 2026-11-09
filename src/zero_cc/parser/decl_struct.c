@@ -621,9 +621,11 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                             m->base = zero_cc_type_alloc_base(&et);
                         }
                     }
-                    if (is_ptr && is_array && !is_flexible && !is_bitfield) {
+                    if (is_ptr && (is_array || is_flexible) && !is_bitfield) {
                         /* Array of pointers to struct/union/enum in a union
-                         * (`struct S *arr[N]`): element is the pointer type. */
+                         * (`struct S *arr[N]` - and the flexible form
+                         * `struct S *tab[]`, c-torture pr16566-3): element is
+                         * the pointer type. */
                         ZeroCCType ptelem;
                         memset(&ptelem, 0, sizeof(ptelem));
                         ptelem.tag = TYPE_PTR;
@@ -749,13 +751,15 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                             m->base = zero_cc_type_alloc_base(&et);
                         }
                     }
-                    if (is_ptr && is_array && !is_flexible && !is_bitfield) {
+                    if (is_ptr && (is_array || is_flexible) && !is_bitfield) {
                         /* Array of pointers to struct/union/enum
-                         * (`struct S *arr[N]`): the member is an array whose
-                         * element is the pointer type (c-torture 20020402-3,
-                         * pr39041).  m->base is the pointed-to type from the
-                         * is_ptr branch; wrap it in a pointer to form the
-                         * array element, and nest any further dims. */
+                         * (`struct S *arr[N]`, and the flexible form
+                         * `struct S *tab[]` - c-torture pr16566-3): the member
+                         * is an array whose element is the pointer type
+                         * (c-torture 20020402-3, pr39041).  m->base is the
+                         * pointed-to type from the is_ptr branch; wrap it in a
+                         * pointer to form the array element, and nest any
+                         * further dims. */
                         ZeroCCType ptelem;
                         memset(&ptelem, 0, sizeof(ptelem));
                         ptelem.tag = TYPE_PTR;
@@ -1080,10 +1084,16 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
             }
             /* C99 6.7.2.3: _Complex T is a two-part object of element type T
              * (GCC: sizeof(_Complex double) == 16, align 8; float: 8, align 4).
-             * Non-pointer scalar float members only - the pointer/array
-             * forms keep the pointer or array of complex element. */
+             * Valid for ANY real scalar element (integer or float) - the
+             * int/long/short/char/bool forms were missing here, so a
+             * `__complex__ int` member stayed a plain 4-byte int and
+             * `__real__ u.ci` REJECTed as "applied to a non-complex value"
+             * (c-torture compile/pr42196-1..4).  The pointer/array forms
+             * keep the pointer or array of complex element. */
             bool member_cx_scalar = member_is_complex && !is_ptr &&
-                (mt == TK_DOUBLE_KW || mt == TK_FLOAT_KW);
+                (mt == TK_DOUBLE_KW || mt == TK_FLOAT_KW || mt == TK_INT ||
+                 mt == TK_SIGNED || mt == TK_UNSIGNED || mt == TK_SHORT ||
+                 mt == TK_CHAR || mt == TK_BOOL_KW || mt == TK_LONG);
             if (is_ptr) { base_align = 8; base_size = 8; }
             if (member_cx_scalar) { base_size *= 2; }
             size_t effective_align = member_align > base_align ? member_align : base_align;
@@ -1324,8 +1334,17 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                             dummy.is_const = member_is_const;
                             dummy.is_volatile = member_is_volatile;
                             if (member_is_complex &&
-                                (mt == TK_DOUBLE_KW || mt == TK_FLOAT_KW)) {
-                                dummy.size = (mt == TK_DOUBLE_KW) ? 16 : 8;
+                                (mt == TK_DOUBLE_KW || mt == TK_FLOAT_KW ||
+                                 mt == TK_INT || mt == TK_SIGNED ||
+                                 mt == TK_UNSIGNED || mt == TK_SHORT ||
+                                 mt == TK_CHAR || mt == TK_BOOL_KW ||
+                                 mt == TK_LONG)) {
+                                /* pointee = the complex object: element size x2 */
+                                size_t cx_elem = (mt == TK_DOUBLE_KW || mt == TK_LONG) ? 8 :
+                                                 (mt == TK_INT || mt == TK_SIGNED ||
+                                                  mt == TK_UNSIGNED || mt == TK_FLOAT_KW) ? 4 :
+                                                 (mt == TK_SHORT) ? 2 : 1;
+                                dummy.size = cx_elem * 2;
                                 dummy.is_complex = true;
                             }
                             m->base = zero_cc_type_alloc_base(&dummy);
@@ -1579,8 +1598,17 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                                 dummy.is_const = member_is_const;
                                 dummy.is_volatile = member_is_volatile;
                                 if (member_is_complex &&
-                                    (mt == TK_DOUBLE_KW || mt == TK_FLOAT_KW)) {
-                                    dummy.size = (mt == TK_DOUBLE_KW) ? 16 : 8;
+                                    (mt == TK_DOUBLE_KW || mt == TK_FLOAT_KW ||
+                                     mt == TK_INT || mt == TK_SIGNED ||
+                                     mt == TK_UNSIGNED || mt == TK_SHORT ||
+                                     mt == TK_CHAR || mt == TK_BOOL_KW ||
+                                     mt == TK_LONG)) {
+                                    /* pointee = the complex object: element size x2 */
+                                    size_t cx_elem = (mt == TK_DOUBLE_KW || mt == TK_LONG) ? 8 :
+                                                     (mt == TK_INT || mt == TK_SIGNED ||
+                                                      mt == TK_UNSIGNED || mt == TK_FLOAT_KW) ? 4 :
+                                                     (mt == TK_SHORT) ? 2 : 1;
+                                    dummy.size = cx_elem * 2;
                                     dummy.is_complex = true;
                                 }
                                 m->base = zero_cc_type_alloc_base(&dummy);
