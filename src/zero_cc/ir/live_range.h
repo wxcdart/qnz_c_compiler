@@ -488,15 +488,21 @@ static void live_range_compute(LiveRangeAnalyzer *lra, RegAllocator *ra, ZeroCCC
                 if (c->asm_fixed_regs && c->asm_fixed_regs[k] >= 0) {
                     regalloc_set_fixed_reg(ra, int_idx, c->asm_fixed_regs[k]);
                 }
-                /* Find this operand's OP_ASM and forbid its clobbered regs */
-                for (size_t a = 0; a < c->ir_asm_args.count; a++) {
-                    const IRAsmArgs *aa = &c->ir_asm_args.table[a];
-                    for (int o = 0; o < aa->op_count; o++) {
-                        if (aa->ops[o].temp != (uint32_t)temp_id) continue;
-                        if (aa->clobber_mask) {
-                            regalloc_set_forbidden(ra, int_idx, aa->clobber_mask);
-                        }
-                        break;
+                /* Sprint 154: the payload is in-stream - find this
+                 * operand's OP_ASM anchor(s) and forbid their clobbered
+                 * regs (same accumulation as the former side-table scan). */
+                size_t n_ir = ir_get_count(c);
+                for (size_t a = 0; a < n_ir; a++) {
+                    const Instr *anchor = ir_get(c, a);
+                    if (!anchor || anchor->op != OP_ASM) continue;
+                    uint32_t mask = (uint32_t)(uint16_t)anchor->imm;
+                    if (!mask) continue;
+                    int op_count = (int)anchor->temp_dest;
+                    for (int o = 0; o < op_count; o++) {
+                        const Instr *arg = ir_get(c, a + 1 + (size_t)o);
+                        if (!arg || arg->op != OP_ASM_ARG) break;
+                        if (arg->temp_src1 != (uint32_t)temp_id) continue;
+                        regalloc_set_forbidden(ra, int_idx, mask);
                     }
                 }
                 break;
@@ -543,8 +549,10 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
          * barrier) with the same side-table argument liveness. */
         /* OP_CALL_ARG pseudo-instructions are part of the preceding OP_CALL/
          * OP_SYSCALL/OP_CLONE; they are skipped here and handled when that
-         * call instruction is processed. */
-        if (instr->op == OP_CALL_ARG) {
+         * call instruction is processed. OP_ASM_ARG/OP_ASM_LABEL are the
+         * same for OP_ASM (Sprint 154). */
+        if (instr->op == OP_CALL_ARG || instr->op == OP_ASM_ARG ||
+            instr->op == OP_ASM_LABEL) {
             continue;
         }
 
@@ -576,25 +584,29 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
             continue;
         }
 
-        /* OP_ASM (Sprint 135): operand liveness lives in the IRAsmArgs side
-         * table. An output r / in-out operand is DEFINED by the asm; an
-         * input r operand and every m address temp is USED. An in-out temp
-         * is both (same position, like an in-place op) so its pre-asm value
-         * (the lvalue load the lowering emits) stays live in the operand
-         * register across the template. */
+        /* OP_ASM (Sprint 135; payload in-stream since Sprint 154): an
+         * output r / in-out operand is DEFINED by the asm; an input r
+         * operand and every m address temp is USED. An in-out temp is both
+         * (same position, like an in-place op) so its pre-asm value (the
+         * lvalue load the lowering emits) stays live in the operand
+         * register across the template.  Operands live in the OP_ASM_ARG
+         * run following the anchor (one per operand, template order). */
         if (instr->op == OP_ASM) {
-            const IRAsmArgs *aa = ir_asm_args_find(c, i);
-            if (aa) {
-                for (int o = 0; o < aa->op_count; o++) {
-                    const IRAsmOperand *opn = &aa->ops[o];
-                    if (opn->temp < 0) continue;
-                    if (opn->kind == ZC_ASM_OP_OUT_R || opn->kind == ZC_ASM_OP_INOUT_R) {
-                        live_range_add_use(lra, i, opn->temp, true);
-                    }
-                    if (opn->kind == ZC_ASM_OP_IN_R || opn->kind == ZC_ASM_OP_INOUT_R ||
-                        opn->kind == ZC_ASM_OP_OUT_M || opn->kind == ZC_ASM_OP_IN_M) {
-                        live_range_add_use(lra, i, opn->temp, false);
-                    }
+            int op_count = (int)instr->temp_dest;
+            for (int o = 0; o < op_count; o++) {
+                size_t ai = i + 1 + (size_t)o;
+                if (ai >= instr_count) break;
+                const Instr *arg = &instrs[ai];
+                if (arg->op != OP_ASM_ARG) break;
+                uint32_t t = arg->temp_src1;
+                if (t == TEMP_NONE) continue;
+                int kind = (int)arg->cond;
+                if (kind == ZC_ASM_OP_OUT_R || kind == ZC_ASM_OP_INOUT_R) {
+                    live_range_add_use(lra, i, t, true);
+                }
+                if (kind == ZC_ASM_OP_IN_R || kind == ZC_ASM_OP_INOUT_R ||
+                    kind == ZC_ASM_OP_OUT_M || kind == ZC_ASM_OP_IN_M) {
+                    live_range_add_use(lra, i, t, false);
                 }
             }
             continue;

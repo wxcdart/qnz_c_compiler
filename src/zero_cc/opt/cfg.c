@@ -147,8 +147,9 @@ bool cfg_build(ZeroCCCompiler *c) {
             if (cfg_is_terminal((int)ins->op)) {
                 leader[i + 1] = true;
             } else if (ins->op == OP_ASM) {
-                const IRAsmArgs *aa = ir_asm_args_find(c, i);
-                if (aa && aa->is_goto) leader[i + 1] = true;
+                /* Sprint 154: is_goto is packed into the anchor's cond
+                 * (bit 1). */
+                if (ins->cond & 0x02) leader[i + 1] = true;
             }
         }
     }
@@ -221,14 +222,17 @@ bool cfg_build(ZeroCCCompiler *c) {
                 }
             }
         } else if (op == OP_ASM) {
-            const IRAsmArgs *aa = ir_asm_args_find(c, last);
-            if (aa && aa->is_goto) {
-                for (int gi = 0; gi < aa->goto_label_count; gi++) {
-                    int lid = (int)aa->goto_labels[gi];
-                    if (lid >= 0 && lid <= max_label) {
-                        int pos = label_to_pos[lid];
-                        if (pos >= 0) cfg_add_succ(&blocks[b], label_to_block[lid], nblocks);
-                    }
+            /* Sprint 154: goto labels are the OP_ASM_LABEL run following
+             * the OP_ASM_ARG run. */
+            int op_count = (int)t->temp_dest;
+            int gcount = (int)t->width;
+            for (int gi = 0; gi < gcount; gi++) {
+                const Instr *lg = ir_get(c, last + 1 + (size_t)op_count + (size_t)gi);
+                if (!lg || lg->op != OP_ASM_LABEL) break;
+                int lid = (int)lg->label_idx;
+                if (lid >= 0 && lid <= max_label) {
+                    int pos = label_to_pos[lid];
+                    if (pos >= 0) cfg_add_succ(&blocks[b], label_to_block[lid], nblocks);
                 }
             }
             cfg_add_succ(&blocks[b], b + 1, nblocks); /* fallthrough */

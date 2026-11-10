@@ -184,7 +184,10 @@ static void lower_asm_stmt(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNo
     aa.is_goto = as->is_goto;
     aa.goto_label_count = as->goto_label_count;
     for (int i = 0; i < as->goto_label_count; i++) {
-        snprintf(aa.goto_label_names[i], sizeof(aa.goto_label_names[i]), "%s", as->goto_labels[i]);
+        /* Sprint 154: the name is emitted into the stream as a pointer to
+         * the parser asm-stmt's own char[64] (stable for the whole
+         * compilation) - no copy needed anymore. */
+        aa.goto_label_names[i] = as->goto_labels[i];
         aa.goto_labels[i] = get_or_create_user_ir_label(c, as->goto_labels[i]);
     }
     if (as->is_goto) {
@@ -505,11 +508,44 @@ static void lower_asm_stmt(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNo
         }
     }
 
-    /* --- The OP_ASM itself --- */
-    ir_emit(c, (Instr){.op = OP_ASM, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE,
-                       .temp_src2= TEMP_NONE, .cond = 0, .flags_out = 0xFF,
-                       .flags_in = 0xFF, .imm = 0, .label_idx = 0});
-    ir_asm_args_record(c, ir_get_count(c) - 1, &aa);
+    /* --- The OP_ASM itself (Sprint 154: the payload travels in the
+     * instruction stream with the anchor - no side table).  One
+     * OP_ASM_ARG per operand (template order), then one OP_ASM_LABEL per
+     * goto label; ir_asm_args_collect rebuilds the IRAsmArgs view for the
+     * emitters. --- */
+    ir_emit(c, (Instr){.op = OP_ASM,
+                       .temp_dest = (uint32_t)aa.op_count,
+                       .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE,
+                       .cond = (uint8_t)(aa.has_memory | (aa.is_goto << 1)),
+                       .flags_out = 0xFF, .flags_in = 0xFF,
+                       .width = (uint8_t)aa.goto_label_count,
+                       .imm = (int16_t)aa.clobber_mask,
+                       .imm64 = (int64_t)(intptr_t)aa.template_str,
+                       .label_idx = 0});
+    for (int o = 0; o < aa.op_count; o++) {
+        const IRAsmOperand *opn = &aa.ops[o];
+        ir_emit(c, (Instr){.op = OP_ASM_ARG,
+                           .temp_dest= TEMP_NONE,
+                           .temp_src1 = (uint32_t)opn->temp,
+                           .temp_src2= TEMP_NONE,
+                           .cond = opn->kind,
+                           .flags_out = 0xFF, .flags_in = 0xFF,
+                           .width = opn->width,
+                           .imm = opn->digit,
+                           .label_idx = (uint16_t)(opn->fixed_reg < 0
+                                                     ? 0
+                                                     : (unsigned)(opn->fixed_reg + 1)),
+                           .imm64 = 0});
+    }
+    for (int g = 0; g < aa.goto_label_count; g++) {
+        ir_emit(c, (Instr){.op = OP_ASM_LABEL,
+                           .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE,
+                           .temp_src2= TEMP_NONE, .cond = 0,
+                           .flags_out = 0xFF, .flags_in = 0xFF,
+                           .width = 0, .imm = 0,
+                           .imm64 = (int64_t)(intptr_t)as->goto_labels[g],
+                           .label_idx = aa.goto_labels[g]});
+    }
 
     /* --- Post-asm: store r outputs back to their lvalues --- */
     for (int i = 0; i < as->out_count; i++) {

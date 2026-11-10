@@ -244,7 +244,8 @@ static void x86_mc_filter_dialect(const char *in, char *out, size_t out_cap) {
 static int x86_interpolate_template(ZeroCCCompiler *c, size_t idx, char *buf, size_t buf_cap) {
     const Instr *instr = ir_get(c, idx);
     if (!instr) return -1;
-    const IRAsmArgs *aa = ir_asm_args_find(c, idx);
+    IRAsmArgs aa_view;
+    const IRAsmArgs *aa = ir_asm_args_collect(c, idx, &aa_view);
     if (!aa || !aa->template_str) return -1;
 
     size_t out_len = 0;
@@ -791,7 +792,8 @@ static int x86_assemble_single_stmt(ZeroCCCompiler *c, const char *stmt) {
 static void x86_emit_inline_asm_mc(ZeroCCCompiler *c, size_t idx) {
     const Instr *instr = ir_get(c, idx);
     if (!instr) return;
-    const IRAsmArgs *aa = ir_asm_args_find(c, idx);
+    IRAsmArgs aa_view;
+    const IRAsmArgs *aa = ir_asm_args_collect(c, idx, &aa_view);
     if (!aa || !aa->template_str) return;
 
     /* 1. Materialize digit-bound inputs into their output's register */

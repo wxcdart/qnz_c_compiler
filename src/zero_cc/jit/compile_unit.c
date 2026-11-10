@@ -517,15 +517,6 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
             return;
         }
     }
-    if (!c->ir_asm_args.table) {
-        if (!ir_asm_args_arena_init(&c->ir_asm_args)) {
-            fprintf(stderr, "Error: Failed to initialize IR asm args arena\n");
-            ir_arena_free(&c->ir_arena);
-            zero_cc_type_pool_free();
-            return;
-        }
-    }
-
     /* Initialize translation-unit AST arena for inlinable functions */
     if (!c->tu_ast_arena) {
         ZeroCCASTArena *tu_arena = (ZeroCCASTArena *)malloc(sizeof(ZeroCCASTArena));

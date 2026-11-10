@@ -383,15 +383,8 @@ void opt_branchless_select(ZeroCCCompiler *c) {
         ir_arena_emit(&new_arena, *ir_get(c, i));
     }
 
-    /* Sprint 135: remap OP_ASM side-table indices to new instruction positions */
-    if (c->ir_asm_args.table) {
-        for (size_t ai = 0; ai < c->ir_asm_args.count; ai++) {
-            size_t old_pos = c->ir_asm_args.table[ai].instr_index;
-            if (old_pos < (size_t)count && old_to_new[old_pos] >= 0) {
-                c->ir_asm_args.table[ai].instr_index = (size_t)old_to_new[old_pos];
-            }
-        }
-    }
+    /* Sprint 154: the OP_ASM payload travels with its anchor in the
+     * buffer - nothing to remap. */
     ir_arena_free(&c->ir_arena);
     c->ir_arena = new_arena;
 

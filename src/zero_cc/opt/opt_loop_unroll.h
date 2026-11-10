@@ -47,8 +47,9 @@ typedef struct ZeroCCCompiler ZeroCCCompiler;
  * One qualifying loop is unrolled per invocation (the first found); the
  * optimizer pipeline's fixed-point iteration handles the rest on later
  * rounds.  The IR arena is rebuilt in place (the LICM two-pass-rebuild
- * pattern) and the index-keyed IRAsmArgs side table is
- * remapped.  -O3-gated (see the opt_pass.c pass table).
+ * pattern); the in-stream OP_ASM payload (Sprint 154) travels with its
+ * anchor - no side table to remap.  -O3-gated (see the opt_pass.c pass
+ * table).
  */
 void opt_loop_unroll(ZeroCCCompiler *c);
 

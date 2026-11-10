@@ -1633,7 +1633,8 @@ static void x86_filter_dialect(const char *in, char *out, size_t out_cap) {
 static void x86_emit_inline_asm_asm(ZeroCCCompiler *c, size_t idx, FILE *out) {
     const Instr *instr = ir_get(c, idx);
     if (!instr) return;
-    const IRAsmArgs *aa = ir_asm_args_find(c, idx);
+    IRAsmArgs aa_view;
+    const IRAsmArgs *aa = ir_asm_args_collect(c, idx, &aa_view);
     if (!aa || !aa->template_str) return;
 
     int32_t spill_base_offset = c->regalloc.spill_base_offset;

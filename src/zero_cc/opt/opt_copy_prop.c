@@ -103,6 +103,8 @@ static void copy_prop_invalidate(uint16_t temp) {
 static int instr_defines_temp(Instr *instr) {
     if (instr->op == OP_CALL || instr->op == OP_CALL_INDIRECT ||
         instr->op == OP_SYSCALL || instr->op == OP_CLONE) return 0;
+    if (instr->op == OP_ASM) return 0;  /* Sprint 154: temp_dest = operand
+                                          * count, not a temp id */
     return instr->temp_dest != TEMP_NONE;
 }
 

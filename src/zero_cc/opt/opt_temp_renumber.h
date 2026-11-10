@@ -16,7 +16,8 @@
  * resets c->next_temp_id to the top of the compact space, and turns the
  * per-function backstop from "total churn" into "peak live".
  *
- * All temp-keyed structures are remapped: Instr temp fields, IRAsmArgs,
+ * All temp-keyed structures are remapped: the Instr temp fields (which
+ * include the in-stream OP_ASM_ARG operand temps, Sprint 154),
  * c->asm_operand_temps, and the advisory per-temp type-tag
  * table (conflicting owners of a recycled id -> ZC_TAG_NONE, which every
  * tag consumer treats as "unknown" and falls back conservatively).

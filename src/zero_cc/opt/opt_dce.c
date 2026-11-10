@@ -138,6 +138,9 @@ static int instr_has_side_effects(Instr *instr) {
         case OP_MFENCE:
         case OP_TRAP:
         case OP_ASM:  /* Sprint 135: the template executes unconditionally */
+        case OP_ASM_ARG:   /* Sprint 154: payload pseudo-instruction (travels
+                            * with its OP_ASM anchor, never deleted alone) */
+        case OP_ASM_LABEL: /* Sprint 154: goto-label pseudo-instruction */
         // Comparison/flag-setting instructions have side effects (affect jumps)
         case OP_CMP:
         case OP_CMP_ZERO:
@@ -197,22 +200,24 @@ static void mark_call_args_live(ZeroCCCompiler *c, Instr *instr) {
 static void mark_uses(ZeroCCCompiler *c, Instr *instr) {
     switch (instr->op) {
         case OP_ASM:
-            /* Sprint 135: operand temps live in the side table; the inputs
+            /* Sprint 135; in-stream payload since Sprint 154: the inputs
              * (and m address temps, and in-out temps' pre-asm values) must
-             * stay live for the template. */
+             * stay live for the template.  Operands are the OP_ASM_ARG run
+             * following the anchor. */
             if (c) {
-                const IRAsmArgs *aa = ir_asm_args_find(c,
-                    (size_t)(instr - ir_get_buffer(c)));
-                if (aa) {
-                    for (int o = 0; o < aa->op_count; o++) {
-                        int t = aa->ops[o].temp;
-                        if (t < 0) continue;
-                        if (aa->ops[o].kind == ZC_ASM_OP_IN_R ||
-                            aa->ops[o].kind == ZC_ASM_OP_INOUT_R ||
-                            aa->ops[o].kind == ZC_ASM_OP_IN_M ||
-                            aa->ops[o].kind == ZC_ASM_OP_OUT_M) {
-                            mark_live(t);
-                        }
+                size_t instr_idx = (size_t)(instr - ir_get_buffer(c));
+                int op_count = (int)instr->temp_dest;
+                for (int o = 0; o < op_count; o++) {
+                    const Instr *arg = ir_get(c, instr_idx + 1 + (size_t)o);
+                    if (!arg || arg->op != OP_ASM_ARG) break;
+                    int t = (int)arg->temp_src1;
+                    if (t == (int)TEMP_NONE) continue;
+                    int kind = (int)arg->cond;
+                    if (kind == ZC_ASM_OP_IN_R ||
+                        kind == ZC_ASM_OP_INOUT_R ||
+                        kind == ZC_ASM_OP_IN_M ||
+                        kind == ZC_ASM_OP_OUT_M) {
+                        mark_live(t);
                     }
                 }
             }
@@ -363,17 +368,8 @@ void opt_eliminate_dead_code(ZeroCCCompiler *c) {
                 Instr *dst = ir_get(c, write_idx);
                 *dst = *instr;
             }
-            /* Sprint 135: remap the OP_ASM side table the same way */
-            if (instr->op == OP_ASM && c) {
-                IRAsmArgsArena *asm_arena = &c->ir_asm_args;
-                for (size_t t = 0; t < asm_arena->count; t++) {
-                    IRAsmArgs *entry = &asm_arena->table[t];
-                    if (entry && entry->instr_index == (size_t)i) {
-                        entry->instr_index = write_idx;
-                        break;
-                    }
-                }
-            }
+            /* Sprint 154: the OP_ASM payload (OP_ASM_ARG/OP_ASM_LABEL run)
+             * is copied with the anchor - no side table to remap. */
             write_idx++;
         }
     }

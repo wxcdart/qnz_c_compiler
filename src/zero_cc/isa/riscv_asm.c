@@ -1541,7 +1541,8 @@ static void riscv_emit_trunc128_64_asm(ZeroCCCompiler *c, int dst, int slo, FILE
 static void riscv_emit_inline_asm_asm(ZeroCCCompiler *c, size_t idx, FILE *out) {
     const Instr *instr = ir_get(c, idx);
     if (!instr) return;
-    const IRAsmArgs *aa = ir_asm_args_find(c, idx);
+    IRAsmArgs aa_view;
+    const IRAsmArgs *aa = ir_asm_args_collect(c, idx, &aa_view);
     if (!aa || !aa->template_str) return;
 
     int first_out = -1;

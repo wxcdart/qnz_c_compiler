@@ -73,10 +73,6 @@ void ir_reset(ZeroCCCompiler *c) {
         c->ir_arena.count = 0;
     }
 
-    if (c->ir_asm_args.table) {
-        c->ir_asm_args.count = 0;
-    }
-
     /* Sprint 118: temp ids restart at VREG_USER_START; clear the tag table. */
     zc_temp_tags_reset(c);
 
@@ -115,16 +111,48 @@ void ir_insert_at(ZeroCCCompiler *c, size_t idx, Instr instr) {
     }
 }
 
-/* Record inline asm args for an OP_ASM instruction (Sprint 135) */
-void ir_asm_args_record(ZeroCCCompiler *c, size_t instr_index, const IRAsmArgs *args) {
-    if (!c || !c->ir_asm_args.table || !args) return;
-    ir_asm_args_arena_record(&c->ir_asm_args, instr_index, args);
-}
+/* Sprint 154: collect the payload of the OP_ASM at instr_index into `out`
+ * (a stack IRAsmArgs) from the anchor + its OP_ASM_ARG/OP_ASM_LABEL
+ * pseudo-run.  Returns `out` on success, NULL if not an OP_ASM anchor.
+ * Replaces the former ir_asm_args_find side-table lookup. */
+const IRAsmArgs *ir_asm_args_collect(const ZeroCCCompiler *c,
+                                     size_t instr_index,
+                                     IRAsmArgs *out) {
+    if (!c || !out || !c->ir_arena.buffer ||
+        instr_index >= c->ir_arena.count) return NULL;
+    const Instr *anchor = &c->ir_arena.buffer[instr_index];
+    if (anchor->op != OP_ASM) return NULL;
 
-/* Find inline asm args for an OP_ASM instruction */
-const IRAsmArgs *ir_asm_args_find(const ZeroCCCompiler *c, size_t instr_index) {
-    if (!c || !c->ir_asm_args.table) return NULL;
-    return ir_asm_args_arena_find(&c->ir_asm_args, instr_index);
+    memset(out, 0, sizeof(*out));
+    out->template_str = (const char *)(uintptr_t)anchor->imm64;
+    out->op_count = (int)anchor->temp_dest;
+    out->clobber_mask = (uint32_t)(uint16_t)anchor->imm;
+    out->has_memory = anchor->cond & 1;
+    out->is_goto = (anchor->cond >> 1) & 1;
+    out->goto_label_count = (int)anchor->width;
+    if (out->op_count > IR_ASM_MAX_OPERANDS) out->op_count = IR_ASM_MAX_OPERANDS;
+    if (out->goto_label_count > IR_ASM_MAX_LABELS) out->goto_label_count = IR_ASM_MAX_LABELS;
+
+    size_t k = instr_index + 1;
+    for (int o = 0; o < out->op_count; o++) {
+        if (k >= c->ir_arena.count) break;
+        const Instr *arg = &c->ir_arena.buffer[k++];
+        if (arg->op != OP_ASM_ARG) break;
+        out->ops[o].temp = (int32_t)arg->temp_src1;
+        out->ops[o].kind = arg->cond;
+        out->ops[o].width = arg->width;
+        out->ops[o].digit = arg->imm;
+        out->ops[o].fixed_reg = (arg->label_idx != 0)
+            ? (int16_t)((int)arg->label_idx - 1) : -1;
+    }
+    for (int g = 0; g < out->goto_label_count; g++) {
+        if (k >= c->ir_arena.count) break;
+        const Instr *lg = &c->ir_arena.buffer[k++];
+        if (lg->op != OP_ASM_LABEL) break;
+        out->goto_label_names[g] = (const char *)(uintptr_t)lg->imm64;
+        out->goto_labels[g] = lg->label_idx;
+    }
+    return out;
 }
 
 /* IR Emitter Functions - Arena-based with compiler context */
@@ -202,10 +230,6 @@ void ir_clear(ZeroCCCompiler *c) {
     if (!c) return;
     if (c->ir_arena.buffer) {
         c->ir_arena.count = 0;
-    }
-
-    if (c->ir_asm_args.table) {
-        c->ir_asm_args.count = 0;
     }
 }
 
