@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-10T05:24:16Z
+timestamp: 2026-11-10T05:33:05Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1278,3 +1278,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-10 — Updated `isa-backends.md`
 - Sprint 151b: RISC-V text comparison flag materialization and text-AOT FP spill fixes
+
+## 2026-11-10 — Updated `host-runtime-and-portability.md`
+- Host Runtime, In-Process Dynamic Loading & Portability Architecture (static-musl, dynlink.c adaptation, freestanding/baremetal, macOS/Windows/BSD)

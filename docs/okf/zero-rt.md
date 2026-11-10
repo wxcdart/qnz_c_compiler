@@ -24,7 +24,7 @@ status: active
 - `core/stdio.c` — unbuffered `printf`/`fprintf`/`sprintf`/`snprintf`/`puts`/`putchar`; float formatting via vendored **Ryū** (`third_party/vendor/ryu/`, Apache-2.0 OR Boost-1.0: `d2fixed_buffered` for `%f`, `d2exp_buffered` for `%e`/`%g`).
 - `core/int128.c` — freestanding 128-bit integer div/mod/shift (`zc_udiv128`, `zc_sdiv128`, `zc_umod128`, `zc_smod128`, `zc_shl128_v`, `zc_shr128_v`, `zc_sar128_v`).
 - `complex/complex.c` (Sprint 144) — clean-room MIT complex double division (`__divdc3`) using scaled Smith's algorithm (CACM 1962, Alg 116) and ISO C99 Annex G.5.1 infinity/NaN recovery. Closes the last `libgcc` runtime dependency called by ZeroCC IR lowering; linked as `ZC_COMPLEX_OBJ` into `zerocc` for host static musl JIT symbol resolution, and compiled into target `zero_rt.a` archives.
-- `dlfcn/dlfcn.c` (Sprint 143, host side) — self-hosting `dlopen`/`dlsym`/`dlclose`/`dlerror` for static musl builds: resolves symbols by parsing the running executable's own ELF `.symtab` via `/proc/self/exe`. Not part of target `zero_rt.a` archives; linked into `zerocc` ahead of whole-archived musl `libc.a`.
+- `dlfcn/dlfcn.c` (Sprint 143, host side) — self-hosting `dlopen`/`dlsym`/`dlclose`/`dlerror` for static musl builds: resolves symbols by parsing the running executable's own ELF `.symtab` via `/proc/self/exe`. Not part of target `zero_rt.a` archives; linked into `zerocc` ahead of whole-archived musl `libc.a`. See [host-runtime-and-portability.md](./host-runtime-and-portability.md) for the in-process dynamic loader architecture (`dynlink.c` adaptation) and baremetal/non-Linux porting model.
 
 ## Threading Architecture (Dual-Path & C11 `<threads.h>`)
 

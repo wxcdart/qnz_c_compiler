@@ -31,6 +31,8 @@ Welcome to the **ZeroCC Knowledge Graph**. Start here to navigate architectural 
   - ELF64-LE object reader, classic `ar` archive reader with greedy member extraction, symbol resolution, the x86-64 static relocation set, the generated `_start` stub, and the `make test-linker` differential gate.
 - **[Zero_RT — ZeroCC's Own Freestanding Runtime (Linux x86-64 + AArch64/RISC-V64 cross archives)](./zero-rt.md)**
   - The `zero_rt/` runtime (brk heap, strings, atexit/exit, unbuffered stdio with vendored Ryū float formatting) compiled by zerocc itself, auto-linked by `--zerocc-link` (`--no-zerocc-rt` to opt out), and the `zeroc_main_wrapper` `_start` routing that runs atexit on a plain `return` from `main`.
+- **[Host Runtime, In-Process Dynamic Loading & Portability Architecture](./host-runtime-and-portability.md)**
+  - Architecture of ZeroCC's static-musl host toolchain, self-hosting `dlfcn`, the in-process dynamic loader (musl `dynlink.c` adaptation), freestanding/baremetal runtime model, and cross-platform portability across Linux, macOS, Windows, and BSDs.
 
 ---
 
