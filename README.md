@@ -7,27 +7,19 @@ ZeroCC is a lightweight, embeddable C99/C11/C23 compiler (with GNU extensions) w
 - **C99/C11/C23** compiler, freestanding, with optional `zero_rt` standard library
 - **C23 Conformance**: `constexpr` data declarations, `nullptr`, `true`/`false` keywords, `typeof`/`typeof_unqual`, `#warning` (C23 6.9.1), empty `{}` initializers, `[[attr]]` attributes, designator-based unsized array sizing (`make test-c23` gate vs gcc-15)
 - **Multi-project validation**: sqlite3.c amalgamation (255k lines), 15-TU zlib, and cJSON compiled under zerocc at `-O0` and `-O2` (`make test-project-diff`)
-- **`__zerocc_syscall(number, a, b, c, d, e, f)`** — direct OS-syscall builtin
-  on all 4 ISAs (the `zero_rt` OS boundary)
+- **`__zerocc_syscall(number, a, b, c, d, e, f)`** and **`__zerocc_clone(...)`** — direct OS-syscall and thread-clone builtins (`OP_SYSCALL`, `OP_CLONE`) across all 4 ISAs (the `zero_rt` OS boundary)
 - **Multi-ISA**: x86-64, AArch64, RISC-V 64, RISC-V 32 (`--target`)
-- **Inline assembly (Phase 1 complete, x86-64 AOT text)**: GNU extended asm
-  (`__asm__ [volatile] ("..." : outs : ins : clobbers)`) with `r`/`m`/
-  `=r`/`+r`/fixed-register (`a`/`b`/`d`/`S`/`D`) operands, matching-digit
-  constraints, and `memory`/`cc`/GPR clobbers — lowered to an `OP_ASM` IR op,
-  register-allocated (operands `no_spill`, clobbered registers forbidden for
-  operands, live values across clobbers spilled), and emitted into the `.s`
-  text stream with `%N`/`%%` interpolation (`make test-asm` differential gate
-  vs gcc; JIT/raw paths defer to the Phase 2 integrated assembler —
-  docs/okf/inline-assembly-roadmap.md)
+- **Inline assembly (Phases 1–3 complete)**: GNU extended asm (`__asm__ [volatile] [goto] ("..." : outs : ins : clobbers [: labels])`) with `r`/`m`/`=r`/`+r`/fixed-register (`a`/`b`/`d`/`S`/`D`) operands, matching-digit constraints, symbolic `%[name]` / `%l[name]` operands, AT&T/Intel `{att | intel}` dialect alternatives, and `memory`/`cc`/GPR clobbers — lowered to `OP_ASM`, register-allocated (operands `no_spill`, clobbered registers forbidden for operands, live values across clobbers spilled), and supported across AOT `.s` text emission, in-memory JIT, and raw binary emission via the integrated assembler (`make test-asm` 48/48 runs vs gcc; [`docs/okf/inline-assembly-roadmap.md`](docs/okf/inline-assembly-roadmap.md))
 - **`-fsanitize=undefined`** — target-side signed-integer-overflow trap (bare
   `ud2`; x86-64, both emitters; check width follows the usual arithmetic
   conversions — Sprints 116–117; `make test-san` flag-ON gate)
+- **`-fstack-protector` / `-fstack-protector-strong` / `-fstack-protector-all`** — GCC/Clang-compatible stack canary guards across all 4 ISAs (`%fs:40` on x86-64, `__stack_chk_guard` on AArch64/RISC-V; Sprint 147)
 - **Multi-translation-unit driver**: multiple `.c` inputs per invocation
   (JIT image merge + per-input `-c`/`-S`)
-- **Own ELF linker** (`--zerocc-link`): static `ET_EXEC` output with no libc
-  and no crt files, plus `zero_rt` freestanding runtime auto-linking
-- Preprocessor (`#include`, `#define`, `#if/#ifdef`, virtual C11/C23 headers
-  `<stdatomic.h>` / `<stdnoreturn.h>` / `<threads.h>`, `-E` preprocess-only)
+- **Own ELF64/ELF32 linker & `ar` archiver** (`--zerocc-link`, `--ar`): static `ET_EXEC` output across all 4 ISAs (`x86-64`, `aarch64`, `riscv64`, `riscv32`) with no host libc or crt files, native GNU `ar` archive reader/writer, plus `zero_rt` freestanding runtime auto-linking
+- **Freestanding C11 `<threads.h>` & POSIX `pthread_*` in `zero_rt`** (Sprint 146): lightweight zero-dependency multithreading (`thrd_create`, `mtx_*`, `cnd_*`, `call_once`, `pthread_create`/`join`/`mutex_*`/`cond_*`) built on `__zerocc_clone` + Ulrich Drepper 3-state futex mutexes across all 4 ISAs
+- Preprocessor (`#include`, `#define`, `#if/#ifdef`, `#warning`, `#error`, virtual C11/C23 headers
+  `<stdatomic.h>` / `<stdnoreturn.h>` / `<threads.h>` / `<pthread.h>`, `-E` preprocess-only)
 - Type system (structs/unions, bitfields, pointers, arrays, VLAs, enums,
   `_Atomic`, `_Generic`, designated/aggregate initializers)
 - Control flow (`if/else`, `switch`, loops, `goto`, `break/continue/return`)
@@ -48,15 +40,13 @@ ZeroCC is a lightweight, embeddable C99/C11/C23 compiler (with GNU extensions) w
 - `__builtin_return_address` / `__builtin_frame_address` (Sprint 86)
 - Computed goto (`goto *ptr`) and labels as values (`&&label`) (Sprint 84)
 - Inline `OP_SETJMP` / `OP_LONGJMP` (Sprint 88)
-- JIT execution via `mmap` + self-hosting `dlfcn` (reading `/proc/self/exe`
-  ELF symbol table; compiler binary is statically linked against vendored musl
-  with zero host libc dependency)
+- **Self-contained static-musl host binary & JIT runtime**: `build/bin/zerocc` is fully statically linked against in-tree vendored musl (`--whole-archive`) with zero host glibc dependency (`ldd`: `"not a dynamic executable"`), executing JIT code via `mmap`, a far-call detour trampoline pool, and self-hosting `dlfcn` (`zero_rt/dlfcn/dlfcn.c` resolving against `/proc/self/exe` `.symtab`; see [`docs/okf/host-runtime-and-portability.md`](docs/okf/host-runtime-and-portability.md))
 - **Two-pass code generation**: IR → optimization → linear-scan register
   allocation → machine code
 - **Optimization levels** `-O0`…`-O3` (constant folding, DCE, copy
   propagation, mem2reg, CSE, GVN, LICM, branchless, strength reduction,
-  auto-vectorization to SSE2/SSE4.1, NEON, and RVV; small-function inlining
-  at `-O2`/`-O3`)
+  branch simplification, full loop unrolling, auto-vectorization to SSE2/SSE4.1,
+  NEON, and RVV; small-function inlining at `-O2`/`-O3`)
 - **Compiler diagnostics** — gcc-style caret errors, C99 constraint checking,
   "did you mean" suggestions, multi-error recovery
 - **Conformance gate** ratcheted against GCC's `gcc.c-torture` corpus
@@ -87,9 +77,12 @@ zerocc [options] <source.c> [more.c ...]
   -E              Preprocess only, to stdout (or -o file)
   -O0..-O3        Optimization level (-O1 is the default;
                   -O / -Os / -Oz / -Ofast are aliases for 1 / 2 / 3 / 3)
+  -std=<dialect>  Language standard: c99, gnu99, c11, gnu11 (default),
+                  c17, gnu17, c23, gnu23 (drives keywords & __STDC_VERSION__)
   -fomit-frame-pointer    Omit frame pointers in fixed-frame functions
                           (default at -O1+)
   -fno-omit-frame-pointer Keep frame pointers in every non-leaf function
+  -fstack-protector[-strong|-all]  Enable stack-smashing canary protection
   -I<dir>  -isystem <dir>  Add include / system include directory
   -D<macro>  -U<macro>     Define / undefine a macro
   -include <file>          Force-include a file before the main source
@@ -98,7 +91,8 @@ zerocc [options] <source.c> [more.c ...]
   -fsanitize=undefined  Target-side signed-integer-overflow trap after signed
                        +,-,* (x86-64, both emitters; Sprints 116-117)
   --zerocc-link  With -o: link with ZeroCC's own linker (x86-64, aarch64,
-                riscv64); auto-links zero_rt (opt out: --no-zerocc-rt)
+                riscv64, riscv32); auto-links zero_rt (opt out: --no-zerocc-rt)
+  --ar <cmd> <lib.a> [objs...]  Built-in GNU ar archiver (rcs, t, x)
   -MMD / -MF <file> / -MT <target>   Dependency-file generation
   -dump-ir      Dump IR before optimization
   -dump-cfg     Dump control-flow graph
@@ -108,8 +102,8 @@ zerocc [options] <source.c> [more.c ...]
   -h, --help      Show help
 ```
 
-Common gcc flags such as `-g`, `-Wall`, `-fPIC`, `-pthread`, `-static`, and
-`-std=...` are accepted and ignored (noted with `-v`).
+Common gcc flags such as `-g`, `-Wall`, `-fPIC`, `-pthread`, and `-static` are
+accepted for build-system compatibility (noted with `-v`).
 
 ## Directory Structure
 
@@ -133,14 +127,16 @@ zero_cc/
 │       │                   # linear-scan regalloc, asm/machine emitters
 │       ├─ opt/            # IR passes: constant_fold, dce, copy_prop,
 │       │                   # mem2reg, cse, gvn, licm, branchless,
-│       │                   # strength_reduction, auto_vectorize, CFG layer
+│       │                   # strength_reduction, branch_simplify,
+│       │                   # loop_unroll, auto_vectorize, CFG + dominators
 │       ├─ isa/            # Backend vtable + x86_64, aarch64, riscv (64/32)
 │       ├─ jit/            # JIT image build/merge, ELF emission, TLS backend
-│       ├─ linker/         # ZeroCC's own ELF64 + ar archive linker (T2)
+│       ├─ linker/         # ZeroCC's own ELF64/ELF32 static linker & ar writer (T2)
 │       └─ types/          # Type system, symbols, virtual registers
-├─ zero_rt/                # Freestanding runtime (heap, strings, stdio)
-│                           # compiled by zerocc itself for x86-64/aarch64/riscv64
-├─ third_party/vendor/     # Vendored deps (Ryū, gcc.c-torture corpus)
+├─ zero_rt/                # Freestanding runtime (heap, strings, stdio, C11/POSIX
+│                           # threads, int128, complex __divdc3) compiled by zerocc
+│                           # for all 4 ISAs + host self-hosting dlfcn/
+├─ third_party/vendor/     # Vendored deps (musl-1.2.6, Ryū, gcc.c-torture corpus)
 ├─ test/                   # Regression suites (unit, semantic, abi, jit, aot,
 │                           # driver, linker, licm, inline_audit, isa_qemu,
 │                           # isa128, torture, diag, san, bench, ...)
@@ -168,8 +164,8 @@ Source → Preprocessor → Lexer → Arena AST Parser → Semantic Analysis
   inline-asm operands
 - Dynamic, growing `IRArena` buffer — O(1) emission, cheap reset per function
 - Flat, non-SSA with implicit control flow; a lazy versioned **CFG layer**
-  (`opt/cfg.{h,c}`) provides basic blocks, reachability, and natural loops for
-  LICM / mem2reg / the vectorizer
+  (`opt/cfg.{h,c}`) provides basic blocks, reachability, dominators/post-dominators,
+  and natural loops for LICM / mem2reg / loop unrolling / the vectorizer
 - Call sites use the target ABI via the backend vtable (including hidden
   `sret` pointer returns for `>16B` structs)
 
@@ -197,7 +193,7 @@ plus cross-cutting backends for feature families:
 - `jit/tls_backend.c` — `_Thread_local` (`.tdata`/`.tbss`, x86-64
   initial-exec idiom, JIT data-section fallback)
 - per-ISA asm emitters (`*_asm.c`) for AOT `.s`/`.o` output
-- `linker/` — ZeroCC's own ELF64-LE object reader and static linker (T2)
+- `linker/` — ZeroCC's own ELF64/ELF32 object reader, static linker, and GNU `ar` archive reader/writer (T2)
 
 **Pattern**: each feature gets a backend interface + per-ISA implementation,
 so new ISAs or features plug in without touching lowering.
@@ -212,7 +208,7 @@ stopping when a round makes no change (`src/zero_cc/opt/opt_pass.c`):
 | **-O0** | None (debug builds; also the `test-opt` reference baseline) |
 | **-O1** (default) | `constant_fold`, `flag_dce`, `dce`, `copy_prop`, `mem2reg` |
 | **-O2** | + `cse`, `gvn`, `licm`; small static/`inline` function inlining |
-| **-O3** | + `branchless`, `strength_reduction`, `branch_simplify`, `auto_vectorize` (SSE2/SSE4.1, NEON, RVV) |
+| **-O3** | + `branchless`, `strength_reduction`, `branch_simplify`, `loop_unroll`, `auto_vectorize` (SSE2/SSE4.1, NEON, RVV) |
 
 Inlining uses conservative candidate filters (no FP signatures, no body
 locals, no labels/gotos, no `&param`, no value-param writes — see
@@ -229,51 +225,59 @@ build/bin/zerocc prog.c --target riscv64 -c -o prog.rv64.o
 build/bin/zerocc prog.c --target riscv32 -o prog.rv32
 ```
 
-### Own linker (T2)
+### Own linker & archiver (T2)
 
 `--zerocc-link` links the per-TU objects with **ZeroCC's own linker** instead
-of the system linker (x86-64, AArch64, RISC-V 64-bit). The result is a
-directly-executable **static `ET_EXEC`** — no libc, no crt files — and by
-default it auto-links the matching `zero_rt` runtime archive:
+of the system linker across all 4 ISAs (x86-64, AArch64, RISC-V 64-bit, and
+RISC-V 32-bit). The result is a directly-executable **static `ET_EXEC`**
+(ELF64 or ELF32) — no libc, no crt files — and by default it auto-links the
+matching `zero_rt` runtime archive:
 
 ```bash
 build/bin/zerocc a.c b.c --zerocc-link -o app      # freestanding executable
 build/bin/zerocc a.c lib.a --zerocc-link -o app    # archive member extraction
 build/bin/zerocc a.c --zerocc-link --no-zerocc-rt -o app  # no runtime
+build/bin/zerocc --ar rcs libfoo.a a.o b.o         # built-in GNU ar archiver
 ```
 
 ### zero_rt
 
-`zero_rt/` is ZeroCC's own freestanding runtime — `brk`-backed heap, string
-builtins, `atexit`/`exit` with `zeroc_main_wrapper`, and an unbuffered stdio
-layer with vendored Ryū float formatting — **compiled by zerocc itself** for
-x86-64, AArch64, and RISC-V 64-bit (`make all` builds all three archives).
-It is the first customer of the own linker; see
-[`docs/okf/zero-rt.md`](docs/okf/zero-rt.md).
+`zero_rt/` is ZeroCC's own freestanding runtime — thread-safe `brk`-backed
+heap, string builtins, `atexit`/`exit` with `zeroc_main_wrapper` (and stack
+canary `__stack_chk_guard`/`__stack_chk_fail`), C11 `<threads.h>` + POSIX
+`pthread_*` multithreading (`__zerocc_clone` + Ulrich Drepper 3-state futex
+mutexes), 128-bit integer math, clean-room complex division (`__divdc3`), and
+an unbuffered stdio layer with vendored Ryū float formatting — **compiled by
+zerocc itself** for x86-64, AArch64, RISC-V 64-bit, and RISC-V 32-bit
+(`make all` builds all four archives using `zerocc --ar`). Plus `zero_rt/dlfcn/`
+supplies the host-side self-hosting `dlfcn` for the static-musl compiler binary.
+See [`docs/okf/zero-rt.md`](docs/okf/zero-rt.md) and
+[`docs/okf/host-runtime-and-portability.md`](docs/okf/host-runtime-and-portability.md).
 
-Gates: `make test-linker` (own linker, gcc-differential) and
-`make test-isa-qemu` (raw binary emitter for all 4 ISAs under QEMU, diffed
+Gates: `make test-linker` (own linker & archiver across all 4 ISAs, gcc-differential)
+and `make test-isa-qemu` (raw binary emitter for all 4 ISAs under QEMU, diffed
 against a static-musl reference). See
 [`docs/okf/own-linker.md`](docs/okf/own-linker.md).
 
 ## Test Results
 
-Current status (verified 2026-11-08 at HEAD, Sprints 129–134):
+Current status (verified 2026-11-10 at HEAD, Sprints 129–151):
 
 | Suite | Status | Count |
 |-------|--------|-------|
 | **Main regression suite** (`make test`: unit, semantic, ABI, JIT, AOT, asm reference) | ✅ Pass | 190/190 |
 | **Optimizer sweep** (`make test-opt`, `-O0..-O3` × JIT + AOT via zerocc) | ✅ Pass | 150/150 |
 | **C23 differential gate** (`make test-c23`: 24 cases across gnu23/c11/c99 vs gcc-15) | ✅ Pass | 24/24 |
-| **Inline-asm Phase 1 gate** (`make test-asm`: `test/asm/*.c` on the `-S` text path, `-O0..-O3`, vs host-gcc reference) | ✅ Pass | 12/12 |
+| **Inline-asm Phases 1–3 gate** (`make test-asm`: `test/asm/*.c` across `-S` text, JIT, and raw AOT at `-O0..-O3` vs host-gcc reference) | ✅ Pass | 48/48 |
 | **Project-differential gate** (`make test-project-diff`: cJSON, zlib, sqlite3.c at -O0/-O2) | ✅ Pass | 36/36 TUs |
 | **`zero_san` flag-ON sweep** (`make test-san`: `san_ok_*` clean + `san_trap_*` SIGILL at `-O0..-O3`, JIT + AOT, cross-ISA qemu smoke) | ✅ Pass | 101 ok + 3 cross |
 | **Multi-file driver** (`make test-driver`, multi-TU JIT/AOT + per-input `-c`/`-S`) | ✅ Pass | 37/37 |
-| **Own linker** (`make test-linker`, `--zerocc-link` + gcc differential) | ✅ Pass | 21/21 |
+| **Own linker & archiver** (`make test-linker`, `--zerocc-link` + `--ar` across all 4 ISAs + gcc differential) | ✅ Pass | 45/45 |
 | **Cross-ISA raw-emitter QEMU gate** (`make test-isa-qemu`, vs static-musl reference) | ✅ Pass | 59/59 (all 4 ISAs) |
 | **Cross-ISA `__int128` raw-emitter QEMU gate** (`make test-isa128`, vs static-musl reference) | ✅ Pass | 144/144 (all 3 ISAs × 6 tests × 4 levels × 2 paths) |
 | **GCC c-torture conformance gate** (`make test-torture`, ratcheted baseline, gcc-15 reference) | ✅ Pass | 3,762 PASS / 3,940 corpus (0 MISCOMPILE / 0 REJECT; SKIP-SUPPORT 87, SKIP-C89 33, SKIP-REFSEM 16, SKIP-TARGET: arm/ia64/mips 6, SKIP-UB/PTR/BOGUS 3, EXPECTED-REJECT 4, NO-REF 23, REF-BUG 6) |
 | **Type-tag verifier** (`tools/type_tag_verifier.py --verify-all`, invariants I1–I10 at `-O0/2/3`) | ✅ Pass | 160 files, RESULT OK |
+| **Loop unroll verifier** (`tools/loop_unroll_verifier.py`, `-O3` constant-trip unrolling) | ✅ Pass | 15/15 |
 | **ASan/UBSan rebuild** (`make asan`) | ✅ Pass | 190/190 |
 | **`sret` ABI verifier** (`tools/sret_verifier.py --verify-all`) | ✅ Pass | 6/6 |
 | **C11 verification suite** (`tools/c11/test_c11.py`) | ✅ Pass | 11/11 |
@@ -311,15 +315,15 @@ ZeroCC implements the following C23 features:
 | **`_Static_assert`** | ✅ Implemented | Constant-evaluated at compile time |
 | **`_Generic`** | ✅ Simplified | Full C11 matching rules not implemented |
 | **`inline` semantics** | ✅ Implemented | Inlining at `-O2`/`-O3` with conservative candidate filters |
-| **`<threads.h>`** | ✅ Virtual header | `thrd_*`/`mtx_*` aliases over the pthread surface |
-| **`_Complex` (C99 + GNU)** | ✅ Implemented | `_Complex float`/`double` (C99 6.2.5) and GNU integer `_Complex`/`__complex__` (`int`/`long`/`short`/`char`): `+ - * /`, `==`/`!=`, `~` conjugate, `__real__`/`__imag__`; FP passed in `xmm0/xmm1`, integer ≤8B in 1 GPR / 16B in 2 GPRs — [`docs/okf/frontend-and-types.md`](docs/okf/frontend-and-types.md) |
+| **`<threads.h>`** | ✅ Complete | Virtual header + freestanding `zero_rt` runtime (`thrd_*`/`mtx_*`/`cnd_*`/`call_once` + POSIX `pthread_*` over `OP_CLONE` & futexes on all 4 ISAs; Sprint 146) |
+| **`_Complex` (C99 + GNU)** | ✅ Implemented | `_Complex float`/`double` (C99 6.2.5) and GNU integer `_Complex`/`__complex__` (`int`/`long`/`short`/`char`): `+ - * /` (clean-room `__divdc3` in `zero_rt`), `==`/`!=`, `~` conjugate, `__real__`/`__imag__`; FP passed in `xmm0/xmm1`, integer ≤8B in 1 GPR / 16B in 2 GPRs — [`docs/okf/frontend-and-types.md`](docs/okf/frontend-and-types.md) |
 
 ### Preprocessor Pragmas
 
 | Pragma | Status | Notes |
 |--------|--------|-------|
 | **`#pragma pack(n)`** | ✅ Complete | Structure packing control with push/pop |
-| **`#pragma message("text")** | ✅ Complete | Compiler messages |
+| **`#pragma message("text")`** | ✅ Complete | Compiler messages |
 | **`#pragma GCC diagnostic push/pop`** | ✅ Complete | Diagnostic state stack |
 | **`#pragma GCC diagnostic error/warning/ignored`** | ✅ Complete | Warning control |
 | **`#pragma GCC push_options` / `pop_options`** | ✅ Complete | Options stack |
@@ -333,7 +337,7 @@ ZeroCC development and verification rely on a combination of host build tools, r
 | Tool | Minimum | Current System | Role | Tier |
 |------|---------|----------------|------|------|
 | **GNU Make** | 4.0+ | GNU Make 4.3 | Build orchestration for compiler, runtimes, and tests (`make all`, `make test`) | **Core** |
-| **Host C Compiler** | GCC 13+ / Clang 14+ | GCC 13.3.0 | Builds the `zerocc` binary and host-side test binaries (`make asan`) | **Core** |
+| **Host C Compiler** | GCC 13+ / Clang 14+ | GCC 13.3.0 | Builds the `zerocc` binary (via in-tree static-musl wrapper) and host-side test binaries (`make asan`) | **Core** |
 | **Python 3** | 3.8+ | Python 3.12.3 | Test runners, ABI verifiers, OKF knowledge graph (`tools/*.py`) | **Core** |
 | **Git** | 2.25+ | Git 2.43.0 | Source tree and revision control | **Core** |
 | **GCC 15** | 15.0+ | GCC 15.2.0 (`gcc-15`) | **Mandatory c-torture reference** (`make test-torture` hard-fails without it; each test's `dg-options`/`-std=` dialect passes through), **differential C23 conformance gate** (`make test-c23`) across dialects (`-std=gnu23`, `c23`, `c11`, `c99`, `gnu89`), and the **reference oracle for the x86-64 ISA gates** (`make test-isa128` ref builds + x86_64 `-S` link; the `musl-gcc-x86_64` wrapper wraps it — rebuild with `--ccbin gcc-15`); overridable via `TORTURE_GCC` / `C23_GCC` | **Differential (required)** |
@@ -371,7 +375,7 @@ tools/setup_musl_cross.sh --arch riscv32 --ccbin riscv64-linux-gnu-gcc --extra "
 
 ## Building
 
-ZeroCC is a single static binary with no runtime dependencies beyond libc.
+ZeroCC is a single static binary linked against in-tree vendored musl (`third_party/vendor/musl/musl-1.2.6`) with zero host-libc runtime dependencies (`ldd build/bin/zerocc` → `"not a dynamic executable"`).
 
 ```bash
 # One-command dev environment setup (Ubuntu/Debian/Fedora/Arch/macOS)
@@ -400,21 +404,24 @@ make -j$(nproc) build/bin/zerocc
 # Quick sanity:
 ./build/bin/zerocc --run -O0 test/jit/basic.c
 ```
-```
 
 ### Test Gates
 
 ```bash
-make test              # Full regression suite (194 tests)
+make test              # Full regression suite (190 tests)
 make test-opt          # Optimizer sweep -O0..-O3, JIT + AOT (150 tests)
 make test-c23          # C23 differential gate vs gcc-15 (24 cases)
-make test-asm          # Inline-asm Phase 1 gate: test/asm/*.c on -S text path
+make test-asm          # Inline-asm Phases 1–3 gate: test/asm/*.c across text, JIT, and raw AOT (48 runs)
 make test-isa-qemu     # Raw-emitter QEMU gate (all 4 ISAs, needs cross toolchains + QEMU)
 make test-isa128       # Cross-ISA __int128 gate
 make test-torture      # GCC c-torture conformance gate (needs gcc-15)
 make asan              # ASan+UBSan build of compiler itself
 make test-san          # zero_san flag-ON soundness sweep
-``` the library in your own program (compile the `src/zero_cc/` sources with your own `main`; there is no prebuilt compiler archive):
+```
+
+## Embedding
+
+Embed the library in your own program (compile the `src/zero_cc/` sources with your own `main`; there is no prebuilt compiler archive):
 
 ```bash
 gcc -Wall -Isrc -Iinclude -fcommon your_main.c $(find src/zero_cc -name '*.c') -o your_app
@@ -433,8 +440,9 @@ ZeroCC maintains an **Open Knowledge Format (OKF v0.2)** knowledge graph in
 | [`docs/okf/architecture-pipeline.md`](docs/okf/architecture-pipeline.md) | Compilation pipeline & source file map |
 | [`docs/okf/frontend-and-types.md`](docs/okf/frontend-and-types.md) | Type system, structs, VLAs, C11/C23 features, virtual headers |
 | [`docs/okf/multi-tu.md`](docs/okf/multi-tu.md) | Multi-translation-unit driver & JIT image merge (T1) |
-| [`docs/okf/own-linker.md`](docs/okf/own-linker.md) | ZeroCC's own ELF linker & relocation set (T2) |
-| [`docs/okf/zero-rt.md`](docs/okf/zero-rt.md) | `zero_rt` freestanding runtime |
+| [`docs/okf/own-linker.md`](docs/okf/own-linker.md) | ZeroCC's own ELF64/ELF32 linker, GNU `ar` archiver & relocation set (T2) |
+| [`docs/okf/zero-rt.md`](docs/okf/zero-rt.md) | `zero_rt` freestanding runtime (heap, stdio, C11/POSIX threads, stack canary, complex div) |
+| [`docs/okf/host-runtime-and-portability.md`](docs/okf/host-runtime-and-portability.md) | Static-musl host toolchain, self-hosting `dlfcn`, in-process dynamic loader (`dynlink.c`), baremetal & non-Linux portability |
 | [`docs/okf/ir-and-regalloc.md`](docs/okf/ir-and-regalloc.md) | 168-opcode `Instr` IR & linear-scan register allocation |
 | [`docs/okf/optimization-passes.md`](docs/okf/optimization-passes.md) | Active IR optimization passes & safety invariants |
 | [`docs/okf/build-and-verification.md`](docs/okf/build-and-verification.md) | Build targets, direct compiler testing & ABI verifiers |
@@ -463,7 +471,8 @@ python3 tools/project_diff.py              # Real-world project compilation gate
 python3 tools/c11/test_c11.py --verbose    # C11 feature & concurrency suite
 python3 tools/vla/test_vla.py              # VLA & matrix VLA suite
 python3 tools/sret_verifier.py --verify-all  # sret ABI verifier
-python3 tools/type_tag_verifier.py --verify-all  # Per-temp IR type-tag invariants (Sprints 118–119)
+python3 tools/type_tag_verifier.py --verify-all  # Per-temp IR type-tag invariants (Sprints 118–120)
+python3 tools/loop_unroll_verifier.py      # -O3 constant-trip loop unrolling verifier (Sprint 150)
 python3 tools/diag_battery.py              # Differential diagnostics vs gcc (ratchet baseline)
 python3 tools/style_check.py               # C style/convention checker
 python3 tools/simd_regression_suite.py     # Auto-vectorization regression suite
@@ -486,16 +495,17 @@ status:
 
 - **Phase 1 — compile simple C programs**: ✅ done
 - **Phase 2 — freestanding runtime & self-hosted linking**: ✅ done —
-  `zero_rt` is compiled **by zerocc itself** for x86-64, AArch64, and RISC-V
-  64-bit, and `--zerocc-link` produces static executables with no host libc
-  (see [`docs/okf/zero-rt.md`](docs/okf/zero-rt.md)). zerocc compiles its own
-  individual TUs (static-locals, string-pointer arrays, and other
+  `zero_rt` is compiled **by zerocc itself** across all 4 target ISAs
+  (x86-64, AArch64, RISC-V 64-bit, and RISC-V 32-bit), archived with
+  `zerocc --ar`, and `--zerocc-link` produces static executables with no host
+  libc (see [`docs/okf/zero-rt.md`](docs/okf/zero-rt.md)). zerocc compiles its
+  own individual TUs (static-locals, string-pointer arrays, and other
   self-hosting blockers were closed in Sprint 41)
 - **Phase 3 — full self-compilation bootstrap**: in progress — next
   milestones are the Windows (PE/COFF + Win64 ABI) and macOS (Mach-O)
   linker/runtime phases in the development plan
 
 ## Acknowledgements
-The `gcc.c-torture`
-conformance corpus is vendored from `gcc-mirror`, and float formatting in
-`zero_rt` uses the vendored Ryū algorithm.
+The `gcc.c-torture` conformance corpus is vendored from `gcc-mirror`, the
+host static toolchain vendors `musl-1.2.6`, and float formatting in `zero_rt`
+uses the vendored Ryū algorithm.
