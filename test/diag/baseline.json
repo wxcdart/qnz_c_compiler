@@ -183,6 +183,17 @@
         "no-member",
         "undefined-label"
       ]
+    },
+    "16_empty_paren_expr": {
+      "expect_rc_zero": false,
+      "zerocc_error_count": 1,
+      "zerocc_categories": [
+        "expected-expression"
+      ],
+      "gcc_error_count": 1,
+      "gcc_categories": [
+        "expected-expression"
+      ]
     }
   }
 }

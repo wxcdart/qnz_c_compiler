@@ -756,6 +756,18 @@ ASTRef parse_primary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
 
         c->token_pos++;
         c->expr_depth++;
+        /* C99 6.5.9: a parenthesized expression must contain an expression.
+         * `()` is not a valid expression — GCC: "expected expression before
+         * ')' token". Rejecting it at the parse level (Sprint 151 side
+         * finding: an empty () used to lower to an undefined-value temp,
+         * which made differential tests non-deterministic at -O0). */
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) {
+            diag_report_error_at_token(c, "expected expression before ')' token");
+            c->had_error = 1;
+            c->expr_depth--;
+            c->token_pos++; /* consume ')' */
+            return AST_NULL;
+        }
         ASTRef inner = parse_expr_ast_internal(c, arena);
         c->expr_depth--;
         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) {

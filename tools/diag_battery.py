@@ -59,6 +59,7 @@ CATEGORIES = [
     ("bad-member-base", re.compile(
         r"not a (structure or union|pointer)|invalid type argument of|cannot take address")),
     ("undefined-label", re.compile(r"used but not defined")),
+    ("expected-expression", re.compile(r"expected expression before")),
     ("incompatible-types", re.compile(
         r"incompatible types|incompatible return type|makes (integer|pointer) from")),
     ("implicit-decl", re.compile(r"implicit declaration of (function|variable)")),

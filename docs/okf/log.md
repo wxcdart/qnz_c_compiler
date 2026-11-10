@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-10T02:18:18Z
+timestamp: 2026-11-10T02:59:39Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1269,3 +1269,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-10 — Updated `optimization-passes.md`
 - Sprint 150: Loop unrolling (full unroll of constant-trip loops, -O3, plan item 3 Phase 1)
+
+## 2026-11-10 — Updated `ir-and-regalloc.md`
+- Sprint 151: LRA clamp/restore defect hunt conclusive - NOT reproducible (branchy clamp restored in shadow: vprintf-1 gcc-matching at -O0..-O3 JIT/AOT/text; 240+ variants clean; elision site provably safe). Treated as incidentally fixed by Sprints 109/117/135; pinned by test/jit/lra_clamp_restore.c. Side finding: () now a parse error (gcc-parity) + test/diag/16_empty_paren_expr.c.

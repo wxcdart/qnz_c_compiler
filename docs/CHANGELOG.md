@@ -1,3 +1,22 @@
+## [Sprint 151] - 2026-11-10 - LRA Clamp/Restore Defect Root-Cause Hunt (negative) + `()` Rejection + Regression Pin
+
+Sprint 151 opens the plan item 9 work (temp-ID recycling by liveness) by first root-causing the `-O1+` branchy compute/clamp/restore LRA defect flagged as open since Sprint 69 (the glibc `va_list` shadow's original `gp_offset` clamp miscompiled at `-O1+`; a branch-free algebra workaround was shipped in that sprint). **The hunt is conclusive: the defect no longer reproduces in the current compiler** — it is treated as incidentally fixed by the Sprints 109/117/135 LRA rework and is now pinned by a regression test so a future change that regresses the class is caught.
+
+- **Reproduction hunt (all negative)**:
+  - The original branchy clamp was temporarily restored in the va_list shadow lowering (`ast_lowering_call.c`) — both jump-arm and fall-through-arm placements, and the double-clamp (gp + fp) form — and `vprintf-1` (the original tripping test) then produced **gcc-matching output at `-O0..-O3` in JIT, raw AOT, and the `-S` text path**. (The first restoration attempt inverted the clamp polarity and core-dumped at all levels — a faithful miscompile of the *wrong* C, confirming the codegen follows the IR; the correctly-polarized form is clean.)
+  - 240+ generated user-code variants — polarity (3) × ternary/if-else form × GPR pressure (0/8/16) × FP mix × loop context × clamp-result-live-across-a-call (the spans_call/post-call-restore path) × 32-bit store to an escaping buffer — were all clean at `-O1..-O3` JIT + AOT against the `-O0` baseline.
+  - Static analysis: the only move-elision site (`OP_MOV_REG` emitted only when `phys_dst != phys_src1` in `ast_lowering_mc.c`) is provably safe given a correct allocation — a temp's register is reserved for its whole live interval, a temp is live at its own uses, so a fresh dest can never be handed a live src's register; the interval construction (def-position/live-end + loop backedge extension in `live_range.h`) and the allocator's `expire_old_intervals` boundary (`end < pos`) are sound for the class. The Sprint 69 allocation sequence that produced the aliasing is no longer reachable.
+- **Regression pin (`test/jit/lra_clamp_restore.c`)**: gcc-compatible differential test covering the exact shape class — all-virtual ternary clamps (both polarities) with the result live across a call, branchy if/else restores in each arm position 32-bit-stored to a buffer read back through a function (defeats store/load folding), register-pressure and loop-carried variants. Passes `-O0..-O3` JIT + AOT and is swept by `make test` / `make test-opt`.
+- **Side finding & fix — `()` rejected as an expression**: while building the differential harness, `int x = ();` turned out to compile in zerocc (gcc: `expected expression before ')' token`) and lower to an **undefined-value temp** — the `-O0` output of a program containing `()` differed run-to-run, which silently invalidated differential baselines (16 false-positive "mismatches" in the first harness run). `ast_expr.c`'s parenthesized-expression path now rejects an immediately-closing `()` with the gcc-parity diagnostic; `test/diag/16_empty_paren_expr.c` + a new `expected-expression` category in `tools/diag_battery.py` ratchet it (battery now 17 cases, 9/9 category coverage).
+- **OKF**: the "underlying LRA/elimination defect is not yet fixed" note in `docs/okf/ir-and-regalloc.md` is updated with the hunt results and the regression pin.
+- **Verification**:
+  - `make test`: 212/212 (includes the new pin).
+  - `make asan`: 212/212 (compiler-side ASan/UBSan rebuild + suite).
+  - `make test-opt`: 170 tests — 112 ok / 0 failed / 58 skipped / 1 nondeterministic.
+  - `tools/diag_battery.py`: 17 cases, 9/9 category coverage, baseline ratcheted.
+  - `make test-torture`: see last_run diff (running against the parser change).
+- **Next (plan item 9)**: the temp-ID recycling pass itself — recycle virtual temp IDs by liveness after `opt_run_passes` and before register allocation, with an independent pre-reuse liveness re-check as the safety net, remapping all temp-keyed structures (`Instr` fields, `IRCallArgs`, `IRAsmArgs`, `temp_type_tags`, constant-fold map).
+
 ## [Sprint 150] - 2026-11-09 - Loop Unrolling (Plan Item 3, Phase 1: Full Unroll)
 
 ZeroCC adds the next CFG-enabled optimization after the Sprint 149 dominator work: a `-O3`-gated full loop-unrolling pass (`src/zero_cc/opt/opt_loop_unroll.{c,h}`) that eliminates loop overhead from small constant-trip-count loops:
