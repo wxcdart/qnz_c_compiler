@@ -1,3 +1,26 @@
+## [Sprint 154] - 2026-11-10 - Fold `IRAsmArgs` Side Table into the Instruction Stream (IR Cleanup #10)
+
+ZeroCC eliminates the `IRAsmArgsArena` (`c->ir_asm_args`) side table by folding inline-assembly operands, clobbers, and `asm goto` labels directly into the `Instr` stream (`c->ir_arena`), mirroring Sprint 151c's `OP_CALL_ARG` refactor and completing the side-table removal portion of **Priority #10 (IR Cleanup)**:
+
+- **In-Stream `OP_ASM` / `OP_ASM_ARG` / `OP_ASM_LABEL` Encoding (`src/zero_cc/ir/ir.h`, `src/zero_cc/ir/ast_lowering_stmt.c`)**:
+  - **`OP_ASM` anchor**: packs `op_count` in `temp_dest`, `has_memory | (is_goto << 1)` in `cond`, `goto_label_count` in `width`, the 14-bit GPR `clobber_mask` in `imm`, and `(intptr_t)template_str` in `imm64`.
+  - **`OP_ASM_ARG` pseudo-instruction** (new opcode, emitted `op_count` times immediately after `OP_ASM` in GCC template order): carries `temp_src1 = operand temp`, `cond = ZeroCCAsmOpKind`, `width = C width in bits`, `imm = matching digit`, and `label_idx = fixed_reg + 1` (`0` = none).
+  - **`OP_ASM_LABEL` pseudo-instruction** (new opcode, emitted `goto_label_count` times immediately after the `OP_ASM_ARG` run): carries `imm64 = (intptr_t)goto_label_name` (pointing to the parser `asm` statement's own `char[64]` storage) and `label_idx = resolved IR label ID`. Opcode count is now **172**.
+- **On-Demand View Collector & Side-Table Removal (`src/zero_cc/ir/ir.c`, `src/zero_cc/ir/ir_arena.h`, `src/zero_cc/types/symbols.h`, `src/zero_cc/core/compiler_free.c`, `src/zero_cc/jit/compile_unit.c`)**:
+  - Added `ir_asm_args_collect(c, instr_index, &out)` in `ir.c` to reconstruct a transient stack `IRAsmArgs` view from the `OP_ASM` anchor and its trailing `OP_ASM_ARG`/`OP_ASM_LABEL` pseudo-run for the emitters (`x86_64_asm.c`, `aarch64_asm.c`, `riscv_asm.c`, `x86_64_inline_asm.c`).
+  - Removed `IRAsmArgsArena`, `c->ir_asm_args`, `ir_asm_args_record`, `ir_asm_args_find`, and all side-table lifecycle plumbing.
+- **Optimizer, CFG, & LRA Simplification (`src/zero_cc/opt/*.c`, `src/zero_cc/ir/live_range.h`, `src/zero_cc/ir/ast_lowering.c`)**:
+  - Deleted all `c->ir_asm_args` `instr_index` remapping loops from `opt_dce.c`, `opt_loop.c`, `opt_branchless.c`, and `opt_loop_unroll.c` — the `OP_ASM_ARG`/`OP_ASM_LABEL` pseudo-run travels with its `OP_ASM` anchor in `c->ir_arena`.
+  - `opt_temp_renumber.c` and `opt_copy_prop.c` exclude `OP_ASM` when inspecting `ins->temp_dest` (`op_count`), while `opt_temp_renumber.c` automatically renumbers `OP_ASM_ARG.temp_src1` in its main `Instr` pass (removing the separate side-table loop).
+  - `cfg.c` includes the trailing `OP_ASM_ARG`/`OP_ASM_LABEL` run inside an `asm goto` basic block before terminating and reads successor label IDs directly from `OP_ASM_LABEL`.
+  - `live_range.h` and `ast_lowering.c` walk the in-stream `OP_ASM_ARG` run directly for liveness, `forbidden_mask` clobber exclusion, and post-allocation clobber spills.
+- **Verification**:
+  - `make test`: **216/216 passed** (`make asan`: **216/216 passed**)
+  - `make test-asm`: **72/72 passed** across `-S` text, JIT, and raw AOT at `-O0..-O3`
+  - `python3 tools/driver_tests.py`: **40/40 passed**
+  - `python3 tools/style_check.py`: **0 errors**
+  - `make test-torture`: **3,762 PASS, 0 REJECT, 0 MISCOMPILE, 0 TIMEOUT**
+
 ## [Sprint 153] - 2026-11-10 - Pre-Baked `.rodata` Symbol Table for the Self-Hosting `dlfcn` (Host Runtime #11, Phase 1)
 
 ZeroCC pre-bakes the driver executable's own symbol table into `.rodata` so `zero_rt/dlfcn/dlfcn.c`'s `dlsym` no longer needs `/proc/self/exe` (hardened containers, chroots, sealed `/proc`). This is Phase 1 of Host Runtime item #11 (Static `dlopen` & In-Process Dynamic Loader Adaptation); the `dynlink.c` in-process `.so` loader (Phase 2) remains open.

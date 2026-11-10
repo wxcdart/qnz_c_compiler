@@ -1377,7 +1377,8 @@ static const char *aarch64_asm_operand_reg_name(int phys_reg, int width) {
 static void aarch64_emit_inline_asm_asm(ZeroCCCompiler *c, size_t idx, FILE *out) {
     const Instr *instr = ir_get(c, idx);
     if (!instr) return;
-    const IRAsmArgs *aa = ir_asm_args_find(c, idx);
+    IRAsmArgs aa_view;
+    const IRAsmArgs *aa = ir_asm_args_collect(c, idx, &aa_view);
     if (!aa || !aa->template_str) return;
 
     int first_out = -1;

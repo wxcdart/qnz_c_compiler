@@ -39,8 +39,19 @@ typedef struct ZeroCCCompiler ZeroCCCompiler;
 /* ==========================================================================
  * Inline asm (GNU __asm__) - Sprint 135, Phase 1 (x86-64 AOT text path).
  *
- * The template string and operand/clobber lists live in a side table keyed
- * by instruction index: the packed 24-byte Instr has no room for them. The operand temps are ordinary temps -
+ * The template string and operand/clobber payload travel with the OP_ASM in
+ * the instruction stream (Sprint 154, Priority #10 IR cleanup - folded in
+ * the same way Sprint 151c folded IRCallArgs into OP_CALL_ARG; the former
+ * instr_index-keyed IRAsmArgs side table is gone).  The OP_ASM anchor packs:
+ *   temp_dest = operand count (0..16)
+ *   cond      = has_memory | is_goto<<1
+ *   width     = goto label count (0..8)
+ *   imm       = clobber mask (14-bit GPR pool mask)
+ *   imm64     = template string pointer (compiler-owned storage)
+ * followed by one OP_ASM_ARG per operand and one OP_ASM_LABEL per goto
+ * label.  IRAsmArgs is a transient view populated by ir_asm_args_collect
+ * for the emitters.
+ * The operand temps are ordinary temps -
  * output r/in-out temps are DEFINED by the OP_ASM, input r temps are USED,
  * and m operands carry an ADDRESS temp (the template gets a (%reg) form).
  * Constraint subset for Phase 1: r/m (with =, + prefixes), matching digits
@@ -71,8 +82,12 @@ typedef struct {
 
 #define IR_ASM_MAX_LABELS   8
 
+/* Sprint 154: transient read view of the payload of one OP_ASM (populated
+ * by ir_asm_args_collect from the anchor + its OP_ASM_ARG/OP_ASM_LABEL
+ * pseudo-run).  `template_str` and `goto_label_names` point at
+ * compiler-owned storage.  NOT stored anywhere - the payload lives in the
+ * instruction stream. */
 typedef struct {
-    size_t instr_index;
     const char *template_str;  /* concatenated template (NUL-terminated) */
     IRAsmOperand ops[IR_ASM_MAX_OPERANDS];
     int op_count;
@@ -81,16 +96,19 @@ typedef struct {
     int has_memory;            /* "memory" clobber or volatile: full memory
                                  * barrier (DCE/LICM/GVN/mem2reg respect it) */
     int is_goto;
-    char goto_label_names[IR_ASM_MAX_LABELS][64];
+    const char *goto_label_names[IR_ASM_MAX_LABELS];
     uint16_t goto_labels[IR_ASM_MAX_LABELS];
     int goto_label_count;
 } IRAsmArgs;
 
-typedef struct {
-    IRAsmArgs *table;
-    size_t count;
-    size_t capacity;
-} IRAsmArgsArena;
+/* Sprint 154: collect the payload of the OP_ASM at instr_index into `out`
+ * (a stack IRAsmArgs).  Returns `out` on success, NULL if the instruction
+ * is not an OP_ASM anchor.  Replaces the former ir_asm_args_find side-table
+ * lookup. (Defined in ir.c - ir.h is also included with an incomplete
+ * ZeroCCCompiler.) */
+const IRAsmArgs *ir_asm_args_collect(const ZeroCCCompiler *c,
+                                     size_t instr_index,
+                                     IRAsmArgs *out);
 
 /* Opcode definitions - 51 opcodes */
 typedef enum {
@@ -352,12 +370,28 @@ typedef enum {
     OP_CVTTSD2SS,      /* dest (ss, low32) = (float) src1 (sd): model double -> ABI float */
 
     /* GNU inline asm (Sprint 135, Phase 1): a non-empty __asm__ template.
-     * Operand/clobber payload lives in the IRAsmArgs side table
-     * (ir_asm_args_find); the instr fields are unused. Always a side effect
-     * (never DCE-able); a full memory barrier when has_memory. Emitted only
-     * by the AOT text path (x86-64): the template is interpolated and written
-     * to the .s stream. JIT/raw paths reject at lowering (Phase 2). */
+     * Sprint 154: the operand/clobber payload travels with the anchor in
+     * the instruction stream: temp_dest = operand count, cond =
+     * has_memory | is_goto<<1, width = goto label count, imm = clobber
+     * mask (14-bit GPR pool mask), imm64 = template string pointer.
+     * Followed by one OP_ASM_ARG per operand and one OP_ASM_LABEL per
+     * goto label (see below). Always a side effect (never DCE-able); a
+     * full memory barrier when has_memory. */
     OP_ASM,
+    /* Sprint 154: inline-asm operand pseudo-instruction (folded in the
+     * same way Sprint 151c folded IRCallArgs into OP_CALL_ARG).  Emitted
+     * immediately after its OP_ASM anchor, one per operand, in template
+     * order.  temp_src1 = operand temp (value for r ops, address for m
+     * ops), cond = ZeroCCAsmOpKind, width = C width in bits (0 for m),
+     * imm = matching digit (-1 for a plain operand), label_idx =
+     * fixed_reg+1 (0 = none, 1..14 = x86 GPR pool index).  Travels with
+     * its OP_ASM in the instruction stream; not a standalone instruction. */
+    OP_ASM_ARG,
+    /* Sprint 154: inline-asm goto-label pseudo-instruction.  Emitted
+     * immediately after the OP_ASM_ARG run, one per %l[label] name.  imm64
+     * = pointer to the label name (parser asm-stmt storage), label_idx =
+     * the resolved IR label index. */
+    OP_ASM_LABEL,
 } Opcode;
 
 /* Condition codes for OP_COND_SET */
@@ -542,6 +576,8 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_VSTORESS_RAW: return "VSTORESS_RAW";
         case OP_CVTTSD2SS: return "CVTTSD2SS";
         case OP_ASM: return "ASM";
+        case OP_ASM_ARG: return "ASM_ARG";
+        case OP_ASM_LABEL: return "ASM_LABEL";
         default: return "UNKNOWN";
     }
 }
@@ -936,11 +972,6 @@ static inline void ir_emit_call_arg(ZeroCCCompiler *c, uint32_t arg_temp, int is
                        .temp_src2= TEMP_NONE, .cond = (uint8_t)is_fp,
                        .width = stack_pos, .imm = 0, .imm64 = 0, .label_idx = 0});
 }
-
-/* Inline asm args tracking - arena-based (Sprint 135). Record right after
- * ir_emit of the OP_ASM; template_str must outlive the compiler. */
-void ir_asm_args_record(ZeroCCCompiler *c, size_t instr_index, const IRAsmArgs *args);
-const IRAsmArgs *ir_asm_args_find(const ZeroCCCompiler *c, size_t instr_index);
 
 /* Helper functions for common patterns */
 static inline void ir_emit_mov_imm(ZeroCCCompiler *c, uint32_t temp_dest, int64_t imm) {

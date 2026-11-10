@@ -34,10 +34,10 @@
  * same instruction never share a new id (the instruction reads the old
  * value and writes the new one - distinct home registers).
  *
- * After the rewrite (Instr fields, IRAsmArgs,
- * c->asm_operand_temps, type-tag table), c->next_temp_id is reset to
- * the top of the compact space so optimizer-phase allocations stay
- * inside the <=65,534 budget.
+ * After the rewrite (Instr fields - including the in-stream OP_ASM_ARG
+ * operand temps, Sprint 154 - and c->asm_operand_temps, type-tag table),
+ * c->next_temp_id is reset to the top of the compact space so
+ * optimizer-phase allocations stay inside the <=65,534 budget.
  *
  * An independent verification (pairwise disjoint extended ranges per
  * new id) runs BEFORE the rewrite; any violation is an internal error
@@ -252,7 +252,10 @@ int opt_temp_renumber(ZeroCCCompiler *c, const char *fn_name) {
         if (!ins) continue;
         uint32_t f;
         f = ins->temp_dest;
+        /* OP_CALL/OP_SYSCALL/OP_CLONE pack arg_count in temp_dest; OP_ASM
+         * packs the operand count (Sprint 154) - neither is a temp id. */
         if (ins->op != OP_CALL && ins->op != OP_SYSCALL && ins->op != OP_CLONE &&
+            ins->op != OP_ASM &&
             f >= VREG_USER_START && f != TEMP_NONE) {
             if (f >= max_id || !new_id[f]) {
                 diag_report_error_at_token(c,
@@ -292,21 +295,6 @@ int opt_temp_renumber(ZeroCCCompiler *c, const char *fn_name) {
                     goto fail;
                 }
                 ins->label_idx = new_id[f];
-            }
-        }
-    }
-    for (size_t a = 0; a < c->ir_asm_args.count; a++) {
-        IRAsmArgs *aa = &c->ir_asm_args.table[a];
-        for (int o = 0; o < aa->op_count; o++) {
-            int t = aa->ops[o].temp;
-            if (t >= VREG_USER_START) {
-                if ((uint32_t)t >= max_id || !new_id[(uint32_t)t]) {
-                    diag_report_error_at_token(c,
-                        "internal error: untracked temp %d in asm args of "
-                        "function '%s' - refusing to emit", t, fn);
-                    goto fail;
-                }
-                aa->ops[o].temp = (int)new_id[(uint32_t)t];
             }
         }
     }

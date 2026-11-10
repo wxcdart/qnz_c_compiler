@@ -989,10 +989,12 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         for (size_t i = 0; i < icount; i++) {
             const Instr *ins = ir_get(c, i);
             if (!ins || ins->op != OP_ASM) continue;
-            const IRAsmArgs *aa = ir_asm_args_find(c, i);
-            if (!aa || aa->clobber_mask == 0) continue;
+            /* Sprint 154: the clobber mask is packed into the anchor's imm
+             * (14-bit GPR pool mask). */
+            uint32_t clobber_mask = (uint32_t)(uint16_t)ins->imm;
+            if (clobber_mask == 0) continue;
             for (int pool = 0; pool < 16; pool++) {
-                if (!(aa->clobber_mask & (1u << pool))) continue;
+                if (!(clobber_mask & (1u << pool))) continue;
                 for (size_t k = 0; k < c->regalloc.interval_count; k++) {
                     LiveInterval *iv = &c->regalloc.intervals[k];
                     if (iv->assigned_reg != pool || iv->is_spilled) continue;
@@ -1023,8 +1025,13 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                         continue;
                     }
                     bool is_operand = false;
-                    for (int o = 0; o < aa->op_count; o++) {
-                        if (aa->ops[o].temp == iv->temp_id) { is_operand = true; break; }
+                    /* Sprint 154: the operand temps are the in-stream
+                     * OP_ASM_ARG run following the anchor. */
+                    int op_count = (int)ins->temp_dest;
+                    for (int o = 0; o < op_count; o++) {
+                        const Instr *arg = ir_get(c, i + 1 + (size_t)o);
+                        if (!arg || arg->op != OP_ASM_ARG) break;
+                        if ((uint32_t)iv->temp_id == arg->temp_src1) { is_operand = true; break; }
                     }
                     if (is_operand) {
                         /* Safety net: allocation already forbids clobbered

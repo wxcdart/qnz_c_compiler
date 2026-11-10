@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-10T18:47:19Z
+timestamp: 2026-11-10T21:34:21Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1305,3 +1305,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-10 — Updated `optimization-passes.md`
 - Sprint 153: inlined-call result-temp definition invariant - fallthrough AND inlined void returns materialize VREG_0 (c-torture compile/pr39394: ternary over inline void calls)
+
+## 2026-11-10 — Updated `ir-and-regalloc.md`
+- Sprint 154: Fold IRAsmArgs side table into the instruction stream as OP_ASM_ARG/OP_ASM_LABEL pseudo-instructions (172 opcodes, ir_asm_args_collect, IRAsmArgsArena removed)

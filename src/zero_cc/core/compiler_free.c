@@ -51,7 +51,6 @@ void zero_cc_compiler_free(ZeroCCCompiler *c) {
 
     /* IR arenas (one-time init, per-instance) */
     ir_arena_free(&c->ir_arena);
-    ir_asm_args_arena_free(&c->ir_asm_args);
 
     /* GNU __asm__ payloads (Sprint 135) */
     for (size_t i = 0; i < c->asm_stmt_count; i++) {

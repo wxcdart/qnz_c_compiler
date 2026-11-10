@@ -136,9 +136,10 @@ typedef struct ZeroCCISABackend {
     void (*emit_clone_asm)(ZeroCCCompiler *c, int arg_count, const int *arg_temps, FILE *out);
 
     /* GNU inline asm (Sprint 135, Phase 1): interpolate the operand
-     * specifiers (from the IRAsmArgs side table) into the template and
-     * write the text to the .s stream. NULL on backends without Phase 1
-     * support - the lowering rejects those targets before emission. */
+     * specifiers (payload in the instruction stream with the anchor,
+     * Sprint 154) into the template and write the text to the .s stream.
+     * NULL on backends without Phase 1 support - the lowering rejects
+     * those targets before emission. */
     void (*emit_inline_asm_asm)(ZeroCCCompiler *c, size_t instr_index, FILE *out);
 
     /* GNU inline asm machine code emission (Sprint 136, Phase 2):
