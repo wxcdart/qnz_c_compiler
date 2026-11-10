@@ -34,7 +34,7 @@
  * same instruction never share a new id (the instruction reads the old
  * value and writes the new one - distinct home registers).
  *
- * After the rewrite (Instr fields, IRCallArgs, IRAsmArgs,
+ * After the rewrite (Instr fields, IRAsmArgs,
  * c->asm_operand_temps, type-tag table), c->next_temp_id is reset to
  * the top of the compact space so optimizer-phase allocations stay
  * inside the <=65,534 budget.
@@ -291,21 +291,6 @@ int opt_temp_renumber(ZeroCCCompiler *c, const char *fn_name) {
                     goto fail;
                 }
                 ins->label_idx = new_id[f];
-            }
-        }
-    }
-    for (size_t a = 0; a < c->ir_call_args.count; a++) {
-        IRCallArgs *ca = &c->ir_call_args.table[a];
-        for (int k = 0; k < ca->count; k++) {
-            uint32_t t = ca->temps[k];
-            if (t >= VREG_USER_START && t != TEMP_NONE) {
-                if (t >= max_id || !new_id[t]) {
-                    diag_report_error_at_token(c,
-                        "internal error: untracked temp %u in call args of "
-                        "function '%s' - refusing to emit", t, fn);
-                    goto fail;
-                }
-                ca->temps[k] = new_id[t];
             }
         }
     }

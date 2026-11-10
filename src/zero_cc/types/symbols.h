@@ -306,7 +306,6 @@ typedef struct ZeroCCCompiler {
 
     /* IR arena - dynamic instruction buffer */
     IRArena ir_arena;              /* IR instruction arena */
-    IRCallArgsArena ir_call_args;  /* Call argument tracking arena */
     IRAsmArgsArena ir_asm_args;    /* Inline asm (OP_ASM) args arena (Sprint 135) */
 
     /* GNU __asm__ statement payloads (Sprint 135): the parser appends one

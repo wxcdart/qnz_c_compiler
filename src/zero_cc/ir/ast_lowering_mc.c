@@ -854,30 +854,32 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
 
             case OP_SYSCALL: {
                 /* OS syscall intrinsic. Arguments are packed like OP_CALL:
-                 * temp_dest = arg_count, full list in the side table. The
-                 * backend moves them into the syscall argument registers and
-                 * issues the instruction; the result is in VREG_0 (rax). */
+                 * temp_dest = arg_count, first two in temp_src1/src2, the
+                 * rest in OP_CALL_ARG pseudo-instructions. */
                 if (!BE(c)->emit_syscall) {
                     c->had_error = true;
                     snprintf(c->error_msg, sizeof(c->error_msg),
                              "__zerocc_syscall is not supported on this target");
                     break;
                 }
+                int s_arg_count = (int)instr->temp_dest;
                 int s_arg_temps[8] = {0};
-                int s_arg_count = 0;
-                const IRCallArgs *s_args = ir_call_args_find(c, i);
-                if (s_args) {
-                    for (int a = 0; a < s_args->count && a < 7; a++) {
-                        if (s_args->is_fp[a] != 0) continue; /* syscall args are integer */
-                        s_arg_temps[s_arg_count++] = (int)s_args->temps[a];
-                    }
+                int s_n = 0;
+                if (s_n < s_arg_count && s_n < 2 && instr->temp_src1 != TEMP_NONE) {
+                    s_arg_temps[s_n++] = (int)instr->temp_src1;
                 }
-                if (s_arg_count == 0 && instr->temp_dest > 0) {
-                    /* C2b fallback (side table missing - should not happen). */
-                    if (instr->temp_src1 != TEMP_NONE) s_arg_temps[s_arg_count++] = (int)instr->temp_src1;
-                    if (instr->temp_dest > 1 && instr->temp_src2 != TEMP_NONE) s_arg_temps[s_arg_count++] = (int)instr->temp_src2;
+                if (s_n < s_arg_count && s_n < 2 && instr->temp_src2 != TEMP_NONE) {
+                    s_arg_temps[s_n++] = (int)instr->temp_src2;
                 }
-                BE(c)->emit_syscall(c, s_arg_count, s_arg_temps);
+                for (int a = 2; a < s_arg_count && s_n < 7; a++) {
+                    size_t ca_idx = i + 1 + (a - 2);
+                    if (ca_idx >= ir_get_count(c)) break;
+                    const Instr *ca_instr = ir_get(c, ca_idx);
+                    if (ca_instr->op != OP_CALL_ARG) break;
+                    if (ca_instr->cond != 0) continue; /* syscall args are integer */
+                    s_arg_temps[s_n++] = (int)ca_instr->temp_src1;
+                }
+                BE(c)->emit_syscall(c, s_n, s_arg_temps);
                 break;
             }
 
@@ -888,20 +890,24 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                              "__zerocc_clone is not supported on this target");
                     break;
                 }
+                int s_arg_count = (int)instr->temp_dest;
                 int s_arg_temps[8] = {0};
-                int s_arg_count = 0;
-                const IRCallArgs *s_args = ir_call_args_find(c, i);
-                if (s_args) {
-                    for (int a = 0; a < s_args->count && a < 5; a++) {
-                        if (s_args->is_fp[a] != 0) continue;
-                        s_arg_temps[s_arg_count++] = (int)s_args->temps[a];
-                    }
+                int s_n = 0;
+                if (s_n < s_arg_count && s_n < 2 && instr->temp_src1 != TEMP_NONE) {
+                    s_arg_temps[s_n++] = (int)instr->temp_src1;
                 }
-                if (s_arg_count == 0 && instr->temp_dest > 0) {
-                    if (instr->temp_src1 != TEMP_NONE) s_arg_temps[s_arg_count++] = (int)instr->temp_src1;
-                    if (instr->temp_dest > 1 && instr->temp_src2 != TEMP_NONE) s_arg_temps[s_arg_count++] = (int)instr->temp_src2;
+                if (s_n < s_arg_count && s_n < 2 && instr->temp_src2 != TEMP_NONE) {
+                    s_arg_temps[s_n++] = (int)instr->temp_src2;
                 }
-                BE(c)->emit_clone(c, s_arg_count, s_arg_temps);
+                for (int a = 2; a < s_arg_count && s_n < 5; a++) {
+                    size_t ca_idx = i + 1 + (a - 2);
+                    if (ca_idx >= ir_get_count(c)) break;
+                    const Instr *ca_instr = ir_get(c, ca_idx);
+                    if (ca_instr->op != OP_CALL_ARG) break;
+                    if (ca_instr->cond != 0) continue; /* clone args are integer */
+                    s_arg_temps[s_n++] = (int)ca_instr->temp_src1;
+                }
+                BE(c)->emit_clone(c, s_n, s_arg_temps);
                 break;
             }
 
@@ -1412,30 +1418,47 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 /* Extract function name from imm64 (stored as pointer during lowering) */
                 const char *fn_name = (const char *)(intptr_t)instr->imm64;
 
-                /* Extract integer argument info packed into the instruction */
-                int arg_count = instr->temp_dest;
-                int arg_temps[IR_CALL_MAX_ARGS] = {0};
+                /* Collect all call arguments: args 0/1 from OP_CALL itself,
+                 * args 2+ from OP_CALL_ARG pseudo-instructions that follow
+                 * in the stream (Sprint 151c: no instr_index-keyed side
+                 * table). */
+                int total_arg_count = (int)instr->temp_dest;
+                int call_arg_temps[IR_CALL_MAX_ARGS] = {0};
+                int call_arg_is_fp[IR_CALL_MAX_ARGS] = {0};
+                uint8_t call_arg_stack_pos[IR_CALL_MAX_ARGS] = {0};
+
+                if (total_arg_count > 0 && instr->temp_src1 != TEMP_NONE) {
+                    call_arg_temps[0] = (int)instr->temp_src1;
+                    call_arg_is_fp[0] = instr->cond;   /* Sprint 151c: is_fp of arg 0 */
+                    call_arg_stack_pos[0] = 255;
+                }
+                if (total_arg_count > 1 && instr->temp_src2 != TEMP_NONE) {
+                    call_arg_temps[1] = (int)instr->temp_src2;
+                    call_arg_is_fp[1] = instr->width;  /* Sprint 151c: is_fp of arg 1 */
+                    call_arg_stack_pos[1] = 255;
+                }
+                for (int a = 2; a < total_arg_count; a++) {
+                    size_t ca_idx = i + 1 + (a - 2);
+                    if (ca_idx >= ir_get_count(c)) break;
+                    const Instr *ca_instr = ir_get(c, ca_idx);
+                    if (ca_instr->op != OP_CALL_ARG) break;
+                    call_arg_temps[a] = (int)ca_instr->temp_src1;
+                    call_arg_is_fp[a] = ca_instr->cond;
+                    call_arg_stack_pos[a] = ca_instr->width;
+                }
+
                 int indirect_callee_temp = -1;
                 int aarch64_sret_temp = -1;
-                const IRCallArgs *full_args = ir_call_args_find(c, i);
-                if (full_args) {
-                    int int_c = 0;
-                    for (int a = 0; a < full_args->count; a++) {
-                        if (full_args->is_fp[a] == 2) {
-                            indirect_callee_temp = full_args->temps[a];
-                        } else if (full_args->is_fp[a] == 3) {
-                            aarch64_sret_temp = full_args->temps[a];
-                        } else if (full_args->is_fp[a] == 0) {
-                            arg_temps[int_c++] = full_args->temps[a];
-                        }
+                int arg_temps[IR_CALL_MAX_ARGS] = {0};
+                int arg_count = 0;
+                for (int a = 0; a < total_arg_count; a++) {
+                    if (call_arg_is_fp[a] == 2) {
+                        indirect_callee_temp = call_arg_temps[a];
+                    } else if (call_arg_is_fp[a] == 3) {
+                        aarch64_sret_temp = call_arg_temps[a];
+                    } else if (call_arg_is_fp[a] == 0) {
+                        arg_temps[arg_count++] = call_arg_temps[a];
                     }
-                    arg_count = int_c;
-                } else {
-                    /* C2b fallback (side table missing - should not happen):
-                     * only args 0/1 are recoverable from the instruction. */
-                    if (arg_count > 2) arg_count = 2;
-                    if (arg_count > 0) arg_temps[0] = instr->temp_src1;
-                    if (arg_count > 1) arg_temps[1] = instr->temp_src2;
                 }
 
                 /* If indirect call, save callee register into scratch_reg2 before argument setup */
@@ -1492,7 +1515,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                             BE(c)->emit_load_fp(c, fp_arg_reg, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -spill_off));
                         }
                     }
-                } else if (full_args) {
+                } else {
                     /* Capped-table fallback: the call_fp_spills side table
                      * covers only the first 64 calls of a function (see
                      * lowering_state.h); for calls past the cap, load the
@@ -1502,10 +1525,10 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                      * FP args on the MC path while -S/JIT-via-asm work. */
                     int fp_reg_cap = BE(c)->conv ? BE(c)->conv->fp_arg_reg_count : 8;
                     int fp_seen = 0;
-                    for (int ai = 0; ai < full_args->count && fp_seen < fp_reg_cap; ai++) {
-                        if (full_args->is_fp[ai] != 1) continue;
-                        if (full_args->stack_pos[ai] < 255) continue; /* FP stack arg, pushed below */
-                        int temp = full_args->temps[ai];
+                    for (int ai = 0; ai < total_arg_count && fp_seen < fp_reg_cap; ai++) {
+                        if (call_arg_is_fp[ai] != 1) continue;
+                        if (call_arg_stack_pos[ai] < 255) continue; /* FP stack arg, pushed below */
+                        int temp = call_arg_temps[ai];
                         int fp_arg_reg = backend_get_fp_arg_reg(BE(c), fp_seen);
                         if (fp_arg_reg < 0) break;
                         int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, temp);
@@ -1538,13 +1561,13 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 int n_stack;
                 int stack_meta_temp[IR_CALL_MAX_ARGS];  /* per stack slot: int arg temp, -1 for FP */
                 int stack_meta_fp[IR_CALL_MAX_ARGS];    /* per stack slot: FP stream index, -1 for int */
-                if (full_args) {
+                if (total_arg_count > 0) {
                     n_stack = 0;
                     int fp_seen = 0;
-                    for (int i = 0; i < full_args->count; i++) {
-                        if (full_args->is_fp[i] == 1) {
+                    for (int ai = 0; ai < total_arg_count; ai++) {
+                        if (call_arg_is_fp[ai] == 1) {
                             int f = fp_seen++;
-                            int pos = full_args->stack_pos[i];
+                            int pos = call_arg_stack_pos[ai];
                             if (pos < 255 && pos < IR_CALL_MAX_ARGS) {
                                 stack_meta_temp[pos] = -1;
                                 stack_meta_fp[pos] = f;
@@ -1552,10 +1575,10 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                             }
                             continue;
                         }
-                        if (full_args->is_fp[i] == 2 || full_args->is_fp[i] == 3) continue;
-                        int pos = full_args->stack_pos[i];
+                        if (call_arg_is_fp[ai] == 2 || call_arg_is_fp[ai] == 3) continue;
+                        int pos = call_arg_stack_pos[ai];
                         if (pos < 255 && pos < IR_CALL_MAX_ARGS) {
-                            stack_meta_temp[pos] = full_args->temps[i];
+                            stack_meta_temp[pos] = call_arg_temps[ai];
                             stack_meta_fp[pos] = -1;
                             if (pos + 1 > n_stack) n_stack = pos + 1;
                         }
@@ -1573,7 +1596,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                     for (int pos = n_stack - 1; pos >= 0; pos--) {
                         int r;
                         bool fp_stack_done = false;
-                        if (full_args && stack_meta_fp[pos] >= 0) {
+                        if (stack_meta_fp[pos] >= 0) {
                             /* FP stack arg: bits live in the lowering's spill
                              * slot (or, past the 64-call table cap, in the
                              * arg's reload temp). */
@@ -1584,9 +1607,9 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                                 r = BE(c)->scratch_reg1;
                             } else {
                                 int t = -1;
-                                for (int ai = 0; ai < full_args->count; ai++) {
-                                    if (full_args->is_fp[ai] == 1 && full_args->stack_pos[ai] == pos) {
-                                        t = full_args->temps[ai];
+                                for (int ai = 0; ai < total_arg_count; ai++) {
+                                    if (call_arg_is_fp[ai] == 1 && call_arg_stack_pos[ai] == pos) {
+                                        t = call_arg_temps[ai];
                                         break;
                                     }
                                 }
@@ -1611,20 +1634,10 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                                     }
                                 }
                             }
-                        } else if (full_args) {
+                        } else {
                             int t = stack_meta_temp[pos];
                             r = regalloc_get_reg_for_temp(&c->regalloc, t);
                             int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, t);
-                            if (sp >= 0) {
-                                int32_t off = spill_base_offset + (sp + 1) * 8;
-                                if (BE(c)->emit_load) BE(c)->emit_load(c, BE(c)->scratch_reg1, zero_cc_frame_base_reg(c), zero_cc_frame_disp_at(c, -off, extra_sp));
-                                r = BE(c)->scratch_reg1;
-                            }
-                        } else {
-                            /* C2b fallback: int args only, old layout */
-                            int a = int_arg_count + (n_stack - 1 - pos);
-                            r = regalloc_get_reg_for_temp(&c->regalloc, arg_temps[a]);
-                            int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, arg_temps[a]);
                             if (sp >= 0) {
                                 int32_t off = spill_base_offset + (sp + 1) * 8;
                                 if (BE(c)->emit_load) BE(c)->emit_load(c, BE(c)->scratch_reg1, zero_cc_frame_base_reg(c), zero_cc_frame_disp_at(c, -off, extra_sp));

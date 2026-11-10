@@ -601,7 +601,16 @@ void zero_cc_emit_vla_struct_copy(ZeroCCCompiler *c, int dst_addr, int src_addr,
     }
     int arg_temps[3] = { dst_addr, src_addr, size_temp };
     ir_emit_call(c, "memcpy");
-    ir_call_args_record(c, ir_get_count(c) - 1, 3, arg_temps, NULL, NULL);
+    if (ir_get_count(c) > 0) {
+        Instr *li = (Instr*)&ir_get_buffer(c)[ir_get_count(c) - 1];
+        li->temp_dest = 3;
+        li->temp_src1 = (uint32_t)arg_temps[0];
+        li->temp_src2 = (uint32_t)arg_temps[1];
+        li->imm = 0;
+        li->cond = 0;
+        li->width = 0;
+        ir_emit_call_arg(c, (uint32_t)arg_temps[2], 0, 255);
+    }
 }
 
 /* Conservative AST probe (Sprint 40): does this expression evaluate to a

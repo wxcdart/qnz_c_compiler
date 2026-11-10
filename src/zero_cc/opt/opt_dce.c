@@ -110,6 +110,7 @@ static int instr_has_side_effects(Instr *instr) {
         case OP_MOV_MEM:
         case OP_CALL:
         case OP_CALL_INDIRECT:
+        case OP_CALL_ARG:
         case OP_SYSCALL:
         case OP_CLONE:
         case OP_SETJMP:
@@ -162,7 +163,7 @@ static int instr_has_side_effects(Instr *instr) {
 
 /**
  * Mark call argument temps as live
- * Handles args 1-2 (temp_src1/src2), args 3-4 (packed in imm), args 5+ (call args table)
+ * Handles args 1-2 (temp_src1/src2), args 2+ (OP_CALL_ARG pseudo-instructions)
  */
 static void mark_call_args_live(ZeroCCCompiler *c, Instr *instr) {
     int arg_count = instr->temp_dest;
@@ -175,35 +176,16 @@ static void mark_call_args_live(ZeroCCCompiler *c, Instr *instr) {
         mark_live(instr->temp_src2);
     }
 
-    // Args 3-4 packed in imm (byte 0 = arg3, byte 1 = arg4)
-    // Note: instr->imm is int16_t, so we extract bytes, not 16-bit words
-    if (arg_count > 2) {
-        int arg3 = (instr->imm >> 0) & 0xFF;
-        if (arg3 != 0xFF) {
-            mark_live(arg3);
-        }
-    }
-    if (arg_count > 3) {
-        int arg4 = (instr->imm >> 8) & 0xFF;
-        if (arg4 != 0xFF) {
-            mark_live(arg4);
-        }
-    }
-
-    // Args 5+ from call args table
+    // Args 2+ from OP_CALL_ARG pseudo-instructions following this call
     if (c) {
-        IRCallArgsArena *call_arena = &c->ir_call_args;
-        for (size_t t = 0; t < call_arena->count; t++) {
-            IRCallArgs *entry = &call_arena->table[t];
-            if (entry && entry->instr_index == (size_t)(instr - ir_get_buffer(c))) {
-                // This is a call arg entry for this instruction
-                for (int a = 0; a < entry->count; a++) {
-                    int arg_temp = entry->temps[a];
-                    if (arg_temp != TEMP_NONE) {
-                        mark_live(arg_temp);
-                    }
-                }
-                break;
+        size_t instr_idx = (size_t)(instr - ir_get_buffer(c));
+        for (int a = 2; a < arg_count; a++) {
+            size_t ca_idx = instr_idx + 1 + (a - 2);
+            if (ca_idx >= ir_get_count(c)) break;
+            const Instr *ca_instr = ir_get(c, ca_idx);
+            if (ca_instr->op != OP_CALL_ARG) break;
+            if (ca_instr->temp_src1 != TEMP_NONE) {
+                mark_live(ca_instr->temp_src1);
             }
         }
     }
@@ -380,27 +362,15 @@ void opt_eliminate_dead_code(ZeroCCCompiler *c) {
             if (write_idx != i) {
                 Instr *dst = ir_get(c, write_idx);
                 *dst = *instr;
-
-                // Update call args table index if this is a call/syscall/clone
-                if ((instr->op == OP_CALL || instr->op == OP_SYSCALL || instr->op == OP_CLONE) && c) {
-                    IRCallArgsArena *call_arena = &c->ir_call_args;
-                    for (size_t t = 0; t < call_arena->count; t++) {
-                        IRCallArgs *entry = &call_arena->table[t];
-                        if (entry && entry->instr_index == (size_t)i) {
-                            entry->instr_index = write_idx;
-                            break;
-                        }
-                    }
-                }
-                /* Sprint 135: remap the OP_ASM side table the same way */
-                if (instr->op == OP_ASM && c) {
-                    IRAsmArgsArena *asm_arena = &c->ir_asm_args;
-                    for (size_t t = 0; t < asm_arena->count; t++) {
-                        IRAsmArgs *entry = &asm_arena->table[t];
-                        if (entry && entry->instr_index == (size_t)i) {
-                            entry->instr_index = write_idx;
-                            break;
-                        }
+            }
+            /* Sprint 135: remap the OP_ASM side table the same way */
+            if (instr->op == OP_ASM && c) {
+                IRAsmArgsArena *asm_arena = &c->ir_asm_args;
+                for (size_t t = 0; t < asm_arena->count; t++) {
+                    IRAsmArgs *entry = &asm_arena->table[t];
+                    if (entry && entry->instr_index == (size_t)i) {
+                        entry->instr_index = write_idx;
+                        break;
                     }
                 }
             }

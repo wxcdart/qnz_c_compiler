@@ -9,15 +9,9 @@ int main(void) {
     
     /* Create a standalone arena for testing */
     IRArena arena;
-    IRCallArgsArena call_arena;
     
     if (!ir_arena_init(&arena, 1024)) {
         fprintf(stderr, "Failed to init arena\n");
-        return 1;
-    }
-    if (!ir_call_args_arena_init(&call_arena)) {
-        fprintf(stderr, "Failed to init call arena\n");
-        ir_arena_free(&arena);
         return 1;
     }
     
@@ -76,7 +70,6 @@ int main(void) {
     printf("  Reset after emissions: OK\n");
     
     /* Cleanup */
-    ir_call_args_arena_free(&call_arena);
     ir_arena_free(&arena);
     
     printf("All IR tests passed!\n");

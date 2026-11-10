@@ -1543,9 +1543,6 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
             }
             if (callee_uses_sret) all_arg_stack_pos[0] = 255;  /* sret entry is always a register arg */
 
-            /* Total integer arguments in standard arg registers (x0..x7 on AArch64 excludes x8 sret) */
-            int total_int_args = int_arg_idx + ((callee_uses_sret && c->isa != ISA_AARCH64) ? 1 : 0);
-
             /* Emit IR call (NULL name for indirect calls) */
             /* The emitted symbol is the function's actual emission name:
              * nested callees are mangled (zero_cc_resolve_callee resolved
@@ -1556,21 +1553,29 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
             ir_emit_call(c, is_indirect_call ? NULL : emit_name);
 
             /* Pack argument info into the instruction.
-             * C2b: args 0/1 go in the widened temp_src1/src2 fields;
-             * the full argument list (all args, indirect callee, sret)
-             * always lives in the IRCallArgs side table recorded below.
-             * (The pre-C2b 8-bit imm packing of args 2/3 is gone: it
-             * could not represent 16-bit temp ids. Both consumers -
-             * LRA and MC emission - read the side table first and fall
-             * back to src1/src2 only if it is missing.) */
+             * Sprint 151c: args 0/1 go in temp_src1/temp_src2; args 2+ are
+             * emitted as OP_CALL_ARG pseudo-instructions that follow in the
+             * stream (no instr_index-keyed side table). temp_dest = total
+             * argument count so consumers know how many OP_CALL_ARG entries
+             * to read. */
             if (ir_get_count(c) > 0) {
                 Instr *last_instr = (Instr*)&ir_get_buffer(c)[ir_get_count(c) - 1];
-                last_instr->temp_dest = (uint32_t)total_int_args;
-                if (total_int_args > 0) last_instr->temp_src1 = (uint32_t)all_arg_temps[0];
-                if (total_int_args > 1) last_instr->temp_src2 = (uint32_t)all_arg_temps[1];
+                last_instr->temp_dest = (uint32_t)all_arg_count;
+                if (all_arg_count > 0) last_instr->temp_src1 = (uint32_t)all_arg_temps[0];
+                if (all_arg_count > 1) last_instr->temp_src2 = (uint32_t)all_arg_temps[1];
                 last_instr->imm = 0;  /* unused for OP_CALL since C2b */
-                /* Full argument list (needed for 5+ args or indirect calls) */
-                ir_call_args_record(c, ir_get_count(c) - 1, all_arg_count, all_arg_temps, all_arg_is_fp, all_arg_stack_pos);
+                /* Sprint 151c: is_fp class of args 0/1 carried in cond/width
+                 * (OP_CALL's cond/width are otherwise unused). */
+                last_instr->cond = (uint8_t)(all_arg_count > 0 ? all_arg_is_fp[0] : 0);
+                last_instr->width = (uint8_t)(all_arg_count > 1 ? all_arg_is_fp[1] : 0);
+                /* Emit OP_CALL_ARG for each argument beyond the first two.
+                 * Note: this can grow the IR arena, so set label_idx after. */
+                for (int a = 2; a < all_arg_count; a++) {
+                    ir_emit_call_arg(c, (uint32_t)all_arg_temps[a], all_arg_is_fp[a], all_arg_stack_pos[a]);
+                }
+                /* Re-fetch last_instr: the arena may have been reallocated by
+                 * the OP_CALL_ARG emissions above. */
+                last_instr = (Instr*)&ir_get_buffer(c)[ir_get_count(c) - 1];
                 /* Store the number of FP REGISTER args (clamped: %al / the
                  * callee spill only covers the register slots) in label_idx */
                 last_instr->label_idx = (uint16_t)(fp_arg_idx < fp_regs_avail ? fp_arg_idx : fp_regs_avail);

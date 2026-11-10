@@ -20,27 +20,6 @@ typedef struct ZeroCCCompiler ZeroCCCompiler;
 #define IR_CALL_MAX_ARGS 256
 #define IR_CALL_MAX_SITES 1024
 
-/* Call argument tracking structure */
-typedef struct {
-    size_t instr_index;
-    int count;
-    uint32_t temps[IR_CALL_MAX_ARGS];  /* temp ids (Sprint 151: 32-bit storage;
-                                         * renumbered to <=65534 before regalloc) */
-    uint8_t is_fp[IR_CALL_MAX_ARGS];  /* 1 if FP argument, 0 if integer */
-    /* Position within the combined (argument-order) stack-arg list, or
-     * 255 when the arg goes into a register. Needed for FP args beyond
-     * the 8th FP register: they must land on the call stack interleaved
-     * with overflowed integer args in original argument order. */
-    uint8_t stack_pos[IR_CALL_MAX_ARGS];
-} IRCallArgs;
-
-/* Call args arena for tracking */
-typedef struct {
-    IRCallArgs *table;
-    size_t count;
-    size_t capacity;
-} IRCallArgsArena;
-
 /* Special register constants */
 #define REG_FLAGS 255  /* Special flag register for explicit flag dependency tracking (uint8 flags fields) */
 
@@ -48,12 +27,20 @@ typedef struct {
  * fields were uint8_t). 65535 can no longer be a real temp id. */
 #define TEMP_NONE 0xFFFF  /* "no temp" sentinel; zc_alloc_temp skips it */
 
+/* OP_CALL_ARG pseudo-instruction: emitted immediately after OP_CALL, one per
+ * argument beyond the first two (which live in OP_CALL.temp_src1/temp_src2).
+ * OP_CALL_ARG carries a single call argument: temp_src1 = argument temp,
+ * cond = is_fp flag (0=int, 1=FP, 2=indirect callee, 3=sret), width = stack
+ * position (255 = register argument). OP_CALL_ARG instructions travel with
+ * their OP_CALL in the instruction stream, eliminating the need for an
+ * instr_index-keyed side table. (Sprint 151c: IR cleanup.) */
+#define OP_CALL_ARG_PSEUDO 0  /* marker; real opcode assigned in Opcode enum below */
+
 /* ==========================================================================
  * Inline asm (GNU __asm__) - Sprint 135, Phase 1 (x86-64 AOT text path).
  *
  * The template string and operand/clobber lists live in a side table keyed
- * by instruction index (same pattern as IRCallArgs): the packed 24-byte
- * Instr has no room for them. The operand temps are ordinary temps -
+ * by instruction index: the packed 24-byte Instr has no room for them. The operand temps are ordinary temps -
  * output r/in-out temps are DEFINED by the OP_ASM, input r temps are USED,
  * and m operands carry an ADDRESS temp (the template gets a (%reg) form).
  * Constraint subset for Phase 1: r/m (with =, + prefixes), matching digits
@@ -156,7 +143,12 @@ typedef enum {
     OP_JMP_LABEL,      /* jmp [label_idx] - break/continue/goto */
 
     /* Function (4) */
-    OP_CALL,           /* call function */
+    OP_CALL,           /* call function. temp_dest = total argument count,
+                        * temp_src1/temp_src2 = argument temps 0/1, remaining
+                        * arguments in OP_CALL_ARG pseudo-instructions that
+                        * follow in the stream. imm64 = function name (NULL
+                        * for indirect calls). label_idx = FP register arg
+                        * count (variadic FP register count). */
     OP_CALL_INDIRECT,  /* call through register */
     OP_RET,            /* return from function */
     /* Frame Management (5) */
@@ -194,15 +186,23 @@ typedef enum {
                              * target-specific illegal/trap instruction */
     OP_SYSCALL,             /* OS syscall intrinsic (zero_rt OS boundary).
                              * Arguments (number + up to 6 operands) are packed
-                             * like OP_CALL: temp_dest = arg_count, full list in
-                             * the IRCallArgs side table. The backend moves them
-                             * into the target's syscall argument registers and
-                             * issues the syscall instruction; the result is in
-                             * VREG_0 (rax). Clobbers like a call. */
+                             * like OP_CALL: temp_dest = arg_count, first two
+                             * in temp_src1/src2, the rest in OP_CALL_ARG
+                             * pseudo-instructions. The result is in VREG_0
+                             * (rax). Clobbers like a call. */
     OP_CLONE,               /* OS clone intrinsic (zero_rt thread boundary).
-                             * Arguments (flags, child_sp, ptid, tls, ctid) are
-                             * packed like OP_SYSCALL in the IRCallArgs table.
-                             * Emits clone syscall and child startup trampoline. */
+                             * Arguments are packed like OP_CALL: temp_dest =
+                             * arg_count, first two in temp_src1/src2, the rest
+                             * in OP_CALL_ARG pseudo-instructions that follow
+                             * in the stream. Emits clone syscall and child
+                             * startup trampoline. */
+    OP_CALL_ARG,            /* Call argument pseudo-instruction (Sprint 151c).
+                             * Emitted immediately after OP_CALL/OP_SYSCALL/
+                             * OP_CLONE, one per argument beyond the first two.
+                             * temp_src1 = argument temp, cond = is_fp class,
+                             * width = stack position (255 = register arg).
+                             * Travels with its call in the instruction
+                             * stream; not a standalone instruction. */
     /* SIMD/Vector operations (32) */
     OP_VADDSS,     /* scalar single-precision add */
     OP_VSUBSS,     /* scalar single-precision sub */
@@ -927,9 +927,15 @@ static inline void ir_insert_label(ZeroCCCompiler *c, size_t idx, uint16_t label
     ir_insert_at(c, idx, (Instr){.op = OP_LABEL, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = label_idx});
 }
 
-/* Call argument tracking - arena-based */
-void ir_call_args_record(ZeroCCCompiler *c, size_t instr_index, int count, const int *temps, const int *is_fp, const uint8_t *stack_pos);
-const IRCallArgs *ir_call_args_find(const ZeroCCCompiler *c, size_t instr_index);
+/* Emit a call-argument pseudo-instruction (Sprint 151c). Emitted immediately
+ * after OP_CALL/OP_SYSCALL/OP_CLONE, one per argument beyond the first two.
+ * `is_fp`: 0=integer, 1=FP, 2=indirect callee, 3=sret. `stack_pos`: position
+ * in the combined stack-arg list, or 255 for a register argument. */
+static inline void ir_emit_call_arg(ZeroCCCompiler *c, uint32_t arg_temp, int is_fp, uint8_t stack_pos) {
+    ir_emit(c, (Instr){.op = OP_CALL_ARG, .temp_dest= TEMP_NONE, .temp_src1 = arg_temp,
+                       .temp_src2= TEMP_NONE, .cond = (uint8_t)is_fp,
+                       .width = stack_pos, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
 
 /* Inline asm args tracking - arena-based (Sprint 135). Record right after
  * ir_emit of the OP_ASM; template_str must outlive the compiler. */
@@ -992,33 +998,33 @@ static inline void ir_emit_variadic_spill(ZeroCCCompiler *c, int param_count, in
     ir_emit(c, (Instr){.op = OP_VARIADIC_SPILL, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = (int16_t)param_count, .imm64 = (int64_t)base_offset, .label_idx = 0});
 }
 
-/* Emit function call - fn_name stored in imm64 as pointer during lowering */
+/* Emit function call - fn_name stored in imm64 as pointer during lowering.
+ * Callers emit OP_CALL_ARG pseudo-instructions after this for args 2+. */
 static inline void ir_emit_call(ZeroCCCompiler *c, const char *fn_name) {
     ir_emit(c, (Instr){.op = OP_CALL, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = 0, .imm64 = (int64_t)(intptr_t)fn_name, .label_idx = 0});
 }
 
 /* Emit the OS syscall intrinsic. Argument temps (syscall number first, then
- * up to 6 operands) are packed exactly like OP_CALL: count in temp_dest,
- * first two in temp_src1/src2, the full list in the IRCallArgs side table.
+ * up to 6 operands) are packed like OP_CALL: temp_dest = arg_count,
+ * first two in temp_src1/src2, the rest in OP_CALL_ARG pseudo-instructions.
  * The result is in VREG_0 (the ABI return register). */
 static inline void ir_emit_syscall(ZeroCCCompiler *c, int arg_count, const int *arg_temps) {
     ir_emit(c, (Instr){.op = OP_SYSCALL,
-                    .temp_dest = arg_count,
+                    .temp_dest = (uint32_t)arg_count,
                     .temp_src1 = (arg_count > 0) ? (uint32_t)arg_temps[0] : TEMP_NONE,
                     .temp_src2 = (arg_count > 1) ? (uint32_t)arg_temps[1] : TEMP_NONE,
                     .imm = 0, .imm64 = 0, .label_idx = 0});
-    ir_call_args_record(c, ir_get_count(c) - 1, arg_count, arg_temps, NULL, NULL);
 }
 
 /* Emit the OS clone intrinsic. Arguments (flags, child_sp, ptid, tls, ctid)
- * are packed like OP_SYSCALL: count in temp_dest, full list in IRCallArgs. */
+ * are packed like OP_CALL: temp_dest = arg_count, first two in temp_src1/
+ * src2, the rest in OP_CALL_ARG pseudo-instructions. */
 static inline void ir_emit_clone(ZeroCCCompiler *c, int arg_count, const int *arg_temps) {
     ir_emit(c, (Instr){.op = OP_CLONE,
-                    .temp_dest = arg_count,
+                    .temp_dest = (uint32_t)arg_count,
                     .temp_src1 = (arg_count > 0) ? (uint32_t)arg_temps[0] : TEMP_NONE,
                     .temp_src2 = (arg_count > 1) ? (uint32_t)arg_temps[1] : TEMP_NONE,
                     .imm = 0, .imm64 = 0, .label_idx = 0});
-    ir_call_args_record(c, ir_get_count(c) - 1, arg_count, arg_temps, NULL, NULL);
 }
 
 /* Float to int conversion (cvttsd2si) */

@@ -751,45 +751,69 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             /* Get function name from imm64 (stored as pointer) */
             const char *func_name = (const char *)(intptr_t)instr->imm64;
 
-            /* Look up recorded call arguments */
-            const IRCallArgs *call_args = ir_call_args_find(c, idx);
+            /* Collect call arguments: args 0/1 from OP_CALL itself,
+             * args 2+ from OP_CALL_ARG pseudo-instructions that follow
+             * in the stream (Sprint 151c). */
+            int call_arg_count = (int)instr->temp_dest;
+            int unpacked_temps[IR_CALL_MAX_ARGS];
+            int unpacked_is_fp[IR_CALL_MAX_ARGS];
+            int unpacked_stack_pos[IR_CALL_MAX_ARGS];
+            for (int a = 0; a < IR_CALL_MAX_ARGS; a++) {
+                unpacked_temps[a] = 0;
+                unpacked_is_fp[a] = 0;
+                unpacked_stack_pos[a] = 255;
+            }
+            int n = 0;
+            if (call_arg_count > 0 && instr->temp_src1 != TEMP_NONE) {
+                unpacked_temps[n] = (int)instr->temp_src1;
+                unpacked_is_fp[n] = instr->cond;   /* Sprint 151c: is_fp of arg 0 */
+                unpacked_stack_pos[n] = 255;
+                n++;
+            }
+            if (call_arg_count > 1 && instr->temp_src2 != TEMP_NONE) {
+                unpacked_temps[n] = (int)instr->temp_src2;
+                unpacked_is_fp[n] = instr->width;  /* Sprint 151c: is_fp of arg 1 */
+                unpacked_stack_pos[n] = 255;
+                n++;
+            }
+            for (int a = 2; a < call_arg_count && n < IR_CALL_MAX_ARGS; a++) {
+                size_t ca_idx = idx + 1 + (a - 2);
+                if (ca_idx >= ir_get_count(c)) break;
+                const Instr *ca_instr = ir_get(c, ca_idx);
+                if (ca_instr->op != OP_CALL_ARG) break;
+                unpacked_temps[n] = (int)ca_instr->temp_src1;
+                unpacked_is_fp[n] = ca_instr->cond;
+                unpacked_stack_pos[n] = ca_instr->width;
+                n++;
+            }
 
             if (BE(c)->emit_call_asm) {
-                if (call_args) {
-                    /* Unpack uint8_t arrays into int arrays for backend */
-                    int unpacked_temps[IR_CALL_MAX_ARGS];
-                    int unpacked_is_fp[IR_CALL_MAX_ARGS];
-                    int unpacked_stack_pos[IR_CALL_MAX_ARGS];
-                    for (int i = 0; i < call_args->count; i++) {
-                        unpacked_temps[i] = (int)call_args->temps[i];
-                        unpacked_is_fp[i] = (int)call_args->is_fp[i];
-                        unpacked_stack_pos[i] = (int)call_args->stack_pos[i];
-                    }
-                    BE(c)->emit_call_asm(c, func_name, call_args->count, unpacked_temps, unpacked_is_fp, unpacked_stack_pos, out);
-                } else {
-                    BE(c)->emit_call_asm(c, func_name, 0, NULL, NULL, NULL, out);
-                }
+                BE(c)->emit_call_asm(c, func_name, n, unpacked_temps, unpacked_is_fp, unpacked_stack_pos, out);
             }
             return;
         }
 
         case OP_SYSCALL: {
             /* OS syscall intrinsic - same argument packing as OP_CALL. */
-            const IRCallArgs *syscall_args = ir_call_args_find(c, idx);
+            int s_arg_count = (int)instr->temp_dest;
+            int unpacked_temps[IR_CALL_MAX_ARGS];
+            int n = 0;
+            if (s_arg_count > 0 && instr->temp_src1 != TEMP_NONE) {
+                unpacked_temps[n++] = (int)instr->temp_src1;
+            }
+            if (s_arg_count > 1 && instr->temp_src2 != TEMP_NONE && n < 7) {
+                unpacked_temps[n++] = (int)instr->temp_src2;
+            }
+            for (int a = 2; a < s_arg_count && n < 7; a++) {
+                size_t ca_idx = idx + 1 + (a - 2);
+                if (ca_idx >= ir_get_count(c)) break;
+                const Instr *ca_instr = ir_get(c, ca_idx);
+                if (ca_instr->op != OP_CALL_ARG) break;
+                if (ca_instr->cond != 0) continue; /* syscall args are integer */
+                unpacked_temps[n++] = (int)ca_instr->temp_src1;
+            }
             if (BE(c)->emit_syscall_asm) {
-                if (syscall_args) {
-                    int unpacked_temps[IR_CALL_MAX_ARGS];
-                    int n = 0;
-                    for (int i = 0; i < syscall_args->count && n < 7; i++) {
-                        if (syscall_args->is_fp[i] != 0) continue;
-                        unpacked_temps[n++] = (int)syscall_args->temps[i];
-                    }
-                    BE(c)->emit_syscall_asm(c, n, unpacked_temps, out);
-                } else if (instr->temp_dest > 0) {
-                    int fallback[2] = {(int)instr->temp_src1, (int)instr->temp_src2};
-                    int n = (instr->temp_dest > 1 && instr->temp_src2 != TEMP_NONE) ? 2 : 1;
-                    BE(c)->emit_syscall_asm(c, n, fallback, out);
-                }
+                BE(c)->emit_syscall_asm(c, n, unpacked_temps, out);
             } else {
                 fprintf(out, "\t# SYSCALL (unsupported on this target)\n");
             }
@@ -797,21 +821,25 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
         }
 
         case OP_CLONE: {
-            const IRCallArgs *clone_args = ir_call_args_find(c, idx);
+            int s_arg_count = (int)instr->temp_dest;
+            int unpacked_temps[IR_CALL_MAX_ARGS];
+            int n = 0;
+            if (s_arg_count > 0 && instr->temp_src1 != TEMP_NONE) {
+                unpacked_temps[n++] = (int)instr->temp_src1;
+            }
+            if (s_arg_count > 1 && instr->temp_src2 != TEMP_NONE && n < 5) {
+                unpacked_temps[n++] = (int)instr->temp_src2;
+            }
+            for (int a = 2; a < s_arg_count && n < 5; a++) {
+                size_t ca_idx = idx + 1 + (a - 2);
+                if (ca_idx >= ir_get_count(c)) break;
+                const Instr *ca_instr = ir_get(c, ca_idx);
+                if (ca_instr->op != OP_CALL_ARG) break;
+                if (ca_instr->cond != 0) continue; /* clone args are integer */
+                unpacked_temps[n++] = (int)ca_instr->temp_src1;
+            }
             if (BE(c)->emit_clone_asm) {
-                if (clone_args) {
-                    int unpacked_temps[IR_CALL_MAX_ARGS];
-                    int n = 0;
-                    for (int i = 0; i < clone_args->count && n < 5; i++) {
-                        if (clone_args->is_fp[i] != 0) continue;
-                        unpacked_temps[n++] = (int)clone_args->temps[i];
-                    }
-                    BE(c)->emit_clone_asm(c, n, unpacked_temps, out);
-                } else if (instr->temp_dest > 0) {
-                    int fallback[2] = {(int)instr->temp_src1, (int)instr->temp_src2};
-                    int n = (instr->temp_dest > 1 && instr->temp_src2 != TEMP_NONE) ? 2 : 1;
-                    BE(c)->emit_clone_asm(c, n, fallback, out);
-                }
+                BE(c)->emit_clone_asm(c, n, unpacked_temps, out);
             } else {
                 fprintf(out, "\t# CLONE (unsupported on this target)\n");
             }

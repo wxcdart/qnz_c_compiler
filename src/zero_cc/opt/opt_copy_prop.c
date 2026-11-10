@@ -89,8 +89,9 @@ static void copy_prop_invalidate(uint16_t temp) {
  *
  * Generic rule (matches DCE's liveness convention): any instruction with
  * a temp_dest set defines that temp.  OP_CALL/OP_CALL_INDIRECT are
- * excluded - since C2b their temp_dest is not a temp ID (call arguments
- * live in IRCallArgs; historically dest held arg_count).
+ * excluded - since C2b their temp_dest holds the argument count (not a
+ * temp ID); call arguments live in OP_CALL_ARG pseudo-instructions that
+ * follow in the stream and have temp_dest = TEMP_NONE.
  *
  * The previous explicit opcode list missed the in-place ops (ADD_IMM,
  * SUB_INC, INC, DEC, SEXT*, ZEXT*, LEA, ...), so an in-place redefine of

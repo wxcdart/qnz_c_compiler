@@ -663,7 +663,7 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
             int int_arg_idx = 0, fp_arg_idx = 0;
             int32_t fp_spill_offsets[IR_CALL_MAX_ARGS];
             int all_arg_temps[IR_CALL_MAX_ARGS];
-            int all_arg_is_fp[IR_CALL_MAX_ARGS];   /* int[] - see ir_call_args_record */
+            int all_arg_is_fp[IR_CALL_MAX_ARGS];   /* int[] - is_fp class per arg */
             int all_arg_stack_pos[IR_CALL_MAX_ARGS];
             int all_arg_count = 0;
             for (int j = 0; j < npp; j++) {
@@ -720,15 +720,20 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
             all_arg_is_fp[all_arg_count] = 2;
             all_arg_stack_pos[all_arg_count] = 255;
             all_arg_count++;
-            int total_int_args = int_arg_idx;
             ir_emit_call(c, NULL);
             if (ir_get_count(c) > 0) {
                 Instr *last_instr = (Instr*)&ir_get_buffer(c)[ir_get_count(c) - 1];
-                last_instr->temp_dest = (uint32_t)total_int_args;
-                if (total_int_args > 0) last_instr->temp_src1 = (uint32_t)all_arg_temps[0];
-                if (total_int_args > 1) last_instr->temp_src2 = (uint32_t)all_arg_temps[1];
-                ir_call_args_record(c, ir_get_count(c) - 1, all_arg_count,
-                                    all_arg_temps, all_arg_is_fp, all_arg_stack_pos);
+                last_instr->temp_dest = (uint32_t)all_arg_count;
+                if (all_arg_count > 0) last_instr->temp_src1 = (uint32_t)all_arg_temps[0];
+                if (all_arg_count > 1) last_instr->temp_src2 = (uint32_t)all_arg_temps[1];
+                last_instr->imm = 0;
+                last_instr->cond = (uint8_t)(all_arg_count > 0 ? all_arg_is_fp[0] : 0);
+                last_instr->width = (uint8_t)(all_arg_count > 1 ? all_arg_is_fp[1] : 0);
+                for (int a = 2; a < all_arg_count; a++) {
+                    ir_emit_call_arg(c, (uint32_t)all_arg_temps[a], all_arg_is_fp[a], all_arg_stack_pos[a]);
+                }
+                /* Re-fetch: arena may have been reallocated by OP_CALL_ARG */
+                last_instr = (Instr*)&ir_get_buffer(c)[ir_get_count(c) - 1];
                 last_instr->label_idx = (uint16_t)(fp_arg_idx < fp_regs_avail ? fp_arg_idx : fp_regs_avail);
             }
             if (c->lowering.ir_ctx.call_count < 64) {
