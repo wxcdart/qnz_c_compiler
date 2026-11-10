@@ -955,6 +955,12 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     opt_run_passes(c);
     opt_shutdown();
 
+    /* Debug: dump the post-optimization IR (before register allocation),
+     * e.g. to inspect loop-unroll / LICM output: ZC_DUMP_IR_OPT=1 zerocc ... */
+    if (getenv("ZC_DUMP_IR_OPT")) {
+        ir_dump(c, stderr);
+    }
+
     /* 2. Compute live ranges and allocate registers on optimized IR */
     LiveRangeAnalyzer lra;
     live_range_init(&lra);

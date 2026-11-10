@@ -22,11 +22,14 @@ TEST_BIN_DIR ?= $(BUILD_DIR)/test
 # test binary glob.  test/jit/builtin_apply.c uses __builtin_apply, which
 # host gcc miscompiles on x86-64 (garbage int/FP results; only the
 # void-return shape works) - it is exercised by the zerocc-only
-# test-opt sweep instead.  test/san/*.c is the zero_san (-fsanitize=undefined)
+# test-opt sweep instead.  test/jit/unroll_nonlocal_goto.c uses a goto
+# from a nested function to an enclosing label (Sprint 99), which host
+# gcc rejects - exercised by tools/loop_unroll_verifier.py instead.
+#  test/san/*.c is the zero_san (-fsanitize=undefined)
 # corpus: san_trap_* tests DIE with SIGILL by design, so they cannot run
 # through the host-gcc suite; tools/san_sweep.py (make test-san) drives them
 # with zerocc directly at -O0..-O3 in JIT + AOT.
-TEST_SRCS = $(filter-out test/diag/% test/driver/% test/linker/% test/san/% test/jit/builtin_apply.c,$(wildcard test/*/*.c))
+TEST_SRCS = $(filter-out test/diag/% test/driver/% test/linker/% test/san/% test/jit/builtin_apply.c test/jit/unroll_nonlocal_goto.c,$(wildcard test/*/*.c))
 TESTS = $(patsubst test/%.c,$(TEST_BIN_DIR)/%,$(TEST_SRCS))
 
 LEXER_OBJ = $(OBJ_DIR)/src/zero_cc/lexer/lexer.o
@@ -76,6 +79,7 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	src/zero_cc/opt/opt_copy_prop.o \
 	src/zero_cc/opt/opt_profile.o \
 	src/zero_cc/opt/opt_loop.o \
+	src/zero_cc/opt/opt_loop_unroll.o \
 	src/zero_cc/opt/opt_vectorize.o \
 	src/zero_cc/opt/cfg.o \
 	src/zero_cc/core/pragma_state.o \
@@ -287,6 +291,13 @@ test-torture: build/bin/zerocc
 # matching -std flag; negative cases check accept/reject agreement.
 test-c23: build/bin/zerocc
 	@python3 tools/c23/test_c23.py --all
+
+# Loop-unrolling differential gate (Sprint 150): test/jit/unroll_*.c at
+# -O0 (baseline) vs -O3 JIT + AOT, diffed against host gcc (or the -O0
+# baseline when gcc cannot compile the file), plus the pass's own
+# unroll-count accounting (expect-unroll markers).
+test-loop-unroll: build/bin/zerocc
+	@python3 tools/loop_unroll_verifier.py
 
 # Inline-assembly Phase 1 differential gate (Sprint 135): every test/asm/*.c
 # compiled under zerocc -O0..-O3 on the AOT *text* path (-S), assembled and

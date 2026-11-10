@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-09T22:29:28Z
+timestamp: 2026-11-10T02:18:18Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1266,3 +1266,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-09 — Updated `build-and-verification.md`
 - Sprint 149: Add cfg_verifier.py checks 6 and 7 (dominator and post-dominator verification)
+
+## 2026-11-10 — Updated `optimization-passes.md`
+- Sprint 150: Loop unrolling (full unroll of constant-trip loops, -O3, plan item 3 Phase 1)

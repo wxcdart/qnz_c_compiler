@@ -4,7 +4,7 @@ title: Optimization Passes & Safety Invariants
 description: Active IR optimization pipeline (Constant Folding, CopyProp, CSE, GVN, DCE, Mem2Reg, LICM, Auto-Vectorization) and their correctness invariants.
 resource: middleend/optimization-passes
 tags: [optimizations, mem2reg, licm, vectorization, gvn, cse, dce]
-timestamp: 2026-11-09T22:29:25Z
+timestamp: 2026-11-10T02:18:18Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -93,6 +93,14 @@ Optimization passes are registered in `src/zero_cc/opt/opt_pass.c` (`g_opt_passe
     - **Select scratch temps are type-tagged (Sprint 119, Slice 2)**: the 4 fresh temps per site (mask, ±1 constant, XOR difference, AND select) are stamped `INT(8)` — full-register-domain scratch (the mask/select hold 64-bit bit patterns, not C99 N-bit values; a width-8 extend is a no-op, so no wrap semantics apply). The final select writes `sp->then.res`, the original lowering temp, which already carries the conditional's semantic tag — codegen's extend/DIV decisions on the select therefore ride on tags like any other value.
     - Verified by `test/jit/ternary_branchless.c` (part of `make test-opt`, all `-O` levels, JIT + AOT) and a gcc differential battery (plain/comparison conditions, negative/large values, pointer arms, SEXT arms, condition reuse, nested ternaries, loop-carried selects).
     - **Known non-matches (by design)**: ternaries whose arms are FP values (XMM guard), whose arms compute (e.g. `? -x :`), whose arms are bare immediates, and `char`/`short` *pointer* arms are fine but struct-by-value arms are out of scope (v2 candidates: immediate arms, struct chunks).
+11. **Loop Unrolling (`opt_loop_unroll.c`, Sprint 150)**
+    - `-O3` only (priority 68: after `branch_simplify`, before `auto_vectorize`). Fully unrolls small constant-trip-count loops: the loop test and backedge are deleted, the body is emitted `T` times with per-copy label clones, and jumps are rewired (backedge → first copy, `continue` targets → next copy's header or exit, exit branch → post-loop code). No induction-variable bookkeeping survives: the counter is advanced inline per copy, so later passes (CSE/GVN/DCE at the next pipeline round) fold and remove the now-dead test/increment plumbing.
+    - **Loop structure**: reuses the CFG natural-loop model shared with LICM (`loop_detect`/`cfg->loops[]`): backedge must be an unconditional `OP_JMP` to the header label; the header must be a pure `CMP` + `COND_SET` + `JE`/`JNE` test (for-form `i < bound` with the counter on one side and a compile-time constant on the other; `CC_LT` → trip `= bound - init`, `CC_LE` → `bound - init + 1`). Down-counting forms under a `+1` step (`GT`/`GE`) are rejected (they would run forever).
+    - **Counter forms**: (a) **stack-slot form** — the counter lives in frame slot `S`, initialized by the last `MOV_MEM [S], const` before the header (constant-fold-map traced), incremented by exactly one `+1` store (`ADD`/`ADD_IMM`/`INC` over a single in-span load, or an in-place slot `INC`) inside the backedge block; the slot must not be address-taken (`OP_LEA`). (b) **temp form** (post-mem2reg) — the counter is a virtual temp with a constant definition before the header and exactly one in-span redefinition, the `+1` in the backedge block.
+    - **Span safety gate** (all must hold, else the loop is left alone): trip count `1..8`, span ≤ 64 instructions, single backedge entry (no side entries into `[H+1, E)`), no `OP_CALL`/`OP_CALL_INDIRECT`/`OP_RET`, no `OP_ASM`, no `OP_GOTO_INDIRECT`/`OP_GOTO_TABLE`, no volatile, no 128-bit/FP-128 ops, no atomics, no `setjmp`/`longjmp`, no `OP_VLA_ALLOC`/`VLA_FREE`, and no user label (nonlocal-goto target, Sprint 99) inside the span. Internal loop labels (if/else merges, continue targets) get fresh per-copy clones; jumps to `H` (continue) and to the step label are remapped to the per-copy equivalents.
+    - **Arena rebuild**: two-pass rebuild into a fresh `IRArena` (LICM recipe) with an `old_to_new` index map; the index-keyed `IRCallArgs` and `IRAsmArgs` side tables are remapped through it (no entries exist in a qualifying span — calls/asm are rejected — but the remap is applied unconditionally, matching the arena-rebuild invariant of DCE/LICM/branchless). Fresh temps are not needed (the counter advances in place); fresh labels are allocated by advancing `c->ir_next_label`, which all emitters size at emit time (MC layer and name-based `.L<fn>_<idx>` text labels alike).
+    - **Profiling**: `opt_profile_count_loop_unroll()`; `--profile-opts` prints `Loops fully unrolled: N`. One loop is unrolled per pipeline invocation; the pipeline's fixed-point iteration (up to 10 rounds) picks up further loops.
+    - Verified by `tools/loop_unroll_verifier.py` (`make test-loop-unroll`): 15 `test/jit/unroll_*.c` cases (for/while, break/continue, if/else, unsigned counters, macro/enum/`sizeof` bound forms, trip-count and body-size limits, side effects, structs/pointers, user labels, nested functions + nonlocal gotos) differential-tested against host gcc at `-O0..-O3` JIT + `-O3` AOT, with the pass's own unroll-count checked against `expect-unroll` markers. `make test-opt` (169 tests) stays green.
 
 ### `OP_ASM` — the inline-asm barrier contract (Sprint 135)
 
@@ -111,7 +119,8 @@ Optimization passes are registered in `src/zero_cc/opt/opt_pass.c` (`g_opt_passe
 - ~~**`-S` asm_emitter opcode gaps**~~ - **FIXED (Sprint 40)**: `OP_ADD_IMM`, `OP_SUB_IMM`, `OP_INC`, `OP_DEC`, `OP_NOT`, `OP_LNOT` all have `-S` emitters on all three backends (the earlier list naming `OP_SUB_INC`/`OP_ADD_INC` was a misnomer - those opcodes do not exist). The Sprint 39 branchless pass's `-S`-safe mask restriction remains valid but is no longer load-bearing.
 
 ## Debugging Optimizations
-- Use `--dump-ir` or `--profile-opts` on `./build/bin/zerocc` to inspect IR before and after optimization passes.
+- `--profile-opts` on `./build/bin/zerocc` prints per-pass instruction counts and the `Loops fully unrolled: N` total after the pipeline.
+- `ZC_DUMP_IR_OPT=1` (env) dumps the **post-optimization, pre-register-allocation** IR to stderr — the state each pass actually receives/produces (useful for inspecting loop-unroll / LICM / vectorize output). The `--dump-ir` flag (`comp->dump_ir`) dumps a later snapshot during lowering/codegen.
 
 ## Related Concepts
 - Return to [Root Index](./index.md)

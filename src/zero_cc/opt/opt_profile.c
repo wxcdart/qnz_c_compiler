@@ -96,6 +96,10 @@ void opt_profile_dump(FILE *f) {
     fprintf(f, "  Invariants found: %zu\n", g_stats.licm_invariants_found);
     fprintf(f, "  Instructions moved: %zu\n", g_stats.licm_instructions_moved);
 
+    /* Loop unrolling statistics (Sprint 150) */
+    fprintf(f, "\nLoop unrolling:\n");
+    fprintf(f, "  Loops fully unrolled: %zu\n", g_stats.loop_unrolls);
+
     /* Register allocation statistics */
     fprintf(f, "\nRegister Allocation:\n");
     fprintf(f, "  Total live intervals: %zu\n", g_stats.regalloc_total_intervals);
@@ -164,6 +168,10 @@ void opt_profile_count_licm_invariant(void) {
 
 void opt_profile_count_licm_moved(void) {
     if (g_profile_enabled) g_stats.licm_instructions_moved++;
+}
+
+void opt_profile_count_loop_unroll(void) {
+    if (g_profile_enabled) g_stats.loop_unrolls++;
 }
 
 void opt_profile_count_regalloc_interval(void) {

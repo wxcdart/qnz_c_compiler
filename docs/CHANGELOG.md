@@ -1,3 +1,25 @@
+## [Sprint 150] - 2026-11-09 - Loop Unrolling (Plan Item 3, Phase 1: Full Unroll)
+
+ZeroCC adds the next CFG-enabled optimization after the Sprint 149 dominator work: a `-O3`-gated full loop-unrolling pass (`src/zero_cc/opt/opt_loop_unroll.{c,h}`) that eliminates loop overhead from small constant-trip-count loops:
+
+- **Loop Unrolling Pass (`opt_loop_unroll.c`, `opt_loop_unroll.h`, opt_pass priority 68 — after `branch_simplify`, before `auto_vectorize`)**:
+  - **Full unroll of constant-trip loops**: the loop test and backedge are deleted, the body is emitted `T` times (trip count `1..8`) with per-copy clones of internal loop labels (if/else merges, continue targets), and jumps are rewired: backedge → first copy, `continue`-to-header → next copy's header (or exit), exit branch → post-loop code. The counter advances inline per copy; the now-dead test/increment plumbing is folded away by later CSE/GVN/DCE rounds in the pipeline's fixed-point iteration.
+  - **Shared CFG loop model**: reuses LICM's `loop_detect`/`cfg->loops[]` natural loops (exposed from `opt_loop.{c,h}`): unconditional `OP_JMP` backedge into a pure `CMP` + `COND_SET` + `JE`/`JNE` header; for-form count-up tests only (`CC_LT` → trip `bound - init`, `CC_LE` → `bound - init + 1`; down-count forms under `+1` rejected).
+  - **Two counter forms**: stack-slot (constant init store before the header, exactly one `+1` store in the backedge block, slot not address-taken) and virtual-temp (post-mem2reg; constant def before the header, exactly one in-span `+1` redefinition).
+  - **Span safety gate**: trip `1..8`, span ≤ 64 instructions, no side entries into `[H+1, E)`, and no calls/indirect calls/returns, inline asm, computed/table gotos, volatile, 128-bit/`__float128`, atomics, `setjmp`/`longjmp`, VLA alloc/free, or user (nonlocal-goto) labels inside the span. One loop per invocation; the pipeline re-runs the pass up to 10 rounds.
+  - **Arena rebuild** (LICM recipe): fresh `IRArena` with `old_to_new` index remap applied to the `IRCallArgs` and `IRAsmArgs` side tables; fresh labels allocated by advancing `c->ir_next_label` (all emitters size label state at emit time — MC layer and name-based `.L<fn>_<idx>` text labels).
+  - **Profiling**: `opt_profile_count_loop_unroll()`; `--profile-opts` prints `Loops fully unrolled: N`.
+- **Test corpus & gate**:
+  - 15 `test/jit/unroll_*.c` cases: for/while, break/continue, if/else bodies, unsigned counters, macro/enum/`sizeof` bound forms, trip-count and body-size limits, no-unroll controls (variable bound, trip > 8, call in body), multiple/nested loops, side effects, structs, pointers, user labels + nested functions, and nonlocal-goto coexistence (`unroll_nonlocal_goto.c` uses a Sprint 99 cross-nested-function goto that host gcc rejects — excluded from the host-gcc `TEST_SRCS` glob like `builtin_apply.c`, exercised by the verifier's -O0-baseline fallback instead).
+  - `tools/loop_unroll_verifier.py` (`make test-loop-unroll`): differential gate — every case at `-O0` (baseline), `-O1/-O2/-O3` JIT and `-O3` AOT, diffed against host `gcc-15 -O2` (or the `-O0` baseline when gcc cannot compile the file), plus the pass's own unroll count checked against `// expect-unroll: yes|no` markers. **15/15 ok**.
+- **Verification**:
+  - `make test-loop-unroll`: 15 ok, 0 failed.
+  - `make test-opt`: 169 tests — 111 ok / 0 failed / 58 skipped / 1 nondeterministic, across `-O0..-O3` in JIT + AOT.
+  - `make asan`: 211/211 (compiler-side ASan/UBSan rebuild + suite).
+  - `tools/type_tag_verifier.py --verify-all`: OK (180 files × `-O0/-O2/-O3`).
+  - `-S` text-assembly path verified directly (unrolled labels emit as unique `.L<fn>_<idx>` names; assembles + links + runs via host gcc).
+- **Follow-up (plan item 3, Phase 2)**: partial unroll (factor 2/4) with remainder peeling for non-constant-trip loops.
+
 ## [Sprint 149] - 2026-11-09 - Dominator & Post-Dominator CFG Dataflow (Plan Item 8a)
 
 ZeroCC implements meet-over-predecessors bitset dataflow to compute immediate dominators (`idom`) and post-dominators (`post_idom`) on the control flow graph (`src/zero_cc/opt/cfg.c`, `cfg.h`), completing development plan item 8a:

@@ -69,6 +69,17 @@ bool loop_analyze(ZeroCCCompiler *c, LoopAnalysisState *state) {
     return true;
 }
 
+static void detect_loops(ZeroCCCompiler *c, LoopAnalysisState *state);
+
+/**
+ * Public loop detection (Sprint 150): the same CFG back-edge natural-loop
+ * model LICM uses, exposed so other loop passes (loop unrolling) share it
+ * instead of re-scanning.
+ */
+void loop_detect(ZeroCCCompiler *c, LoopAnalysisState *state) {
+    detect_loops(c, state);
+}
+
 /**
  * Loop detection via the CFG layer (Sprint 35 Phase 3).
  * Each CFG back-edge (an edge u->v with blocks[v].start <= blocks[u].start)

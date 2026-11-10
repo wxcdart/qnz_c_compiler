@@ -67,6 +67,15 @@ void loop_analysis_free(LoopAnalysisState *state);
 bool loop_analyze(ZeroCCCompiler *c, LoopAnalysisState *state);
 
 /**
+ * Detect loops via the cached CFG (Sprint 149 scaffolding for
+ * dominance-based passes): fills state->loops (backedge/natural-loop
+ * spans) and state->dominators / state->post_dominators.  Public so
+ * non-LICM loop passes (loop unrolling, Sprint 150) share the same
+ * loop model instead of re-scanning.
+ */
+void loop_detect(ZeroCCCompiler *c, LoopAnalysisState *state);
+
+/**
  * Loop-invariant code motion
  */
 void opt_licm(ZeroCCCompiler *c);
