@@ -290,6 +290,16 @@ static inline bool ast_expr_is_struct_addr(ZeroCCCompiler *c, ZeroCCASTArena *ar
     } else if (node->tag == NODE_MEMBER) {
         TypeInfo *ti = ast_node_get_typeinfo(c, node);
         if (type_is_struct_or_union(ti)) return true;
+    } else if (node->tag == NODE_ASSIGN) {
+        /* A struct/union assignment expression (>8B) lowers to the
+         * DESTINATION's address: the value stored is the expression's
+         * value, so consumers (chained assigns `c = a = y;`, call args,
+         * returns) copy from the destination object (c-torture
+         * compile/pr71109 - the generic fallback in
+         * zero_cc_emit_struct_copy_to_addr used to leave the value temp
+         * undefined for these). */
+        TypeInfo *ti = ast_node_get_typeinfo(c, node);
+        if (type_is_struct_or_union(ti) && type_size(ti) > 8) return true;
     } else if (node->tag == NODE_TERNARY) {
         TypeInfo *ti = ast_node_get_typeinfo(c, node);
         if (type_is_struct_or_union(ti)) return true;

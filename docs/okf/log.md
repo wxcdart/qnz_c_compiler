@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-10T15:37:58Z
+timestamp: 2026-11-10T18:47:19Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1290,3 +1290,18 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-10 — Updated `ir-and-regalloc.md`
 - Sprint 152: fix Sprint 151c/151b OP_CALL/OP_SYSCALL/OP_CLONE OP_CALL_ARG and temp_dest arg_count invariants
+
+## 2026-11-10 — Updated `host-runtime-and-portability.md`
+- Sprint 153: pre-baked .rodata symtab for self-hosting dlfcn (Host Runtime #11 Phase 1); /proc/self/exe now fallback-only
+
+## 2026-11-10 — Updated `ir-and-regalloc.md`
+- Sprint 153: struct assignment expressions (>8B) yield the destination address (chained-assign c = a = y fix, c-torture pr71109)
+
+## 2026-11-10 — Updated `optimization-passes.md`
+- Sprint 153: inlined non-void body fallthrough materializes the result temp from VREG_0 (pr37913/20080613-1/20001124-1)
+
+## 2026-11-10 — Updated `ir-and-regalloc.md`
+- Sprint 153: removed lower_stmt_if temp-counter rewind (Sprint-89 churn-budget relic) - next_temp_id stays monotonic through lowering; renumber pass compacts
+
+## 2026-11-10 — Updated `optimization-passes.md`
+- Sprint 153: inlined-call result-temp definition invariant - fallthrough AND inlined void returns materialize VREG_0 (c-torture compile/pr39394: ternary over inline void calls)

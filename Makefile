@@ -230,14 +230,30 @@ $(ZC_COMPLEX_OBJ): zero_rt/complex/complex.c $(ZC_CC)
 	@mkdir -p $(dir $@)
 	$(ZC_CC) $(CFLAGS) -c $< -o $@
 
+# Sprint 153 (Host Runtime #11 Phase 1): pre-baked .symtab for zero_rt's
+# dlfcn. The generated file takes every symbol's address as a link-time
+# relocation, so it is always valid for the binary it is linked into.
+# Two-pass link: link, regenerate from the fresh binary, relink if the
+# table changed (the generator exits 3 when it rewrites). A fresh build
+# bootstraps with the sentinel-only table from --emit-empty.
+ZC_EMBED_SYMS := $(BUILD_DIR)/gen/embedded_syms.c
+$(ZC_EMBED_SYMS):
+	@mkdir -p $(dir $@)
+	python3 tools/embed_symtab.py --emit-empty $@ || [ $$? -eq 3 ]
+
 # ZeroCC CLI driver (static-musl: see ZC_MUSL_LINK at the top of this file).
 # The former --export-dynamic-symbol=zc_*128 flags are gone: a static binary
 # has no dynamic symbol table, and the JIT resolves those helpers through
 # zero_rt's dlfcn (dlsym on the executable's own .symtab).
 ZEROCCLIB_OBJS = $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS)
-build/bin/zerocc: src/main.c $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ) $(ZC_DLCFN_OBJ) $(ZC_COMPLEX_OBJ) $(ZC_CC)
+build/bin/zerocc: src/main.c $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ) $(ZC_DLCFN_OBJ) $(ZC_COMPLEX_OBJ) $(ZC_EMBED_SYMS) $(ZC_CC)
 	@mkdir -p build/bin
-	$(ZC_CC) $(CFLAGS) $(ZC_MUSL_LINK) -o $@ src/main.c $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ) $(ZC_DLCFN_OBJ) $(ZC_COMPLEX_OBJ) $(LDFLAGS)
+	$(ZC_CC) $(CFLAGS) $(ZC_MUSL_LINK) -o $@ src/main.c $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ) $(ZC_DLCFN_OBJ) $(ZC_COMPLEX_OBJ) $(LDFLAGS) $(ZC_EMBED_SYMS)
+	@rc=0; python3 tools/embed_symtab.py --bin $@ --out $(ZC_EMBED_SYMS) || rc=$$?; \
+	if [ $$rc -eq 3 ]; then \
+		echo "build/bin/zerocc: embedded symtab changed; relinking"; \
+		$(ZC_CC) $(CFLAGS) $(ZC_MUSL_LINK) -o $@ src/main.c $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ) $(ZC_DLCFN_OBJ) $(ZC_COMPLEX_OBJ) $(LDFLAGS) $(ZC_EMBED_SYMS); \
+	fi
 
 .PHONY: zerocc
 zerocc: build/bin/zerocc
