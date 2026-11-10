@@ -252,7 +252,8 @@ int opt_temp_renumber(ZeroCCCompiler *c, const char *fn_name) {
         if (!ins) continue;
         uint32_t f;
         f = ins->temp_dest;
-        if (f >= VREG_USER_START && f != TEMP_NONE) {
+        if (ins->op != OP_CALL && ins->op != OP_SYSCALL && ins->op != OP_CLONE &&
+            f >= VREG_USER_START && f != TEMP_NONE) {
             if (f >= max_id || !new_id[f]) {
                 diag_report_error_at_token(c,
                     "internal error: untracked temp %u in function '%s' - "

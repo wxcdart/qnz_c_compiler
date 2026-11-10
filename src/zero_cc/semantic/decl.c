@@ -135,7 +135,10 @@ TypeInfo *decl_handle_var(SemContext *ctx, ZeroCCASTNode *node) {
              var_t && (
                  (var_t->kind == TYPE_KIND_ARRAY &&
                   var_t->details.array.base &&
-                  var_t->details.array.base->kind == TYPE_KIND_CHAR) ||
+                  (var_t->details.array.base->kind == TYPE_KIND_CHAR ||
+                   ((init_node->flags & NODE_FLAG_WIDE) != 0 &&
+                    (var_t->details.array.base->kind == TYPE_KIND_INT ||
+                     var_t->details.array.base->kind == TYPE_KIND_SHORT)))) ||
                  (var_t->kind == TYPE_KIND_POINTER &&
                   var_t->details.pointer.base &&
                   (var_t->details.pointer.base->kind == TYPE_KIND_CHAR ||

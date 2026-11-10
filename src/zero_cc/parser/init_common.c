@@ -291,11 +291,15 @@ bool zc_init_resolve_positional(const ZeroCCType *t, size_t *cursor, size_t base
             out->is_scalar = true;
             out->scalar_sz = (el->size > 8) ? 8 : (el->size ? el->size : 4);
             out->advance = 1;
-            if (el->tag == TYPE_INT8 || el->tag == TYPE_UINT8) {
+            if (el->tag == TYPE_INT8 || el->tag == TYPE_UINT8 ||
+                ((el->tag == TYPE_INT32 || el->tag == TYPE_UINT32) &&
+                 tok && tok_pos < tok_count && tok[tok_pos].type == TK_STRING && tok[tok_pos].is_wide)) {
                 out->arr_ctx_off = base_off;
-                out->arr_ctx_size = t->size;
+                out->arr_ctx_size = t->size ? t->size : (t->array_len == 0 ? (size_t)-1 : 0);
             } else if (el->tag == TYPE_ARRAY && el->base &&
-                       (el->base->tag == TYPE_INT8 || el->base->tag == TYPE_UINT8)) {
+                       (el->base->tag == TYPE_INT8 || el->base->tag == TYPE_UINT8 ||
+                        ((el->base->tag == TYPE_INT32 || el->base->tag == TYPE_UINT32) &&
+                         tok && tok_pos < tok_count && tok[tok_pos].type == TK_STRING && tok[tok_pos].is_wide))) {
                 out->arr_ctx_off = base_off + (*cursor) * el->size;
                 out->arr_ctx_size = el->size;
             }
@@ -1107,16 +1111,17 @@ void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType obj_type,
                      c->tokens[c->token_pos + 1].type == TK_PLUS &&
                      c->tokens[c->token_pos + 2].type == TK_NUM)) {
             if (tgt.arr_ctx_size > 0) {
-                /* String into a char array: copy (NUL-terminated when it
+                /* String into a char / wchar_t array: copy (NUL-terminated when it
                  * fits), starting at the value target. */
-                const char *sv = c->tokens[c->token_pos].allocated_str ?
-                    c->tokens[c->token_pos].allocated_str : c->tokens[c->token_pos].str_val;
-                size_t sl = zero_cc_token_str_len(&c->tokens[c->token_pos]);
+                const ZeroCCToken *stk = &c->tokens[c->token_pos];
+                const char *sv = stk->allocated_str ? stk->allocated_str : stk->str_val;
+                size_t sl = zero_cc_token_str_len(stk);
+                size_t term_sz = stk->is_wide ? 4 : 1;
                 size_t off_in_ctx = (tgt.abs_off >= tgt.arr_ctx_off) ?
                     (tgt.abs_off - tgt.arr_ctx_off) : 0;
                 size_t cap = (off_in_ctx < tgt.arr_ctx_size) ?
                     (tgt.arr_ctx_size - off_in_ctx) : 0;
-                size_t copy = (sl + 1 <= cap) ? (sl + 1) : cap;
+                size_t copy = (sl + term_sz <= cap) ? (sl + term_sz) : cap;
                 size_t base = tgt.abs_off;
                 for (size_t bi = 0; bi < copy; bi++) {
                     if (base + bi < buf_cap) buf[base + bi] = (bi < sl) ? (uint8_t)sv[bi] : 0;
@@ -1126,9 +1131,10 @@ void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType obj_type,
                     /* A string fully consumes an aggregate char-array
                      * target (row / member) and a char-array member; into
                      * a top-level char-array element it consumes just the
-                     * copied bytes. */
+                     * copied elements. */
+                    size_t elem_step = stk->is_wide ? 4 : 1;
                     size_t str_adv = tgt.is_scalar ?
-                        (tgt.in_member ? tgt.arr_ctx_size : copy) : tgt.advance;
+                        (tgt.in_member ? (tgt.arr_ctx_size / elem_step) : (copy / elem_step)) : tgt.advance;
                     if (has_desig) {
                         size_t nc = tgt.leaf_idx + str_adv;
                         if (nc > *cursor) *cursor = nc;

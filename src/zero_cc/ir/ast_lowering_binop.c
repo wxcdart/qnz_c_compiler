@@ -715,7 +715,6 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                     }
                 }
                 uint32_t cop = node->aux.op;
-                int32_t save_frame = c->current_stack_frame;
                 c->current_stack_frame = (c->current_stack_frame + 15) & ~15;
                 c->current_stack_frame = (c->current_stack_frame + 16 + 7) & ~7;
                 int32_t croff = c->current_stack_frame;
@@ -928,9 +927,9 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                                     last_instr->imm = 0;
                                     last_instr->cond = 1;
                                     last_instr->width = 1;
+                                    last_instr->label_idx = 4;
                                     ir_emit_call_arg(c, (uint32_t)div_args[2], 1, 255);
                                     ir_emit_call_arg(c, (uint32_t)div_args[3], 1, 255);
-                                    last_instr->label_idx = 4;
                                     if (c->lowering.ir_ctx.call_count < 64) {
                                         int cidx = c->lowering.ir_ctx.call_count++;
                                         c->lowering.ir_ctx.call_fp_spill_counts[cidx] = 4;
@@ -955,7 +954,6 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                                 int da2 = zc_alloc_temp(c);
                                 ir_emit_add(c, da2, daddr, do2);
                                 ir_emit_vstoresd(c, (uint32_t)da2, (uint32_t)VREG_F1);
-                                c->current_stack_frame = save_frame;
                                 c->last_expr_is_float = 0;
                                 return daddr;
                             }
@@ -1010,7 +1008,6 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                                 rr = both;
                             }
                             ir_emit_mov_imm(c, ri, 0);
-                            c->current_stack_frame = save_frame;
                             c->last_expr_is_float = 0;
                             return rr;
                         }
@@ -1079,7 +1076,6 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                                 rr = both;
                             }
                             ir_emit_mov_imm(c, ri, 0);
-                            c->current_stack_frame = save_frame;
                             c->last_expr_is_float = 0;
                             return rr;
                         }

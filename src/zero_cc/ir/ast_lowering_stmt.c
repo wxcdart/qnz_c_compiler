@@ -825,10 +825,11 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
             }
             if (is_wide) {
                 size_t n_words = str_init_node->s_len / 4;
-                const uint32_t *wlit = (const uint32_t *)lit;
                 for (size_t i = 0; i < n_words && (i + 1) * 4 <= total_size; i++) {
+                    uint32_t wval = 0;
+                    memcpy(&wval, lit + i * 4, 4);
                     int val_temp = zc_alloc_temp(c);
-                    ir_emit_mov_imm(c, val_temp, (int32_t)wlit[i]);
+                    ir_emit_mov_imm(c, val_temp, (int32_t)wval);
                     int addr_temp = zc_alloc_temp(c);
                     ir_emit_lea(c, addr_temp, TEMP_NONE, -(int32_t)(str_sym->stack_offset - (int32_t)(i * 4)));
                     ir_emit_store_32(c, val_temp, addr_temp);

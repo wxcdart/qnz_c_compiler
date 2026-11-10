@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-10T06:21:57Z
+timestamp: 2026-11-10T15:37:58Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1284,3 +1284,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-10 — Updated `ir-and-regalloc.md`
 - Sprint 151c: IR cleanup - removed IRCallArgs side table, call args now travel inline via OP_CALL_ARG pseudo-instructions
+
+## 2026-11-10 — Updated `frontend-and-types.md`
+- Sprint 152: burn down Type System Hardening #4 (local wchar_t[] = L"..." whole-string init and dot-on-array d.x rejection)
+
+## 2026-11-10 — Updated `ir-and-regalloc.md`
+- Sprint 152: fix Sprint 151c/151b OP_CALL/OP_SYSCALL/OP_CLONE OP_CALL_ARG and temp_dest arg_count invariants

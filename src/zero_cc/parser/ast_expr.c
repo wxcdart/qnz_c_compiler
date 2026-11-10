@@ -175,8 +175,8 @@ ASTRef parse_brace_init_list_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena,
             bool stamped_any = false;
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STRING &&
                 tgt.arr_ctx_size > 0) {
-                /* String literal filling a char array (C11 6.7.9p13): one
-                 * stamped byte node per character (NUL included when it
+                /* String literal filling a char / wchar_t array (C11 6.7.9p13):
+                 * one stamped node per character/wchar_t (NUL included when it
                  * fits), starting at the value target. */
                 const ZeroCCToken *stk = &c->tokens[c->token_pos];
                 const char *sv = stk->allocated_str ? stk->allocated_str : stk->str_val;
@@ -185,37 +185,72 @@ ASTRef parse_brace_init_list_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena,
                     (tgt.abs_off - tgt.arr_ctx_off) : 0;
                 size_t cap = (off_in_ctx < tgt.arr_ctx_size) ?
                     (tgt.arr_ctx_size - off_in_ctx) : 0;
-                size_t copy = (sl + 1 <= cap) ? (sl + 1) : cap;
                 c->token_pos++;
-                for (size_t bi = 0; bi < copy; bi++) {
-                    ASTRef br = zero_cc_ast_alloc_node(arena, NODE_INT);
-                    ZeroCCASTNode *bn = zero_cc_ast_get(arena, br);
-                    bn->line = (uint32_t)stk->line;
-                    bn->col = (uint32_t)stk->col;
-                    bn->int_val = (bi < sl) ? (int64_t)(unsigned char)sv[bi] : 0;
-                    bn->flags = NODE_FLAG_DESIGNATED;
-                    bn->desig_idx = ZC_INIT_ABS_STAMP(tgt.abs_off + bi, 1);
-                    if (head_expr == AST_NULL) head_expr = br;
-                    else if (last_expr != AST_NULL) {
-                        ZeroCCASTNode *ln = zero_cc_ast_get(arena, last_expr);
-                        if (ln) ln->next = br;
+                if (stk->is_wide) {
+                    size_t copy_bytes = (sl + 4 <= cap) ? (sl + 4) : cap;
+                    size_t copy_words = copy_bytes / 4;
+                    size_t sl_words = sl / 4;
+                    for (size_t wi = 0; wi < copy_words; wi++) {
+                        uint32_t wval = 0;
+                        if (wi < sl_words) memcpy(&wval, sv + wi * 4, 4);
+                        ASTRef br = zero_cc_ast_alloc_node(arena, NODE_INT);
+                        ZeroCCASTNode *bn = zero_cc_ast_get(arena, br);
+                        bn->line = (uint32_t)stk->line;
+                        bn->col = (uint32_t)stk->col;
+                        bn->int_val = (int64_t)(int32_t)wval;
+                        bn->flags = NODE_FLAG_DESIGNATED;
+                        bn->desig_idx = ZC_INIT_ABS_STAMP(tgt.abs_off + wi * 4, 4);
+                        if (head_expr == AST_NULL) head_expr = br;
+                        else if (last_expr != AST_NULL) {
+                            ZeroCCASTNode *ln = zero_cc_ast_get(arena, last_expr);
+                            if (ln) ln->next = br;
+                        }
+                        last_expr = br;
+                        elem_count++;
+                        stamped_any = true;
                     }
-                    last_expr = br;
-                    elem_count++;
-                    stamped_any = true;
-                }
-                if (leaf_cursor) {
-                    /* A string fully consumes an aggregate char-array
-                     * target (row / member) and a char-array member; into
-                     * a top-level char-array element it consumes just the
-                     * copied bytes. */
-                    size_t str_adv = tgt.is_scalar ?
-                        (tgt.in_member ? tgt.arr_ctx_size : copy) : tgt.advance;
-                    if (has_desig) {
-                        size_t nc = tgt.leaf_idx + str_adv;
-                        if (nc > *leaf_cursor) *leaf_cursor = nc;
-                    } else {
-                        *leaf_cursor += str_adv;
+                    if (leaf_cursor) {
+                        size_t str_adv = tgt.is_scalar ?
+                            (tgt.in_member ? (tgt.arr_ctx_size / 4) : copy_words) : tgt.advance;
+                        if (has_desig) {
+                            size_t nc = tgt.leaf_idx + str_adv;
+                            if (nc > *leaf_cursor) *leaf_cursor = nc;
+                        } else {
+                            *leaf_cursor += str_adv;
+                        }
+                    }
+                } else {
+                    size_t copy = (sl + 1 <= cap) ? (sl + 1) : cap;
+                    for (size_t bi = 0; bi < copy; bi++) {
+                        ASTRef br = zero_cc_ast_alloc_node(arena, NODE_INT);
+                        ZeroCCASTNode *bn = zero_cc_ast_get(arena, br);
+                        bn->line = (uint32_t)stk->line;
+                        bn->col = (uint32_t)stk->col;
+                        bn->int_val = (bi < sl) ? (int64_t)(unsigned char)sv[bi] : 0;
+                        bn->flags = NODE_FLAG_DESIGNATED;
+                        bn->desig_idx = ZC_INIT_ABS_STAMP(tgt.abs_off + bi, 1);
+                        if (head_expr == AST_NULL) head_expr = br;
+                        else if (last_expr != AST_NULL) {
+                            ZeroCCASTNode *ln = zero_cc_ast_get(arena, last_expr);
+                            if (ln) ln->next = br;
+                        }
+                        last_expr = br;
+                        elem_count++;
+                        stamped_any = true;
+                    }
+                    if (leaf_cursor) {
+                        /* A string fully consumes an aggregate char-array
+                         * target (row / member) and a char-array member; into
+                         * a top-level char-array element it consumes just the
+                         * copied bytes. */
+                        size_t str_adv = tgt.is_scalar ?
+                            (tgt.in_member ? tgt.arr_ctx_size : copy) : tgt.advance;
+                        if (has_desig) {
+                            size_t nc = tgt.leaf_idx + str_adv;
+                            if (nc > *leaf_cursor) *leaf_cursor = nc;
+                        } else {
+                            *leaf_cursor += str_adv;
+                        }
                     }
                 }
             }

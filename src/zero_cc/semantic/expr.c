@@ -663,11 +663,6 @@ TypeInfo *expr_handle_member(SemContext *ctx, ZeroCCASTNode *node) {
         }
     } else {
         struct_t = target_t;
-        /* Array decay (C99 6.5.2.3): `d.x` where d is `struct B[N]` is the
-         * same as `d[0].x` - the base is the array's element. */
-        if (struct_t->kind == TYPE_KIND_ARRAY && struct_t->details.array.base) {
-            struct_t = struct_t->details.array.base;
-        }
     }
 
     if (struct_t->kind != TYPE_KIND_STRUCT && struct_t->kind != TYPE_KIND_UNION) {

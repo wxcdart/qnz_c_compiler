@@ -729,12 +729,10 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
                 last_instr->imm = 0;
                 last_instr->cond = (uint8_t)(all_arg_count > 0 ? all_arg_is_fp[0] : 0);
                 last_instr->width = (uint8_t)(all_arg_count > 1 ? all_arg_is_fp[1] : 0);
+                last_instr->label_idx = (uint16_t)(fp_arg_idx < fp_regs_avail ? fp_arg_idx : fp_regs_avail);
                 for (int a = 2; a < all_arg_count; a++) {
                     ir_emit_call_arg(c, (uint32_t)all_arg_temps[a], all_arg_is_fp[a], all_arg_stack_pos[a]);
                 }
-                /* Re-fetch: arena may have been reallocated by OP_CALL_ARG */
-                last_instr = (Instr*)&ir_get_buffer(c)[ir_get_count(c) - 1];
-                last_instr->label_idx = (uint16_t)(fp_arg_idx < fp_regs_avail ? fp_arg_idx : fp_regs_avail);
             }
             if (c->lowering.ir_ctx.call_count < 64) {
                 int cidx = c->lowering.ir_ctx.call_count++;
@@ -1720,12 +1718,16 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
             return true;
         }
 
-        /* __builtin_isinf() / __builtin_isinff() - infinity test.
+        /* __builtin_isinf() / __builtin_isinff() / isinf() - infinity test.
          * In IEEE 754, x != 0.0 && (x * 2.0 == x) holds iff x is +/-inf. */
         if (callee_is_ident && callee->s.str &&
             (strcmp(callee->s.str, "__builtin_isinf") == 0 ||
              strcmp(callee->s.str, "__builtin_isinff") == 0 ||
-             strcmp(callee->s.str, "__builtin_isinfl") == 0)) {
+             strcmp(callee->s.str, "__builtin_isinfl") == 0 ||
+             (!zero_cc_find_local(c, callee->s.str) &&
+              (strcmp(callee->s.str, "isinf") == 0 ||
+               strcmp(callee->s.str, "isinff") == 0 ||
+               strcmp(callee->s.str, "isinfl") == 0)))) {
             int arg_temp = lower_expr(c, arena, node->right);
             if (!c->last_expr_is_float) {
                 int conv = zc_alloc_temp(c);
@@ -1855,10 +1857,14 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
             }
         }
 
-        /* __builtin_isnan(x) - NaN is the only value that is not
+        /* __builtin_isnan(x) / isnan(x) - NaN is the only value that is not
          * equal to itself. */
         if (callee_is_ident && callee->s.str &&
-            strncmp(callee->s.str, "__builtin_isnan", 13) == 0) {
+            (strncmp(callee->s.str, "__builtin_isnan", 13) == 0 ||
+             (!zero_cc_find_local(c, callee->s.str) &&
+              (strcmp(callee->s.str, "isnan") == 0 ||
+               strcmp(callee->s.str, "isnanf") == 0 ||
+               strcmp(callee->s.str, "isnanl") == 0)))) {
             int t_x = lower_expr(c, arena, node->right);
             if (!c->last_expr_is_float) {
                 int conv = zc_alloc_temp(c);

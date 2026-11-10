@@ -57,7 +57,7 @@ CATEGORIES = [
         r"too few arguments|too many arguments|argument count mismatch|expects \d+ arguments")),
     ("no-member", re.compile(r"has no member named")),
     ("bad-member-base", re.compile(
-        r"not a (structure or union|pointer)|invalid type argument of|cannot take address")),
+        r"not a (structure or union|pointer)|invalid type argument of|cannot take address|is a pointer; did you mean")),
     ("undefined-label", re.compile(r"used but not defined")),
     ("expected-expression", re.compile(r"expected expression before")),
     ("incompatible-types", re.compile(

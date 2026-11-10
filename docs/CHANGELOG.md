@@ -1,3 +1,23 @@
+## [Sprint 152] - 2026-11-10 - Sprint 151c/151b Call-Arg & Frame Regression Fixes + Type System Hardening #4 Burn-Down
+
+ZeroCC resolves the post-Sprint-151b/151c/151d call-argument and frame-offset regressions and completes the remaining open items in **Type System Hardening #4** (`wchar_t[] = L"..."` local whole-string initialization and dot-on-array `d.x` rejection):
+
+- **Sprint 151c/151b/151d Regression Fixes**:
+  - **`OP_SYSCALL` & `OP_CLONE` `OP_CALL_ARG` emission (`src/zero_cc/ir/ir.h`)**: `ir_emit_syscall` and `ir_emit_clone` now emit `OP_CALL_ARG` pseudo-instructions for arguments `2..arg_count-1` after removing `ir_call_args_record` in Sprint 151c (restores `test/jit/syscall_builtin_test.c`).
+  - **`OP_CALL` `label_idx` placement before `OP_CALL_ARG` (`src/zero_cc/ir/ast_lowering_call.c`, `ast_lowering_builtins.c`, `ast_lowering_binop.c`)**: `last_instr->label_idx` (FP register count and `0x0100 | size` return tags) is now written to the `OP_CALL` instruction (`call_ir_idx`) rather than `ir_get_count(c) - 1` after the `ir_emit_call_arg` loop (which overwrote `label_idx` on the trailing `OP_CALL_ARG` or dereferenced a stale pointer across arena growth).
+  - **`opt_temp_renumber` & `opt_copy_prop` exclusion of `OP_CALL`/`OP_SYSCALL`/`OP_CLONE` `temp_dest` (`src/zero_cc/opt/opt_temp_renumber.c`, `opt_copy_prop.c`)**: `temp_dest` on call/syscall/clone instructions holds `arg_count`, not a virtual register ID; when `arg_count >= 16` (`VREG_USER_START`), `opt_temp_renumber` previously treated `temp_dest` as a temp ID and renumbered it, corrupting calls with $\ge 16$ arguments (`test/jit/stack_args_edge.c`, `test/jit/many_params.c`, `test/jit/param_parity.c`).
+  - **Complex binary operator stack-frame rewind bug (`src/zero_cc/ir/ast_lowering_binop.c`)**: removed `c->current_stack_frame = save_frame` in complex `/` and `==`/`!=` lowering; rewinding `current_stack_frame` after `lower_expr(left)` and `lower_expr(right)` discarded stack frame slots allocated by subexpressions (such as `bar(3.0 + 4.0i)`), causing `spill_base_offset` to overlap live expression slots (`test/jit/complex_standalone.c`).
+  - **Inline `isnan`/`isinf` lowering under static-musl (`src/zero_cc/ir/ast_lowering_builtins.c`)**: C99 `<math.h>` `isnan`/`isnanf`/`isnanl` and `isinf`/`isinff`/`isinfl` are macros in musl (no external function symbol in `libc.a`); `lower_expr_builtin` now expands unshadowed bare `isnan*`/`isinf*` inline alongside `__builtin_isnan*`/`__builtin_isinf*` (`test/jit/fptr_arg_conv.c`).
+- **Type System Hardening #4 Burn-Down**:
+  - **Local `wchar_t[] = L"..."` whole-string initialization (`src/zero_cc/semantic/decl.c`, `src/zero_cc/ir/ast_lowering_stmt.c`, `src/zero_cc/parser/decl_local.c`, `src/zero_cc/parser/init_common.c`, `src/zero_cc/parser/ast_expr.c`)**:
+    - `decl_handle_var` (`str_lit_into_char_arr`) now admits `NODE_STRING` with `NODE_FLAG_WIDE` initializing `TYPE_KIND_ARRAY` of `TYPE_KIND_INT` or `TYPE_KIND_SHORT`.
+    - `lower_stmt_decl` reads 32-bit wide characters from the byte-packed string pool via `memcpy` instead of unaligned `const uint32_t *` dereferencing (eliminating a UBSan misalignment trap).
+    - `decl_local.c`, `init_common.c`, and `ast_expr.c` support brace-enclosed `{ L"..." }` initializers (unsized measurement, local/global/static-local emission) and fixed-size `wchar_t[N] = L"..."` truncation warnings.
+    - Regression coverage added to `test/jit/multi_decl_init.c` (global, local single, local multi-declarator, fixed-size padded, brace-enclosed, and static local `wchar_t[]`).
+  - **Dot-on-array (`d.x`) rejection (`src/zero_cc/semantic/expr.c`)**:
+    - Removed the non-standard array-decay branch on `.` in `expr_handle_member` while preserving `d->x` array decay, matching GCC's C99 6.5.2.3p1 rejection (`member reference base is not a structure or union`).
+    - Added `test/diag/17_dot_on_array.c` and ratcheted `test/diag/baseline.json` (18 cases, 9/9 category coverage).
+
 ## [Sprint 151b] - 2026-11-10 - Temp-ID Widening & Liveness-Based Renumbering Pass (Plan Item 9)
 
 ZeroCC implements Phase 151b (development plan item 9): widening virtual temporary IDs to 32-bit and adding a liveness-based renumbering pass (`src/zero_cc/opt/opt_temp_renumber.{c,h}`) that compacts temp IDs down to peak-live density after AST lowering:

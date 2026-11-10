@@ -5,10 +5,10 @@
  * ("the IR fix is deferred").  Verified fixed (local + global arrays,
  * read + write, subscripted base); this test pins it.
  *
- * Valid-C companion forms: `d.m` (C99 6.5.2.3; note this gcc build also
- * rejects `d.m` on an array - zerocs is lenient there, so the test only
- * pins the arrow form gcc accepts) and `(&d[1])->m`.
- * Invalid (rejected by gcc too): `p->m` for `struct S (*p)[N]`. */
+ * Valid-C companion forms: `(&d[1])->m` and `d[0].m`.
+ * Invalid (rejected by both gcc and zerocc, pinned by
+ * test/diag/17_dot_on_array.c): `d.m` on an array base and `p->m` for
+ * `struct S (*p)[N]`. */
 #include <stdio.h>
 
 struct S { int m; int n; };

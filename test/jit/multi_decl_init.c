@@ -5,10 +5,12 @@
  * pins the shapes: char[]/int[]/struct/union, global and local,
  * mixed initialized/uninitialized. */
 #include <stdio.h>
+#include <stddef.h>
 
 /* global multi-declarator initializers (the original repro) */
 char a[] = "ozz", b[] = "oxx";
 char x1[] = "aa", x2[] = "bb";
+wchar_t gw1[] = L"uv", gw2[] = L"wxyz";
 int ia1[2] = {1, 2}, ia2[2] = {3, 4};
 
 struct P { int v; int w; };
@@ -86,6 +88,34 @@ int main(void) {
         int i1[] = {1, 2}, i2[] = {3, 4, 5};
         r += !(i1[0] == 1 && i1[1] == 2);
         r += !(i2[0] == 3 && i2[2] == 5);
+    }
+
+    /* wchar_t[] = L"..." whole-string initializers (global, local single,
+     * local multi-declarator, fixed-size padded/truncated, brace-enclosed,
+     * and static local) */
+    r += !(sizeof(gw1) == 3 * sizeof(wchar_t) && gw1[0] == L'u' && gw1[1] == L'v' && gw1[2] == 0);
+    r += !(sizeof(gw2) == 5 * sizeof(wchar_t) && gw2[0] == L'w' && gw2[3] == L'z' && gw2[4] == 0);
+    {
+        wchar_t lw[] = L"abc";
+        r += !(sizeof(lw) == 4 * sizeof(wchar_t));
+        r += !(lw[0] == L'a' && lw[1] == L'b' && lw[2] == L'c' && lw[3] == 0);
+
+        wchar_t lw1[] = L"hi", lw2[] = L"bye";
+        r += !(sizeof(lw1) == 3 * sizeof(wchar_t) && lw1[0] == L'h' && lw1[1] == L'i' && lw1[2] == 0);
+        r += !(sizeof(lw2) == 4 * sizeof(wchar_t) && lw2[0] == L'b' && lw2[2] == L'e' && lw2[3] == 0);
+
+        wchar_t lpad[6] = L"xy";
+        r += !(lpad[0] == L'x' && lpad[1] == L'y' && lpad[2] == 0 && lpad[5] == 0);
+
+        wchar_t lwb[] = { L"def" };
+        r += !(sizeof(lwb) == 4 * sizeof(wchar_t));
+        r += !(lwb[0] == L'd' && lwb[1] == L'e' && lwb[2] == L'f' && lwb[3] == 0);
+
+        static wchar_t sw1[] = L"p", sw2[] = L"qr";
+        static wchar_t swb[] = { L"st" };
+        r += !(sizeof(sw1) == 2 * sizeof(wchar_t) && sw1[0] == L'p' && sw1[1] == 0);
+        r += !(sizeof(sw2) == 3 * sizeof(wchar_t) && sw2[0] == L'q' && sw2[1] == L'r' && sw2[2] == 0);
+        r += !(sizeof(swb) == 3 * sizeof(wchar_t) && swb[0] == L's' && swb[1] == L't' && swb[2] == 0);
     }
 
     printf("%s %s %d %d %d %d\n", a, b, ia2[1], p2.v, u2.i, ia1[0]);

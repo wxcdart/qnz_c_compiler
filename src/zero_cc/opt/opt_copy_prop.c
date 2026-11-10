@@ -101,7 +101,8 @@ static void copy_prop_invalidate(uint16_t temp) {
  * temp).
  */
 static int instr_defines_temp(Instr *instr) {
-    if (instr->op == OP_CALL || instr->op == OP_CALL_INDIRECT) return 0;
+    if (instr->op == OP_CALL || instr->op == OP_CALL_INDIRECT ||
+        instr->op == OP_SYSCALL || instr->op == OP_CLONE) return 0;
     return instr->temp_dest != TEMP_NONE;
 }
 

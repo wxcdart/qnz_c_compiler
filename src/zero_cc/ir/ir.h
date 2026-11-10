@@ -1014,6 +1014,9 @@ static inline void ir_emit_syscall(ZeroCCCompiler *c, int arg_count, const int *
                     .temp_src1 = (arg_count > 0) ? (uint32_t)arg_temps[0] : TEMP_NONE,
                     .temp_src2 = (arg_count > 1) ? (uint32_t)arg_temps[1] : TEMP_NONE,
                     .imm = 0, .imm64 = 0, .label_idx = 0});
+    for (int a = 2; a < arg_count; a++) {
+        ir_emit_call_arg(c, (uint32_t)arg_temps[a], 0, 255);
+    }
 }
 
 /* Emit the OS clone intrinsic. Arguments (flags, child_sp, ptid, tls, ctid)
@@ -1025,6 +1028,9 @@ static inline void ir_emit_clone(ZeroCCCompiler *c, int arg_count, const int *ar
                     .temp_src1 = (arg_count > 0) ? (uint32_t)arg_temps[0] : TEMP_NONE,
                     .temp_src2 = (arg_count > 1) ? (uint32_t)arg_temps[1] : TEMP_NONE,
                     .imm = 0, .imm64 = 0, .label_idx = 0});
+    for (int a = 2; a < arg_count; a++) {
+        ir_emit_call_arg(c, (uint32_t)arg_temps[a], 0, 255);
+    }
 }
 
 /* Float to int conversion (cvttsd2si) */

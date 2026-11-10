@@ -1551,6 +1551,7 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
              * (function pointers by other names) keep the raw name. */
             const char *emit_name = callee_fn ? zero_cc_fn_emit_symbol(callee_fn) : name;
             ir_emit_call(c, is_indirect_call ? NULL : emit_name);
+            size_t call_ir_idx = ir_get_count(c) > 0 ? ir_get_count(c) - 1 : 0;
 
             /* Pack argument info into the instruction.
              * Sprint 151c: args 0/1 go in temp_src1/temp_src2; args 2+ are
@@ -1559,7 +1560,7 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
              * argument count so consumers know how many OP_CALL_ARG entries
              * to read. */
             if (ir_get_count(c) > 0) {
-                Instr *last_instr = (Instr*)&ir_get_buffer(c)[ir_get_count(c) - 1];
+                Instr *last_instr = (Instr*)&ir_get_buffer(c)[call_ir_idx];
                 last_instr->temp_dest = (uint32_t)all_arg_count;
                 if (all_arg_count > 0) last_instr->temp_src1 = (uint32_t)all_arg_temps[0];
                 if (all_arg_count > 1) last_instr->temp_src2 = (uint32_t)all_arg_temps[1];
@@ -1568,17 +1569,15 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                  * (OP_CALL's cond/width are otherwise unused). */
                 last_instr->cond = (uint8_t)(all_arg_count > 0 ? all_arg_is_fp[0] : 0);
                 last_instr->width = (uint8_t)(all_arg_count > 1 ? all_arg_is_fp[1] : 0);
-                /* Emit OP_CALL_ARG for each argument beyond the first two.
-                 * Note: this can grow the IR arena, so set label_idx after. */
+                /* Store the number of FP REGISTER args (clamped: %al / the
+                 * callee spill only covers the register slots) in label_idx
+                 * before emitting OP_CALL_ARG (which may reallocate the arena
+                 * and shift ir_get_count(c) - 1). */
+                last_instr->label_idx = (uint16_t)(fp_arg_idx < fp_regs_avail ? fp_arg_idx : fp_regs_avail);
+                /* Emit OP_CALL_ARG for each argument beyond the first two. */
                 for (int a = 2; a < all_arg_count; a++) {
                     ir_emit_call_arg(c, (uint32_t)all_arg_temps[a], all_arg_is_fp[a], all_arg_stack_pos[a]);
                 }
-                /* Re-fetch last_instr: the arena may have been reallocated by
-                 * the OP_CALL_ARG emissions above. */
-                last_instr = (Instr*)&ir_get_buffer(c)[ir_get_count(c) - 1];
-                /* Store the number of FP REGISTER args (clamped: %al / the
-                 * callee spill only covers the register slots) in label_idx */
-                last_instr->label_idx = (uint16_t)(fp_arg_idx < fp_regs_avail ? fp_arg_idx : fp_regs_avail);
             }
 
             /* Record float spill offsets for this call (INCLUDING the
@@ -1607,9 +1606,9 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                 ir_emit_lea(c, caddr, BE(c)->fp_reg, -cres_off);
 
                 if (is_fp) {
-                    if (ir_get_count(c) > 0) {
+                    if (call_ir_idx < ir_get_count(c)) {
                         /* Keep VREG_F0/VREG_F1 (xmm0/xmm1) live across the call */
-                        Instr *li = (Instr*)&ir_get_buffer(c)[ir_get_count(c) - 1];
+                        Instr *li = (Instr*)&ir_get_buffer(c)[call_ir_idx];
                         li->label_idx = 0x0100 | (csz & 0xFF);
                     }
                     if (cesz == 4 && c->isa != ISA_RISCV32) {
@@ -1634,8 +1633,8 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                 } else {
                     /* Integer complex return */
                     if (csz > 8) {
-                        if (ir_get_count(c) > 0) {
-                            Instr *li = (Instr*)&ir_get_buffer(c)[ir_get_count(c) - 1];
+                        if (call_ir_idx < ir_get_count(c)) {
+                            Instr *li = (Instr*)&ir_get_buffer(c)[call_ir_idx];
                             li->label_idx = 0x0100 | (csz & 0xFF);
                         }
                         int t0 = zc_alloc_temp(c);
@@ -1694,8 +1693,8 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                 c->current_stack_frame = (c->current_stack_frame + (int32_t)vsz + 7) & ~7;
                 int32_t res_off = c->current_stack_frame;
                 if (vsz > 8) {
-                    if (ir_get_count(c) > 0) {
-                        Instr *li = (Instr*)&ir_get_buffer(c)[ir_get_count(c) - 1];
+                    if (call_ir_idx < ir_get_count(c)) {
+                        Instr *li = (Instr*)&ir_get_buffer(c)[call_ir_idx];
                         li->label_idx = 0x0100 | (call_ret_type.size & 0xFF);
                     }
                     int t0 = zc_alloc_temp(c);
@@ -1723,8 +1722,8 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
             if ((call_ret_type.tag == TYPE_STRUCT || call_ret_type.tag == TYPE_UNION) &&
                 call_ret_type.size > 8 && call_ret_type.size <= 16) {
                 /* Store struct return info in label_idx: high byte = 1, low byte = size */
-                if (ir_get_count(c) > 0) {
-                    Instr *last_instr = (Instr*)&ir_get_buffer(c)[ir_get_count(c) - 1];
+                if (call_ir_idx < ir_get_count(c)) {
+                    Instr *last_instr = (Instr*)&ir_get_buffer(c)[call_ir_idx];
                     last_instr->label_idx = 0x0100 | (call_ret_type.size & 0xFF);
                 }
                 /* 9-16 byte struct return uses integer register pair */

@@ -194,6 +194,15 @@
       "gcc_categories": [
         "expected-expression"
       ]
+    },
+    "17_dot_on_array": {
+      "expect_rc_zero": false,
+      "zerocc_error_count": 1,
+      "zerocc_categories": [
+        "bad-member-base"
+      ],
+      "gcc_error_count": 1,
+      "gcc_categories": []
     }
   }
 }

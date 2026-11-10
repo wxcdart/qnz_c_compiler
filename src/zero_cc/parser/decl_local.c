@@ -265,6 +265,7 @@ static inline bool zero_cc_static_local_patch_init(ZeroCCCompiler *c, ZeroCCSym 
         size_t elem_sz = (eb && eb->size > 0) ? eb->size : 1;
         bool elem_is_ptr  = (eb && eb->tag == TYPE_PTR);
         bool elem_is_char = (eb && (eb->tag == TYPE_INT8 || eb->tag == TYPE_UINT8));
+        bool elem_is_wide = (eb && (eb->tag == TYPE_INT32 || eb->tag == TYPE_UINT32));
         size_t total = (sym->type.size > 0) ? sym->type.size : 0;
         size_t off = 0;
         /* Reserve + zero-fill data capacity for the initializer. */
@@ -282,9 +283,10 @@ static inline bool zero_cc_static_local_patch_init(ZeroCCCompiler *c, ZeroCCSym 
                 continue;
             }
             if (c->tokens[c->token_pos].type == TK_STRING) {
+                bool is_wide_str = c->tokens[c->token_pos].is_wide;
                 const char *sv = c->tokens[c->token_pos].allocated_str ?
                     c->tokens[c->token_pos].allocated_str : c->tokens[c->token_pos].str_val;
-                size_t slen = zero_cc_token_str_len(&c->tokens[c->token_pos]) + 1; /* content + NUL */
+                size_t slen = zero_cc_token_str_len(&c->tokens[c->token_pos]) + (is_wide_str ? 4 : 1); /* content + NUL */
                 c->token_pos++;
                 /* C99 6.6 pointer constant expression ("foo" + 1, c-torture
                  * pr53084): a plain integer offset after the string shifts
@@ -311,8 +313,8 @@ static inline bool zero_cc_static_local_patch_init(ZeroCCCompiler *c, ZeroCCSym 
                         dr->target_global_idx = -1;
                     }
                     off += 8;
-                } else if (elem_is_char) {
-                    /* Char element: write the string bytes (incl. NUL). */
+                } else if ((elem_is_char && !is_wide_str) || (elem_is_wide && is_wide_str)) {
+                    /* Char / wchar_t element: write the string bytes (incl. NUL). */
                     if (total > 0 && off + slen > total) slen = (total > off) ? (total - off) : 0;
                     memcpy(dst + off, sv, slen);
                     off += slen;
@@ -730,7 +732,17 @@ static size_t zero_cc_measure_array_init_at(ZeroCCCompiler *c, ZeroCCType *elem,
         /* A top-level element. */
         count++;
         if (tt == TK_STRING) {
-            total += (elem_is_ptr) ? 8 : (elem_is_char ? zero_cc_token_str_len(&c->tokens[q]) + 1 : ((elem_sz < 8) ? elem_sz : 8));
+            bool is_wide_str = c->tokens[q].is_wide;
+            bool elem_is_wide = (elem->tag == TYPE_INT32 || elem->tag == TYPE_UINT32);
+            if (elem_is_ptr) {
+                total += 8;
+            } else if (elem_is_char && !is_wide_str) {
+                total += zero_cc_token_str_len(&c->tokens[q]) + 1;
+            } else if (elem_is_wide && is_wide_str) {
+                total += zero_cc_token_str_len(&c->tokens[q]) + 4;
+            } else {
+                total += (elem_sz < 8) ? elem_sz : 8;
+            }
             q++;
         } else {
             total += (elem_sz < 8) ? elem_sz : 8;
@@ -2208,19 +2220,22 @@ bool zero_cc_parse_local_decl(ZeroCCCompiler *c,  /* Sprint 114: defined in decl
                         }
                     } else {
                     /* C11 6.7.9p13: a whole-string initializer for a
-                     * fixed-size char array that is too short is truncated
+                     * fixed-size char/wchar_t array that is too short is truncated
                      * (the excess characters AND the terminating NUL are
                      * dropped).  Warn like GCC's
                      * "initializer-string for array of 'char' is too long". */
                     if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STRING &&
                         decl_type.tag == TYPE_ARRAY && decl_type.array_len > 0 && decl_type.base &&
-                        (decl_type.base->tag == TYPE_INT8 || decl_type.base->tag == TYPE_UINT8)) {
-                        size_t need = zero_cc_token_str_len(&c->tokens[c->token_pos]) + 1;  /* string + implicit NUL */
+                        ((decl_type.base->tag == TYPE_INT8 || decl_type.base->tag == TYPE_UINT8) ||
+                         ((decl_type.base->tag == TYPE_INT32 || decl_type.base->tag == TYPE_UINT32) &&
+                          c->tokens[c->token_pos].is_wide))) {
+                        bool is_wide_str = c->tokens[c->token_pos].is_wide;
+                        size_t need = zero_cc_token_str_len(&c->tokens[c->token_pos]) + (is_wide_str ? 4 : 1);
                         size_t esz  = (decl_type.base->size > 0) ? decl_type.base->size : 1;
                         if (need > decl_type.array_len * esz) {
                             diag_report_warning_at_token(c,
                                 "initializer-string for array of %s is too long",
-                                decl_type.base->tag == TYPE_UINT8 ? "unsigned char" : "char");
+                                is_wide_str ? "wchar_t" : (decl_type.base->tag == TYPE_UINT8 ? "unsigned char" : "char"));
                         }
                     }
                     ASTRef init_val = AST_NULL;
