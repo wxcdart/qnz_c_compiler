@@ -714,7 +714,16 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
         int arg_is_fp = is_fp ? is_fp[i] : 0;
         int arg_pos = stack_pos ? stack_pos[i] : 255;
         if (arg_is_fp == 1 && arg_pos >= 255 && fp_arg_idx < BE(c)->conv->fp_arg_reg_count) {
-            fprintf(out, "\tmovsd\t%%%s, %%%s\n", reg_name, fp_arg_regs[fp_arg_idx]);
+            int fp_arg_reg = backend_get_fp_arg_reg(BE(c), fp_arg_idx);
+            int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, temp);
+            if (sp >= 0) {
+                int32_t off = spill_base_offset + (sp + 1) * 8;
+                if (BE(c)->emit_load_fp_asm && fp_arg_reg >= 0) {
+                    BE(c)->emit_load_fp_asm(c, fp_arg_reg, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off), out);
+                }
+            } else if (phys_reg >= 0) {
+                fprintf(out, "\tmovsd\t%%%s, %%%s\n", reg_name, fp_arg_regs[fp_arg_idx]);
+            }
             fp_arg_idx++;
         }
     }

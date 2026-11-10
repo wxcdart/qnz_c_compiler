@@ -447,53 +447,79 @@ static void riscv_emit_extend_asm(ZeroCCCompiler *c, int dst, int src, int width
     }
 }
 
-/* CMP: sub t0, src1, src2; mv t1, src1; mv t2, src2 */
+/* CMP: no instruction needed; operands recorded in c->lowering.cmp_src1/2 (mirrors MC). */
 static void riscv_emit_cmp_asm(ZeroCCCompiler *c, int src1, int src2, FILE *out) {
-    const char *src1_name = BE(c)->get_hw_reg_name(src1);
-    const char *src2_name = BE(c)->get_hw_reg_name(src2);
-    fprintf(out, "\tsub\tt0, %s, %s\n", src1_name, src2_name);
-    fprintf(out, "\tmv\tt1, %s\n", src1_name);
-    fprintf(out, "\tmv\tt2, %s\n", src2_name);
+    (void)c; (void)src1; (void)src2; (void)out;
 }
 
-/* COND_SET: set dst to 1/0 based on t0 (src1 - src2) or t1/t2 (unsigned) */
+/* COND_SET: materialize predicate into dst (mirrors riscv64_emit_cond_set). */
 static void riscv_emit_cond_set_asm(ZeroCCCompiler *c, int dst, int cond, FILE *out) {
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
+    if (c->lowering.cmp_is_fp) {
+        switch (cond) {
+            case 0: /* CC_LT: t0 < 0 */
+                fprintf(out, "\tslt\t%s, t0, zero\n", dst_name);
+                break;
+            case 1: /* CC_LE: !(t0 > 0) */
+                fprintf(out, "\tsgt\t%s, t0, zero\n", dst_name);
+                fprintf(out, "\txori\t%s, %s, 1\n", dst_name, dst_name);
+                break;
+            case 2: /* CC_GT: t0 > 0 */
+                fprintf(out, "\tsgt\t%s, t0, zero\n", dst_name);
+                break;
+            case 3: /* CC_GE: !(t0 < 0) */
+                fprintf(out, "\tslt\t%s, t0, zero\n", dst_name);
+                fprintf(out, "\txori\t%s, %s, 1\n", dst_name, dst_name);
+                break;
+            case 4: /* CC_EQ: t0 == 0 */
+                fprintf(out, "\tseqz\t%s, t0\n", dst_name);
+                break;
+            case 5: /* CC_NE: t0 != 0 */
+            default:
+                fprintf(out, "\tsnez\t%s, t0\n", dst_name);
+                break;
+        }
+        return;
+    }
+    const char *s1_name = BE(c)->get_hw_reg_name(c->lowering.cmp_src1);
+    const char *s2_name = BE(c)->get_hw_reg_name(c->lowering.cmp_src2);
     switch (cond) {
-        case 0: /* CC_LT: t0 < 0 */
-            fprintf(out, "\tslt\t%s, t0, zero\n", dst_name);
+        case 0: /* CC_LT: s1 < s2 */
+            fprintf(out, "\tslt\t%s, %s, %s\n", dst_name, s1_name, s2_name);
             break;
-        case 1: /* CC_LE: !(t0 > 0) */
-            fprintf(out, "\tsgt\t%s, t0, zero\n", dst_name);
+        case 1: /* CC_LE: !(s2 < s1) */
+            fprintf(out, "\tslt\t%s, %s, %s\n", dst_name, s2_name, s1_name);
             fprintf(out, "\txori\t%s, %s, 1\n", dst_name, dst_name);
             break;
-        case 2: /* CC_GT: t0 > 0 */
-            fprintf(out, "\tsgt\t%s, t0, zero\n", dst_name);
+        case 2: /* CC_GT: s2 < s1 */
+            fprintf(out, "\tslt\t%s, %s, %s\n", dst_name, s2_name, s1_name);
             break;
-        case 3: /* CC_GE: !(t0 < 0) */
-            fprintf(out, "\tslt\t%s, t0, zero\n", dst_name);
+        case 3: /* CC_GE: !(s1 < s2) */
+            fprintf(out, "\tslt\t%s, %s, %s\n", dst_name, s1_name, s2_name);
             fprintf(out, "\txori\t%s, %s, 1\n", dst_name, dst_name);
             break;
-        case 4: /* CC_EQ: t0 == 0 */
-            fprintf(out, "\tseqz\t%s, t0\n", dst_name);
+        case 4: /* CC_EQ: s1 == s2 */
+            fprintf(out, "\tsub\t%s, %s, %s\n", dst_name, s1_name, s2_name);
+            fprintf(out, "\tseqz\t%s, %s\n", dst_name, dst_name);
             break;
-        case 6: /* CC_ULT: t1 <u t2 */
-            fprintf(out, "\tsltu\t%s, t1, t2\n", dst_name);
+        case 6: /* CC_ULT: (uint)s1 < (uint)s2 */
+            fprintf(out, "\tsltu\t%s, %s, %s\n", dst_name, s1_name, s2_name);
             break;
-        case 7: /* CC_ULE: !(t2 <u t1) */
-            fprintf(out, "\tsltu\t%s, t2, t1\n", dst_name);
+        case 7: /* CC_ULE: !((uint)s2 < (uint)s1) */
+            fprintf(out, "\tsltu\t%s, %s, %s\n", dst_name, s2_name, s1_name);
             fprintf(out, "\txori\t%s, %s, 1\n", dst_name, dst_name);
             break;
-        case 8: /* CC_UGT: t2 <u t1 */
-            fprintf(out, "\tsltu\t%s, t2, t1\n", dst_name);
+        case 8: /* CC_UGT: (uint)s2 < (uint)s1 */
+            fprintf(out, "\tsltu\t%s, %s, %s\n", dst_name, s2_name, s1_name);
             break;
-        case 9: /* CC_UGE: !(t1 <u t2) */
-            fprintf(out, "\tsltu\t%s, t1, t2\n", dst_name);
+        case 9: /* CC_UGE: !((uint)s1 < (uint)s2) */
+            fprintf(out, "\tsltu\t%s, %s, %s\n", dst_name, s1_name, s2_name);
             fprintf(out, "\txori\t%s, %s, 1\n", dst_name, dst_name);
             break;
-        case 5: /* CC_NE: t0 != 0 */
+        case 5: /* CC_NE: s1 != s2 */
         default:
-            fprintf(out, "\tsnez\t%s, t0\n", dst_name);
+            fprintf(out, "\tsub\t%s, %s, %s\n", dst_name, s1_name, s2_name);
+            fprintf(out, "\tsnez\t%s, %s\n", dst_name, dst_name);
             break;
     }
 }
@@ -616,6 +642,7 @@ static void riscv_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int ar
     int int_src_regs[8];
     int int_arg_temps[IR_CALL_MAX_ARGS];
     int total_int_count = 0;
+    int32_t spill_base_offset = c->regalloc.spill_base_offset;
 
     for (int i = 0; i < arg_count; i++) {
         int temp = arg_temps[i];
@@ -628,7 +655,16 @@ static void riscv_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int ar
         if (arg_is_fp == 2) {
             indirect_temp = temp;
         } else if (arg_is_fp == 1 && (stack_pos ? stack_pos[i] : 255) >= 255 && fp_arg_idx < 8) {
-            fprintf(out, "\tfmv.d\t%s, %s\n", fp_arg_regs[fp_arg_idx], reg_name);
+            int fp_arg_reg = backend_get_fp_arg_reg(BE(c), fp_arg_idx);
+            int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, temp);
+            if (sp >= 0) {
+                int32_t off = spill_base_offset + (sp + 1) * 8;
+                if (BE(c)->emit_load_fp_asm && fp_arg_reg >= 0) {
+                    BE(c)->emit_load_fp_asm(c, fp_arg_reg, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off), out);
+                }
+            } else if (phys_reg >= 0) {
+                fprintf(out, "\tfmv.d\t%s, %s\n", fp_arg_regs[fp_arg_idx], reg_name);
+            }
             fp_arg_idx++;
         } else if (arg_is_fp == 0) {
             int_arg_temps[total_int_count++] = temp;
@@ -639,7 +675,6 @@ static void riscv_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int ar
     }
 
     /* Save indirect callee into t1 before clobbering argument registers */
-    int32_t spill_base_offset = c->regalloc.spill_base_offset;
     if (!func_name && indirect_temp >= 0) {
         int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, indirect_temp);
         if (sp >= 0) {
@@ -872,34 +907,70 @@ static void riscv_emit_jmp_asm(ZeroCCCompiler *, const char *label, FILE *out) {
     fprintf(out, "\tj\t%s\n", label);
 }
 
-/* JEQ: beq t0, zero, label */
-static void riscv_emit_jeq_asm(ZeroCCCompiler *, const char *label, FILE *out) {
-    fprintf(out, "\tbeq\tt0, zero, %s\n", label);
+/* JEQ: beq s1, s2, label */
+static void riscv_emit_jeq_asm(ZeroCCCompiler *c, const char *label, FILE *out) {
+    if (c->lowering.cmp_is_fp) {
+        fprintf(out, "\tbeq\tt0, zero, %s\n", label);
+    } else {
+        const char *s1_name = BE(c)->get_hw_reg_name(c->lowering.cmp_src1);
+        const char *s2_name = BE(c)->get_hw_reg_name(c->lowering.cmp_src2);
+        fprintf(out, "\tbeq\t%s, %s, %s\n", s1_name, s2_name, label);
+    }
 }
 
-/* JNE: bne t0, zero, label */
-static void riscv_emit_jne_asm(ZeroCCCompiler *, const char *label, FILE *out) {
-    fprintf(out, "\tbne\tt0, zero, %s\n", label);
+/* JNE: bne s1, s2, label */
+static void riscv_emit_jne_asm(ZeroCCCompiler *c, const char *label, FILE *out) {
+    if (c->lowering.cmp_is_fp) {
+        fprintf(out, "\tbne\tt0, zero, %s\n", label);
+    } else {
+        const char *s1_name = BE(c)->get_hw_reg_name(c->lowering.cmp_src1);
+        const char *s2_name = BE(c)->get_hw_reg_name(c->lowering.cmp_src2);
+        fprintf(out, "\tbne\t%s, %s, %s\n", s1_name, s2_name, label);
+    }
 }
 
-/* JLT: blt t0, zero, label */
-static void riscv_emit_jlt_asm(ZeroCCCompiler *, const char *label, FILE *out) {
-    fprintf(out, "\tblt\tt0, zero, %s\n", label);
+/* JLT: blt s1, s2, label */
+static void riscv_emit_jlt_asm(ZeroCCCompiler *c, const char *label, FILE *out) {
+    if (c->lowering.cmp_is_fp) {
+        fprintf(out, "\tblt\tt0, zero, %s\n", label);
+    } else {
+        const char *s1_name = BE(c)->get_hw_reg_name(c->lowering.cmp_src1);
+        const char *s2_name = BE(c)->get_hw_reg_name(c->lowering.cmp_src2);
+        fprintf(out, "\tblt\t%s, %s, %s\n", s1_name, s2_name, label);
+    }
 }
 
-/* JLE: ble t0, zero, label */
-static void riscv_emit_jle_asm(ZeroCCCompiler *, const char *label, FILE *out) {
-    fprintf(out, "\tble\tt0, zero, %s\n", label);
+/* JLE: bge s2, s1, label (ble s1, s2) */
+static void riscv_emit_jle_asm(ZeroCCCompiler *c, const char *label, FILE *out) {
+    if (c->lowering.cmp_is_fp) {
+        fprintf(out, "\tble\tt0, zero, %s\n", label);
+    } else {
+        const char *s1_name = BE(c)->get_hw_reg_name(c->lowering.cmp_src1);
+        const char *s2_name = BE(c)->get_hw_reg_name(c->lowering.cmp_src2);
+        fprintf(out, "\tbge\t%s, %s, %s\n", s2_name, s1_name, label);
+    }
 }
 
-/* JGT: bgt t0, zero, label */
-static void riscv_emit_jgt_asm(ZeroCCCompiler *, const char *label, FILE *out) {
-    fprintf(out, "\tbgt\tt0, zero, %s\n", label);
+/* JGT: blt s2, s1, label (bgt s1, s2) */
+static void riscv_emit_jgt_asm(ZeroCCCompiler *c, const char *label, FILE *out) {
+    if (c->lowering.cmp_is_fp) {
+        fprintf(out, "\tbgt\tt0, zero, %s\n", label);
+    } else {
+        const char *s1_name = BE(c)->get_hw_reg_name(c->lowering.cmp_src1);
+        const char *s2_name = BE(c)->get_hw_reg_name(c->lowering.cmp_src2);
+        fprintf(out, "\tblt\t%s, %s, %s\n", s2_name, s1_name, label);
+    }
 }
 
-/* JGE: bge t0, zero, label */
-static void riscv_emit_jge_asm(ZeroCCCompiler *, const char *label, FILE *out) {
-    fprintf(out, "\tbge\tt0, zero, %s\n", label);
+/* JGE: bge s1, s2, label */
+static void riscv_emit_jge_asm(ZeroCCCompiler *c, const char *label, FILE *out) {
+    if (c->lowering.cmp_is_fp) {
+        fprintf(out, "\tbge\tt0, zero, %s\n", label);
+    } else {
+        const char *s1_name = BE(c)->get_hw_reg_name(c->lowering.cmp_src1);
+        const char *s2_name = BE(c)->get_hw_reg_name(c->lowering.cmp_src2);
+        fprintf(out, "\tbge\t%s, %s, %s\n", s1_name, s2_name, label);
+    }
 }
 
 /* FP LOAD: fld fa, offset(base) */

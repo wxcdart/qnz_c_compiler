@@ -156,7 +156,7 @@ static void x86_emit_mul128_mixed(ZeroCCCompiler *c,
                                   int b_mem, int b_lo, int b_hi) {
     int base = zero_cc_frame_base_reg(c);
     int rax = 0, rdx = 2;
-    static const uint8_t mul_op[] = {0xFF};  /* 0xFF /4: mul r/m64 */
+    static const uint8_t mul_op[] = {0xF7};  /* 0xF7 /4: mul r/m64 */
     static const uint8_t add_op[] = {0x01};  /* 0x01 /r: add r/m64, r64 */
     /* P0 = a_lo * b_lo */
     if (a_mem) x86_rm(c, 0x8B, rax, base, a_lo); else x86_mov_rr(c, rax, a_lo);

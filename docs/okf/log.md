@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-10T02:59:39Z
+timestamp: 2026-11-10T05:24:16Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1272,3 +1272,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-10 — Updated `ir-and-regalloc.md`
 - Sprint 151: LRA clamp/restore defect hunt conclusive - NOT reproducible (branchy clamp restored in shadow: vprintf-1 gcc-matching at -O0..-O3 JIT/AOT/text; 240+ variants clean; elision site provably safe). Treated as incidentally fixed by Sprints 109/117/135; pinned by test/jit/lra_clamp_restore.c. Side finding: () now a parse error (gcc-parity) + test/diag/16_empty_paren_expr.c.
+
+## 2026-11-10 — Updated `ir-and-regalloc.md`
+- Sprint 151b: Temp-ID widening to 32-bit and liveness-based renumbering pass
+
+## 2026-11-10 — Updated `isa-backends.md`
+- Sprint 151b: RISC-V text comparison flag materialization and text-AOT FP spill fixes

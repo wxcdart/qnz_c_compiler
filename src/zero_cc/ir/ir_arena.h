@@ -273,7 +273,7 @@ static inline void ir_call_args_arena_record(IRCallArgsArena *arena,
     e->count = count > IR_CALL_MAX_ARGS ? IR_CALL_MAX_ARGS : count;
 
     for (int i = 0; i < e->count; i++) {
-        e->temps[i] = (uint16_t)temps[i];
+        e->temps[i] = (uint32_t)temps[i];
         e->is_fp[i] = is_fp ? (uint8_t)is_fp[i] : 0;
         e->stack_pos[i] = stack_pos ? stack_pos[i] : 255;
     }

@@ -16,10 +16,10 @@
  * result is a new GPR128 temp. */
 int assign_emit_128_divmod(ZeroCCCompiler *c, int a, int b,
                             bool is_div, bool is_unsigned) {
-    int alo = c->next_temp_id++; ir_emit_lo128(c, alo, a);
-    int ahi = c->next_temp_id++; ir_emit_hi128(c, ahi, a);
-    int blo = c->next_temp_id++; ir_emit_lo128(c, blo, b);
-    int bhi = c->next_temp_id++; ir_emit_hi128(c, bhi, b);
+    int alo = zc_alloc_temp(c); ir_emit_lo128(c, alo, a);
+    int ahi = zc_alloc_temp(c); ir_emit_hi128(c, ahi, a);
+    int blo = zc_alloc_temp(c); ir_emit_lo128(c, blo, b);
+    int bhi = zc_alloc_temp(c); ir_emit_hi128(c, bhi, b);
     const char *fn = is_div ? (is_unsigned ? "zc_udiv128" : "zc_sdiv128")
                             : (is_unsigned ? "zc_umod128" : "zc_smod128");
     if (c->function_count < ZERO_CC_MAX_FUNCTIONS &&
@@ -38,9 +38,9 @@ int assign_emit_128_divmod(ZeroCCCompiler *c, int a, int b,
     ir_emit_call(c, fn);
     int at[4] = {alo, ahi, blo, bhi};
     ir_call_args_record(c, ir_get_count(c) - 1, 4, at, NULL, NULL);
-    int rlo = c->next_temp_id++; ir_emit_mov_reg(c, rlo, VREG_0);
-    int rhi = c->next_temp_id++; ir_emit_mov_reg(c, rhi, VREG_2);
-    int res = c->next_temp_id++; ir_emit_mk128(c, res, rlo, rhi);
+    int rlo = zc_alloc_temp(c); ir_emit_mov_reg(c, rlo, VREG_0);
+    int rhi = zc_alloc_temp(c); ir_emit_mov_reg(c, rhi, VREG_2);
+    int res = zc_alloc_temp(c); ir_emit_mk128(c, res, rlo, rhi);
     return res;
 }
 
@@ -50,8 +50,8 @@ int assign_emit_128_divmod(ZeroCCCompiler *c, int a, int b,
  * GPR128 temp, cnt a 64-bit count temp; the result is a new GPR128 temp. */
 int assign_emit_128_var_shift(ZeroCCCompiler *c, int a, int cnt,
                              bool is_shl, bool is_unsigned) {
-    int alo = c->next_temp_id++; ir_emit_lo128(c, alo, a);
-    int ahi = c->next_temp_id++; ir_emit_hi128(c, ahi, a);
+    int alo = zc_alloc_temp(c); ir_emit_lo128(c, alo, a);
+    int ahi = zc_alloc_temp(c); ir_emit_hi128(c, ahi, a);
     const char *fn = is_shl ? "zc_shl128_v" : (is_unsigned ? "zc_shr128_v" : "zc_sar128_v");
     if (c->function_count < ZERO_CC_MAX_FUNCTIONS &&
         !zero_cc_find_function(c, fn)) {
@@ -69,9 +69,9 @@ int assign_emit_128_var_shift(ZeroCCCompiler *c, int a, int cnt,
     ir_emit_call(c, fn);
     int at[3] = {alo, ahi, cnt};
     ir_call_args_record(c, ir_get_count(c) - 1, 3, at, NULL, NULL);
-    int rlo = c->next_temp_id++; ir_emit_mov_reg(c, rlo, VREG_0);
-    int rhi = c->next_temp_id++; ir_emit_mov_reg(c, rhi, VREG_2);
-    int res = c->next_temp_id++; ir_emit_mk128(c, res, rlo, rhi);
+    int rlo = zc_alloc_temp(c); ir_emit_mov_reg(c, rlo, VREG_0);
+    int rhi = zc_alloc_temp(c); ir_emit_mov_reg(c, rhi, VREG_2);
+    int res = zc_alloc_temp(c); ir_emit_mk128(c, res, rlo, rhi);
     return res;
 }
 
@@ -91,40 +91,40 @@ int assign_member_bitfield(ZeroCCCompiler *c,
          * Covers both >64-bit fields and narrow fields in the upper word
          * (bit_offset >= 64). */
         bool is_compound = (assign_node->aux.op != TK_ASSIGN && assign_node->aux.op != '=');
-        int unit = c->next_temp_id++;
+        int unit = zc_alloc_temp(c);
         ir_emit_load128(c, unit, addr_temp);
         if (sso_be) unit = zc_emit_unit_bswap128(c, unit);
 
         /* Extract the current field value (128-bit) for the compound op. */
         int cur = unit;
         if (bit_offset > 0) {
-            int s_lo = c->next_temp_id++; ir_emit_lo128(c, s_lo, cur);
-            int s_hi = c->next_temp_id++; ir_emit_hi128(c, s_hi, cur);
-            int dlo = c->next_temp_id++, dhi = c->next_temp_id++;
+            int s_lo = zc_alloc_temp(c); ir_emit_lo128(c, s_lo, cur);
+            int s_hi = zc_alloc_temp(c); ir_emit_hi128(c, s_hi, cur);
+            int dlo = zc_alloc_temp(c), dhi = zc_alloc_temp(c);
             zc_emit_128_shift(c, dlo, dhi, s_lo, s_hi, bit_offset, TK_SHR, false);
-            cur = c->next_temp_id++; ir_emit_mk128(c, cur, dlo, dhi);
+            cur = zc_alloc_temp(c); ir_emit_mk128(c, cur, dlo, dhi);
         }
         /* bw < 64 keeps the value entirely in the low word (hi mask 0);
          * the shift count must never go negative (UB). */
         uint64_t vm_hi = (bit_width >= 128) ? ~0ULL :
                          (bit_width > 64 ? ((1ULL << (bit_width - 64)) - 1) : 0ULL);
-        int vm_lo_t = c->next_temp_id++; ir_emit_mov_imm(c, vm_lo_t, (int64_t)~0ULL);
-        int vm_hi_t = c->next_temp_id++; ir_emit_mov_imm(c, vm_hi_t, (int64_t)vm_hi);
-        int vm = c->next_temp_id++; ir_emit_mk128(c, vm, vm_lo_t, vm_hi_t);
-        int curm = c->next_temp_id++; ir_emit_and128(c, curm, cur, vm);
+        int vm_lo_t = zc_alloc_temp(c); ir_emit_mov_imm(c, vm_lo_t, (int64_t)~0ULL);
+        int vm_hi_t = zc_alloc_temp(c); ir_emit_mov_imm(c, vm_hi_t, (int64_t)vm_hi);
+        int vm = zc_alloc_temp(c); ir_emit_mk128(c, vm, vm_lo_t, vm_hi_t);
+        int curm = zc_alloc_temp(c); ir_emit_and128(c, curm, cur, vm);
         cur = curm;
         if (is_signed && bit_width < 128) {
             int64_t sb = (int64_t)(1ULL << (bit_width - 65));
-            int zlo = c->next_temp_id++; ir_emit_mov_imm(c, zlo, 0);
-            int shi = c->next_temp_id++; ir_emit_mov_imm(c, shi, sb);
-            int sbt = c->next_temp_id++; ir_emit_mk128(c, sbt, zlo, shi);
-            int xt = c->next_temp_id++; ir_emit_xor128(c, xt, cur, sbt);
-            cur = c->next_temp_id++; ir_emit_sub128(c, cur, xt, sbt);
+            int zlo = zc_alloc_temp(c); ir_emit_mov_imm(c, zlo, 0);
+            int shi = zc_alloc_temp(c); ir_emit_mov_imm(c, shi, sb);
+            int sbt = zc_alloc_temp(c); ir_emit_mk128(c, sbt, zlo, shi);
+            int xt = zc_alloc_temp(c); ir_emit_xor128(c, xt, cur, sbt);
+            cur = zc_alloc_temp(c); ir_emit_sub128(c, cur, xt, sbt);
         }
 
         /* Widen the RHS to 128 bits when it is not already. */
         if (!right_is_128) {
-            int r128 = c->next_temp_id++;
+            int r128 = zc_alloc_temp(c);
             if (is_signed) ir_emit_sext64_128(c, r128, right_temp);
             else ir_emit_zext64_128(c, r128, right_temp);
             right_temp = r128;
@@ -132,7 +132,7 @@ int assign_member_bitfield(ZeroCCCompiler *c,
 
         int newval = right_temp;
         if (is_compound) {
-            newval = c->next_temp_id++;
+            newval = zc_alloc_temp(c);
             switch (assign_node->aux.op) {
                 case TK_ADD_ASSIGN: ir_emit_add128(c, newval, cur, right_temp); break;
                 case TK_SUB_ASSIGN: ir_emit_sub128(c, newval, cur, right_temp); break;
@@ -158,15 +158,15 @@ int assign_member_bitfield(ZeroCCCompiler *c,
 
         /* Value of the assignment expression: the field value (C11 6.5.16.1)
          * - masked to the field width, sign-extended for signed fields. */
-        int field_val = c->next_temp_id++;
+        int field_val = zc_alloc_temp(c);
         ir_emit_and128(c, field_val, newval, vm);
         if (is_signed && bit_width < 128) {
             int64_t sb = (int64_t)(1ULL << (bit_width - 65));
-            int zlo = c->next_temp_id++; ir_emit_mov_imm(c, zlo, 0);
-            int shi = c->next_temp_id++; ir_emit_mov_imm(c, shi, sb);
-            int sbt = c->next_temp_id++; ir_emit_mk128(c, sbt, zlo, shi);
-            int xt = c->next_temp_id++; ir_emit_xor128(c, xt, field_val, sbt);
-            field_val = c->next_temp_id++; ir_emit_sub128(c, field_val, xt, sbt);
+            int zlo = zc_alloc_temp(c); ir_emit_mov_imm(c, zlo, 0);
+            int shi = zc_alloc_temp(c); ir_emit_mov_imm(c, shi, sb);
+            int sbt = zc_alloc_temp(c); ir_emit_mk128(c, sbt, zlo, shi);
+            int xt = zc_alloc_temp(c); ir_emit_xor128(c, xt, field_val, sbt);
+            field_val = zc_alloc_temp(c); ir_emit_sub128(c, field_val, xt, sbt);
         }
 
         /* Store back: clear the field bits, OR in the value shifted into
@@ -177,33 +177,33 @@ int assign_member_bitfield(ZeroCCCompiler *c,
             f_lo = ~0ULL << bit_offset;
             f_hi = (vm_hi << bit_offset) | (~0ULL >> (64 - bit_offset));
         } else { f_lo = 0; f_hi = ~0ULL << (bit_offset - 64); }
-        int fmask = c->next_temp_id++;
+        int fmask = zc_alloc_temp(c);
         {
-            int fml = c->next_temp_id++; ir_emit_mov_imm(c, fml, (int64_t)f_lo);
-            int fmh = c->next_temp_id++; ir_emit_mov_imm(c, fmh, (int64_t)f_hi);
+            int fml = zc_alloc_temp(c); ir_emit_mov_imm(c, fml, (int64_t)f_lo);
+            int fmh = zc_alloc_temp(c); ir_emit_mov_imm(c, fmh, (int64_t)f_hi);
             ir_emit_mk128(c, fmask, fml, fmh);
         }
-        int cmask = c->next_temp_id++;
+        int cmask = zc_alloc_temp(c);
         {
-            int cml = c->next_temp_id++; ir_emit_mov_imm(c, cml, (int64_t)~f_lo);
-            int cmh = c->next_temp_id++; ir_emit_mov_imm(c, cmh, (int64_t)~f_hi);
+            int cml = zc_alloc_temp(c); ir_emit_mov_imm(c, cml, (int64_t)~f_lo);
+            int cmh = zc_alloc_temp(c); ir_emit_mov_imm(c, cmh, (int64_t)~f_hi);
             ir_emit_mk128(c, cmask, cml, cmh);
         }
-        int cleared = c->next_temp_id++;
+        int cleared = zc_alloc_temp(c);
         ir_emit_and128(c, cleared, unit, cmask);
         int bits = field_val;
         if (bit_offset > 0) {
-            int s_lo = c->next_temp_id++; ir_emit_lo128(c, s_lo, bits);
-            int s_hi = c->next_temp_id++; ir_emit_hi128(c, s_hi, bits);
-            int dlo = c->next_temp_id++, dhi = c->next_temp_id++;
+            int s_lo = zc_alloc_temp(c); ir_emit_lo128(c, s_lo, bits);
+            int s_hi = zc_alloc_temp(c); ir_emit_hi128(c, s_hi, bits);
+            int dlo = zc_alloc_temp(c), dhi = zc_alloc_temp(c);
             zc_emit_128_shift(c, dlo, dhi, s_lo, s_hi, bit_offset, TK_SHL, false);
-            bits = c->next_temp_id++; ir_emit_mk128(c, bits, dlo, dhi);
+            bits = zc_alloc_temp(c); ir_emit_mk128(c, bits, dlo, dhi);
         } else {
             /* field_val is sign-extended; the stored bits are its masked
              * two's-complement form. */
-            bits = c->next_temp_id++; ir_emit_and128(c, bits, field_val, vm);
+            bits = zc_alloc_temp(c); ir_emit_and128(c, bits, field_val, vm);
         }
-        int combined = c->next_temp_id++;
+        int combined = zc_alloc_temp(c);
         ir_emit_or128(c, combined, cleared, bits);
         if (sso_be) combined = zc_emit_unit_bswap128(c, combined);
         ir_emit_store128(c, combined, addr_temp);
@@ -218,7 +218,7 @@ int assign_member_bitfield(ZeroCCCompiler *c,
     bool is_64 = (m_size > 4 || (bit_offset + bit_width > 32));
 
     /* 1. Load current storage unit */
-    int curr_temp = c->next_temp_id++;
+    int curr_temp = zc_alloc_temp(c);
     if (is_64) ir_emit_deref(c, curr_temp, addr_temp);
     else ir_emit_load_32(c, curr_temp, addr_temp);
 
@@ -232,28 +232,28 @@ int assign_member_bitfield(ZeroCCCompiler *c,
     if (is_compound) {
         int curr_val = curr_temp;
         if (bit_offset > 0) {
-            int shift_amt = c->next_temp_id++;
+            int shift_amt = zc_alloc_temp(c);
             ir_emit_mov_imm(c, shift_amt, (int32_t)bit_offset);
-            int shifted = c->next_temp_id++;
+            int shifted = zc_alloc_temp(c);
             ir_emit_shr(c, shifted, curr_val, shift_amt);
             curr_val = shifted;
         }
-        int mask_t = c->next_temp_id++;
+        int mask_t = zc_alloc_temp(c);
         ir_emit_mov_imm(c, mask_t, (int32_t)val_mask);
-        int masked = c->next_temp_id++;
+        int masked = zc_alloc_temp(c);
         ir_emit_and(c, masked, curr_val, mask_t);
         curr_val = masked;
         if (is_signed && bit_width < 32) {
             int32_t sign_bit = (int32_t)(1ULL << (bit_width - 1));
-            int s_temp = c->next_temp_id++;
+            int s_temp = zc_alloc_temp(c);
             ir_emit_mov_imm(c, s_temp, sign_bit);
-            int x_temp = c->next_temp_id++;
+            int x_temp = zc_alloc_temp(c);
             ir_emit_xor(c, x_temp, curr_val, s_temp);
-            int e_temp = c->next_temp_id++;
+            int e_temp = zc_alloc_temp(c);
             ir_emit_sub(c, e_temp, x_temp, s_temp);
             curr_val = e_temp;
         }
-        int op_res = c->next_temp_id++;
+        int op_res = zc_alloc_temp(c);
         switch (assign_node->aux.op) {
             case TK_ADD_ASSIGN: ir_emit_add(c, op_res, curr_val, right_temp); break;
             case TK_SUB_ASSIGN: ir_emit_sub(c, op_res, curr_val, right_temp); break;
@@ -273,15 +273,15 @@ int assign_member_bitfield(ZeroCCCompiler *c,
     /* 2. Clear target bits */
     uint64_t field_mask = (bit_width >= 64) ? ~0ULL : (val_mask << bit_offset);
     uint64_t clear_mask = ~field_mask;
-    int clear_mask_temp = c->next_temp_id++;
+    int clear_mask_temp = zc_alloc_temp(c);
     ir_emit_mov_imm(c, clear_mask_temp, (int64_t)clear_mask);
-    int cleared_temp = c->next_temp_id++;
+    int cleared_temp = zc_alloc_temp(c);
     ir_emit_and(c, cleared_temp, curr_temp, clear_mask_temp);
 
     /* 3. Mask incoming value to bit_width */
-    int val_mask_temp = c->next_temp_id++;
+    int val_mask_temp = zc_alloc_temp(c);
     ir_emit_mov_imm(c, val_mask_temp, (int64_t)val_mask);
-    int masked_val = c->next_temp_id++;
+    int masked_val = zc_alloc_temp(c);
     ir_emit_and(c, masked_val, right_temp, val_mask_temp);
 
     /* Value of the assignment expression: the RHS converted to the
@@ -291,27 +291,27 @@ int assign_member_bitfield(ZeroCCCompiler *c,
     int field_val = masked_val;
     if (is_signed && bit_width > 0 && bit_width < 32) {
         int32_t sb = (int32_t)(1ULL << (bit_width - 1));
-        int sft = c->next_temp_id++;
+        int sft = zc_alloc_temp(c);
         ir_emit_mov_imm(c, sft, sb);
-        int xft = c->next_temp_id++;
+        int xft = zc_alloc_temp(c);
         ir_emit_xor(c, xft, field_val, sft);
-        int eft = c->next_temp_id++;
+        int eft = zc_alloc_temp(c);
         ir_emit_sub(c, eft, xft, sft);
         field_val = eft;
     }
 
     /* 4. Shift into position */
     if (bit_offset > 0) {
-        int shl_amt = c->next_temp_id++;
+        int shl_amt = zc_alloc_temp(c);
         ir_emit_mov_imm(c, shl_amt, (int32_t)bit_offset);
-        int shifted_val = c->next_temp_id++;
+        int shifted_val = zc_alloc_temp(c);
         ir_emit_shl(c, shifted_val, masked_val, shl_amt);
         masked_val = shifted_val;
     }
 
     /* 5. Combine and store (back to the storage domain for SSO-BE
      * units before the write). */
-    int combined_temp = c->next_temp_id++;
+    int combined_temp = zc_alloc_temp(c);
     ir_emit_or(c, combined_temp, cleared_temp, masked_val);
     if (sso_be) {
         combined_temp = zc_emit_unit_bswap(c, combined_temp, sso_unit);

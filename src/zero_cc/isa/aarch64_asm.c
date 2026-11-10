@@ -521,6 +521,7 @@ static void aarch64_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int 
     int int_src_regs[8];
     int int_arg_temps[IR_CALL_MAX_ARGS];
     int total_int_count = 0;
+    int32_t spill_base_offset = c->regalloc.spill_base_offset;
 
     for (int i = 0; i < arg_count; i++) {
         int temp = arg_temps[i];
@@ -537,7 +538,16 @@ static void aarch64_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int 
         } else if (arg_is_fp == 1 && (stack_pos ? stack_pos[i] : 255) >= 255 && fp_arg_idx < 8) {
             /* FP args go in d0..d7 (the 64-bit view of v0..v7) per AAPCS64.
              * FP args beyond d7 are stack args (handled below). */
-            fprintf(out, "\tfmov\t%s, d%s\n", fp_arg_regs[fp_arg_idx], reg_name + 1);
+            int fp_arg_reg = backend_get_fp_arg_reg(BE(c), fp_arg_idx);
+            int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, temp);
+            if (sp >= 0) {
+                int32_t off = spill_base_offset + (sp + 1) * 8;
+                if (BE(c)->emit_load_fp_asm && fp_arg_reg >= 0) {
+                    BE(c)->emit_load_fp_asm(c, fp_arg_reg, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off), out);
+                }
+            } else if (phys_reg >= 0) {
+                fprintf(out, "\tfmov\t%s, d%s\n", fp_arg_regs[fp_arg_idx], reg_name + 1);
+            }
             fp_arg_idx++;
         } else if (arg_is_fp == 0) {
             int_arg_temps[total_int_count++] = temp;
@@ -548,7 +558,6 @@ static void aarch64_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int 
     }
 
     /* Save indirect callee into x10 before clobbering argument registers */
-    int32_t spill_base_offset = c->regalloc.spill_base_offset;
     if (!func_name && indirect_temp >= 0) {
         int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, indirect_temp);
         if (sp >= 0) {

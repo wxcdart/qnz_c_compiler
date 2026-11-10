@@ -311,8 +311,10 @@ void opt_branchless_select(ZeroCCCompiler *c) {
     }
     if (n_sites == 0) return;
 
-    /* 16-bit temp guard (C2b invariant): 4 fresh temps per site. */
-    if (c->next_temp_id + 4 * n_sites >= TEMP_NONE) return;
+    /* Compact-space guard (Sprint 151): 4 fresh temps per site; the
+     * renumbering pass keeps all optimizer-visible ids < 65535, so bail if
+     * this transform would push past that space. */
+    if (c->next_temp_id + 4 * n_sites >= 65535) return;
 
     /* Two-pass rebuild (same recipe as LICM): copy everything, splicing in
      * the branchless sequence for each site; remap ir_call_args. */
@@ -337,10 +339,10 @@ void opt_branchless_select(ZeroCCCompiler *c) {
             for (int k = sp->else_arm.first; k < sp->else_arm.last; k++)
                 ir_arena_emit(&new_arena, *ir_get(c, k));
 
-            uint16_t t2   = (uint16_t)c->next_temp_id++;
-            uint16_t m1   = (uint16_t)c->next_temp_id++;
-            uint16_t diff = (uint16_t)c->next_temp_id++;
-            uint16_t sel  = (uint16_t)c->next_temp_id++;
+            int t2   = zc_alloc_temp(c);
+            int m1   = zc_alloc_temp(c);
+            int diff = zc_alloc_temp(c);
+            int sel  = zc_alloc_temp(c);
             /* Slice 2: stamp the fresh select scratch with int tags so
              * the tag is the single source of truth for these values at
              * codegen time (64-bit register-domain scratch: the mask,

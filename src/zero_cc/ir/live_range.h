@@ -492,7 +492,7 @@ static void live_range_compute(LiveRangeAnalyzer *lra, RegAllocator *ra, ZeroCCC
                 for (size_t a = 0; a < c->ir_asm_args.count; a++) {
                     const IRAsmArgs *aa = &c->ir_asm_args.table[a];
                     for (int o = 0; o < aa->op_count; o++) {
-                        if (aa->ops[o].temp != (uint16_t)temp_id) continue;
+                        if (aa->ops[o].temp != (uint32_t)temp_id) continue;
                         if (aa->clobber_mask) {
                             regalloc_set_forbidden(ra, int_idx, aa->clobber_mask);
                         }

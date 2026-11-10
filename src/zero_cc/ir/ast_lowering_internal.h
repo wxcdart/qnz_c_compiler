@@ -106,32 +106,32 @@ static inline int zc_sym_addr(ZeroCCCompiler *c, const ZeroCCSym *sym, int32_t e
         ir_emit_load(c, a, BE(c)->fp_reg, -sym->stack_offset);
         if (extra != 0) {
             int o = c->next_temp_id++;
-            ir_emit_mov_imm(c, (uint16_t)o, (int64_t)extra);
+            ir_emit_mov_imm(c, (uint32_t)o, (int64_t)extra);
             int na = c->next_temp_id++;
-            ir_emit_add(c, (uint16_t)na, (uint16_t)a, (uint16_t)o);
+            ir_emit_add(c, (uint32_t)na, (uint32_t)a, (uint32_t)o);
             a = na;
         }
         return a;
     }
     if (sym->is_capture_mirror) {
-        if (sym->is_promoted) ir_emit_mov_reg(c, a, (uint16_t)sym->promoted_vreg);
+        if (sym->is_promoted) ir_emit_mov_reg(c, a, (uint32_t)sym->promoted_vreg);
         else ir_emit_load(c, a, BE(c)->fp_reg, -sym->stack_offset);
         if (extra != 0) {
             int o = c->next_temp_id++;
-            ir_emit_mov_imm(c, (uint16_t)o, (int64_t)extra);
+            ir_emit_mov_imm(c, (uint32_t)o, (int64_t)extra);
             int na = c->next_temp_id++;
-            ir_emit_add(c, (uint16_t)na, (uint16_t)a, (uint16_t)o);
+            ir_emit_add(c, (uint32_t)na, (uint32_t)a, (uint32_t)o);
             a = na;
         }
         return a;
     }
     if (zc_sym_uses_data_section(sym)) {
-        ir_emit_mov_global(c, (uint16_t)a, sym->static_global_name);
+        ir_emit_mov_global(c, (uint32_t)a, sym->static_global_name);
         if (extra != 0) {
             int o = c->next_temp_id++;
-            ir_emit_mov_imm(c, (uint16_t)o, (int64_t)extra);
+            ir_emit_mov_imm(c, (uint32_t)o, (int64_t)extra);
             int na = c->next_temp_id++;
-            ir_emit_add(c, (uint16_t)na, (uint16_t)a, (uint16_t)o);
+            ir_emit_add(c, (uint32_t)na, (uint32_t)a, (uint32_t)o);
             a = na;
         }
     } else {
@@ -150,9 +150,9 @@ static inline void zc_sym_load(ZeroCCCompiler *c, const ZeroCCSym *sym, int32_t 
         int p = zc_sym_addr(c, sym, 0);
         if (extra != 0) {
             int o = c->next_temp_id++;
-            ir_emit_mov_imm(c, (uint16_t)o, (int64_t)extra);
+            ir_emit_mov_imm(c, (uint32_t)o, (int64_t)extra);
             int p2 = c->next_temp_id++;
-            ir_emit_add(c, (uint16_t)p2, (uint16_t)p, (uint16_t)o);
+            ir_emit_add(c, (uint32_t)p2, (uint32_t)p, (uint32_t)o);
             p = p2;
         }
         ir_emit_deref(c, dest, p);
@@ -175,21 +175,21 @@ static inline void zc_sym_store(ZeroCCCompiler *c, const ZeroCCSym *sym, int32_t
         int p = zc_sym_addr(c, sym, 0);
         if (extra != 0) {
             int o = c->next_temp_id++;
-            ir_emit_mov_imm(c, (uint16_t)o, (int64_t)extra);
+            ir_emit_mov_imm(c, (uint32_t)o, (int64_t)extra);
             int p2 = c->next_temp_id++;
-            ir_emit_add(c, (uint16_t)p2, (uint16_t)p, (uint16_t)o);
+            ir_emit_add(c, (uint32_t)p2, (uint32_t)p, (uint32_t)o);
             p = p2;
         }
         size_t w = sym->type.size > 0 ? sym->type.size : 8;
-        if (w >= 8)      ir_emit_store_64(c, (uint16_t)val, (uint16_t)p);
-        else if (w == 4) ir_emit_store_32(c, (uint16_t)val, (uint16_t)p);
-        else if (w == 2) ir_emit_store_16(c, (uint16_t)val, (uint16_t)p);
-        else             ir_emit_store_byte(c, (uint16_t)val, (uint16_t)p);
+        if (w >= 8)      ir_emit_store_64(c, (uint32_t)val, (uint32_t)p);
+        else if (w == 4) ir_emit_store_32(c, (uint32_t)val, (uint32_t)p);
+        else if (w == 2) ir_emit_store_16(c, (uint32_t)val, (uint32_t)p);
+        else             ir_emit_store_byte(c, (uint32_t)val, (uint32_t)p);
         return;
     }
     if (zc_sym_uses_data_section(sym)) {
         int a = zc_sym_addr(c, sym, extra);
-        ir_emit_store_64(c, (uint16_t)val, (uint16_t)a);
+        ir_emit_store_64(c, (uint32_t)val, (uint32_t)a);
     } else {
         ir_emit_store(c, val, BE(c)->fp_reg, -sym->stack_offset + extra);
     }
@@ -425,7 +425,7 @@ static inline bool ast_expr_is_vector_addr(ZeroCCCompiler *c, ZeroCCASTArena *ar
     return true;
 }
 
-static inline void ir_emit_global_addr(ZeroCCCompiler *c, uint16_t temp, const ZeroCCGlobalVar *gv) {
+static inline void ir_emit_global_addr(ZeroCCCompiler *c, uint32_t temp, const ZeroCCGlobalVar *gv) {
     if (!gv) return;
     if (gv->is_tls && !c->jit_mode) ir_emit_tls_lea(c, temp, gv->name);
     else ir_emit_mov_global(c, temp, gv->name);
@@ -449,7 +449,7 @@ static inline int zc_lower_fn_value(ZeroCCCompiler *c, const ZeroCCFunction *fn)
     if (!fn->is_nested ||
         (fn->nested_captured_count == 0 && fn->goto_pair_count == 0)) {
         int t = c->next_temp_id++;
-        ir_emit_mov_global(c, (uint16_t)t, zero_cc_fn_emit_symbol(fn));
+        ir_emit_mov_global(c, (uint32_t)t, zero_cc_fn_emit_symbol(fn));
         return t;
     }
     if ((c->isa != ISA_X86_64 && c->isa != ISA_AARCH64 && c->isa != ISA_RISCV64) ||
@@ -466,7 +466,7 @@ static inline int zc_lower_fn_value(ZeroCCCompiler *c, const ZeroCCFunction *fn)
         return -1;
     }
     int ctx = c->next_temp_id++;
-    ir_emit_global_addr(c, (uint16_t)ctx, gv);
+    ir_emit_global_addr(c, (uint32_t)ctx, gv);
     for (size_t ci = 0; ci < fn->nested_captured_count; ci++) {
         const char *cname = fn->param_names[ci];
         ZeroCCSym *sym = cname ? zero_cc_find_local(c, cname) : NULL;
@@ -481,9 +481,9 @@ static inline int zc_lower_fn_value(ZeroCCCompiler *c, const ZeroCCFunction *fn)
         int dst = ctx;
         if (ci > 0) {
             int o = c->next_temp_id++;
-            ir_emit_mov_imm(c, (uint16_t)o, (int64_t)(32 * ci));
+            ir_emit_mov_imm(c, (uint32_t)o, (int64_t)(32 * ci));
             int d2 = c->next_temp_id++;
-            ir_emit_add(c, (uint16_t)d2, (uint16_t)ctx, (uint16_t)o);
+            ir_emit_add(c, (uint32_t)d2, (uint32_t)ctx, (uint32_t)o);
             dst = d2;
         }
         if (fn->nested_capture_byref[ci]) {
@@ -498,25 +498,25 @@ static inline int zc_lower_fn_value(ZeroCCCompiler *c, const ZeroCCFunction *fn)
              * VLA params are never by-ref captures (scalar_small
              * excludes them), so no special case is needed. */
             int w = zc_sym_addr(c, sym, 0);
-            ir_emit_store_64(c, (uint16_t)w, (uint16_t)dst);
+            ir_emit_store_64(c, (uint32_t)w, (uint32_t)dst);
         } else {
             size_t sz = pt->size ? pt->size : 8;
             if (sz > 32) {
                 /* big-struct pointer convention: store the address */
                 int a = zc_sym_addr(c, sym, 0);
-                ir_emit_store_64(c, (uint16_t)a, (uint16_t)dst);
+                ir_emit_store_64(c, (uint32_t)a, (uint32_t)dst);
             } else {
                 for (size_t off = 0; off < sz; off += 8) {
                     int v = c->next_temp_id++;
                     zc_sym_load(c, sym, (int32_t)off, v);
                     if (off > 0) {
                         int o = c->next_temp_id++;
-                        ir_emit_mov_imm(c, (uint16_t)o, (int64_t)off);
+                        ir_emit_mov_imm(c, (uint32_t)o, (int64_t)off);
                         int d2 = c->next_temp_id++;
-                        ir_emit_add(c, (uint16_t)d2, (uint16_t)dst, (uint16_t)o);
-                        ir_emit_store_64(c, (uint16_t)v, (uint16_t)d2);
+                        ir_emit_add(c, (uint32_t)d2, (uint32_t)dst, (uint32_t)o);
+                        ir_emit_store_64(c, (uint32_t)v, (uint32_t)d2);
                     } else {
-                        ir_emit_store_64(c, (uint16_t)v, (uint16_t)dst);
+                        ir_emit_store_64(c, (uint32_t)v, (uint32_t)dst);
                     }
                 }
             }
@@ -539,9 +539,9 @@ static inline int zc_lower_fn_value(ZeroCCCompiler *c, const ZeroCCFunction *fn)
             int base_off = (int)(32 * fn->nested_captured_count + 16 * pi);
             for (int w = 0; w < 2; w++) {
                 int dst = c->next_temp_id++;
-                ir_emit_mov_imm(c, (uint16_t)dst, (int64_t)(base_off + 8 * w));
+                ir_emit_mov_imm(c, (uint32_t)dst, (int64_t)(base_off + 8 * w));
                 int dst2 = c->next_temp_id++;
-                ir_emit_add(c, (uint16_t)dst2, (uint16_t)ctx, (uint16_t)dst);
+                ir_emit_add(c, (uint32_t)dst2, (uint32_t)ctx, (uint32_t)dst);
                 int val = c->next_temp_id++;
                 if (pi < my_depth) {
                     char nm[48];
@@ -569,13 +569,13 @@ static inline int zc_lower_fn_value(ZeroCCCompiler *c, const ZeroCCFunction *fn)
                         }
                     }
                 }
-                ir_emit_store_64(c, (uint16_t)val, (uint16_t)dst2);
+                ir_emit_store_64(c, (uint32_t)val, (uint32_t)dst2);
             }
         }
     }
     const ZeroCCFunction *sf = &c->functions[fn->tramp_stub_fn_idx];
     int t = c->next_temp_id++;
-    ir_emit_mov_global(c, (uint16_t)t, zero_cc_fn_emit_symbol(sf));
+    ir_emit_mov_global(c, (uint32_t)t, zero_cc_fn_emit_symbol(sf));
     return t;
 }
 

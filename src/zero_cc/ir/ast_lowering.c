@@ -15,6 +15,7 @@
 #include "zero_cc/parser/vla_struct.h"
 #include "zero_cc/ir/asm_emitter.h"
 #include "zero_cc/opt/opt_pass.h"
+#include "zero_cc/opt/opt_temp_renumber.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -231,21 +232,21 @@ static void zero_cc_prescan_static_addr_taken(ZeroCCCompiler *c, ZeroCCASTArena 
 static void static_local_mirror_in(ZeroCCCompiler *c, ZeroCCSym *ss) {
     size_t sz = ss->type.size ? (size_t)ss->type.size : 8;
     size_t alloc_sz = (sz + 7) & ~(size_t)7;  /* mirror copies in 8-byte chunks */
-    int base = c->next_temp_id++;
-    ir_emit_mov_global(c, (uint16_t)base, ss->static_global_name);
+    int base = zc_alloc_temp(c);
+    ir_emit_mov_global(c, (uint32_t)base, ss->static_global_name);
     for (size_t off = 0; off < alloc_sz; off += 8) {
         int addr = base;
         if (off != 0) {
-            int o = c->next_temp_id++;
-            ir_emit_mov_imm(c, (uint16_t)o, (int64_t)off);
-            addr = c->next_temp_id++;
-            ir_emit_add(c, (uint16_t)addr, (uint16_t)base, (uint16_t)o);
+            int o = zc_alloc_temp(c);
+            ir_emit_mov_imm(c, (uint32_t)o, (int64_t)off);
+            addr = zc_alloc_temp(c);
+            ir_emit_add(c, (uint32_t)addr, (uint32_t)base, (uint32_t)o);
         }
-        int val = c->next_temp_id++;
+        int val = zc_alloc_temp(c);
         ir_emit_deref(c, val, addr);
-        int sa = c->next_temp_id++;
+        int sa = zc_alloc_temp(c);
         ir_emit_lea(c, sa, BE(c)->fp_reg, (int32_t)off - ss->stack_offset);
-        ir_emit_store_64(c, (uint16_t)val, (uint16_t)sa);
+        ir_emit_store_64(c, (uint32_t)val, (uint32_t)sa);
     }
 }
 
@@ -255,21 +256,21 @@ static void static_local_mirror_in(ZeroCCCompiler *c, ZeroCCSym *ss) {
 static void static_local_mirror_out(ZeroCCCompiler *c, ZeroCCSym *ss) {
     size_t sz = ss->type.size ? (size_t)ss->type.size : 8;
     size_t alloc_sz = (sz + 7) & ~(size_t)7;  /* mirror copies in 8-byte chunks */
-    int base = c->next_temp_id++;
-    ir_emit_mov_global(c, (uint16_t)base, ss->static_global_name);
+    int base = zc_alloc_temp(c);
+    ir_emit_mov_global(c, (uint32_t)base, ss->static_global_name);
     for (size_t off = 0; off < alloc_sz; off += 8) {
-        int sa = c->next_temp_id++;
+        int sa = zc_alloc_temp(c);
         ir_emit_lea(c, sa, BE(c)->fp_reg, (int32_t)off - ss->stack_offset);
-        int val = c->next_temp_id++;
+        int val = zc_alloc_temp(c);
         ir_emit_deref(c, val, sa);
         int addr = base;
         if (off != 0) {
-            int o = c->next_temp_id++;
-            ir_emit_mov_imm(c, (uint16_t)o, (int64_t)off);
-            addr = c->next_temp_id++;
-            ir_emit_add(c, (uint16_t)addr, (uint16_t)base, (uint16_t)o);
+            int o = zc_alloc_temp(c);
+            ir_emit_mov_imm(c, (uint32_t)o, (int64_t)off);
+            addr = zc_alloc_temp(c);
+            ir_emit_add(c, (uint32_t)addr, (uint32_t)base, (uint32_t)o);
         }
-        ir_emit_store_64(c, (uint16_t)val, (uint16_t)addr);
+        ir_emit_store_64(c, (uint32_t)val, (uint32_t)addr);
     }
 }
 
@@ -542,7 +543,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
             if (!sym->is_param) continue;
             sym->stack_offset = 0;
             sym->is_promoted = true;
-            sym->promoted_vreg = c->next_temp_id++;
+            sym->promoted_vreg = zc_alloc_temp(c);
             /* Phase 3b: a by-ref capture's ABI param is a POINTER (GPR),
              * but sym->type is retyped to the pointee for body lowering -
              * a double capture would misclassify as an FP arg here. */
@@ -775,9 +776,9 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
          * captured the arg registers, so the copy loop's temps can be
          * allocated freely (they may reuse the arg registers). */
         for (int bp = 0; bp < big_param_copy_count; bp++) {
-            int pt = c->next_temp_id++;
+            int pt = zc_alloc_temp(c);
             ir_emit_load(c, pt, BE(c)->fp_reg, -big_param_pt_off[bp]);
-            int dst_addr = c->next_temp_id++;
+            int dst_addr = zc_alloc_temp(c);
             ir_emit_lea(c, dst_addr, BE(c)->fp_reg, -big_param_dst_off[bp]);
             zc_emit_mem_copy(c, pt, dst_addr, big_param_size[bp]);
         }
@@ -786,15 +787,15 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
          * argument registers are now saved / spilled, so the LEA temps
          * can reuse them freely. */
         for (int fs = 0; fs < fpstack_copy_count; fs++) {
-            int ca = c->next_temp_id++;
+            int ca = zc_alloc_temp(c);
             ir_emit_lea(c, ca, BE(c)->fp_reg, fpstack_src_off[fs]);
-            int hv = c->next_temp_id++;
-            if (fpstack_is_flt[fs]) ir_emit_vloadss(c, (uint16_t)hv, (uint16_t)ca);
-            else ir_emit_vloadsd(c, (uint16_t)hv, (uint16_t)ca);
-            int la = c->next_temp_id++;
+            int hv = zc_alloc_temp(c);
+            if (fpstack_is_flt[fs]) ir_emit_vloadss(c, (uint32_t)hv, (uint32_t)ca);
+            else ir_emit_vloadsd(c, (uint32_t)hv, (uint32_t)ca);
+            int la = zc_alloc_temp(c);
             ir_emit_lea(c, la, BE(c)->fp_reg, -fpstack_dst_off[fs]);
-            if (fpstack_is_flt[fs]) ir_emit_vstoress(c, (uint16_t)la, (uint16_t)hv);
-            else ir_emit_vstoresd(c, (uint16_t)la, (uint16_t)hv);
+            if (fpstack_is_flt[fs]) ir_emit_vstoress(c, (uint32_t)la, (uint32_t)hv);
+            else ir_emit_vstoresd(c, (uint32_t)la, (uint32_t)hv);
         }
     }
 
@@ -936,17 +937,14 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         ir_emit_load(c, VREG_0, BE(c)->fp_reg, -c->lowering.static_local_rt_off);
     }
 
-    /* C2b guard: temp ids are 16-bit (TEMP_NONE = 0xFFFF is the "no temp"
-     * sentinel). next_temp_id is an int, so a pathological function could
-     * still exhaust the 16-bit space; fail loudly instead of wrapping
-     * (the pre-C2b 8-bit wrap silently miscompiled). */
-    if (c->next_temp_id - 1 >= TEMP_NONE) {
-        const char *fn_name = lowering_fn ? lowering_fn->name : "<anon>";
-        diag_report_error_at_token(c,
-            "function '%s' uses %d temporaries; max is 65534 per function "
-            "(16-bit temp ids). Split the function into smaller helper "
-            "functions (each has its own temp-id space).",
-            fn_name, c->next_temp_id - VREG_USER_START);
+    /* Sprint 151 (plan item 9): temp-ID renumbering by liveness. Compacts
+     * the function's churned id space (32-bit storage may now hold well
+     * past the old 16-bit budget) down to the PEAK-LIVE set before any
+     * optimizer pass or register allocation sees it. This replaces the
+     * old C2b churn guard: the backstop now trips on peak-live temps
+     * (>= 65535) - a true resource limit - instead of total allocation
+     * churn (~3 ids per `t = t + 1` statement). */
+    if (!opt_temp_renumber(c, lowering_fn ? lowering_fn->name : "<anon>")) {
         return;
     }
 

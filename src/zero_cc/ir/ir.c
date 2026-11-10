@@ -34,12 +34,12 @@ const Instr *ir_get_buffer(const ZeroCCCompiler *c) {
 }
 
 /* Sprint 118: per-temp type-tag table (lazy 64 KiB; indexed by temp id). */
-uint8_t zc_temp_tag(const ZeroCCCompiler *c, uint16_t id) {
+uint8_t zc_temp_tag(const ZeroCCCompiler *c, uint32_t id) {
     if (!c || !c->temp_type_tags || id >= 65535) return 0;
     return c->temp_type_tags[id];
 }
 
-void zc_temp_tag_set(ZeroCCCompiler *c, uint16_t id, uint8_t tag) {
+void zc_temp_tag_set(ZeroCCCompiler *c, uint32_t id, uint8_t tag) {
     if (!c || id >= 65535) return;
     if (!c->temp_type_tags) {
         c->temp_type_tags = (uint8_t *)calloc(1, 65536);
@@ -55,6 +55,15 @@ void zc_temp_tags_reset(ZeroCCCompiler *c) {
     uint32_t hi = c->temp_type_tags_hi < 65536 ? c->temp_type_tags_hi : 65536;
     memset(c->temp_type_tags, 0, hi);
     c->temp_type_tags_hi = 0;
+}
+
+/* Allocate the next function-local temp id, skipping the TEMP_NONE (0xFFFF)
+ * sentinel so a churned 32-bit id space (Sprint 151) can never collide with
+ * the "no temp" marker. */
+int zc_alloc_temp(ZeroCCCompiler *c) {
+    int t = c->next_temp_id++;
+    if (t == TEMP_NONE) t = c->next_temp_id++;
+    return t;
 }
 
 /* Reset IR buffer for next function - resets arena count (reuses memory) */
@@ -193,17 +202,17 @@ void ir_emit_jmp(ZeroCCCompiler *c, uint16_t label_idx) {
     ir_emit(c, instr);
 }
 
-void ir_emit_je(ZeroCCCompiler *c, uint16_t temp_cond, uint16_t label_idx) {
+void ir_emit_je(ZeroCCCompiler *c, uint32_t temp_cond, uint16_t label_idx) {
     Instr instr = {.op = OP_JE, .temp_dest= TEMP_NONE, .temp_src1 = temp_cond, .temp_src2= TEMP_NONE, .cond = temp_cond, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = label_idx};
     ir_emit(c, instr);
 }
 
-void ir_emit_jcond(ZeroCCCompiler *c, uint16_t temp_cond, uint16_t label_idx) {
+void ir_emit_jcond(ZeroCCCompiler *c, uint32_t temp_cond, uint16_t label_idx) {
     Instr instr = {.op = OP_JCOND, .temp_dest= TEMP_NONE, .temp_src1 = temp_cond, .temp_src2= TEMP_NONE, .cond = temp_cond, .flags_out = 0xFF, .flags_in = REG_FLAGS, .imm = 0, .imm64 = 0, .label_idx = label_idx};
     ir_emit(c, instr);
 }
 
-void ir_emit_jne(ZeroCCCompiler *c, uint16_t temp_cond, uint16_t label_idx) {
+void ir_emit_jne(ZeroCCCompiler *c, uint32_t temp_cond, uint16_t label_idx) {
     Instr instr = {.op = OP_JNE, .temp_dest= TEMP_NONE, .temp_src1 = temp_cond, .temp_src2= TEMP_NONE, .cond = temp_cond, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = label_idx};
     ir_emit(c, instr);
 }

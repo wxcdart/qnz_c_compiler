@@ -1,3 +1,37 @@
+## [Sprint 151b] - 2026-11-10 - Temp-ID Widening & Liveness-Based Renumbering Pass (Plan Item 9)
+
+ZeroCC implements Phase 151b (development plan item 9): widening virtual temporary IDs to 32-bit and adding a liveness-based renumbering pass (`src/zero_cc/opt/opt_temp_renumber.{c,h}`) that compacts temp IDs down to peak-live density after AST lowering:
+
+- **Temp-ID 32-bit Widening**:
+  - `Instr` temp fields (`temp_dest`, `temp_src1`, `temp_src2`) and `IRCallArgs.temps[]` widened from `uint16_t` to `uint32_t` (packed struct 24→29 bytes). `TEMP_NONE` remains `0xFFFF`.
+  - `zc_alloc_temp(c)` in `src/zero_cc/ir/ir.c` skips `TEMP_NONE` if reached, replacing all 1,456 direct `c->next_temp_id++` call sites.
+  - AST lowering can now churn through unbounded temporaries during complex expression and desugaring phases without hitting artificial churn caps.
+- **Liveness-Based Temp-ID Renumbering Pass (`opt_temp_renumber.c`, `opt_temp_renumber.h`)**:
+  - Runs per function in `src/zero_cc/ir/ast_lowering.c` immediately after lowering and before the optimizer pipeline.
+  - **Throwaway LRA**: Runs `live_range_scan_ir` and `live_range_compute` on a dynamically allocated scratch `RegAllocator`. Derives true extended live intervals (accounting for loop backedges, parameter pre-coloring at pos 0, and call boundaries) — raw first/last references were proven unsound for temp reuse.
+  - **(Reg-Class, Type-Tag) Free-List Pools**: Recycles IDs through distinct free lists keyed by `(reg_class, type_tag)`. A new compacted ID is only reused by a temp of the *exact same* register class (GPR vs XMM/VEC) and *exact same* type tag. This preserves the LRA single-class-per-temp invariant and prevents advisory tag erasure (e.g. `zc_div_is_unsigned` relying on tag signedness).
+  - **Pre-Rewrite Verification**: Checks pairwise disjointness of extended intervals for every remapped ID and validates untracked temps before rewriting. Refuses to emit if any violation occurs.
+  - **Full Rewrite**: Remaps `Instr` operands (including `temp_expected` packed in `label_idx` for `OP_ATOMIC_CMPXCHG[_BOOL]`), `IRCallArgs`, `IRAsmArgs`, `c->asm_operand_temps`, and the advisory type tag table. Resets `c->next_temp_id` to the compact peak-live top.
+  - **Resource limit**: Functions are bounded by peak simultaneously-live temporaries (`peak_live >= 65535`), not total lowering churn.
+- **Cross-ISA & Text-AOT Bug Fixes**:
+  - **x86-64 `mul128_mixed` opcode byte**: line 159 of `src/zero_cc/isa/x86_64.c` defined `mul_op` as `{0xFF}` (`/4` encodes `jmp *%reg`), crashing on register-form 128-bit multiplications; corrected to `{0xF7}` (`mul %reg`).
+  - **Text-AOT Call FP Spill Reloads**: in `x86_64_asm.c`, `aarch64_asm.c`, and `riscv_asm.c`, `emit_call_asm` failed to check if an FP argument temp was spilled (`phys_reg == -1`, `sp >= 0`), defaulting to register 0 and omitting the stack reload; added `emit_load_fp_asm` from `spill_base_offset + (sp + 1) * 8`.
+  - **RISC-V Text Comparison Flag Materialization**: `riscv_emit_cmp_asm` previously emitted `sub t0, src1, src2; mv t1, src1; mv t2, src2` while `riscv_emit_cond_set_asm` read `t1/t2` for unsigned comparisons. When both operands spilled (`src1 == t0`, `src2 == t1`), the subtract clobbered `t0` before the moves, leaving both `t1` and `t2` holding `src1 - src2` and making `t2 <u t1` evaluate to 0 (broke unsigned and 128-bit relational comparisons in `int128_arith.c`). Aligned with the MC path: `riscv_emit_cmp_asm` is a no-op, operands are recorded in `c->lowering.cmp_src1/2`, and `riscv_emit_cond_set_asm` + branch emitters emit `slt`/`sltu`/`beq`/`bne`/`blt`/`bge` directly from operand registers.
+- **Verification Battery**:
+  - `make test`: 212/212 passed.
+  - `make test-opt`: 112/112 ok across -O0..-O3 in JIT + AOT (58 skipped, 1 nondet).
+  - `make test-san`: 101 ok, 0 fail (3 cross), 88 flagged runs.
+  - `make test-c23`: 24/24 cases passed across 54 configurations.
+  - `make test-asm`: 72/72 runs passed.
+  - `make test-project-diff`: 36/36 TUs compiled (cJSON, SQLite, zlib).
+  - `make test-isa128`: 144/144 passed across x86-64, aarch64, riscv64.
+  - `make test-isa-qemu`: 59/59 passed across x86-64, aarch64, riscv64, riscv32.
+  - `make asan`: 212/212 passed under host ASan/UBSan.
+  - `tools/type_tag_verifier.py --verify-all`: OK (181 files, 0 untagged).
+  - `tools/diag_battery.py`: 17/17 passed (9/9 category coverage).
+  - `tools/style_check.py`: 0 errors.
+  - `tools/okf.py lint && index`: All OKF schemas and reachability verified.
+
 ## [Sprint 151] - 2026-11-10 - LRA Clamp/Restore Defect Root-Cause Hunt (negative) + `()` Rejection + Regression Pin
 
 Sprint 151 opens the plan item 9 work (temp-ID recycling by liveness) by first root-causing the `-O1+` branchy compute/clamp/restore LRA defect flagged as open since Sprint 69 (the glibc `va_list` shadow's original `gp_offset` clamp miscompiled at `-O1+`; a branch-free algebra workaround was shipped in that sprint). **The hunt is conclusive: the defect no longer reproduces in the current compiler** — it is treated as incidentally fixed by the Sprints 109/117/135 LRA rework and is now pinned by a regression test so a future change that regresses the class is caught.

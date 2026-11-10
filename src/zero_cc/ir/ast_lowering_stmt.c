@@ -40,7 +40,7 @@ void lower_stmt_block(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
         for (size_t li = 0; li < c->local_count; li++) {
             if (c->locals[li].is_vla && c->locals[li].stack_offset >= 16) {
                 if (zero_sp == TEMP_NONE) {
-                    zero_sp = c->next_temp_id++;
+                    zero_sp = zc_alloc_temp(c);
                     ir_emit_mov_imm(c, zero_sp, 0);
                 }
                 ir_emit_store(c, zero_sp, BE(c)->fp_reg, -(c->locals[li].stack_offset - 8));
@@ -378,17 +378,17 @@ static void lower_asm_stmt(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNo
              * (operand-address evaluation order) and the value stored after */
             out_addr[i] = zero_cc_lower_lvalue_addr(c, arena, as->out_exprs[i]);
             c->last_expr_is_float = 0;
-            out_temp[i] = c->next_temp_id++;
+            out_temp[i] = zc_alloc_temp(c);
             zc_asm_record_operand_temp(c, out_temp[i], out_fixed[i]);
             if (out_kind[i] == ZC_ASM_OP_INOUT_R) {
                 /* '+r': the lvalue's current value is the operand's initial
                 * value - load it into the output temp so the template sees
                 * it in the operand register (OP_ASM then redefines it). */
                 switch (out_width[i]) {
-                    case 8:  ir_emit(c, (Instr){.op = OP_LOAD_BYTE, .temp_dest = (uint16_t)out_temp[i], .temp_src1 = (uint16_t)out_addr[i], .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0}); break;
-                    case 16: ir_emit_load_16(c, (uint16_t)out_temp[i], (uint16_t)out_addr[i]); break;
-                    case 32: ir_emit_load_32(c, (uint16_t)out_temp[i], (uint16_t)out_addr[i]); break;
-                    default: ir_emit_deref(c, (uint16_t)out_temp[i], (uint16_t)out_addr[i]); break;
+                    case 8:  ir_emit(c, (Instr){.op = OP_LOAD_BYTE, .temp_dest = out_temp[i], .temp_src1 = out_addr[i], .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0}); break;
+                    case 16: ir_emit_load_16(c, (uint32_t)out_temp[i], (uint32_t)out_addr[i]); break;
+                    case 32: ir_emit_load_32(c, (uint32_t)out_temp[i], (uint32_t)out_addr[i]); break;
+                    default: ir_emit_deref(c, (uint32_t)out_temp[i], (uint32_t)out_addr[i]); break;
                 }
             }
         }
@@ -402,8 +402,8 @@ static void lower_asm_stmt(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNo
             if (out_kind[in_digit[i]] == ZC_ASM_OP_OUT_R) {
                 int t = lower_expr(c, arena, as->in_exprs[i]);
                 c->last_expr_is_float = 0;
-                ir_emit(c, (Instr){.op = OP_MOV_REG, .temp_dest = (uint16_t)out_temp[in_digit[i]],
-                                   .temp_src1 = (uint16_t)t, .temp_src2= TEMP_NONE,
+                ir_emit(c, (Instr){.op = OP_MOV_REG, .temp_dest = out_temp[in_digit[i]],
+                                   .temp_src1 = t, .temp_src2= TEMP_NONE,
                                    .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF,
                                    .imm = 0, .label_idx = 0});
             }
@@ -515,10 +515,10 @@ static void lower_asm_stmt(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNo
     for (int i = 0; i < as->out_count; i++) {
         if (out_kind[i] != ZC_ASM_OP_OUT_R && out_kind[i] != ZC_ASM_OP_INOUT_R) continue;
         switch (out_width[i]) {
-            case 8:  ir_emit_store_byte(c, (uint16_t)out_temp[i], (uint16_t)out_addr[i]); break;
-            case 16: ir_emit_store_16(c, (uint16_t)out_temp[i], (uint16_t)out_addr[i]); break;
-            case 32: ir_emit_store_32(c, (uint16_t)out_temp[i], (uint16_t)out_addr[i]); break;
-            default: ir_emit_store_64(c, (uint16_t)out_temp[i], (uint16_t)out_addr[i]); break;
+            case 8:  ir_emit_store_byte(c, (uint32_t)out_temp[i], (uint32_t)out_addr[i]); break;
+            case 16: ir_emit_store_16(c, (uint32_t)out_temp[i], (uint32_t)out_addr[i]); break;
+            case 32: ir_emit_store_32(c, (uint32_t)out_temp[i], (uint32_t)out_addr[i]); break;
+            default: ir_emit_store_64(c, (uint32_t)out_temp[i], (uint32_t)out_addr[i]); break;
         }
     }
     c->last_expr_is_float = 0;
@@ -578,7 +578,7 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                                                    (ASTRef)m->vla_dim, arena);
                     int dv = (dim != AST_NULL) ? lower_expr(c, arena, dim) : TEMP_NONE;
                     if (dv == TEMP_NONE) {
-                        dv = c->next_temp_id++;
+                        dv = zc_alloc_temp(c);
                         ir_emit_mov_imm(c, dv, (int32_t)m->vla_elem_size);
                     }
                     ir_emit_store(c, dv, BE(c)->fp_reg, -cap->slots[cap->count - 1]);
@@ -601,7 +601,7 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
             for (size_t li = self_idx + 1; li < c->local_count; li++) {
                 if (c->locals[li].is_vla && c->locals[li].stack_offset >= 16) {
                     if (zero_sp == TEMP_NONE) {
-                        zero_sp = c->next_temp_id++;
+                        zero_sp = zc_alloc_temp(c);
                         ir_emit_mov_imm(c, zero_sp, 0);
                     }
                     ir_emit_store(c, zero_sp, BE(c)->fp_reg, -(c->locals[li].stack_offset - 8));
@@ -623,7 +623,7 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                 }
                 ASTRef sz_ast = zc_vla_struct_size_ast(arena, (ZeroCCASTArena *)c->tu_ast_arena, es, es->struct_name);
                 int elem_temp = (sz_ast != AST_NULL) ? lower_expr(c, arena, sz_ast) : count_temp;
-                size_temp = c->next_temp_id++;
+                size_temp = zc_alloc_temp(c);
                 ir_emit_mul(c, size_temp, count_temp, elem_temp);
             } else if (sym->type.base && sym->type.base->tag == TYPE_ARRAY && sym->type.base->is_vla) {
                 const ZeroCCType *leaf = sym->type.base;
@@ -631,29 +631,29 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                     leaf = leaf->base;
                 }
                 size_t leaf_sz = (leaf && leaf->size > 0) ? leaf->size : 4;
-                int stride_temp = c->next_temp_id++;
+                int stride_temp = zc_alloc_temp(c);
                 ir_emit_mov_imm(c, stride_temp, (int32_t)leaf_sz);
                 const ZeroCCType *it = sym->type.base;
                 while (it && it->tag == TYPE_ARRAY && it->is_vla) {
                     if (it->vla_dim != 0) {
                         int d_temp = lower_expr(c, arena, (ASTRef)it->vla_dim);
-                        int prod = c->next_temp_id++;
+                        int prod = zc_alloc_temp(c);
                         ir_emit_mul(c, prod, stride_temp, d_temp);
                         stride_temp = prod;
                     }
                     it = it->base;
                 }
                 ir_emit_store(c, stride_temp, BE(c)->fp_reg, -(sym->stack_offset - 16));
-                size_temp = c->next_temp_id++;
+                size_temp = zc_alloc_temp(c);
                 ir_emit_mul(c, size_temp, count_temp, stride_temp);
             } else {
                 size_t elem_size = (sym->type.base && sym->type.base->size > 0) ? sym->type.base->size : 4;
                 if (elem_size == 1) {
                     size_temp = count_temp;
                 } else {
-                    int sz_imm = c->next_temp_id++;
+                    int sz_imm = zc_alloc_temp(c);
                     ir_emit_mov_imm(c, sz_imm, (int32_t)elem_size);
-                    size_temp = c->next_temp_id++;
+                    size_temp = zc_alloc_temp(c);
                     ir_emit_mul(c, size_temp, count_temp, sz_imm);
                 }
             }
@@ -667,19 +667,19 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
             ir_emit_store(c, size_temp, BE(c)->fp_reg, -sym->vla_slot_off);
 
             /* 3. Align size to 16 bytes: (size + 15) & ~15 */
-            int add15 = c->next_temp_id++;
+            int add15 = zc_alloc_temp(c);
             ir_emit_mov_imm(c, add15, 15);
-            int size_p15 = c->next_temp_id++;
+            int size_p15 = zc_alloc_temp(c);
             ir_emit_add(c, size_p15, size_temp, add15);
-            int mask16 = c->next_temp_id++;
+            int mask16 = zc_alloc_temp(c);
             ir_emit_mov_imm(c, mask16, -16);
-            int aligned_size = c->next_temp_id++;
+            int aligned_size = zc_alloc_temp(c);
             ir_emit_and(c, aligned_size, size_p15, mask16);
 
             /* 4. Allocate dynamically on stack via sub rsp, reg (with saved-SP watermark) */
-            int vla_ptr = c->next_temp_id++;
-            ir_emit(c, (Instr){.op = OP_VLA_ALLOC, .temp_dest = (uint16_t)vla_ptr,
-                               .temp_src1 = (uint16_t)aligned_size, .temp_src2 = TEMP_NONE,
+            int vla_ptr = zc_alloc_temp(c);
+            ir_emit(c, (Instr){.op = OP_VLA_ALLOC, .temp_dest = vla_ptr,
+                               .temp_src1 = aligned_size, .temp_src2 = TEMP_NONE,
                                .imm = -(sym->stack_offset - 8), .label_idx = 0});
 
             /* 5. Store the buffer pointer in the local variable's stack slot */
@@ -694,8 +694,8 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
         ZeroCCSym *lsym = lowering_local_sym(c, node, node->s.str);
         if (lsym && lsym->is_label_value) {
             uint16_t lbl = get_or_create_user_ir_label(c, node->s.str);
-            int addr_temp = c->next_temp_id++;
-            ir_emit_lea_label(c, (uint16_t)addr_temp, lbl);
+            int addr_temp = zc_alloc_temp(c);
+            ir_emit_lea_label(c, (uint32_t)addr_temp, lbl);
             ir_emit_store(c, addr_temp, BE(c)->fp_reg, -lsym->stack_offset);
             c->last_expr_is_float = 0;
             return;
@@ -722,7 +722,7 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
             for (size_t li = self_idx + 1; li < c->local_count; li++) {
                 if (c->locals[li].is_vla && c->locals[li].stack_offset >= 16) {
                     if (zero_sp == TEMP_NONE) {
-                        zero_sp = c->next_temp_id++;
+                        zero_sp = zc_alloc_temp(c);
                         ir_emit_mov_imm(c, zero_sp, 0);
                     }
                     ir_emit_store(c, zero_sp, BE(c)->fp_reg, -(c->locals[li].stack_offset - 8));
@@ -742,16 +742,16 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
             ASTRef sz_ast = zc_vla_struct_size_ast(arena, (ZeroCCASTArena *)c->tu_ast_arena, vs, vs->struct_name);
             int size_temp = (sz_ast != AST_NULL) ? lower_expr(c, arena, sz_ast) : -1;
             if (size_temp < 0) {
-                size_temp = c->next_temp_id++;
+                size_temp = zc_alloc_temp(c);
                 ir_emit_mov_imm(c, size_temp, (int32_t)vs->size);
             }
             /* Constant array of VLA structs: multiply by the element count. */
             if (vls->type.tag == TYPE_ARRAY && vls->type.base && vls->type.base->size > 0) {
                 size_t cnt = vls->type.size / vls->type.base->size;
                 if (cnt > 1) {
-                    int k = c->next_temp_id++;
+                    int k = zc_alloc_temp(c);
                     ir_emit_mov_imm(c, k, (int32_t)cnt);
-                    int t2 = c->next_temp_id++;
+                    int t2 = zc_alloc_temp(c);
                     ir_emit_mul(c, t2, size_temp, k);
                     size_temp = t2;
                 }
@@ -760,18 +760,18 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
             ir_emit_store(c, size_temp, BE(c)->fp_reg, -vls->vla_slot_off);
 
             /* Align size to 16 bytes: (size + 15) & ~15 */
-            int add15 = c->next_temp_id++;
+            int add15 = zc_alloc_temp(c);
             ir_emit_mov_imm(c, add15, 15);
-            int size_p15 = c->next_temp_id++;
+            int size_p15 = zc_alloc_temp(c);
             ir_emit_add(c, size_p15, size_temp, add15);
-            int mask16 = c->next_temp_id++;
+            int mask16 = zc_alloc_temp(c);
             ir_emit_mov_imm(c, mask16, -16);
-            int aligned_size = c->next_temp_id++;
+            int aligned_size = zc_alloc_temp(c);
             ir_emit_and(c, aligned_size, size_p15, mask16);
 
-            int vla_ptr = c->next_temp_id++;
-            ir_emit(c, (Instr){.op = OP_VLA_ALLOC, .temp_dest = (uint16_t)vla_ptr,
-                               .temp_src1 = (uint16_t)aligned_size, .temp_src2 = TEMP_NONE,
+            int vla_ptr = zc_alloc_temp(c);
+            ir_emit(c, (Instr){.op = OP_VLA_ALLOC, .temp_dest = vla_ptr,
+                               .temp_src1 = aligned_size, .temp_src2 = TEMP_NONE,
                                .imm = -(vls->stack_offset - 8), .label_idx = 0});
 
             ir_emit_store(c, vla_ptr, BE(c)->fp_reg, -vls->stack_offset);
@@ -798,7 +798,7 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
             size_t total_size = str_sym->type.size;
             size_t copy_len = str_init_node->s_len + term_sz; /* may contain embedded NULs */
             if (copy_len > total_size) copy_len = total_size; /* C11 6.7.9p12: truncate */
-            int zero_temp = c->next_temp_id++;
+            int zero_temp = zc_alloc_temp(c);
             ir_emit_mov_imm(c, zero_temp, 0);
             size_t zoff = 0;
             while (zoff < total_size) {
@@ -811,7 +811,7 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                 if (chunk == 8) {
                     ir_emit_store(c, zero_temp, BE(c)->fp_reg, store_offset);
                 } else {
-                    int addr_temp = c->next_temp_id++;
+                    int addr_temp = zc_alloc_temp(c);
                     ir_emit_lea(c, addr_temp, TEMP_NONE, store_offset);
                     if (chunk == 4) {
                         ir_emit_store_32(c, zero_temp, addr_temp);
@@ -827,17 +827,17 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                 size_t n_words = str_init_node->s_len / 4;
                 const uint32_t *wlit = (const uint32_t *)lit;
                 for (size_t i = 0; i < n_words && (i + 1) * 4 <= total_size; i++) {
-                    int val_temp = c->next_temp_id++;
+                    int val_temp = zc_alloc_temp(c);
                     ir_emit_mov_imm(c, val_temp, (int32_t)wlit[i]);
-                    int addr_temp = c->next_temp_id++;
+                    int addr_temp = zc_alloc_temp(c);
                     ir_emit_lea(c, addr_temp, TEMP_NONE, -(int32_t)(str_sym->stack_offset - (int32_t)(i * 4)));
                     ir_emit_store_32(c, val_temp, addr_temp);
                 }
             } else {
                 for (size_t i = 0; i < copy_len; i++) {
-                    int val_temp = c->next_temp_id++;
+                    int val_temp = zc_alloc_temp(c);
                     ir_emit_mov_imm(c, val_temp, (int32_t)(unsigned char)lit[i]);
-                    int addr_temp = c->next_temp_id++;
+                    int addr_temp = zc_alloc_temp(c);
                     ir_emit_lea(c, addr_temp, TEMP_NONE, -(int32_t)(str_sym->stack_offset - (int32_t)i));
                     ir_emit_store_byte(c, val_temp, addr_temp);
                 }
@@ -887,23 +887,23 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                 if (r_esz == 0) r_esz = 8;
                 if (r_is_fp && r_esz != 4 && r_esz != 8) r_esz = 8;
 
-                int rh = c->next_temp_id++, li = c->next_temp_id++;
+                int rh = zc_alloc_temp(c), li = zc_alloc_temp(c);
                 if (rhs_is_cx) {
                     if (r_is_fp) {
                         if (r_esz == 4) {
-                            ir_emit_vloadss(c, rh, (uint16_t)result_temp);
-                            int o2 = c->next_temp_id++; ir_emit_mov_imm(c, o2, 4);
-                            int a2 = c->next_temp_id++; ir_emit_add(c, a2, result_temp, o2);
-                            ir_emit_vloadss(c, li, (uint16_t)a2);
+                            ir_emit_vloadss(c, rh, (uint32_t)result_temp);
+                            int o2 = zc_alloc_temp(c); ir_emit_mov_imm(c, o2, 4);
+                            int a2 = zc_alloc_temp(c); ir_emit_add(c, a2, result_temp, o2);
+                            ir_emit_vloadss(c, li, (uint32_t)a2);
                         } else {
-                            ir_emit_vloadsd(c, rh, (uint16_t)result_temp);
-                            int o2 = c->next_temp_id++; ir_emit_mov_imm(c, o2, 8);
-                            int a2 = c->next_temp_id++; ir_emit_add(c, a2, result_temp, o2);
-                            ir_emit_vloadsd(c, li, (uint16_t)a2);
+                            ir_emit_vloadsd(c, rh, (uint32_t)result_temp);
+                            int o2 = zc_alloc_temp(c); ir_emit_mov_imm(c, o2, 8);
+                            int a2 = zc_alloc_temp(c); ir_emit_add(c, a2, result_temp, o2);
+                            ir_emit_vloadsd(c, li, (uint32_t)a2);
                         }
                     } else {
-                        int o2 = c->next_temp_id++; ir_emit_mov_imm(c, o2, (int)r_esz);
-                        int a2 = c->next_temp_id++; ir_emit_add(c, a2, result_temp, o2);
+                        int o2 = zc_alloc_temp(c); ir_emit_mov_imm(c, o2, (int)r_esz);
+                        int a2 = zc_alloc_temp(c); ir_emit_add(c, a2, result_temp, o2);
                         if (r_esz == 1) { ir_emit_load_byte(c, rh, result_temp); ir_emit_load_byte(c, li, a2); }
                         else if (r_esz == 2) { ir_emit_load_16(c, rh, result_temp); ir_emit_load_16(c, li, a2); }
                         else if (r_esz == 4) { ir_emit_load_32(c, rh, result_temp); ir_emit_load_32(c, li, a2); }
@@ -917,31 +917,31 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                     if (c->last_expr_is_float) {
                         r_is_fp = true;
                         rh = result_temp;
-                        li = c->next_temp_id++;
-                        ir_emit_fmov_imm(c, (uint16_t)li, (int64_t)zc_rodata_double_offset(c, 0.0));
+                        li = zc_alloc_temp(c);
+                        ir_emit_fmov_imm(c, (uint32_t)li, (int64_t)zc_rodata_double_offset(c, 0.0));
                     } else {
                         r_is_fp = false;
                         rh = result_temp;
-                        li = c->next_temp_id++;
+                        li = zc_alloc_temp(c);
                         ir_emit_mov_imm(c, li, 0);
                     }
                 }
 
                 /* Convert (rh, li) from (r_is_fp, r_esz) to (is_elem_fp, cesz) */
                 if (r_is_fp && !is_elem_fp) {
-                    int irh = c->next_temp_id++;
-                    ir_emit(c, (Instr){.op = OP_CVTTSD2SI, .temp_dest = (uint16_t)irh,
-                                       .temp_src1 = (uint16_t)rh, .temp_src2 = TEMP_NONE, .imm = 0, .label_idx = 0});
-                    int ili = c->next_temp_id++;
-                    ir_emit(c, (Instr){.op = OP_CVTTSD2SI, .temp_dest = (uint16_t)ili,
-                                       .temp_src1 = (uint16_t)li, .temp_src2 = TEMP_NONE, .imm = 0, .label_idx = 0});
+                    int irh = zc_alloc_temp(c);
+                    ir_emit(c, (Instr){.op = OP_CVTTSD2SI, .temp_dest = irh,
+                                       .temp_src1 = rh, .temp_src2 = TEMP_NONE, .imm = 0, .label_idx = 0});
+                    int ili = zc_alloc_temp(c);
+                    ir_emit(c, (Instr){.op = OP_CVTTSD2SI, .temp_dest = ili,
+                                       .temp_src1 = li, .temp_src2 = TEMP_NONE, .imm = 0, .label_idx = 0});
                     rh = irh;
                     li = ili;
                 } else if (!r_is_fp && is_elem_fp) {
-                    int frh = c->next_temp_id++;
-                    ir_emit_cvtsi2sd(c, (uint16_t)frh, (uint16_t)rh);
-                    int fli = c->next_temp_id++;
-                    ir_emit_cvtsi2sd(c, (uint16_t)fli, (uint16_t)li);
+                    int frh = zc_alloc_temp(c);
+                    ir_emit_cvtsi2sd(c, (uint32_t)frh, (uint32_t)rh);
+                    int fli = zc_alloc_temp(c);
+                    ir_emit_cvtsi2sd(c, (uint32_t)fli, (uint32_t)li);
                     rh = frh;
                     li = fli;
                 } else if (!r_is_fp && !is_elem_fp) {
@@ -952,22 +952,22 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                 /* Store (rh, li) to destination */
                 if (is_elem_fp) {
                     if (cesz == 4) {
-                        int a1 = c->next_temp_id++;
+                        int a1 = zc_alloc_temp(c);
                         ir_emit_lea(c, a1, BE(c)->fp_reg, soff);
-                        ir_emit_vstoress(c, (uint16_t)a1, (uint16_t)rh);
-                        int a1b = c->next_temp_id++;
+                        ir_emit_vstoress(c, (uint32_t)a1, (uint32_t)rh);
+                        int a1b = zc_alloc_temp(c);
                         ir_emit_lea(c, a1b, BE(c)->fp_reg, soff + 4);
-                        ir_emit_vstoress(c, (uint16_t)a1b, (uint16_t)li);
+                        ir_emit_vstoress(c, (uint32_t)a1b, (uint32_t)li);
                     } else {
-                        ir_emit_fstore(c, (uint16_t)rh, TEMP_NONE, soff);
-                        ir_emit_fstore(c, (uint16_t)li, TEMP_NONE, soff + (int)cesz);
+                        ir_emit_fstore(c, (uint32_t)rh, TEMP_NONE, soff);
+                        ir_emit_fstore(c, (uint32_t)li, TEMP_NONE, soff + (int)cesz);
                     }
                 } else {
-                    int sa = c->next_temp_id++;
+                    int sa = zc_alloc_temp(c);
                     ir_emit_lea(c, sa, BE(c)->fp_reg, soff);
-                    int sa2 = c->next_temp_id++;
+                    int sa2 = zc_alloc_temp(c);
                     ir_emit_mov_imm(c, sa2, (int)cesz);
-                    int sa3 = c->next_temp_id++;
+                    int sa3 = zc_alloc_temp(c);
                     ir_emit_add(c, sa3, sa, sa2);
                     if (cesz == 1) { ir_emit_store_byte(c, rh, sa); ir_emit_store_byte(c, li, sa3); }
                     else if (cesz == 2) { ir_emit_store_16(c, rh, sa); ir_emit_store_16(c, li, sa3); }
@@ -982,25 +982,25 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                 int float_temp = result_temp;
                 if (!c->last_expr_is_float) {
                     /* Convert int to float via IR */
-                    float_temp = c->next_temp_id++;
-                    ir_emit_cvtsi2sd(c, (uint16_t)float_temp, (uint16_t)result_temp);
+                    float_temp = zc_alloc_temp(c);
+                    ir_emit_cvtsi2sd(c, (uint32_t)float_temp, (uint32_t)result_temp);
                 }
                 /* Float assignment: store via IR */
                 if (sym->type.tag == TYPE_FLOAT) {
-                    int addr = c->next_temp_id++;
+                    int addr = zc_alloc_temp(c);
                     ir_emit_lea(c, addr, BE(c)->fp_reg, -sym->stack_offset);
-                    ir_emit_vstoress(c, (uint16_t)addr, (uint16_t)float_temp);
+                    ir_emit_vstoress(c, (uint32_t)addr, (uint32_t)float_temp);
                 } else {
-                    ir_emit_fstore(c, (uint16_t)float_temp, TEMP_NONE, -sym->stack_offset);
+                    ir_emit_fstore(c, (uint32_t)float_temp, TEMP_NONE, -sym->stack_offset);
                 }
                 c->last_expr_is_float = 1;
                 return;
             } else {
                 if (c->last_expr_is_float) {
                     /* Convert float to int via IR */
-                    int int_temp = c->next_temp_id++;
-                    ir_emit_cvttsd2si(c, (uint16_t)int_temp, (uint16_t)result_temp);
-                    ir_emit_store(c, (uint16_t)int_temp, BE(c)->fp_reg, -sym->stack_offset);
+                    int int_temp = zc_alloc_temp(c);
+                    ir_emit_cvttsd2si(c, (uint32_t)int_temp, (uint32_t)result_temp);
+                    ir_emit_store(c, (uint32_t)int_temp, BE(c)->fp_reg, -sym->stack_offset);
                     c->last_expr_is_float = 0;
                     return;
                 } else {
@@ -1017,7 +1017,7 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                                     for (int i = 0; i < num_chunks; i++) {
                                         size_t rem = sym->type.size - (size_t)(i * 8);
                                         if (rem >= 8) {
-                                            int chunk_temp = c->next_temp_id++;
+                                            int chunk_temp = zc_alloc_temp(c);
                                             ir_emit_load(c, chunk_temp, BE(c)->fp_reg, -(src_sym->stack_offset - i * 8));
                                             ir_emit_store(c, chunk_temp, BE(c)->fp_reg, -(sym->stack_offset - i * 8));
                                         } else {
@@ -1026,21 +1026,21 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                                              * overwrites the bytes adjacent to
                                              * the destination slot (c-torture
                                              * execute/va-arg-22). */
-                                            int tail_a = c->next_temp_id++;
+                                            int tail_a = zc_alloc_temp(c);
                                             ir_emit_lea(c, tail_a, BE(c)->fp_reg, -(src_sym->stack_offset - i * 8));
-                                            int dst_a = c->next_temp_id++;
+                                            int dst_a = zc_alloc_temp(c);
                                             ir_emit_lea(c, dst_a, BE(c)->fp_reg, -(sym->stack_offset - i * 8));
                                             for (size_t b = 0; b < rem; b++) {
-                                                int bv = c->next_temp_id++;
+                                                int bv = zc_alloc_temp(c);
                                                 int sa = tail_a, da = dst_a;
                                                 if (b) {
-                                                    int t = c->next_temp_id++;
+                                                    int t = zc_alloc_temp(c);
                                                     ir_emit_mov_imm(c, t, (int)b);
-                                                    sa = c->next_temp_id++;
+                                                    sa = zc_alloc_temp(c);
                                                     ir_emit_add(c, sa, tail_a, t);
-                                                    int t2 = c->next_temp_id++;
+                                                    int t2 = zc_alloc_temp(c);
                                                     ir_emit_mov_imm(c, t2, (int)b);
-                                                    da = c->next_temp_id++;
+                                                    da = zc_alloc_temp(c);
                                                     ir_emit_add(c, da, dst_a, t2);
                                                 }
                                                 ir_emit_load_byte(c, bv, sa);
@@ -1059,17 +1059,17 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
 
                                     for (int i = 0; i < num_chunks; i++) {
                                         size_t rem = sym->type.size - (size_t)(i * 8);
-                                        int chunk_temp = c->next_temp_id++;
+                                        int chunk_temp = zc_alloc_temp(c);
                                         int addr_temp;
                                         if (i == 0) {
-                                            addr_temp = c->next_temp_id++;
+                                            addr_temp = zc_alloc_temp(c);
                                             ir_emit_load(c, addr_temp, BE(c)->fp_reg, -buf_ptr_off);
                                         } else {
-                                            int base_temp = c->next_temp_id++;
+                                            int base_temp = zc_alloc_temp(c);
                                             ir_emit_load(c, base_temp, BE(c)->fp_reg, -buf_ptr_off);
-                                            int off_temp = c->next_temp_id++;
+                                            int off_temp = zc_alloc_temp(c);
                                             ir_emit_mov_imm(c, off_temp, i * 8);
-                                            addr_temp = c->next_temp_id++;
+                                            addr_temp = zc_alloc_temp(c);
                                             ir_emit_add(c, addr_temp, base_temp, off_temp);
                                         }
                                         int32_t dst_off = -(sym->stack_offset - i * 8);
@@ -1078,17 +1078,17 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                                             ir_emit_store(c, chunk_temp, BE(c)->fp_reg, dst_off);
                                         } else if (rem == 4) {
                                             ir_emit_load_32(c, chunk_temp, addr_temp);
-                                            int dst_addr = c->next_temp_id++;
+                                            int dst_addr = zc_alloc_temp(c);
                                             ir_emit_lea(c, dst_addr, TEMP_NONE, dst_off);
                                             ir_emit_store_32(c, chunk_temp, dst_addr);
                                         } else if (rem == 2) {
                                             ir_emit_load_16(c, chunk_temp, addr_temp);
-                                            int dst_addr = c->next_temp_id++;
+                                            int dst_addr = zc_alloc_temp(c);
                                             ir_emit_lea(c, dst_addr, TEMP_NONE, dst_off);
                                             ir_emit_store_16(c, chunk_temp, dst_addr);
                                         } else if (rem == 1) {
                                             ir_emit_load_byte(c, chunk_temp, addr_temp);
-                                            int dst_addr = c->next_temp_id++;
+                                            int dst_addr = zc_alloc_temp(c);
                                             ir_emit_lea(c, dst_addr, TEMP_NONE, dst_off);
                                             ir_emit_store_byte(c, chunk_temp, dst_addr);
                                         } else {
@@ -1098,22 +1098,22 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                                              * execute/va-arg-22: `A35 c = *p;`
                                              * lost the 35th byte). */
                                             for (size_t b = 0; b < rem; b++) {
-                                                int bv = c->next_temp_id++;
+                                                int bv = zc_alloc_temp(c);
                                                 int sa = addr_temp;
                                                 if (b) {
-                                                    int t = c->next_temp_id++;
+                                                    int t = zc_alloc_temp(c);
                                                     ir_emit_mov_imm(c, t, (int)b);
-                                                    sa = c->next_temp_id++;
+                                                    sa = zc_alloc_temp(c);
                                                     ir_emit_add(c, sa, addr_temp, t);
                                                 }
                                                 ir_emit_load_byte(c, bv, sa);
-                                                int dst_addr = c->next_temp_id++;
+                                                int dst_addr = zc_alloc_temp(c);
                                                 ir_emit_lea(c, dst_addr, TEMP_NONE, dst_off);
                                                 int da = dst_addr;
                                                 if (b) {
-                                                    int t = c->next_temp_id++;
+                                                    int t = zc_alloc_temp(c);
                                                     ir_emit_mov_imm(c, t, (int)b);
-                                                    da = c->next_temp_id++;
+                                                    da = zc_alloc_temp(c);
                                                     ir_emit_add(c, da, dst_addr, t);
                                                 }
                                                 ir_emit_store_byte(c, bv, da);
@@ -1146,7 +1146,7 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                                  * result_temp is the object's ADDRESS, so
                                  * it falls into the generic address form. */
                                 for (int i = 0; i < num_chunks; i++) {
-                                    int ch_val = c->next_temp_id++;
+                                    int ch_val = zc_alloc_temp(c);
                                     if (src_is_vec_ident) {
                                         if (src_sym->is_promoted) {
                                             ch_val = src_sym->promoted_vreg;  /* 8B single-reg */
@@ -1157,9 +1157,9 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                                         if (i == 0) {
                                             ir_emit_deref(c, ch_val, result_temp);
                                         } else {
-                                            int o8 = c->next_temp_id++;
+                                            int o8 = zc_alloc_temp(c);
                                             ir_emit_mov_imm(c, o8, i * 8);
-                                            int a2 = c->next_temp_id++;
+                                            int a2 = zc_alloc_temp(c);
                                             ir_emit_add(c, a2, result_temp, o8);
                                             ir_emit_deref(c, ch_val, a2);
                                         }
@@ -1173,23 +1173,23 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                                                       ast_expr_is_struct_addr(c, arena, node->left);
                             if (rhs_is_struct_addr) {
                                 if (sym->type.size <= 8) {
-                                    int val_temp = c->next_temp_id++;
+                                    int val_temp = zc_alloc_temp(c);
                                     if (sym->type.size == 1) ir_emit_load_byte(c, val_temp, result_temp);
                                     else if (sym->type.size == 2) ir_emit_load_16(c, val_temp, result_temp);
                                     else if (sym->type.size == 4) ir_emit_load_32(c, val_temp, result_temp);
                                     else ir_emit_deref(c, val_temp, result_temp);
                                     ir_emit_store(c, val_temp, BE(c)->fp_reg, -sym->stack_offset);
                                 } else {
-                                    int val1 = c->next_temp_id++;
+                                    int val1 = zc_alloc_temp(c);
                                     ir_emit_deref(c, val1, result_temp);
                                     ir_emit_store(c, val1, BE(c)->fp_reg, -sym->stack_offset);
 
-                                    int off8 = c->next_temp_id++;
+                                    int off8 = zc_alloc_temp(c);
                                     ir_emit_mov_imm(c, off8, 8);
-                                    int addr2 = c->next_temp_id++;
+                                    int addr2 = zc_alloc_temp(c);
                                     ir_emit_add(c, addr2, result_temp, off8);
 
-                                    int val2 = c->next_temp_id++;
+                                    int val2 = zc_alloc_temp(c);
                                     size_t rem = sym->type.size - 8;
                                     if (rem == 8) {
                                         ir_emit_deref(c, val2, addr2);
@@ -1199,7 +1199,7 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                                         else if (rem == 2) ir_emit_load_16(c, val2, addr2);
                                         else if (rem == 4) ir_emit_load_32(c, val2, addr2);
                                         else ir_emit_deref(c, val2, addr2);
-                                        int dst_a = c->next_temp_id++;
+                                        int dst_a = zc_alloc_temp(c);
                                         ir_emit_lea(c, dst_a, TEMP_NONE, -(sym->stack_offset - 8));
                                         zc_store_low_bytes(c, val2, dst_a, rem);
                                     }
@@ -1212,12 +1212,12 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                                      * Widen a non-128-bit initializer (e.g. a literal) first. */
                                     bool unsigned_128 = zero_cc_type_is_unsigned(&sym->type);
                                     if (!result_is128) {
-                                        int d = c->next_temp_id++;
+                                        int d = zc_alloc_temp(c);
                                         if (unsigned_128) ir_emit_zext64_128(c, d, result_temp);
                                         else ir_emit_sext64_128(c, d, result_temp);
                                         result_temp = d;
                                     }
-                                    int addr128 = c->next_temp_id++;
+                                    int addr128 = zc_alloc_temp(c);
                                     ir_emit_lea(c, addr128, BE(c)->fp_reg, -sym->stack_offset);
                                     ir_emit_store128(c, result_temp, addr128);
                                     c->last_expr_is_float = 0;
@@ -1226,7 +1226,7 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                                 if (src_sym && (src_sym->type.tag == TYPE_STRUCT || src_sym->type.tag == TYPE_UNION) && sym->type.size > 16) {
                                     int num_chunks = (int)((sym->type.size + 7) / 8);
                                     for (int ch = 0; ch < num_chunks; ch++) {
-                                        int ch_val = c->next_temp_id++;
+                                        int ch_val = zc_alloc_temp(c);
                                         ir_emit_load(c, ch_val, BE(c)->fp_reg, -(src_sym->stack_offset - ch * 8));
                                         ir_emit_store(c, ch_val, BE(c)->fp_reg, -(sym->stack_offset - ch * 8));
                                     }
@@ -1241,7 +1241,7 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                                          * via regalloc_get_reg_for_temp. Store only the remaining
                                          * (size-8) bytes - a full 8-byte store scribbles the bytes
                                          * adjacent to the slot (c-torture execute/va-arg-22). */
-                                        int dst_addr = c->next_temp_id++;
+                                        int dst_addr = zc_alloc_temp(c);
                                         ir_emit_lea(c, dst_addr, TEMP_NONE, -(sym->stack_offset - 8));
                                         zc_store_low_bytes(c, VREG_2, dst_addr, sym->type.size - 8);
                                     }
@@ -1280,7 +1280,7 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                 if (!c->last_expr_is_float) {
                     if (ret128) {
                         if (!c->last_expr_is_128) {
-                            int d = c->next_temp_id++;
+                            int d = zc_alloc_temp(c);
                             if (zero_cc_type_is_unsigned(&c->lowering.inlining.return_type))
                                 ir_emit_zext64_128(c, d, res);
                             else
@@ -1320,7 +1320,7 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                         cur_fn2->return_type.tag == TYPE_UINT128)) {
             int res = lower_expr(c, arena, node->left);
             if (!c->last_expr_is_128) {
-                int d = c->next_temp_id++;
+                int d = zc_alloc_temp(c);
                 if (zero_cc_type_is_unsigned(&cur_fn2->return_type)) ir_emit_zext64_128(c, d, res);
                 else ir_emit_sext64_128(c, d, res);
                 res = d;
@@ -1344,7 +1344,7 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
 
             int caddr = TEMP_NONE;
             if (sym && zero_cc_type_is_complex(&sym->type)) {
-                caddr = c->next_temp_id++;
+                caddr = zc_alloc_temp(c);
                 ir_emit_lea(c, caddr, BE(c)->fp_reg, -sym->stack_offset);
             } else {
                 int cval = lower_expr(c, arena, node->left);
@@ -1361,16 +1361,16 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                          * model double into the low 32 bits of xmm0 (the
                          * ABI float pattern) instead of a raw fmov. */
                         if (ret_esz == 4)
-                            ir_emit_cvttsd2ss(c, (uint16_t)VREG_F0, (uint16_t)cval);
+                            ir_emit_cvttsd2ss(c, (uint32_t)VREG_F0, (uint32_t)cval);
                         else
-                            ir_emit_fmov(c, (uint16_t)VREG_F0, (uint16_t)cval);
-                        int rz = c->next_temp_id++;
-                        ir_emit_fmov_imm(c, (uint16_t)rz, (int64_t)zc_rodata_double_offset(c, 0.0));
-                        ir_emit_fmov(c, (uint16_t)VREG_F1, (uint16_t)rz);
+                            ir_emit_fmov(c, (uint32_t)VREG_F0, (uint32_t)cval);
+                        int rz = zc_alloc_temp(c);
+                        ir_emit_fmov_imm(c, (uint32_t)rz, (int64_t)zc_rodata_double_offset(c, 0.0));
+                        ir_emit_fmov(c, (uint32_t)VREG_F1, (uint32_t)rz);
                     } else {
-                        int ival = c->next_temp_id++;
-                        ir_emit(c, (Instr){.op = OP_CVTTSD2SI, .temp_dest = (uint16_t)ival,
-                                           .temp_src1 = (uint16_t)cval, .temp_src2 = TEMP_NONE, .imm = 0, .label_idx = 0});
+                        int ival = zc_alloc_temp(c);
+                        ir_emit(c, (Instr){.op = OP_CVTTSD2SI, .temp_dest = ival,
+                                           .temp_src1 = cval, .temp_src2 = TEMP_NONE, .imm = 0, .label_idx = 0});
                         ir_emit_mov_reg(c, VREG_0, ival);
                         if (ret_csz > 8) ir_emit_mov_imm(c, VREG_2, 0);
                     }
@@ -1380,15 +1380,15 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                 } else if (!rhs_is_cx) {
                     /* Scalar integer operand */
                     if (ret_cx_is_fp) {
-                        int fv = c->next_temp_id++;
-                        ir_emit_cvtsi2sd(c, (uint16_t)fv, (uint16_t)cval);
+                        int fv = zc_alloc_temp(c);
+                        ir_emit_cvtsi2sd(c, (uint32_t)fv, (uint32_t)cval);
                         if (ret_esz == 4)
-                            ir_emit_cvttsd2ss(c, (uint16_t)VREG_F0, (uint16_t)fv);
+                            ir_emit_cvttsd2ss(c, (uint32_t)VREG_F0, (uint32_t)fv);
                         else
-                            ir_emit_fmov(c, (uint16_t)VREG_F0, (uint16_t)fv);
-                        int rz = c->next_temp_id++;
-                        ir_emit_fmov_imm(c, (uint16_t)rz, (int64_t)zc_rodata_double_offset(c, 0.0));
-                        ir_emit_fmov(c, (uint16_t)VREG_F1, (uint16_t)rz);
+                            ir_emit_fmov(c, (uint32_t)VREG_F0, (uint32_t)fv);
+                        int rz = zc_alloc_temp(c);
+                        ir_emit_fmov_imm(c, (uint32_t)rz, (int64_t)zc_rodata_double_offset(c, 0.0));
+                        ir_emit_fmov(c, (uint32_t)VREG_F1, (uint32_t)rz);
                     } else {
                         ir_emit_mov_reg(c, VREG_0, cval);
                         if (ret_csz > 8) ir_emit_mov_imm(c, VREG_2, 0);
@@ -1401,8 +1401,8 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
             }
 
             if (ret_cx_is_fp) {
-                int o2 = c->next_temp_id++; ir_emit_mov_imm(c, o2, (int)ret_esz);
-                int a2 = c->next_temp_id++; ir_emit_add(c, a2, caddr, o2);
+                int o2 = zc_alloc_temp(c); ir_emit_mov_imm(c, o2, (int)ret_esz);
+                int a2 = zc_alloc_temp(c); ir_emit_add(c, a2, caddr, o2);
                 if (ret_esz == 4 && c->isa != ISA_RISCV32) {
                     /* psABI: a _Complex float return is ONE register - real
                      * in the low 32 bits, imaginary in the HIGH 32 bits.
@@ -1410,14 +1410,14 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                      * pattern ({real @+0, imag @+4}), so one raw 8-byte
                      * load (vloadsd = movsd/ldr d/fld) builds the register;
                      * gcc does the same memory round-trip. */
-                    ir_emit_vloadsd(c, (uint16_t)VREG_F0, (uint16_t)caddr);
+                    ir_emit_vloadsd(c, (uint32_t)VREG_F0, (uint32_t)caddr);
                 } else if (ret_esz == 4) {
                     /* RV32: two registers, float in each low 32. */
-                    ir_emit_vloadss_raw(c, (uint16_t)VREG_F0, (uint16_t)caddr);
-                    ir_emit_vloadss_raw(c, (uint16_t)VREG_F1, (uint16_t)a2);
+                    ir_emit_vloadss_raw(c, (uint32_t)VREG_F0, (uint32_t)caddr);
+                    ir_emit_vloadss_raw(c, (uint32_t)VREG_F1, (uint32_t)a2);
                 } else {
-                    ir_emit_vloadsd(c, (uint16_t)VREG_F0, (uint16_t)caddr);
-                    ir_emit_vloadsd(c, (uint16_t)VREG_F1, (uint16_t)a2);
+                    ir_emit_vloadsd(c, (uint32_t)VREG_F0, (uint32_t)caddr);
+                    ir_emit_vloadsd(c, (uint32_t)VREG_F1, (uint32_t)a2);
                 }
             } else {
                 if (ret_csz <= 8) {
@@ -1426,8 +1426,8 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                     else ir_emit_deref(c, VREG_0, caddr);
                 } else {
                     ir_emit_deref(c, VREG_0, caddr);
-                    int o2 = c->next_temp_id++; ir_emit_mov_imm(c, o2, 8);
-                    int a2 = c->next_temp_id++; ir_emit_add(c, a2, caddr, o2);
+                    int o2 = zc_alloc_temp(c); ir_emit_mov_imm(c, o2, 8);
+                    int a2 = zc_alloc_temp(c); ir_emit_add(c, a2, caddr, o2);
                     ir_emit_deref(c, VREG_2, a2);
                 }
             }
@@ -1443,7 +1443,7 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                                   sym->type.base->tag == TYPE_DOUBLE ||
                                   sym->type.base->is_long_double));
             int32_t cesz2 = (sym->type.base && sym->type.base->size > 0) ? sym->type.base->size : 8;
-            int caddr2 = c->next_temp_id++;
+            int caddr2 = zc_alloc_temp(c);
             ir_emit_lea(c, caddr2, BE(c)->fp_reg, -sym->stack_offset);
 
             bool ret_float = (cur_fn2 &&
@@ -1451,9 +1451,9 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                                cur_fn2->return_type.tag == TYPE_DOUBLE ||
                                cur_fn2->return_type.is_long_double));
             if (sym_cx_is_fp) {
-                int rt = c->next_temp_id++;
+                int rt = zc_alloc_temp(c);
                 if (cesz2 == 4) {
-                    ir_emit_vloadss(c, (uint16_t)rt, (uint16_t)caddr2);
+                    ir_emit_vloadss(c, (uint32_t)rt, (uint32_t)caddr2);
                 } else {
                     ir_emit_fload(c, rt, TEMP_NONE, -sym->stack_offset);
                 }
@@ -1461,18 +1461,18 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                     /* Sprint 115m: a `float` return narrows the real part to
                      * the ABI float pattern in the low 32 of xmm0. */
                     if (cur_fn2->return_type.tag == TYPE_FLOAT) {
-                        ir_emit_cvtsd2ss(c, (uint16_t)VREG_0, (uint16_t)rt);
+                        ir_emit_cvtsd2ss(c, (uint32_t)VREG_0, (uint32_t)rt);
                     } else {
-                        ir_emit_fmov(c, VREG_0, (uint16_t)rt);
+                        ir_emit_fmov(c, VREG_0, (uint32_t)rt);
                     }
                     c->last_expr_is_float = 1;
                 } else {
                     ir_emit(c, (Instr){.op = OP_CVTTSD2SI, .temp_dest = VREG_0,
-                        .temp_src1 = (uint16_t)rt, .temp_src2 = TEMP_NONE, .imm = 0, .label_idx = 0});
+                        .temp_src1 = rt, .temp_src2 = TEMP_NONE, .imm = 0, .label_idx = 0});
                     c->last_expr_is_float = 0;
                 }
             } else {
-                int rt = c->next_temp_id++;
+                int rt = zc_alloc_temp(c);
                 if (cesz2 == 1) ir_emit_load_byte(c, rt, caddr2);
                 else if (cesz2 == 2) ir_emit_load_16(c, rt, caddr2);
                 else if (cesz2 == 4) ir_emit_load_32(c, rt, caddr2);
@@ -1480,9 +1480,9 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
 
                 if (ret_float) {
                     if (cur_fn2->return_type.tag == TYPE_FLOAT)
-                        ir_emit_cvttsd2ss(c, (uint16_t)VREG_0, (uint16_t)VREG_0);
+                        ir_emit_cvttsd2ss(c, (uint32_t)VREG_0, (uint32_t)VREG_0);
                     else
-                        ir_emit_cvtsi2sd(c, (uint16_t)VREG_0, (uint16_t)rt);
+                        ir_emit_cvtsi2sd(c, (uint32_t)VREG_0, (uint32_t)rt);
                     if (cur_fn2->return_type.tag != TYPE_FLOAT)
                         c->last_expr_is_float = 1;
                     else
@@ -1542,17 +1542,17 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                 int num_chunks = (sym->type.size + 7) / 8;
                 for (int i = 0; i < num_chunks; i++) {
                     size_t rem = sym->type.size - (size_t)(i * 8);
-                    int chunk_temp = c->next_temp_id++;
+                    int chunk_temp = zc_alloc_temp(c);
                     int addr_temp;
                     if (i == 0) {
-                        addr_temp = c->next_temp_id++;
+                        addr_temp = zc_alloc_temp(c);
                         ir_emit_load(c, addr_temp, BE(c)->fp_reg, -sret_off);
                     } else {
-                        int base_temp = c->next_temp_id++;
+                        int base_temp = zc_alloc_temp(c);
                         ir_emit_load(c, base_temp, BE(c)->fp_reg, -sret_off);
-                        int off_temp = c->next_temp_id++;
+                        int off_temp = zc_alloc_temp(c);
                         ir_emit_mov_imm(c, off_temp, i * 8);
-                        addr_temp = c->next_temp_id++;
+                        addr_temp = zc_alloc_temp(c);
                         ir_emit_add(c, addr_temp, base_temp, off_temp);
                     }
 
@@ -1562,17 +1562,17 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                         ir_emit_load(c, chunk_temp, BE(c)->fp_reg, chunk_stack_off);
                         ir_emit_store_64(c, chunk_temp, addr_temp);
                     } else if (rem >= 4) {
-                        int src_addr = c->next_temp_id++;
+                        int src_addr = zc_alloc_temp(c);
                         ir_emit_lea(c, src_addr, TEMP_NONE, chunk_stack_off);
                         ir_emit_load_32(c, chunk_temp, src_addr);
                         ir_emit_store_32(c, chunk_temp, addr_temp);
                     } else if (rem >= 2) {
-                        int src_addr = c->next_temp_id++;
+                        int src_addr = zc_alloc_temp(c);
                         ir_emit_lea(c, src_addr, TEMP_NONE, chunk_stack_off);
                         ir_emit_load_16(c, chunk_temp, src_addr);
                         ir_emit_store_16(c, chunk_temp, addr_temp);
                     } else {
-                        int src_addr = c->next_temp_id++;
+                        int src_addr = zc_alloc_temp(c);
                         ir_emit_lea(c, src_addr, TEMP_NONE, chunk_stack_off);
                         ir_emit_load_byte(c, chunk_temp, src_addr);
                         ir_emit_store_byte(c, chunk_temp, addr_temp);
@@ -1595,15 +1595,15 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
         ZeroCCGlobalVar *gsym = (ret_expr && ret_expr->tag == NODE_IDENT) ? find_global_var(c, ret_expr->s.str) : NULL;
         if (gsym && (gsym->type.tag == TYPE_STRUCT || gsym->type.tag == TYPE_UNION) &&
             gsym->type.size > 0) {
-            int gaddr = c->next_temp_id++;
+            int gaddr = zc_alloc_temp(c);
             if (gsym->is_tls && !c->jit_mode) ir_emit_tls_lea(c, gaddr, gsym->name);
             else ir_emit_mov_global(c, gaddr, gsym->name);
             if (gsym->type.size <= 16) {
                 ir_emit_deref(c, VREG_0, gaddr);
                 if (gsym->type.size > 8) {
-                    int off_t = c->next_temp_id++;
+                    int off_t = zc_alloc_temp(c);
                     ir_emit_mov_imm(c, off_t, 8);
-                    int a2 = c->next_temp_id++;
+                    int a2 = zc_alloc_temp(c);
                     ir_emit_add(c, a2, gaddr, off_t);
                     ir_emit_deref(c, VREG_2, a2);
                 }
@@ -1617,23 +1617,23 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
             for (int i = 0; i < g_chunks; i++) {
                 int s_base = gaddr;
                 if (i > 0) {
-                    int s_off = c->next_temp_id++;
+                    int s_off = zc_alloc_temp(c);
                     ir_emit_mov_imm(c, s_off, i * 8);
-                    s_base = c->next_temp_id++;
+                    s_base = zc_alloc_temp(c);
                     ir_emit_add(c, s_base, gaddr, s_off);
                 }
-                int d_base = c->next_temp_id++;
+                int d_base = zc_alloc_temp(c);
                 ir_emit_load(c, d_base, BE(c)->fp_reg, -gs_off);
                 if (i > 0) {
-                    int d_off = c->next_temp_id++;
+                    int d_off = zc_alloc_temp(c);
                     ir_emit_mov_imm(c, d_off, i * 8);
-                    int d_addr = c->next_temp_id++;
+                    int d_addr = zc_alloc_temp(c);
                     ir_emit_add(c, d_addr, d_base, d_off);
-                    int gchunk = c->next_temp_id++;
+                    int gchunk = zc_alloc_temp(c);
                     ir_emit_deref(c, gchunk, s_base);
                     ir_emit_store_64(c, gchunk, d_addr);
                 } else {
-                    int gchunk = c->next_temp_id++;
+                    int gchunk = zc_alloc_temp(c);
                     ir_emit_deref(c, gchunk, s_base);
                     ir_emit_store_64(c, gchunk, d_base);
                 }
@@ -1654,34 +1654,34 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                                cur_fn->return_type.tag == TYPE_DOUBLE ||
                                cur_fn->return_type.is_long_double));
             if (r_fp) {
-                int rt = c->next_temp_id++;
-                if (r_esz == 4) ir_emit_vloadss(c, (uint16_t)rt, (uint16_t)result_temp);
-                else ir_emit_vloadsd(c, (uint16_t)rt, (uint16_t)result_temp);
+                int rt = zc_alloc_temp(c);
+                if (r_esz == 4) ir_emit_vloadss(c, (uint32_t)rt, (uint32_t)result_temp);
+                else ir_emit_vloadsd(c, (uint32_t)rt, (uint32_t)result_temp);
                 if (ret_float) {
                     /* Sprint 115m: a `float` return narrows the real part to
                      * the ABI float pattern in the low 32 of xmm0. */
                     if (cur_fn->return_type.tag == TYPE_FLOAT) {
-                        ir_emit_cvtsd2ss(c, (uint16_t)VREG_0, (uint16_t)rt);
+                        ir_emit_cvtsd2ss(c, (uint32_t)VREG_0, (uint32_t)rt);
                     } else {
-                        ir_emit_fmov(c, VREG_0, (uint16_t)rt);
+                        ir_emit_fmov(c, VREG_0, (uint32_t)rt);
                     }
                     c->last_expr_is_float = 1;
                 } else {
                     ir_emit(c, (Instr){.op = OP_CVTTSD2SI, .temp_dest = VREG_0,
-                        .temp_src1 = (uint16_t)rt, .temp_src2 = TEMP_NONE, .imm = 0, .label_idx = 0});
+                        .temp_src1 = rt, .temp_src2 = TEMP_NONE, .imm = 0, .label_idx = 0});
                     c->last_expr_is_float = 0;
                 }
             } else {
-                int rt = c->next_temp_id++;
+                int rt = zc_alloc_temp(c);
                 if (r_esz == 1) ir_emit_load_byte(c, rt, result_temp);
                 else if (r_esz == 2) ir_emit_load_16(c, rt, result_temp);
                 else if (r_esz == 4) ir_emit_load_32(c, rt, result_temp);
                 else ir_emit_deref(c, rt, result_temp);
                 if (ret_float) {
                     if (cur_fn->return_type.tag == TYPE_FLOAT)
-                        ir_emit_cvttsd2ss(c, (uint16_t)VREG_0, (uint16_t)VREG_0);
+                        ir_emit_cvttsd2ss(c, (uint32_t)VREG_0, (uint32_t)VREG_0);
                     else
-                        ir_emit_cvtsi2sd(c, (uint16_t)VREG_0, (uint16_t)rt);
+                        ir_emit_cvtsi2sd(c, (uint32_t)VREG_0, (uint32_t)rt);
                     if (cur_fn->return_type.tag != TYPE_FLOAT)
                         c->last_expr_is_float = 1;
                     else
@@ -1709,11 +1709,11 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                  * load the 8-byte chunks into the register pair. */
                 ir_emit_deref(c, VREG_0, result_temp);
                 if (fn_ret.size > 8) {
-                    int off = c->next_temp_id++;
+                    int off = zc_alloc_temp(c);
                     ir_emit_mov_imm(c, off, 8);
-                    int a2 = c->next_temp_id++;
+                    int a2 = zc_alloc_temp(c);
                     ir_emit_add(c, a2, result_temp, off);
-                    int ch2 = c->next_temp_id++;
+                    int ch2 = zc_alloc_temp(c);
                     ir_emit_deref(c, ch2, a2);
                     ir_emit_mov_reg(c, VREG_2, ch2);
                 }
@@ -1734,27 +1734,27 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
             int num_chunks = (int)((st_size + 7) / 8);
             for (int i = 0; i < num_chunks; i++) {
                 size_t rem = st_size - (size_t)(i * 8);
-                int chunk_temp = c->next_temp_id++;
+                int chunk_temp = zc_alloc_temp(c);
                 int src_addr;
                 int dst_addr;
                 if (i == 0) {
-                    src_addr = c->next_temp_id++;
+                    src_addr = zc_alloc_temp(c);
                     ir_emit_load(c, src_addr, BE(c)->fp_reg, -src_ptr_off);
-                    dst_addr = c->next_temp_id++;
+                    dst_addr = zc_alloc_temp(c);
                     ir_emit_load(c, dst_addr, BE(c)->fp_reg, -sret_off);
                 } else {
-                    int s_base = c->next_temp_id++;
+                    int s_base = zc_alloc_temp(c);
                     ir_emit_load(c, s_base, BE(c)->fp_reg, -src_ptr_off);
-                    int s_off = c->next_temp_id++;
+                    int s_off = zc_alloc_temp(c);
                     ir_emit_mov_imm(c, s_off, i * 8);
-                    src_addr = c->next_temp_id++;
+                    src_addr = zc_alloc_temp(c);
                     ir_emit_add(c, src_addr, s_base, s_off);
 
-                    int d_base = c->next_temp_id++;
+                    int d_base = zc_alloc_temp(c);
                     ir_emit_load(c, d_base, BE(c)->fp_reg, -sret_off);
-                    int d_off = c->next_temp_id++;
+                    int d_off = zc_alloc_temp(c);
                     ir_emit_mov_imm(c, d_off, i * 8);
-                    dst_addr = c->next_temp_id++;
+                    dst_addr = zc_alloc_temp(c);
                     ir_emit_add(c, dst_addr, d_base, d_off);
                 }
                 if (rem >= 8) {
@@ -1796,11 +1796,11 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                      * the full ABI pair straight from the pointee. */
                     int ptr_t = lower_expr(c, arena, ret_expr->left);
                     ir_emit_deref(c, VREG_0, ptr_t);
-                    int roff = c->next_temp_id++;
+                    int roff = zc_alloc_temp(c);
                     ir_emit_mov_imm(c, roff, 8);
-                    int ra2 = c->next_temp_id++;
+                    int ra2 = zc_alloc_temp(c);
                     ir_emit_add(c, ra2, ptr_t, roff);
-                    int rch2 = c->next_temp_id++;
+                    int rch2 = zc_alloc_temp(c);
                     ir_emit_deref(c, rch2, ra2);
                     ir_emit_mov_reg(c, VREG_2, rch2);
                     ir_emit_jmp(c, c->lowering.epilogue_label);
@@ -1811,11 +1811,11 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                         ir_emit_deref(c, VREG_0, result_temp);
                     } else if (fn_ret_s.size <= 16) {
                         ir_emit_deref(c, VREG_0, result_temp);
-                        int roff = c->next_temp_id++;
+                        int roff = zc_alloc_temp(c);
                         ir_emit_mov_imm(c, roff, 8);
-                        int ra2 = c->next_temp_id++;
+                        int ra2 = zc_alloc_temp(c);
                         ir_emit_add(c, ra2, result_temp, roff);
-                        int rch2 = c->next_temp_id++;
+                        int rch2 = zc_alloc_temp(c);
                         ir_emit_deref(c, rch2, ra2);
                         ir_emit_mov_reg(c, VREG_2, rch2);
                     }
@@ -1849,8 +1849,8 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
         } else {
             /* Expression is float/double. If function returns integer, convert float to int */
             if (fn_ret_type.tag != TYPE_FLOAT && fn_ret_type.tag != TYPE_DOUBLE) {
-                int int_res = c->next_temp_id++;
-                ir_emit_cvttsd2si(c, (uint16_t)int_res, (uint16_t)result_temp);
+                int int_res = zc_alloc_temp(c);
+                ir_emit_cvttsd2si(c, (uint32_t)int_res, (uint32_t)result_temp);
                 zero_cc_emit_int_extend(c, int_res, &fn_ret_type);
                 ir_emit_mov_reg(c, VREG_0, int_res);
                 c->last_expr_is_float = 0;
@@ -1865,9 +1865,9 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                 /* Sprint 115m: `float` return - narrow the model double into
                  * the low 32 bits of xmm0 (the ABI float pattern). Valid
                  * in-place (final_float_temp == VREG_F0) too. */
-                ir_emit_cvttsd2ss(c, (uint16_t)VREG_F0, (uint16_t)final_float_temp);
+                ir_emit_cvttsd2ss(c, (uint32_t)VREG_F0, (uint32_t)final_float_temp);
             } else if (final_float_temp != VREG_F0) {
-                ir_emit_fmov(c, (uint8_t)VREG_F0, (uint16_t)final_float_temp);
+                ir_emit_fmov(c, (uint8_t)VREG_F0, (uint32_t)final_float_temp);
             }
         }
     } else {
@@ -1899,38 +1899,38 @@ static int lower_condition_as_int(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTR
     if (cond_ti && cond_ti->kind == TYPE_KIND_COMPLEX) {
         size_t esz = (cond_ti->details.array.base) ? type_size(cond_ti->details.array.base) : 8;
         if (esz != 4 && esz != 8) esz = 8;
-        int rh = c->next_temp_id++;
-        int li = c->next_temp_id++;
+        int rh = zc_alloc_temp(c);
+        int li = zc_alloc_temp(c);
         if (esz == 4) {
-            ir_emit_vloadss(c, rh, (uint16_t)cond_temp);
-            int o2 = c->next_temp_id++; ir_emit_mov_imm(c, o2, 4);
-            int a2 = c->next_temp_id++; ir_emit_add(c, a2, cond_temp, o2);
-            ir_emit_vloadss(c, li, (uint16_t)a2);
+            ir_emit_vloadss(c, rh, (uint32_t)cond_temp);
+            int o2 = zc_alloc_temp(c); ir_emit_mov_imm(c, o2, 4);
+            int a2 = zc_alloc_temp(c); ir_emit_add(c, a2, cond_temp, o2);
+            ir_emit_vloadss(c, li, (uint32_t)a2);
         } else {
-            ir_emit_vloadsd(c, rh, (uint16_t)cond_temp);
-            int o2 = c->next_temp_id++; ir_emit_mov_imm(c, o2, 8);
-            int a2 = c->next_temp_id++; ir_emit_add(c, a2, cond_temp, o2);
-            ir_emit_vloadsd(c, li, (uint16_t)a2);
+            ir_emit_vloadsd(c, rh, (uint32_t)cond_temp);
+            int o2 = zc_alloc_temp(c); ir_emit_mov_imm(c, o2, 8);
+            int a2 = zc_alloc_temp(c); ir_emit_add(c, a2, cond_temp, o2);
+            ir_emit_vloadsd(c, li, (uint32_t)a2);
         }
-        int zf = c->next_temp_id++;
-        ir_emit_fmov_imm(c, (uint16_t)zf, (int64_t)zc_rodata_double_offset(c, 0.0));
-        int cr = c->next_temp_id++;
+        int zf = zc_alloc_temp(c);
+        ir_emit_fmov_imm(c, (uint32_t)zf, (int64_t)zc_rodata_double_offset(c, 0.0));
+        int cr = zc_alloc_temp(c);
         ir_emit_cmp(c, rh, zf);
         ir_emit_cond_set(c, cr, CC_NE);
-        int ci = c->next_temp_id++;
+        int ci = zc_alloc_temp(c);
         ir_emit_cmp(c, li, zf);
         ir_emit_cond_set(c, ci, CC_NE);
-        int res = c->next_temp_id++;
+        int res = zc_alloc_temp(c);
         ir_emit_or(c, res, cr, ci);
         c->last_expr_is_float = 0;
         return res;
     }
     if (c->last_expr_is_float) {
-        int zero_i = c->next_temp_id++;
+        int zero_i = zc_alloc_temp(c);
         ir_emit_mov_imm(c, zero_i, 0);
-        int zero_f = c->next_temp_id++;
-        ir_emit_cvtsi2sd(c, (uint16_t)zero_f, (uint16_t)zero_i);
-        int cmp_i = c->next_temp_id++;
+        int zero_f = zc_alloc_temp(c);
+        ir_emit_cvtsi2sd(c, (uint32_t)zero_f, (uint32_t)zero_i);
+        int cmp_i = zc_alloc_temp(c);
         ir_emit_cmp(c, cond_temp, zero_f);
         ir_emit_cond_set(c, cmp_i, CC_NE);
         cond_temp = cmp_i;
@@ -1945,7 +1945,7 @@ void lower_stmt_if(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node
     int cond_temp = lower_condition_as_int(c, arena, node->left);
     uint16_t else_label = c->ir_next_label++;
     uint16_t end_label = c->ir_next_label++;
-    ir_emit_je(c, (uint16_t)cond_temp, else_label);
+    ir_emit_je(c, (uint32_t)cond_temp, else_label);
     lower_node(c, arena, node->right);
     ir_emit_jmp(c, end_label);
     ir_emit_label(c, else_label);
@@ -1968,7 +1968,7 @@ void lower_stmt_while(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
     label_patcher_enter_loop(&c->label_patcher, loop_exit, loop_start);
     ir_emit_label(c, loop_start);
     int cond_temp = lower_condition_as_int(c, arena, node->left);
-    ir_emit_je(c, (uint16_t)cond_temp, loop_exit);
+    ir_emit_je(c, (uint32_t)cond_temp, loop_exit);
     lower_node(c, arena, node->right);
     ir_emit_jmp(c, loop_start);
     ir_emit_label(c, loop_exit);
@@ -1990,7 +1990,7 @@ void lower_stmt_do_while(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode
     lower_node(c, arena, node->right);
     ir_emit_label(c, loop_cond);
     int cond_temp = lower_condition_as_int(c, arena, node->left);
-    ir_emit_jne(c, (uint16_t)cond_temp, loop_start);
+    ir_emit_jne(c, (uint32_t)cond_temp, loop_start);
     ir_emit_label(c, loop_exit);
     label_patcher_exit_loop(&c->label_patcher);
 
@@ -2018,7 +2018,7 @@ void lower_stmt_for(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
     ir_emit_label(c, loop_start);
     if (node->right != AST_NULL) {
         int cond_temp = lower_condition_as_int(c, arena, node->right);
-        ir_emit_je(c, (uint16_t)cond_temp, loop_exit);
+        ir_emit_je(c, (uint32_t)cond_temp, loop_exit);
     }
     if (node->aux.alt != AST_NULL) {
         lower_node(c, arena, node->aux.alt);
@@ -2046,7 +2046,7 @@ static void collect_switch_cases(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRe
         }
         if (sn->tag == NODE_CASE) {
             sn->aux.alt = c->ir_next_label++;
-            uint16_t case_label = (uint16_t)sn->aux.alt;
+            uint16_t case_label = (uint32_t)sn->aux.alt;
             if (sn->aux.step != 0) {
                 /* Range case: low in sn->left, high in sn->aux.step */
                 ZeroCCASTNode *low_n = zero_cc_ast_get(arena, sn->left);
@@ -2057,29 +2057,29 @@ static void collect_switch_cases(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRe
                                        low_n->int_val >= 0 && high_n->int_val < 0);
                 int low_temp = lower_expr(c, arena, sn->left);
                 int high_temp = lower_expr(c, arena, (ASTRef)sn->aux.step);
-                int flag_low = c->next_temp_id++;
+                int flag_low = zc_alloc_temp(c);
                 ir_emit_cmp(c, cond_temp, low_temp);
                 ir_emit_cond_set(c, flag_low, range_unsigned ? CC_FLT_GE : CC_GE);
-                int flag_high = c->next_temp_id++;
+                int flag_high = zc_alloc_temp(c);
                 ir_emit_cmp(c, cond_temp, high_temp);
                 ir_emit_cond_set(c, flag_high, range_unsigned ? CC_FLT_LE : CC_LE);
-                int in_range = c->next_temp_id++;
+                int in_range = zc_alloc_temp(c);
                 ir_emit_and(c, in_range, flag_low, flag_high);
-                ir_emit_jne(c, (uint16_t)in_range, case_label);
+                ir_emit_jne(c, (uint32_t)in_range, case_label);
             } else {
                 int val_temp = lower_expr(c, arena, sn->left);
-                int flag_temp = c->next_temp_id++;
+                int flag_temp = zc_alloc_temp(c);
                 ir_emit_cmp(c, cond_temp, val_temp);
                 ir_emit_cond_set(c, flag_temp, CC_EQ);
                 /* JE = jump-if-zero, so take the case when the flag is non-zero */
-                ir_emit_jne(c, (uint16_t)flag_temp, case_label);
+                ir_emit_jne(c, (uint32_t)flag_temp, case_label);
             }
             if (sn->right != AST_NULL) {
                 collect_switch_cases(c, arena, sn->right, cond_temp, default_label);
             }
         } else if (sn->tag == NODE_DEFAULT) {
             sn->aux.alt = c->ir_next_label++;
-            *default_label = (uint16_t)sn->aux.alt;
+            *default_label = (uint32_t)sn->aux.alt;
             if (sn->left != AST_NULL) {
                 collect_switch_cases(c, arena, sn->left, cond_temp, default_label);
             }
@@ -2227,9 +2227,9 @@ void lower_stmt_goto(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                     ZeroCCSym *rb = zero_cc_find_local(c, rn);
                     ZeroCCSym *rs = zero_cc_find_local(c, sn);
                     if (rb && rs) {
-                        int t1 = c->next_temp_id++;
+                        int t1 = zc_alloc_temp(c);
                         zc_sym_load(c, rb, 0, t1);
-                        int t2 = c->next_temp_id++;
+                        int t2 = zc_alloc_temp(c);
                         zc_sym_load(c, rs, 0, t2);
                         ir_emit_nonlocal_goto(c, t1, t2, (int)ai,
                                               af->nl_label_ir[li]);
@@ -2342,11 +2342,11 @@ void lower_node(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
             lower_stmt_switch(c, arena, node);
             break;
         case NODE_CASE:
-            if (node->aux.alt) ir_emit_label(c, (uint16_t)node->aux.alt);
+            if (node->aux.alt) ir_emit_label(c, (uint32_t)node->aux.alt);
             if (node->right != AST_NULL) lower_node(c, arena, node->right);
             break;
         case NODE_DEFAULT:
-            if (node->aux.alt) ir_emit_label(c, (uint16_t)node->aux.alt);
+            if (node->aux.alt) ir_emit_label(c, (uint32_t)node->aux.alt);
             if (node->left != AST_NULL) lower_node(c, arena, node->left);
             break;
         case NODE_BREAK:
