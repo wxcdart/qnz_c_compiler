@@ -1298,6 +1298,18 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                 }
             }
         }
+        /* A void return (a bare `return;`, or a valueless exit from a void
+         * body) reaches the exit label without defining
+         * `return_target_temp` - the fallthrough materialization after the
+         * cloned body is jumped over.  The caller may still read the call
+         * expression's "value" (a ternary arm MOVs it into its result temp),
+         * so materialize VREG_0 exactly like the non-inlined path does after
+         * the CALL (c-torture compile/pr39394: `x ? f1() : f1()` with inline
+         * void bodies). */
+        if (c->lowering.inlining.return_type.tag == TYPE_VOID &&
+            c->lowering.inlining.return_target_temp >= 0) {
+            ir_emit_mov_reg(c, c->lowering.inlining.return_target_temp, VREG_0);
+        }
         if (c->lowering.inlining.return_target_label != 0) {
             ir_emit_jmp(c, c->lowering.inlining.return_target_label);
         }
@@ -1942,7 +1954,6 @@ static int lower_condition_as_int(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTR
 
 void lower_stmt_if(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
     if (!node) return;
-    int saved_temp_id = c->next_temp_id;
     int cond_temp = lower_condition_as_int(c, arena, node->left);
     uint16_t else_label = c->ir_next_label++;
     uint16_t end_label = c->ir_next_label++;
@@ -1954,9 +1965,18 @@ void lower_stmt_if(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node
         lower_node(c, arena, node->aux.alt);
     }
     ir_emit_label(c, end_label);
-    if (saved_temp_id > 32768 && c->lowering.vla.loop_depth == 0) {
-        c->next_temp_id = saved_temp_id;
-    }
+    /* NOTE (Sprint 153): this used to rewind c->next_temp_id to the value
+     * saved at the top of the if (when saved > 32768), reusing the if's
+     * temp ids in later straight-line code.  That churn-reuse is the
+     * pre-Sprint-151b 16-bit-era budget mechanism - it is superseded by
+     * the liveness renumbering pass (opt_temp_renumber), which compacts
+     * the churned 32-bit id space to the PEAK-LIVE set after lowering.
+     * The rewind broke the invariant `c->next_temp_id > every temp id
+     * referenced in the IR`: instructions emitted inside the if referenced
+     * ids the rewind put back above the counter, so the renumber pass's
+     * `max_id = c->next_temp_id` underestimated them and its untracked-temp
+     * backstop rejected the function (c-torture compile/20001226-1: a
+     * function of 4096 `if (x[i]>y[i]) goto gt;`s churning ~33k temps). */
 }
 
 void lower_stmt_while(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {

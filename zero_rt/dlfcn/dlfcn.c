@@ -22,7 +22,14 @@
  *
  *   dlsym(handle, name)
  *     RTLD_DEFAULT / our handle: look up `name` in the running
- *     executable's own ELF .symtab. The executable is read back through
+ *     executable's own ELF .symtab. The primary source is a PRE-BAKED
+ *     embedded table (Sprint 153, Host Runtime #11 Phase 1):
+ *     tools/embed_symtab.py generates a .rodata array from the linked
+ *     binary whose entries take each symbol's address as a link-time
+ *     relocation, so `dlsym` works with zero /proc access (hardened
+ *     containers, chroots, sealed /proc). The table is always non-empty
+ *     in zerocc builds; when it is (or when ZERO_RT_DL=proc forces the
+ *     legacy path), the fallback below re-reads the executable through
  *     /proc/self/exe; its section headers are walked for SHT_SYMTAB and
  *     every defined symbol becomes (name, base + st_value). A non-PIE
  *     static ET_EXEC (the -no-pie build) keeps st_value addresses
@@ -52,6 +59,47 @@
 #include <errno.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
+
+/* ---- Sprint 153 (Host Runtime #11 Phase 1): pre-baked symbol table ----
+ *
+ * tools/embed_symtab.py (run by the Makefile right after the first link
+ * of zerocc) generates a .c file defining this array from the linked
+ * binary itself. Each entry takes the symbol's address by reference
+ * (an `extern` declaration + `&name`), i.e. a link-time relocation, so
+ * the table is always valid for whatever binary it is linked into — no
+ * absolute constants, no /proc/self/exe.  A fresh build bootstraps with
+ * a sentinel-only table (count 0), which makes the /proc fallback below
+ * stay live until the first regeneration fills it in.
+ *
+ * ZERO_RT_DL environment variable (diagnostics/testing):
+ *   "embedded"  - use only the embedded table (no /proc fallback);
+ *                 the hardened-container probe.
+ *   "proc"      - use only the legacy /proc/self/exe path.
+ *   (unset)     - embedded when non-empty, else /proc fallback. */
+typedef struct { const char *name; const void *addr; } ZeroRtEmbeddedSym;
+
+/* The table itself is a STRONG definition in the generated file, linked
+ * into the zerocc driver.  Test binaries (and any other link) that pull
+ * in dlfcn.o without the generated file get these WEAK sentinel-only
+ * defaults: count 0 keeps the /proc fallback below live, and the strong
+ * generated definitions always win where they are present. */
+__attribute__((weak)) const ZeroRtEmbeddedSym g_zero_rt_embedded_syms[] =
+    { { 0, 0 } };
+__attribute__((weak)) const unsigned long g_zero_rt_embedded_sym_count = 0;
+
+static void *zero_rt_embed_lookup(const char *name) {
+    if (g_zero_rt_embedded_sym_count == 0) return NULL;
+    const ZeroRtEmbeddedSym *t = g_zero_rt_embedded_syms;
+    size_t lo = 0, hi = g_zero_rt_embedded_sym_count;
+    while (lo < hi) {
+        size_t mid = (lo + hi) / 2;
+        int c = strcmp(t[mid].name, name);
+        if (c == 0) return (void *)t[mid].addr;
+        if (c < 0) lo = mid + 1;
+        else hi = mid;
+    }
+    return NULL;
+}
 
 /* ---- minimal ELF64 view (little-endian; matches <elf.h>) ---- */
 
@@ -259,6 +307,16 @@ static int zero_rt_sym_build(void) {
 
 static void *zero_rt_sym_lookup(const char *name) {
     if (!name || !name[0]) return NULL;
+    /* Sprint 153: the embedded table is the primary source (no /proc).
+     * ZERO_RT_DL is read per call (dlsym is rare; tests switch modes). */
+    const char *m = getenv("ZERO_RT_DL");
+    int proc_only = (m && strcmp(m, "proc") == 0) ? 1 : 0;
+    int embed_only = (m && strcmp(m, "embedded") == 0) ? 1 : 0;
+    if (!proc_only) {
+        void *sym = zero_rt_embed_lookup(name);
+        if (sym) return sym;
+        if (embed_only) return NULL; /* embedded-only: /proc disallowed */
+    }
     if (g_rt_sym_state == 0) {
         g_rt_sym_state = zero_rt_sym_build() ? 1 : -1;
     }

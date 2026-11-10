@@ -497,6 +497,25 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
 
                         /* Lower inlined body statements into IR */
                         lower_node(c, arena, cloned_body);
+
+                        /* `inline_res_temp` must be DEFINED on every path
+                         * reaching the exit label - the caller may read it
+                         * for any call expression (a ternary arm,
+                         * `x ? f() : g()`, MOVs the arm's "value" into the
+                         * result temp even for void arms).  The non-inlined
+                         * path always emits `MOV res = VREG_0` after the
+                         * CALL, so do the same here: the fallthrough
+                         * materializes VREG_0 (a body that falls off the end
+                         * without a return - noreturn body or missing return,
+                         * both UB but accepted - otherwise leaves the temp
+                         * undefined: c-torture compile/pr37913), and an
+                         * inlined `return;` in a void body is patched the same
+                         * way in lower_stmt_return (c-torture
+                         * compile/pr39394: `x ? f1() : f1()` with an empty
+                         * inline body).  Unspecified value, matching the
+                         * non-inlined case; dead code when every path
+                         * returns a value. */
+                        ir_emit_mov_reg(c, inline_res_temp, VREG_0);
                         ir_emit_label(c, inline_exit_label);
 
                         /* Restore previous inlining context */

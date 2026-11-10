@@ -319,6 +319,23 @@ def main():
             make_res = subprocess.run(["make", "-f", "Makefile", "all"], cwd=dep_dir, capture_output=True, text=True)
             ok = ok and make_res.returncode == 0 and "make-ok" in make_res.stdout
         check("dep-mmd-combo-and-make", ok, f"rc={rc} err={err!r} d={d_content!r}")
+
+    # Sprint 153 (Host Runtime #11 Phase 1): the driver's own dlfcn must
+    # resolve JIT far-call symbols from the pre-baked embedded table
+    # (tools/embed_symtab.py), with and without /proc/self/exe access.
+    # JIT-only: AOT binaries link zero_rt, which carries no dlfcn.
+        for mode in (None, "embedded", "proc"):
+            env = dict(os.environ)
+            if mode:
+                env["ZERO_RT_DL"] = mode
+            else:
+                env.pop("ZERO_RT_DL", None)
+            p = subprocess.run([BIN, src("dlopen_embedded.c"), "--run"],
+                               capture_output=True, text=True, env=env, timeout=60)
+            label = mode or "default"
+            ok = p.returncode == 0 and "dlopen-embedded ok" in p.stdout
+            check(f"dlopen-embedded-{label}", ok,
+                  f"rc={p.returncode} out={p.stdout!r} err={p.stderr!r}")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

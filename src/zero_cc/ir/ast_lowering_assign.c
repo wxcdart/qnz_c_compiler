@@ -947,6 +947,10 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
             } else if (p_size > 8 && !is_compound) {
                 zero_cc_emit_struct_copy_to_addr(c, arena, ptr_temp, p_size, node->right, right_temp);
                 c->last_expr_is_float = 0;
+                /* The assignment expression's value is its destination:
+                 * report the pointee's address (chained `*p = *q = r` etc.
+                 * copy from there). */
+                final_val = ptr_temp;
             }
             if (!c->last_expr_is_float) {
                 lower_extend_narrow(c, final_val, target_ti);
@@ -1078,7 +1082,7 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                 if ((m_size > 8 || m_rhs_struct_addr) && !is_compound) {
                     zero_cc_emit_struct_copy_to_addr(c, arena, addr, m_size, node->right, right_temp);
                     c->last_expr_is_float = 0;
-                    return right_temp;
+                    return (m_size > 8) ? addr : right_temp;
                 }
                 if (c->last_expr_is_float) {
                     if (m_size == 4) ir_emit_vstoress(c, addr, (uint32_t)right_temp);
@@ -1157,7 +1161,7 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                     if ((m_size > 8 || m_rhs_struct_addr) && !is_compound) {
                         zero_cc_emit_struct_copy_to_addr(c, arena, addr_temp, m_size, node->right, right_temp);
                         c->last_expr_is_float = 0;
-                        return right_temp;
+                        return (m_size > 8) ? addr_temp : right_temp;
                     }
                     if (right_is_float || c->last_expr_is_float) {
                         if (m_size == 4) {
@@ -1247,7 +1251,7 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                     if ((gm_size > 8 || gm_rhs_struct_addr) && !is_compound) {
                         zero_cc_emit_struct_copy_to_addr(c, arena, gen_addr, gm_size, node->right, right_temp);
                         c->last_expr_is_float = 0;
-                        return right_temp;
+                        return (gm_size > 8) ? gen_addr : right_temp;
                     }
                     if (right_is_float || c->last_expr_is_float) {
                         if (gm_size == 4) ir_emit_vstoress(c, gen_addr, (uint32_t)right_temp);
@@ -1323,7 +1327,7 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                     if ((m_size > 8 || m_rhs_struct_addr) && !is_compound) {
                         zero_cc_emit_struct_copy_to_addr(c, arena, addr_temp, m_size, node->right, right_temp);
                         c->last_expr_is_float = 0;
-                        return right_temp;
+                        return (m_size > 8) ? addr_temp : right_temp;
                     }
                     if (right_is_float || c->last_expr_is_float) {
                         if (m_size == 4) {
@@ -1430,7 +1434,7 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                 if ((m_size > 8 || m_rhs_struct_addr) && !is_compound) {
                     zero_cc_emit_struct_copy_to_addr(c, arena, addr_temp, m_size, node->right, right_temp);
                     c->last_expr_is_float = 0;
-                    return right_temp;
+                    return (m_size > 8) ? addr_temp : right_temp;
                 }
                 if (right_is_float || c->last_expr_is_float) {
                     if (m_size == 4) {
@@ -1533,7 +1537,7 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                 if ((mc_size2 > 8 || mc_rhs_struct_addr) && !is_compound) {
                     zero_cc_emit_struct_copy_to_addr(c, arena, mc_addr2, mc_size2, node->right, right_temp);
                     c->last_expr_is_float = 0;
-                    return right_temp;
+                    return (mc_size2 > 8) ? mc_addr2 : right_temp;
                 }
                 if (mc_size2 == 1) ir_emit_store_byte(c, (uint32_t)right_temp, (uint32_t)mc_addr2);
                 else if (mc_size2 == 2) ir_emit_store_16(c, (uint32_t)right_temp, (uint32_t)mc_addr2);
@@ -1744,7 +1748,7 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                 if (is_elem_struct && !is_compound) {
                     zero_cc_emit_struct_copy_to_addr(c, arena, addr_temp, elem_size, node->right, right_temp);
                     c->last_expr_is_float = 0;
-                    return right_temp;
+                    return (elem_size > 8) ? addr_temp : right_temp;
                 }
                 if (elem_size == 1) {
                     ir_emit_store_byte(c, right_temp, addr_temp);
@@ -1797,7 +1801,7 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                     ir_emit_lea(c, dst_addr, TEMP_NONE, -sym->stack_offset);
                     zero_cc_emit_struct_copy_to_addr(c, arena, dst_addr, vsize, node->right, right_temp);
                     c->last_expr_is_float = 0;
-                    return right_temp;
+                    return dst_addr;
                 }
                 /* <=8B vector: the RHS vector expression lowers to the
                  * ADDRESS of the vector object (decayed ident, per-lane
@@ -1983,6 +1987,12 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                     if ((sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 16 && !is_compound) {
                         int dst_addr = zc_sym_addr(c, sym, 0);  /* Sprint 72 */
                         zero_cc_emit_struct_copy_to_addr(c, arena, dst_addr, sym->type.size, node->right, right_temp);
+                        c->last_expr_is_float = 0;
+                        /* The assignment expression's value is its
+                         * destination (chained `a = b = y` copies from
+                         * there); right_temp may be undefined for a
+                         * generic RHS (c-torture compile/pr71109). */
+                        return dst_addr;
                     } else {
                         bool rhs_is_struct_addr = (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) &&
                                                   !is_compound && ast_expr_is_struct_addr(c, arena, node->right);
@@ -2060,6 +2070,19 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                         }
                     }
                     c->last_expr_is_float = 0;
+                    /* The assignment expression's value is its destination:
+                     * a struct/union local of size > 8 reports the local's
+                     * address (consistent with the NODE_ASSIGN classification
+                     * in ast_expr_is_struct_addr, which chained copies depend
+                     * on - returning right_temp there was a VALUE (or a
+                     * source address) that consumers dereferenced as the
+                     * destination (c-torture compile/pr71109, 9-16B case)).
+                     * VLA struct locals hold a pointer in the frame slot, so
+                     * keep the old value-return for them. */
+                    if ((sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) &&
+                        sym->type.size > 8 && !sym->is_vla_struct) {
+                        return zc_sym_addr(c, sym, 0);
+                    }
                     return right_temp;
                 }
             }
@@ -2167,7 +2190,7 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                     gv_sz > 8 && !is_compound) {
                     zero_cc_emit_struct_copy_to_addr(c, arena, gaddr_temp, gv_sz, node->right, right_temp);
                     c->last_expr_is_float = 0;
-                    return right_temp;
+                    return gaddr_temp;
                 }
                 bool rhs_is_struct_addr = (gv->type.tag == TYPE_STRUCT || gv->type.tag == TYPE_UNION) &&
                                           !is_compound && ast_expr_is_struct_addr(c, arena, node->right);
