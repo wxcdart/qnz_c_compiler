@@ -317,7 +317,7 @@ void opt_branchless_select(ZeroCCCompiler *c) {
     if (c->next_temp_id + 4 * n_sites >= 65535) return;
 
     /* Two-pass rebuild (same recipe as LICM): copy everything, splicing in
-     * the branchless sequence for each site; remap ir_call_args. */
+     * the branchless sequence for each site. */
     IRArena new_arena;
     if (!ir_arena_init(&new_arena, (size_t)count + (size_t)n_sites * 6 + 16)) return;
 
@@ -383,16 +383,7 @@ void opt_branchless_select(ZeroCCCompiler *c) {
         ir_arena_emit(&new_arena, *ir_get(c, i));
     }
 
-    /* Remap IRCallArgs indices (LICM recipe), then swap in the arena. */
-    if (c->ir_call_args.table) {
-        for (size_t ci = 0; ci < c->ir_call_args.count; ci++) {
-            size_t old_pos = c->ir_call_args.table[ci].instr_index;
-            if (old_pos < (size_t)count && old_to_new[old_pos] >= 0) {
-                c->ir_call_args.table[ci].instr_index = (size_t)old_to_new[old_pos];
-            }
-        }
-    }
-    /* Sprint 135: remap OP_ASM side-table indices the same way */
+    /* Sprint 135: remap OP_ASM side-table indices to new instruction positions */
     if (c->ir_asm_args.table) {
         for (size_t ai = 0; ai < c->ir_asm_args.count; ai++) {
             size_t old_pos = c->ir_asm_args.table[ai].instr_index;

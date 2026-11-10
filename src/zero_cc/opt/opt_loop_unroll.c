@@ -736,19 +736,8 @@ static bool lu_apply(ZeroCCCompiler *c, const LUPlan *plan) {
         ir_arena_emit(&new_arena, *ir_get(c, i));
     }
 
-    /* Remap the index-keyed side tables (LICM pattern).  No entries may
-     * point into the span (calls/asm are rejected there) - the map covers
-     * the shifted prefix/suffix entries. */
+    /* Sprint 135: remap OP_ASM side-table indices to new instruction positions */
     {
-        IRCallArgsArena *call_arena = &c->ir_call_args;
-        if (call_arena && call_arena->table) {
-            for (size_t ci = 0; ci < call_arena->count; ci++) {
-                size_t old_pos = call_arena->table[ci].instr_index;
-                if (old_pos < (size_t)count && old_to_new[old_pos] >= 0) {
-                    call_arena->table[ci].instr_index = (size_t)old_to_new[old_pos];
-                }
-            }
-        }
         IRAsmArgsArena *asm_arena = &c->ir_asm_args;
         if (asm_arena && asm_arena->table) {
             for (size_t ai = 0; ai < asm_arena->count; ai++) {

@@ -37,7 +37,17 @@ int assign_emit_128_divmod(ZeroCCCompiler *c, int a, int b,
     }
     ir_emit_call(c, fn);
     int at[4] = {alo, ahi, blo, bhi};
-    ir_call_args_record(c, ir_get_count(c) - 1, 4, at, NULL, NULL);
+    if (ir_get_count(c) > 0) {
+        Instr *li = (Instr*)&ir_get_buffer(c)[ir_get_count(c) - 1];
+        li->temp_dest = 4;
+        li->temp_src1 = (uint32_t)at[0];
+        li->temp_src2 = (uint32_t)at[1];
+        li->imm = 0;
+        li->cond = 0;
+        li->width = 0;
+        ir_emit_call_arg(c, (uint32_t)at[2], 0, 255);
+        ir_emit_call_arg(c, (uint32_t)at[3], 0, 255);
+    }
     int rlo = zc_alloc_temp(c); ir_emit_mov_reg(c, rlo, VREG_0);
     int rhi = zc_alloc_temp(c); ir_emit_mov_reg(c, rhi, VREG_2);
     int res = zc_alloc_temp(c); ir_emit_mk128(c, res, rlo, rhi);
@@ -68,7 +78,16 @@ int assign_emit_128_var_shift(ZeroCCCompiler *c, int a, int cnt,
     }
     ir_emit_call(c, fn);
     int at[3] = {alo, ahi, cnt};
-    ir_call_args_record(c, ir_get_count(c) - 1, 3, at, NULL, NULL);
+    if (ir_get_count(c) > 0) {
+        Instr *li = (Instr*)&ir_get_buffer(c)[ir_get_count(c) - 1];
+        li->temp_dest = 3;
+        li->temp_src1 = (uint32_t)at[0];
+        li->temp_src2 = (uint32_t)at[1];
+        li->imm = 0;
+        li->cond = 0;
+        li->width = 0;
+        ir_emit_call_arg(c, (uint32_t)at[2], 0, 255);
+    }
     int rlo = zc_alloc_temp(c); ir_emit_mov_reg(c, rlo, VREG_0);
     int rhi = zc_alloc_temp(c); ir_emit_mov_reg(c, rhi, VREG_2);
     int res = zc_alloc_temp(c); ir_emit_mk128(c, res, rlo, rhi);

@@ -527,7 +527,17 @@ int zc_lower_binop128(ZeroCCCompiler *c, ZeroCCASTArena *arena,
         }
         ir_emit_call(c, fn);
         int at[4] = {alo, ahi, blo, bhi};
-        ir_call_args_record(c, ir_get_count(c) - 1, 4, at, NULL, NULL);
+        if (ir_get_count(c) > 0) {
+            Instr *li = (Instr*)&ir_get_buffer(c)[ir_get_count(c) - 1];
+            li->temp_dest = 4;
+            li->temp_src1 = (uint32_t)at[0];
+            li->temp_src2 = (uint32_t)at[1];
+            li->imm = 0;
+            li->cond = 0;
+            li->width = 0;
+            ir_emit_call_arg(c, (uint32_t)at[2], 0, 255);
+            ir_emit_call_arg(c, (uint32_t)at[3], 0, 255);
+        }
         int rlo = zc_alloc_temp(c); ir_emit_mov_reg(c, rlo, VREG_0);
         int rhi = zc_alloc_temp(c); ir_emit_mov_reg(c, rhi, VREG_2);
         int res = zc_alloc_temp(c); ir_emit_mk128(c, res, rlo, rhi);
@@ -912,13 +922,14 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                                 ir_emit_call(c, "__divdc3");
                                 if (ir_get_count(c) > 0) {
                                     Instr *last_instr = (Instr*)&ir_get_buffer(c)[ir_get_count(c) - 1];
-                                    last_instr->temp_dest = 0;
+                                    last_instr->temp_dest = 4;
                                     last_instr->temp_src1 = (uint32_t)div_args[0];
                                     last_instr->temp_src2 = (uint32_t)div_args[1];
                                     last_instr->imm = 0;
-                                    int div_is_fp[4] = { 1, 1, 1, 1 };
-                                    uint8_t div_pos[4] = { 255, 255, 255, 255 };
-                                    ir_call_args_record(c, ir_get_count(c) - 1, 4, div_args, div_is_fp, div_pos);
+                                    last_instr->cond = 1;
+                                    last_instr->width = 1;
+                                    ir_emit_call_arg(c, (uint32_t)div_args[2], 1, 255);
+                                    ir_emit_call_arg(c, (uint32_t)div_args[3], 1, 255);
                                     last_instr->label_idx = 4;
                                     if (c->lowering.ir_ctx.call_count < 64) {
                                         int cidx = c->lowering.ir_ctx.call_count++;
@@ -1406,7 +1417,17 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                                 int bhi = zc_alloc_temp(c); ir_emit_hi128(c, bhi, rv);
                                 ir_emit_call(c, fn);
                                 int at[4] = {alo, ahi, blo, bhi};
-                                ir_call_args_record(c, ir_get_count(c) - 1, 4, at, NULL, NULL);
+                                if (ir_get_count(c) > 0) {
+                                    Instr *li = (Instr*)&ir_get_buffer(c)[ir_get_count(c) - 1];
+                                    li->temp_dest = 4;
+                                    li->temp_src1 = (uint32_t)at[0];
+                                    li->temp_src2 = (uint32_t)at[1];
+                                    li->imm = 0;
+                                    li->cond = 0;
+                                    li->width = 0;
+                                    ir_emit_call_arg(c, (uint32_t)at[2], 0, 255);
+                                    ir_emit_call_arg(c, (uint32_t)at[3], 0, 255);
+                                }
                                 int rlo = zc_alloc_temp(c); ir_emit_mov_reg(c, rlo, VREG_0);
                                 int rhi = zc_alloc_temp(c); ir_emit_mov_reg(c, rhi, VREG_2);
                                 ir_emit_mk128(c, ov, rlo, rhi);
@@ -1435,7 +1456,16 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                                 int n64 = zc_alloc_temp(c); ir_emit_lo128(c, n64, rv);
                                 ir_emit_call(c, fn);
                                 int at[3] = {alo, ahi, n64};
-                                ir_call_args_record(c, ir_get_count(c) - 1, 3, at, NULL, NULL);
+                                if (ir_get_count(c) > 0) {
+                                    Instr *li = (Instr*)&ir_get_buffer(c)[ir_get_count(c) - 1];
+                                    li->temp_dest = 3;
+                                    li->temp_src1 = (uint32_t)at[0];
+                                    li->temp_src2 = (uint32_t)at[1];
+                                    li->imm = 0;
+                                    li->cond = 0;
+                                    li->width = 0;
+                                    ir_emit_call_arg(c, (uint32_t)at[2], 0, 255);
+                                }
                                 int rlo = zc_alloc_temp(c); ir_emit_mov_reg(c, rlo, VREG_0);
                                 int rhi = zc_alloc_temp(c); ir_emit_mov_reg(c, rhi, VREG_2);
                                 ir_emit_mk128(c, ov, rlo, rhi);

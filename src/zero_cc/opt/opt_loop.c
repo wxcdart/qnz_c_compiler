@@ -565,19 +565,8 @@ void opt_licm(ZeroCCCompiler *c) {
         }
     }
 
-    /* Remap IRCallArgs indices to new instruction positions */
+    /* Sprint 135: remap OP_ASM side-table indices to new instruction positions */
     if (c) {
-        IRCallArgsArena *call_arena = &c->ir_call_args;
-        if (call_arena && call_arena->table) {
-            for (size_t c_idx = 0; c_idx < call_arena->count; c_idx++) {
-                size_t old_pos = call_arena->table[c_idx].instr_index;
-                if (old_pos < (size_t)ir_count && old_to_new[old_pos] >= 0) {
-                    call_arena->table[c_idx].instr_index = (size_t)old_to_new[old_pos];
-                }
-            }
-        }
-
-        /* Sprint 135: remap OP_ASM side-table indices the same way */
         IRAsmArgsArena *asm_arena = &c->ir_asm_args;
         if (asm_arena && asm_arena->table) {
             for (size_t a_idx = 0; a_idx < asm_arena->count; a_idx++) {

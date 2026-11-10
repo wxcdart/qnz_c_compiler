@@ -396,11 +396,6 @@ void zero_cc_init_compiler_with_target(ZeroCCCompiler *comp, ZeroCCISA target_is
         fprintf(stderr, "Error: Failed to initialize IR arena\n");
         return;
     }
-    if (!ir_call_args_arena_init(&comp->ir_call_args)) {
-        fprintf(stderr, "Error: Failed to initialize IR call args arena\n");
-        ir_arena_free(&comp->ir_arena);
-        return;
-    }
 }
 
 static int compile_preprocess(CompileOptions *opts) {

@@ -73,10 +73,6 @@ void ir_reset(ZeroCCCompiler *c) {
         c->ir_arena.count = 0;
     }
 
-    if (c->ir_call_args.table) {
-        c->ir_call_args.count = 0;
-    }
-
     if (c->ir_asm_args.table) {
         c->ir_asm_args.count = 0;
     }
@@ -117,27 +113,6 @@ void ir_insert_at(ZeroCCCompiler *c, size_t idx, Instr instr) {
         fprintf(stderr, "Error: IR arena insertion failed\n");
         exit(1);
     }
-}
-
-/* Record call arguments for an instruction */
-void ir_call_args_record(ZeroCCCompiler *c, size_t instr_index, int count, const int *temps, const int *is_fp,
-                         const uint8_t *stack_pos) {
-    if (!c || !c->ir_call_args.table) return;
-
-    /* Dynamic growth handles capacity automatically */
-    ir_call_args_arena_record(&c->ir_call_args, instr_index, count, temps, is_fp, stack_pos);
-}
-
-/* Find call arguments for an instruction */
-const IRCallArgs *ir_call_args_find(const ZeroCCCompiler *c, size_t instr_index) {
-    if (!c || !c->ir_call_args.table) return NULL;
-
-    for (size_t i = 0; i < c->ir_call_args.count; i++) {
-        if (c->ir_call_args.table[i].instr_index == instr_index) {
-            return &c->ir_call_args.table[i];
-        }
-    }
-    return NULL;
 }
 
 /* Record inline asm args for an OP_ASM instruction (Sprint 135) */
@@ -227,10 +202,6 @@ void ir_clear(ZeroCCCompiler *c) {
     if (!c) return;
     if (c->ir_arena.buffer) {
         c->ir_arena.count = 0;
-    }
-
-    if (c->ir_call_args.table) {
-        c->ir_call_args.count = 0;
     }
 
     if (c->ir_asm_args.table) {
@@ -482,6 +453,8 @@ void ir_dump(const ZeroCCCompiler *c, FILE *f) {
                              break;
             case OP_CLONE: fprintf(f, "CLONE args=%u", instr->temp_dest);
                            break;
+            case OP_CALL_ARG: fprintf(f, "CALL_ARG r%u (is_fp=%u, stack_pos=%u)", instr->temp_src1, instr->cond, instr->width);
+                              break;
             case OP_STORE_BYTE: fprintf(f, "STORE_BYTE [fp%+d], r%u", (int)instr->imm, instr->temp_src1);
                                 break;
             case OP_STORE_16: fprintf(f, "STORE_16 [fp%+d], r%u", (int)instr->imm, instr->temp_src1);

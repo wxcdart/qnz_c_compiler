@@ -541,6 +541,13 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
          * OP_SYSCALL uses the identical packing - it clobbers a subset of what
          * a call clobers, so it is recorded as a call position (spans_call
          * barrier) with the same side-table argument liveness. */
+        /* OP_CALL_ARG pseudo-instructions are part of the preceding OP_CALL/
+         * OP_SYSCALL/OP_CLONE; they are skipped here and handled when that
+         * call instruction is processed. */
+        if (instr->op == OP_CALL_ARG) {
+            continue;
+        }
+
         if (instr->op == OP_SETJMP) {
             /* OP_SETJMP is a returns_twice boundary: any temp live across it
              * must be treated as call-spanning so it is never placed in a
@@ -550,22 +557,21 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
 
         if (instr->op == OP_CALL || instr->op == OP_SYSCALL || instr->op == OP_CLONE) {
             live_range_record_call(lra, i);
-            const IRCallArgs *full_args = ir_call_args_find(c, i);
-            if (full_args) {
-                for (int a = 0; a < full_args->count; a++) {
-                    live_range_add_use(lra, i, full_args->temps[a], false);
-                }
-                continue;
-            }
-            int arg_count = instr->temp_dest;
-            /* C2b: only src1/src2 are reliable in the instruction itself
-             * (the 8-bit imm packing of args 2/3 was removed); the full
-             * list is always in the side table above. */
+            int arg_count = (int)instr->temp_dest;
+            /* Sprint 151c: args 0/1 in temp_src1/temp_src2 with is_fp in
+             * cond/width; args 2+ in OP_CALL_ARG pseudo-instructions. */
             if (arg_count > 0 && instr->temp_src1 != TEMP_NONE) {
                 live_range_add_use(lra, i, instr->temp_src1, false);
             }
             if (arg_count > 1 && instr->temp_src2 != TEMP_NONE) {
                 live_range_add_use(lra, i, instr->temp_src2, false);
+            }
+            for (int a = 2; a < arg_count; a++) {
+                size_t ca_idx = i + 1 + (a - 2);
+                if (ca_idx >= (size_t)instr_count) break;
+                const Instr *ca_instr = &instrs[ca_idx];
+                if (ca_instr->op != OP_CALL_ARG) break;
+                live_range_add_use(lra, i, ca_instr->temp_src1, false);
             }
             continue;
         }
