@@ -1749,9 +1749,13 @@ void zero_cc_aarch64_emit_tramp_stub(ZeroCCCompiler *c, const ZeroCCFunction *nf
 
 /* ARM64 backend instance */
 
-/* AArch64 VREG mapping: direct pass-through (VREG numbers = ARM encodings) */
-static int aarch64_get_int_reg(int vreg) { return vreg; }
-static int aarch64_get_fp_reg(int vreg) { return vreg; }
+/* AArch64 VREG mapping: strip VREG_TAG_BIT if passed a VREG_* token */
+static int aarch64_get_int_reg(int vreg) {
+    return zc_temp_is_vreg((uint32_t)vreg) ? zc_vreg_hw_num((uint32_t)vreg) : vreg;
+}
+static int aarch64_get_fp_reg(int vreg) {
+    return zc_temp_is_vreg((uint32_t)vreg) ? zc_vreg_hw_num((uint32_t)vreg) : vreg;
+}
 
 /* ---- GNU __int128 (Sprint 109): (lo,hi) GPR-pair decompositions ----
  * On AArch64 a REG_CLASS_GPR128 value always spills (regalloc returns -1)

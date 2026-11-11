@@ -463,9 +463,9 @@ void zero_cc_emit_struct_copy_to_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena,
             (c_ti->kind == TYPE_KIND_STRUCT || c_ti->kind == TYPE_KIND_UNION);
         if (struct_ret_call && struct_sz > 8 && struct_sz <= 16 && !src_sym) {
             int pair0 = zc_alloc_temp(c);
-            ir_emit_mov_reg(c, pair0, 0);
+            ir_emit_mov_reg(c, pair0, VREG_0);
             int pair1 = zc_alloc_temp(c);
-            int reg2 = (c->isa == ISA_AARCH64 || c->isa == ISA_RISCV64) ? 1 : 2;
+            int reg2 = (c->isa == ISA_AARCH64 || c->isa == ISA_RISCV64) ? VREG_1 : VREG_2;
             ir_emit_mov_reg(c, pair1, reg2);
             if (struct_sz >= 8) ir_emit_store_64(c, pair0, dst_addr);
             else if (struct_sz >= 4) ir_emit_store_32(c, pair0, dst_addr);
@@ -520,7 +520,7 @@ void zero_cc_emit_struct_copy_to_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena,
              * collides with the allocator assigning that same physical
              * register (rdx) to the destination-address temp below
              * (c-torture execute/pr92904: `v.c = f2(0, u.c)`). */
-            int reg2 = (c->isa == ISA_AARCH64 || c->isa == ISA_RISCV64) ? 1 : 2;
+            int reg2 = (c->isa == ISA_AARCH64 || c->isa == ISA_RISCV64) ? VREG_1 : VREG_2;
             int ch2 = zc_alloc_temp(c);
             ir_emit_mov_reg(c, ch2, reg2);
             ch_val = ch2;
@@ -788,7 +788,7 @@ static inline uint8_t zc_tag_from_typeinfo(const TypeInfo *ti) {
  * type" bug class - slice 1 reports them, slice 2 makes the tags the source
  * of truth. Never fatal (no behavior change); the hard gate is
  * tools/type_tag_verifier.py. */
-static void zc_temp_tag_check_flags(ZeroCCCompiler *c, uint16_t t) {
+static void zc_temp_tag_check_flags(ZeroCCCompiler *c, uint32_t t) {
     uint8_t cls = zc_tag_class(zc_temp_tag(c, t));
     bool bad = c->last_expr_is_float
                ? cls != ZC_TAGCLS_FLOAT
@@ -813,7 +813,7 @@ static void zc_temp_tag_check_flags(ZeroCCCompiler *c, uint16_t t) {
 int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
     if (ref == AST_NULL) return TEMP_NONE;
     int t = lower_expr_body(c, arena, ref);
-    if (t != TEMP_NONE) {
+    if (t != (int)TEMP_NONE && zc_temp_is_user((uint32_t)t)) {
         ZeroCCASTNode *node = zero_cc_ast_get(arena, ref);
         /* Stamp only untagged temps: a ternary/comma returns a branch temp
          * already stamped by the inner call with the branch's type (the

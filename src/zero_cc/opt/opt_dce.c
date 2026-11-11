@@ -64,22 +64,28 @@ void opt_flag_dce(ZeroCCCompiler *c) {
 /**
  * Liveness tracking
  */
-#define MAX_VREGS 65536  /* C2b: full 16-bit temp-id space */
+#define MAX_VREGS 65536  /* C2b: full 16-bit user temp-id space */
 #define LIVENESS_MAX_SWEEPS 10
 static bool g_live_temp[MAX_VREGS];
 static bool g_live_prev[MAX_VREGS];
+static bool g_live_vreg[VREG_COUNT];
+static bool g_live_vreg_prev[VREG_COUNT];
 
 /**
  * Clear liveness tracking
  */
 static void clear_liveness(void) {
     memset(g_live_temp, 0, sizeof(g_live_temp));
+    memset(g_live_vreg, 0, sizeof(g_live_vreg));
 }
 
 /**
  * Check if a temp is live
  */
 static int is_live(int temp) {
+    if (temp >= 0 && zc_temp_is_vreg((uint32_t)temp)) {
+        return g_live_vreg[zc_vreg_index((uint32_t)temp)] ? 1 : 0;
+    }
     if (temp < 0 || temp >= MAX_VREGS) {
         return 0;
     }
@@ -88,9 +94,12 @@ static int is_live(int temp) {
 
 /**
  * Mark a temp as live
- * Note: temp 0 (VREG_0/rax) is a valid temporary, not "no temp"
  */
 static void mark_live(int temp) {
+    if (temp >= 0 && zc_temp_is_vreg((uint32_t)temp)) {
+        g_live_vreg[zc_vreg_index((uint32_t)temp)] = true;
+        return;
+    }
     if (temp >= 0 && temp < MAX_VREGS) {
         g_live_temp[temp] = true;
     }
@@ -232,16 +241,15 @@ static void mark_uses(ZeroCCCompiler *c, Instr *instr) {
 
         case OP_ATOMIC_CMPXCHG:
         case OP_ATOMIC_CMPXCHG_BOOL:
-            // Atomic compare-and-exchange uses label_idx as the expected operand temp
-            if (instr->temp_src1!= TEMP_NONE) {
+            // Atomic compare-and-exchange uses imm64 as the expected operand temp
+            if (instr->temp_src1 != TEMP_NONE) {
                 mark_live(instr->temp_src1);
             }
-            if (instr->temp_src2!= TEMP_NONE) {
+            if (instr->temp_src2 != TEMP_NONE) {
                 mark_live(instr->temp_src2);
             }
-            // label_idx holds the expected temp (not a label!)
-            if (instr->label_idx != TEMP_NONE) {
-                mark_live(instr->label_idx);
+            if ((uint32_t)instr->imm64 != TEMP_NONE) {
+                mark_live((int)(uint32_t)instr->imm64);
             }
             return;
 
@@ -306,6 +314,8 @@ static int compute_liveness_fixpoint(ZeroCCCompiler *c, int count) {
     /* Return values are live at function exit */
     mark_live(VREG_0);
     mark_live(VREG_2);
+    mark_live(VREG_F0);
+    mark_live(VREG_F1);
     for (int sweep = 0; sweep < LIVENESS_MAX_SWEEPS; sweep++) {
         /* Mark the float/double return value (xmm0) live at exit */
         for (int i = count - 1; i >= 0; i--) {
@@ -319,10 +329,13 @@ static int compute_liveness_fixpoint(ZeroCCCompiler *c, int count) {
             }
         }
         liveness_backward_sweep(c, count);
-        if (sweep > 0 && memcmp(g_live_prev, g_live_temp, sizeof(g_live_temp)) == 0) {
+        if (sweep > 0 &&
+            memcmp(g_live_prev, g_live_temp, sizeof(g_live_temp)) == 0 &&
+            memcmp(g_live_vreg_prev, g_live_vreg, sizeof(g_live_vreg)) == 0) {
             return 1; /* converged */
         }
         memcpy(g_live_prev, g_live_temp, sizeof(g_live_temp));
+        memcpy(g_live_vreg_prev, g_live_vreg, sizeof(g_live_vreg));
     }
     return 0; /* did not converge: too deeply nested loop-carried values */
 }
@@ -342,6 +355,7 @@ void opt_eliminate_dead_code(ZeroCCCompiler *c) {
          * is deleted.  DCE is an optimization; it must never delete a
          * live instruction. */
         memset(g_live_temp, 1, sizeof(g_live_temp));
+        memset(g_live_vreg, 1, sizeof(g_live_vreg));
     }
 
     /* Phase 2: mark instructions whose result is dead and which have no

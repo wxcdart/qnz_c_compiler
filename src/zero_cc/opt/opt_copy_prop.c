@@ -21,7 +21,7 @@
  * correctness issue; widening to 64K would make invalidation O(64K) per
  * flag-setting instruction). */
 #define COPY_MAP_SIZE 256
-static uint16_t g_copy_map[COPY_MAP_SIZE];
+static uint32_t g_copy_map[COPY_MAP_SIZE];
 
 /* Initialize copy propagation */
 void opt_init_copy_prop(void) {
@@ -37,22 +37,24 @@ void opt_shutdown_copy_prop(void) {
  * Reset copy map for a new basic block
  */
 static void copy_prop_reset_block(void) {
-    memset(g_copy_map, TEMP_NONE, sizeof(g_copy_map));
+    for (int i = 0; i < COPY_MAP_SIZE; i++) {
+        g_copy_map[i] = TEMP_NONE;
+    }
 }
 
 /**
- * Check if temp is a reserved physical register (temps 0..15)
+ * Check if temp is a reserved physical register (VREG_* or < VREG_USER_START)
  */
-static int copy_prop_is_return_reg(uint16_t temp) {
-    return temp < 16;
+static int copy_prop_is_return_reg(uint32_t temp) {
+    return !zc_temp_is_user(temp);
 }
 
 /**
  * Get the ultimate source of a temp (follow copy chain)
  * Returns the original source temp
  */
-static uint16_t copy_prop_get_source(uint16_t temp) {
-    if (temp == TEMP_NONE || temp < 16 || temp >= COPY_MAP_SIZE) {
+static uint32_t copy_prop_get_source(uint32_t temp) {
+    if (!zc_temp_is_user(temp) || temp >= COPY_MAP_SIZE) {
         return temp;
     }
 
@@ -68,8 +70,8 @@ static uint16_t copy_prop_get_source(uint16_t temp) {
 /**
  * Invalidate copy for a temp and anything that copies it
  */
-static void copy_prop_invalidate(uint16_t temp) {
-    if (temp == TEMP_NONE || temp < 16 || temp >= COPY_MAP_SIZE) {
+static void copy_prop_invalidate(uint32_t temp) {
+    if (!zc_temp_is_user(temp) || temp >= COPY_MAP_SIZE) {
         return;
     }
 
@@ -147,18 +149,18 @@ static int copy_prop_replace(Instr *instr) {
     int changed = 0;
 
     /* Replace first source */
-    if (instr->temp_src1 != TEMP_NONE && instr->temp_src1 >= 16 && instr->temp_src1 < COPY_MAP_SIZE) {
-        uint16_t new_src1 = copy_prop_get_source(instr->temp_src1);
-        if (new_src1 != instr->temp_src1 && new_src1 != TEMP_NONE && new_src1 >= 16) {
+    if (zc_temp_is_user(instr->temp_src1) && instr->temp_src1 < COPY_MAP_SIZE) {
+        uint32_t new_src1 = copy_prop_get_source(instr->temp_src1);
+        if (new_src1 != instr->temp_src1 && zc_temp_is_user(new_src1)) {
             instr->temp_src1 = new_src1;
             changed = 1;
         }
     }
 
     /* Replace second source */
-    if (instr->temp_src2 != TEMP_NONE && instr->temp_src2 >= 16 && instr->temp_src2 < COPY_MAP_SIZE) {
-        uint16_t new_src2 = copy_prop_get_source(instr->temp_src2);
-        if (new_src2 != instr->temp_src2 && new_src2 != TEMP_NONE && new_src2 >= 16) {
+    if (zc_temp_is_user(instr->temp_src2) && instr->temp_src2 < COPY_MAP_SIZE) {
+        uint32_t new_src2 = copy_prop_get_source(instr->temp_src2);
+        if (new_src2 != instr->temp_src2 && zc_temp_is_user(new_src2)) {
             instr->temp_src2 = new_src2;
             changed = 1;
         }
@@ -225,9 +227,9 @@ void opt_copy_propagate(ZeroCCCompiler *c) {
 
             /* If this is a MOV between temps, record the copy */
             if (instr->op == OP_MOV_REG) {
-                uint16_t src = copy_prop_get_source(instr->temp_src1);
+                uint32_t src = copy_prop_get_source(instr->temp_src1);
                 /* Only record if source is a valid virtual temp in the map */
-                if (src != instr->temp_dest && src != TEMP_NONE && src >= 16 &&
+                if (src != instr->temp_dest && zc_temp_is_user(src) &&
                     instr->temp_dest < COPY_MAP_SIZE) {
                     g_copy_map[instr->temp_dest] = src;
                 }

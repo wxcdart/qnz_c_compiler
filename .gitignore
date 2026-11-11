@@ -1,6 +1,6 @@
 # Build output directory
 /build/
-
+/build_asan/
 # Object files & executables
 *.o
 *.exe

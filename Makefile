@@ -16,6 +16,10 @@ LDFLAGS ?=
 
 BUILD_DIR ?= build
 OBJ_DIR ?= $(BUILD_DIR)/obj
+# Canonical compiler binary.  The asan variant build (BUILD_DIR=build_asan,
+# see `asan` below) relocates it to build_asan/bin/zerocc without touching
+# the main tree; in the normal build this is exactly build/bin/zerocc.
+ZC_BIN ?= $(BUILD_DIR)/bin/zerocc
 TEST_BIN_DIR ?= $(BUILD_DIR)/test
 # test/diag/*.c is the diagnostics-battery corpus (deliberately invalid C,
 # consumed by tools/diag_battery.py) — not test drivers; keep it out of the
@@ -106,7 +110,7 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	test-c23 test-asm test-opt test-san \
 	valgrind test-valgrind
 
-all: $(TESTS) build/bin/zerocc build/lib/zero_rt.a build/lib/zero_rt_aarch64.a build/lib/zero_rt_riscv64.a build/lib/zero_rt_riscv32.a
+all: $(TESTS) $(ZC_BIN) $(BUILD_DIR)/lib/zero_rt.a $(BUILD_DIR)/lib/zero_rt_aarch64.a $(BUILD_DIR)/lib/zero_rt_riscv64.a $(BUILD_DIR)/lib/zero_rt_riscv32.a
 
 # --- Vendored static-musl host toolchain ----------------------------------
 # zerocc and every test binary that links the compiler library are built and
@@ -132,9 +136,27 @@ HOST_GCC ?= $(CC)
 ZC_CC ?= $(BUILD_DIR)/bin/musl-gcc
 ZC_MUSL_LINK = -static -no-pie -Wl,--whole-archive $(MUSL_LIBC) -Wl,--no-whole-archive
 
+# ASan/UBSan variant (make asan, Sprint 155): the static-musl host link
+# cannot carry -fsanitize=address ("cannot specify -static with
+# -fsanitize=address"), and make does not track flag changes, so since the
+# static-musl switch (40c1580) a cached tree made `make asan` a silent
+# no-op (it "passed" on the uninstrumented build).  The sanitizer build
+# now lives in its own tree (build_asan, via BUILD_DIR) with a plain
+# dynamic host wrapper.
+ifdef ZC_ASAN
+ZC_CC := $(BUILD_DIR)/bin/asan-gcc
+ZC_MUSL_LINK :=
+CFLAGS += -fsanitize=address,undefined -g
+LDFLAGS += -fsanitize=address,undefined
+$(ZC_CC):
+	@mkdir -p $(dir $@)
+	@printf '#!/bin/sh\nexec "$(HOST_GCC)" "$$@"\n' > $@
+	@chmod +x $@
+else
 $(ZC_CC): $(MUSL_DIR)/VERSION
 	@HOST_GCC=$(HOST_GCC) BUILD_DIR=$(BUILD_DIR) sh tools/musl_host_toolchain.sh
 	@test -f $(MUSL_LIBC) || (echo "Error: vendored musl build failed" && exit 1)
+endif
 
 .PHONY: musl
 musl: $(ZC_CC)
@@ -246,17 +268,17 @@ $(ZC_EMBED_SYMS):
 # has no dynamic symbol table, and the JIT resolves those helpers through
 # zero_rt's dlfcn (dlsym on the executable's own .symtab).
 ZEROCCLIB_OBJS = $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS)
-build/bin/zerocc: src/main.c $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ) $(ZC_DLCFN_OBJ) $(ZC_COMPLEX_OBJ) $(ZC_EMBED_SYMS) $(ZC_CC)
-	@mkdir -p build/bin
+$(ZC_BIN): src/main.c $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ) $(ZC_DLCFN_OBJ) $(ZC_COMPLEX_OBJ) $(ZC_EMBED_SYMS) $(ZC_CC)
+	@mkdir -p $(dir $@)
 	$(ZC_CC) $(CFLAGS) $(ZC_MUSL_LINK) -o $@ src/main.c $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ) $(ZC_DLCFN_OBJ) $(ZC_COMPLEX_OBJ) $(LDFLAGS) $(ZC_EMBED_SYMS)
 	@rc=0; python3 tools/embed_symtab.py --bin $@ --out $(ZC_EMBED_SYMS) || rc=$$?; \
 	if [ $$rc -eq 3 ]; then \
-		echo "build/bin/zerocc: embedded symtab changed; relinking"; \
+		echo "$(ZC_BIN): embedded symtab changed; relinking"; \
 		$(ZC_CC) $(CFLAGS) $(ZC_MUSL_LINK) -o $@ src/main.c $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ) $(ZC_DLCFN_OBJ) $(ZC_COMPLEX_OBJ) $(LDFLAGS) $(ZC_EMBED_SYMS); \
 	fi
 
 .PHONY: zerocc
-zerocc: build/bin/zerocc
+zerocc: $(ZC_BIN)
 
 $(TEST_BIN_DIR)/%: test/%.c $(ZC_CC) $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS) $(ZC_DLCFN_OBJ) $(ZC_COMPLEX_OBJ)
 	@mkdir -p $(dir $@)
@@ -277,24 +299,24 @@ test-opt: all
 # with zerocc at -O0..-O3 in JIT + AOT, asserting trap (SIGILL) vs clean
 # exit per the san_ok_/san_trap_ name contract, plus a cross-ISA raw-AOT
 # qemu smoke (no x86 check bytes leak into aarch64/riscv binaries).
-test-san: build/bin/zerocc
+test-san: $(ZC_BIN)
 	@python3 tools/san_sweep.py
 
 # Multi-file driver tests (T1): run build/bin/zerocc on multiple .c inputs
 # (JIT --run, AOT -o, per-input -c/-S, duplicate-def / missing-main errors).
-test-driver: build/bin/zerocc
+test-driver: $(ZC_BIN)
 	@python3 tools/driver_tests.py
 
 # Own-linker (T2) tests: link zerocc-emitted .o files (and .a archives) with
 # zero_cc_link_exec into a directly-executable static ET_EXEC, diffing
 # stdout+exit against the system-linker reference.
-test-linker: build/bin/zerocc
+test-linker: $(ZC_BIN)
 	@python3 tools/linker_tests.py
 
 # GCC c-torture conformance gate (Sprint 57): runs the vendored gcc.c-torture
 # corpus (third_party/vendor/c-torture) against a gcc -O1 reference and checks
 # against the ratcheting baseline in test/torture/baseline.json.
-test-torture: build/bin/zerocc
+test-torture: $(ZC_BIN)
 	@python3 tools/torture_run.py
 	@# Heavy sub-sweep: the 6 `run_expensive_tests` tests, sequential, merged
 	@# into last_run.json (kept out of the parallel main sweep - their gcc
@@ -306,14 +328,14 @@ test-torture: build/bin/zerocc
 # c23_misc) compiled & run under zerocc at -O0..-O3 in JIT + AOT and diffed
 # against a reference gcc (C23_GCC override, else gcc-15/14/gcc) with the
 # matching -std flag; negative cases check accept/reject agreement.
-test-c23: build/bin/zerocc
+test-c23: $(ZC_BIN)
 	@python3 tools/c23/test_c23.py --all
 
 # Loop-unrolling differential gate (Sprint 150): test/jit/unroll_*.c at
 # -O0 (baseline) vs -O3 JIT + AOT, diffed against host gcc (or the -O0
 # baseline when gcc cannot compile the file), plus the pass's own
 # unroll-count accounting (expect-unroll markers).
-test-loop-unroll: build/bin/zerocc
+test-loop-unroll: $(ZC_BIN)
 	@python3 tools/loop_unroll_verifier.py
 
 # Inline-assembly Phase 1 differential gate (Sprint 135): every test/asm/*.c
@@ -321,20 +343,20 @@ test-loop-unroll: build/bin/zerocc
 # linked with the host gcc, run, and diffed (rc + stdout) against a
 # host-`gcc -O2` reference. Guards the OP_ASM lowering, operand side table,
 # no_spill LRA, clobber spill/forbidden-mask, and template interpolation.
-test-asm: build/bin/zerocc
+test-asm: $(ZC_BIN)
 	@python3 tools/asm_diff.py
 
 # Project-differential gate (Verification & Scale #1): real-world TUs
 # (cJSON, zlib, the sqlite amalgamation) must compile under zerocc at every
 # level, differential against host gcc acceptance of the same TU.
-test-project-diff: build/bin/zerocc
+test-project-diff: $(ZC_BIN)
 	@python3 tools/project_diff.py
 
 # Project run + behavior-diff gate (Verification & Scale #2/#3): builds each
 # project's own test programs with gcc AND zerocc, runs both on identical
 # input, and diffs stdout/stderr/exit code.  `--jit` additionally drives the
 # supported cases through the in-process `zerocc --run` merge path.
-test-project-runs: build/bin/zerocc
+test-project-runs: $(ZC_BIN)
 	@python3 tools/project_runs.py
 
 # zero_rt: the ZeroCC-owned runtime (heap, minimal stdio, strings, exit).
@@ -537,30 +559,39 @@ test-isa-qemu: all
 test-isa128: all
 	@python3 tools/isa128_diff.py
 
-asan: CFLAGS += -fsanitize=address,undefined -g
-asan: LDFLAGS += -fsanitize=address,undefined
-asan: all
-	@python3 tools/test_runner.py
+# Host-side ASan/UBSan rebuild of the compiler (catches the compiler's own
+# memory bugs).  Built in a dedicated tree (build_asan) so it cannot clobber
+# the normal static-musl build, then the suite runs against that binary.
+# See the ZC_ASAN block near the top for why a separate tree is required.
+ASAN_SUBMAKE = $(MAKE) ZC_ASAN=1 BUILD_DIR=build_asan
+# Tests that need static-musl host-libc symbol resolution: zerocc's own linker
+# resolves generated-code references to printf/malloc/etc. from the driver's
+# statically-linked musl.  A dynamic ASan build has no musl libc, so those
+# lookups fail ("undefined reference to printf").  They are skipped (a
+# documented static-musl/dynamic-ASan limitation, NOT a memory bug) so the rest
+# of the suite - the core pipeline where memory bugs live - is validated under
+# ASan.  Ratchet this list: if a new test hits the same limitation, add it here.
+ASAN_SKIP = dlfcn_embedded_test,float_printf,rodata_demo_jit
+.PHONY: asan asan-unit asan-semantic asan-abi asan-jit
+asan:
+	+$(ASAN_SUBMAKE) all
+	@python3 tools/test_runner.py --build-dir build_asan --skip $(ASAN_SKIP)
 
-asan-unit: CFLAGS += -fsanitize=address,undefined -g
-asan-unit: LDFLAGS += -fsanitize=address,undefined
-asan-unit: all
-	@python3 tools/test_runner.py --category unit
+asan-unit:
+	+$(ASAN_SUBMAKE) all
+	@python3 tools/test_runner.py --build-dir build_asan --category unit --skip $(ASAN_SKIP)
 
-asan-semantic: CFLAGS += -fsanitize=address,undefined -g
-asan-semantic: LDFLAGS += -fsanitize=address,undefined
-asan-semantic: all
-	@python3 tools/test_runner.py --category semantic
+asan-semantic:
+	+$(ASAN_SUBMAKE) all
+	@python3 tools/test_runner.py --build-dir build_asan --category semantic --skip $(ASAN_SKIP)
 
-asan-abi: CFLAGS += -fsanitize=address,undefined -g
-asan-abi: LDFLAGS += -fsanitize=address,undefined
-asan-abi: all
-	@python3 tools/test_runner.py --category abi
+asan-abi:
+	+$(ASAN_SUBMAKE) all
+	@python3 tools/test_runner.py --build-dir build_asan --category abi --skip $(ASAN_SKIP)
 
-asan-jit: CFLAGS += -fsanitize=address,undefined -g
-asan-jit: LDFLAGS += -fsanitize=address,undefined
-asan-jit: all
-	@python3 tools/test_runner.py --category jit
+asan-jit:
+	+$(ASAN_SUBMAKE) all
+	@python3 tools/test_runner.py --build-dir build_asan --category jit --skip $(ASAN_SKIP)
 
 test-asan: asan
 test-asan-unit: asan-unit

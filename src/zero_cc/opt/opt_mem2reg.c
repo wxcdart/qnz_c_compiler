@@ -337,7 +337,7 @@ static void opt_promote_loop_carried(ZeroCCCompiler *c) {
 
             int head_temp = load_ins->temp_dest;
             int update_temp = store_ins->temp_src1;
-            if (head_temp < 16 || update_temp < 16) continue;
+            if (!zc_temp_is_user((uint32_t)head_temp) || !zc_temp_is_user((uint32_t)update_temp)) continue;
 
             /* Find the initialization store: the single out-of-loop store
              * found above.  It must lie before the loop header (a store to
@@ -357,7 +357,7 @@ static void opt_promote_loop_carried(ZeroCCCompiler *c) {
 
             Instr *init_ins = ir_get(c, init_store_idx);
             int init_temp = init_ins->temp_src1;
-            if (init_temp < 16) continue;
+            if (!zc_temp_is_user((uint32_t)init_temp)) continue;
 
             /* Verify that no other instruction defines head_temp, and that the
              * loop [hdr_idx..back_idx] is not nested inside an outer loop (for
@@ -500,7 +500,7 @@ void opt_promote_mem2reg(ZeroCCCompiler *c) {
 
     /* Initialize slot tracking */
     for (int i = 0; i < MAX_STACK_SLOTS; i++) {
-        state.slot_to_temp[i] = 0xFF;
+        state.slot_to_temp[i] = (int)TEMP_NONE;
         state.slot_valid[i] = false;
     }
 
@@ -585,7 +585,7 @@ void opt_promote_mem2reg(ZeroCCCompiler *c) {
             int slot = slot_from_offset(offset);
 
             if (slot >= 0 && slot < MAX_STACK_SLOTS) {
-                if (instr->temp_src1 >= 16) {
+                if (zc_temp_is_user(instr->temp_src1)) {
                     /* Track that this slot now holds the virtual source temp */
                     state.slot_to_temp[slot] = instr->temp_src1;
                     state.slot_valid[slot] = true;
@@ -611,7 +611,7 @@ void opt_promote_mem2reg(ZeroCCCompiler *c) {
                 if (state.slot_valid[slot]) {
                     int known_temp = state.slot_to_temp[slot];
                     /* Check if the known temp is still valid (not overwritten) */
-                    if (known_temp != TEMP_NONE) {
+                    if ((uint32_t)known_temp != TEMP_NONE) {
                         /* Replace load with MOV from known temp */
                         instr->op = OP_MOV_REG;
                         instr->temp_src1 = known_temp;
@@ -623,7 +623,7 @@ void opt_promote_mem2reg(ZeroCCCompiler *c) {
                         instr->flags_out = 0xFF;
                         instr->flags_in = 0xFF;
                     }
-                } else if (instr->temp_dest >= 16) {
+                } else if (zc_temp_is_user(instr->temp_dest)) {
                     /* Slot wasn't tracked, but this load puts its value into temp_dest.
                      * Any subsequent load from this slot can reuse temp_dest! */
                     state.slot_to_temp[slot] = instr->temp_dest;

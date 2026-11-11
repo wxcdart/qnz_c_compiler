@@ -1091,16 +1091,16 @@ static int regalloc_idx_to_vreg(int idx) {
 static int regalloc_get_reg_for_temp(RegAllocator *ra, int temp_id) __attribute__((unused));
 static int regalloc_get_reg_for_temp(RegAllocator *ra, int temp_id) {
     int def_ret_reg = (ra && (ra->target_isa == ISA_RISCV64 || ra->target_isa == ISA_RISCV32)) ? 10 : 0;
-    if (!ra || temp_id == TEMP_NONE) return def_ret_reg;
+    if (!ra || (uint32_t)temp_id == TEMP_NONE) return def_ret_reg;
 
-    /* VREG_0 (rax / x0 / a0) is a fixed register for return values */
-    if (temp_id == VREG_0) {
+    /* VREG_0 (rax / x0 / a0) and VREG_F0 (xmm0 / v0 / fa0) are fixed return registers */
+    if (temp_id == VREG_0 || temp_id == VREG_F0) {
         return def_ret_reg;
     }
 
-    if (temp_id == VREG_1) {
-        if (ra->target_isa == ISA_RISCV64 || ra->target_isa == ISA_RISCV32) return 11; /* a1 */
-        if (ra->target_isa == ISA_AARCH64) return 1; /* x1 */
+    if (temp_id == VREG_1 || temp_id == VREG_F1) {
+        if (ra->target_isa == ISA_RISCV64 || ra->target_isa == ISA_RISCV32) return 11; /* a1 / fa1 */
+        if (ra->target_isa == ISA_AARCH64) return 1; /* x1 / v1 */
         return 1;
     }
 
@@ -1109,6 +1109,10 @@ static int regalloc_get_reg_for_temp(RegAllocator *ra, int temp_id) {
         if (ra->target_isa == ISA_RISCV64 || ra->target_isa == ISA_RISCV32) return 11; /* a1 */
         if (ra->target_isa == ISA_AARCH64) return 1; /* x1 */
         return 2;  /* Physical rdx encoding on x86-64 */
+    }
+
+    if (zc_temp_is_vreg((uint32_t)temp_id)) {
+        return zc_vreg_hw_num((uint32_t)temp_id);
     }
 
     if (temp_id >= 0 && temp_id < 65536) {
@@ -1129,7 +1133,7 @@ static int regalloc_get_reg_for_temp(RegAllocator *ra, int temp_id) {
  * temps or spilled 128-bit temps (the caller must handle the spilled case). */
 static int regalloc_get_reg_hi_for_temp(RegAllocator *ra, int temp_id) __attribute__((unused));
 static int regalloc_get_reg_hi_for_temp(RegAllocator *ra, int temp_id) {
-    if (!ra || temp_id == TEMP_NONE) return -1;
+    if (!ra || (uint32_t)temp_id == TEMP_NONE) return -1;
     if (temp_id >= 0 && temp_id < 65536) {
         int32_t idx = ra->temp_to_interval[temp_id];
         if (idx >= 0 && (size_t)idx < ra->interval_count) {
@@ -1146,7 +1150,7 @@ static int regalloc_get_reg_hi_for_temp(RegAllocator *ra, int temp_id) {
 /* Check if a temporary is spilled, returning its spill slot (or -1 if not spilled) */
 static int regalloc_get_spill_slot_for_temp(RegAllocator *ra, int temp_id) __attribute__((unused));
 static int regalloc_get_spill_slot_for_temp(RegAllocator *ra, int temp_id) {
-    if (!ra || temp_id == TEMP_NONE || temp_id == VREG_0 || temp_id == VREG_2) return -1;
+    if (!ra || (uint32_t)temp_id == TEMP_NONE || zc_temp_is_vreg((uint32_t)temp_id)) return -1;
     if (temp_id >= 0 && temp_id < 65536) {
         int32_t idx = ra->temp_to_interval[temp_id];
         if (idx >= 0 && (size_t)idx < ra->interval_count) {
@@ -1162,7 +1166,9 @@ static int regalloc_get_spill_slot_for_temp(RegAllocator *ra, int temp_id) {
 /* Get register class for a temporary variable */
 static RegClass regalloc_get_class_for_temp(RegAllocator *ra, int temp_id) __attribute__((unused));
 static RegClass regalloc_get_class_for_temp(RegAllocator *ra, int temp_id) {
-    if (!ra || temp_id == TEMP_NONE) return REG_CLASS_GPR;
+    if (!ra || (uint32_t)temp_id == TEMP_NONE) return REG_CLASS_GPR;
+    if (zc_temp_is_fp_vreg((uint32_t)temp_id)) return REG_CLASS_XMM;
+    if (zc_temp_is_vreg((uint32_t)temp_id)) return REG_CLASS_GPR;
     if (temp_id >= 0 && temp_id < 65536) {
         int32_t idx = ra->temp_to_interval[temp_id];
         if (idx >= 0 && (size_t)idx < ra->interval_count) {

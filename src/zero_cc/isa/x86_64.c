@@ -2207,9 +2207,13 @@ static size_t x86_patch_jmp(ZeroCCCompiler *c, size_t patch_offset, size_t targe
 
 /* x86-64 backend instance */
 
-/* x86-64 VREG mapping: direct pass-through (VREG numbers = x86 encodings) */
-static int x86_get_int_reg(int vreg) { return vreg; }
-static int x86_get_fp_reg(int vreg) { return vreg; }
+/* x86-64 VREG mapping: strip VREG_TAG_BIT if passed a VREG_* token */
+static int x86_get_int_reg(int vreg) {
+    return zc_temp_is_vreg((uint32_t)vreg) ? zc_vreg_hw_num((uint32_t)vreg) : vreg;
+}
+static int x86_get_fp_reg(int vreg) {
+    return zc_temp_is_vreg((uint32_t)vreg) ? zc_vreg_hw_num((uint32_t)vreg) : vreg;
+}
 
 /* =====================================================================
  * Phase 3b: trampoline stub for a capturing nested function.

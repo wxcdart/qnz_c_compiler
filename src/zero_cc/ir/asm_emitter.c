@@ -1400,8 +1400,10 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
 void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, size_t func_idx) {
     FILE *out = c->asm_out ? c->asm_out : stdout;
 
-    /* Skip DEAD and NOP instructions */
-    if (instr->op == OP_DEAD || instr->op == OP_NOP) {
+    /* Skip DEAD, NOP, and in-stream argument/label payload pseudo-instructions */
+    if (instr->op == OP_DEAD || instr->op == OP_NOP ||
+        instr->op == OP_CALL_ARG || instr->op == OP_ASM_ARG ||
+        instr->op == OP_ASM_LABEL) {
         return;
     }
 
@@ -1434,9 +1436,9 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
 
     /* Check for spilled temps that need reloading / storing */
     int32_t spill_base_offset = c->regalloc.spill_base_offset;
-    int spill_src1 = (instr->op == OP_CALL) ? -1 : regalloc_get_spill_slot_for_temp(&c->regalloc, instr->temp_src1);
-    int spill_src2 = (instr->op == OP_CALL) ? -1 : regalloc_get_spill_slot_for_temp(&c->regalloc, instr->temp_src2);
-    int spill_dst  = (instr->op == OP_CALL) ? -1 : regalloc_get_spill_slot_for_temp(&c->regalloc, instr->temp_dest);
+    int spill_src1 = (instr->op == OP_CALL || instr->op == OP_SYSCALL || instr->op == OP_CLONE) ? -1 : regalloc_get_spill_slot_for_temp(&c->regalloc, instr->temp_src1);
+    int spill_src2 = (instr->op == OP_CALL || instr->op == OP_SYSCALL || instr->op == OP_CLONE) ? -1 : regalloc_get_spill_slot_for_temp(&c->regalloc, instr->temp_src2);
+    int spill_dst  = (instr->op == OP_CALL || instr->op == OP_SYSCALL || instr->op == OP_CLONE) ? -1 : regalloc_get_spill_slot_for_temp(&c->regalloc, instr->temp_dest);
 
     /* --- 128-bit (GPR128) spill handling (mirrors ast_lowering_mc.c) ---
      * A spilled REG_CLASS_GPR128 temp must reload BOTH halves (slot and

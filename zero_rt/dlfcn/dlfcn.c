@@ -342,9 +342,22 @@ static void zero_rt_dl_seterr(const char *msg) {
     g_rt_dl_errset = 1;
 }
 
-/* ---- the public dlfcn API (replaces musl's static-build stubs) ---- */
+/* ---- the public dlfcn API (replaces musl's static-build stubs) ----
+ *
+ * Sprint 155: these are local to the link unit (visibility hidden) so that
+ * in a dynamic build (e.g. the `make asan` sanitizer tree) they do NOT appear
+ * in .dynsym and therefore do NOT interpose the host libc's dlfcn.  The ASan
+ * runtime calls `dlsym(RTLD, "_thread_db_sizeof_pthread")` during
+ * AsanInitInternal; if this binary's `dlsym` shadowed libc's, that startup
+ * probe would route here and the malloc + /proc walk in zero_rt_sym_build is
+ * not safe mid-sanitizer-init (silent SIGSEGV before any user code).
+ * In-process callers (the JIT self-hosting path, the dlfcn tests) still bind
+ * to these local definitions; hiding only removes the .dynsym export.  A
+ * fully static build is unaffected (no .dynsym).
+ */
+#define ZC_DLFCN_HIDDEN __attribute__((visibility("hidden")))
 
-void *dlopen(const char *filename, int flags) {
+ZC_DLFCN_HIDDEN void *dlopen(const char *filename, int flags) {
     (void)flags;
     /* NULL: the main program's namespace.  A library name that a static
      * build folds into the executable (libm, libgcc_s, libc, ...): the
@@ -373,7 +386,7 @@ void *dlopen(const char *filename, int flags) {
     return NULL;
 }
 
-void *dlsym(void *handle, const char *name) {
+ZC_DLFCN_HIDDEN void *dlsym(void *handle, const char *name) {
     if (handle != NULL && handle != (void *)&g_rt_ns) {
         zero_rt_dl_seterr("dlsym: invalid handle");
         return NULL;
@@ -388,7 +401,7 @@ void *dlsym(void *handle, const char *name) {
     return sym;
 }
 
-int dlclose(void *handle) {
+ZC_DLFCN_HIDDEN int dlclose(void *handle) {
     if (handle == (void *)&g_rt_ns) {
         /* The namespace is the process itself: nothing to unload. */
         return 0;
@@ -397,7 +410,7 @@ int dlclose(void *handle) {
     return -1;
 }
 
-char *dlerror(void) {
+ZC_DLFCN_HIDDEN char *dlerror(void) {
     if (!g_rt_dl_errset) return NULL;
     g_rt_dl_errset = 0;
     return g_rt_dl_errmsg;

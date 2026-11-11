@@ -1104,12 +1104,12 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                 if (rc1 == REG_CLASS_XMM || rc1 == REG_CLASS_VEC ||
                     rc2 == REG_CLASS_XMM || rc2 == REG_CLASS_VEC) {
                     if (cur->cond == 0) { /* CC_LT: swap operands and use CC_A (8) */
-                        uint16_t tmp = prev->temp_src1;
+                        uint32_t tmp = prev->temp_src1;
                         prev->temp_src1 = prev->temp_src2;
                         prev->temp_src2 = tmp;
                         ir_get(c, i)->cond = 8;
                     } else if (cur->cond == 1) { /* CC_LE: swap operands and use CC_AE (9) */
-                        uint16_t tmp = prev->temp_src1;
+                        uint32_t tmp = prev->temp_src1;
                         prev->temp_src1 = prev->temp_src2;
                         prev->temp_src2 = tmp;
                         ir_get(c, i)->cond = 9;

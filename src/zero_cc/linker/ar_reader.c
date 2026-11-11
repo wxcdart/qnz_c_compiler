@@ -26,7 +26,6 @@ static int parse_dec(const char *s, size_t n, uint64_t *out) {
 
 int zc_ar_open(const char *path, ZcAr *a, char *err, size_t errsz) {
     memset(a, 0, sizeof(*a));
-    a->path = strdup(path);
 
     FILE *f = fopen(path, "rb");
     if (!f) {
@@ -188,6 +187,20 @@ int zc_ar_open(const char *path, ZcAr *a, char *err, size_t errsz) {
         a->member_count++;
 
         off += 60 + payload + (payload & 1);
+    }
+    /* Store the path only on success: every error return above must leave
+     * `a` empty so a failed open leaks nothing.  The `--ar rcs` create path
+     * opens a not-yet-existing archive, so the fopen failure is the common
+     * case (Sprint 155: asan LSan caught the old early `strdup` leaking on
+     * that path). */
+    a->path = strdup(path);
+    if (!a->path) {
+        for (size_t i = 0; i < a->member_count; i++) free(a->members[i].name);
+        free(a->members);
+        free(a->owned);
+        memset(a, 0, sizeof(*a));
+        snprintf(err, errsz, "out of memory");
+        return -1;
     }
     return 0;
 }

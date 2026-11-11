@@ -35,12 +35,12 @@ const Instr *ir_get_buffer(const ZeroCCCompiler *c) {
 
 /* Sprint 118: per-temp type-tag table (lazy 64 KiB; indexed by temp id). */
 uint8_t zc_temp_tag(const ZeroCCCompiler *c, uint32_t id) {
-    if (!c || !c->temp_type_tags || id >= 65535) return 0;
+    if (!c || !c->temp_type_tags || id >= 65536) return 0;
     return c->temp_type_tags[id];
 }
 
 void zc_temp_tag_set(ZeroCCCompiler *c, uint32_t id, uint8_t tag) {
-    if (!c || id >= 65535) return;
+    if (!c || id >= 65536) return;
     if (!c->temp_type_tags) {
         c->temp_type_tags = (uint8_t *)calloc(1, 65536);
         if (!c->temp_type_tags) return;  /* table is advisory; never fatal */
@@ -167,18 +167,18 @@ void ir_emit(ZeroCCCompiler *c, Instr instr) {
     uint8_t *tg = c->lowering.temp_alias_group;
     switch (instr.op) {
         case OP_DEREF: case OP_LOAD_BYTE: case OP_LOAD_16: case OP_LOAD_32:
-            if (instr.temp_src1 != TEMP_NONE && instr.temp_src1 < 256) instr.alias_group = tg[instr.temp_src1];
+            if (zc_temp_is_user(instr.temp_src1) && instr.temp_src1 < 256) instr.alias_group = tg[instr.temp_src1];
             break;
         case OP_STORE_BYTE: case OP_STORE_16: case OP_STORE_32: case OP_STORE_64:
-            if (instr.temp_src2 != TEMP_NONE && instr.temp_src2 < 256) instr.alias_group = tg[instr.temp_src2];
+            if (zc_temp_is_user(instr.temp_src2) && instr.temp_src2 < 256) instr.alias_group = tg[instr.temp_src2];
             break;
         case OP_MOV_REG: case OP_ADD_IMM: case OP_SUB_IMM:
-            if (instr.temp_dest != TEMP_NONE && instr.temp_src1 != TEMP_NONE &&
+            if (zc_temp_is_user(instr.temp_dest) && zc_temp_is_user(instr.temp_src1) &&
                 instr.temp_dest < 256 && instr.temp_src1 < 256)
                 tg[instr.temp_dest] = tg[instr.temp_src1];
             break;
         case OP_ADD: case OP_SUB:
-            if (instr.temp_dest != TEMP_NONE && instr.temp_src1 != TEMP_NONE && instr.temp_src2 != TEMP_NONE &&
+            if (zc_temp_is_user(instr.temp_dest) && zc_temp_is_user(instr.temp_src1) && zc_temp_is_user(instr.temp_src2) &&
                 instr.temp_dest < 256 && instr.temp_src1 < 256 && instr.temp_src2 < 256) {
                 uint8_t g1 = tg[instr.temp_src1], g2 = tg[instr.temp_src2];
                 tg[instr.temp_dest] = (g1 && g2 && g1 != g2) ? 0 : (g1 ? g1 : g2);
@@ -509,8 +509,12 @@ void ir_dump(const ZeroCCCompiler *c, FILE *f) {
         /* Sprint 118: C99 width mark (type-tag verifier input). The mark's
          * logical width is `w` (signed, w in {1,2,4,8}) or `w-8` (unsigned,
          * w in {9,10,12}); exotic bit-field marks (e.g. 40/48) are printed
-         * raw. OP_OVF_TRAP reuses the field as CHECK metadata. */
-        if (instr->width != 0) fprintf(f, " [w=%u]", instr->width);
+         * raw. OP_OVF_TRAP reuses the field as CHECK metadata. Ops that
+         * reuse .width for call/asm payload metadata are excluded. */
+        if (instr->width != 0 && instr->op != OP_CALL && instr->op != OP_CALL_ARG &&
+            instr->op != OP_ASM && instr->op != OP_ASM_ARG) {
+            fprintf(f, " [w=%u]", instr->width);
+        }
         if ((instr->op == OP_DIV || instr->op == OP_MOD) && instr->cond != 0)
             fprintf(f, " [u]");
         fprintf(f, "\n");
@@ -520,7 +524,7 @@ void ir_dump(const ZeroCCCompiler *c, FILE *f) {
      * Only tagged temps are listed; NONE (0) is omitted. */
     if (c->temp_type_tags && c->temp_type_tags_hi > 0) {
         fprintf(f, "# temp tags:");
-        for (uint32_t id = 0; id < c->temp_type_tags_hi && id < 65535; id++) {
+        for (uint32_t id = 0; id < c->temp_type_tags_hi && id < 65536; id++) {
             uint8_t tag = c->temp_type_tags[id];
             if (tag == 0) continue;
             const char *cls = zc_tag_class(tag) == ZC_TAGCLS_INT ? "int" :

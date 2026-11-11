@@ -53,7 +53,7 @@
 #include "zero_cc/ir/regalloc.h"
 #include "zero_cc/semantic/diagnostics.h"
 
-#define TR_ID_LIMIT 65535  /* new ids must stay < this (16-bit era budget) */
+#define TR_ID_LIMIT 65536  /* new ids must stay < this (16-bit user temp budget) */
 #define TR_NO_POS    ((size_t)-1)
 
 /* Free-list pool key: (reg class, type tag). */
@@ -136,7 +136,7 @@ int opt_temp_renumber(ZeroCCCompiler *c, const char *fn_name) {
      * tagged - tag 0 = unknown, which every consumer handles
      * conservatively). */
     for (uint32_t t = VREG_USER_START; t < max_id; t++)
-        r_tag[t] = (t < 65535 && c->temp_type_tags) ? c->temp_type_tags[t] : 0;
+        r_tag[t] = (t < 65536 && c->temp_type_tags) ? c->temp_type_tags[t] : 0;
 
     /* Bucket referenced ids by extended-range start / end. */
     memset(head_start, 0xFF, n * sizeof(int32_t));  /* -1 sentinels */
@@ -256,7 +256,7 @@ int opt_temp_renumber(ZeroCCCompiler *c, const char *fn_name) {
          * packs the operand count (Sprint 154) - neither is a temp id. */
         if (ins->op != OP_CALL && ins->op != OP_SYSCALL && ins->op != OP_CLONE &&
             ins->op != OP_ASM &&
-            f >= VREG_USER_START && f != TEMP_NONE) {
+            zc_temp_is_user(f)) {
             if (f >= max_id || !new_id[f]) {
                 diag_report_error_at_token(c,
                     "internal error: untracked temp %u in function '%s' - "
@@ -266,7 +266,7 @@ int opt_temp_renumber(ZeroCCCompiler *c, const char *fn_name) {
             ins->temp_dest = new_id[f];
         }
         f = ins->temp_src1;
-        if (f >= VREG_USER_START && f != TEMP_NONE) {
+        if (zc_temp_is_user(f)) {
             if (f >= max_id || !new_id[f]) {
                 diag_report_error_at_token(c,
                     "internal error: untracked temp %u in function '%s' - "
@@ -276,7 +276,7 @@ int opt_temp_renumber(ZeroCCCompiler *c, const char *fn_name) {
             ins->temp_src1 = new_id[f];
         }
         f = ins->temp_src2;
-        if (f >= VREG_USER_START && f != TEMP_NONE) {
+        if (zc_temp_is_user(f)) {
             if (f >= max_id || !new_id[f]) {
                 diag_report_error_at_token(c,
                     "internal error: untracked temp %u in function '%s' - "
@@ -286,21 +286,21 @@ int opt_temp_renumber(ZeroCCCompiler *c, const char *fn_name) {
             ins->temp_src2 = new_id[f];
         }
         if (ins->op == OP_ATOMIC_CMPXCHG || ins->op == OP_ATOMIC_CMPXCHG_BOOL) {
-            f = ins->label_idx;
-            if (f >= VREG_USER_START && f != TEMP_NONE) {
+            f = (uint32_t)ins->imm64;
+            if (zc_temp_is_user(f)) {
                 if (f >= max_id || !new_id[f]) {
                     diag_report_error_at_token(c,
                         "internal error: untracked temp %u in atomic cmpxchg of "
                         "function '%s' - refusing to emit", f, fn);
                     goto fail;
                 }
-                ins->label_idx = new_id[f];
+                ins->imm64 = (int64_t)new_id[f];
             }
         }
     }
     for (size_t a = 0; a < c->asm_operand_count; a++) {
         int t = c->asm_operand_temps[a];
-        if (t >= VREG_USER_START) {
+        if (t >= 0 && zc_temp_is_user((uint32_t)t)) {
             if ((uint32_t)t >= max_id || !new_id[(uint32_t)t]) {
                 diag_report_error_at_token(c,
                     "internal error: untracked temp %d in asm operands of "

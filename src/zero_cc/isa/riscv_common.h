@@ -15,6 +15,9 @@
 
 /* Helper macro to convert VREG to physical register */
 static inline int riscv_vreg_to_phys(int vreg) {
+    if (zc_temp_is_vreg((uint32_t)vreg)) {
+        vreg = zc_vreg_hw_num((uint32_t)vreg);
+    }
     switch (vreg) {
         case 0:  return 10;  /* a0 - result */
         case 1:  return 11;  /* a1 */
@@ -38,7 +41,9 @@ static inline int riscv_vreg_to_phys(int vreg) {
 
 /* Wrapper functions for VREG mapping */
 static inline int riscv_get_int_reg(int vreg) { return riscv_vreg_to_phys(vreg); }
-static inline int riscv_get_fp_reg(int vreg) { return vreg; }  /* Float regs are sequential */
+static inline int riscv_get_fp_reg(int vreg) {
+    return zc_temp_is_vreg((uint32_t)vreg) ? zc_vreg_hw_num((uint32_t)vreg) : vreg;
+}
 
 /* The IR layer hands the raw emitters PHYSICAL RISC-V register numbers
  * (a0=10, a1=11, ..., s0=8, sp=2, t0=5, ...; FP: fa0=10, ...), so the

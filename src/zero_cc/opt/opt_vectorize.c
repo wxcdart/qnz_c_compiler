@@ -115,20 +115,45 @@ static bool is_vec_arith(Instr *instr) {
 }
 
 /**
- * Resolve a temp to a compile-time constant value.  The constant-fold map
- * (ir_is_constant) is not guaranteed to cover every constant temp by the
- * time the vectorizer runs (e.g. a shift amount materialized as MOV_IMM),
- * so also fall back to finding the temp's MOV_IMM definition.
+ * Resolve a temp to the compile-time constant it holds at the point where
+ * it is consumed at instruction position `pos` (from its last definition
+ * strictly before `pos`, walking the value-preserving chain back to a
+ * MOV_IMM).  The constant-fold map (ir_is_constant) is not guaranteed to
+ * cover every constant temp by the time the vectorizer runs (e.g. a shift
+ * amount materialized as MOV_IMM), so also walk the MOV_REG / SEXT / ZEXT
+ * chain.
+ *
+ * Position-awareness is mandatory under the liveness renumber (Sprint
+ * 151b): a dead id is legally reused, so the same id can be defined by
+ * different instructions at different points.  The old whole-function
+ * "was this id ever defined by MOV_IMM?" scan could resolve a loop temp to
+ * the wrong constant (the value of an unrelated def that shared the
+ * compacted id), mis-classifying the affine stride and widening a loop on
+ * a bogus scale.
  */
-static int resolve_const(ZeroCCCompiler *c, int t, int *val_out) {
+static int resolve_const(ZeroCCCompiler *c, int pos, int t, int *val_out) {
     if (t == TEMP_NONE) return 0;
-    if (ir_is_constant(t)) { *val_out = ir_get_constant(t); return 1; }
-    int count = (int)ir_get_count(c);
-    for (int k = 0; k < count; k++) {
+    if (ir_is_constant(t)) { *val_out = (int)ir_get_constant(t); return 1; }
+    int depth = 0;
+    while (pos > 0 && depth <= 16) {
+        int k = -1;
+        for (int j = pos - 1; j >= 0; j--) {
+            Instr *d = ir_get(c, j);
+            if (d && (int)d->temp_dest == t) { k = j; break; }
+        }
+        if (k < 0) return 0;  /* id not defined before pos */
         Instr *d = ir_get(c, k);
-        if (d && (int)d->temp_dest == t && d->op == OP_MOV_IMM) {
-            *val_out = d->imm;
-            return 1;
+        switch (d->op) {
+            case OP_MOV_IMM:
+                *val_out = d->imm;
+                return 1;
+            case OP_MOV_REG:
+                pos = k; t = (int)d->temp_src1; depth++; break;
+            case OP_SEXT8: case OP_SEXT16: case OP_SEXT32:
+            case OP_ZEXT8: case OP_ZEXT16: case OP_ZEXT32:
+                pos = k; t = (int)d->temp_src1; depth++; break;
+            default:
+                return 0;
         }
     }
     return 0;
@@ -192,7 +217,7 @@ static int classify_addr_temp(ZeroCCCompiler *c, int start, int end, int t, int 
         case OP_SHL:     /* dest = s1 << s2 */
             {
                 int cval = 0;
-                if (!resolve_const(c, s2, &cval)) return -1;
+                if (!resolve_const(c, def_idx, s2, &cval)) return -1;
                 if (cval < 0 || cval > 30) return -1;
                 int cls = classify_addr_temp(c, start, end, s1, loop_var, counter_slot, depth + 1, &sc1);
                 if (cls == 1) { *scale_out = sc1 << cval; return 1; }
@@ -203,8 +228,8 @@ static int classify_addr_temp(ZeroCCCompiler *c, int start, int end, int t, int 
             int cs = -1;
             int other = TEMP_NONE;
             int cval = 0;
-            if (resolve_const(c, s1, &cval)) { cs = cval; other = s2; }
-            else if (resolve_const(c, s2, &cval)) { cs = cval; other = s1; }
+            if (resolve_const(c, def_idx, s1, &cval)) { cs = cval; other = s2; }
+            else if (resolve_const(c, def_idx, s2, &cval)) { cs = cval; other = s1; }
             if (cs < 0 || other == TEMP_NONE) return -1;
             int cls = classify_addr_temp(c, start, end, other, loop_var, counter_slot, depth + 1, &sc1);
             if (cls == 1) { *scale_out = sc1 * cs; return 1; }
@@ -763,6 +788,7 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
 
         /* Handle scalar loads -> VLOAD */
         if (instr->op == OP_LOAD_32 || instr->op == OP_FLOAD || instr->op == OP_VLOADSS || instr->op == OP_VLOADSD) {
+            if (!zc_temp_is_user(instr->temp_dest) || instr->temp_dest >= 65536) continue;
             int vec_temp = instr->temp_dest;
 
             /* Map scalar dest to vector temp */
@@ -783,6 +809,11 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
 
         /* Handle scalar arithmetic -> vector arithmetic */
         if (is_vec_arith(instr)) {
+            if (!zc_temp_is_user(instr->temp_dest) || instr->temp_dest >= 65536 ||
+                !zc_temp_is_user(instr->temp_src1) || instr->temp_src1 >= 65536 ||
+                !zc_temp_is_user(instr->temp_src2) || instr->temp_src2 >= 65536) {
+                continue;
+            }
             /* Get vector operation */
             int vec_op = get_vec_op(instr->op, vinfo->is_double, vinfo->is_int32);
 

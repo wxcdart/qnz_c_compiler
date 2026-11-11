@@ -7,6 +7,7 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include "zero_cc/types/vregs.h"
 
 /* Forward declaration */
 typedef struct ZeroCCCompiler ZeroCCCompiler;
@@ -23,9 +24,10 @@ typedef struct ZeroCCCompiler ZeroCCCompiler;
 /* Special register constants */
 #define REG_FLAGS 255  /* Special flag register for explicit flag dependency tracking (uint8 flags fields) */
 
-/* No-temp sentinel for the 16-bit Instr temp fields (C2b: was 0xFF when the
- * fields were uint8_t). 65535 can no longer be a real temp id. */
-#define TEMP_NONE 0xFFFF  /* "no temp" sentinel; zc_alloc_temp skips it */
+/* Sprint 155: No-temp sentinel for the 32-bit Instr temp fields, decoupled
+ * from the 16-bit user temp range (0..65535) and the VREG_TAG_BIT physical
+ * register range (0x40000000u..). Fits in positive int32_t. */
+#define TEMP_NONE 0x7FFFFFFFu  /* "no temp" sentinel; zc_alloc_temp skips it */
 
 /* OP_CALL_ARG pseudo-instruction: emitted immediately after OP_CALL, one per
  * argument beyond the first two (which live in OP_CALL.temp_src1/temp_src2).
@@ -848,10 +850,18 @@ static inline int zc_op_can_define_narrow_int(uint8_t op) {
 /* The instruction's C99 width mark (a per-op parameter: byte widths
  * 1/2/4 signed or 8+1/2/4 unsigned, plus bitfield bit widths 3..7).
  * `w & 7` strips the zero-extend flag; w==0 (mark 8/16) is a width-8
- * no-op the emitter absorbs. */
+ * no-op the emitter absorbs. Ops that repurpose temp_dest or width for
+ * non-width-mark metadata (OP_OVF_TRAP, OP_CALL, OP_SYSCALL, OP_CLONE,
+ * OP_CALL_ARG, OP_ASM, OP_ASM_ARG, OP_ASM_LABEL) are excluded. */
 static inline int zc_mark_extend(const Instr *instr, int *w_out, int *sign_out) {
     if (!instr || instr->temp_dest == TEMP_NONE) return 0;
     if (instr->width == 0) return 0;
+    if (instr->op == OP_OVF_TRAP || instr->op == OP_CALL ||
+        instr->op == OP_SYSCALL || instr->op == OP_CLONE ||
+        instr->op == OP_CALL_ARG || instr->op == OP_ASM ||
+        instr->op == OP_ASM_ARG || instr->op == OP_ASM_LABEL) {
+        return 0;
+    }
     *w_out = (int)(instr->width & 7);
     *sign_out = (instr->width < 8) ? 1 : 0;
     return 1;
@@ -1127,11 +1137,11 @@ static inline void ir_emit_atomic_xadd(ZeroCCCompiler *c, uint32_t temp_dest, ui
 }
 
 static inline void ir_emit_atomic_cmpxchg(ZeroCCCompiler *c, uint32_t temp_dest, uint32_t temp_addr, uint32_t temp_expected, uint32_t temp_desired, int16_t width) {
-    ir_emit(c, (Instr){.op = OP_ATOMIC_CMPXCHG, .temp_dest = temp_dest, .temp_src1 = temp_addr, .temp_src2 = temp_desired, .imm = width, .label_idx = (uint32_t)temp_expected});
+    ir_emit(c, (Instr){.op = OP_ATOMIC_CMPXCHG, .temp_dest = temp_dest, .temp_src1 = temp_addr, .temp_src2 = temp_desired, .imm = width, .imm64 = (int64_t)temp_expected, .label_idx = 0});
 }
 
 static inline void ir_emit_atomic_cmpxchg_bool(ZeroCCCompiler *c, uint32_t temp_dest, uint32_t temp_addr, uint32_t temp_expected, uint32_t temp_desired, int16_t width) {
-    ir_emit(c, (Instr){.op = OP_ATOMIC_CMPXCHG_BOOL, .temp_dest = temp_dest, .temp_src1 = temp_addr, .temp_src2 = temp_desired, .imm = width, .label_idx = (uint32_t)temp_expected});
+    ir_emit(c, (Instr){.op = OP_ATOMIC_CMPXCHG_BOOL, .temp_dest = temp_dest, .temp_src1 = temp_addr, .temp_src2 = temp_desired, .imm = width, .imm64 = (int64_t)temp_expected, .label_idx = 0});
 }
 
 static inline void ir_emit_atomic_or(ZeroCCCompiler *c, uint32_t temp_dest, uint32_t temp_addr, uint32_t temp_val, int16_t width) {

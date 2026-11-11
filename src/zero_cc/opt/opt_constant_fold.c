@@ -164,13 +164,14 @@ void opt_fold_constants(ZeroCCCompiler *c) {
                 if (i + 1 < count) {
                     Instr *next = ir_get(c, i + 1);
                     if (next && next->op == OP_OVF_TRAP &&
-                        next->temp_dest == (uint16_t)dest) {
+                        next->temp_dest == (uint32_t)dest) {
                         next->op = OP_DEAD;
                     }
                 }
 
                 // Mark the result as constant for future folding only if uniquely defined
-                if (dest >= 0 && dest < CONST_MAP_SIZE && g_def_count[dest] == 1) {
+                if (dest >= 0 && zc_temp_is_user((uint32_t)dest) &&
+                    dest < CONST_MAP_SIZE && g_def_count[dest] == 1) {
                     mark_constant(dest, result);
                 }
             }

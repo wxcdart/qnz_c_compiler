@@ -2045,7 +2045,7 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                                 /* RV32 ILP32 ABI: second 4-byte chunk returned in a1 (VREG_2) */
                                 zc_sym_store(c, sym, 4, VREG_2);  /* Sprint 72 */
                             } else if ((sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 8 && sym->type.size <= 16 && !is_compound) {
-                                int reg2 = (c->isa == ISA_AARCH64 || c->isa == ISA_RISCV64) ? 1 : 2;
+                                int reg2 = (c->isa == ISA_AARCH64 || c->isa == ISA_RISCV64) ? VREG_1 : VREG_2;
                                 size_t rem = sym->type.size - 8;
                                 int32_t tail_off = -(sym->stack_offset - 8);
                                 if (rem >= 8) {

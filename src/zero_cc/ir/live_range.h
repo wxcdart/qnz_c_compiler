@@ -40,6 +40,10 @@ typedef struct LiveRangeAnalyzer {
                                  * OP_PARAM_LOAD temps (-1 = not a parameter) */
     size_t temp_capacity;       /* Capacity of temp arrays */
 
+    /* Sprint 155: compact def/use bounds for physical/ABI VREG_* tokens */
+    size_t vreg_def_pos[VREG_COUNT];
+    size_t vreg_live_end[VREG_COUNT];
+
     /* Clobber tracking per instruction */
     bool *rax_clobbered;        /* True if rax is clobbered at instruction i */
     bool *rdx_clobbered;        /* True if rdx is clobbered at instruction i */
@@ -65,6 +69,11 @@ static void live_range_init(LiveRangeAnalyzer *lra) {
     lra->temp_reg_class = NULL;
     lra->param_slot = NULL;
     lra->temp_capacity = 0;
+
+    for (int v = 0; v < VREG_COUNT; v++) {
+        lra->vreg_def_pos[v] = SIZE_MAX;
+        lra->vreg_live_end[v] = 0;
+    }
 
     lra->rax_clobbered = NULL;
     lra->rdx_clobbered = NULL;
@@ -136,9 +145,9 @@ static void live_range_mark_clobber(LiveRangeAnalyzer *lra, size_t instr_index, 
 /* Add a temp use/def */
 static void live_range_add_use(LiveRangeAnalyzer *lra, size_t instr_index, int temp_id, bool is_def) __attribute__((unused));
 static void live_range_add_use(LiveRangeAnalyzer *lra, size_t instr_index, int temp_id, bool is_def) {
-    /* C2b: temp ids are 16-bit (up to 65534); the per-temp arrays below
-     * realloc-grow to fit, so no fixed cap. */
-    if (!lra || temp_id < 0) return;
+    /* C2b/Sprint 155: user temp ids live in [16, VREG_TAG_BIT); physical
+     * VREG_* tokens carry VREG_TAG_BIT and use the compact vreg_* arrays. */
+    if (!lra || temp_id < 0 || (uint32_t)temp_id == TEMP_NONE) return;
 
     /* Expand uses array if needed */
     if (lra->use_count >= lra->use_capacity) {
@@ -153,6 +162,17 @@ static void live_range_add_use(LiveRangeAnalyzer *lra, size_t instr_index, int t
     use->instr_index = instr_index;
     use->temp_id = temp_id;
     use->is_def = is_def;
+
+    if (zc_temp_is_vreg((uint32_t)temp_id)) {
+        int vidx = zc_vreg_index((uint32_t)temp_id);
+        if (is_def && lra->vreg_def_pos[vidx] == SIZE_MAX) {
+            lra->vreg_def_pos[vidx] = instr_index;
+        }
+        if (instr_index > lra->vreg_live_end[vidx]) {
+            lra->vreg_live_end[vidx] = instr_index;
+        }
+        return;
+    }
 
     /* Expand temp arrays if needed */
     if ((size_t)temp_id >= lra->temp_capacity) {
@@ -374,6 +394,37 @@ static void live_range_compute(LiveRangeAnalyzer *lra, RegAllocator *ra, ZeroCCC
             }
             if (end0 > i) regalloc_add_interval(ra, VREG_0, i, end0, REG_CLASS_GPR);
             if (end2 > i) regalloc_add_interval(ra, VREG_2, i, end2, REG_CLASS_GPR);
+        }
+    }
+
+    /* Sprint 155: register fixed intervals for explicitly defined VREG_0/VREG_2
+     * before the user-temp loop so Sprint 117 parameter pre-coloring clash
+     * checks see them. */
+    {
+        const int tracked_vregs[2] = { VREG_0, VREG_2 };
+        for (int vi = 0; vi < 2; vi++) {
+            int vreg_id = tracked_vregs[vi];
+            int vidx = zc_vreg_index((uint32_t)vreg_id);
+            if (lra->vreg_def_pos[vidx] == SIZE_MAX) continue;
+            size_t start = lra->vreg_def_pos[vidx];
+            size_t end = lra->vreg_live_end[vidx];
+            if (backedge_count > 0) {
+                bool changed = true;
+                while (changed) {
+                    changed = false;
+                    for (size_t b = 0; b < backedge_count; b++) {
+                        size_t hdr = backedges[b].hdr;
+                        size_t i = backedges[b].backedge;
+                        if (start < hdr && end >= hdr && end < i) {
+                            end = i;
+                            changed = true;
+                        }
+                    }
+                }
+            }
+            if (start <= end) {
+                regalloc_add_interval(ra, vreg_id, start, end, REG_CLASS_GPR);
+            }
         }
     }
 
@@ -612,11 +663,11 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
             continue;
         }
 
-        /* Record destination temp (definition) - skip 0xFF (no temp) */
-        if (instr->temp_dest!= TEMP_NONE) {
+        /* Record destination temp (definition) */
+        if (instr->temp_dest != TEMP_NONE) {
             live_range_add_use(lra, i, instr->temp_dest, true);
             /* Set register class based on the defining instruction's opcode */
-            if ((size_t)instr->temp_dest < lra->temp_capacity) {
+            if (zc_temp_is_user(instr->temp_dest) && (size_t)instr->temp_dest < lra->temp_capacity) {
                 if (instr->op == OP_CVTTSD2SI) {
                     lra->temp_reg_class[instr->temp_dest] = REG_CLASS_GPR;
                 } else if (instr->op == OP_PARAM_LOAD) {
@@ -648,10 +699,10 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
             }
         }
 
-        /* Record source temps (uses) - skip 0xFF (no temp) */
-        if (instr->temp_src1!= TEMP_NONE) {
+        /* Record source temps (uses) */
+        if (instr->temp_src1 != TEMP_NONE) {
             live_range_add_use(lra, i, instr->temp_src1, false);
-            if ((size_t)instr->temp_src1 < lra->temp_capacity) {
+            if (zc_temp_is_user(instr->temp_src1) && (size_t)instr->temp_src1 < lra->temp_capacity) {
                 if (instr->op == OP_CVTSI2SD || instr->op == OP_VCVT_SI2SS || instr->op == OP_VCVT_SI2SD ||
                     instr->op == OP_VLOAD || instr->op == OP_VSTORE ||
                     instr->op == OP_VLOADSS || instr->op == OP_VLOADSD ||
@@ -673,9 +724,9 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
                 }
             }
         }
-        if (instr->temp_src2!= TEMP_NONE) {
+        if (instr->temp_src2 != TEMP_NONE) {
             live_range_add_use(lra, i, instr->temp_src2, false);
-            if ((size_t)instr->temp_src2 < lra->temp_capacity) {
+            if (zc_temp_is_user(instr->temp_src2) && (size_t)instr->temp_src2 < lra->temp_capacity) {
                 if (instr->op == OP_FSTORE) {
                     lra->temp_reg_class[instr->temp_src2] = REG_CLASS_GPR; /* base pointer */
                 } else if (instr->op == OP_VSTORE) {
@@ -693,27 +744,28 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
             }
         }
 
-        /* DIV/MOD clobbers rax and rdx - extend live ranges of temps 0 and 2
-         * Temp 0 is typically assigned to rax, temp 2 to rdx.
+        /* DIV/MOD clobbers rax and rdx - extend live ranges of VREG_0 and VREG_2
+         * VREG_0 is assigned to rax, VREG_2 to rdx.
          * Extending their live ranges to the DIV instruction reserves
          * these registers for the DIV and prevents other temps from using them.
          * Also mark rax and rdx as clobbered so the register allocator knows
          * not to assign other temps to these registers during DIV. */
         if (instr->op == OP_DIV || instr->op == OP_MOD || instr->op == OP_MUL128) {
-            /* Extend rax (temp 0) live range to DIV instruction */
-            live_range_add_use(lra, i, 0, false);  /* rax use at DIV */
-            /* Extend rdx (temp 2) live range to DIV instruction */
-            live_range_add_use(lra, i, 2, false);  /* rdx use at DIV */
+            /* Extend rax (VREG_0) live range to DIV instruction */
+            live_range_add_use(lra, i, VREG_0, false);
+            /* Extend rdx (VREG_2) live range to DIV instruction */
+            live_range_add_use(lra, i, VREG_2, false);
             /* Mark rax and rdx as clobbered at instruction i */
             live_range_mark_clobber(lra, i, 0);  /* rax clobbered */
             live_range_mark_clobber(lra, i, 2);  /* rdx clobbered */
         }
 
         if (instr->op == OP_ATOMIC_CMPXCHG || instr->op == OP_ATOMIC_CMPXCHG_BOOL) {
-            if (instr->label_idx != TEMP_NONE) {
-                live_range_add_use(lra, i, instr->label_idx, false);
+            uint32_t exp_t = (uint32_t)instr->imm64;
+            if (exp_t != TEMP_NONE) {
+                live_range_add_use(lra, i, (int)exp_t, false);
             }
-            live_range_add_use(lra, i, 0, false);
+            live_range_add_use(lra, i, VREG_0, false);
             live_range_mark_clobber(lra, i, 0);
         }
     }

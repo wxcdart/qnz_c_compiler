@@ -97,7 +97,9 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
 
     for (size_t i = 0; i < count; i++) {
         const Instr *instr = &instrs[i];
-        if (instr->op == OP_DEAD || instr->op == OP_NOP) {
+        if (instr->op == OP_DEAD || instr->op == OP_NOP ||
+            instr->op == OP_CALL_ARG || instr->op == OP_ASM_ARG ||
+            instr->op == OP_ASM_LABEL) {
             continue;
         }
 
@@ -802,7 +804,8 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 break;
 
             case OP_ATOMIC_CMPXCHG: {
-                int phys_expected = (instr->label_idx == TEMP_NONE) ? BE(c)->fp_reg : regalloc_get_reg_for_temp(&c->regalloc, instr->label_idx);
+                uint32_t exp_t = (uint32_t)instr->imm64;
+                int phys_expected = (exp_t == TEMP_NONE) ? BE(c)->fp_reg : regalloc_get_reg_for_temp(&c->regalloc, (int)exp_t);
                 if (BE(c)->emit_atomic_cmpxchg) {
                     BE(c)->emit_atomic_cmpxchg(c, phys_dst, phys_src1, phys_expected, phys_src2, instr->imm ? instr->imm : 4);
                 }
@@ -810,7 +813,8 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
             }
 
             case OP_ATOMIC_CMPXCHG_BOOL: {
-                int phys_expected = (instr->label_idx == TEMP_NONE) ? BE(c)->fp_reg : regalloc_get_reg_for_temp(&c->regalloc, instr->label_idx);
+                uint32_t exp_t = (uint32_t)instr->imm64;
+                int phys_expected = (exp_t == TEMP_NONE) ? BE(c)->fp_reg : regalloc_get_reg_for_temp(&c->regalloc, (int)exp_t);
                 if (BE(c)->emit_atomic_cmpxchg_bool) {
                     BE(c)->emit_atomic_cmpxchg_bool(c, phys_dst, phys_src1, phys_expected, phys_src2, instr->imm ? instr->imm : 4);
                 }

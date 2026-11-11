@@ -94,15 +94,45 @@ static int lu_negate_cc(int cc) {
  * not rebuilt yet for this exact layout), so fall back to the temp's
  * MOV_IMM definition, mirroring the auto-vectorizer's resolve_const.
  */
-static int lu_resolve_const(ZeroCCCompiler *c, int t, int64_t *val_out) {
+/*
+ * Resolve temp `t` to the compile-time constant it holds at the point
+ * where it is consumed at instruction position `pos` (i.e. from the
+ * last definition of `t` strictly before `pos`, walking the
+ * value-preserving chain: MOV_REG / SEXT / ZEXT back to a MOV_IMM).
+ *
+ * Position-awareness is mandatory under the liveness renumber
+ * (Sprint 151b): a dead id is legally reused, so the same id can be
+ * defined by different instructions at different points in the
+ * function.  The old whole-function "was this id ever defined by
+ * MOV_IMM?" scan resolved the loop counter to the constant 0 of an
+ * unrelated local that shared the compacted id, which made the
+ * counter-trace report "both operands constant" and rejected every
+ * for-loop (the test-loop-unroll gate went red after 151b and sat
+ * unwatched because it is outside the standard battery).
+ */
+static int lu_resolve_const(ZeroCCCompiler *c, int pos, int t, int64_t *val_out) {
     if (t == TEMP_NONE) return 0;
     if (ir_is_constant(t)) { *val_out = ir_get_constant(t); return 1; }
-    int count = (int)ir_get_count(c);
-    for (int k = 0; k < count; k++) {
+    int depth = 0;
+    while (pos > 0 && depth <= LU_TRACE_MAX) {
+        int k = -1;
+        for (int j = pos - 1; j >= 0; j--) {
+            Instr *d = ir_get(c, j);
+            if (d && (int)d->temp_dest == t) { k = j; break; }
+        }
+        if (k < 0) return 0;  /* id not defined before pos */
         Instr *d = ir_get(c, k);
-        if (d && (int)d->temp_dest == t && d->op == OP_MOV_IMM) {
-            *val_out = d->imm64;
-            return 1;
+        switch (d->op) {
+            case OP_MOV_IMM:
+                *val_out = d->imm64;
+                return 1;
+            case OP_MOV_REG:
+                pos = k; t = (int)d->temp_src1; depth++; break;
+            case OP_SEXT8: case OP_SEXT16: case OP_SEXT32:
+            case OP_ZEXT8: case OP_ZEXT16: case OP_ZEXT32:
+                pos = k; t = (int)d->temp_src1; depth++; break;
+            default:
+                return 0;  /* non-constant def (stack load, binop, ...) */
         }
     }
     return 0;
@@ -120,7 +150,7 @@ static int lu_resolve_const(ZeroCCCompiler *c, int t, int64_t *val_out) {
 static int lu_trace_value(ZeroCCCompiler *c, int lo, int hi, int temp, int depth, int64_t *val_out) {
     if (depth > LU_TRACE_MAX || temp == TEMP_NONE || lo > hi) return LU_VAL_OTHER;
     int64_t cv;
-    if (lu_resolve_const(c, temp, &cv)) { *val_out = cv; return LU_VAL_CONST; }
+    if (lu_resolve_const(c, hi + 1, temp, &cv)) { *val_out = cv; return LU_VAL_CONST; }
     for (int k = hi; k >= lo; k--) {
         Instr *d = ir_get(c, k);
         if (!d || (int)d->temp_dest != temp) continue;
@@ -224,8 +254,8 @@ static bool lu_slot_increment_ok(ZeroCCCompiler *c, int bu_start, int store_idx,
         int64_t cv;
         switch (op) {
             case OP_ADD:
-                if (s1 == cur && s2 != cur && lu_resolve_const(c, s2, &cv) && cv == 1) { cur = d; delta = 1; continue; }
-                if (s2 == cur && s1 != cur && lu_resolve_const(c, s1, &cv) && cv == 1) { cur = d; delta = 1; continue; }
+                if (s1 == cur && s2 != cur && lu_resolve_const(c, k, s2, &cv) && cv == 1) { cur = d; delta = 1; continue; }
+                if (s2 == cur && s1 != cur && lu_resolve_const(c, k, s1, &cv) && cv == 1) { cur = d; delta = 1; continue; }
                 return false;
             case OP_ADD_IMM:
                 if (d == cur && s1 == cur && (int)x->imm == 1) { delta = 1; continue; }
@@ -264,8 +294,8 @@ static bool lu_temp_increment_ok(ZeroCCCompiler *c, int bu_start, int def_idx, i
             return (int)x->temp_src1 == iv && (int)x->imm == 1;
         case OP_ADD: {
             int s1 = (int)x->temp_src1, s2 = (int)x->temp_src2;
-            if (s1 == iv && s2 != iv && lu_resolve_const(c, s2, &cv) && cv == 1) return true;
-            if (s2 == iv && s1 != iv && lu_resolve_const(c, s1, &cv) && cv == 1) return true;
+            if (s1 == iv && s2 != iv && lu_resolve_const(c, def_idx, s2, &cv) && cv == 1) return true;
+            if (s2 == iv && s1 != iv && lu_resolve_const(c, def_idx, s1, &cv) && cv == 1) return true;
             return false;
         }
         case OP_MOV_REG: {
@@ -278,8 +308,8 @@ static bool lu_temp_increment_ok(ZeroCCCompiler *c, int bu_start, int def_idx, i
                 if (!y || (int)y->temp_dest != t) continue;
                 int y1 = (int)y->temp_src1, y2 = (int)y->temp_src2;
                 bool ok = (y->op == OP_ADD) &&
-                    (((y1 == iv && y2 != iv && lu_resolve_const(c, y2, &cv) && cv == 1) ||
-                     (y2 == iv && y1 != iv && lu_resolve_const(c, y1, &cv) && cv == 1)));
+                    (((y1 == iv && y2 != iv && lu_resolve_const(c, k, y2, &cv) && cv == 1) ||
+                     (y2 == iv && y1 != iv && lu_resolve_const(c, k, y1, &cv) && cv == 1)));
                 return ok;  /* t's last definition decides */
             }
             return false;
@@ -351,9 +381,25 @@ static bool lu_analyze(ZeroCCCompiler *c, LoopInfo *loop, LUPlan *plan) {
                             Instr *x = ir_get(c, i);
                             if (!x || x->temp_dest == TEMP_NONE) continue;
                             int d = (int)x->temp_dest;
+                            /* The header def is dead - and therefore fine -
+                             * once its id is redefined past the test; only a
+                             * use reaching the id BEFORE any redefine would
+                             * read the once-executed header value.  The
+                             * liveness renumber (Sprint 151b) legally reuses
+                             * a dead header temp's id for a body def, so the
+                             * scan stops at a redefine (Sprint 150 gate:
+                             * opt_temp_renumber compaction used to make this
+                             * check reject every loop).  A temp_dest on
+                             * OP_CALL/OP_SYSCALL/OP_CLONE is an arg count,
+                             * not a redefine. */
                             for (int j = bh_end + 1; j < count; j++) {
                                 Instr *u = ir_get(c, j);
                                 if (!u) continue;
+                                if (u->op != OP_CALL && u->op != OP_SYSCALL &&
+                                    u->op != OP_CLONE &&
+                                    (int)u->temp_dest == d) {
+                                    break;  /* redefined: header def dead */
+                                }
                                 if ((int)u->temp_src1 == d || (int)u->temp_src2 == d) {
                                     hdr_ok = false;
                                     break;
@@ -425,7 +471,9 @@ static bool lu_analyze(ZeroCCCompiler *c, LoopInfo *loop, LUPlan *plan) {
                             Instr *x = ir_get(c, i);
                             if (!x || !lu_is_jump(x->op)) continue;
                             int p = lu_label_pos(lmap, lmap_n, x->label_idx);
-                            if (p >= H && p <= E) hdr_ok = false;
+                            if (p >= H && p <= E) {
+                                hdr_ok = false;
+                            }
                         }
 
                         /* A user label inside the span: a nested function

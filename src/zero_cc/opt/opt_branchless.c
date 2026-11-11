@@ -53,7 +53,7 @@ typedef struct {
     int jmp_idx;     /* OP_JMP L_end  (then.last + 1) */
     int else_label;  /* OP_LABEL L_else (jmp_idx + 1) */
     int end_label;   /* OP_LABEL L_end  (else_arm.last + 1) */
-    uint16_t t;      /* condition temp (0/1) */
+    uint32_t t;      /* condition temp (0/1) */
 } SelectSite;
 
 /* Block containing instruction idx (blocks tile the IR exactly). */
@@ -119,14 +119,14 @@ static int op_defines_gpr(uint8_t op) {
 /* Is temp t provably GPR-class given its most recent definition before
  * index `before`? Recurses through OP_MOV_REG chains (depth-bounded).
  * Returns 1 (GPR), 0 (not provably GPR / no definition). */
-static int temp_is_gpr(ZeroCCCompiler *c, uint16_t t, int before, int depth) {
-    if (t == TEMP_NONE || t < 16 || depth > 128) return 0;
+static int temp_is_gpr(ZeroCCCompiler *c, uint32_t t, int before, int depth) {
+    if (!zc_temp_is_user(t) || depth > 128) return 0;
     for (int i = before - 1; i >= 0; i--) {
         Instr *in = ir_get(c, i);
         if (!in || in->temp_dest != t) continue;
         /* Most recent definition of t before `before`. */
         if (in->op == OP_MOV_REG) {
-            if (in->temp_src1 == TEMP_NONE || in->temp_src1 < 16) return 0;
+            if (!zc_temp_is_user(in->temp_src1)) return 0;
             if (in->temp_src2 != TEMP_NONE) return 0;
             return temp_is_gpr(c, in->temp_src1, i, depth + 1);
         }
@@ -141,7 +141,7 @@ static int temp_is_gpr(ZeroCCCompiler *c, uint16_t t, int before, int depth) {
 static int is_inplace_ext(const Instr *x) {
     return (x->op == OP_SEXT8 || x->op == OP_SEXT16 || x->op == OP_SEXT32 ||
             x->op == OP_ZEXT8 || x->op == OP_ZEXT16 || x->op == OP_ZEXT32) &&
-           x->temp_dest == x->temp_src1 && x->temp_dest >= 16;
+           x->temp_dest == x->temp_src1 && zc_temp_is_user(x->temp_dest);
 }
 
 /* Match one arm starting at `start`. The arm's final MOV_REG destination
@@ -150,8 +150,8 @@ static int is_inplace_ext(const Instr *x) {
 static int match_arm(ZeroCCCompiler *c, int start, int res_expect, ArmInfo *out) {
     (void)c;
     Instr *x1 = ir_get(c, start);
-    int load1 = (x1->op == OP_MOV && x1->temp_src1 == TEMP_NONE && x1->temp_dest >= 16);
-    int copy1 = (x1->op == OP_MOV_REG && x1->temp_dest >= 16 && x1->temp_src1 >= 16);
+    int load1 = (x1->op == OP_MOV && x1->temp_src1 == TEMP_NONE && zc_temp_is_user(x1->temp_dest));
+    int copy1 = (x1->op == OP_MOV_REG && zc_temp_is_user(x1->temp_dest) && zc_temp_is_user(x1->temp_src1));
     if (!load1 && !copy1) return 0;
 
     /* Shape 1: single-instruction arm (MOV_REG res, A) - the next
@@ -159,7 +159,7 @@ static int match_arm(ZeroCCCompiler *c, int start, int res_expect, ArmInfo *out)
     if (copy1) {
         Instr *x2 = ir_get(c, start + 1);
         if (x2->op == OP_JMP || x2->op == OP_LABEL) {
-            if (res_expect && x1->temp_dest != res_expect) return 0;
+            if (res_expect && (int)x1->temp_dest != res_expect) return 0;
             out->first = start;
             out->last = start;
             out->val = x1->temp_src1;
@@ -177,9 +177,9 @@ static int match_arm(ZeroCCCompiler *c, int start, int res_expect, ArmInfo *out)
     Instr *x2 = ir_get(c, start + 1);
 
     /* Shape 2: [start] [MOV_REG res, V] */
-    if (x2->op == OP_MOV_REG && x2->temp_src1 == val && x2->temp_dest >= 16) {
-        if (res_expect && x2->temp_dest != res_expect) return 0;
-        if (x2->temp_dest == val) return 0;
+    if (x2->op == OP_MOV_REG && (int)x2->temp_src1 == val && zc_temp_is_user(x2->temp_dest)) {
+        if (res_expect && (int)x2->temp_dest != res_expect) return 0;
+        if ((int)x2->temp_dest == val) return 0;
         out->first = start;
         out->last = start + 1;
         out->val = val;
@@ -192,9 +192,9 @@ static int match_arm(ZeroCCCompiler *c, int start, int res_expect, ArmInfo *out)
     /* Shape 3: [start] [SEXT/ZEXT V] [MOV_REG res, V] */
     if (is_inplace_ext(x2)) {
         Instr *x3 = ir_get(c, start + 2);
-        if (x3->op == OP_MOV_REG && x3->temp_src1 == val && x3->temp_dest >= 16) {
-            if (res_expect && x3->temp_dest != res_expect) return 0;
-            if (x3->temp_dest == val) return 0;
+        if (x3->op == OP_MOV_REG && (int)x3->temp_src1 == val && zc_temp_is_user(x3->temp_dest)) {
+            if (res_expect && (int)x3->temp_dest != res_expect) return 0;
+            if ((int)x3->temp_dest == val) return 0;
             out->first = start;
             out->last = start + 2;
             out->val = val;
@@ -217,8 +217,8 @@ static int match_arm(ZeroCCCompiler *c, int start, int res_expect, ArmInfo *out)
  */
 static int try_match_site(ZeroCCCompiler *c, int i, SelectSite *site) {
     Instr *je = ir_get(c, i);
-    uint16_t t = je->temp_src1;
-    if (t == TEMP_NONE || t < 16 || i < 1) return 0;
+    uint32_t t = je->temp_src1;
+    if (!zc_temp_is_user(t) || i < 1) return 0;
 
     Instr *prev = ir_get(c, i - 1);
     uint8_t mask_kind;
@@ -249,8 +249,8 @@ static int try_match_site(ZeroCCCompiler *c, int i, SelectSite *site) {
     Instr *en = ir_get(c, end_label);
     if (en->op != OP_LABEL || en->label_idx != l_end) return 0;
 
-    uint16_t res = then_arm.res;
-    if (res == t || then_arm.val == t || else_arm.val == t ||
+    uint32_t res = (uint32_t)then_arm.res;
+    if (res == t || (uint32_t)then_arm.val == t || (uint32_t)else_arm.val == t ||
         then_arm.val == else_arm.val) return 0;
 
     /* `res` must not be read anywhere in the replaced span. */

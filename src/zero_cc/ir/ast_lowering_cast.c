@@ -160,10 +160,10 @@ int lower_expr_cast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                     if (efl) {
                         if (sz == 4) {
                             int fa = zc_alloc_temp(c);
-                            ir_emit_lea(c, fa, BE(c)->fp_reg, -voff);
+                            ir_emit_lea(c, fa, TEMP_NONE, -voff);
                             ir_emit_vstoress(c, (uint32_t)fa, (uint32_t)result);
                         } else {
-                            ir_emit_fstore(c, (uint32_t)result, BE(c)->fp_reg, -voff);
+                            ir_emit_fstore(c, (uint32_t)result, TEMP_NONE, -voff);
                         }
                     } else {
                         if (sz == 1) ir_emit_store_byte(c, (uint32_t)result, (uint32_t)voff);

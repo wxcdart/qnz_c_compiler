@@ -330,7 +330,7 @@ static bool instr_is_invariant(ZeroCCCompiler *c, Instr *instr, bool *invariant_
  */
 static bool instr_has_moving_side_effects(Instr *instr) {
     if (!instr) return true;
-    if (instr->temp_dest != TEMP_NONE && instr->temp_dest < VREG_USER_START) return true;
+    if (instr->temp_dest != TEMP_NONE && !zc_temp_is_user(instr->temp_dest)) return true;
 
     switch (instr->op) {
         case OP_CALL:

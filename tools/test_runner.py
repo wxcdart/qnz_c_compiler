@@ -24,6 +24,10 @@ CYAN = "\033[36m"
 BOLD = "\033[1m"
 RESET = "\033[0m"
 
+# Build tree the runner reads from / writes to.  Defaults to "build"; the
+# asan targets point it at build_asan so the sanitizer rebuild is isolated.
+BUILD_SUBDIR = "build"
+
 
 def is_color_enabled():
     return sys.stdout.isatty() and os.environ.get("NO_COLOR") is None
@@ -60,7 +64,7 @@ def find_test_binaries(root_dir, category=None):
             sys.exit(1)
         categories = [category]
 
-    build_test_dir = os.path.join(root_dir, "build", "test")
+    build_test_dir = os.path.join(root_dir, BUILD_SUBDIR, "test")
     base_dir = build_test_dir if os.path.isdir(build_test_dir) else os.path.join(root_dir, "test")
 
     found = []
@@ -160,7 +164,7 @@ def run_single_test(name, path, category, timeout_sec=10, use_valgrind=False):
 def run_aot_test(name, source_path, category, root_dir, zerocc_path, target, timeout_sec=30, verbose=False):
     """Run an AOT test: compile with zerocc, verify ELF, link, and execute."""
     start = time.perf_counter()
-    test_dir = os.path.join(root_dir, "build", "test", "aot")
+    test_dir = os.path.join(root_dir, BUILD_SUBDIR, "test", "aot")
     os.makedirs(test_dir, exist_ok=True)
 
     base_name = os.path.splitext(os.path.basename(source_path))[0]
@@ -346,19 +350,30 @@ def main():
                         default="x86-64", help="Target architecture for AOT mode")
     parser.add_argument("--zerocc", "-z", default=None,
                         help="Path to zerocc compiler (default: auto-detect)")
+    parser.add_argument("--skip", default="",
+                        help="Comma-separated test names (basenames) to skip; the "
+                             "`asan` target uses this for the few tests that depend "
+                             "on the static-musl host-libc resolution, which a dynamic "
+                             "ASan build cannot provide")
     parser.add_argument("--tap", action="store_true", help="Output in TAP v13 format")
     parser.add_argument("--valgrind", action="store_true", help="Run tests under Valgrind memcheck")
     parser.add_argument("--timeout", type=int, default=30, help="Per-test timeout in seconds (default: 30)")
+    parser.add_argument("--build-dir", default="build",
+                        help="Build tree to run from (default: build; the asan "
+                             "targets use build_asan so the sanitizer rebuild is "
+                             "isolated from the normal tree)")
     parser.add_argument("--verbose", "-v", action="store_true", help="Print detailed output")
     parser.add_argument("tests", nargs="*", help="Optional specific tests to run")
 
     args = parser.parse_args()
+    global BUILD_SUBDIR
+    BUILD_SUBDIR = args.build_dir
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
     # Auto-detect zerocc path
     zerocc_path = args.zerocc
     if not zerocc_path:
-        zerocc_path = os.path.join(root_dir, "build", "bin", "zerocc")
+        zerocc_path = os.path.join(root_dir, BUILD_SUBDIR, "bin", "zerocc")
         if not os.path.isfile(zerocc_path):
             zerocc_path = os.path.join(root_dir, "zerocc")
         if not os.path.isfile(zerocc_path):
@@ -375,6 +390,17 @@ def main():
         if not test_items:
             print("No test binaries found. Did you run 'make' first?", file=sys.stderr)
             sys.exit(1)
+
+    # Apply --skip filter (by test name or file basename).
+    if args.skip:
+        skip = {x.strip() for x in args.skip.split(",") if x.strip()}
+        before = len(test_items)
+        test_items = [t for t in test_items
+                      if t[0] not in skip and os.path.basename(t[1]) not in skip]
+        skipped = before - len(test_items)
+        if skipped and not args.tap:
+            print(colorize(f"(skipping {skipped} test(s) per --skip - static-musl/"
+                           f"ASan-incompatible)", YELLOW))
 
     # Print header
     if not args.tap:

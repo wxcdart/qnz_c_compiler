@@ -19,10 +19,10 @@
 /* Value number table */
 typedef struct {
     uint8_t op;
-    uint16_t src1;   /* Sprint 35 P4: 16-bit temp id (was uint8_t -> truncation/OOB for funcs >256 temps) */
-    uint16_t src2;
+    uint32_t src1;
+    uint32_t src2;
     int16_t imm;
-    uint16_t result_temp;  /* C2b: 16-bit temp id */
+    uint32_t result_temp;
 } ValueEntry;
 
 static ValueEntry g_values[4096];
@@ -126,7 +126,7 @@ static void gvn_add(Instr *instr, int val_num) {
 /**
  * Replace instruction with MOV from existing value
  */
-static void replace_with_gvn_copy(ZeroCCCompiler *c, int instr_idx, uint16_t src_temp) {
+static void replace_with_gvn_copy(ZeroCCCompiler *c, int instr_idx, uint32_t src_temp) {
     Instr *instr = ir_get(c, instr_idx);
     if (!instr) return;
 
@@ -269,22 +269,23 @@ static void opt_restrict_memory_forward(ZeroCCCompiler *c) {
         }
 
         /* Redefinition of a temp invalidates anything that referenced it */
-        if (in->temp_dest!= TEMP_NONE) {
-            mf_forget_temp(in->temp_dest);
-            canon_set(in->temp_dest, in->temp_dest);
+        if (zc_temp_is_user(in->temp_dest) && in->temp_dest < 65536) {
+            mf_forget_temp((uint16_t)in->temp_dest);
+            canon_set((uint16_t)in->temp_dest, (uint16_t)in->temp_dest);
         }
 
-        if (in->op == OP_MOV && in->temp_src1== TEMP_NONE && in->temp_dest!= TEMP_NONE) {
+        if (in->op == OP_MOV && in->temp_src1 == TEMP_NONE &&
+            zc_temp_is_user(in->temp_dest) && in->temp_dest < 65536) {
             /* Stack slot load: same unmodified slot => same value => same canonical temp */
             int found = -1;
             for (int s = 0; s < g_slot_n; s++) {
                 if (g_slot_off[s] == in->imm) { found = s; break; }
             }
             if (found >= 0) {
-                canon_set(in->temp_dest, g_slot_can[found]);
+                canon_set((uint16_t)in->temp_dest, g_slot_can[found]);
             } else if (g_slot_n < MF_MAX_SLOTS) {
                 g_slot_off[g_slot_n] = in->imm;
-                g_slot_can[g_slot_n] = in->temp_dest;
+                g_slot_can[g_slot_n] = (uint16_t)in->temp_dest;
                 g_slot_n++;
             }
             continue;
@@ -295,13 +296,17 @@ static void opt_restrict_memory_forward(ZeroCCCompiler *c) {
             continue;
         }
 
-        if (in->op == OP_MOV_REG && in->temp_dest!= TEMP_NONE && in->temp_src1!= TEMP_NONE) {
-            canon_set(in->temp_dest, canon_get(in->temp_src1));
+        if (in->op == OP_MOV_REG &&
+            zc_temp_is_user(in->temp_dest) && in->temp_dest < 65536 &&
+            zc_temp_is_user(in->temp_src1) && in->temp_src1 < 65536) {
+            canon_set((uint16_t)in->temp_dest, canon_get((uint16_t)in->temp_src1));
             continue;
         }
 
-        if (mf_is_load(in->op) && in->temp_dest!= TEMP_NONE && in->temp_src1!= TEMP_NONE) {
-            uint16_t addr = canon_get(in->temp_src1);
+        if (mf_is_load(in->op) &&
+            zc_temp_is_user(in->temp_dest) && in->temp_dest < 65536 &&
+            zc_temp_is_user(in->temp_src1) && in->temp_src1 < 65536) {
+            uint16_t addr = canon_get((uint16_t)in->temp_src1);
             int hit = -1;
             for (int e = 0; e < g_mf_n; e++) {
                 if (g_mf[e].op == in->op && g_mf[e].addr == addr) { hit = e; break; }
@@ -310,17 +315,17 @@ static void opt_restrict_memory_forward(ZeroCCCompiler *c) {
                 uint16_t val = g_mf[hit].val;
                 in->op = OP_MOV_REG;
                 in->temp_src1 = val;
-                in->temp_src2= TEMP_NONE;
+                in->temp_src2 = TEMP_NONE;
                 in->imm = 0;
                 in->imm64 = 0;
                 in->label_idx = 0;
                 in->alias_group = 0;
-                canon_set(in->temp_dest, canon_get(val));
+                canon_set((uint16_t)in->temp_dest, canon_get(val));
                 opt_profile_count_gvn_eliminated();
             } else if (g_mf_n < MF_MAX_ENTRIES) {
                 g_mf[g_mf_n].op = in->op;
                 g_mf[g_mf_n].addr = addr;
-                g_mf[g_mf_n].val = in->temp_dest;
+                g_mf[g_mf_n].val = (uint16_t)in->temp_dest;
                 g_mf[g_mf_n].group = in->alias_group;
                 g_mf_n++;
             }
@@ -338,11 +343,13 @@ static void opt_restrict_memory_forward(ZeroCCCompiler *c) {
                 mf_remove_if_group(in->alias_group);
             }
             /* A 64-bit store forwards its value to later 64-bit loads of the same address */
-            if (in->op == OP_STORE_64 && in->temp_src1!= TEMP_NONE && in->temp_src2!= TEMP_NONE &&
+            if (in->op == OP_STORE_64 &&
+                zc_temp_is_user(in->temp_src1) && in->temp_src1 < 65536 &&
+                zc_temp_is_user(in->temp_src2) && in->temp_src2 < 65536 &&
                 g_mf_n < MF_MAX_ENTRIES) {
                 g_mf[g_mf_n].op = OP_DEREF;
-                g_mf[g_mf_n].addr = canon_get(in->temp_src2);
-                g_mf[g_mf_n].val = in->temp_src1;
+                g_mf[g_mf_n].addr = canon_get((uint16_t)in->temp_src2);
+                g_mf[g_mf_n].val = (uint16_t)in->temp_src1;
                 g_mf[g_mf_n].group = in->alias_group;
                 g_mf_n++;
             }
@@ -376,10 +383,10 @@ void opt_eliminate_gvn(ZeroCCCompiler *c) {
             continue;
         }
 
-        /* Skip if destination or source is a reserved physical register (< 16) or invalid (0xFF) */
-        if (instr->temp_dest== TEMP_NONE || instr->temp_dest < 16 ||
-            (instr->temp_src1!= TEMP_NONE && instr->temp_src1 < 16) ||
-            (instr->temp_src2!= TEMP_NONE && instr->temp_src2 < 16)) {
+        /* Skip if destination or source is a reserved physical register (VREG_*) or outside 64K */
+        if (!zc_temp_is_user(instr->temp_dest) || instr->temp_dest >= 65536 ||
+            (instr->temp_src1 != TEMP_NONE && !zc_temp_is_user(instr->temp_src1)) ||
+            (instr->temp_src2 != TEMP_NONE && !zc_temp_is_user(instr->temp_src2))) {
             continue;
         }
 

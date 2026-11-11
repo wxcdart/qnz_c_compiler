@@ -891,8 +891,8 @@ static int apply_relocations(ZcLink *L, char *err, size_t errsz) {
                          * and must land on the page of (S + A); invert that
                          * to get the 21-bit signed page offset. Encoding:
                          * imm21[20:2] in bits [23:5], imm21[1:0] in bits [30:29]. */
-                        int64_t r = (((S + A) & ~0xFFFULL) -
-                                     ((int64_t)P & ~0xFFFULL)) >> 12;
+                        int64_t r = ((int64_t)(((uint64_t)(S + A) & ~0xFFFULL) -
+                                               (P & ~0xFFFULL))) >> 12;
                         if (r < -(1LL << 20) || r >= (1LL << 20)) {
                             snprintf(err, errsz,
                                      "ADR_PREL_PG_HI21 out of range for `%s' "

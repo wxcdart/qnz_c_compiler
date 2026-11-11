@@ -643,7 +643,7 @@ bool zc_node_is_int128(ZeroCCCompiler *c, const ZeroCCASTNode *node) {  /* Sprin
  * Pointer operands are excluded (pointer arithmetic has no signed-overflow
  * semantics here; array operands read as unsigned via int_info). */
 static void zc_maybe_emit_ovf_trap(ZeroCCCompiler *c, ZeroCCASTArena *arena,
-                                   ZeroCCASTNode *node, uint16_t result_temp) {
+                                   ZeroCCASTNode *node, uint32_t result_temp) {
     if (!c->sanitize_overflow || c->isa != ISA_X86_64) return;
     ZeroCCASTNode *ln = zero_cc_ast_get(arena, node->left);
     ZeroCCASTNode *rn = zero_cc_ast_get(arena, node->right);

@@ -1510,9 +1510,9 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                     /* Sprint 115m: a `float` return narrows the real part to
                      * the ABI float pattern in the low 32 of xmm0. */
                     if (cur_fn2->return_type.tag == TYPE_FLOAT) {
-                        ir_emit_cvtsd2ss(c, (uint32_t)VREG_0, (uint32_t)rt);
+                        ir_emit_cvtsd2ss(c, (uint32_t)VREG_F0, (uint32_t)rt);
                     } else {
-                        ir_emit_fmov(c, VREG_0, (uint32_t)rt);
+                        ir_emit_fmov(c, (uint32_t)VREG_F0, (uint32_t)rt);
                     }
                     c->last_expr_is_float = 1;
                 } else {
@@ -1529,9 +1529,9 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
 
                 if (ret_float) {
                     if (cur_fn2->return_type.tag == TYPE_FLOAT)
-                        ir_emit_cvttsd2ss(c, (uint32_t)VREG_0, (uint32_t)VREG_0);
+                        ir_emit_cvttsd2ss(c, (uint32_t)VREG_F0, (uint32_t)VREG_F0);
                     else
-                        ir_emit_cvtsi2sd(c, (uint32_t)VREG_0, (uint32_t)rt);
+                        ir_emit_cvtsi2sd(c, (uint32_t)VREG_F0, (uint32_t)rt);
                     if (cur_fn2->return_type.tag != TYPE_FLOAT)
                         c->last_expr_is_float = 1;
                     else
@@ -1710,9 +1710,9 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                     /* Sprint 115m: a `float` return narrows the real part to
                      * the ABI float pattern in the low 32 of xmm0. */
                     if (cur_fn->return_type.tag == TYPE_FLOAT) {
-                        ir_emit_cvtsd2ss(c, (uint32_t)VREG_0, (uint32_t)rt);
+                        ir_emit_cvtsd2ss(c, (uint32_t)VREG_F0, (uint32_t)rt);
                     } else {
-                        ir_emit_fmov(c, VREG_0, (uint32_t)rt);
+                        ir_emit_fmov(c, (uint32_t)VREG_F0, (uint32_t)rt);
                     }
                     c->last_expr_is_float = 1;
                 } else {
@@ -1728,9 +1728,9 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                 else ir_emit_deref(c, rt, result_temp);
                 if (ret_float) {
                     if (cur_fn->return_type.tag == TYPE_FLOAT)
-                        ir_emit_cvttsd2ss(c, (uint32_t)VREG_0, (uint32_t)VREG_0);
+                        ir_emit_cvttsd2ss(c, (uint32_t)VREG_F0, (uint32_t)VREG_F0);
                     else
-                        ir_emit_cvtsi2sd(c, (uint32_t)VREG_0, (uint32_t)rt);
+                        ir_emit_cvtsi2sd(c, (uint32_t)VREG_F0, (uint32_t)rt);
                     if (cur_fn->return_type.tag != TYPE_FLOAT)
                         c->last_expr_is_float = 1;
                     else
@@ -1916,7 +1916,7 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                  * in-place (final_float_temp == VREG_F0) too. */
                 ir_emit_cvttsd2ss(c, (uint32_t)VREG_F0, (uint32_t)final_float_temp);
             } else if (final_float_temp != VREG_F0) {
-                ir_emit_fmov(c, (uint8_t)VREG_F0, (uint32_t)final_float_temp);
+                ir_emit_fmov(c, (uint32_t)VREG_F0, (uint32_t)final_float_temp);
             }
         }
     } else {

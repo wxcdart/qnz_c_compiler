@@ -192,10 +192,10 @@ void opt_eliminate_cse(ZeroCCCompiler *c) {
             continue;
         }
 
-        /* Skip if destination or source is a reserved physical register (< 16) or invalid (0xFF) */
-        if (instr->temp_dest== TEMP_NONE || instr->temp_dest < 16 ||
-            (instr->temp_src1!= TEMP_NONE && instr->temp_src1 < 16) ||
-            (instr->temp_src2!= TEMP_NONE && instr->temp_src2 < 16)) {
+        /* Skip if destination or source is a reserved physical register (VREG_*) or invalid */
+        if (!zc_temp_is_user(instr->temp_dest) ||
+            (instr->temp_src1 != TEMP_NONE && !zc_temp_is_user(instr->temp_src1)) ||
+            (instr->temp_src2 != TEMP_NONE && !zc_temp_is_user(instr->temp_src2))) {
             continue;
         }
 

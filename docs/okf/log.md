@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-10T21:34:21Z
+timestamp: 2026-11-11T02:27:27Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1308,3 +1308,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-10 — Updated `ir-and-regalloc.md`
 - Sprint 154: Fold IRAsmArgs side table into the instruction stream as OP_ASM_ARG/OP_ASM_LABEL pseudo-instructions (172 opcodes, ir_asm_args_collect, IRAsmArgsArena removed)
+
+## 2026-11-11 — Updated `ir-and-regalloc.md`
+- Sprint 155: VREG/TEMP_NONE decoupling (VREG_* tokens carry VREG_TAG_BIT 0x40000000, user temps [16,0x40000000), TEMP_NONE 0x7FFFFFFF); zc_temp_is_*/zc_vreg_* are the sanctioned classifiers; invariant to always pass VREG_* tokens not raw literals (struct-return secondary-chunk bug); position-aware lu_resolve_const/resolve_const for renumber-soundness.
+
+## 2026-11-11 — Updated `host-runtime-and-portability.md`
+- Sprint 155: self-hosting dlfcn dlopen/dlsym/dlclose/dlerror marked visibility(hidden) so a dynamic (ASan) build does not interpose the host libc's dlfcn (ASan runtime startup probe crash); static build unaffected.
