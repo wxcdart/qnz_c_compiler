@@ -19,3 +19,9 @@ test/torture/last_run.json
 # perf profiling artifacts (debugging cache)
 perf.data
 perf.data.old
+
+# musl-cross prefixes (Sprint 157): the riscv32 prefix is committed so the
+# driver links RV32 relative to the binary on any machine; the other arches
+# are local build artifacts of tools/setup_musl_cross.sh.
+third_party/vendor/musl-cross/*
+!third_party/vendor/musl-cross/riscv32/

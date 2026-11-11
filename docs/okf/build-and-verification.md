@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 165-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-11-09T22:29:28Z
+timestamp: 2026-11-11T05:44:03Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -257,6 +257,15 @@ matching `qemu-*-static`, and diffs stdout + exit code.
 musl with the system cross gcc — `aarch64-linux-gnu-gcc`,
 `riscv64-linux-gnu-gcc`, host **`gcc-15`** for x86_64 (Sprint 142 — uniform with the
 c-torture/C23 gates; rebuild with `--ccbin gcc-15`) — and, for riscv32, a small rv32 libgcc shim).
+Since Sprint 157 the script's defaults are machine-relative: the per-arch prefix
+lands in the in-tree `third_party/vendor/musl-cross/<arch>/` (rebuild in place) and
+the wrapper in `$HOME/.local/bin`; the **riscv32 prefix is committed** (4 MB, gitignored
+for the other arches) so the tree needs no setup for RV32. The driver itself also
+discovers the RV32 prefix for the system-linker AOT path (`--target riscv32 -o`):
+`$ZC_RV32_MUSL` (a prefix dir containing `lib/`), else the in-tree
+`<exe_dir>/../../third_party/vendor/musl-cross/riscv32` relative to the zerocc
+binary (the zero_rt-archive discovery pattern), with a clear actionable error when
+neither exists — replacing the pre-157 hardcoded absolute paths in `main.c`.
 No cross `gcc-15` builds exist for aarch64/riscv64 in the Ubuntu PPA, so the cross-target references
 stay on the installed cross toolchain (gcc 13.3); the corpus is C99/C11 + int128/float128, so the
 cross reference version is not a constraint.

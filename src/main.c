@@ -1368,6 +1368,41 @@ static int compile_object_single(CompileOptions *opts, const char *input,
     return 0;
 }
 
+/*
+ * RV32 system-linker musl-cross prefix (Sprint 157, plan item #10):
+ * the Debian riscv64 cross gcc ships no rv32 musl, so the RV32 -nostdlib
+ * link must name an explicit musl crt/libc/libgcc.  Discovery follows the
+ * zero_rt-archive pattern (env var first, then a path relative to this
+ * binary):  (1) $ZC_RV32_MUSL = a prefix dir containing lib/; (2) the
+ * in-tree vendored prefix <exe_dir>/../../third_party/vendor/musl-cross/
+ * riscv32 (committed, so the tree links RV32 on any machine without setup;
+ * rebuild it in place with tools/setup_musl_cross.sh).  The prefix is
+ * validated (lib/crt1.o readable) before being used.
+ */
+static bool find_rv32_musl_prefix(char *out, size_t out_len) {
+    const char *env = getenv("ZC_RV32_MUSL");
+    char cand[512];
+    if (env && env[0]) {
+        if (strlen(env) >= sizeof cand) return false;
+        snprintf(cand, sizeof cand, "%s", env);
+    } else {
+        char self[512];
+        ssize_t n = readlink("/proc/self/exe", self, sizeof self - 1);
+        if (n <= 0) return false;
+        self[n] = 0;
+        char *slash = strrchr(self, '/');
+        if (!slash) return false;
+        *slash = '\0';
+        snprintf(cand, sizeof cand,
+                 "%s/../../third_party/vendor/musl-cross/riscv32", self);
+    }
+    char probe[560];
+    snprintf(probe, sizeof probe, "%s/lib/crt1.o", cand);
+    if (access(probe, R_OK) != 0) return false;
+    snprintf(out, out_len, "%s", cand);
+    return true;
+}
+
 static int compile_and_link(CompileOptions *opts) {
     /* Get target ISA (also decides the intermediate-object strategy below). */
     ZeroCCISA target_isa = parse_target_arch(opts->target_arch);
@@ -1572,7 +1607,9 @@ static int compile_and_link(CompileOptions *opts) {
      * hold all_objs (up to ZERO_CC_MAX_INPUTS temp paths) plus flags/libs. */
     char cmd[16384];
 
-    /* Select appropriate linker based on target ISA */
+    /* Select appropriate linker based on target ISA.  (RV32 is NOT here:
+     * it has no stock cross musl and links through the explicit-musl
+     * command below, which discovers its prefix - see find_rv32_musl_prefix.) */
     const char *linker = "gcc";
     const char *abi_flags = "-no-pie";
     const char *static_flag = "";   /* cross targets need a static binary to run under QEMU */
@@ -1584,10 +1621,6 @@ static int compile_and_link(CompileOptions *opts) {
         linker = "riscv64-linux-gnu-gcc";
         abi_flags = "-mabi=lp64d -march=rv64gc";
         static_flag = "-static";
-    } else if (target_isa == ISA_RISCV32) {
-        linker = "riscv64-linux-gnu-gcc";
-        abi_flags = "-mabi=ilp32d -march=rv32gc";
-        static_flag = "-static";
     }
 
     char lib_args[1024] = "";
@@ -1597,16 +1630,27 @@ static int compile_and_link(CompileOptions *opts) {
     }
 
     if (target_isa == ISA_RISCV32) {
+        char musl_prefix[512];
+        if (!find_rv32_musl_prefix(musl_prefix, sizeof musl_prefix)) {
+            fprintf(stderr,
+                    "Error: RV32 musl-cross prefix not found.  Set "
+                    "ZC_RV32_MUSL to a prefix containing lib/ (crt1.o, "
+                    "crti.o, libc.a, libgcc.a, crtn.o) - see "
+                    "tools/setup_musl_cross.sh - or install one at the "
+                    "in-tree default third_party/vendor/musl-cross/riscv32.\n");
+            for (int i = 0; i < obj_count; i++) unlink(obj_paths[i]);
+            return 1;
+        }
         snprintf(cmd, sizeof(cmd),
                  "riscv64-linux-gnu-gcc -march=rv32gc -mabi=ilp32 -static -no-pie -Wl,-m,elf32lriscv -nostdlib "
-                 "/home/ubuntu/dev/musl-cross/riscv32/lib/crt1.o "
-                 "/home/ubuntu/dev/musl-cross/riscv32/lib/crti.o "
+                 "%s/lib/crt1.o %s/lib/crti.o "
                  "%s "
-                 "/home/ubuntu/dev/musl-cross/riscv32/lib/libc.a "
-                 "/home/ubuntu/dev/musl-cross/riscv32/lib/libgcc.a "
-                 "/home/ubuntu/dev/musl-cross/riscv32/lib/crtn.o "
+                 "%s/lib/libc.a %s/lib/libgcc.a %s/lib/crtn.o "
                  "-o %s%s 2>&1",
-                 all_objs, output, lib_args);
+                 musl_prefix, musl_prefix,
+                 all_objs,
+                 musl_prefix, musl_prefix, musl_prefix,
+                 output, lib_args);
     } else {
         char rt_arg[2100] = "";
         if (!opts->no_zerocc_rt && rt_path[0] && access(rt_path, R_OK) == 0) {

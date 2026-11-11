@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-11T04:38:06Z
+timestamp: 2026-11-11T05:44:03Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1320,3 +1320,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-11 — Updated `optimization-passes.md`
 - Sprint 156: added the lu_is_enclosed re-entry soundness guard (nested-loop counter carryover, c-torture execute/20041213-2) and the unroll_part_nested rejection pin (corpus 15 -> 25)
+
+## 2026-11-11 — Updated `build-and-verification.md`
+- Sprint 157: RV32 musl-cross prefix un-hardcoded (ZC_RV32_MUSL / in-tree binary-relative discovery, committed riscv32 prefix); setup_musl_cross.sh machine-relative defaults

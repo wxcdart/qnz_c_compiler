@@ -1,10 +1,12 @@
 #!/bin/bash
 # setup_musl_cross.sh -- build & install a STATIC MUSL cross toolchain for one ISA.
 #
-# Produces, under $PREFIX_ROOT/<arch>/ (default /home/ubuntu/dev/musl-cross/<arch>):
+# Produces, under $PREFIX_ROOT/<arch>/ (default: the in-tree
+# third_party/vendor/musl-cross/<arch> - committed for riscv32, which the
+# driver also discovers relative to the zerocc binary):
 #   include/  lib/            the static musl libc.a + crt + headers
 #   musl-gcc.specs            gcc specs overriding startfile/endfile/link_libgcc
-# and a wrapper at $BINDIR/musl-gcc-<arch> (default /home/ubuntu/.local/bin):
+# and a wrapper at $BINDIR/musl-gcc-<arch> (default $HOME/.local/bin):
 #   musl-gcc-<arch> -- a fully STATIC musl binary for <arch> via the system cross gcc.
 #
 # x86_64/aarch64/riscv64 use a specs-based wrapper (the cross gcc ships a same-arch
@@ -24,7 +26,10 @@
 
 set -euo pipefail
 
-ARCH=""; CCBIN=""; EXTRA=""; HOST=""; PREFIX_ROOT="/home/ubuntu/dev/musl-cross"; BINDIR="/home/ubuntu/.local/bin"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+ARCH=""; CCBIN=""; EXTRA=""; HOST=""; PREFIX_ROOT="$REPO_ROOT/third_party/vendor/musl-cross"; BINDIR="$HOME/.local/bin"
 while [ $# -gt 0 ]; do case "$1" in
   --arch)  ARCH="$2"; shift 2;;
   --ccbin) CCBIN="$2"; shift 2;;
@@ -38,7 +43,7 @@ esac; done
 [ -n "$ARCH" ] && [ -n "$CCBIN" ] || { echo "need --arch and --ccbin" >&2; exit 2; }
 [ -n "$HOST" ] || HOST="${ARCH}-linux-musl"
 
-MUSL_SRC="${MUSL_SRC:-/home/ubuntu/dev/qnz_gcc/third_party/musl/musl-1.2.6}"
+MUSL_SRC="${MUSL_SRC:-$REPO_ROOT/third_party/vendor/musl/musl-1.2.6}"
 PREFIX="$PREFIX_ROOT/$ARCH"
 BUILD="$(mktemp -d /tmp/muslbuild_$ARCH.XXXXXX)"
 

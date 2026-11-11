@@ -229,6 +229,14 @@ build/bin/zerocc prog.c --target riscv64 -c -o prog.rv64.o
 build/bin/zerocc prog.c --target riscv32 -o prog.rv32
 ```
 
+The riscv64/aarch64 `-o` system-linker paths use the installed cross gcc
+(`riscv64-linux-gnu-gcc` / `aarch64-linux-gnu-gcc`, `-static`). The riscv32
+path needs an explicit static-musl prefix (the Debian rv64 cross gcc ships no
+rv32 musl); the driver discovers it as `$ZC_RV32_MUSL` or, by default, the
+in-tree committed `third_party/vendor/musl-cross/riscv32` (Sprint 157 — no
+setup needed on any machine; rebuild in place with
+`tools/setup_musl_cross.sh --arch riscv32 ...`).
+
 ### Own linker & archiver (T2)
 
 `--zerocc-link` links the per-TU objects with **ZeroCC's own linker** instead
@@ -265,11 +273,11 @@ against a static-musl reference). See
 
 ## Test Results
 
-Current status (verified 2026-11-11 at HEAD, Sprints 129–156):
+Current status (verified 2026-11-11 at HEAD, Sprints 129–157):
 
 | Suite | Status | Count |
 |-------|--------|-------|
-| **Main regression suite** (`make test`: unit, semantic, ABI, JIT, AOT, asm reference) | ✅ Pass | 225/225 |
+| **Main regression suite** (`make test`: unit, semantic, ABI, JIT, AOT, asm reference) | ✅ Pass | 226/226 |
 | **Optimizer sweep** (`make test-opt`, `-O0..-O3` × JIT + AOT via zerocc) | ✅ Pass | 182 tests: 124 ok, 0 failed (58 embedding tests skipped by design — covered by `make test`; 1 pre-existing nondeterministic) |
 | **C23 differential gate** (`make test-c23`: 24 cases across gnu23/c11/c99 vs gcc-15) | ✅ Pass | 24/24 |
 | **Inline-asm Phases 1–3 gate** (`make test-asm`: `test/asm/*.c` across `-S` text, JIT, and raw AOT at `-O0..-O3` vs host-gcc reference) | ✅ Pass | 72/72 |
@@ -282,7 +290,7 @@ Current status (verified 2026-11-11 at HEAD, Sprints 129–156):
 | **GCC c-torture conformance gate** (`make test-torture`, ratcheted baseline, gcc-15 reference) | ✅ Pass | 3,754 PASS / 3,934 corpus (0 MISCOMPILE / 0 REJECT; SKIP-SUPPORT 87, SKIP-C89 33, SKIP-REFSEM 16, SKIP-TARGET: arm/ia64/mips 6, SKIP-UB/PTR/BOGUS 3, EXPECTED-REJECT 4, NO-REF 23, REF-BUG 6, TIMEOUT 2) |
 | **Type-tag verifier** (`tools/type_tag_verifier.py --verify-all`, invariants I1–I10 at `-O0/2/3`) | ✅ Pass | 160 files, RESULT OK |
 | **Loop unroll verifier** (`tools/loop_unroll_verifier.py`, `-O3` constant-trip full unrolling + runtime-bound partial unrolling w/ remainder peel, `expect-unroll`/`expect-partial` markers) | ✅ Pass | 25/25 |
-| **ASan/UBSan rebuild** (`make asan`) | ✅ Pass | 222/222 |
+| **ASan/UBSan rebuild** (`make asan`) | ✅ Pass | 223/223 |
 | **`sret` ABI verifier** (`tools/sret_verifier.py --verify-all`) | ✅ Pass | 6/6 |
 | **C11 verification suite** (`tools/c11/test_c11.py`) | ✅ Pass | 11/11 |
 | **VLA verification suite** (`tools/vla/test_vla.py`) | ✅ Pass | 11/11 (incl. VLA-in-loop / VLA-in-block runtime tests — C99 6.7.5.2 legal, gcc-differentially verified) |

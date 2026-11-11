@@ -23,6 +23,8 @@ import sys
 import re
 import tempfile
 import os
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # repo root (Sprint 157: no hardcoded home paths)
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Tuple
@@ -64,7 +66,7 @@ def compile_to_asm(source_code: str) -> Tuple[Optional[str], Optional[str]]:
         # Compile to object file
         result = subprocess.run(
             ['./build/bin/zerocc', '-Isrc', '-Iinclude', '-fno-omit-frame-pointer', '-c', src_file, '-o', obj_file],
-            capture_output=True, text=True, cwd='/home/ubuntu/dev/qnz_c_compiler'
+            capture_output=True, text=True, cwd=ROOT
         )
         
         if result.returncode != 0:

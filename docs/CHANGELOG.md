@@ -1,3 +1,16 @@
+## [Sprint 157] - 2026-11-11 - Un-hardcode the RV32 Link Paths & Driver Polish (Toolchain Independence #10)
+
+ZeroCC removes the last machine-specific absolute paths from the buildable surface, so the tree builds and links on any machine (development-plan Toolchain-Independence housekeeping item #10).
+
+- **RV32 system-linker prefix discovery (`src/main.c`)**: the riscv32 AOT system-link path (`--target riscv32 -o`) baked five absolute `/home/ubuntu/dev/musl-cross/riscv32/lib/*` paths (crt1/crti/libc/libgcc/crtn) into the driver. The Debian riscv64 cross gcc ships no rv32 musl, so that explicit-musl `-nostdlib` command must name a prefix — it now discovers one the same way the `zero_rt` archives are found: **`$ZC_RV32_MUSL`** (a prefix dir containing `lib/`), else **`<exe_dir>/../../third_party/vendor/musl-cross/riscv32`** relative to the zerocc binary (validated by `access` on `lib/crt1.o`), else a clear actionable error. The **riscv32 prefix is committed** at that in-tree location (4 MB: `include/`, `lib/`, `musl-gcc.specs` — the static musl 1.2.6 build + rv32 libgcc shim from `tools/setup_musl_cross.sh`), so a fresh clone links RV32 with zero setup; `.gitignore` keeps the other three arch prefixes (local build artifacts) out of the tree.
+- **`tools/setup_musl_cross.sh` machine-relative defaults**: `PREFIX_ROOT` now defaults to the in-tree `third_party/vendor/musl-cross` (rebuilds the committed riscv32 prefix in place), `BINDIR` to `$HOME/.local/bin`, and `MUSL_SRC` to the in-tree vendored `third_party/vendor/musl/musl-1.2.6` (was a second developer's home path). All remain CLI/env-overridable.
+- **Verifier tooling de-hardcoded**: `tools/sret_verifier.py`, `tools/struct_abi_verifier.py`, `tools/struct_asm_analyzer.py`, and `tools/struct_return_verifier.py` hardcode `cwd='/home/ubuntu/dev/qnz_c_compiler'` — each now resolves the repo root from its own location (`ROOT = dirname(dirname(abspath(__file__)))`), so the struct-ABI/sret verifiers run from any checkout.
+- **Driver polish**: removed the dead `ISA_RISCV32` branch in the linker-selection chain (`src/main.c`) — it set `linker`/`abi_flags`/`static_flag` values the RV32 special case (which builds its own explicit-musl command) never read; a comment now marks why RV32 is absent from the chain.
+- **Verification**:
+  - `--target riscv32 -o` links and runs under `qemu-riscv32-static` via (a) the committed in-tree prefix (no env), (b) `ZC_RV32_MUSL` override, and (c) an isolated binary copy with no prefix → the new actionable error (rc 1, names both remedies)
+  - `make test`: **226/226** · `python3 tools/isa_qemu_diff.py --isa riscv32`: **14/14** · `tools/sret_verifier.py --verify-all`: **6/6** (with the cwd fix)
+  - `bash -n` on the setup script; defaults resolve in-tree from any caller cwd; `grep -rn /home/ubuntu src/ Makefile tools/` → **zero hits**
+
 ## [Sprint 156] - 2026-11-10 - Partial Loop Unrolling (Optimization Plan #3, Phase 2)
 
 ZeroCC extends the Sprint 150 full-unroll pass (`src/zero_cc/opt/opt_loop_unroll.c`) with **partial unrolling (factor 2/4) + remainder peeling** for runtime-bound loops — the final piece of the loop-unrolling plan item: loops whose bound is a parameter/local (the common case full unroll cannot touch) now run `f` body-iterations per main-loop trip, with the original loop left as a short remainder.
