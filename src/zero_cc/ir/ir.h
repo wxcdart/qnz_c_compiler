@@ -1041,8 +1041,17 @@ static inline void ir_emit_variadic_spill(ZeroCCCompiler *c, int param_count, in
 
 /* Emit function call - fn_name stored in imm64 as pointer during lowering.
  * Callers emit OP_CALL_ARG pseudo-instructions after this for args 2+. */
+/* Sprint 158: OP_CALL.imm packs the CALLER-STACK positions of argument 0
+ * (low byte) and argument 1 (next byte); 255 marks a REGISTER argument.
+ * The lowering's main call path packs the real values; every helper that
+ * emits an OP_CALL with register-only arguments (VLA struct memcpy, the
+ * float-divide runtime calls, bitfield helpers, indirect calls) must set
+ * this so the emitters do not misread arg 0/1 as stack-arg chunks (the
+ * default imm = 0 reads as slot 0 for both). */
+#define IR_CALL_ARG01_REG ((int32_t)(0xFF | (0xFF << 8)))
+
 static inline void ir_emit_call(ZeroCCCompiler *c, const char *fn_name) {
-    ir_emit(c, (Instr){.op = OP_CALL, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = 0, .imm64 = (int64_t)(intptr_t)fn_name, .label_idx = 0});
+    ir_emit(c, (Instr){.op = OP_CALL, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = IR_CALL_ARG01_REG, .imm64 = (int64_t)(intptr_t)fn_name, .label_idx = 0});
 }
 
 /* Emit the OS syscall intrinsic. Argument temps (syscall number first, then

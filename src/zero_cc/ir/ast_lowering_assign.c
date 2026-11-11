@@ -102,7 +102,40 @@ static void zc_emit_vector_compound_inplace(ZeroCCCompiler *c, int base_t, size_
 }
 
 static void member_apply_compound(ZeroCCCompiler *c, int op_tok, int addr,
-                                  int *right_temp, size_t m_size, bool is_flt) {
+                                  int *right_temp, size_t m_size, bool is_flt,
+                                  const TypeInfo *member_ti) {
+    /* C99 6.5.16.1: an integer member with a FLOATING-POINT RHS
+     * (m.b -= post): the math is done in DOUBLE (the usual arithmetic
+     * conversions promote the member) and the result is converted back
+     * to the member's integer type on the assignment. The pre-fix
+     * is_flt = (member FP) || (RHS FP) test took the FP path and ran
+     * fsub on the member's raw integer bit pattern (test/abi_interop
+     * s07: `m.b -= post` stored a double into the long long field). */
+    if (!is_flt && c->last_expr_is_float && member_ti &&
+        !type_is_floating(member_ti) &&
+        (op_tok == TK_ADD_ASSIGN || op_tok == TK_SUB_ASSIGN ||
+         op_tok == TK_MUL_ASSIGN || op_tok == TK_DIV_ASSIGN)) {
+        int curr = zc_alloc_temp(c);
+        if (m_size == 1) ir_emit_load_byte(c, curr, addr);
+        else if (m_size == 2) ir_emit_load_16(c, curr, addr);
+        else if (m_size == 4) ir_emit_load_32(c, curr, addr);
+        else ir_emit_deref(c, curr, addr);
+        int cf = zc_alloc_temp(c);
+        ir_emit_cvtsi2sd(c, (uint32_t)cf, (uint32_t)curr);
+        int resf = zc_alloc_temp(c);
+        switch (op_tok) {
+            case TK_ADD_ASSIGN: ir_emit_fadd(c, (uint32_t)resf, (uint32_t)cf, (uint32_t)*right_temp); break;
+            case TK_SUB_ASSIGN: ir_emit_fsub(c, (uint32_t)resf, (uint32_t)cf, (uint32_t)*right_temp); break;
+            case TK_MUL_ASSIGN: ir_emit_fmul(c, (uint32_t)resf, (uint32_t)cf, (uint32_t)*right_temp); break;
+            default:            ir_emit_fdiv(c, (uint32_t)resf, (uint32_t)cf, (uint32_t)*right_temp); break;
+        }
+        int it = zc_alloc_temp(c);
+        ir_emit_cvttsd2si(c, (uint32_t)it, (uint32_t)resf);
+        *right_temp = it;
+        c->last_expr_is_float = 0;
+        return;
+    }
+
     if (is_flt) {
         int lhs_val = zc_alloc_temp(c);
         if (m_size == 4) ir_emit_vloadss(c, (uint32_t)lhs_val, (uint32_t)addr);
@@ -1151,7 +1184,8 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                         }
                         member_apply_compound(c, node->aux.op, addr_temp, &right_temp,
                                                m_size,
-                                               (member_ti && type_is_floating(member_ti)) || c->last_expr_is_float);
+                                               member_ti && type_is_floating(member_ti), member_ti);
+                        right_is_float = c->last_expr_is_float;
                     }
                     bool m_rhs_struct_addr = (m_size <= 8 && member_ti &&
                         (((member_ti->kind == TYPE_KIND_STRUCT || member_ti->kind == TYPE_KIND_UNION) &&
@@ -1241,7 +1275,8 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                         }
                         member_apply_compound(c, node->aux.op, gen_addr, &right_temp,
                                                gm_size,
-                                               (gm_ti && type_is_floating(gm_ti)) || c->last_expr_is_float);
+                                               gm_ti && type_is_floating(gm_ti), gm_ti);
+                        right_is_float = c->last_expr_is_float;
                     }
                     bool gm_rhs_struct_addr = (gm_size <= 8 && gm_ti &&
                         (((gm_ti->kind == TYPE_KIND_STRUCT || gm_ti->kind == TYPE_KIND_UNION) &&
@@ -1317,7 +1352,8 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                         }
                         member_apply_compound(c, node->aux.op, addr_temp, &right_temp,
                                                m_size,
-                                               (member_ti && type_is_floating(member_ti)) || c->last_expr_is_float);
+                                               member_ti && type_is_floating(member_ti), member_ti);
+                        right_is_float = c->last_expr_is_float;
                     }
                     bool m_rhs_struct_addr = (m_size <= 8 && member_ti &&
                         (((member_ti->kind == TYPE_KIND_STRUCT || member_ti->kind == TYPE_KIND_UNION) &&
@@ -1424,7 +1460,8 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                     }
                     member_apply_compound(c, node->aux.op, addr_temp, &right_temp,
                                            m_size,
-                                           (member_ti && type_is_floating(member_ti)) || c->last_expr_is_float);
+                                           member_ti && type_is_floating(member_ti), member_ti);
+                    right_is_float = c->last_expr_is_float;
                 }
                 bool m_rhs_struct_addr = (m_size <= 8 && member_ti &&
                     (((member_ti->kind == TYPE_KIND_STRUCT || member_ti->kind == TYPE_KIND_UNION) &&
@@ -1501,7 +1538,8 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                     return mc_addr;
                 }
                 member_apply_compound(c, node->aux.op, mc_addr, &right_temp, mc_size,
-                                       (mc_ti && type_is_floating(mc_ti)) || c->last_expr_is_float);
+                                       mc_ti && type_is_floating(mc_ti), mc_ti);
+                right_is_float = c->last_expr_is_float;
             }
 
             if (right_is_float || c->last_expr_is_float) {
@@ -1898,6 +1936,39 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                 }
             } else {
                 if (c->last_expr_is_float) {
+                    /* C99 6.5.16.1: integer local with a FLOATING-POINT RHS
+                     * (b -= post): arithmetic compound ops do the math in
+                     * DOUBLE (the usual arithmetic conversions promote the
+                     * LHS) and convert the result back to the integer type
+                     * on the assignment. The pre-fix path converted the RHS
+                     * first (b -= (ll)post) - wrong value (199 instead of
+                     * (ll)(200.0 - 1.5) = 198). */
+                    bool arith_mixed = is_compound && (
+                        node->aux.op == TK_ADD_ASSIGN || node->aux.op == TK_SUB_ASSIGN ||
+                        node->aux.op == TK_MUL_ASSIGN || node->aux.op == TK_DIV_ASSIGN);
+                    if (arith_mixed) {
+                        int left_temp = zc_alloc_temp(c);
+                        if (sym->is_capture_mirror) {
+                            zc_sym_load(c, sym, 0, left_temp);
+                        } else {
+                            ir_emit_load(c, left_temp, BE(c)->fp_reg, -sym->stack_offset);
+                        }
+                        int lf = zc_alloc_temp(c);
+                        ir_emit_cvtsi2sd(c, (uint32_t)lf, (uint32_t)left_temp);
+                        int resf = zc_alloc_temp(c);
+                        switch (node->aux.op) {
+                            case TK_ADD_ASSIGN: ir_emit_fadd(c, (uint32_t)resf, (uint32_t)lf, (uint32_t)right_temp); break;
+                            case TK_SUB_ASSIGN: ir_emit_fsub(c, (uint32_t)resf, (uint32_t)lf, (uint32_t)right_temp); break;
+                            case TK_MUL_ASSIGN: ir_emit_fmul(c, (uint32_t)resf, (uint32_t)lf, (uint32_t)right_temp); break;
+                            default:            ir_emit_fdiv(c, (uint32_t)resf, (uint32_t)lf, (uint32_t)right_temp); break;
+                        }
+                        int int_temp = zc_alloc_temp(c);
+                        ir_emit_cvttsd2si(c, (uint32_t)int_temp, (uint32_t)resf);
+                        if (sym->is_capture_mirror) { zc_sym_store(c, sym, 0, int_temp); }
+                        else { ir_emit_store(c, (uint32_t)int_temp, BE(c)->fp_reg, -sym->stack_offset); }
+                        c->last_expr_is_float = 0;
+                        return int_temp;
+                    }
                     /* Convert float to int via IR */
                     int int_temp = zc_alloc_temp(c);
                     ir_emit_cvttsd2si(c, (uint32_t)int_temp, (uint32_t)right_temp);

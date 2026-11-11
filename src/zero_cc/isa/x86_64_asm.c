@@ -736,7 +736,12 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
 
     for (int i = 0; i < arg_count; i++) {
         int arg_is_fp = is_fp ? is_fp[i] : 0;
+        int arg_pos = stack_pos ? stack_pos[i] : 255;
         if (arg_is_fp == 0) {
+            /* Sprint 158: only REGISTER int args (stack_pos 255) go to the
+             * push/pop register phase - System V memory-arg chunks
+             * (pos < 255) are pushed by the stack-arg loop below. */
+            if (arg_pos < 255) continue;
             int temp = arg_temps[i];
             int_arg_temps[total_int_count++] = temp;
             if (n_int_args < 6) {
@@ -758,6 +763,23 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
             if (arg_pos + 1 > n_stack) n_stack = arg_pos + 1;
         }
     }
+    /* Sprint 158 (x86-64): range memory-arg - the lowering recorded the
+     * >32-chunk >16B struct value's caller-stack span and source frame
+     * buffer in the ir_ctx (this call's sequence index). The span can
+     * far exceed the per-slot table, so it is pushed without table
+     * entries (frame load + push per chunk). */
+    int range_count = 0, range_pos = 0;
+    int32_t range_off = 0;
+    if (c->asm_call_seq > 0) {
+        int cidx = c->asm_call_seq - 1;
+        if (cidx < 64 && cidx < c->lowering.ir_ctx.call_count) {
+            range_count = c->lowering.ir_ctx.call_range_counts[cidx];
+            range_pos = c->lowering.ir_ctx.call_range_pos[cidx];
+            range_off = c->lowering.ir_ctx.call_range_offs[cidx];
+        }
+    }
+    if (range_count > 0 && range_pos + range_count > n_stack)
+        n_stack = range_pos + range_count;
     /* Legacy layout (no stack_pos info): int args beyond 6, in order. */
     int legacy_n_stack = 0;
     if (!stack_pos && total_int_count > 6) {
@@ -771,6 +793,21 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
             extra_sp += 8;
         }
         for (int pos = n_stack - 1; pos >= 0; pos--) {
+            if (range_count > 0 && pos >= range_pos &&
+                pos < range_pos + range_count) {
+                /* Sprint 158: chunk (pos - range_pos) of the block-copied
+                 * range buffer lives at frame -(range_off + 8*ch). */
+                int ch = pos - range_pos;
+                /* Buffer chunk ch sits at frame -range_off + 8*ch (the
+                 * frame grows down from -range_off). */
+                fprintf(out, "\tmovq\t%d(%%%s),%%r11\n",
+                        (int)zero_cc_frame_disp_at(c, -range_off + 8 * ch, extra_sp),
+                        BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c)));
+                fprintf(out, "\tpushq\t%%r11\n");
+                extra_sp += 8;
+                continue;
+            }
+            if (pos >= IR_CALL_MAX_ARGS) continue; /* range-only span slot */
             int i = stack_pos_list[pos];
             int arg_is_fp = is_fp ? is_fp[i] : 0;
             if (arg_is_fp == 1) {

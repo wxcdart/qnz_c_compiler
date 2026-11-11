@@ -32,6 +32,12 @@ typedef struct {
      * register count are the stack-passed FP args, pushed by the call site) */
     int32_t call_fp_spills[64][16];
     int call_fp_spill_counts[64];
+    /* Sprint 158 x86-64: per-call range memory-arg (is_fp=4, a >16B
+     * struct arg larger than the inline chunk cap): first caller-stack
+     * slot, 8-byte chunk count, and the source frame-buffer offset. */
+    int call_range_counts[64];
+    int32_t call_range_offs[64];
+    int call_range_pos[64];
     int call_count;
 } IREmitterContext;
 

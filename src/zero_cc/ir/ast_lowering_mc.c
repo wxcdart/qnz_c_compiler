@@ -1434,12 +1434,13 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 if (total_arg_count > 0 && instr->temp_src1 != TEMP_NONE) {
                     call_arg_temps[0] = (int)instr->temp_src1;
                     call_arg_is_fp[0] = instr->cond;   /* Sprint 151c: is_fp of arg 0 */
-                    call_arg_stack_pos[0] = 255;
+                    /* Sprint 158: arg 0/1 stack positions in imm (255 = register). */
+                    call_arg_stack_pos[0] = (uint8_t)(instr->imm & 0xFF);
                 }
                 if (total_arg_count > 1 && instr->temp_src2 != TEMP_NONE) {
                     call_arg_temps[1] = (int)instr->temp_src2;
                     call_arg_is_fp[1] = instr->width;  /* Sprint 151c: is_fp of arg 1 */
-                    call_arg_stack_pos[1] = 255;
+                    call_arg_stack_pos[1] = (uint8_t)((instr->imm >> 8) & 0xFF);
                 }
                 for (int a = 2; a < total_arg_count; a++) {
                     size_t ca_idx = i + 1 + (a - 2);
@@ -1460,7 +1461,12 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                         indirect_callee_temp = call_arg_temps[a];
                     } else if (call_arg_is_fp[a] == 3) {
                         aarch64_sret_temp = call_arg_temps[a];
-                    } else if (call_arg_is_fp[a] == 0) {
+                    } else if (call_arg_is_fp[a] == 0 &&
+                               call_arg_stack_pos[a] >= 255) {
+                        /* Sprint 158: only REGISTER int args go to the
+                         * push/pop register phase - System V memory-arg
+                         * chunks (pos < 255) ride the caller stack and are
+                         * handled by the stack-arg push loop. */
                         arg_temps[arg_count++] = call_arg_temps[a];
                     }
                 }
@@ -1565,6 +1571,24 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 int n_stack;
                 int stack_meta_temp[IR_CALL_MAX_ARGS];  /* per stack slot: int arg temp, -1 for FP */
                 int stack_meta_fp[IR_CALL_MAX_ARGS];    /* per stack slot: FP stream index, -1 for int */
+                int stack_meta_set[IR_CALL_MAX_ARGS];   /* slot was assigned (uninit guard) */
+                for (int _s = 0; _s < IR_CALL_MAX_ARGS; _s++) stack_meta_set[_s] = 0;
+                /* Sprint 158 (x86-64): range memory-arg (>32-chunk >16B
+                 * struct value) recorded by the lowering: its chunk span
+                 * [range_pos, range_pos+range_count) on the caller stack
+                 * is loaded from the frame buffer at -range_off. The span
+                 * can far exceed the per-slot tables, so it is handled in
+                 * the push loop without a table entry. */
+                /* NOTE: call_idx was already incremented above (before the
+                 * stack-arg section) - this call's ir_ctx slot is
+                 * call_idx - 1. */
+                int range_cidx = call_idx - 1;
+                int range_count = (range_cidx >= 0 && range_cidx < c->lowering.ir_ctx.call_count)
+                                  ? c->lowering.ir_ctx.call_range_counts[range_cidx] : 0;
+                int range_pos = (range_cidx >= 0 && range_cidx < c->lowering.ir_ctx.call_count)
+                                ? c->lowering.ir_ctx.call_range_pos[range_cidx] : 0;
+                int32_t range_off = (range_cidx >= 0 && range_cidx < c->lowering.ir_ctx.call_count)
+                                    ? c->lowering.ir_ctx.call_range_offs[range_cidx] : 0;
                 if (total_arg_count > 0) {
                     n_stack = 0;
                     int fp_seen = 0;
@@ -1575,6 +1599,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                             if (pos < 255 && pos < IR_CALL_MAX_ARGS) {
                                 stack_meta_temp[pos] = -1;
                                 stack_meta_fp[pos] = f;
+                                stack_meta_set[pos] = 1;
                                 if (pos + 1 > n_stack) n_stack = pos + 1;
                             }
                             continue;
@@ -1584,9 +1609,12 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                         if (pos < 255 && pos < IR_CALL_MAX_ARGS) {
                             stack_meta_temp[pos] = call_arg_temps[ai];
                             stack_meta_fp[pos] = -1;
+                            stack_meta_set[pos] = 1;
                             if (pos + 1 > n_stack) n_stack = pos + 1;
                         }
                     }
+                    if (range_count > 0 && range_pos + range_count > n_stack)
+                        n_stack = range_pos + range_count;
                 } else {
                     n_stack = (arg_count > int_arg_count) ? arg_count - int_arg_count : 0;
                 }
@@ -1600,6 +1628,25 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                     for (int pos = n_stack - 1; pos >= 0; pos--) {
                         int r;
                         bool fp_stack_done = false;
+                        if (range_count > 0 && pos >= range_pos &&
+                            pos < range_pos + range_count) {
+                            /* Sprint 158: chunk (pos - range_pos) of the
+                             * block-copied range buffer lives at frame
+                             * -(range_off + 8*ch) - load and push it. */
+                            int ch = pos - range_pos;
+                            /* The buffer's first byte sits at frame -range_off
+                             * (the frame grows down), so chunk ch is at
+                             * -range_off + 8*ch. */
+                            if (BE(c)->emit_load)
+                                BE(c)->emit_load(c, BE(c)->scratch_reg1,
+                                                 zero_cc_frame_base_reg(c),
+                                                 zero_cc_frame_disp_at(c, -range_off + 8 * ch, extra_sp));
+                            BE(c)->emit_push_reg(c, BE(c)->scratch_reg1);
+                            extra_sp += 8;
+                            continue;
+                        }
+                        if (pos >= IR_CALL_MAX_ARGS) continue; /* range-only span slot */
+                        if (!stack_meta_set[pos]) continue;    /* unassigned slot (defensive) */
                         if (stack_meta_fp[pos] >= 0) {
                             /* FP stack arg: bits live in the lowering's spill
                              * slot (or, past the 64-call table cap, in the

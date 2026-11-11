@@ -1567,6 +1567,36 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                 /* System V AMD64 ABI: 9-16 byte struct returned across rax and rdx
                  * Canonical secondary value register: VREG_2 maps to rdx/x1/a1
                  * via regalloc_get_reg_for_temp. */
+                if (c->isa == ISA_X86_64 &&
+                    (zc_struct_unit_is_fp(&sym->type, 0) || zc_struct_unit_is_fp(&sym->type, 1))) {
+                    /* Sprint 158: SSE/SSEup 9-16B struct return (System V
+                     * return rule): SSE class (both units FP) -> XMM0+XMM1;
+                     * SSEup -> the FP unit in XMM0 and the integral unit in
+                     * RAX (VREG_0) - the integer half of a RETURN is always
+                     * RAX (the by-position RAX/RDX split is the ARGUMENT
+                     * rule; using RDX here broke gcc interop and the mixed
+                     * consumer paths, c-torture pr92904 f12). */
+                    bool u0fp = zc_struct_unit_is_fp(&sym->type, 0);
+                    bool u1fp = zc_struct_unit_is_fp(&sym->type, 1);
+                    if (u0fp) {
+                        int a0 = zc_alloc_temp(c);
+                        ir_emit_lea(c, a0, BE(c)->fp_reg, struct_offset);
+                        ir_emit_vloadsd(c, (uint32_t)VREG_F0, (uint32_t)a0);
+                    } else {
+                        ir_emit_load(c, VREG_0, BE(c)->fp_reg, struct_offset);
+                    }
+                    if (sym->type.size > 8) {
+                        if (u1fp) {
+                            int a1 = zc_alloc_temp(c);
+                            ir_emit_lea(c, a1, BE(c)->fp_reg, struct_offset + 8);
+                            ir_emit_vloadsd(c, (uint32_t)(u0fp ? VREG_F1 : VREG_F0), (uint32_t)a1);
+                        } else {
+                            ir_emit_load(c, VREG_0, BE(c)->fp_reg, struct_offset + 8);
+                        }
+                    }
+                    ir_emit_jmp(c, c->lowering.epilogue_label);
+                    return;
+                }
                 // 1. Load lower 8 bytes into rax (VREG_0) via IR
                 ir_emit_load(c, VREG_0, BE(c)->fp_reg, struct_offset);
 
@@ -1648,6 +1678,37 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
             if (gsym->is_tls && !c->jit_mode) ir_emit_tls_lea(c, gaddr, gsym->name);
             else ir_emit_mov_global(c, gaddr, gsym->name);
             if (gsym->type.size <= 16) {
+                if (c->isa == ISA_X86_64 &&
+                    (zc_struct_unit_is_fp(&gsym->type, 0) || zc_struct_unit_is_fp(&gsym->type, 1))) {
+                    /* Sprint 158: class-merged 9-16B global struct return
+                     * (SSE/SSEup) - same register mapping as the local
+                     * path above. */
+                    bool u0fp = zc_struct_unit_is_fp(&gsym->type, 0);
+                    bool u1fp = zc_struct_unit_is_fp(&gsym->type, 1);
+                    if (u0fp) {
+                        ir_emit_vloadsd(c, (uint32_t)VREG_F0, (uint32_t)gaddr);
+                    } else {
+                        ir_emit_deref(c, VREG_0, gaddr);
+                    }
+                    if (gsym->type.size > 8) {
+                        if (u1fp) {
+                            int off_t = zc_alloc_temp(c);
+                            ir_emit_mov_imm(c, off_t, 8);
+                            int a2 = zc_alloc_temp(c);
+                            ir_emit_add(c, a2, gaddr, off_t);
+                            ir_emit_vloadsd(c, (uint32_t)(u0fp ? VREG_F1 : VREG_F0), (uint32_t)a2);
+                        } else {
+                            int off_t = zc_alloc_temp(c);
+                            ir_emit_mov_imm(c, off_t, 8);
+                            int a2 = zc_alloc_temp(c);
+                            ir_emit_add(c, a2, gaddr, off_t);
+                            /* SSEup return: integral unit in RAX (VREG_0). */
+                            ir_emit_deref(c, VREG_0, a2);
+                        }
+                    }
+                    ir_emit_jmp(c, c->lowering.epilogue_label);
+                    return;
+                }
                 ir_emit_deref(c, VREG_0, gaddr);
                 if (gsym->type.size > 8) {
                     int off_t = zc_alloc_temp(c);

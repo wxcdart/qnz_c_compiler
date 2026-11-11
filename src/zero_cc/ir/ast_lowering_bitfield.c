@@ -42,7 +42,7 @@ int assign_emit_128_divmod(ZeroCCCompiler *c, int a, int b,
         li->temp_dest = 4;
         li->temp_src1 = (uint32_t)at[0];
         li->temp_src2 = (uint32_t)at[1];
-        li->imm = 0;
+        li->imm = IR_CALL_ARG01_REG;
         li->cond = 0;
         li->width = 0;
         ir_emit_call_arg(c, (uint32_t)at[2], 0, 255);
@@ -83,7 +83,7 @@ int assign_emit_128_var_shift(ZeroCCCompiler *c, int a, int cnt,
         li->temp_dest = 3;
         li->temp_src1 = (uint32_t)at[0];
         li->temp_src2 = (uint32_t)at[1];
-        li->imm = 0;
+        li->imm = IR_CALL_ARG01_REG;
         li->cond = 0;
         li->width = 0;
         ir_emit_call_arg(c, (uint32_t)at[2], 0, 255);

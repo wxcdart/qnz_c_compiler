@@ -274,6 +274,10 @@ typedef struct ZeroCCCompiler {
     bool dump_cfg; /* Dump CFG after lowering (-dump-cfg) */
     bool emit_asm; /* Emit assembly (-S flag) */
     FILE *asm_out; /* Assembly output file (NULL = stdout) */
+    /* AOT text path: OP_CALL sequence counter for the current function's
+     * emit pass - indexes the lowering ir_ctx per-call tables
+     * (call_fp_spills / call_range_*) that the call emitters read. */
+    int asm_call_seq;
 
     /* CFG layer cache (Sprint 35 Phase 2): lazily built view over the IR,
      * invalidated whenever cfg_version is bumped (ir_reset, optimizer

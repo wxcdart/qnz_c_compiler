@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-11T05:44:03Z
+timestamp: 2026-11-11T17:10:32Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1323,3 +1323,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-11 — Updated `build-and-verification.md`
 - Sprint 157: RV32 musl-cross prefix un-hardcoded (ZC_RV32_MUSL / in-tree binary-relative discovery, committed riscv32 prefix); setup_musl_cross.sh machine-relative defaults
+
+## 2026-11-11 — Updated `abi-sysv-x86_64.md`
+- Sprint 158: external ABI interop gate + System V struct-classification fixes. 9-16B per-8-byte-unit class merge (SSE/SSEup) for args/returns; >16B by-value struct args as System V MEMORY args (caller stack, range metadata for >32 chunks, dynamic-SP rebasing); OP_CALL.imm carries arg0/arg1 stack positions (IR_CALL_ARG01_REG); x86-64 variadic conformance: glibc va_list pointer decay, named memory-arg accounting in va_start, va_arg overflow-value model for >16B, SSEup returns always RAX (c-torture pr92904, va-arg-4, stdarg-3, vprintf-1); mixed int/float compound-assignment usual arithmetic conversions.
+
+## 2026-11-11 — Updated `build-and-verification.md`
+- Sprint 158: new make test-abi-interop gate (bidirectional zerocc.o <-> gcc.o interop, 15 scenarios x 3 binaries x -O0/1/2) added to the verification matrix and the mandatory-gate list.

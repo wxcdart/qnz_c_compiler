@@ -461,7 +461,17 @@ void zero_cc_emit_struct_copy_to_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena,
         TypeInfo *c_ti = ast_node_get_typeinfo(c, rnode);
         bool struct_ret_call = rnode && rnode->tag == NODE_CALL && c_ti &&
             (c_ti->kind == TYPE_KIND_STRUCT || c_ti->kind == TYPE_KIND_UNION);
-        if (struct_ret_call && struct_sz > 8 && struct_sz <= 16 && !src_sym) {
+        /* Sprint 158 (x86-64): an SSE-class or SSEup struct result is NOT
+         * an RAX/RDX pair - the call lowering already materialized it into
+         * a stack object (FP unit from XMM0/XMM1, integral unit from RAX)
+         * and rhs_temp holds the object's ADDRESS. The generic loop below
+         * copies from that address (rhs_is_struct_addr); taking the
+         * register-pair fast path here read RDX for the integral half and
+         * clobbered the value (c-torture pr92904 f12: v.h = f12(...)). */
+        bool sse_class_ret = (c->isa == ISA_X86_64 &&
+            (zc_typeinfo_unit_is_fp(c_ti, 0) || zc_typeinfo_unit_is_fp(c_ti, 1)));
+        if (struct_ret_call && struct_sz > 8 && struct_sz <= 16 && !src_sym &&
+            !sse_class_ret) {
             int pair0 = zc_alloc_temp(c);
             ir_emit_mov_reg(c, pair0, VREG_0);
             int pair1 = zc_alloc_temp(c);
@@ -606,7 +616,7 @@ void zero_cc_emit_vla_struct_copy(ZeroCCCompiler *c, int dst_addr, int src_addr,
         li->temp_dest = 3;
         li->temp_src1 = (uint32_t)arg_temps[0];
         li->temp_src2 = (uint32_t)arg_temps[1];
-        li->imm = 0;
+        li->imm = IR_CALL_ARG01_REG; /* dst/src are register args */
         li->cond = 0;
         li->width = 0;
         ir_emit_call_arg(c, (uint32_t)arg_temps[2], 0, 255);

@@ -251,6 +251,56 @@ static inline ZeroCCType zero_cc_get_current_fn_ret_type(ZeroCCCompiler *c) {
     return zero_cc_type_int();
 }
 
+/* Sprint 158 (external ABI interop): System V AMD64 class merge for the
+ * 8-byte units of a 9-16 byte struct/union argument or return value.
+ * Returns true when unit `u` (0 or 1, covering bytes [8u, 8u+8)) must
+ * travel in an SSE register (XMM); false = INTEGER register (GPR).
+ * Members are walked in declaration order: a unit is SSE when a
+ * float/double member starts in it or straddles it (long double and
+ * other >8B members are conservatively treated as integer units - the
+ * x86-64 corner cases the interop corpus does not exercise).  All-int
+ * structs stay GPR (the pre-Sprint-158 behavior); all-FP structs move
+ * to the XMM pair (pre-158 they wrongly rode GPR chunks, which gcc
+ * interop exposed in test/abi_interop/s03_struct16).  Unions merge:
+ * any FP member overlapping the unit makes it SSE. */
+static inline bool zc_struct_unit_is_fp(const ZeroCCType *t, int u) {
+    if (!t || (t->tag != TYPE_STRUCT && t->tag != TYPE_UNION)) return false;
+    if (!t->members) return false;
+    size_t lo = (size_t)u * 8;
+    size_t hi = lo + 8;
+    for (size_t m = 0; m < t->member_count; m++) {
+        const ZeroCCStructMember *mm = &t->members[m];
+        if (mm->is_bitfield || mm->size == 0) continue;
+        size_t mlo = mm->offset;
+        size_t mhi = mm->offset + mm->size;
+        if (mlo >= hi || mhi <= lo) continue;  /* no overlap with this unit */
+        ZeroTypeTag mt = mm->tag;
+        if (mt == TYPE_FLOAT || mt == TYPE_DOUBLE) return true;
+        if (mm->base && (mm->base->tag == TYPE_FLOAT || mm->base->tag == TYPE_DOUBLE))
+            return true;
+    }
+    return false;
+}
+
+/* Same classification for the semantic TypeInfo (fields with offsets and
+ * member TypeInfo*s) - the form the call/return lowering usually holds. */
+static inline bool zc_typeinfo_unit_is_fp(const TypeInfo *t, int u) {
+    if (!t || (t->kind != TYPE_KIND_STRUCT && t->kind != TYPE_KIND_UNION)) return false;
+    if (!t->details.record.fields) return false;
+    size_t lo = (size_t)u * 8;
+    size_t hi = lo + 8;
+    for (size_t m = 0; m < t->details.record.field_count; m++) {
+        const struct StructField *mm = &t->details.record.fields[m];
+        if (mm->is_bitfield || !mm->type) continue;
+        size_t mlo = mm->offset;
+        size_t mhi = mm->offset + type_size(mm->type);
+        if (mlo >= hi || mhi <= lo) continue;
+        if (mm->type->kind == TYPE_KIND_FLOAT || mm->type->kind == TYPE_KIND_DOUBLE)
+            return true;
+    }
+    return false;
+}
+
 /* Check if an AST reference evaluates to a struct/union in memory (an address temp) */
 static inline bool ast_expr_is_struct_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
     if (ref == AST_NULL) return false;
@@ -259,6 +309,15 @@ static inline bool ast_expr_is_struct_addr(ZeroCCCompiler *c, ZeroCCASTArena *ar
     if (node->tag == NODE_CALL) {
         TypeInfo *ti = ast_node_get_typeinfo(c, node);
         if (type_is_struct_or_union(ti) && type_size(ti) > 16) return true;
+        /* Sprint 158 (x86-64): a 9-16B struct call with any SSE unit
+         * (float/double member) is materialized into a stack object by
+         * the call lowering (the value travels XMM0/XMM1 or the SSEup
+         * RAX+XMM0 pair, not the VREG_0/VREG_2 GPR pair) - consumers
+         * see the object's ADDRESS, like the >16B sret form. */
+        if (c->isa == ISA_X86_64 && type_is_struct_or_union(ti) &&
+            type_size(ti) > 8 && type_size(ti) <= 16 &&
+            (zc_typeinfo_unit_is_fp(ti, 0) || zc_typeinfo_unit_is_fp(ti, 1)))
+            return true;
     } else if (node->tag == NODE_COMPOUND_LIT) {
         TypeInfo *ti = ast_node_get_typeinfo(c, node);
         if (type_is_struct_or_union(ti) && type_size(ti) > 16) return true;

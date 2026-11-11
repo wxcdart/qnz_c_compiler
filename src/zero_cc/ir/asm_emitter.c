@@ -767,13 +767,14 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             if (call_arg_count > 0 && instr->temp_src1 != TEMP_NONE) {
                 unpacked_temps[n] = (int)instr->temp_src1;
                 unpacked_is_fp[n] = instr->cond;   /* Sprint 151c: is_fp of arg 0 */
-                unpacked_stack_pos[n] = 255;
+                /* Sprint 158: arg 0/1 stack positions in imm (255 = register). */
+                unpacked_stack_pos[n] = (uint8_t)(instr->imm & 0xFF);
                 n++;
             }
             if (call_arg_count > 1 && instr->temp_src2 != TEMP_NONE) {
                 unpacked_temps[n] = (int)instr->temp_src2;
                 unpacked_is_fp[n] = instr->width;  /* Sprint 151c: is_fp of arg 1 */
-                unpacked_stack_pos[n] = 255;
+                unpacked_stack_pos[n] = (uint8_t)((instr->imm >> 8) & 0xFF);
                 n++;
             }
             for (int a = 2; a < call_arg_count && n < IR_CALL_MAX_ARGS; a++) {
@@ -788,6 +789,7 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             }
 
             if (BE(c)->emit_call_asm) {
+                c->asm_call_seq++;  /* index into the lowering ir_ctx call tables */
                 BE(c)->emit_call_asm(c, func_name, n, unpacked_temps, unpacked_is_fp, unpacked_stack_pos, out);
             }
             return;
@@ -1767,6 +1769,7 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
 /* Emit all IR instructions as assembly */
 void emit_ir_to_asm(ZeroCCCompiler *c, int32_t spill_base_offset) {
     c->regalloc.spill_base_offset = spill_base_offset;
+    c->asm_call_seq = 0;  /* per-function OP_CALL sequence (ir_ctx tables) */
 
     /* Get IR from buffer */
     const Instr *instrs = ir_get_buffer(c);

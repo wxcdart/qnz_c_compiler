@@ -532,7 +532,7 @@ int zc_lower_binop128(ZeroCCCompiler *c, ZeroCCASTArena *arena,
             li->temp_dest = 4;
             li->temp_src1 = (uint32_t)at[0];
             li->temp_src2 = (uint32_t)at[1];
-            li->imm = 0;
+            li->imm = IR_CALL_ARG01_REG;
             li->cond = 0;
             li->width = 0;
             ir_emit_call_arg(c, (uint32_t)at[2], 0, 255);
@@ -924,7 +924,7 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                                     last_instr->temp_dest = 4;
                                     last_instr->temp_src1 = (uint32_t)div_args[0];
                                     last_instr->temp_src2 = (uint32_t)div_args[1];
-                                    last_instr->imm = 0;
+                                    last_instr->imm = IR_CALL_ARG01_REG;
                                     last_instr->cond = 1;
                                     last_instr->width = 1;
                                     last_instr->label_idx = 4;
@@ -1418,7 +1418,7 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                                     li->temp_dest = 4;
                                     li->temp_src1 = (uint32_t)at[0];
                                     li->temp_src2 = (uint32_t)at[1];
-                                    li->imm = 0;
+                                    li->imm = IR_CALL_ARG01_REG;
                                     li->cond = 0;
                                     li->width = 0;
                                     ir_emit_call_arg(c, (uint32_t)at[2], 0, 255);
@@ -1457,7 +1457,7 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                                     li->temp_dest = 3;
                                     li->temp_src1 = (uint32_t)at[0];
                                     li->temp_src2 = (uint32_t)at[1];
-                                    li->imm = 0;
+                                    li->imm = IR_CALL_ARG01_REG;
                                     li->cond = 0;
                                     li->width = 0;
                                     ir_emit_call_arg(c, (uint32_t)at[2], 0, 255);

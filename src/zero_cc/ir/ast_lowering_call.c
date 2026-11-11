@@ -9,6 +9,14 @@
 #include "zero_cc/isa/isa_backend.h"
 #include "zero_cc/semantic/diagnostics.h"
 
+/* Sprint 158 (System V memory args, x86-64): a >16B by-value struct arg
+ * occupies ceil(size/8) contiguous call-stack slots. Up to this many
+ * chunks are emitted as ordinary per-chunk stack args (reusing the
+ * existing push machinery); larger values use a single range entry
+ * (is_fp=4) that the call emitters block-copy (c-torture execute/pr23135
+ * passes a 128KB struct = 16K chunks). 32 chunks = 256B. */
+#define ABI_MAX_INLINE_MEM_CHUNKS 32
+
 /* GNU nested functions are block-scoped: several enclosing functions in
  * the same TU may each define a nested function with the same source
  * name (e.g. three `nested` fns in c-torture execute/20061220-1.c).
@@ -613,6 +621,15 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
             int gp_regs_avail = BE(c)->conv->int_arg_reg_count;
             int fp_regs_avail = BE(c)->conv->fp_arg_reg_count;
             int gp_stream = 0, fp_stream = 0, stack_arg_count = 0;
+            /* Sprint 158: pending x86-64 memory-arg RANGE entry (a >16B
+             * struct arg larger than ABI_MAX_INLINE_MEM_CHUNKS chunks) -
+             * the frame-buffer offset and stack position recorded in the
+             * arg loop, appended to the all_arg list after the sret
+             * buffer allocation (below the loop). */
+            int mem_arg_range_off = 0;
+            int mem_arg_range_pos = 0;
+            int mem_arg_range_count = 0;
+            bool mem_arg_range_pending = false;
             bool callee_uses_sret = ((call_ret_type.tag == TYPE_STRUCT || call_ret_type.tag == TYPE_UNION) ||
                 (call_ret_type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&call_ret_type))) &&
                 (call_ret_type.size > 16);
@@ -1046,25 +1063,48 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                                             ati->kind == TYPE_KIND_UNION));
                     }
                     bool big_struct_ptr_conv = false;
+                    bool big_mem_arg = false;    /* Sprint 158 (x86-64): >16B struct arg
+                                                  * rides the CALLER STACK as a value
+                                                  * (System V memory argument), not a
+                                                  * hidden pointer. */
+                    int big_mem_chunks = 0;     /* 8-byte stack slots the value occupies */
+                    bool big_mem_range = false; /* > inline chunk cap: one range entry */
                     int big_src_addr = TEMP_NONE;
                     if (arg_struct_sz > 16 && arg_is_struct_u) {
+                        if (c->isa == ISA_X86_64) {
+                            /* System V AMD64: a by-value struct/union LARGER than
+                             * 16 bytes is a MEMORY-class argument - the CALLER lays
+                             * the value on the stack (first such arg at RSP+0, packed
+                             * in argument order) and consumes NO register.  The
+                             * pre-Sprint-158 hidden-pointer convention was
+                             * zerocc-internal only; gcc callers/callees pass the
+                             * value in memory (test/abi_interop s05/s06/s07). */
+                            big_mem_arg = true;
+                            big_mem_chunks = (int)((arg_struct_sz + 7) / 8);
+                            if (big_mem_chunks > ABI_MAX_INLINE_MEM_CHUNKS) {
+                                /* 16K+ chunks (c-torture execute/pr23135's 128KB
+                                 * struct) would blow the OP_CALL_ARG stream: a
+                                 * single range entry (is_fp=4) carries
+                                 * (pos_start, count, source frame offset) and the
+                                 * call emitters block-copy it. */
+                                big_mem_range = true;
+                            }
+                        }
                         if (arg_node && arg_node->tag == NODE_IDENT && arg_struct_sym) {
                             big_src_addr = zc_alloc_temp(c);
                             ir_emit_lea(c, big_src_addr, BE(c)->fp_reg, -arg_struct_sym->stack_offset);
-                            big_struct_ptr_conv = true;
                         } else if (arg_node && arg_node->tag == NODE_IDENT && !arg_struct_sym) {
                             ZeroCCGlobalVar *bgv = find_global_var(c, arg_node->s.str);
                             if (bgv && (bgv->type.tag == TYPE_STRUCT || bgv->type.tag == TYPE_UNION)) {
                                 big_src_addr = zc_alloc_temp(c);
                                 ir_emit_global_addr(c, big_src_addr, bgv);
-                                big_struct_ptr_conv = true;
                             }
                         } else if (is_mem_struct) {
                             /* call result / compound literal / deref / index:
                              * `temp` already holds the value's address. */
                             big_src_addr = temp;
-                            big_struct_ptr_conv = true;
                         }
+                        if (big_src_addr != TEMP_NONE && !big_mem_arg) big_struct_ptr_conv = true;
                     }
                     /* glibc x86-64 va_list shadow: ZeroCC's private
                      * 5-pointer va_list is unreadable by libc's variadic
@@ -1103,7 +1143,9 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                                       vati->details.record.size > 16);
                     bool callee_extern_vl = (callee_fn != NULL && callee_fn->is_prototype);
                     bool emit_vl_shadow = (arg_is_vl && callee_extern_vl && c->isa == ISA_X86_64);
-                    if (big_struct_ptr_conv) {
+                    bool mem_arg_range_done = false;  /* range entry covers all chunks */
+                    int mem_arg_chunk_src = TEMP_NONE; /* per-chunk source address (x86-64 mem arg) */
+                    if (big_struct_ptr_conv || (big_mem_arg && emit_vl_shadow)) {
                         c->current_stack_frame = (c->current_stack_frame + 15) & ~15;
                         int32_t asz = emit_vl_shadow ? 208 : (int32_t)((arg_struct_sz + 7) & ~(size_t)7);
                         c->current_stack_frame += asz;
@@ -1240,10 +1282,61 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                             int b16 = zc_alloc_temp(c);
                             ir_emit_add(c, b16, buf_t, o16);
                             ir_emit_store_64(c, (uint32_t)reg_base, (uint32_t)b16);
+                            /* Sprint 158: on x86-64 glibc's va_list
+                             * parameter is `va_list[1]` - it DECAYS TO A
+                             * POINTER and travels in one integer register
+                             * (rsi in vprintf(fmt, ap)), NOT as a 32-byte
+                             * System V memory argument. Pass the buffer
+                             * ADDRESS as an ordinary int argument (the
+                             * hidden-pointer form is the correct glibc
+                             * boundary even on x86-64): big_struct_ptr_conv
+                             * suppresses the memory-arg chunk emission and
+                             * the generic path puts buf_t in the int
+                             * register stream. (Pushing the 32 B header as
+                             * 4 memory chunks made glibc's vprintf clean up
+                             * a different span than we pushed - RSP
+                             * corruption, segfault on the next call.
+                             * c-torture execute/vprintf-1 & co.) */
+                            temp = buf_t;
+                            big_struct_ptr_conv = true;
+                            big_mem_arg = false;
+                            big_mem_chunks = 0;
                         } else {
                             zc_emit_mem_copy(c, big_src_addr, buf_t, arg_struct_sz);
                         }
-                        temp = buf_t;
+                        if (big_struct_ptr_conv) {
+                            temp = buf_t;
+                        } else {
+                            /* mem-arg chunk 0: first 8 bytes of the shadow
+                             * header (the value, not a pointer). */
+                            int val0 = zc_alloc_temp(c);
+                            ir_emit_deref(c, val0, buf_t);
+                            temp = val0;
+                        }
+                    } else if (big_mem_arg && big_mem_range) {
+                        /* x86-64 range: frame buffer + block copy now; the
+                         * range entry (is_fp=4) is appended to the all_arg
+                         * list after the sret region (below). */
+                        c->current_stack_frame = (c->current_stack_frame + 15) & ~15;
+                        c->current_stack_frame += (int32_t)((arg_struct_sz + 7) & ~(size_t)7);
+                        int buf_t = zc_alloc_temp(c);
+                        ir_emit_lea(c, buf_t, BE(c)->fp_reg, -c->current_stack_frame);
+                        zc_emit_mem_copy(c, big_src_addr, buf_t, arg_struct_sz);
+                        mem_arg_range_off = c->current_stack_frame;
+                        mem_arg_range_pos = stack_arg_count;
+                        mem_arg_range_count = big_mem_chunks;
+                        stack_arg_count += big_mem_chunks;
+                        mem_arg_range_done = true;
+                        mem_arg_range_pending = true;
+                    } else if (big_mem_arg) {
+                        /* x86-64 per-chunk memory arg: chunk 0 rides the
+                         * generic spill below (stack position forced),
+                         * chunks 1..n-1 the chunk loop; both read from the
+                         * source address. */
+                        mem_arg_chunk_src = big_src_addr;
+                        int val0 = zc_alloc_temp(c);
+                        ir_emit_deref(c, val0, big_src_addr);
+                        temp = val0;
                     } else if (is_mem_struct) {
                         int val0 = zc_alloc_temp(c);
                         if (arg_struct_sz < 8) {
@@ -1299,7 +1392,10 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                     }
 
                     /* Integer or struct argument: spill to stack slot(s) */
-                    if (t128) {
+                    if (mem_arg_range_done) {
+                        /* Sprint 158 x86-64: a range entry (is_fp=4) covers
+                         * ALL of this arg's chunks - no per-chunk spill. */
+                    } else if (t128) {
                         int hi_temp = zc_alloc_temp(c);
                         ir_emit_hi128(c, hi_temp, temp);
                         int_spill_stack_pos[int_arg_idx] = (gp_stream < gp_regs_avail) ? 255 : (uint8_t)(stack_arg_count++);
@@ -1320,9 +1416,56 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                             ir_emit_store(c, hi_temp, BE(c)->fp_reg, -int_spill_offsets[int_arg_idx]);
                             int_arg_idx++;
                         }
+                    } else if (c->isa == ISA_X86_64 && arg_is_struct_u &&
+                               arg_struct_sz > 8 && arg_struct_sz <= 16 &&
+                               !big_mem_arg &&
+                               zc_typeinfo_unit_is_fp(ast_node_get_typeinfo(c, arg_node), 0)) {
+                        /* Sprint 158: 9-16B struct unit 0 that holds a
+                         * float/double member travels in the SSE stream
+                         * (XMM register / FP stack stream), not the GPR
+                         * int stream. Re-read the value as a double from
+                         * the source object (all 9-16B struct shapes keep
+                         * the value in memory: local slot, sret buffer,
+                         * compound literal, ...). */
+                        int src_addr = TEMP_NONE;
+                        if (arg_node && arg_node->tag == NODE_IDENT && arg_struct_sym) {
+                            src_addr = zc_alloc_temp(c);
+                            ir_emit_lea(c, src_addr, BE(c)->fp_reg, -arg_struct_sym->stack_offset);
+                        } else if (is_mem_struct && mem_struct_addr != TEMP_NONE) {
+                            src_addr = zc_alloc_temp(c);
+                            ir_emit_mov_reg(c, src_addr, mem_struct_addr);
+                        }
+                        if (src_addr == TEMP_NONE) {
+                            /* no usable source address - fall back to the
+                             * GPR spill (best effort, pre-158 behavior) */
+                            int_spill_stack_pos[int_arg_idx] = (gp_stream < gp_regs_avail) ? 255 : (uint8_t)(stack_arg_count++);
+                            gp_stream++;
+                            if (int_arg_idx < IR_CALL_MAX_ARGS) {
+                                c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                                c->current_stack_frame += 8;
+                                int_spill_offsets[int_arg_idx] = c->current_stack_frame;
+                                ir_emit_store(c, temp, BE(c)->fp_reg, -int_spill_offsets[int_arg_idx]);
+                                int_arg_idx++;
+                            }
+                        } else {
+                            int f0 = zc_alloc_temp(c);
+                            ir_emit_vloadsd(c, (uint32_t)f0, (uint32_t)src_addr);
+                            fp_spill_stack_pos[fp_arg_idx] = (fp_stream < fp_regs_avail) ? 255 : (uint8_t)(stack_arg_count++);
+                            fp_stream++;
+                            c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                            c->current_stack_frame += 8;
+                            fp_spill_offsets[fp_arg_idx] = c->current_stack_frame;
+                            ir_emit_fstore(c, (uint32_t)f0, TEMP_NONE, -fp_spill_offsets[fp_arg_idx]);
+                            fp_arg_idx++;
+                        }
                     } else {
-                        int_spill_stack_pos[int_arg_idx] = (gp_stream < gp_regs_avail) ? 255 : (uint8_t)(stack_arg_count++);
-                        gp_stream++;
+                        /* Sprint 158: an x86-64 memory arg (>16B struct
+                         * value) never takes a register - this first chunk
+                         * occupies a call-stack slot in argument order and
+                         * consumes no GP stream. */
+                        int_spill_stack_pos[int_arg_idx] = (big_mem_arg) ? (uint8_t)(stack_arg_count++)
+                                 : (gp_stream < gp_regs_avail) ? 255 : (uint8_t)(stack_arg_count++);
+                        if (!big_mem_arg) gp_stream++;
                         if (int_arg_idx < IR_CALL_MAX_ARGS) {
                             c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
                             c->current_stack_frame += 8;
@@ -1344,16 +1487,67 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                      *  - any other 9-16 byte value (compound literal,
                      *    struct-returning call): chunk 1 sits in the ABI
                      *    secondary value register (rdx / a1 / x1);
-                     *  - >16 byte struct/union values take the hidden
-                     *    pointer convention (big_struct_ptr_conv above),
-                     *    so no extra chunks are passed. */
-                    if (arg_struct_sz > 8 && !big_struct_ptr_conv) {
-                        int num_chunks = (int)((arg_struct_sz + 7) / 8);
+                     *  - >16 byte struct/union values: on x86-64 they are
+                     *    MEMORY args (big_mem_arg) - every chunk, including
+                     *    this first one, rides the caller stack in argument
+                     *    order (System V) and reads from mem_arg_chunk_src;
+                     *    other ISAs keep the hidden-pointer convention
+                     *    (big_struct_ptr_conv above), so no extra chunks. */
+                    if (arg_struct_sz > 8 && !big_struct_ptr_conv && !mem_arg_range_done) {
+                        /* Sprint 158: for x86-64 memory args the slot count is
+                         * big_mem_chunks - normally (size+7)/8, but the glibc
+                         * va_list shadow PASSES the 32-byte glibc header
+                         * (big_mem_chunks = 4) although the source (ZeroCC's
+                         * own va_list) is larger. Pushing (arg_struct_sz+7)/8
+                         * slots would leave the callee (glibc) cleaning up a
+                         * different span than the caller pushed - RSP
+                         * corruption, segfault (c-torture vprintf-1 & co). */
+                        int num_chunks = (big_mem_arg) ? big_mem_chunks
+                                                       : (int)((arg_struct_sz + 7) / 8);
                         for (int ch = 1; ch < num_chunks && int_arg_idx < IR_CALL_MAX_ARGS; ch++) {
-                            int_spill_stack_pos[int_arg_idx] = (gp_stream < gp_regs_avail) ? 255 : (uint8_t)(stack_arg_count++);
-                            gp_stream++;
                             int ch_temp = zc_alloc_temp(c);
-                            if (arg_node && arg_node->tag == NODE_IDENT && arg_struct_sym) {
+                            /* Sprint 158 (x86-64): a 9-16B struct unit that
+                             * holds a float/double member travels in the SSE
+                             * stream (XMM register, or the FP stack stream
+                             * past XMM7), not the GPR chunk stream - the
+                             * pre-158 all-GPR model broke gcc interop for
+                             * {double,double} & co (s03_struct16). */
+                            if (c->isa == ISA_X86_64 && !big_mem_arg && arg_is_struct_u &&
+                                zc_typeinfo_unit_is_fp(ast_node_get_typeinfo(c, arg_node), ch)) {
+                                int ch_addr = TEMP_NONE;
+                                if (arg_node && arg_node->tag == NODE_IDENT && arg_struct_sym) {
+                                    ch_addr = zc_alloc_temp(c);
+                                    ir_emit_lea(c, ch_addr, BE(c)->fp_reg,
+                                                -(arg_struct_sym->stack_offset - ch * 8));
+                                } else if (is_mem_struct) {
+                                    int off_t = zc_alloc_temp(c);
+                                    ir_emit_mov_imm(c, off_t, ch * 8);
+                                    ch_addr = zc_alloc_temp(c);
+                                    ir_emit_add(c, ch_addr, mem_struct_addr, off_t);
+                                }
+                                if (ch_addr != TEMP_NONE) {
+                                    int fch = zc_alloc_temp(c);
+                                    ir_emit_vloadsd(c, (uint32_t)fch, (uint32_t)ch_addr);
+                                    fp_spill_stack_pos[fp_arg_idx] = (fp_stream < fp_regs_avail) ? 255 : (uint8_t)(stack_arg_count++);
+                                    fp_stream++;
+                                    c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                                    c->current_stack_frame += 8;
+                                    fp_spill_offsets[fp_arg_idx] = c->current_stack_frame;
+                                    ir_emit_fstore(c, (uint32_t)fch, TEMP_NONE, -fp_spill_offsets[fp_arg_idx]);
+                                    fp_arg_idx++;
+                                    continue;
+                                }
+                            }
+                            int_spill_stack_pos[int_arg_idx] = (big_mem_arg) ? (uint8_t)(stack_arg_count++)
+                                     : (gp_stream < gp_regs_avail) ? 255 : (uint8_t)(stack_arg_count++);
+                            if (!big_mem_arg) gp_stream++;
+                            if (big_mem_arg && mem_arg_chunk_src != TEMP_NONE) {
+                                int off_t = zc_alloc_temp(c);
+                                ir_emit_mov_imm(c, off_t, ch * 8);
+                                int ch_addr = zc_alloc_temp(c);
+                                ir_emit_add(c, ch_addr, mem_arg_chunk_src, off_t);
+                                ir_emit_deref(c, ch_temp, ch_addr);
+                            } else if (arg_node && arg_node->tag == NODE_IDENT && arg_struct_sym) {
                                 ir_emit_load(c, ch_temp, BE(c)->fp_reg, -(arg_struct_sym->stack_offset - ch * 8));
                             } else if (is_mem_struct) {
                                 int off_t = zc_alloc_temp(c);
@@ -1551,6 +1745,12 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                 fp_reload_idx++;
             }
 
+            /* Sprint 158 x86-64: the range memory-arg (a >32-chunk >16B
+             * struct arg) is recorded in the lowering ir_ctx (pos/count/
+             * source frame offset) and emitted by the call emitters from
+             * there - it takes NO all_arg stream entry (the 16K+ chunk
+             * span must not blow the OP_CALL_ARG stream either). */
+
             /* Reload indirect callee pointer if needed */
             if (is_indirect_call && all_arg_count < IR_CALL_MAX_ARGS) {
                 int callee_reload_temp = zc_alloc_temp(c);
@@ -1561,6 +1761,7 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                 all_arg_count++;
             }
             if (callee_uses_sret) all_arg_stack_pos[0] = 255;  /* sret entry is always a register arg */
+
 
             /* Emit IR call (NULL name for indirect calls) */
             /* The emitted symbol is the function's actual emission name:
@@ -1588,6 +1789,15 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                  * (OP_CALL's cond/width are otherwise unused). */
                 last_instr->cond = (uint8_t)(all_arg_count > 0 ? all_arg_is_fp[0] : 0);
                 last_instr->width = (uint8_t)(all_arg_count > 1 ? all_arg_is_fp[1] : 0);
+                /* Sprint 158: stack positions of args 0/1 (255 = register).
+                 * The emitters used to hardcode 255 for the first two args -
+                 * valid pre-158 (with the hidden-pointer convention the only
+                 * possible stack arg at index 0/1 was none), but a System V
+                 * MEMORY-arg >16B struct can be the first user argument
+                 * (e.g. sret + 24B struct: all_arg[1] rides the caller
+                 * stack). imm is unused on OP_CALL (name in imm64). */
+                last_instr->imm = (int32_t)(all_arg_count > 0 ? all_arg_stack_pos[0] : 0)
+                                 | (int32_t)(all_arg_count > 1 ? all_arg_stack_pos[1] << 8 : 0);
                 /* Store the number of FP REGISTER args (clamped: %al / the
                  * callee spill only covers the register slots) in label_idx
                  * before emitting OP_CALL_ARG (which may reallocate the arena
@@ -1605,6 +1815,9 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
             if (c->lowering.ir_ctx.call_count < 64) {
                 int cidx = c->lowering.ir_ctx.call_count++;
                 c->lowering.ir_ctx.call_fp_spill_counts[cidx] = fp_arg_idx;
+                c->lowering.ir_ctx.call_range_counts[cidx] = mem_arg_range_pending ? mem_arg_range_count : 0;
+                c->lowering.ir_ctx.call_range_offs[cidx] = mem_arg_range_pending ? mem_arg_range_off : 0;
+                c->lowering.ir_ctx.call_range_pos[cidx] = mem_arg_range_pending ? mem_arg_range_pos : 0;
                 for (int f = 0; f < fp_arg_idx && f < 16; f++) {
                     c->lowering.ir_ctx.call_fp_spills[cidx][f] = fp_spill_offsets[f];
                 }
@@ -1740,6 +1953,57 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
             /* Check if function returns a 9-16 byte struct/union */
             if ((call_ret_type.tag == TYPE_STRUCT || call_ret_type.tag == TYPE_UNION) &&
                 call_ret_type.size > 8 && call_ret_type.size <= 16) {
+                TypeInfo *ret_unit_ti = ast_node_get_typeinfo(c, node);
+                bool u0fp = zc_typeinfo_unit_is_fp(ret_unit_ti, 0);
+                bool u1fp = zc_typeinfo_unit_is_fp(ret_unit_ti, 1);
+                if (c->isa == ISA_X86_64 && (u0fp || u1fp)) {
+                    /* Sprint 158 (x86-64): an SSE/SSEup 9-16B struct return
+                     * arrives in the class register pair - SSE class
+                     * (both units FP): XMM0+XMM1; SSEup: the single FP
+                     * unit in XMM0 and the integral unit in RAX (System
+                     * V: the integer half of a return is always RAX).
+                     * Materialize into a stack object and hand back its
+                     * ADDRESS (address form, like the >16B sret buffer -
+                     * ast_expr_is_struct_addr recognizes the class) so
+                     * every consumer (assign/arg/return/member) copies
+                     * from memory. The pre-158 all-GPR-pair model broke
+                     * gcc interop (test/abi_interop s03_struct16). */
+                    c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                    c->current_stack_frame += (int32_t)((call_ret_type.size + 7) & ~(size_t)7);
+                    int32_t res_off = c->current_stack_frame;
+                    int addr = zc_alloc_temp(c);
+                    ir_emit_lea(c, addr, BE(c)->fp_reg, -res_off);
+                    if (u0fp) {
+                        ir_emit_vstoresd(c, (uint32_t)addr, (uint32_t)VREG_F0);
+                    } else {
+                        int t0 = zc_alloc_temp(c);
+                        ir_emit_mov_reg(c, t0, VREG_0);
+                        ir_emit_store(c, t0, BE(c)->fp_reg, -res_off);
+                    }
+                    if (call_ret_type.size > 8) {
+                        int a2 = zc_alloc_temp(c);
+                        ir_emit_lea(c, a2, BE(c)->fp_reg, -res_off + 8);
+                        if (u1fp) {
+                            /* SSE class: second unit in XMM1; SSEup:
+                             * the FP unit (whatever position) in XMM0. */
+                            ir_emit_vstoresd(c, (uint32_t)a2, (uint32_t)(u0fp ? VREG_F1 : VREG_F0));
+                        } else {
+                            /* SSEup return: the integral unit arrives in
+                             * RAX (VREG_0) - System V return rule. */
+                            int t1 = zc_alloc_temp(c);
+                            ir_emit_mov_reg(c, t1, VREG_0);
+                            size_t rem = call_ret_type.size - 8;
+                            if (rem >= 8) {
+                                ir_emit_store(c, t1, BE(c)->fp_reg, -res_off + 8);
+                            } else {
+                                int da = zc_alloc_temp(c);
+                                ir_emit_lea(c, da, BE(c)->fp_reg, -res_off + 8);
+                                zc_store_low_bytes(c, t1, da, rem);
+                            }
+                        }
+                    }
+                    return addr;
+                }
                 /* Store struct return info in label_idx: high byte = 1, low byte = size */
                 if (call_ir_idx < ir_get_count(c)) {
                     Instr *last_instr = (Instr*)&ir_get_buffer(c)[call_ir_idx];

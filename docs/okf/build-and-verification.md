@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 165-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-11-11T05:44:03Z
+timestamp: 2026-11-11T17:10:32Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -347,6 +347,16 @@ python3 tools/project_diff.py --levels 0 2 3
 make test-project-runs
 python3 tools/project_runs.py
 python3 tools/project_runs.py --jit
+
+# External ABI interop gate (Verification & Scale #5, Sprint 158):
+# bidirectional zerocc.o <-> gcc.o linking over 13 calling-convention
+# scenarios (test/abi_interop/), each with a gcc-only control, a zerocc-main
+# (A) and a gcc-main (B) binary at -O0/-O1/-O2, stdout+exit-code diffed.
+# Ground truth for the System V struct classification rules (MEMORY args,
+# 9-16B unit merge, sret) - see abi-sysv-x86_64.md. Excluded from the
+# generic `make test` sweep (the triples are not standalone programs).
+make test-abi-interop
+python3 tools/abi_interop.py
 ```
 
 ## Related Concepts
@@ -354,6 +364,7 @@ python3 tools/project_runs.py --jit
 - See [Bundle Log](./log.md)
 - See [Frontend, Type System & Semantic Analysis](./frontend-and-types.md) (fnptr member star topology, t2ti memo)
 - See [GCC c-torture Conformance Gate](./c-torture-gate.md)
+- See [System V AMD64 ABI & Struct Calling Conventions](./abi-sysv-x86_64.md) (the interop gate's ground-truth model)
 - See [System V AMD64 ABI & Struct Calling Conventions](./abi-sysv-x86_64.md)
 - See [Compilation Pipeline & Two-Pass Architecture](./architecture-pipeline.md)
 

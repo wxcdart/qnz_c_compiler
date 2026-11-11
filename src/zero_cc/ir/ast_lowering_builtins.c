@@ -726,7 +726,8 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
                 last_instr->temp_dest = (uint32_t)all_arg_count;
                 if (all_arg_count > 0) last_instr->temp_src1 = (uint32_t)all_arg_temps[0];
                 if (all_arg_count > 1) last_instr->temp_src2 = (uint32_t)all_arg_temps[1];
-                last_instr->imm = 0;
+                last_instr->imm = (int32_t)(all_arg_count > 0 ? all_arg_stack_pos[0] : 0)
+                                 | (int32_t)(all_arg_count > 1 ? all_arg_stack_pos[1] << 8 : 0);
                 last_instr->cond = (uint8_t)(all_arg_count > 0 ? all_arg_is_fp[0] : 0);
                 last_instr->width = (uint8_t)(all_arg_count > 1 ? all_arg_is_fp[1] : 0);
                 last_instr->label_idx = (uint16_t)(fp_arg_idx < fp_regs_avail ? fp_arg_idx : fp_regs_avail);

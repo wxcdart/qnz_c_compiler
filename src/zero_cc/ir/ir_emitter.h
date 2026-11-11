@@ -22,6 +22,9 @@ static inline void ir_emitter_init(IREmitterContext *ctx) {
     ctx->call_count = 0;
     for (int i = 0; i < 64; i++) {
         ctx->call_fp_spill_counts[i] = 0;
+        ctx->call_range_counts[i] = 0;
+        ctx->call_range_offs[i] = 0;
+        ctx->call_range_pos[i] = 0;
     }
 }
 

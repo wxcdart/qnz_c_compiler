@@ -24,8 +24,12 @@ ZeroCC is a lightweight, embeddable C99/C11/C23 compiler (with GNU extensions) w
   `_Atomic`, `_Generic`, designated/aggregate initializers)
 - Control flow (`if/else`, `switch`, loops, `goto`, `break/continue/return`)
 - GNU statement expressions (`({ ... })`)
-- System V AMD64 / AArch64 / RISC-V calling conventions, including by-value
-  structs and hidden-pointer (`sret`) returns for `>16B` structs
+- System V AMD64 / AArch64 / RISC-V calling conventions: by-value structs
+  with full System V classification on x86-64 (≤8B in one register, 9–16B
+  per-8-byte-unit SSE/GPR class merge, >16B as caller-stack MEMORY
+  arguments, `sret` hidden-pointer returns for >16B struct *results*),
+  bidirectionally verified against gcc-15 objects (`make test-abi-interop`,
+  Sprint 158)
 - `__int128` / `__uint128_t` support on all 64-bit ISAs (Sprint 109)
 - 128-bit ABI completeness: two-unit `__int128` argument ABI, `__int128`
   function-pointer signatures, `__float128` (Sprints 110–112)
@@ -52,7 +56,7 @@ ZeroCC is a lightweight, embeddable C99/C11/C23 compiler (with GNU extensions) w
 - **Compiler diagnostics** — gcc-style caret errors, C99 constraint checking,
   "did you mean" suggestions, multi-error recovery
 - **Conformance gate** ratcheted against GCC's `gcc.c-torture` corpus
-  (3,934 tests; 3,754 PASS / 0 bad at HEAD; see `make test-torture`)
+  (3,934 tests; 3,756 PASS / 0 bad at HEAD; see `make test-torture`)
 
 ## Quick Start
 
@@ -141,7 +145,7 @@ zero_cc/
 ├─ third_party/vendor/     # Vendored deps (musl-1.2.6, Ryū, gcc.c-torture corpus)
 ├─ test/                   # Regression suites (unit, semantic, abi, jit, aot,
 │                           # driver, linker, licm, inline_audit, isa_qemu,
-│                           # isa128, torture, diag, san, bench, ...)
+│                           # isa128, torture, diag, san, abi_interop, bench, ...)
 ├─ tools/                  # Verification & tooling (see tools/README.md)
 ├─ docs/                   # OKF knowledge graph (docs/okf/), archive, plan
 ├─ LICENSE                 # MIT license
@@ -273,12 +277,13 @@ against a static-musl reference). See
 
 ## Test Results
 
-Current status (verified 2026-11-11 at HEAD, Sprints 129–157):
+Current status (verified 2026-11-11 at HEAD, Sprints 129–158):
 
 | Suite | Status | Count |
 |-------|--------|-------|
 | **Main regression suite** (`make test`: unit, semantic, ABI, JIT, AOT, asm reference) | ✅ Pass | 226/226 |
-| **Optimizer sweep** (`make test-opt`, `-O0..-O3` × JIT + AOT via zerocc) | ✅ Pass | 182 tests: 124 ok, 0 failed (58 embedding tests skipped by design — covered by `make test`; 1 pre-existing nondeterministic) |
+| **External ABI interop gate** (`make test-abi-interop`: bidirectional `zerocc.o ↔ gcc.o` — zerocc main + gcc main, 15 calling-convention scenarios at `-O0`/`-O1`/`-O2`, incl. MEMORY struct args, SSE/SSEup 16B structs, `sret`, variadic struct args) | ✅ Pass | 15/15 |
+| **Optimizer sweep** (`make test-opt`, `-O0..-O3` × JIT + AOT via zerocc) | ✅ Pass | 183 tests: 125 ok, 0 failed (58 embedding tests skipped by design — covered by `make test`; 1 pre-existing nondeterministic) |
 | **C23 differential gate** (`make test-c23`: 24 cases across gnu23/c11/c99 vs gcc-15) | ✅ Pass | 24/24 |
 | **Inline-asm Phases 1–3 gate** (`make test-asm`: `test/asm/*.c` across `-S` text, JIT, and raw AOT at `-O0..-O3` vs host-gcc reference) | ✅ Pass | 72/72 |
 | **Project-differential gate** (`make test-project-diff`: cJSON, zlib, sqlite3.c at -O0/-O2) | ✅ Pass | 36/36 TUs |
@@ -287,7 +292,7 @@ Current status (verified 2026-11-11 at HEAD, Sprints 129–157):
 | **Own linker & archiver** (`make test-linker`, `--zerocc-link` + `--ar` across all 4 ISAs + gcc differential) | ✅ Pass | 45/45 |
 | **Cross-ISA raw-emitter QEMU gate** (`make test-isa-qemu`, vs static-musl reference) | ✅ Pass | 59/59 (all 4 ISAs) |
 | **Cross-ISA `__int128` raw-emitter QEMU gate** (`make test-isa128`, vs static-musl reference) | ✅ Pass | 144/144 (all 3 ISAs × 6 tests × 4 levels × 2 paths) |
-| **GCC c-torture conformance gate** (`make test-torture`, ratcheted baseline, gcc-15 reference) | ✅ Pass | 3,754 PASS / 3,934 corpus (0 MISCOMPILE / 0 REJECT; SKIP-SUPPORT 87, SKIP-C89 33, SKIP-REFSEM 16, SKIP-TARGET: arm/ia64/mips 6, SKIP-UB/PTR/BOGUS 3, EXPECTED-REJECT 4, NO-REF 23, REF-BUG 6, TIMEOUT 2) |
+| **GCC c-torture conformance gate** (`make test-torture`, ratcheted baseline, gcc-15 reference) | ✅ Pass | 3,756 PASS / 3,934 corpus (0 MISCOMPILE / 0 REJECT; SKIP-SUPPORT 87, SKIP-C89 33, SKIP-REFSEM 16, SKIP-TARGET: arm/ia64/mips 6, SKIP-UB/PTR/BOGUS 3, EXPECTED-REJECT 4, NO-REF 23, REF-BUG 6) |
 | **Type-tag verifier** (`tools/type_tag_verifier.py --verify-all`, invariants I1–I10 at `-O0/2/3`) | ✅ Pass | 160 files, RESULT OK |
 | **Loop unroll verifier** (`tools/loop_unroll_verifier.py`, `-O3` constant-trip full unrolling + runtime-bound partial unrolling w/ remainder peel, `expect-unroll`/`expect-partial` markers) | ✅ Pass | 25/25 |
 | **ASan/UBSan rebuild** (`make asan`) | ✅ Pass | 223/223 |
@@ -458,7 +463,7 @@ ZeroCC maintains an **Open Knowledge Format (OKF v0.2)** knowledge graph in
 | [`docs/okf/ir-and-regalloc.md`](docs/okf/ir-and-regalloc.md) | 168-opcode `Instr` IR & linear-scan register allocation |
 | [`docs/okf/optimization-passes.md`](docs/okf/optimization-passes.md) | Active IR optimization passes & safety invariants |
 | [`docs/okf/build-and-verification.md`](docs/okf/build-and-verification.md) | Build targets, direct compiler testing & ABI verifiers |
-| [`docs/okf/abi-sysv-x86_64.md`](docs/okf/abi-sysv-x86_64.md) | System V AMD64 ABI & `>16B` struct return (`sret`) rules |
+| [`docs/okf/abi-sysv-x86_64.md`](docs/okf/abi-sysv-x86_64.md) | System V AMD64 ABI: struct argument/return classification (≤8B register, 9–16B SSE/GPR unit merge, >16B MEMORY args + `sret`) |
 | [`docs/okf/isa-backends.md`](docs/okf/isa-backends.md) | Multi-ISA backend vtable, JIT vs AOT emission, relocations |
 | [`docs/okf/global-data-relocs.md`](docs/okf/global-data-relocs.md) | Data section, global initializers & pointer relocations |
 | [`docs/okf/tls-static.md`](docs/okf/tls-static.md) | Static TLS (`_Thread_local`) support |
@@ -483,6 +488,7 @@ python3 tools/project_diff.py              # Real-world project compilation gate
 python3 tools/c11/test_c11.py --verbose    # C11 feature & concurrency suite
 python3 tools/vla/test_vla.py              # VLA & matrix VLA suite
 python3 tools/sret_verifier.py --verify-all  # sret ABI verifier
+python3 tools/abi_interop.py                 # Bidirectional zerocc.o <-> gcc.o external ABI interop gate (Sprint 158)
 python3 tools/type_tag_verifier.py --verify-all  # Per-temp IR type-tag invariants (Sprints 118–120)
 python3 tools/loop_unroll_verifier.py      # -O3 loop unrolling verifier: constant-trip full + runtime-bound partial (Sprints 150/156)
 python3 tools/diag_battery.py              # Differential diagnostics vs gcc (ratchet baseline)

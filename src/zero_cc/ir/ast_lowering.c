@@ -632,7 +632,24 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                 }
             } else if (is_multi_chunk_struct && sym->type.size > 16 &&
                 !(sym->type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&sym->type))) {
-                /* SysV ABI: a >16B struct/union parameter arrives as a hidden
+                if (c->isa == ISA_X86_64) {
+                    /* Sprint 158 (x86-64): a >16B struct/union parameter is
+                     * a System V MEMORY argument - the caller placed the
+                     * value in the CALLER STACK at this argument's order
+                     * position (8-byte aligned, ceil(size/8) slots, no
+                     * register consumed). Read the chunks from there; the
+                     * pre-158 hidden-pointer convention only applies to the
+                     * psABI ISAs (AArch64/RISC-V). */
+                    int nch = (int)((sym->type.size + 7) / 8);
+                    for (int ch = 0; ch < nch; ch++) {
+                        int32_t chunk_off = sym->stack_offset - ch * 8;
+                        int32_t caller_off = 16 + 8 * stack_idx + 8 * ch;
+                        ir_emit_load(c, VREG_0, BE(c)->fp_reg, caller_off);
+                        ir_emit_store(c, VREG_0, BE(c)->fp_reg, -chunk_off);
+                    }
+                    stack_idx += nch;
+                } else {
+                /* psABI ABI: a >16B struct/union parameter arrives as a hidden
                  * pointer in ONE argument slot. Save the pointer into the
                  * first chunk's frame slot now (while every argument
                  * register is still live) but defer the pointer->storage
@@ -656,11 +673,34 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                     big_param_size[big_param_copy_count] = sym->type.size;
                     big_param_copy_count++;
                 }
+                }
             } else if (is_multi_chunk_struct) {
                 int num_chunks = (int)((sym->type.size + 7) / 8);
                 for (int ch = 0; ch < num_chunks; ch++) {
                     int32_t chunk_off = sym->stack_offset - ch * 8;
-                    if (int_idx < BE(c)->conv->int_arg_reg_count) {
+                    /* Sprint 158 (x86-64): per-unit class merge - a 9-16B
+                     * struct/union unit that holds a float/double member
+                     * rides the SSE stream (XMM registers, then the shared
+                     * caller-stack FP stream), the other units ride the GPR
+                     * stream. Matches the caller-side placement in
+                     * ast_lowering_call.c (s03_struct16 interop). */
+                    bool unit_fp = (c->isa == ISA_X86_64 &&
+                                    (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) &&
+                                    zc_struct_unit_is_fp(&sym->type, ch));
+                    if (unit_fp) {
+                        if (xmm_idx < BE(c)->conv->fp_arg_reg_count) {
+                            ir_emit_param_save_fp(c, xmm_idx, chunk_off, 0);
+                        } else {
+                            if (fpstack_copy_count < 64) {
+                                fpstack_src_off[fpstack_copy_count] = 16 + 8 * stack_idx;
+                                fpstack_dst_off[fpstack_copy_count] = chunk_off;
+                                fpstack_is_flt[fpstack_copy_count] = 0;
+                                fpstack_copy_count++;
+                            }
+                            stack_idx++;
+                        }
+                        xmm_idx++;
+                    } else if (int_idx < BE(c)->conv->int_arg_reg_count) {
                         ir_emit_param_save_int(c, int_idx, chunk_off);
                         int_idx++;
                     } else {

@@ -50,14 +50,34 @@ int lower_expr_va_start(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode 
                 if (!ps->is_param) continue;
                 bool pfp = (ps->type.tag == TYPE_FLOAT || ps->type.tag == TYPE_DOUBLE);
                 /* >16B struct/union params take ONE hidden-pointer slot
-                 * (SysV ABI), not one slot per 8-byte chunk. */
+                 * (psABI), not one slot per 8-byte chunk. */
                 bool phidden = (ps->type.tag == TYPE_STRUCT || ps->type.tag == TYPE_UNION) && ps->type.size > 16;
                 bool pmulti = (ps->type.tag == TYPE_STRUCT || ps->type.tag == TYPE_UNION) && ps->type.size > 8 && !phidden;
                 if (phidden) {
-                    if (gp_idx < gp_regs) gp_idx++; else stack_named++;
+                    if (c->isa == ISA_X86_64) {
+                        /* Sprint 158 (System V): a >16B named struct
+                         * param is a MEMORY argument - it consumes NO
+                         * register and occupies ceil(size/8) caller-stack
+                         * slots, so the overflow base must skip all of
+                         * them (c-torture execute/va-arg-4: f(big, s, ...) -
+                         * counting the old hidden-pointer slot made
+                         * va_start skip the first variadic register). */
+                        stack_named += (int)((ps->type.size + 7) / 8);
+                    } else {
+                        if (gp_idx < gp_regs) gp_idx++; else stack_named++;
+                    }
                 } else if (pmulti) {
                     int chunks = (int)((ps->type.size + 7) / 8);
-                    for (int ch = 0; ch < chunks; ch++) { if (gp_idx < gp_regs) gp_idx++; else stack_named++; }
+                    for (int ch = 0; ch < chunks; ch++) {
+                        /* Sprint 158 (x86-64): per-unit class merge - a
+                         * 9-16B unit holding an FP member rides the SSE
+                         * stream, the rest ride the GPR stream (mirrors
+                         * the prologue param-save loop). */
+                        bool unit_fp = (c->isa == ISA_X86_64 &&
+                                        zc_struct_unit_is_fp(&ps->type, ch));
+                        if (unit_fp) { if (fp_idx < fp_regs) fp_idx++; else stack_named++; }
+                        else { if (gp_idx < gp_regs) gp_idx++; else stack_named++; }
+                    }
                 } else if (pfp) {
                     if (fp_idx < fp_regs) fp_idx++; else stack_named++;
                 } else {
@@ -213,9 +233,30 @@ int lower_expr_va_arg(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
             bool is_struct_hidden = (!is_fp && struct_sz > 16);
             bool is_struct2 = (!is_fp && struct_sz > 8 && struct_sz <= 16);
             if (is_struct_hidden) {
-                /* >16B struct va_arg: the caller passed ONE hidden
-                 * pointer slot (SysV ABI) - read it like a pointer;
-                 * the result is the address of the caller's copy. */
+                if (c->isa == ISA_X86_64) {
+                    /* Sprint 158 (System V): a >16B variadic struct
+                     * argument lives in the OVERFLOW (stack) area as its
+                     * value - never in the register streams. va_arg
+                     * returns the slot ADDRESS (address-form; the consumer
+                     * copies the value from it, see
+                     * ast_expr_is_struct_addr) and advances the overflow
+                     * pointer by ceil(size/8). The pre-158 hidden-pointer
+                     * convention was zerocc-internal (psABI ISAs still use
+                     * it). c-torture stdarg-3 / pr92904. */
+                    int ho = zc_alloc_temp(c);
+                    ir_emit_deref(c, ho, addr_ovf_field);
+                    ir_emit_mov_reg(c, (uint32_t)result_temp, (uint32_t)ho);
+                    int inc = zc_alloc_temp(c);
+                    ir_emit_mov_imm(c, inc, (int32_t)(((struct_sz + 7) / 8) * 8));
+                    int ho2 = zc_alloc_temp(c);
+                    ir_emit_add(c, ho2, ho, inc);
+                    ir_emit_store_64(c, (uint32_t)ho2, (uint32_t)addr_ovf_field);
+                    c->last_expr_is_float = 0;
+                    return result_temp;
+                }
+                /* psABI (>16B struct va_arg): the caller passed ONE hidden
+                 * pointer slot - read it like a pointer; the result is
+                 * the address of the caller's copy. */
                 int hp = zc_alloc_temp(c);
                 ir_emit_deref(c, hp, addr_ptr_field);    /* fresh stream ptr */
                 int he = zc_alloc_temp(c);
@@ -255,10 +296,26 @@ int lower_expr_va_arg(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                  * 4 x 16B structs passed variadically: chunks 0-4 in
                  * registers, chunks 5-7 on the caller's stack). */
                 for (int ch = 0; ch < 2; ch++) {
+                    /* Sprint 158 (x86-64): each 8-byte unit rides its OWN
+                     * class stream - a unit holding an FP member is read
+                     * from the SSE save slots (ap+16/ap+24), the rest from
+                     * the GP slots (ap+0/ap+8) - mirroring the caller's
+                     * per-unit chunk placement (c-torture stdarg-3 f6: S2
+                     * = {double, long}). */
+                    bool ch_fp = (c->isa == ISA_X86_64 &&
+                                  zc_typeinfo_unit_is_fp(t_t, ch));
+                    int c_pf = zc_alloc_temp(c);
+                    ir_emit_mov_imm(c, c_pf, ch_fp ? 16 : 0);
+                    int c_ptr_field = zc_alloc_temp(c);
+                    ir_emit_add(c, c_ptr_field, ap_addr, c_pf);
+                    int c_ef = zc_alloc_temp(c);
+                    ir_emit_mov_imm(c, c_ef, ch_fp ? 24 : 8);
+                    int c_end_field = zc_alloc_temp(c);
+                    ir_emit_add(c, c_end_field, ap_addr, c_ef);
                     int cp = zc_alloc_temp(c);
-                    ir_emit_deref(c, cp, addr_ptr_field);    /* fresh stream ptr */
+                    ir_emit_deref(c, cp, c_ptr_field);       /* fresh stream ptr */
                     int ce = zc_alloc_temp(c);
-                    ir_emit_deref(c, ce, addr_end_field);    /* fresh end sentinel */
+                    ir_emit_deref(c, ce, c_end_field);       /* fresh end sentinel */
                     int cd = zc_alloc_temp(c);
                     ir_emit_sub(c, cd, cp, ce);
                     uint16_t o_lbl = c->ir_next_label++;
@@ -270,7 +327,7 @@ int lower_expr_va_arg(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                     ir_emit_mov_imm(c, n8, -8);
                     int cp2 = zc_alloc_temp(c);
                     ir_emit_add(c, cp2, cp, n8);
-                    ir_emit_store_64(c, cp2, addr_ptr_field);
+                    ir_emit_store_64(c, cp2, c_ptr_field);
                     ir_emit_jmp(c, a_lbl);
                     ir_emit_label(c, o_lbl);
                     int co = zc_alloc_temp(c);

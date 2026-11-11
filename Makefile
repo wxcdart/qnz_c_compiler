@@ -33,7 +33,7 @@ TEST_BIN_DIR ?= $(BUILD_DIR)/test
 # corpus: san_trap_* tests DIE with SIGILL by design, so they cannot run
 # through the host-gcc suite; tools/san_sweep.py (make test-san) drives them
 # with zerocc directly at -O0..-O3 in JIT + AOT.
-TEST_SRCS = $(filter-out test/diag/% test/driver/% test/linker/% test/san/% test/jit/builtin_apply.c test/jit/unroll_nonlocal_goto.c,$(wildcard test/*/*.c))
+TEST_SRCS = $(filter-out test/diag/% test/driver/% test/linker/% test/san/% test/abi_interop/% test/jit/builtin_apply.c test/jit/unroll_nonlocal_goto.c,$(wildcard test/*/*.c))
 TESTS = $(patsubst test/%.c,$(TEST_BIN_DIR)/%,$(TEST_SRCS))
 
 LEXER_OBJ = $(OBJ_DIR)/src/zero_cc/lexer/lexer.o
@@ -345,6 +345,16 @@ test-loop-unroll: $(ZC_BIN)
 # no_spill LRA, clobber spill/forbidden-mask, and template interpolation.
 test-asm: $(ZC_BIN)
 	@python3 tools/asm_diff.py
+
+# External ABI interop gate (Sprint 158, Verification & Scale #4/#5):
+# test/abi_interop/ scenario triples (shared main + zerocc provider + gcc
+# provider) linked with the SYSTEM gcc (-static) in both directions
+# (zerocc main vs gcc main) at -O0/-O1/-O2, diffed against a gcc-only
+# control with ratcheted expect lines. Ground-truth check of the System V
+# AMD64 ABI (struct/sret passing, memory args, data layout) against real
+# gcc - self-differential gates cannot see a shared ABI misunderstanding.
+test-abi-interop: $(ZC_BIN)
+	@python3 tools/abi_interop.py
 
 # Project-differential gate (Verification & Scale #1): real-world TUs
 # (cJSON, zlib, the sqlite amalgamation) must compile under zerocc at every
