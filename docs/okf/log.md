@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-11T23:22:32Z
+timestamp: 2026-11-11T23:48:25Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1350,3 +1350,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-11 — Updated `ir-and-regalloc.md`
 - Sprint 161: OP_OVF_TRAP coverage extended to ++/-- and compound assignment (new bullet documenting zc_ovf_uac_width + the three entry points).
+
+## 2026-11-11 — Updated `sanitizer-roadmap.md`
+- Sprint 161 correction: array-element lvalues (arr[i], a[i][j], p[i]) ARE checked at the element type (they carry the element TypeInfo) — the 'not checked / false-negative' claim was wrong; only a decayed array in pointer arithmetic is excluded. Added san_trap_arr_elem regression test.
+
+## 2026-11-11 — Updated `ir-and-regalloc.md`
+- Sprint 161 correction: array-element lvalues are checked at the element width (element TypeInfo), not skipped; only decayed-array pointer arithmetic is excluded.

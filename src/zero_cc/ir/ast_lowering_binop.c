@@ -639,7 +639,10 @@ bool zc_node_is_int128(ZeroCCCompiler *c, const ZeroCCASTNode *node) {  /* Sprin
  * Only widths the register model expresses (4, 8) are checked; exotic
  * widths (bit-fields, sub-byte, __int128) are skipped, not mis-checked.
  * Pointer operands are excluded (pointer arithmetic has no signed-overflow
- * semantics here; array operands read as unsigned via int_info).
+ * semantics here). A *decayed* array in pointer arithmetic (arr + 1) reads
+ * as unsigned-8 via int_info and is likewise skipped; but an array-ELEMENT
+ * lvalue (arr[i], a[i][j], p[i]) carries the element TypeInfo and IS checked
+ * at the element's width + signedness (Sprint 161).
  * Shared by the binary-op, compound-assignment, and ++/-- emitters so the
  * width rule has one source of truth (Sprint 161). Returns 0 when no check
  * applies. */

@@ -4,7 +4,7 @@ title: Target-Side Sanitizer (zero_san) Design & Roadmap
 description: Analysis and phased roadmap for an optional, parked target-side safety-check feature (zero_san) — a codegen-first UBSan-lite signed-overflow check, with bounds, leaks, and ASan/LSan scoped out and justified.
 resource: sanitizer/roadmap
 tags: [sanitizer, zero_san, codegen, ubsan, overflow, bounds, asan, lsan, leak, roadmap, design, safety]
-timestamp: 2026-11-11T23:22:32Z
+timestamp: 2026-11-11T23:48:25Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -92,13 +92,17 @@ binary form would:
   (defined wrap); **pointer** `++`/`--` and pointer compound (no signed-overflow semantics);
   bit-fields, sub-byte, and `__int128` (widths the register model can't express); the
   float-RHS compound path (the C math is floating-point — a later truncation to int is a
-  different, unimplemented UBSan category); and **array-element** lvalues, which read as
-  unsigned-8 through `zero_cc_expr_int_info` (the Sprint 116 "array operands read as unsigned"
-  decision) — a known false-negative, not a false-positive. Narrow lvalues (`short`/`char`)
-  promote to `int` and are checked at width 4, so a store-back wrap (e.g. `short s=32000; s+=100;`)
-  is correctly *not* a trap.
-- **Verified:** 8 new `test/san/` cases (`san_ok_incdec`, `san_ok_cassign`; `san_trap_{,long_}
-  incdec`, `san_trap_cassign{,_sub}`, `san_trap_long_cassign{,_mul}`) trap/SIGILL and pass at
+  different, unimplemented UBSan category); and a **decayed** array used in pointer
+  arithmetic (e.g. `arr + 1` — reads as unsigned-8/pointer via `zero_cc_expr_int_info`, and
+  pointer arithmetic has no signed-overflow semantics). An **array-element** lvalue is the
+  opposite case and IS checked: `arr[i]`, `a[i][j]`, and `p[i]` all carry the *element*
+  `TypeInfo`, so `zero_cc_expr_int_info` resolves them to the element's width + signedness
+  and an element overflow traps (`san_trap_arr_elem` pins int/long/`a[i][j]`/`p[i]`).
+  Narrow lvalues (`short`/`char`) promote to `int` and are checked at width 4, so a
+  store-back wrap (e.g. `short s=32000; s+=100;`) is correctly *not* a trap.
+- **Verified:** 9 new `test/san/` cases (`san_ok_incdec`, `san_ok_cassign`;
+  `san_trap_{,long_}incdec`, `san_trap_cassign{,_sub}`, `san_trap_long_cassign{,_mul}`, and
+  `san_trap_arr_elem`) trap/SIGILL and pass at
   `-O0..-O3` in JIT + AOT; `make test-san` green (0 FAIL). Soundness backstop unchanged — the
   flag is OFF in c-torture/test-opt, so those gates' output is byte-identical to pre-161.
 

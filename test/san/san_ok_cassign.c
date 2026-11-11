@@ -17,12 +17,14 @@ int main(void) {
     s.f += 2; s.h += 4L;
     int a[4] = {1, 2, 3, 4};
     int *p = a; *p += 10;               /* a[0] = 11 */
+    a[2] += 7; a[3]++;                  /* array-element compound / inc: 10, 5 */
     uint32_t u32 = 7u; u32 += 3u;       /* unsigned, no trap */
     if (x != 24) return 1;
     if (y != 210L) return 1;
     if (g != 11) return 1;
     if (s.f != 2 || s.h != 4L) return 1;
     if (*p != 11) return 1;
+    if (a[2] != 10 || a[3] != 5) return 1;
     if (u32 != 10u) return 1;
     return 0;
 }
