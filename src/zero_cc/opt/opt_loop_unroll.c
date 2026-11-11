@@ -16,8 +16,13 @@
 #include <string.h>
 
 #define LU_MAX_TRIP  8    /* trip-count cap for full unroll (plan item 3) */
-#define LU_MAX_BODY  64   /* max loop span (header..backedge, inclusive) */
+#define LU_MAX_BODY  64   /* max loop span for FULL unroll (x8 worst case) */
+#define LU_MAX_PARTIAL_BODY 256 /* max span for partial (x2/x4 copies only) */
 #define LU_TRACE_MAX 12   /* value-trace walk depth cap */
+/* "Already peeled" marker (Sprint 156, Phase 2): the remainder loop left
+ * behind by a partial unroll carries an OP_NOP with this imm in its header
+ * block, so a later pass round does not peel the same loop again. */
+#define LU_MARKER    0x5EED
 
 enum { LU_VAL_OTHER = 0, LU_VAL_CONST, LU_VAL_SLOT, LU_VAL_BASE };
 
@@ -34,7 +39,16 @@ typedef struct {
     int64_t init;       /* counter value on loop entry */
     int64_t bound;      /* the constant bound in the loop test */
     int cc;             /* the CONTINUE condition (after JNE negation) */
-    int trip;           /* verified constant trip count */
+    int trip;           /* verified constant trip count (full path) */
+    /* Phase 2 (Sprint 156): partial unroll of a runtime-bound loop. */
+    int partial;        /* 1 = partial path (bound is a runtime value) */
+    int factor;         /* unroll factor for the main loop (2 or 4) */
+    int bound_kind;     /* partial: 1 = BASE temp, 2 = SLOT */
+    int bound_temp;     /* partial: the bound temp (bound_kind == 1) */
+    int64_t bound_slot; /* partial: the bound slot (bound_kind == 2) */
+    int bound_unsigned; /* partial: test cc was the CF/ZF (unsigned) variant */
+    int bound_is_src2;  /* partial: bound operand is the CMP's temp_src2 */
+    int cc_le;          /* partial: 1 if the continue condition is LE */
 } LUPlan;
 
 /* ------------------------------------------------------------------ */
@@ -224,59 +238,84 @@ static int lu_build_label_map(ZeroCCCompiler *c, LULabel **map_out) {
 /* ------------------------------------------------------------------ */
 
 /*
- * Slot-form increment: within [bu_start, store_idx) the counter slot S
- * must be reloaded into a temp, incremented by exactly +1 (through an
- * in-place-extend-preserving chain), and the store at store_idx must
- * write that incremented value back.  Independent instructions (other
- * step-clause work) that don't touch the chain are allowed.
+ * Backward value trace: from the value stored at store_idx (temp `t`),
+ * follow defining instructions backward (strictly decreasing positions)
+ * through copies / in-place extends / "+1" steps until reaching a LOAD
+ * from slot S.  Returns the load position if it sits inside the loop
+ * ([H, store_idx)) - i.e. it reloads the counter each iteration.
+ *
+ * Unlike a forward scan of the backedge block, this tolerates CSE'd
+ * counter reloads: an earlier pass may have deleted the backedge's own
+ * load of S when the body already loaded S (e.g. `s += i`), leaving
+ * backedge = copy-of-body-load, +1, store.  Body ops that merely USE
+ * the counter value are irrelevant - only the store's own value chain
+ * matters, and the in-span store count is separately pinned to 1.
  */
-static bool lu_slot_increment_ok(ZeroCCCompiler *c, int bu_start, int store_idx, int64_t S) {
-    /* locate the reload of S */
-    int t1 = -1, load_idx = -1;
-    for (int k = bu_start; k < store_idx; k++) {
-        Instr *x = ir_get(c, k);
-        if (x && x->op == OP_MOV && x->temp_src1 == TEMP_NONE &&
-            x->imm64 == S && x->temp_dest != TEMP_NONE) {
-            t1 = (int)x->temp_dest;
-            load_idx = k;
+static bool lu_trace_counter_load(ZeroCCCompiler *c, int H, int store_idx,
+                                  int t, int64_t S, int *load_pos_out) {
+    int bound = store_idx;
+    for (int guard = 0; guard < 64; guard++) {
+        int def = -1;
+        for (int i = bound - 1; i >= 0; i--) {
+            Instr *x = ir_get(c, i);
+            if (x && (int)x->temp_dest == t) { def = i; break; }
         }
-    }
-    if (t1 < 0 || load_idx < 0) return false;
-
-    int cur = t1;
-    int delta = 0;  /* value(cur) = [S] + delta (constant) */
-    for (int k = load_idx + 1; k < store_idx; k++) {
-        Instr *x = ir_get(c, k);
-        if (!x) return false;
-        uint8_t op = x->op;
-        int d = (int)x->temp_dest, s1 = (int)x->temp_src1, s2 = (int)x->temp_src2;
-        if (d != cur && s1 != cur && s2 != cur) continue;  /* independent op */
+        if (def < 0) return false;
+        Instr *x = ir_get(c, def);
+        int s1 = (int)x->temp_src1, s2 = (int)x->temp_src2, d = (int)x->temp_dest;
         int64_t cv;
-        switch (op) {
+        bound = def;  /* next search is strictly earlier - progress */
+        switch (x->op) {
+            case OP_MOV:  /* load from slot */
+                if (x->imm64 == S && s1 == TEMP_NONE && def >= H) {
+                    *load_pos_out = def;
+                    return true;
+                }
+                return false;
+            case OP_MOV_REG:
+                if (s1 == t) continue;              /* in-place no-op */
+                if (s1 != TEMP_NONE) { t = s1; continue; }
+                return false;
             case OP_ADD:
-                if (s1 == cur && s2 != cur && lu_resolve_const(c, k, s2, &cv) && cv == 1) { cur = d; delta = 1; continue; }
-                if (s2 == cur && s1 != cur && lu_resolve_const(c, k, s1, &cv) && cv == 1) { cur = d; delta = 1; continue; }
+                /* def has d == t: t = X + 1 or 1 + X (or t = t + 1) */
+                if (s2 != t && lu_resolve_const(c, def, s2, &cv) && cv == 1) { t = s1; continue; }
+                if (s1 != t && lu_resolve_const(c, def, s1, &cv) && cv == 1) { t = s2; continue; }
                 return false;
             case OP_ADD_IMM:
-                if (d == cur && s1 == cur && (int)x->imm == 1) { delta = 1; continue; }
+                if ((int)x->imm != 1) return false;
+                if (s1 == t) continue;              /* in-place t += 1 */
+                if (s1 != TEMP_NONE) { t = s1; continue; }  /* t = s1 + 1 */
                 return false;
             case OP_INC:
-                if (d == cur && (s1 == cur || s1 == TEMP_NONE)) { delta = 1; continue; }
+                if (d == t && (s1 == t || s1 == TEMP_NONE)) continue;
                 return false;
             case OP_SEXT8: case OP_SEXT16: case OP_SEXT32:
             case OP_ZEXT8: case OP_ZEXT16: case OP_ZEXT32:
-                if (d == cur && s1 == cur) continue;  /* in-place extend */
-                return false;
-            case OP_MOV_REG:
-                if (d == cur && s1 == cur) continue;
+                if (s1 == t) continue;              /* in-place extend */
+                if (s1 != TEMP_NONE) { t = s1; continue; }
                 return false;
             default:
                 return false;
         }
     }
-    if (delta != 1) return false;
+    return false;
+}
+
+/*
+ * Slot-form increment: the single in-span store of counter slot S (at
+ * store_idx, in the backedge block) must write (value loaded from S this
+ * iteration) + 1.  The per-iteration load may sit anywhere in the loop
+ * (CSE can merge it with the body's own counter load); see
+ * lu_trace_counter_load.  Independent instructions are allowed.
+ */
+static bool lu_slot_increment_ok(ZeroCCCompiler *c, int H, int bu_start,
+                                 int store_idx, int64_t S) {
+    (void)bu_start;
     Instr *st = ir_get(c, store_idx);
-    return st && (int)st->temp_src1 == cur;
+    if (!st || st->op != OP_MOV_MEM || st->imm64 != S ||
+        st->temp_src1 == TEMP_NONE) return false;
+    int load_pos = -1;
+    return lu_trace_counter_load(c, H, store_idx, (int)st->temp_src1, S, &load_pos);
 }
 
 /*
@@ -323,12 +362,38 @@ static bool lu_temp_increment_ok(ZeroCCCompiler *c, int bu_start, int def_idx, i
 /* Loop qualification analysis                                         */
 /* ------------------------------------------------------------------ */
 
-static bool lu_analyze(ZeroCCCompiler *c, LoopInfo *loop, LUPlan *plan) {
+/*
+ * Phase 2 re-entry soundness: a partially-unrolled loop must see a
+ * CONSTANT counter at EVERY entry, because the prologue's main-loop
+ * bound b2 is derived from that init and the counter is advanced by the
+ * loop's own backedge.  A loop whose span is strictly enclosed by another
+ * detected loop is RE-ENTERED on each enclosing iteration: the counter
+ * (incremented by this loop's backedge) carries its previous run's final
+ * value into the next entry, so the "last definition before the header"
+ * init is stale after the first pass (c-torture execute/20041213-2: a
+ * nested `for (n = next_n; j < n; j++)` whose counter j is re-entered
+ * carrying j from the prior outer trip).  Top-level loops have a single
+ * entry, where the init IS the entry value.  Reject any loop enclosed by
+ * another (conservative: also declines a safe nested loop whose counter
+ * is re-initialized each entry - such loops are usually constant-trip and
+ * served by full unroll).
+ */
+static bool lu_is_enclosed(const LoopAnalysisState *state, int H, int E) {
+    for (int m = 0; m < state->loop_count; m++) {
+        int h2 = state->loops[m].header_idx;
+        int e2 = state->loops[m].exit_idx;
+        if (h2 < H && e2 > E) return true;
+    }
+    return false;
+}
+
+static bool lu_analyze(ZeroCCCompiler *c, const LoopAnalysisState *state,
+                       LoopInfo *loop, LUPlan *plan) {
     int count = (int)ir_get_count(c);
     int H = loop->header_idx;
     int E = loop->exit_idx;
     if (H < 0 || E < 0 || E >= count || E < H) return false;
-    if (E - H + 1 > LU_MAX_BODY) return false;
+    if (E - H + 1 > LU_MAX_PARTIAL_BODY) return false;
 
     memset(plan, 0, sizeof(*plan));
     plan->H = H;
@@ -513,6 +578,7 @@ static bool lu_analyze(ZeroCCCompiler *c, LoopInfo *loop, LUPlan *plan) {
                         } else {
                             Instr *cs = ir_get(c, cs_idx);
                             int cc = (int)cs->cond;
+                            int cc_raw = cc;
                             /* CC_FLT_* (CF/ZF setccs) are the UNSIGNED
                              * integer comparison variant (lowering adds 6);
                              * for the small values this pass deals in they
@@ -551,6 +617,136 @@ static bool lu_analyze(ZeroCCCompiler *c, LoopInfo *loop, LUPlan *plan) {
                                         if (k1 == LU_VAL_SLOT) { plan->counter_kind = 0; plan->counter_slot = v1; }
                                         else if (k1 == LU_VAL_BASE) { plan->counter_kind = 1; plan->counter_temp = (int)v1; }
                                         else hdr_ok = false;
+                                    } else if (k1 != LU_VAL_CONST && k2 != LU_VAL_CONST &&
+                                                 !lu_is_enclosed(state, H, E)) {
+                                        /* Phase 2 (Sprint 156): runtime bound -
+                                         * partial unroll + remainder peel.
+                                         * RE-ENTRY SOUNDNESS: the prologue
+                                         * derives b2 from a CONSTANT counter
+                                         * init, valid only if the loop is
+                                         * entered once; a loop enclosed by
+                                         * another is re-entered each outer
+                                         * trip, carrying the counter's prior
+                                         * final value (lu_is_enclosed), so
+                                         * such loops fall through to the
+                                         * reject branch below.
+                                         * The COUNTER is the operand the span
+                                         * writes (its +1 increment); the BOUND
+                                         * is the other, which must be a value
+                                         * invariant across the loop: a stack
+                                         * slot (never stored / address-taken in
+                                         * the span) or a temp defined before
+                                         * the header and never redefined in it.
+                                         * The counter keeps the narrow [H, cmp)
+                                         * window (its value at test time comes
+                                         * from the header load); the bound is
+                                         * traced over the whole prefix because
+                                         * its defining load may sit before H. */
+                                        int64_t w1 = 0, w2 = 0;
+                                        int kw1 = lu_trace_value(c, 0, cmp_idx - 1,
+                                                                 (int)cm->temp_src1, 0, &w1);
+                                        int kw2 = lu_trace_value(c, 0, cmp_idx - 1,
+                                                                 (int)cm->temp_src2, 0, &w2);
+                                        enum { CND_NONE = 0, CND_SLOT, CND_TEMP };
+                                        int cand1 = (k1 == LU_VAL_SLOT) ? CND_SLOT
+                                                     : (k1 == LU_VAL_BASE) ? CND_TEMP : CND_NONE;
+                                        int cand2 = (k2 == LU_VAL_SLOT) ? CND_SLOT
+                                                     : (k2 == LU_VAL_BASE) ? CND_TEMP : CND_NONE;
+                                        int inc1 = 0, inc2 = 0;
+                                        if (cand1 == CND_SLOT)
+                                            for (int i = H; i <= E; i++) {
+                                                Instr *x = ir_get(c, i);
+                                                if (x && x->op == OP_MOV_MEM && x->imm64 == v1) inc1 = 1;
+                                            }
+                                        else if (cand1 == CND_TEMP)
+                                            for (int i = H; i <= E; i++) {
+                                                Instr *x = ir_get(c, i);
+                                                if (x && (int)x->temp_dest == (int)cm->temp_src1) inc1 = 1;
+                                            }
+                                        if (cand2 == CND_SLOT)
+                                            for (int i = H; i <= E; i++) {
+                                                Instr *x = ir_get(c, i);
+                                                if (x && x->op == OP_MOV_MEM && x->imm64 == v2) inc2 = 1;
+                                            }
+                                        else if (cand2 == CND_TEMP)
+                                            for (int i = H; i <= E; i++) {
+                                                Instr *x = ir_get(c, i);
+                                                if (x && (int)x->temp_dest == (int)cm->temp_src2) inc2 = 1;
+                                            }
+                                        if (inc1 && !inc2) {
+                                            plan->counter_kind = (cand1 == CND_SLOT) ? 0 : 1;
+                                            if (cand1 == CND_SLOT) plan->counter_slot = v1;
+                                            else plan->counter_temp = (int)cm->temp_src1;
+                                            plan->bound_is_src2 = 1;
+                                            if (kw2 == LU_VAL_SLOT) { plan->bound_kind = 2; plan->bound_slot = w2; }
+                                            else if (kw2 == LU_VAL_BASE) { plan->bound_kind = 1; plan->bound_temp = (int)cm->temp_src2; }
+                                            else hdr_ok = false;
+                                        } else if (inc2 && !inc1) {
+                                            plan->counter_kind = (cand2 == CND_SLOT) ? 0 : 1;
+                                            if (cand2 == CND_SLOT) plan->counter_slot = v2;
+                                            else plan->counter_temp = (int)cm->temp_src2;
+                                            plan->bound_is_src2 = 0;
+                                            if (kw1 == LU_VAL_SLOT) { plan->bound_kind = 2; plan->bound_slot = w1; }
+                                            else if (kw1 == LU_VAL_BASE) { plan->bound_kind = 1; plan->bound_temp = (int)cm->temp_src1; }
+                                            else hdr_ok = false;
+                                        } else {
+                                            hdr_ok = false;
+                                        }
+                                        if (hdr_ok && plan->bound_kind != 0) {
+                                            plan->partial = 1;
+                                            plan->bound_unsigned =
+                                                (cc_raw >= CC_FLT_LT && cc_raw <= CC_FLT_GE);
+                                            plan->cc_le = (plan->cc == CC_LE);
+                                            /* count-up only (LT/LE): the proof
+                                             * that the main-loop interior tests
+                                             * are always true needs b2 <= bound.
+                                             * (The full path rejects GT/GE in
+                                             * the trip-count section; this
+                                             * path needs it here.) */
+                                            if (plan->cc != CC_LT && plan->cc != CC_LE)
+                                                hdr_ok = false;
+                                            plan->factor = (E - bh_end >= 16) ? 4 : 2;
+                                            if (hdr_ok && plan->bound_kind == 1) {
+                                                int bt = plan->bound_temp;
+                                                for (int i = H + 1; i < cmp_idx && hdr_ok; i++) {
+                                                    Instr *x = ir_get(c, i);
+                                                    if (x && (int)x->temp_dest == bt)
+                                                        hdr_ok = false;  /* redefined per iteration */
+                                                }
+                                                for (int i = H + 1; i < E && hdr_ok; i++) {
+                                                    Instr *x = ir_get(c, i);
+                                                    if (x && (int)x->temp_dest == bt)
+                                                        hdr_ok = false;  /* redefined in the span */
+                                                }
+                                                int found = 0;
+                                                for (int i = H - 1; i >= 0 && !found; i--) {
+                                                    Instr *x = ir_get(c, i);
+                                                    if (x && (int)x->temp_dest == bt) found = 1;
+                                                }
+                                                if (!found) hdr_ok = false;  /* no entry value */
+                                            } else if (hdr_ok && plan->bound_kind == 2) {
+                                                int64_t bs = plan->bound_slot;
+                                                for (int i = H + 1; i < E && hdr_ok; i++) {
+                                                    Instr *x = ir_get(c, i);
+                                                    if (x && x->op == OP_MOV_MEM && x->imm64 == bs)
+                                                        hdr_ok = false;  /* stored in the span */
+                                                }
+                                                for (int i = 0; i < count && hdr_ok; i++) {
+                                                    Instr *x = ir_get(c, i);
+                                                    if (x && x->op == OP_LEA && x->imm64 == bs)
+                                                        hdr_ok = false;  /* address taken */
+                                                }
+                                            }
+                                            /* Re-peel guard: an already-peeled
+                                             * remainder loop carries the marker
+                                             * NOP in its header block. */
+                                            for (int i = H + 1; i < bh_end && hdr_ok; i++) {
+                                                Instr *x = ir_get(c, i);
+                                                if (x && x->op == OP_NOP && (int)x->imm == LU_MARKER)
+                                                    hdr_ok = false;
+                                            }
+                                        }
+
                                     } else {
                                         hdr_ok = false;
                                     }
@@ -611,7 +807,7 @@ static bool lu_analyze(ZeroCCCompiler *c, LoopInfo *loop, LUPlan *plan) {
                             }
                             if (store_count != 1 || store_idx < plan->bu_start ||
                                 store_idx >= E ||
-                                !lu_slot_increment_ok(c, plan->bu_start, store_idx, S)) {
+                                !lu_slot_increment_ok(c, H, plan->bu_start, store_idx, S)) {
                                 hdr_ok = false;
                             }
                         } else {
@@ -632,17 +828,20 @@ static bool lu_analyze(ZeroCCCompiler *c, LoopInfo *loop, LUPlan *plan) {
                         }
                     }
 
-                    /* Trip count.  With a +1 step only the "count up" forms
-                     * terminate: continue-while counter < bound (trip =
-                     * bound - init) or <= (trip = bound - init + 1).  The
-                     * down forms (GT/GE) run forever under +1 and are
-                     * rejected. */
-                    if (hdr_ok) {
+                    /* Trip count (full path only).  With a +1 step only the
+                     * "count up" forms terminate: continue-while counter <
+                     * bound (trip = bound - init) or <= (trip = bound - init
+                     * + 1).  The down forms (GT/GE) run forever under +1 and
+                     * are rejected.  The partial path (runtime bound) has no
+                     * compile-time trip count; its count-up requirement is
+                     * enforced in the operand section. */
+                    if (hdr_ok && !plan->partial) {
                         int64_t trip = 0;
                         if (plan->cc == CC_LT) trip = plan->bound - plan->init;
                         else if (plan->cc == CC_LE) trip = plan->bound - plan->init + 1;
                         else hdr_ok = false;
                         if (hdr_ok && (trip < 1 || trip > LU_MAX_TRIP)) hdr_ok = false;
+                        if (hdr_ok && (E - H + 1) > LU_MAX_BODY) hdr_ok = false;  /* full unroll cap */
                         if (hdr_ok &&
                             (plan->bound < -2147483648LL || plan->bound > 2147483647LL ||
                              plan->init < -2147483648LL || plan->init > 2147483647LL)) {
@@ -650,8 +849,7 @@ static bool lu_analyze(ZeroCCCompiler *c, LoopInfo *loop, LUPlan *plan) {
                         }
                         if (hdr_ok) plan->trip = (int)trip;
                     }
-                    ok = hdr_ok;
-                }
+                    ok = hdr_ok;                }
             }
         }
     }
@@ -803,6 +1001,429 @@ done:
 }
 
 /* ------------------------------------------------------------------ */
+/* Phase 2 transform: partial unroll + remainder peel (Sprint 156)     */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Runtime-bound partial unroll.
+ *
+ *   for (i = init; i <(=) N; i++) body        (N a runtime value)
+ *
+ * becomes (factor f, b2 = init + f*trunc((N - init + [cc==LE]) / f)):
+ *
+ *   b2 = <prologue, overflow-free, see below>
+ *   Lmain:
+ *     <header test vs b2, same cc/JE-JNE form>   -> H (fail => remainder)
+ *     [f verbatim copies of (body, step)]         (the counter step is in
+ *                                                  each copy: f original
+ *                                                  iterations per main-loop
+ *                                                  iteration)
+ *     JMP Lmain
+ *   Lrem:  (== the ORIGINAL loop, verbatim, marker NOP in the header)
+ *     [label H, test vs N, body, step, backedge]  (runs N - b2 < f times)
+ *   Lexit:
+ *
+ * Exactness: the copies are bit-for-bit the original body+step, so no
+ * affine re-substitution is needed; the main loop's interior iterations
+ * ARE the original iterations.  The only tests skipped between copies
+ * are provably true: inside the main loop the counter stays < b2 <= N
+ * (LT) / < b2 <= N + 1 (LE), so the original test counter <(=) N would
+ * pass.  Breaks jump to Lexit (past the remainder); continues re-aim at
+ * the next copy's start (to-H edges) or the copy's own step label
+ * (for-form); in-loop labels get per-copy clones as in the full unroll.
+ * The remainder loop carries the LU_MARKER NOP so a later pass round
+ * does not peel it again; the main loop re-qualifies as nothing (f
+ * counter increments in its span) or sits over LU_MAX_BODY.
+ *
+ * Prologue (init is a compile-time constant; k = (cc == CC_LE);
+ * init' = init - k so the trip count is (N - init')):
+ *   unsigned:  d  = N - init'            (wrap-defined)
+ *              b2 = init + (d & ~(f-1))  (wrap-defined; b2 <= N)
+ *   signed:    r  = (N % f) - init'%f, corrected into (-f, f)
+ *              b2 = N - r, then +1 if k.  N - r cannot overflow: r's
+ *              sign follows (N - init')'s and init' is finite; the +1
+ *              overflows only where the ORIGINAL loop's final counter
+ *              increment already overflows (pre-existing UB).
+ *   No prologue op is width-marked, so zero_san emits no new traps, and
+ *   every op is defined wherever the original loop was defined: the
+ *   transform introduces no new UB.
+ */
+
+static void lu_emit_label(IRArena *a, int label) {
+    Instr x; memset(&x, 0, sizeof(x));
+    x.op = OP_LABEL; x.label_idx = (uint16_t)label;
+    ir_arena_emit(a, x);
+}
+
+static void lu_emit_jump(IRArena *a, uint8_t op, int flag, int label) {
+    /* flag is the branch-condition temp for JE/JNE/JCOND; pass TEMP_NONE
+     * for the unconditional OP_JMP. */
+    Instr x; memset(&x, 0, sizeof(x));
+    x.op = op; x.temp_src1 = (uint32_t)(flag < 0 ? TEMP_NONE : flag);
+    x.label_idx = (uint16_t)label;
+    ir_arena_emit(a, x);
+}
+
+static void lu_emit_mov_imm(IRArena *a, int d, int64_t v) {
+    Instr x; memset(&x, 0, sizeof(x));
+    x.op = OP_MOV_IMM; x.temp_dest = (uint32_t)d;
+    x.imm = (int16_t)v; x.imm64 = v;
+    ir_arena_emit(a, x);
+}
+
+static void lu_emit_binop(IRArena *a, uint8_t op, int d, int s1, int s2) {
+    Instr x; memset(&x, 0, sizeof(x));
+    x.op = op; x.temp_dest = (uint32_t)d;
+    x.temp_src1 = (uint32_t)s1; x.temp_src2 = (uint32_t)s2;
+    ir_arena_emit(a, x);
+}
+
+static void lu_emit_imm_alu(IRArena *a, uint8_t op, int d, int64_t imm) {
+    /* in-place dest = dest +/- imm (OP_ADD_IMM / OP_SUB_IMM) */
+    Instr x; memset(&x, 0, sizeof(x));
+    x.op = op; x.temp_dest = (uint32_t)d; x.imm = (int16_t)imm;
+    ir_arena_emit(a, x);
+}
+
+static void lu_emit_cmp_set(IRArena *a, int s1, int s2, int flag, int cc) {
+    Instr x; memset(&x, 0, sizeof(x));
+    x.op = OP_CMP; x.temp_src1 = (uint32_t)s1; x.temp_src2 = (uint32_t)s2;
+    ir_arena_emit(a, x);
+    x.op = OP_COND_SET; x.temp_dest = (uint32_t)flag; x.cond = (uint8_t)cc;
+    ir_arena_emit(a, x);
+}
+
+/*
+ * For a SLOT bound: walk back from the CMP operand through in-place
+ * extends / MOV_REGs to the OP_MOV slot load, recording the in-place
+ * extend to replicate after the prologue load.  Returns 1 on success.
+ */
+static int lu_bound_load_chain(ZeroCCCompiler *c, int cmp_idx, int operand,
+                               int64_t expect_slot, int *ext_out) {
+    *ext_out = 0;
+    int t = operand;
+    int hi = cmp_idx - 1;
+    for (int depth = 0; depth <= LU_TRACE_MAX; depth++) {
+        int k = -1;
+        for (int j = hi; j >= 0; j--) {
+            Instr *d = ir_get(c, j);
+            if (d && (int)d->temp_dest == t) { k = j; break; }
+        }
+        if (k < 0) return 0;
+        Instr *d = ir_get(c, k);
+        switch (d->op) {
+            case OP_MOV:
+                return (d->temp_src1 == TEMP_NONE && d->imm64 == expect_slot);
+            case OP_SEXT8: case OP_SEXT16: case OP_SEXT32:
+            case OP_ZEXT8: case OP_ZEXT16: case OP_ZEXT32:
+                if (d->temp_src1 != d->temp_dest) return 0;
+                if (*ext_out != 0 && *ext_out != (int)d->op) return 0;
+                *ext_out = (int)d->op;
+                hi = k - 1;
+                break;
+            case OP_MOV_REG:
+                t = (int)d->temp_src1;
+                hi = k - 1;
+                break;
+            default:
+                return 0;
+        }
+    }
+    return 0;
+}
+
+static bool lu_apply_partial(ZeroCCCompiler *c, const LUPlan *plan) {
+    int count = (int)ir_get_count(c);
+    int H = plan->H, E = plan->E, bh_end = plan->bh_end;
+    int f = plan->factor;
+    int64_t init = plan->init;
+    int k = plan->cc_le;              /* LE adds one iteration */
+    int64_t init_p = init - k;        /* trip = N - init' */
+
+    LULabel *lmap = NULL;
+    int lmap_n = lu_build_label_map(c, &lmap);
+
+    /* Re-locate the test (jump at bh_end <- COND_SET <- CMP). */
+    Instr *tj = ir_get(c, bh_end);
+    Instr *hl = ir_get(c, H);
+    if (!tj || !hl || hl->op != OP_LABEL) { free(lmap); return false; }
+    int H_label = (int)hl->label_idx;  /* the original header label */
+    int flag = (int)tj->temp_src1;
+    int cs_idx = -1, cmp_idx = -1;
+    for (int kk = bh_end - 1; kk > H; kk--) {
+        Instr *x = ir_get(c, kk);
+        if (x && x->op == OP_COND_SET && (int)x->temp_dest == flag) { cs_idx = kk; break; }
+    }
+    if (cs_idx < 0) { free(lmap); return false; }
+    for (int kk = cs_idx - 1; kk > H; kk--) {
+        Instr *x = ir_get(c, kk);
+        if (x && x->op == OP_CMP) { cmp_idx = kk; break; }
+    }
+    if (cmp_idx < 0) { free(lmap); return false; }
+    Instr *cm = ir_get(c, cmp_idx);
+    int bound_opnd = plan->bound_is_src2 ? (int)cm->temp_src2 : (int)cm->temp_src1;
+
+    /* In-loop labels (positions strictly inside the span) each get a
+     * per-copy clone. */
+    int internal_n = 0;
+    int *internal_pos = (int *)malloc((size_t)(E - H) * sizeof(int));
+    int *copy_start = (int *)malloc((size_t)f * sizeof(int));
+    int *copy_label = NULL;
+    if (!internal_pos || !copy_start) {
+        free(internal_pos); free(copy_start); free(lmap);
+        return false;
+    }
+    for (int i = H + 1; i < E; i++) {
+        Instr *x = ir_get(c, i);
+        if (x && x->op == OP_LABEL) internal_pos[internal_n++] = i;
+    }
+    if (internal_n > 0) {
+        copy_label = (int *)malloc((size_t)f * (size_t)internal_n * sizeof(int));
+        if (!copy_label) {
+            free(internal_pos); free(copy_start); free(lmap);
+            return false;
+        }
+    }
+    int step_j = -1;
+    for (int q = 0; q < internal_n; q++)
+        if (internal_pos[q] == plan->bu_start) step_j = q;
+
+    /* Labels: Lmain, f copy starts, f x internal clones,
+     * 4 prologue labels for the signed general path. */
+    int total_new = 1 + f + f * internal_n + 8;
+    if ((int)c->ir_next_label + total_new > 60000) {
+        free(internal_pos); free(copy_start); free(copy_label); free(lmap);
+        return false;
+    }
+    int Lmain = (int)c->ir_next_label++;
+    for (int kk = 0; kk < f; kk++) copy_start[kk] = (int)c->ir_next_label++;
+    for (int kk = 0; kk < f; kk++)
+        for (int j = 0; j < internal_n; j++)
+            copy_label[(size_t)kk * (size_t)internal_n + (size_t)j] = (int)c->ir_next_label++;
+    int Lpos = (int)c->ir_next_label++, Lm1 = (int)c->ir_next_label++;
+    int Lm2 = (int)c->ir_next_label++, Lm3 = (int)c->ir_next_label++;
+    int Lm4 = (int)c->ir_next_label++, Lm5 = (int)c->ir_next_label++;
+    int Lp1 = (int)c->ir_next_label++, Lp2 = (int)c->ir_next_label++;
+    int Lp3 = (int)c->ir_next_label++, Lp4 = (int)c->ir_next_label++;
+    int Lp5 = (int)c->ir_next_label++, Ldone = (int)c->ir_next_label++;
+
+    int new_total = H
+        + 48                       /* prologue budget (signed path) */
+        + (bh_end - H + 1)          /* main header (purity + swapped test) */
+        + f * (E - bh_end)          /* f copies: start label + (body..step) */
+        + 1                          /* final JMP Lmain */
+        + (E - H + 2)                /* remainder: label + marker + span */
+        + (count - E - 1)            /* suffix */
+        + 16;
+    IRArena new_arena;
+    if (!ir_arena_init(&new_arena, (size_t)new_total)) {
+        free(internal_pos); free(copy_start); free(copy_label); free(lmap);
+        return false;
+    }
+    bool ok = false;
+
+    /* Prefix [0, H) verbatim. */
+    for (int i = 0; i < H; i++)
+        ir_arena_emit(&new_arena, *ir_get(c, i));
+
+    /* ---- Prologue: compute the main-loop bound t_b2 ---- */
+    int t_bv = plan->bound_kind == 1 ? plan->bound_temp : -1;
+    if (plan->bound_kind == 2) {
+        int ext = 0;
+        if (!lu_bound_load_chain(c, cmp_idx, bound_opnd, plan->bound_slot, &ext))
+            goto fail;
+        t_bv = zc_alloc_temp(c);
+        Instr ld; memset(&ld, 0, sizeof(ld));
+        ld.op = OP_MOV; ld.temp_dest = (uint32_t)t_bv;
+        ld.temp_src1 = TEMP_NONE; ld.imm64 = plan->bound_slot;
+        ir_arena_emit(&new_arena, ld);
+        if (ext != 0) {
+            Instr ex; memset(&ex, 0, sizeof(ex));
+            ex.op = (uint8_t)ext; ex.temp_dest = (uint32_t)t_bv;
+            ex.temp_src1 = (uint32_t)t_bv;
+            ir_arena_emit(&new_arena, ex);
+        }
+    }
+    int t_b2 = -1;
+    if (plan->bound_unsigned) {
+        /* b2 = init + ((N - init') & ~(f-1))  (all wrap-defined) */
+        int t_d = t_bv;
+        if (init_p != 0) {
+            int t_init = zc_alloc_temp(c);
+            lu_emit_mov_imm(&new_arena, t_init, init_p);
+            t_d = zc_alloc_temp(c);
+            lu_emit_binop(&new_arena, OP_SUB, t_d, t_bv, t_init);
+        }
+        int t_mask = zc_alloc_temp(c);
+        lu_emit_mov_imm(&new_arena, t_mask, -(int64_t)f);
+        int t_q = zc_alloc_temp(c);
+        lu_emit_binop(&new_arena, OP_AND, t_q, t_d, t_mask);
+        t_b2 = (init == 0) ? t_q : zc_alloc_temp(c);
+        if (init != 0) {
+            int t_init2 = zc_alloc_temp(c);
+            lu_emit_mov_imm(&new_arena, t_init2, init);
+            lu_emit_binop(&new_arena, OP_ADD, t_b2, t_q, t_init2);
+        }
+    } else {
+        /* signed: b2 = N - r [+ k] with r = (N - init_p) % f (the C
+         * remainder).  r0 = (N % f) - init_p%f is congruent to
+         * d = N - init_p (mod f) and lies in (-2f, 2f) WITHOUT ever
+         * forming d (N - init_p can overflow for 64-bit bounds); fold
+         * r0 into [0, f) when d > 0 and into (-f, 0] when d <= 0
+         * (d == 0 yields r0 == 0 automatically).  N - r cannot
+         * overflow: r has d's sign, |r| < f, and init_p is finite;
+         * the final +1 (LE) overflows only where the original loop's
+         * last counter increment already overflows (pre-existing UB). */
+        int t_f = zc_alloc_temp(c);
+        lu_emit_mov_imm(&new_arena, t_f, f);
+        int t_nf = zc_alloc_temp(c);
+        lu_emit_mov_imm(&new_arena, t_nf, -(int64_t)f);
+        int t_zero = zc_alloc_temp(c);
+        lu_emit_mov_imm(&new_arena, t_zero, 0);
+        int t_ra = zc_alloc_temp(c);
+        lu_emit_binop(&new_arena, OP_MOD, t_ra, t_bv, t_f);
+        int t_r0 = t_ra;
+        if (init_p % (int64_t)f != 0) {
+            int t_r = zc_alloc_temp(c);
+            lu_emit_mov_imm(&new_arena, t_r, init_p % (int64_t)f);
+            t_r0 = zc_alloc_temp(c);
+            lu_emit_binop(&new_arena, OP_SUB, t_r0, t_ra, t_r);
+        }
+        int t_ip = zc_alloc_temp(c);
+        lu_emit_mov_imm(&new_arena, t_ip, init_p);
+        int sf = zc_alloc_temp(c), f1 = zc_alloc_temp(c), f2 = zc_alloc_temp(c);
+        lu_emit_cmp_set(&new_arena, t_bv, t_ip, sf, CC_GT);  /* d > 0? */
+        lu_emit_jump(&new_arena, OP_JNE, sf, Lpos);
+        /* ---- d <= 0: fold r0 into (-f, 0] ---- */
+        lu_emit_cmp_set(&new_arena, t_r0, t_f, f1, CC_GT);
+        lu_emit_jump(&new_arena, OP_JNE, f1, Lm1);
+        lu_emit_jump(&new_arena, OP_JMP, -1, Lm2);
+        lu_emit_label(&new_arena, Lm1);
+        lu_emit_imm_alu(&new_arena, OP_SUB_IMM, t_r0, f);
+        lu_emit_label(&new_arena, Lm2);
+        lu_emit_cmp_set(&new_arena, t_r0, t_f, f1, CC_GT);
+        lu_emit_jump(&new_arena, OP_JNE, f1, Lm3);
+        lu_emit_jump(&new_arena, OP_JMP, -1, Lm4);
+        lu_emit_label(&new_arena, Lm3);
+        lu_emit_imm_alu(&new_arena, OP_SUB_IMM, t_r0, f);
+        lu_emit_label(&new_arena, Lm4);
+        lu_emit_cmp_set(&new_arena, t_r0, t_nf, f2, CC_LE);
+        lu_emit_jump(&new_arena, OP_JNE, f2, Lm5);
+        lu_emit_jump(&new_arena, OP_JMP, -1, Ldone);
+        lu_emit_label(&new_arena, Lm5);
+        lu_emit_imm_alu(&new_arena, OP_ADD_IMM, t_r0, f);
+        lu_emit_jump(&new_arena, OP_JMP, -1, Ldone);
+        lu_emit_label(&new_arena, Lpos);
+        /* ---- d > 0: fold r0 into [0, f) ---- */
+        lu_emit_cmp_set(&new_arena, t_r0, t_f, f1, CC_GE);
+        lu_emit_jump(&new_arena, OP_JNE, f1, Lp1);
+        lu_emit_jump(&new_arena, OP_JMP, -1, Lp2);
+        lu_emit_label(&new_arena, Lp1);
+        lu_emit_imm_alu(&new_arena, OP_SUB_IMM, t_r0, f);
+        lu_emit_label(&new_arena, Lp2);
+        lu_emit_cmp_set(&new_arena, t_r0, t_zero, f2, CC_LT);
+        lu_emit_jump(&new_arena, OP_JNE, f2, Lp3);
+        lu_emit_jump(&new_arena, OP_JMP, -1, Lp4);
+        lu_emit_label(&new_arena, Lp3);
+        lu_emit_imm_alu(&new_arena, OP_ADD_IMM, t_r0, f);
+        lu_emit_label(&new_arena, Lp4);
+        lu_emit_cmp_set(&new_arena, t_r0, t_zero, f2, CC_LT);
+        lu_emit_jump(&new_arena, OP_JNE, f2, Lp5);
+        lu_emit_jump(&new_arena, OP_JMP, -1, Ldone);
+        lu_emit_label(&new_arena, Lp5);
+        lu_emit_imm_alu(&new_arena, OP_ADD_IMM, t_r0, f);
+        lu_emit_label(&new_arena, Ldone);
+        /* b2 = N - r for BOTH cc forms: the LE extra iteration is already
+         * inside r (via init_p = init - k), and the main test keeps the
+         * original cc (i <= b2 covers init..b2 = init + f*q values). */
+        t_b2 = zc_alloc_temp(c);
+        lu_emit_binop(&new_arena, OP_SUB, t_b2, t_bv, t_r0);
+    }
+
+    /* ---- Main loop header: label, purity block, test vs t_b2 ---- */
+    lu_emit_label(&new_arena, Lmain);
+    for (int i = H + 1; i < bh_end; i++) {
+        Instr x = *ir_get(c, i);
+        if (i == cmp_idx) {
+            if (plan->bound_is_src2) x.temp_src2 = (uint32_t)t_b2;
+            else x.temp_src1 = (uint32_t)t_b2;
+        }
+        ir_arena_emit(&new_arena, x);
+    }
+    {
+        Instr x = *tj;                 /* JE/JNE, re-aimed at the remainder */
+        x.label_idx = (uint16_t)H_label;
+        ir_arena_emit(&new_arena, x);
+    }
+
+    /* ---- f verbatim copies of (body..step) ---- */
+    for (int kk = 0; kk < f; kk++) {
+        lu_emit_label(&new_arena, copy_start[kk]);
+        for (int i = bh_end + 1; i < E; i++) {
+            Instr x = *ir_get(c, i);
+            if (x.op == OP_LABEL) {
+                int j = -1;
+                for (int q = 0; q < internal_n; q++)
+                    if (internal_pos[q] == i) { j = q; break; }
+                if (j < 0) goto fail;
+                x.label_idx = (uint16_t)copy_label[(size_t)kk * (size_t)internal_n + (size_t)j];
+            } else if (lu_is_jump(x.op)) {
+                int p = lu_label_pos(lmap, lmap_n, x.label_idx);
+                if (p == H) {
+                    /* continue / step-tail: the next ORIGINAL iteration is
+                     * copy kk+1 (the skipped test is provably true inside
+                     * the main loop); the last copy re-enters the test. */
+                    x.label_idx = (uint16_t)((kk + 1 < f) ? copy_start[kk + 1] : Lmain);
+                } else if (p == plan->bu_start && plan->step_label >= 0 &&
+                           i < plan->bu_start && step_j >= 0) {
+                    /* for-form continue: THIS copy's own step label. */
+                    x.label_idx = (uint16_t)copy_label[(size_t)kk * (size_t)internal_n + (size_t)step_j];
+                } else if (p > H && p < E) {
+                    /* forward in-loop edge (if/else): this copy's clone. */
+                    int j = -1;
+                    for (int q = 0; q < internal_n; q++)
+                        if (internal_pos[q] == p) { j = q; break; }
+                    if (j < 0) goto fail;
+                    x.label_idx = (uint16_t)copy_label[(size_t)kk * (size_t)internal_n + (size_t)j];
+                }
+                /* external targets (break -> exit label, ...) stay put */
+            }
+            ir_arena_emit(&new_arena, x);
+        }
+    }
+    lu_emit_jump(&new_arena, OP_JMP, -1, Lmain);
+
+    /* ---- Remainder loop: the original [H, E] verbatim + marker ---- */
+    lu_emit_label(&new_arena, H_label);
+    {
+        Instr mk; memset(&mk, 0, sizeof(mk));
+        mk.op = OP_NOP; mk.temp_dest = TEMP_NONE;
+        mk.imm = (int16_t)LU_MARKER; mk.imm64 = LU_MARKER;
+        ir_arena_emit(&new_arena, mk);
+    }
+    for (int i = H + 1; i <= E; i++)
+        ir_arena_emit(&new_arena, *ir_get(c, i));
+
+    /* ---- Suffix [E+1, count) verbatim ---- */
+    for (int i = E + 1; i < count; i++)
+        ir_arena_emit(&new_arena, *ir_get(c, i));
+
+    {
+        ir_arena_free(&c->ir_arena);
+        c->ir_arena = new_arena;
+        ok = true;
+    }
+
+fail:
+    if (!ok) ir_arena_free(&new_arena);
+    free(internal_pos);
+    free(copy_start);
+    free(copy_label);
+    free(lmap);
+    return ok;
+}
+
+/* ------------------------------------------------------------------ */
 /* Pass entry                                                          */
 /* ------------------------------------------------------------------ */
 
@@ -815,9 +1436,13 @@ void opt_loop_unroll(ZeroCCCompiler *c) {
 
     for (int l = 0; l < state.loop_count; l++) {
         LUPlan plan;
-        if (lu_analyze(c, &state.loops[l], &plan)) {
-            if (lu_apply(c, &plan)) {
-                opt_profile_count_loop_unroll();
+                        if (lu_analyze(c, &state, &state.loops[l], &plan)) {
+            bool applied = plan.partial
+                ? lu_apply_partial(c, &plan)
+                : lu_apply(c, &plan);
+            if (applied) {
+                if (plan.partial) opt_profile_count_loop_partial_unroll();
+                else opt_profile_count_loop_unroll();
                 loop_analysis_free(&state);
                 return;
             }

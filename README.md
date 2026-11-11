@@ -9,7 +9,7 @@ ZeroCC is a lightweight, embeddable C99/C11/C23 compiler (with GNU extensions) w
 - **Multi-project validation**: sqlite3.c amalgamation (255k lines), 15-TU zlib, and cJSON compiled under zerocc at `-O0` and `-O2` (`make test-project-diff`)
 - **`__zerocc_syscall(number, a, b, c, d, e, f)`** and **`__zerocc_clone(...)`** — direct OS-syscall and thread-clone builtins (`OP_SYSCALL`, `OP_CLONE`) across all 4 ISAs (the `zero_rt` OS boundary)
 - **Multi-ISA**: x86-64, AArch64, RISC-V 64, RISC-V 32 (`--target`)
-- **Inline assembly (Phases 1–3 complete)**: GNU extended asm (`__asm__ [volatile] [goto] ("..." : outs : ins : clobbers [: labels])`) with `r`/`m`/`=r`/`+r`/fixed-register (`a`/`b`/`d`/`S`/`D`) operands, matching-digit constraints, symbolic `%[name]` / `%l[name]` operands, AT&T/Intel `{att | intel}` dialect alternatives, and `memory`/`cc`/GPR clobbers — lowered to `OP_ASM`, register-allocated (operands `no_spill`, clobbered registers forbidden for operands, live values across clobbers spilled), and supported across AOT `.s` text emission, in-memory JIT, and raw binary emission via the integrated assembler (`make test-asm` 48/48 runs vs gcc; [`docs/okf/inline-assembly-roadmap.md`](docs/okf/inline-assembly-roadmap.md))
+- **Inline assembly (Phases 1–3 complete)**: GNU extended asm (`__asm__ [volatile] [goto] ("..." : outs : ins : clobbers [: labels])`) with `r`/`m`/`=r`/`+r`/fixed-register (`a`/`b`/`d`/`S`/`D`) operands, matching-digit constraints, symbolic `%[name]` / `%l[name]` operands, AT&T/Intel `{att | intel}` dialect alternatives, and `memory`/`cc`/GPR clobbers — lowered to `OP_ASM`, register-allocated (operands `no_spill`, clobbered registers forbidden for operands, live values across clobbers spilled), and supported across AOT `.s` text emission, in-memory JIT, and raw binary emission via the integrated assembler (`make test-asm` 72/72 runs vs gcc; [`docs/okf/inline-assembly-roadmap.md`](docs/okf/inline-assembly-roadmap.md))
 - **`-fsanitize=undefined`** — target-side signed-integer-overflow trap (bare
   `ud2`; x86-64, both emitters; check width follows the usual arithmetic
   conversions — Sprints 116–117; `make test-san` flag-ON gate)
@@ -45,12 +45,14 @@ ZeroCC is a lightweight, embeddable C99/C11/C23 compiler (with GNU extensions) w
   allocation → machine code
 - **Optimization levels** `-O0`…`-O3` (constant folding, DCE, copy
   propagation, mem2reg, CSE, GVN, LICM, branchless, strength reduction,
-  branch simplification, full loop unrolling, auto-vectorization to SSE2/SSE4.1,
-  NEON, and RVV; small-function inlining at `-O2`/`-O3`)
+  branch simplification, full loop unrolling + partial loop unrolling
+  (factor 2/4) with remainder peeling for runtime-bound loops,
+  auto-vectorization to SSE2/SSE4.1, NEON, and RVV; small-function inlining at
+  `-O2`/`-O3`)
 - **Compiler diagnostics** — gcc-style caret errors, C99 constraint checking,
   "did you mean" suggestions, multi-error recovery
 - **Conformance gate** ratcheted against GCC's `gcc.c-torture` corpus
-  (3,940 tests; 3,762 PASS / 0 bad at HEAD; see `make test-torture`)
+  (3,934 tests; 3,754 PASS / 0 bad at HEAD; see `make test-torture`)
 
 ## Quick Start
 
@@ -123,7 +125,7 @@ zero_cc/
 │       ├─ lexer/          # Tokenizer (C99/C11/C23 keyword tables)
 │       ├─ parser/         # Arena-based AST parser, const eval, static assert
 │       ├─ semantic/       # Semantic analysis: types, scopes, diagnostics
-│       ├─ ir/             # 168-opcode Instr IR, AST→IR lowering,
+│       ├─ ir/             # 172-opcode Instr IR, AST→IR lowering,
 │       │                   # linear-scan regalloc, asm/machine emitters
 │       ├─ opt/            # IR passes: constant_fold, dce, copy_prop,
 │       │                   # mem2reg, cse, gvn, licm, branchless,
@@ -159,9 +161,11 @@ Source → Preprocessor → Lexer → Arena AST Parser → Semantic Analysis
 ```
 
 **IR design:**
-- 168-opcode `Instr` array (integer, float, SIMD, atomic, TLS, and call
-  opcodes) with `IRCallArgs` / `IRAsmArgs` side tables for call-site and
-  inline-asm operands
+- 172-opcode `Instr` array (integer, float, SIMD, atomic, TLS, and call
+  opcodes); call-site and inline-asm operands travel **in the instruction
+  stream** as `OP_CALL_ARG` / `OP_ASM_ARG` / `OP_ASM_LABEL` pseudo-
+  instructions (the former `IRCallArgs` / `IRAsmArgs` side tables were
+  removed, Sprints 151c & 154)
 - Dynamic, growing `IRArena` buffer — O(1) emission, cheap reset per function
 - Flat, non-SSA with implicit control flow; a lazy versioned **CFG layer**
   (`opt/cfg.{h,c}`) provides basic blocks, reachability, dominators/post-dominators,
@@ -208,7 +212,7 @@ stopping when a round makes no change (`src/zero_cc/opt/opt_pass.c`):
 | **-O0** | None (debug builds; also the `test-opt` reference baseline) |
 | **-O1** (default) | `constant_fold`, `flag_dce`, `dce`, `copy_prop`, `mem2reg` |
 | **-O2** | + `cse`, `gvn`, `licm`; small static/`inline` function inlining |
-| **-O3** | + `branchless`, `strength_reduction`, `branch_simplify`, `loop_unroll`, `auto_vectorize` (SSE2/SSE4.1, NEON, RVV) |
+| **-O3** | + `branchless`, `strength_reduction`, `branch_simplify`, `loop_unroll` (constant-trip `1..8` full unroll + runtime-bound partial unroll factor 2/4 with remainder peel), `auto_vectorize` (SSE2/SSE4.1, NEON, RVV) |
 
 Inlining uses conservative candidate filters (no FP signatures, no body
 locals, no labels/gotos, no `&param`, no value-param writes — see
@@ -261,24 +265,24 @@ against a static-musl reference). See
 
 ## Test Results
 
-Current status (verified 2026-11-10 at HEAD, Sprints 129–151):
+Current status (verified 2026-11-11 at HEAD, Sprints 129–156):
 
 | Suite | Status | Count |
 |-------|--------|-------|
-| **Main regression suite** (`make test`: unit, semantic, ABI, JIT, AOT, asm reference) | ✅ Pass | 190/190 |
-| **Optimizer sweep** (`make test-opt`, `-O0..-O3` × JIT + AOT via zerocc) | ✅ Pass | 150/150 |
+| **Main regression suite** (`make test`: unit, semantic, ABI, JIT, AOT, asm reference) | ✅ Pass | 225/225 |
+| **Optimizer sweep** (`make test-opt`, `-O0..-O3` × JIT + AOT via zerocc) | ✅ Pass | 182 tests: 124 ok, 0 failed (58 embedding tests skipped by design — covered by `make test`; 1 pre-existing nondeterministic) |
 | **C23 differential gate** (`make test-c23`: 24 cases across gnu23/c11/c99 vs gcc-15) | ✅ Pass | 24/24 |
-| **Inline-asm Phases 1–3 gate** (`make test-asm`: `test/asm/*.c` across `-S` text, JIT, and raw AOT at `-O0..-O3` vs host-gcc reference) | ✅ Pass | 48/48 |
+| **Inline-asm Phases 1–3 gate** (`make test-asm`: `test/asm/*.c` across `-S` text, JIT, and raw AOT at `-O0..-O3` vs host-gcc reference) | ✅ Pass | 72/72 |
 | **Project-differential gate** (`make test-project-diff`: cJSON, zlib, sqlite3.c at -O0/-O2) | ✅ Pass | 36/36 TUs |
 | **`zero_san` flag-ON sweep** (`make test-san`: `san_ok_*` clean + `san_trap_*` SIGILL at `-O0..-O3`, JIT + AOT, cross-ISA qemu smoke) | ✅ Pass | 101 ok + 3 cross |
 | **Multi-file driver** (`make test-driver`, multi-TU JIT/AOT + per-input `-c`/`-S`) | ✅ Pass | 37/37 |
 | **Own linker & archiver** (`make test-linker`, `--zerocc-link` + `--ar` across all 4 ISAs + gcc differential) | ✅ Pass | 45/45 |
 | **Cross-ISA raw-emitter QEMU gate** (`make test-isa-qemu`, vs static-musl reference) | ✅ Pass | 59/59 (all 4 ISAs) |
 | **Cross-ISA `__int128` raw-emitter QEMU gate** (`make test-isa128`, vs static-musl reference) | ✅ Pass | 144/144 (all 3 ISAs × 6 tests × 4 levels × 2 paths) |
-| **GCC c-torture conformance gate** (`make test-torture`, ratcheted baseline, gcc-15 reference) | ✅ Pass | 3,762 PASS / 3,940 corpus (0 MISCOMPILE / 0 REJECT; SKIP-SUPPORT 87, SKIP-C89 33, SKIP-REFSEM 16, SKIP-TARGET: arm/ia64/mips 6, SKIP-UB/PTR/BOGUS 3, EXPECTED-REJECT 4, NO-REF 23, REF-BUG 6) |
+| **GCC c-torture conformance gate** (`make test-torture`, ratcheted baseline, gcc-15 reference) | ✅ Pass | 3,754 PASS / 3,934 corpus (0 MISCOMPILE / 0 REJECT; SKIP-SUPPORT 87, SKIP-C89 33, SKIP-REFSEM 16, SKIP-TARGET: arm/ia64/mips 6, SKIP-UB/PTR/BOGUS 3, EXPECTED-REJECT 4, NO-REF 23, REF-BUG 6, TIMEOUT 2) |
 | **Type-tag verifier** (`tools/type_tag_verifier.py --verify-all`, invariants I1–I10 at `-O0/2/3`) | ✅ Pass | 160 files, RESULT OK |
-| **Loop unroll verifier** (`tools/loop_unroll_verifier.py`, `-O3` constant-trip unrolling) | ✅ Pass | 15/15 |
-| **ASan/UBSan rebuild** (`make asan`) | ✅ Pass | 190/190 |
+| **Loop unroll verifier** (`tools/loop_unroll_verifier.py`, `-O3` constant-trip full unrolling + runtime-bound partial unrolling w/ remainder peel, `expect-unroll`/`expect-partial` markers) | ✅ Pass | 25/25 |
+| **ASan/UBSan rebuild** (`make asan`) | ✅ Pass | 222/222 |
 | **`sret` ABI verifier** (`tools/sret_verifier.py --verify-all`) | ✅ Pass | 6/6 |
 | **C11 verification suite** (`tools/c11/test_c11.py`) | ✅ Pass | 11/11 |
 | **VLA verification suite** (`tools/vla/test_vla.py`) | ✅ Pass | 11/11 (incl. VLA-in-loop / VLA-in-block runtime tests — C99 6.7.5.2 legal, gcc-differentially verified) |
@@ -472,7 +476,7 @@ python3 tools/c11/test_c11.py --verbose    # C11 feature & concurrency suite
 python3 tools/vla/test_vla.py              # VLA & matrix VLA suite
 python3 tools/sret_verifier.py --verify-all  # sret ABI verifier
 python3 tools/type_tag_verifier.py --verify-all  # Per-temp IR type-tag invariants (Sprints 118–120)
-python3 tools/loop_unroll_verifier.py      # -O3 constant-trip loop unrolling verifier (Sprint 150)
+python3 tools/loop_unroll_verifier.py      # -O3 loop unrolling verifier: constant-trip full + runtime-bound partial (Sprints 150/156)
 python3 tools/diag_battery.py              # Differential diagnostics vs gcc (ratchet baseline)
 python3 tools/style_check.py               # C style/convention checker
 python3 tools/simd_regression_suite.py     # Auto-vectorization regression suite

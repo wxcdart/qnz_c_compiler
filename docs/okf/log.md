@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-11T02:27:27Z
+timestamp: 2026-11-11T04:38:06Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1314,3 +1314,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-11 — Updated `host-runtime-and-portability.md`
 - Sprint 155: self-hosting dlfcn dlopen/dlsym/dlclose/dlerror marked visibility(hidden) so a dynamic (ASan) build does not interpose the host libc's dlfcn (ASan runtime startup probe crash); static build unaffected.
+
+## 2026-11-11 — Updated `optimization-passes.md`
+- Sprint 156: partial loop unroll (factor 2/4) + remainder peel for runtime-bound loops; CSE-tolerant increment trace; LU_MAX_PARTIAL_BODY; expect-partial gate markers (24/24)
+
+## 2026-11-11 — Updated `optimization-passes.md`
+- Sprint 156: added the lu_is_enclosed re-entry soundness guard (nested-loop counter carryover, c-torture execute/20041213-2) and the unroll_part_nested rejection pin (corpus 15 -> 25)

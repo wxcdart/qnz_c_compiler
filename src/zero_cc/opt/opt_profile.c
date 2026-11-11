@@ -99,6 +99,7 @@ void opt_profile_dump(FILE *f) {
     /* Loop unrolling statistics (Sprint 150) */
     fprintf(f, "\nLoop unrolling:\n");
     fprintf(f, "  Loops fully unrolled: %zu\n", g_stats.loop_unrolls);
+    fprintf(f, "  Loops partially unrolled: %zu\n", g_stats.loop_partial_unrolls);
 
     /* Register allocation statistics */
     fprintf(f, "\nRegister Allocation:\n");
@@ -172,6 +173,10 @@ void opt_profile_count_licm_moved(void) {
 
 void opt_profile_count_loop_unroll(void) {
     if (g_profile_enabled) g_stats.loop_unrolls++;
+}
+
+void opt_profile_count_loop_partial_unroll(void) {
+    if (g_profile_enabled) g_stats.loop_partial_unrolls++;
 }
 
 void opt_profile_count_regalloc_interval(void) {

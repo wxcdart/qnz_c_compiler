@@ -14,11 +14,17 @@ opt_loop_unroll.c) on the test/jit/unroll_*.c corpus:
   2. -O1/-O2 JIT runs must agree too (the pass is -O3-gated, so these
      pin that nothing else at those levels is disturbed).
   3. The pass's own accounting is checked through --profile-opts
-     ("Loops fully unrolled: N"): files marked `// expect-unroll: yes`
+     ("Loops fully unrolled: N", and since Sprint 156 Phase 2, "Loops
+     partially unrolled: N"): files marked `// expect-unroll: yes`
      must report N >= 1 at -O3 (the transform really fired), files
      marked `// expect-unroll: no` must report N == 0 (every gate
      held - variable bound, trip > 8, calls, do-while, VLA, user
-     labels in the span, ...).  Unmarked files are correctness-only.
+     labels in the span, ...).  Files marked `// expect-partial: yes`
+     must report >= 1 partially-unrolled loop (runtime bound - the
+     partial-unroll + remainder-peel transform fired); `expect-partial:
+     no` must report exactly 0 (invariant gates held - bound stored
+     in the body, bound reloaded per trip, non-unit step, ...).
+     Unmarked files are correctness-only.
 
 Why this gate exists: `make test-opt` sweeps the whole corpus at every
 level, but only via behavior - it cannot distinguish "correctly
@@ -50,7 +56,9 @@ GCC = os.environ.get("UNROLL_GCC") or next(
     (c for c in ("gcc-15", "gcc-14", "gcc") if shutil.which(c)), "gcc")
 
 UNROLL_RE = re.compile(r"Loops fully unrolled:\s*(\d+)")
+PARTIAL_RE = re.compile(r"Loops partially unrolled:\s*(\d+)")
 MARK_RE = re.compile(r"^\s*//\s*expect-unroll:\s*(yes|no)", re.MULTILINE)
+PMARK_RE = re.compile(r"^\s*//\s*expect-partial:\s*(yes|no)", re.MULTILINE)
 
 
 def run(cmd, timeout=30):
@@ -63,6 +71,11 @@ def run(cmd, timeout=30):
 
 def expect_unroll(src_text):
     m = MARK_RE.search(src_text)
+    return None if not m else (m.group(1) == "yes")
+
+
+def expect_partial(src_text):
+    m = PMARK_RE.search(src_text)
     return None if not m else (m.group(1) == "yes")
 
 
@@ -84,7 +97,8 @@ def zerocc_jit_count(path, level):
     rc, _out, err = run([ZEROCC, "-O%d" % level, "--run", "--profile-opts", path],
                         timeout=30)
     m = UNROLL_RE.search(err)
-    return rc, (int(m.group(1)) if m else None)
+    p = PARTIAL_RE.search(err)
+    return rc, (int(m.group(1)) if m else None), (int(p.group(1)) if p else None)
 
 
 def zerocc_aot(path, level):
@@ -120,6 +134,7 @@ def main():
         with open(path) as f:
             src = f.read()
         expect = expect_unroll(src)
+        expect_part = expect_partial(src)
 
         checks = []  # (label, rc, out)
         checks.append(("gcc", *ref_run(path)[:2]))
@@ -150,8 +165,8 @@ def main():
                 errs.append("%s mismatch: rc=%r out=%r (want rc=%r out=%r)"
                             % (label, rc, out.strip(), ref_rc, ref_out.strip()))
 
-        # unroll accounting at -O3
-        count_rc, count = zerocc_jit_count(path, 3)
+        # unroll accounting at -O3 (full + partial counters)
+        count_rc, count, pcount = zerocc_jit_count(path, 3)
         if count_rc != 0:
             errs.append("profile run failed (rc=%r)" % count_rc)
         elif count is None:
@@ -160,6 +175,12 @@ def main():
             errs.append("expected >=1 unrolled loop, got %d" % count)
         elif expect is False and count != 0:
             errs.append("expected 0 unrolled loops, got %d" % count)
+        if pcount is None:
+            errs.append("profile output missing partial-unroll counter")
+        elif expect_part is True and pcount < 1:
+            errs.append("expected >=1 partially unrolled loop, got %d" % pcount)
+        elif expect_part is False and pcount != 0:
+            errs.append("expected 0 partially unrolled loops, got %d" % pcount)
 
         status = "ok" if not errs else "FAIL"
         if errs:
@@ -167,9 +188,13 @@ def main():
         else:
             ok += 1
         results[name] = {"status": status, "expect_unroll": expect,
-                         "unrolled": count, "errors": errs, "notes": notes}
+                         "expect_partial": expect_part,
+                         "unrolled": count, "partially_unrolled": pcount,
+                         "errors": errs, "notes": notes}
         line = "%-28s %-4s unrolled=%s" % (name, status,
                                            "-" if count is None else count)
+        if pcount is not None:
+            line += " partial=%d" % pcount
         for e in notes:
             line += "  (%s)" % e
         if args.verbose or errs:

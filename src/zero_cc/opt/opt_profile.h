@@ -43,8 +43,9 @@ typedef struct {
     size_t licm_invariants_found;
     size_t licm_instructions_moved;
 
-    /* Loop unrolling statistics (Sprint 150) */
+    /* Loop unrolling statistics (Sprint 150; partial: Sprint 156) */
     size_t loop_unrolls;
+    size_t loop_partial_unrolls;
 
     /* Register allocation statistics */
     size_t regalloc_total_intervals;
@@ -104,6 +105,7 @@ void opt_profile_count_licm_loop(void);
 void opt_profile_count_licm_invariant(void);
 void opt_profile_count_licm_moved(void);
 void opt_profile_count_loop_unroll(void);
+void opt_profile_count_loop_partial_unroll(void);
 void opt_profile_count_regalloc_interval(void);
 void opt_profile_count_regalloc_spill(int cost_based);
 void opt_profile_set_regalloc_max_depth(size_t depth);
