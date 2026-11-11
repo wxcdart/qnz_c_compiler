@@ -2009,19 +2009,14 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
              strstr(callee->s.str, "add_overflow") != NULL ||
              strstr(callee->s.str, "sub_overflow") != NULL ||
              strstr(callee->s.str, "mul_overflow") != NULL)) {
-            if (strstr(callee->s.str, "overflow_p") != NULL) {
-                ASTRef mo_arg = node->right;
-                while (mo_arg != AST_NULL) {
-                    lower_expr(c, arena, mo_arg);
-                    ZeroCCASTNode *an = zero_cc_ast_get(arena, mo_arg);
-                    mo_arg = (an && an->next != AST_NULL) ? an->next : AST_NULL;
-                }
-                int t_ovf = zc_alloc_temp(c);
-                ir_emit_mov_imm(c, t_ovf, 0);
-                c->last_expr_is_float = 0;
-                *out_temp = t_ovf;
-                return true;
-            }
+            /* The `_p` predicate variant (`__builtin_mul_overflow_p(a,b,r)`)
+             * flows through the same real detection below - the third
+             * argument is an rvalue of the RESULT type (not a pointer):
+             * width/signedness come from its type, no store is emitted,
+             * and the overflow flag is the call's value. (The pre-159
+             * stub returned a constant 0 - wrong whenever the product
+             * actually overflows: c-torture execute/pr30314, pr105777.) */
+            int is_pred = (strstr(callee->s.str, "overflow_p") != NULL);
 
             int is_add = (strstr(callee->s.str, "add_overflow") != NULL);
             int is_sub = (strstr(callee->s.str, "sub_overflow") != NULL);
@@ -2065,6 +2060,18 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
                     }
                 }
             }
+            if (is_pred) {
+                /* `_p` variant: the third argument is an rvalue whose type
+                 * is the overflow target (width/signedness), not a pointer. */
+                TypeInfo *r3 = ast_node_get_typeinfo(c, an2);
+                if (r3) {
+                    size_t r3sz = type_size(r3);
+                    if (r3sz == 1 || r3sz == 2 || r3sz == 4 || r3sz == 8) {
+                        width = (int)r3sz;
+                        t_signed = !type_is_unsigned(r3);
+                    }
+                }
+            }
             /* Real overflow detection (replaces the old conservative 0).
              * Each operand is normalized to 64 bits - zero-extended when
              * unsigned, sign-extended when signed - and the mathematical
@@ -2076,6 +2083,18 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
             int au = 0, bu = 0;
             int aw = zero_cc_expr_int_info(c, arena, arg_a_ref, &au);
             int bw = zero_cc_expr_int_info(c, arena, arg_b_ref, &bu);
+            /* GCC's overflow-builtin model (calibrated against gcc-15 on
+             * the c-torture corpus): each operand keeps its OWN signedness
+             * (unsigned zero-extends, signed sign-extends to 64 bits),
+             * the math domain is unsigned only when BOTH operands are
+             * unsigned (pr71554: 2u32 * -1073741824 with an int r must
+             * compute the signed product == INT_MIN, which fits), and the
+             * exact mathematical a OP b is checked against the RANGE OF
+             * r - an unsigned r rejects P < 0 (pr91450-1: -4 * 2 == -8
+             * overflows the u64 r), a signed r rejects |P| past its
+             * symmetric bounds (pr30314 qux: 42 * 439208192231179800 ==
+             * 2^64-16 fits the u64 r even though the 64-bit wrap is
+             * negative). */
             int use_unsigned_math = (au && bu);
             int t_a64 = zc_alloc_temp(c);
             ir_emit_mov_reg(c, t_a64, t_a);
@@ -2110,10 +2129,12 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
                 ir_emit(c, (Instr){.op=OP_MUL,.temp_dest=(uint32_t)t_res,
                     .temp_src1=(uint32_t)t_a64,.temp_src2=(uint32_t)t_b64});
             }
-            if (width == 1) ir_emit_store_byte(c, t_res, t_ptr);
-            else if (width == 2) ir_emit_store_16(c, t_res, t_ptr);
-            else if (width == 8) ir_emit_store_64(c, t_res, t_ptr);
-            else ir_emit_store_32(c, t_res, t_ptr);
+            if (!is_pred) {
+                if (width == 1) ir_emit_store_byte(c, t_res, t_ptr);
+                else if (width == 2) ir_emit_store_16(c, t_res, t_ptr);
+                else if (width == 8) ir_emit_store_64(c, t_res, t_ptr);
+                else ir_emit_store_32(c, t_res, t_ptr);
+            }
             int t_ovf;
             if (use_unsigned_math) {
                 uint64_t target_hi = (width == 8)
@@ -2176,64 +2197,138 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
                     }
                 }
             } else {
-                /* Signed 64-bit math: t_res is the exact a OP b for the
-                 * operand widths in use (|a|,|b| <= 2^32). */
+                /* Signed 64-bit math (a mixed or all-signed pair): t_res
+                 * is the 2^64 wrap of the exact P = a OP b, which lies
+                 * in (-2^126, 2^126).  The wrap loses information in
+                 * [2^63, 2^64) and (-2^64, -2^63) - pr30314 qux's
+                 * 42 * 439208192231179800 == 2^64-16 wraps to -16 but
+                 * fits the u64 r - so the checks below use magnitude
+                 * limit tests (|A| > BOUND/|B|, exact for |B| >= 1 via
+                 * the floor-division argument) instead of the wrapped
+                 * value, plus a 64-bit-overflow (OF) analysis for
+                 * add/sub. */
+                int t_an = zc_ovf_cmp_set_imm(c, t_a64, 0, CC_LT);
+                int t_bn = zc_ovf_cmp_set_imm(c, t_b64, 0, CC_LT);
+                int t_az = zc_ovf_cmp_set_imm(c, t_a64, 0, CC_EQ);
+                int t_bz = zc_ovf_cmp_set_imm(c, t_b64, 0, CC_EQ);
+                int t_zero = zc_ovf_or(c, t_az, t_bz);  /* P == 0: fits */
+                int t_opp = zc_ovf_or(c,
+                            zc_ovf_and(c, t_an, zc_ovf_not1(c, t_bn)),
+                            zc_ovf_and(c, zc_ovf_not1(c, t_an), t_bn));
                 if (is_mul) {
-                    /* Extra wrap guard: if the true product exceeded
-                     * 64 bits, res/a != b catches it (division guarded). */
-                    int t_az = zc_ovf_cmp_set_imm(c, t_a64, 0, CC_EQ);
-                    int lab_no = c->ir_next_label++;
-                    ir_emit_jne(c, (uint32_t)t_az, (uint32_t)lab_no);
+                    /* P == 0 (either operand zero) always fits - and the
+                     * limit division below needs |B| != 0, so skip the
+                     * whole magnitude check on the zero path.  Both
+                     * paths assign the same t_ovf temp. */
+                    t_ovf = zc_alloc_temp(c);
+                    int lab_zero = c->ir_next_label++, lab_md = c->ir_next_label++;
+                    ir_emit_jne(c, (uint32_t)t_zero, (uint32_t)lab_zero);
+                    /* |A|, |B| via branch select (the IR has no CMOV). */
+                    int t_Aabs = zc_alloc_temp(c);
+                    int lab_ad = c->ir_next_label++, lab_aneg = c->ir_next_label++;
+                    ir_emit_jne(c, (uint32_t)t_an, (uint32_t)lab_aneg);
+                    ir_emit_mov_reg(c, t_Aabs, t_a64);
+                    ir_emit_jmp(c, (uint32_t)lab_ad);
+                    ir_emit_label(c, lab_aneg);
+                    ir_emit_neg(c, t_Aabs, t_a64);
+                    ir_emit_label(c, lab_ad);
+                    int t_Babs = zc_alloc_temp(c);
+                    int lab_bd = c->ir_next_label++, lab_bneg = c->ir_next_label++;
+                    ir_emit_jne(c, (uint32_t)t_bn, (uint32_t)lab_bneg);
+                    ir_emit_mov_reg(c, t_Babs, t_b64);
+                    ir_emit_jmp(c, (uint32_t)lab_bd);
+                    ir_emit_label(c, lab_bneg);
+                    ir_emit_neg(c, t_Babs, t_b64);
+                    ir_emit_label(c, lab_bd);
+                    /* overflow iff P < 0 (unsigned r) or |P| past r's
+                     * bound: the NEGATIVE side reaches -2^(8W-1)
+                     * (inclusive), the positive side stops at
+                     * 2^(8W-1) - 1 (signed r) / 2^(8W) - 1 (unsigned). */
                     int t_q = zc_alloc_temp(c);
-                    ir_emit_div(c, t_q, t_res, t_a64);
-                    int t_ne = zc_ovf_cmp_set(c, t_q, t_b64, CC_NE);
-                    ir_emit_label(c, lab_no);
-                    int t_wrap = zc_ovf_and(c, zc_ovf_not1(c, t_az), t_ne);
-                    if (!t_signed) {
-                        int t_neg = zc_ovf_cmp_set_imm(c, t_res, 0, CC_LT);
-                        t_ovf = zc_ovf_or(c, t_neg, t_wrap);
-                        if (width < 8) {
-                            t_ovf = zc_ovf_or(c, t_ovf, zc_ovf_cmp_set_imm(c, t_res, ((uint64_t)1 << (width * 8)), CC_FLT_GE));
-                        }
-                    } else if (width < 8) {
-                        int t_lo = zc_ovf_cmp_set_imm(c, t_res, (-((uint64_t)1 << (width * 8 - 1))), CC_LT);
-                        int t_hi = zc_ovf_cmp_set_imm(c, t_res, (((uint64_t)1 << (width * 8 - 1)) - 1), CC_GT);
-                        t_ovf = zc_ovf_or(c, zc_ovf_or(c, t_lo, t_hi), t_wrap);
-                    } else {
-                        t_ovf = t_wrap;
+                    int t_lim = zc_alloc_temp(c);
+                    int t_gt_neg = -1;
+                    if (t_signed) {
+                        /* negative-side bound 2^(8W-1) (used when t_opp) */
+                        ir_emit_mov_imm(c, t_lim, (int64_t)((uint64_t)1 << (width * 8 - 1)));
+                        ir_emit_div(c, t_q, t_lim, t_Babs);
+                        ir_mark_last_unsigned(c, 1);
+                        t_gt_neg = zc_ovf_cmp_set(c, t_Aabs, t_q, CC_FLT_GT);
                     }
+                    /* positive-side bound 2^(8W-1)-1 / 2^(8W)-1 */
+                    uint64_t b_pos = t_signed ? (((uint64_t)1 << (width * 8 - 1)) - 1)
+                                              : (width == 8 ? UINT64_MAX
+                                                            : ((uint64_t)1 << (width * 8)) - 1);
+                    ir_emit_mov_imm(c, t_lim, (int64_t)b_pos);
+                    ir_emit_div(c, t_q, t_lim, t_Babs);
+                    ir_mark_last_unsigned(c, 1);
+                    int t_gt_pos = zc_ovf_cmp_set(c, t_Aabs, t_q, CC_FLT_GT);
+                    int t_gt;
+                    if (!t_signed) {
+                        /* P < 0 overflows an unsigned r outright. */
+                        t_gt = zc_ovf_or(c, t_opp, t_gt_pos);
+                    } else {
+                        t_gt = zc_ovf_or(c,
+                                zc_ovf_and(c, t_opp, t_gt_neg),
+                                zc_ovf_and(c, zc_ovf_not1(c, t_opp), t_gt_pos));
+                    }
+                    int t_final = zc_ovf_and(c, zc_ovf_not1(c, t_zero), t_gt);
+                    ir_emit_mov_reg(c, t_ovf, t_final);
+                    ir_emit_jmp(c, (uint32_t)lab_md);
+                    ir_emit_label(c, lab_zero);
+                    ir_emit_mov_imm(c, t_ovf, 0);
+                    ir_emit_label(c, lab_md);
                 } else {
+                    int t_res_neg = zc_ovf_cmp_set_imm(c, t_res, 0, CC_LT);
+                    int t_of, t_of_posP;  /* OF = 64-bit wrap; P's sign */
+                    if (is_add) {
+                        int t1 = zc_ovf_and(c, zc_ovf_and(c,
+                                    zc_ovf_cmp_set_imm(c, t_a64, 0, CC_GT),
+                                    zc_ovf_cmp_set_imm(c, t_b64, 0, CC_GT)),
+                                    t_res_neg);                 /* P in (2^63, 2^64) */
+                        int t2 = zc_ovf_and(c, zc_ovf_and(c,
+                                    zc_ovf_cmp_set_imm(c, t_a64, 0, CC_LT),
+                                    zc_ovf_cmp_set_imm(c, t_b64, 0, CC_LT)),
+                                    zc_ovf_not1(c, t_res_neg));  /* P in (-2^64, -2^63) */
+                        t_of = zc_ovf_or(c, t1, t2);
+                        t_of_posP = t1;
+                    } else {
+                        int t1 = zc_ovf_and(c, zc_ovf_and(c,
+                                    zc_ovf_cmp_set_imm(c, t_a64, 0, CC_GE),
+                                    zc_ovf_cmp_set_imm(c, t_b64, 0, CC_LT)),
+                                    t_res_neg);                 /* P in (2^63, 2^64) */
+                        int t2 = zc_ovf_and(c, zc_ovf_and(c,
+                                    zc_ovf_not1(c, zc_ovf_cmp_set_imm(c, t_a64, 0, CC_LT)),
+                                    zc_ovf_cmp_set_imm(c, t_b64, 0, CC_GE)),
+                                    zc_ovf_not1(c, t_res_neg));  /* P in (-2^64, -2^63) */
+                        t_of = zc_ovf_or(c, t1, t2);
+                        t_of_posP = t1;
+                    }
+                    /* OF puts |P| in [2^63, 2^64): that overflows every
+                     * r EXCEPT an unsigned 64-bit one with P > 0
+                     * (then P < 2^64). */
+                    int t_of_ovf;
+                    if (!t_signed && width == 8)
+                        t_of_ovf = zc_ovf_and(c, t_of, zc_ovf_not1(c, t_of_posP));
+                    else
+                        t_of_ovf = t_of;
+                    /* No OF: t_res is the exact P - plain range check. */
+                    int t_exact;
                     if (!t_signed) {
-                        int t_neg = zc_ovf_cmp_set_imm(c, t_res, 0, CC_LT);
-                        t_ovf = t_neg;
-                        if (width < 8) {
-                            t_ovf = zc_ovf_or(c, t_ovf, zc_ovf_cmp_set_imm(c, t_res, ((uint64_t)1 << (width * 8)), CC_FLT_GE));
-                        }
+                        t_exact = t_res_neg;
+                        if (width < 8)
+                            t_exact = zc_ovf_or(c, t_exact,
+                                zc_ovf_cmp_set_imm(c, t_res, ((uint64_t)1 << (width * 8)), CC_FLT_GE));
                     } else if (width < 8) {
                         int t_lo = zc_ovf_cmp_set_imm(c, t_res, (-((uint64_t)1 << (width * 8 - 1))), CC_LT);
                         int t_hi = zc_ovf_cmp_set_imm(c, t_res, (((uint64_t)1 << (width * 8 - 1)) - 1), CC_GT);
-                        t_ovf = zc_ovf_or(c, t_lo, t_hi);
+                        t_exact = zc_ovf_or(c, t_lo, t_hi);
                     } else {
-                        /* 64-bit target: the exact sum/diff fits unless
-                         * both operands share the sign that res lost. */
-                        if (is_add) {
-                            int t1 = zc_ovf_and(c, zc_ovf_cmp_set_imm(c, t_a64, 0, CC_GT),
-                                                zc_ovf_cmp_set_imm(c, t_b64, 0, CC_GT));
-                            t1 = zc_ovf_and(c, t1, zc_ovf_cmp_set_imm(c, t_res, 0, CC_LT));
-                            int t2 = zc_ovf_and(c, zc_ovf_cmp_set_imm(c, t_a64, 0, CC_LT),
-                                                zc_ovf_cmp_set_imm(c, t_b64, 0, CC_LT));
-                            t2 = zc_ovf_and(c, t2, zc_ovf_cmp_set(c, t_res, 0, CC_GE));
-                            t_ovf = zc_ovf_or(c, t1, t2);
-                        } else {
-                            int t1 = zc_ovf_and(c, zc_ovf_cmp_set_imm(c, t_a64, 0, CC_GT),
-                                                zc_ovf_cmp_set_imm(c, t_b64, 0, CC_LT));
-                            t1 = zc_ovf_and(c, t1, zc_ovf_cmp_set_imm(c, t_res, 0, CC_LT));
-                            int t2 = zc_ovf_and(c, zc_ovf_cmp_set_imm(c, t_a64, 0, CC_LT),
-                                                zc_ovf_cmp_set_imm(c, t_b64, 0, CC_GT));
-                            t2 = zc_ovf_and(c, t2, zc_ovf_cmp_set(c, t_res, 0, CC_GE));
-                            t_ovf = zc_ovf_or(c, t1, t2);
-                        }
+                        int t_c0 = zc_alloc_temp(c);
+                        ir_emit_mov_imm(c, t_c0, 0);   /* i64 P: always in range */
+                        t_exact = t_c0;
                     }
+                    t_ovf = zc_ovf_or(c, t_of_ovf,
+                            zc_ovf_and(c, zc_ovf_not1(c, t_of), t_exact));
                 }
             }
             c->last_expr_is_float = 0;

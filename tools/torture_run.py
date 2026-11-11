@@ -54,9 +54,11 @@ M1 (TIMEOUT hang) burn-down tools:
 
 import argparse
 import concurrent.futures
+import fnmatch
 import hashlib
 import json
 import os
+import platform
 import re
 import shutil
 import signal
@@ -94,6 +96,174 @@ if not GCC:
     GCC = "gcc-15"
 KEEP = False  # --keep: retain work artifacts instead of unlinking
 
+# --- DejaGnu target-clause evaluation (Sprint 159) -------------------------
+# dg-options/dg-additional-options/dg-do/dg-error/dg-skip-if may carry a
+# `{ target ... }` clause restricting when they apply (e.g. `-G0` only on
+# powerpc-ilp32, `-march=armv8.2-a+sha3` only on aarch64).  The pre-159
+# harness applied every directive unconditionally, so the x86-64 gcc-15
+# reference died on foreign-arch flags and ~9 tests classified NO-REF.
+# A minimal evaluator covers the corpus's subset of DejaGnu's syntax:
+# whitespace-OR'd triple patterns (fnmatch), `{ a b }` groups, `&&`, and
+# `! name` negation of feature predicates.
+
+def _host_triple():
+    try:
+        out = subprocess.run([GCC, "-dumpmachine"], capture_output=True,
+                             text=True, timeout=10)
+        if out.returncode == 0 and out.stdout.strip():
+            return out.stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return "%s-pc-linux-gnu" % platform.machine()
+
+HOST_TRIPLE = _host_triple()
+HOST_MACHINE = HOST_TRIPLE.split("-")[0]
+
+# Effective-target feature predicates on this host (DejaGnu's named
+# features), per the gcc-15 x86-64 Linux gate environment.  x86-64 Linux
+# is LP64: int is 32 bits, long/ptr are 64 bits - so `int32plus` (int at
+# least 32 bits) is TRUE here; it is NOT the ILP32 data model.
+EFFECTIVE_TARGETS = {
+    "ia32": False, "ilp32": False, "llp64": False, "lp64": True,
+    "x86": True,           # DejaGnu arch alias: i?86 or x86_64
+    "int32": True, "int32plus": True,
+    "ptr32plus": True, "size20plus": True, "size32plus": True,
+    "longlong64": True, "double64": True, "double64plus": True,
+    "large_double": False, # x86-64 double is 64-bit IEEE
+    "short_enums": False, "newlib_nano_io": False,
+    "signal": True, "fpic": True, "nonpic": True, "pie": True,
+    "gnu_retain": True,    # binutils 2.41+ emits the .gnu_retain section
+    "run_expensive_tests": True,
+    "indirect_calls": True, "indirect_jumps": True,
+    "asm_goto_with_outputs": True, "label_values": True,
+    "trampolines": True, "nonlocal_goto": True, "named_sections": True,
+    "return_address": True,        # __builtin_frame_address works
+    "int128": True,                # GPR128 emitters (make test-isa128)
+    "c99_runtime": True, "fileio": True, "exceptions": True,
+    "mmap": True, "pthread": True, "scheduling": True,
+    "fgraphite": True, "fenv_exceptions": True, "stdint_types": True,
+    "non_strict_prototype": True, "untyped_assembly": True,
+    "unwrapped": True,
+    "fopenmp": False,              # no OpenMP in zerocc
+    "dfp": False, "dfprt": False,  # no decimal FP on x86
+    "avx512f": False, "avx512dq": False, "avx512vbmi2": False,
+    "arm_arch_v5t_thumb_ok": False,
+    "float16_runtime": True, "float32_runtime": True,
+    "float64_runtime": True, "float128_runtime": True,
+    "float64x_runtime": True, "bfloat16_runtime": True,
+    "float32x_runtime": True, "float128x_runtime": True,
+}
+
+def _tgt_tokens(s):
+    toks, i, n = [], 0, len(s)
+    while i < n:
+        c = s[i]
+        if c.isspace():
+            i += 1
+        elif c == "{":
+            depth, j = 1, i + 1
+            while j < n and depth:
+                if s[j] == "{":
+                    depth += 1
+                elif s[j] == "}":
+                    depth -= 1
+                j += 1
+            toks.append(("grp", s[i + 1:j - 1])); i = j
+        elif s.startswith("&&", i):
+            toks.append(("and", "")); i += 2
+        elif c == "!":
+            toks.append(("not", "")); i += 1
+        else:
+            j = i
+            while j < n and not s[j].isspace() and s[j] not in "{}&":
+                j += 1
+            toks.append(("name", s[i:j])); i = j
+    return toks
+
+def _tgt_name(name):
+    if name in EFFECTIVE_TARGETS:
+        return EFFECTIVE_TARGETS[name]
+    if fnmatch.fnmatch(HOST_TRIPLE, name):
+        return True
+    return ("*" not in name and "?" not in name
+            and name in (HOST_MACHINE, HOST_TRIPLE))
+
+def _tgt_parse_and(toks, pos):
+    val, pos = _tgt_parse_or(toks, pos)
+    while pos < len(toks) and toks[pos][0] == "and":
+        val2, pos = _tgt_parse_or(toks, pos + 1)
+        val = val and val2
+    return val, pos
+
+def _tgt_parse_or(toks, pos):
+    val = False
+    while pos < len(toks) and toks[pos][0] != "and":
+        kind, v = toks[pos]
+        if kind == "not":
+            pos += 1
+            if pos >= len(toks):
+                break
+            kind2, v2 = toks[pos]; pos += 1
+            if kind2 == "grp":
+                sub, _ = _tgt_parse_and(_tgt_tokens(v2), 0)
+            else:
+                sub = _tgt_name(v2)
+            val = val or (not sub)
+        elif kind == "grp":
+            sub, _ = _tgt_parse_and(_tgt_tokens(v), 0)
+            val = val or sub
+            pos += 1
+        else:
+            val = val or _tgt_name(v)
+            pos += 1
+    return val, pos
+
+def target_matches(expr):
+    """True when the host satisfies a DejaGnu target-clause expression.
+    An empty/absent clause matches (the directive applies unconditionally)."""
+    if not expr or not expr.strip():
+        return True
+    toks = _tgt_tokens(expr.strip())
+    if not toks:
+        return True
+    val, _ = _tgt_parse_and(toks, 0)
+    return val
+
+def tgt_first_arch(expr):
+    """First triple-pattern (wildcards stripped) for SKIP-TARGET naming."""
+    def _first(toks):
+        for kind, v in toks:
+            if kind == "name" and v not in EFFECTIVE_TARGETS and v != "target":
+                return re.sub(r"[*?_-]+", "", v) or "arch"
+            if kind == "grp":
+                got = _first(_tgt_tokens(v))
+                if got:
+                    return got
+        return None
+    return _first(_tgt_tokens(expr or "")) or "arch"
+
+def _match_brace(text, open_idx):
+    """Index just past the `}` matching the `{` at open_idx."""
+    depth, j, n = 1, open_idx + 1, len(text)
+    while j < n and depth:
+        if text[j] == "{":
+            depth += 1
+        elif text[j] == "}":
+            depth -= 1
+        j += 1
+    return j
+
+def _clause_after(text, kw_end, keyword):
+    """Optional `{ ... }` clause immediately after a directive keyword.
+    Returns the clause body (text between the outer braces) or None."""
+    i = kw_end
+    while i < len(text) and text[i].isspace():
+        i += 1
+    if not text.startswith("{", i):
+        return None
+    j = _match_brace(text, i)
+    return text[i + 1:j - 1].strip()
+
 # dg-require-effective-target tokens zerocc cannot satisfy (GNU extensions /
 # other architectures / features we deliberately do not implement).
 # NOTE: `untyped_assembly` was removed in Sprint 102 - in GCC's DejaGnu it
@@ -128,6 +298,8 @@ UNSUPPORTED_TARGETS = {
     "arm", "armeb", "armel", "aarch64", "powerpc", "powerpc64", "ppc",
     "ppc64", "ia64", "mips", "mipsel", "s390", "s390x", "hppa", "sparc",
     "sparc64", "vax", "m68k", "msp430", "cris", "alpha", "avrgcc",
+    "pdp11", "vms", "loongarch", "z80",
+    # features zerocc does not implement
     "ieee-float128",
 }
 
@@ -145,11 +317,7 @@ SKIP_OPTION_SUBSTR = ("-mfpmath=", "-ffast-math", "-finstrument-functions", "-fs
 TRAMPOLINES_BLOCKED = set()
 
 RE_DG_DO = re.compile(r"\{\s*dg-do\s+([a-z-]+)")
-RE_DG_DO_TARGET = re.compile(r"\{\s*dg-do\s+[a-z-]+\s+\{\s*target\s+([^}]*?)\s*\}")
-RE_DG_REQ = re.compile(r"\{\s*dg-require-effective-target\s+([^}]*?)\s*\}")
-RE_DG_OPTS = re.compile(r'\{\s*(?:dg-options|dg-additional-options)\s+"([^"]*)"')
 RE_DG_BOGUS = re.compile(r"\{\s*dg-bogus")
-RE_DG_ERROR = re.compile(r"\{\s*dg-error")
 RE_DG_TIMEOUT = re.compile(r"\{\s*dg-timeout\s+(\d+)")
 RE_DG_TIMEOUT_FACTOR = re.compile(r"\{\s*dg-timeout-factor\s+(\d+)")
 RE_PCT_P = re.compile(r'("%p|%p"|[^"%]%p)')
@@ -166,27 +334,82 @@ def parse_directives(path):
     blob = "\n".join(text)
     d = {
         "do": None,
+        "do_target": None,
         "requires": [],
-        "do_targets": [],
         "options": "",
         "x_flags": "",
         "bogus": False,
         "expects_error": False,
         "timeout": RUN_TIMEOUT,
         "ptr_output": False,
+        "skip_if_target": None,
+        "has_declspec": False,
     }
     m = RE_DG_DO.search(blob)
     if m:
         d["do"] = m.group(1)
-    for m in RE_DG_REQ.finditer(blob):
-        d["requires"].extend(
-            t for t in re.split(r"[^A-Za-z0-9_]+", m.group(1)) if t)
-    for m in RE_DG_DO_TARGET.finditer(blob):
-        d["do_targets"].append(m.group(1).strip())
-    for m in RE_DG_OPTS.finditer(blob):
-        d["options"] = (d["options"] + " " + m.group(1)).strip()
+        clause = _clause_after(blob, m.end(), "dg-do")
+        if clause is not None and clause.startswith("target"):
+            d["do_target"] = clause[len("target"):].strip()
+    for m in re.finditer(r"\{\s*dg-require-effective-target\s+", blob):
+        clause = _clause_after(blob, m.end(), "dg-require-effective-target")
+        if clause is None:
+            clause = blob[m.end():blob.find("}", m.end())].strip()
+        if clause.startswith("{") and clause.endswith("}"):
+            clause = clause[1:-1]
+        d["requires"].extend(t for t in re.split(r"\s+", clause.strip()) if t)
+    # dg-options / dg-additional-options with optional `{ target ... }`
+    # clause: the flags apply only when the host satisfies the clause.
+    for m in re.finditer(
+            r'\{\s*(?:dg-options|dg-additional-options)\s+"([^"]*)"', blob):
+        clause = _clause_after(blob, m.end(), "dg-options")
+        tgt = None
+        if clause is not None and clause.startswith("target"):
+            tgt = clause[len("target"):].strip()
+        if target_matches(tgt):
+            d["options"] = (d["options"] + " " + m.group(1)).strip()
     d["bogus"] = bool(RE_DG_BOGUS.search(blob))
-    d["expects_error"] = bool(RE_DG_ERROR.search(blob))
+    # dg-error: the test expects a compile error only when at least one
+    # dg-error's `{ target ... }` clause applies on this host (pr46534's
+    # dg-error is `! size32plus`-gated - inapplicable on x86-64).
+    for m in re.finditer(r"\{\s*dg-error\b", blob):
+        close = _match_brace(blob, m.start())
+        outer = blob[m.start() + 1:close - 1]
+        tm = re.search(r"\{\s*target\s+", outer)
+        if tm:
+            tclose = _match_brace(outer, tm.start())
+            if target_matches(outer[tm.end():tclose - 1].strip()):
+                d["expects_error"] = True
+        else:
+            d["expects_error"] = True
+    # dg-skip-if "msg" { <target expr> } { "options" } { "compiler" }:
+    # skip when the target clause matches AND the options group (when
+    # present) matches the effective options - `{ *-*-* } { "-flto" }`
+    # only skips under -flto, which this gate never passes.
+    for m in re.finditer(r"\{\s*dg-skip-if\s+\"[^\"]*\"\s*", blob):
+        i = m.end()
+        while i < len(blob) and blob[i].isspace():
+            i += 1
+        if not blob.startswith("{", i):
+            continue
+        j = _match_brace(blob, i)
+        clause = blob[i + 1:j - 1].strip()
+        if not target_matches(clause):
+            continue
+        k = j
+        while k < len(blob) and blob[k].isspace():
+            k += 1
+        if blob.startswith("{", k):
+            l = _match_brace(blob, k)
+            opts = blob[k + 1:l - 1].strip().strip('"')
+        elif blob.startswith('"', k):
+            q = blob.find('"', k + 1)
+            opts = blob[k + 1:q].strip()
+        else:
+            opts = ""
+        if opts not in ("", "*") and opts not in d["options"]:
+            continue
+        d["skip_if_target"] = clause
     # DejaGnu: `dg-timeout-factor N` multiplies the default timeout; an
     # absolute `dg-timeout N` overrides it (the two are mutually exclusive
     # in the corpus).
@@ -210,6 +433,7 @@ def parse_directives(path):
                 break
     d["ptr_output"] = bool(RE_PCT_P.search(full_text))
     d["setjmp"] = bool(re.search(r"setjmp|longjmp", full_text))
+    d["has_declspec"] = "__declspec" in full_text
     return d
 
 
@@ -231,14 +455,21 @@ def skip_reason(path, d):
             continue
         if t in UNSUPPORTED_TARGETS:
             return "SKIP-TARGET:%s" % t
-    # dg-do/dg-require `{ target <arch>... }` for a non-host architecture:
-    # the test's content is arch-specific (ia64/mips asm and calling
-    # conventions) and cannot be validated on x86-64. (pr29201: ia64;
-    # mipscop-{2,3,4}: mips.) powerpc-ibm-aix targets are left alone -
-    # those tests' content is portable and passes on x86.
-    for tgt in d["do_targets"] + d["requires"]:
+    # dg-do `{ target <arch>... }` unsatisfied on the host: the test's
+    # content is for another architecture (Sprint 159: clause-aware - the
+    # pre-159 harness ignored the clause and fed foreign-arch flags to the
+    # reference, misclassifying the tests as NO-REF).
+    if d["do_target"] is not None and not target_matches(d["do_target"]):
+        return "SKIP-TARGET:%s" % tgt_first_arch(d["do_target"])
+    for tgt in d["requires"]:
         if re.fullmatch(r"(?:ia64|mips)[\w*-]*", tgt):
             return "SKIP-TARGET:%s" % re.split(r"[*-]", tgt)[0]
+    if d["skip_if_target"] and target_matches(d["skip_if_target"]):
+        return "SKIP-TARGET:%s" % tgt_first_arch(d["skip_if_target"])
+    if d["has_declspec"]:
+        # Windows __declspec (dllimport/dllexport): rejected by the gcc
+        # reference on Linux and not a portability feature (compile/dll.c).
+        return "SKIP-TARGET:windows"
     if rel.as_posix() in TRAMPOLINES_BLOCKED:
         return "SKIP-TARGET:trampolines"
     # indirect_jumps is now supported (computed goto + &&label tables),
@@ -299,11 +530,17 @@ def test_sources(rel_path):
         src += "\n" + lib.read_text(errors="replace")
     if "main_test" in src and not re.search(r"\bmain\s*\(", src):
         WORK.mkdir(parents=True, exist_ok=True)
-        w = WORK / ("wrap_%s.c" % hashlib.sha1(rel_path.encode()).hexdigest()[:10])
+        w = WORK / ("wrap_%s_v2.c" % hashlib.sha1(rel_path.encode()).hexdigest()[:10])
         if not w.exists():
             w.write_text(
+                "#include <stdlib.h>\n"
                 "int inside_main;\n"
                 "int main_test(void);\n"
+                # The c-torture harness defines link_error (GCC's
+                # execute/builtins/lib/main.c does so at -O0; at -O1+ the
+                # constant cases fold and the calls die) - the uabs
+                # family's reference link fails without it.
+                "void link_error(void) { abort(); }\n"
                 "int main(void) { inside_main = 1; main_test(); return 0; }\n")
         extra.append(str(w))
     return str(path), extra
@@ -319,7 +556,7 @@ def gcc_ref(path, d, is_run, extra=None):
     REFCACHE.mkdir(parents=True, exist_ok=True)
     art = REFCACHE / (key + (".bin" if is_run else ".o"))
     if art.exists():
-        return True, art, "cache"
+        return True, art, "cache", ""
     base = [GCC, "-O1"]
     if opt:
         base += opt.split()
@@ -335,8 +572,8 @@ def gcc_ref(path, d, is_run, extra=None):
     rc, _out, err = run(cmd, BUILD_TIMEOUT * d.get("timeout_factor", 1))
     if rc != 0:
         lines = [l for l in err.strip().splitlines() if l.strip()]
-        return False, None, lines[-1] if lines else "gcc rc=%s" % rc
-    return True, art, "built"
+        return False, None, (lines[-1] if lines else "gcc rc=%s" % rc), err
+    return True, art, "built", ""
 
 
 def zc_flags(d, level):
@@ -386,18 +623,34 @@ def run_one(rel_path):
     if is_run:
         path, extra = test_sources(rel_path)
 
-    ok, art, detail = gcc_ref(path, d, is_run, extra)
+    ok, art, detail, errall = gcc_ref(path, d, is_run, extra)
+    # A reference that fails to BUILD because of a reference-side defect
+    # (gcc ICE, the platform assembler rejecting the emitted code) is a
+    # REF-BUG, not a missing reference: pr123365 (cc1 ICE in
+    # emit_move_insn), 920520-1/920521-1 (x86 gas rejects the asm the
+    # reference emits).
+    ref_build_bug = bool(
+        re.search(r"internal compiler error|README\.Bugs|Assembler messages"
+                  r"|(?::|^\s*)Error: ", errall, re.M))
     if d["expects_error"]:
-        if not ok:
+        if not ok and not ref_build_bug:
             res["class"] = "EXPECTED-REJECT"
             res["note"] = detail
+            return res
+        if not ok:
+            res["class"] = "REF-BUG"
+            res["note"] = "[reference build ICE: " + detail[:160] + "]"
             return res
         res["class"] = "NO-REF"
         res["note"] = "dg-error but gcc accepted"
         return res
     if not ok:
-        res["class"] = "NO-REF"
-        res["note"] = detail
+        if ref_build_bug:
+            res["class"] = "REF-BUG"
+            res["note"] = "[reference build failed: " + detail[:160] + "]"
+        else:
+            res["class"] = "NO-REF"
+            res["note"] = detail
         return res
 
     WORK.mkdir(parents=True, exist_ok=True)

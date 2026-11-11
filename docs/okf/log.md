@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-11T17:10:32Z
+timestamp: 2026-11-11T19:16:27Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1329,3 +1329,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-11 — Updated `build-and-verification.md`
 - Sprint 158: new make test-abi-interop gate (bidirectional zerocc.o <-> gcc.o interop, 15 scenarios x 3 binaries x -O0/1/2) added to the verification matrix and the mandatory-gate list.
+
+## 2026-11-11 — Updated `c-torture-gate.md`
+- Sprint 159: clause-aware DejaGnu target evaluation (dg-options/dg-do/dg-skip-if/dg-error { target } clauses + EFFECTIVE_TARGETS + dg-skip-if options arg); REF-BUG build-failure classification; NO-REF 23 -> 1; PASS 3762 -> 3775; baseline ratcheted
+
+## 2026-11-11 — Updated `ir-and-regalloc.md`
+- Sprint 159: __builtin_{add,sub,mul}_overflow{,_p} corrected to the GCC model (own-signedness operands, both-unsigned domain, exact-result-vs-r-range; 128-bit-precision limit tests for signed-domain mul; OF analysis for add/sub)

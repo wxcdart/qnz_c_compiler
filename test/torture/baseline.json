@@ -1,6 +1,6 @@
 {
  "corpus_commit": "gcc-mirror/master@442eb35f4d2ed59a7977bf4f93a2e2545a5b451c",
- "generated": "2026-11-09T02:21:10Z",
+ "generated": "2026-11-11T18:59:40Z",
  "tests": {
   "compile/103818.c": {
    "class": "PASS",
@@ -3376,9 +3376,9 @@
    "note": ""
   },
   "compile/20111209-1.c": {
-   "class": "NO-REF",
+   "class": "SKIP-TARGET:s390x",
    "configs": {},
-   "note": "      | ^~~~~~~"
+   "note": ""
   },
   "compile/20120524-1.c": {
    "class": "PASS",
@@ -4047,14 +4047,14 @@
    "note": ""
   },
   "compile/920520-1.c": {
-   "class": "NO-REF",
+   "class": "REF-BUG",
    "configs": {},
-   "note": "/home/ubuntu/dev/qnz_c_compiler/third_party/vendor/c-torture/compile/920520-1.c:5: Error: junk at end of line, first unrecognized character is `%'"
+   "note": "[reference build failed: /home/ubuntu/dev/qnz_c_compiler/third_party/vendor/c-torture/compile/920520-1.c:5: Error: junk at end of line, first unrecognized character is `%']"
   },
   "compile/920521-1.c": {
-   "class": "NO-REF",
+   "class": "REF-BUG",
    "configs": {},
-   "note": "/home/ubuntu/dev/qnz_c_compiler/third_party/vendor/c-torture/compile/920521-1.c:4: Error: no such instruction: `g'"
+   "note": "[reference build failed: /home/ubuntu/dev/qnz_c_compiler/third_party/vendor/c-torture/compile/920521-1.c:4: Error: no such instruction: `g']"
   },
   "compile/920529-1.c": {
    "class": "PASS",
@@ -6243,14 +6243,20 @@
    "note": ""
   },
   "compile/attr-retain-1.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "gcc-15: error: unrecognized command-line option \u2018-G0\u2019"
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
+   "note": ""
   },
   "compile/attr-retain-2.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "gcc-15: error: unrecognized command-line option \u2018-G0\u2019"
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
+   "note": ""
   },
   "compile/attr-used-retain-1.c": {
    "class": "PASS",
@@ -6965,9 +6971,9 @@
    "note": ""
   },
   "compile/dll.c": {
-   "class": "NO-REF",
+   "class": "SKIP-TARGET:windows",
    "configs": {},
-   "note": "/home/ubuntu/dev/qnz_c_compiler/third_party/vendor/c-torture/compile/dll.c:24: error: expected \u2018{\u2019 at end of input"
+   "note": ""
   },
   "compile/dm.c": {
    "class": "PASS",
@@ -8806,9 +8812,12 @@
    "note": ""
   },
   "compile/pr117449.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "cc1: note: valid arguments to \u2018-march=\u2019 switch are: nocona core2 nehalem corei7 westmere sandybridge corei7-avx ivybridge core-avx-i haswell core-avx2 broadwell skylake skylake-avx512 cannonlake icelake-client rocketlake icelake-server cascadelake tigerlake cooperlake sapphirerapids emeraldrapids alderlake raptorlake meteorlake graniterapids graniterapids-d arrowlake arrowlake-s lunarlake pantherlake diamondrapids bonnell atom silvermont slm goldmont goldmont-plus tremont gracemont sierraforest grandridge clearwaterforest x86-64 x86-64-v2 x86-64-v3 x86-64-v4 eden-x2 nano nano-1000 nano-2000 nano-3000 nano-x2 eden-x4 nano-x4 lujiazui yongfeng shijidadao k8 k8-sse3 opteron opteron-sse3 athlon64 athlon64-sse3 athlon-fx amdfam10 barcelona bdver1 bdver2 bdver3 bdver4 znver1 znver2 znver3 znver4 znver5 btver1 btver2 native"
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
+   "note": ""
   },
   "compile/pr118362.c": {
    "class": "PASS",
@@ -8883,9 +8892,9 @@
    "note": ""
   },
   "compile/pr123365.c": {
-   "class": "NO-REF",
+   "class": "REF-BUG",
    "configs": {},
-   "note": "See <file:///usr/share/doc/gcc-15/README.Bugs> for instructions."
+   "note": "[reference build failed: See <file:///usr/share/doc/gcc-15/README.Bugs> for instructions.]"
   },
   "compile/pr123386.c": {
    "class": "PASS",
@@ -8912,9 +8921,12 @@
    "note": ""
   },
   "compile/pr124280.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "cc1: note: valid arguments to \u2018-mtune=\u2019 switch are: nocona core2 nehalem corei7 westmere sandybridge corei7-avx ivybridge core-avx-i haswell core-avx2 broadwell skylake skylake-avx512 cannonlake icelake-client rocketlake icelake-server cascadelake tigerlake cooperlake sapphirerapids emeraldrapids alderlake raptorlake meteorlake graniterapids graniterapids-d arrowlake arrowlake-s lunarlake pantherlake diamondrapids bonnell atom silvermont slm goldmont goldmont-plus tremont gracemont sierraforest grandridge clearwaterforest intel x86-64 eden-x2 nano nano-1000 nano-2000 nano-3000 nano-x2 eden-x4 nano-x4 lujiazui yongfeng shijidadao k8 k8-sse3 opteron opteron-sse3 athlon64 athlon64-sse3 athlon-fx amdfam10 barcelona bdver1 bdver2 bdver3 bdver4 znver1 znver2 znver3 znver4 znver5 btver1 btver2 generic native"
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
+   "note": ""
   },
   "compile/pr124643.c": {
    "class": "PASS",
@@ -11759,11 +11771,8 @@
    "note": ""
   },
   "compile/pr44707.c": {
-   "class": "PASS",
-   "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
-   },
+   "class": "SKIP-TARGET:powerpcibmaix",
+   "configs": {},
    "note": ""
   },
   "compile/pr44784.c": {
@@ -11975,9 +11984,12 @@
    "note": ""
   },
   "compile/pr46534.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "dg-error but gcc accepted"
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
+   "note": ""
   },
   "compile/pr46547-1.c": {
    "class": "PASS",
@@ -13814,9 +13826,12 @@
    "note": ""
   },
   "compile/pr78748.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "cc1: note: valid arguments to \u2018-march=\u2019 switch are: nocona core2 nehalem corei7 westmere sandybridge corei7-avx ivybridge core-avx-i haswell core-avx2 broadwell skylake skylake-avx512 cannonlake icelake-client rocketlake icelake-server cascadelake tigerlake cooperlake sapphirerapids emeraldrapids alderlake raptorlake meteorlake graniterapids graniterapids-d arrowlake arrowlake-s lunarlake pantherlake diamondrapids bonnell atom silvermont slm goldmont goldmont-plus tremont gracemont sierraforest grandridge clearwaterforest x86-64 x86-64-v2 x86-64-v3 x86-64-v4 eden-x2 nano nano-1000 nano-2000 nano-3000 nano-x2 eden-x4 nano-x4 lujiazui yongfeng shijidadao k8 k8-sse3 opteron opteron-sse3 athlon64 athlon64-sse3 athlon-fx amdfam10 barcelona bdver1 bdver2 bdver3 bdver4 znver1 znver2 znver3 znver4 znver5 btver1 btver2 native"
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
+   "note": ""
   },
   "compile/pr78883.c": {
    "class": "PASS",
@@ -13995,8 +14010,11 @@
    "note": ""
   },
   "compile/pr82096.c": {
-   "class": "SKIP-TARGET:arm",
-   "configs": {},
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
    "note": ""
   },
   "compile/pr82337.c": {
@@ -14357,14 +14375,17 @@
    "note": ""
   },
   "compile/pr88347.c": {
-   "class": "NO-REF",
+   "class": "SKIP-TARGET:powerpc",
    "configs": {},
-   "note": "cc1: note: valid arguments to \u2018-mtune=\u2019 switch are: nocona core2 nehalem corei7 westmere sandybridge corei7-avx ivybridge core-avx-i haswell core-avx2 broadwell skylake skylake-avx512 cannonlake icelake-client rocketlake icelake-server cascadelake tigerlake cooperlake sapphirerapids emeraldrapids alderlake raptorlake meteorlake graniterapids graniterapids-d arrowlake arrowlake-s lunarlake pantherlake diamondrapids bonnell atom silvermont slm goldmont goldmont-plus tremont gracemont sierraforest grandridge clearwaterforest intel x86-64 eden-x2 nano nano-1000 nano-2000 nano-3000 nano-x2 eden-x4 nano-x4 lujiazui yongfeng shijidadao k8 k8-sse3 opteron opteron-sse3 athlon64 athlon64-sse3 athlon-fx amdfam10 barcelona bdver1 bdver2 bdver3 bdver4 znver1 znver2 znver3 znver4 znver5 btver1 btver2 generic native"
+   "note": ""
   },
   "compile/pr88423.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "compilation terminated."
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O2-aot": "OK"
+   },
+   "note": ""
   },
   "compile/pr89235.c": {
    "class": "PASS",
@@ -14732,11 +14753,8 @@
    "note": ""
   },
   "compile/pr96998.c": {
-   "class": "PASS",
-   "configs": {
-    "O0-aot": "OK",
-    "O2-aot": "OK"
-   },
+   "class": "SKIP-TARGET:arm",
+   "configs": {},
    "note": ""
   },
   "compile/pr97141.c": {
@@ -17374,9 +17392,18 @@
    "note": ""
   },
   "execute/20010129-1.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "cc1: error: CPU you selected does not support x86-64 instruction set"
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
+   "note": ""
   },
   "execute/20010206-1.c": {
    "class": "PASS",
@@ -21957,9 +21984,18 @@
    "note": ""
   },
   "execute/20101011-1.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "gcc-15: error: unrecognized command-line option \u2018-mcheck-zero-division\u2019"
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
+   "note": ""
   },
   "execute/20101013-1.c": {
    "class": "PASS",
@@ -28533,9 +28569,18 @@
    "note": ""
   },
   "execute/builtins/uabs-2.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "collect2: error: ld returned 1 exit status"
+   "class": "REF-BUG",
+   "configs": {
+    "O0-aot": "REFBUG",
+    "O0-jit": "REFBUG",
+    "O1-aot": "REFBUG",
+    "O1-jit": "REFBUG",
+    "O2-aot": "REFBUG",
+    "O2-jit": "REFBUG",
+    "O3-aot": "REFBUG",
+    "O3-jit": "REFBUG"
+   },
+   "note": " [reference gcc -O1 binary crashes rc=-6; test encodes behavior fixed after the reference GCC version]"
   },
   "execute/builtins/uabs-3-lib.c": {
    "class": "SKIP-SUPPORT",
@@ -31133,9 +31178,18 @@
    "note": ""
   },
   "execute/nest-align-1.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "gcc-15: error: unrecognized command-line option \u2018-mno-eabi\u2019; did you mean \u2018-Wno-abi\u2019?"
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
+   "note": ""
   },
   "execute/nest-stdar-1.c": {
    "class": "PASS",
@@ -31558,9 +31612,18 @@
    "note": ""
   },
   "execute/pr105777.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "compilation terminated."
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
+   "note": ""
   },
   "execute/pr105984.c": {
    "class": "PASS",
@@ -31759,14 +31822,32 @@
    "note": ""
   },
   "execute/pr109938.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "compilation terminated."
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
+   "note": ""
   },
   "execute/pr109986.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "compilation terminated."
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
+   "note": ""
   },
   "execute/pr110115.c": {
    "class": "PASS",
@@ -32511,18 +32592,18 @@
    "note": ""
   },
   "execute/pr123864.c": {
-   "class": "PASS",
+   "class": "REF-BUG",
    "configs": {
-    "O0-aot": "OK",
-    "O0-jit": "OK",
-    "O1-aot": "OK",
-    "O1-jit": "OK",
-    "O2-aot": "OK",
-    "O2-jit": "OK",
-    "O3-aot": "OK",
-    "O3-jit": "OK"
+    "O0-aot": "REFBUG",
+    "O0-jit": "REFBUG",
+    "O1-aot": "REFBUG",
+    "O1-jit": "REFBUG",
+    "O2-aot": "REFBUG",
+    "O2-jit": "REFBUG",
+    "O3-aot": "REFBUG",
+    "O3-jit": "REFBUG"
    },
-   "note": ""
+   "note": " [reference gcc -O1 binary crashes rc=-6; test encodes behavior fixed after the reference GCC version]"
   },
   "execute/pr123978.c": {
    "class": "PASS",
@@ -33631,9 +33712,18 @@
    "note": ""
   },
   "execute/pr30314.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "compilation terminated."
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
+   "note": ""
   },
   "execute/pr30778.c": {
    "class": "PASS",
@@ -40291,9 +40381,18 @@
    "note": ""
   },
   "execute/pr98304-2.c": {
-   "class": "NO-REF",
-   "configs": {},
-   "note": "compilation terminated."
+   "class": "PASS",
+   "configs": {
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
+   },
+   "note": ""
   },
   "execute/pr98366.c": {
    "class": "PASS",
@@ -41983,9 +42082,9 @@
  },
  "totals": {
   "EXPECTED-REJECT": 4,
-  "NO-REF": 23,
-  "PASS": 3762,
-  "REF-BUG": 6,
+  "NO-REF": 1,
+  "PASS": 3775,
+  "REF-BUG": 11,
   "SKIP-BOGUS": 1,
   "SKIP-C89": 33,
   "SKIP-PTR": 1,
@@ -41994,6 +42093,10 @@
   "SKIP-TARGET:arm": 1,
   "SKIP-TARGET:ia64": 1,
   "SKIP-TARGET:mips": 4,
+  "SKIP-TARGET:powerpc": 1,
+  "SKIP-TARGET:powerpcibmaix": 1,
+  "SKIP-TARGET:s390x": 1,
+  "SKIP-TARGET:windows": 1,
   "SKIP-UB": 1
  }
 }
