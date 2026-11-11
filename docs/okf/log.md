@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-11T19:16:27Z
+timestamp: 2026-11-11T20:31:16Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1335,3 +1335,12 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-11 — Updated `ir-and-regalloc.md`
 - Sprint 159: __builtin_{add,sub,mul}_overflow{,_p} corrected to the GCC model (own-signedness operands, both-unsigned domain, exact-result-vs-r-range; 128-bit-precision limit tests for signed-domain mul; OF analysis for add/sub)
+
+## 2026-11-11 — Updated `c-torture-gate.md`
+- Sprint 160: __builtin_issignaling + C23 _FloatN types/literals + sNaN-preserving 4-byte FP load/store; 6 issignaling tests PASS (SKIP-REFSEM -> PASS), 3 honestly SKIP-TARGET (float16/bfloat16/float128x runtime); -fsignaling-nans un-skipped; PASS 3775 -> 3781 (all-time high); also repaired the file truncated in the Sprint 159 commit (restored from d1612a8 + ported 159/160 bucket rows)
+
+## 2026-11-11 — Updated `frontend-and-types.md`
+- Sprint 160: C23 _FloatN type specifiers (all resolution paths + K&R guard) and float-literal width suffixes (lexer bits 4-7, semantic width-before-f-fallback); __builtin_{inf,nan,nans}* semantic typing
+
+## 2026-11-11 — Updated `ir-and-regalloc.md`
+- Sprint 160: sNaN-preserving ir_emit_vstoress/vloadss (moved to ast_lowering_builtin_helpers.c, ISA-uniform IR fixups: float quiet bit 22 / double quiet bit 51) + __builtin_issignaling lowering; structure trap: the converting load must always run, fixup is the conditional tail

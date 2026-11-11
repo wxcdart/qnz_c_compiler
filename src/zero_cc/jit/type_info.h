@@ -590,6 +590,15 @@ static inline ZeroCCType zero_cc_resolve_base_type(ZeroCCCompiler *c, ZeroCCTokT
         /* GNU __float128 (Sprint 112): 16-byte quad-precision FP base
          * (lowered through the 64-bit double value model). */
         if (strcmp(type_name, "__float128") == 0) return zero_cc_type_float128();
+        /* C23 _FloatN (Sprint 160): nearest supported width - _Float32 ->
+         * float, _Float64/_Float32x -> double, _Float128/_Float64x -> the
+         * 16-byte __float128 object. _Float16/__bf16/_Float128x have no
+         * ZeroCC object model (stay unsupported). */
+        if (strcmp(type_name, "_Float32") == 0) return zero_cc_type_float();
+        if (strcmp(type_name, "_Float64") == 0 ||
+            strcmp(type_name, "_Float32x") == 0) return zero_cc_type_double();
+        if (strcmp(type_name, "_Float128") == 0 ||
+            strcmp(type_name, "_Float64x") == 0) return zero_cc_type_float128();
         ZeroCCType *tdef = zero_cc_find_typedef(c, type_name);
         if (!tdef) tdef = zero_cc_find_struct(c, type_name);
         if (!tdef) tdef = zero_cc_find_enum(c, type_name);

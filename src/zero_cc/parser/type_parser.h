@@ -653,6 +653,17 @@ static inline ZeroCCType zc_parse_basic_type_spec(ZeroCCCompiler *c, size_t *pos
             if (k) { has_int128 = 1; int128_kind = k; }
             /* GNU __float128 (Sprint 112). */
             else if (strcmp(c->tokens[*pos].str_val, "__float128") == 0) has_float128 = 1;
+            /* C23 _FloatN / _FloatNx (Sprint 160). ZeroCC models every FP
+             * width with its nearest existing FP object: _Float32 -> float
+             * (4B slot, double model), _Float64/_Float32x -> double, and
+             * _Float128/_Float64x -> the 16-byte __float128 object. _Float16,
+             * __bf16 and _Float128x have no ZeroCC object model and stay
+             * unsupported (the c-torture gate skips their tests). */
+            else if (strcmp(c->tokens[*pos].str_val, "_Float32") == 0) has_float = 1;
+            else if (strcmp(c->tokens[*pos].str_val, "_Float64") == 0) has_double = 1;
+            else if (strcmp(c->tokens[*pos].str_val, "_Float32x") == 0) has_double = 1;
+            else if (strcmp(c->tokens[*pos].str_val, "_Float128") == 0 ||
+                     strcmp(c->tokens[*pos].str_val, "_Float64x") == 0) has_float128 = 1;
             else break;
         }
         /* Type qualifiers interleave with specifiers in any order
@@ -1215,6 +1226,19 @@ static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c) {
             c->token_pos++;
         } else if (strcmp(name, "__float128") == 0) {
             // GNU __float128 cast target (Sprint 112).
+            ty = zero_cc_type_float128();
+            c->token_pos++;
+        } else if (strcmp(name, "_Float32") == 0) {
+            /* C23 _FloatN (Sprint 160): model _Float32 as the 4-byte
+             * float object (double value model). */
+            ty = zero_cc_type_float();
+            c->token_pos++;
+        } else if (strcmp(name, "_Float64") == 0 ||
+                   strcmp(name, "_Float32x") == 0) {
+            ty = zero_cc_type_double();
+            c->token_pos++;
+        } else if (strcmp(name, "_Float128") == 0 ||
+                   strcmp(name, "_Float64x") == 0) {
             ty = zero_cc_type_float128();
             c->token_pos++;
         } else if (strcmp(name, "y") == 0) {

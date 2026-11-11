@@ -380,3 +380,117 @@ void zc_atomic_extend_value(ZeroCCCompiler *c, int temp,
     }
     lower_extend_narrow(c, temp, ti);
 }
+
+/* ------------------------------------------------------------------------
+ * Sprint 160: sNaN-preserving 4-byte float load/store.
+ *
+ * ZeroCC's scalar FP model keeps a `float` as a 64-bit double in the FP
+ * register; the hardware conversions at the 4-byte object boundary
+ * (cvttsd2ss on store, cvtss2sd on load) QUIET signaling NaNs, so an
+ * sNaN constant (e.g. __builtin_nansf("")) stored to a float variable and
+ * read back would lose its signaling classification, breaking
+ * __builtin_issignaling round-trips (c-torture execute/ieee/*-builtin-
+ * issignaling-1). These fixups make the 4-byte boundary bit-preserving
+ * for NaNs:
+ *   STORE: after the normal converting store, if the stored double was a
+ *          signaling NaN, clear the float quiet bit (0x00400000) in the
+ *          stored 32-bit pattern.
+ *   LOAD:  before the normal converting load, if the stored 32-bit pattern
+ *          is a signaling NaN, clear the double quiet bit (bit 51) in the
+ *          loaded value so it reads back as an sNaN double.
+ * Both are no-ops for every non-NaN (and qNaN/Inf) value; the fixup uses
+ * only IR ops, so it is uniform across ISAs and both the JIT (MC) and AOT
+ * (text) backends. The ~12-instruction cost is paid on every 4-byte FP
+ * access; double (8-byte) paths are untouched.
+ * ------------------------------------------------------------------------ */
+
+static int zc_fp_bitflag_eq(ZeroCCCompiler *c, int bits, uint64_t mask, int shift, uint32_t cmp, int cc) {
+    /* (bits >> shift) & mask == cmp  ->  0/1 flag temp */
+    int sh = zc_alloc_temp(c);
+    ir_emit_mov_imm(c, sh, shift);
+    int t = zc_alloc_temp(c);
+    ir_emit_shr(c, t, bits, sh);
+    int m = zc_alloc_temp(c);
+    ir_emit_mov_imm(c, m, (int64_t)mask);
+    int m2 = zc_alloc_temp(c);
+    ir_emit_and(c, m2, t, m);
+    return zc_ovf_cmp_set_imm(c, m2, cmp, cc);
+}
+
+void ir_emit_vstoress(ZeroCCCompiler *c, uint32_t temp_addr, uint32_t temp_src) {
+    ir_emit(c, (Instr){.op = OP_VSTORESS, .temp_dest= TEMP_NONE, .temp_src1 = temp_addr, .temp_src2 = temp_src, .imm = 0, .label_idx = 0});
+
+    /* sNaN fixup: materialize the double's 64-bit pattern as an int, then
+     * if it was a signaling NaN (exp all-ones, mantissa != 0, quiet bit
+     * clear), read the stored float bits and clear the float quiet bit. */
+    c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+    c->current_stack_frame += 8;
+    int32_t slot = c->current_stack_frame;
+    ir_emit_fstore(c, temp_src, TEMP_NONE, -slot);
+    int t_bits = zc_alloc_temp(c);
+    ir_emit_load(c, t_bits, BE(c)->fp_reg, -slot);
+    int t_f = zc_alloc_temp(c);
+    ir_emit_load_32(c, (uint32_t)t_f, temp_addr);
+    int nan1 = zc_fp_bitflag_eq(c, t_bits, 0x7FF, 52, 0x7FF, CC_EQ);
+    int m = zc_alloc_temp(c);
+    ir_emit_mov_imm(c, m, (int64_t)0x000FFFFFFFFFFFFFULL);
+    int t_man = zc_alloc_temp(c);
+    ir_emit_and(c, t_man, t_bits, m);
+    int nan2 = zc_ovf_cmp_set_imm(c, t_man, 0, CC_NE);
+    int sn = zc_ovf_and(c, nan1, nan2);
+    sn = zc_ovf_and(c, sn, zc_fp_bitflag_eq(c, t_bits, 1, 51, 0, CC_EQ));
+    int lab_skip = c->ir_next_label++;
+    ir_emit_je(c, (uint32_t)sn, (uint16_t)lab_skip);
+    int t_f2 = zc_alloc_temp(c);
+    int m2 = zc_alloc_temp(c);
+    ir_emit_mov_imm(c, m2, (int64_t)(int32_t)0xFFBFFFFF);
+    ir_emit_and(c, t_f2, t_f, m2);
+    /* guarantee a non-zero payload (a zero-payload sNaN is invalid) */
+    int t_f3 = zc_alloc_temp(c);
+    int one = zc_alloc_temp(c);
+    ir_emit_mov_imm(c, one, 1);
+    ir_emit_or(c, t_f3, t_f2, one);
+    ir_emit_store_32(c, (uint32_t)t_f3, temp_addr);
+    ir_emit_label(c, (uint32_t)lab_skip);
+}
+
+void ir_emit_vloadss(ZeroCCCompiler *c, uint32_t temp_dest, uint32_t temp_addr) {
+    /* sNaN fixup (pre-check): read the raw 32-bit float pattern; if it is
+     * a signaling NaN, the converting load must produce an sNaN double
+     * (clear bit 51) instead of the hardware-quieted qNaN. */
+    int t_f = zc_alloc_temp(c);
+    ir_emit_load_32(c, (uint32_t)t_f, temp_addr);
+    int nan1 = zc_fp_bitflag_eq(c, t_f, 0x7F800000, 0, 0x7F800000, CC_EQ);
+    int m = zc_alloc_temp(c);
+    ir_emit_mov_imm(c, m, (int64_t)0x007FFFFF);
+    int t_man = zc_alloc_temp(c);
+    ir_emit_and(c, t_man, t_f, m);
+    int nan2 = zc_ovf_cmp_set_imm(c, t_man, 0, CC_NE);
+    int sn = zc_ovf_and(c, nan1, nan2);
+    int m2 = zc_alloc_temp(c);
+    ir_emit_mov_imm(c, m2, (int64_t)0x00400000);
+    int t_q = zc_alloc_temp(c);
+    ir_emit_and(c, t_q, t_f, m2);
+    sn = zc_ovf_and(c, sn, zc_ovf_cmp_set_imm(c, t_q, 0, CC_EQ));
+    int lab_skip = c->ir_next_label++;
+    ir_emit(c, (Instr){.op = OP_VLOADSS, .temp_dest = temp_dest, .temp_src1 = temp_addr, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
+    /* The normal load already ran; if the stored pattern is a signaling
+     * NaN the hardware quietly quieted it - fall through to the fixup. */
+    ir_emit_je(c, (uint32_t)sn, (uint16_t)lab_skip);
+
+    /* The loaded double is a quieted qNaN; restore the signaling bit by
+     * clearing bit 51 of its 64-bit pattern via a stack slot. */
+    c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+    c->current_stack_frame += 8;
+    int32_t slot = c->current_stack_frame;
+    ir_emit_fstore(c, temp_dest, TEMP_NONE, -slot);
+    int t_bits = zc_alloc_temp(c);
+    ir_emit_load(c, t_bits, BE(c)->fp_reg, -slot);
+    int t_fixed = zc_alloc_temp(c);
+    int m3 = zc_alloc_temp(c);
+    ir_emit_mov_imm(c, m3, (int64_t)0xFFF7FFFFFFFFFFFFLL);
+    ir_emit_and(c, t_fixed, t_bits, m3);
+    ir_emit_store(c, t_fixed, BE(c)->fp_reg, -slot);
+    ir_emit_fload(c, temp_dest, TEMP_NONE, -slot);
+    ir_emit_label(c, (uint16_t)lab_skip);
+}

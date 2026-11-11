@@ -301,11 +301,25 @@ UNSUPPORTED_TARGETS = {
     "pdp11", "vms", "loongarch", "z80",
     # features zerocc does not implement
     "ieee-float128",
+    # Sprint 160: FP widths with no ZeroCC object model.  _Float32/_Float64/
+    # _Float32x/_Float128/_Float64x map onto the existing float/double/
+    # __float128 models (float32/64/32x/128/64x_runtime supported), but
+    # _Float16 (16-bit), __bf16 (brain float) and _Float128x (x87 80-bit
+    # extended) have no storage/ABI/conversion support at all.
+    "float16_runtime",
+    "bfloat16_runtime",
+    "float128x_runtime",
 }
 
 # dg-options that change the reference's observable semantics in ways zerocc
 # cannot emulate (we have no x87 mode and no fast-math pipeline).
-SKIP_OPTION_SUBSTR = ("-mfpmath=", "-ffast-math", "-finstrument-functions", "-fsignaling-nans")
+SKIP_OPTION_SUBSTR = ("-mfpmath=", "-ffast-math", "-finstrument-functions")
+# NOTE: "-fsignaling-nans" was removed in Sprint 160 - its only corpus
+# users are the 9 execute/ieee/*-builtin-issignaling-1.c tests, which
+# construct NaN/inf constants via builtins and classify them with
+# __builtin_issignaling; they perform no FP arithmetic on sNaN values,
+# so the flag's signaling semantics are unobservable in the (rc, stdout)
+# diff.
 
 # Trampoline stubs + pointer-routed closure capture are implemented
 # (Sprint 93), nonlocal goto / __label__ values across nested-function

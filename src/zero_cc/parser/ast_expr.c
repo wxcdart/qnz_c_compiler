@@ -1468,6 +1468,13 @@ bool is_type_specifier_at(ZeroCCCompiler *c, size_t pos, ZeroCCTokType t) {
         if (strcmp(tname, "__float128") == 0) {
             return true;
         }
+        /* C23 _FloatN (Sprint 160): extended-precision FP base names. */
+        if (strcmp(tname, "_Float16") == 0 || strcmp(tname, "_Float32") == 0 ||
+            strcmp(tname, "_Float64") == 0 || strcmp(tname, "_Float128") == 0 ||
+            strcmp(tname, "_Float32x") == 0 || strcmp(tname, "_Float64x") == 0 ||
+            strcmp(tname, "_Float128x") == 0 || strcmp(tname, "__bf16") == 0) {
+            return true;
+        }
     }
     return false;
 }

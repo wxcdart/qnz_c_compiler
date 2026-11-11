@@ -1258,16 +1258,13 @@ static inline void ir_emit_vload(ZeroCCCompiler *c, uint32_t temp_dest, uint32_t
 static inline void ir_emit_vstore(ZeroCCCompiler *c, uint32_t temp_addr, uint32_t temp_src) {
     ir_emit(c, (Instr){.op = OP_VSTORE, .temp_dest= TEMP_NONE, .temp_src1 = temp_addr, .temp_src2 = temp_src, .imm = 0, .label_idx = 0});
 }
-static inline void ir_emit_vloadss(ZeroCCCompiler *c, uint32_t temp_dest, uint32_t temp_addr) {
-    ir_emit(c, (Instr){.op = OP_VLOADSS, .temp_dest = temp_dest, .temp_src1 = temp_addr, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
-}
+/* 4-byte scalar float load/store (Sprint 160: sNaN-preservation fixup -
+ * defined in ast_lowering_builtin_helpers.c, not inline here). */
+extern void ir_emit_vloadss(ZeroCCCompiler *c, uint32_t temp_dest, uint32_t temp_addr);
+extern void ir_emit_vstoress(ZeroCCCompiler *c, uint32_t temp_addr, uint32_t temp_src);
 static inline void ir_emit_vloadsd(ZeroCCCompiler *c, uint32_t temp_dest, uint32_t temp_addr) {
     ir_emit(c, (Instr){.op = OP_VLOADSD, .temp_dest = temp_dest, .temp_src1 = temp_addr, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
 }
-static inline void ir_emit_vstoress(ZeroCCCompiler *c, uint32_t temp_addr, uint32_t temp_src) {
-    ir_emit(c, (Instr){.op = OP_VSTORESS, .temp_dest= TEMP_NONE, .temp_src1 = temp_addr, .temp_src2 = temp_src, .imm = 0, .label_idx = 0});
-}
-
 /* Sprint 115m: raw 4-byte ABI-float access (no double-width scalar-model
  * conversion; the FP register carries the float pattern in its low 32 bits). */
 static inline void ir_emit_vloadss_raw(ZeroCCCompiler *c, uint32_t temp_dest, uint32_t temp_addr) {

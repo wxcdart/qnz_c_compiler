@@ -200,6 +200,44 @@ static inline TypeInfo *type_builtin_libc_return(Arena *perm, const char *name) 
     }
     if (strcmp(base, "sqrtf") == 0) return type_float(perm);
     if (strcmp(base, "sqrt") == 0) return type_double(perm);
+    /* C23 FP special constants (Sprint 160): __builtin_inf{,f,l,f16,f32,
+     * f64,f128,f32x,f64x,f128x,f16b} / __builtin_nan.../ __builtin_nans...
+     * return the indicated floating type (the lowering emits a double-model
+     * bit pattern; width follows the suffix). */
+    {
+        const char *spfx = NULL;
+        size_t splen = 0;
+        if (strncmp(base, "nans", 4) == 0 || strncmp(base, "nan", 3) == 0) {
+            splen = (base[3] == 's') ? 4 : 3;
+            spfx = base;
+        } else if (strncmp(base, "inf", 3) == 0) {
+            splen = 3;
+            spfx = base;
+        }
+        if (spfx) {
+            const char *sfx = spfx + splen;
+            if (*sfx == 0) return type_double(perm);
+            if (strcmp(sfx, "f") == 0 || strcmp(sfx, "l") == 0) {
+                return *sfx == 'f' ? type_float(perm) : type_double(perm);
+            }
+            /* C23 width spellings: `16/16b/32` and the `f`-led forms
+             * (the builtin names carry the full `f16/f32/f64/f128` suffix). */
+            if (strcmp(sfx, "16") == 0 || strcmp(sfx, "16b") == 0 ||
+                strcmp(sfx, "32") == 0 || strcmp(sfx, "f16") == 0 ||
+                strcmp(sfx, "f16b") == 0 || strcmp(sfx, "f32") == 0) {
+                return type_float(perm);
+            }
+            if (strcmp(sfx, "64") == 0 || strcmp(sfx, "32x") == 0 ||
+                strcmp(sfx, "f64") == 0 || strcmp(sfx, "f32x") == 0) {
+                return type_double(perm);
+            }
+            if (strcmp(sfx, "128") == 0 || strcmp(sfx, "64x") == 0 ||
+                strcmp(sfx, "128x") == 0 || strcmp(sfx, "f128") == 0 ||
+                strcmp(sfx, "f64x") == 0 || strcmp(sfx, "f128x") == 0) {
+                return type_double(perm);
+            }
+        }
+    }
     if (strcmp(base, "conjf") == 0) return type_complex(perm, type_float(perm));
     if (strcmp(base, "conj") == 0 || strcmp(base, "conjl") == 0) return type_complex(perm, type_double(perm));
     /* C99 complex part extractors: expanded inline (real/imag half load),

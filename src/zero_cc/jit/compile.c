@@ -96,6 +96,20 @@ static bool zero_cc_try_parse_fn_param_block_kr(
                 kr_shape = false;
                 break;
             }
+            /* C23 _FloatN (Sprint 160): same K&R hazard - `f(_Float32 x)`
+             * is a one-parameter prototype, NOT a two-name K&R list
+             * (which would register `_Float32` and `x` as two int params). */
+            if (strcmp(c->tokens[q].str_val, "_Float16") == 0 ||
+                strcmp(c->tokens[q].str_val, "_Float32") == 0 ||
+                strcmp(c->tokens[q].str_val, "_Float64") == 0 ||
+                strcmp(c->tokens[q].str_val, "_Float128") == 0 ||
+                strcmp(c->tokens[q].str_val, "_Float32x") == 0 ||
+                strcmp(c->tokens[q].str_val, "_Float64x") == 0 ||
+                strcmp(c->tokens[q].str_val, "_Float128x") == 0 ||
+                strcmp(c->tokens[q].str_val, "__bf16") == 0) {
+                kr_shape = false;
+                break;
+            }
             bare_count++;
         }
         else { kr_shape = false; break; }

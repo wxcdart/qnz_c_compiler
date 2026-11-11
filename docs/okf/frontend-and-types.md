@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-11-10T15:37:58Z
+timestamp: 2026-11-11T20:31:16Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -223,6 +223,11 @@ Two width-marking invariants complete the picture (both in `ast_lowering_expr.c`
   - **Dependent parameter types (Sprint 134)**: `typeof(int) f(typeof(int) a, typeof(a) b)` — the param list is not in the semantic scope until the whole list parses, so the declarator-stack param loop (`zero_cc_parse_param_list`, `zero_cc_declarator_stack.h`) records each param's name alongside its canonical type (`ZeroCCDeclarator.param_zt_names`, parallel heap table to `param_zt`) and a plain `typeof(NAME)` param operand resolves against the preceding params (chained/pointer/const/`typeof_unqual` forms included). Only the plain `typeof(NAME)` form (no postfix) takes this path; anything else falls through to `zero_cc_type_of_equality`.
 - **Empty `{}` Initializers** (C23 6.7.10):
   - Standard zero-initialization syntax (`= {}`) supported across all storage classes: automatic locals (scalars, structs, arrays), static locals (`zero_cc_static_local_patch_init` in `ast_stmt.h`), and global variables (`compile_unit.h`).
+- **`_FloatN` type specifiers & float-literal width suffixes (C23 6.2.6, Sprint 160)**:
+  - `_Float32` → the 4-byte float object (double value model); `_Float64`/`_Float32x` → double; `_Float128`/`_Float64x` → the 16-byte `__float128` object model (`is_float128`, value in the low 8 bytes). `_Float16`, `__bf16`, `_Float128x` are recognized as type specifiers (so declarations/casts don't parse as junk) but have no object model — the c-torture `float16`/`bfloat16`/`float128x` tests are honestly `SKIP-TARGET`.
+  - Resolution paths (all must agree — the K&R prototype detector, file-scope globals, local declarations, typedefs, and casts each have their own base-type table): `zc_parse_basic_type_spec`, `zero_cc_parse_type_name` (file scope — the one that registered `_Float32 w;` as a non-float, so the load went `DEREF`+`CVTSI2SD`), `zero_cc_stmt_typedef_scalar`, `zero_cc_resolve_base_type`, `is_type_specifier_at`, `zero_cc_tok_is_type_start`, and the K&R shape detector's type-name guard in `zero_cc_try_parse_fn_param_block_kr` (`f(_Float32 x)` is a one-param prototype, not a two-int-name old-style list — the same guard `__int128`/`__float128` already had).
+  - Float-literal suffixes: after `f`/`F`, `16`/`16b`/`32`/`64`/`128` and `32x`/`64x`/`128x` set width bits 4/5/6/7 in `node->flags` (lexer word-bounded). Semantic typing checks the width bits **before** the plain-`f` fallback: bit7 → double-model float128, bit6 (`f64`/`f32x`) → double, bit1-only → float.
+  - `__builtin_issignaling(x)` (C23 7.12.1.4) and `__builtin_{inf,nan,nans}{,f,l,f16,f32,f64,f128,f32x,f64x,f128x,f16b}`: see `ir-and-regalloc.md` for the lowering; the semantic pass types the special-constant calls by suffix in `type_builtin_libc_return` (previously the int fallback flagged a type-tag mismatch at every use site).
 - **`__STDC_NO_COMPLEX__ 1` Conformance**:
 - **`__STDC_NO_COMPLEX__` is NOT defined**: complex number types are implemented (Sprint 85 C99/GNU `_Complex`, Sprint 94), so the C11/C23 absence macro must be absent; it was stale from before the complex work and was removed.
 

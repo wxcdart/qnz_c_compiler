@@ -411,6 +411,19 @@ static void zc_cx_elem_info(ZeroCCCompiler *c, const ZeroCCASTNode *cx_node,
     *out_u = is_u;
 }
 
+/* Suffixes accepted by the FP special-constant builtins
+ * (__builtin_{inf,nan,nans}<sfx>): ZeroCC models every FP width as
+ * 8-byte double, so each spelling emits the same double-width pattern. */
+static bool zc_fp_special_suffix(const char *sfx) {
+    static const char *const ok[] = {"", "f", "l", "f16", "f32", "f64",
+                                     "f128", "f32x", "f64x", "f128x",
+                                     "f16b"};
+    for (size_t i = 0; i < sizeof(ok) / sizeof(ok[0]); i++) {
+        if (strcmp(sfx, ok[i]) == 0) return true;
+    }
+    return false;
+}
+
 bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
                         ZeroCCASTNode *node, const char *name,
                         int *out_temp) {
@@ -1490,24 +1503,32 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
             return true;
         }
 
-        /* __builtin_inf() / __builtin_inff() / __builtin_nan(s) /
-         * __builtin_nanf(s): FP special constants (c-torture
-         * ieee/copysign1/2). The string argument (when present) is
-         * ignored; ZeroCC models float as double, so the result is
-         * always an 8-byte double constant - the caller's conversion
-         * does any narrowing. Previously emitted as undefined external
-         * calls (runtime crash). */
-        if (callee_is_ident && callee->s.str &&
-            (strcmp(callee->s.str, "__builtin_inf") == 0 ||
-             strcmp(callee->s.str, "__builtin_inff") == 0 ||
-             strcmp(callee->s.str, "__builtin_infl") == 0 ||
-             strcmp(callee->s.str, "__builtin_nan") == 0 ||
-             strcmp(callee->s.str, "__builtin_nanf") == 0 ||
-             strcmp(callee->s.str, "__builtin_nanl") == 0)) {
-            bool is_nan = (strcmp(callee->s.str, "__builtin_nan") == 0 ||
-                           strcmp(callee->s.str, "__builtin_nanf") == 0 ||
-                           strcmp(callee->s.str, "__builtin_nanl") == 0);
-            uint64_t fpbits = is_nan ? 0x7FF8000000000000ULL : 0x7FF0000000000000ULL;
+        /* __builtin_inf{,f,l,f16,f32,f64,f128,f32x,f64x,f128x,f16b}()
+         * / __builtin_nan.../ __builtin_nans...(payload string): FP
+         * special constants (c-torture ieee/copysign1/2 + the
+         * *_builtin-issignaling-1 family). The string argument (when
+         * present) is ignored. ZeroCC models every FP width (float,
+         * double, long double, _FloatN, __bf16) as 8-byte double, so
+         * every spelling emits the same double-width bit pattern -
+         * the caller's conversion does any narrowing. Previously the
+         * suffixed variants were emitted as undefined external calls
+         * (link failure). */
+        if (callee_is_ident && callee->s.str) {
+            const char *fn159 = callee->s.str;
+            if ((strncmp(fn159, "__builtin_nans", 14) == 0 &&
+                 zc_fp_special_suffix(fn159 + 14)) ||
+                (strncmp(fn159, "__builtin_nan", 13) == 0 &&
+                 zc_fp_special_suffix(fn159 + 13)) ||
+                (strncmp(fn159, "__builtin_inf", 13) == 0 &&
+                 zc_fp_special_suffix(fn159 + 13))) {
+                bool is_nan = (fn159[10] == 'n');
+                bool is_signaling = (strncmp(fn159, "__builtin_nans", 14) == 0);
+            /* qNaN: exp all-ones, quiet bit set, payload 1;
+             * sNaN: exp all-ones, quiet bit CLEAR, payload 1;
+             * inf: exp all-ones, mantissa 0. */
+            uint64_t fpbits = !is_nan ? 0x7FF0000000000000ULL
+                          : is_signaling ? 0x7FF0000000000001ULL
+                                         : 0x7FF8000000000000ULL;
             double fpc; memcpy(&fpc, &fpbits, sizeof(fpc));
             size_t fpad = (8 - (c->rodata_section.length % 8)) % 8;
             if (fpad) {
@@ -1520,6 +1541,49 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
             ir_emit_fmov_imm(c, (uint32_t)ft, (int64_t)fro_off);
             c->last_expr_is_float = 1;
             *out_temp = ft;
+            return true;
+            }
+        }
+
+        /* __builtin_issignaling(x) - 1 iff x is a SIGNALING NaN
+         * (exponent all-ones, mantissa non-zero, quiet bit clear).
+         * C23 7.12.1.4; all width spellings share the name (GCC
+         * overloads by the argument type; ZeroCC holds every FP value
+         * as 64-bit double, so the double bit test is the test).
+         * (c-torture execute/ieee/*-builtin-issignaling-1.) */
+        if (callee_is_ident && callee->s.str &&
+            strcmp(callee->s.str, "__builtin_issignaling") == 0) {
+            int arg_temp = lower_expr(c, arena, node->right);
+            if (!c->last_expr_is_float) {
+                int conv = zc_alloc_temp(c);
+                ir_emit_cvtsi2sd(c, (uint32_t)conv, (uint32_t)arg_temp);
+                arg_temp = conv;
+            }
+            c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+            c->current_stack_frame += 8;
+            int32_t slot = c->current_stack_frame;
+            ir_emit_fstore(c, (uint32_t)arg_temp, TEMP_NONE, -slot);
+            int bits = zc_alloc_temp(c);
+            ir_emit_load(c, bits, BE(c)->fp_reg, -slot);   /* bit pattern */
+            int t_exp = zc_alloc_temp(c);
+            int sh1 = zc_alloc_temp(c); ir_emit_mov_imm(c, sh1, 52);
+            ir_emit_shr(c, t_exp, bits, sh1);
+            int m1 = zc_alloc_temp(c); ir_emit_mov_imm(c, m1, 0x7FF);
+            ir_emit_and(c, t_exp, t_exp, m1);
+            int eq_exp = zc_ovf_cmp_set_imm(c, t_exp, 0x7FF, CC_EQ);
+            int t_man = zc_alloc_temp(c);
+            int m2 = zc_alloc_temp(c); ir_emit_mov_imm(c, m2, (int64_t)0x000FFFFFFFFFFFFFULL);
+            ir_emit_and(c, t_man, bits, m2);
+            int ne_man = zc_ovf_cmp_set_imm(c, t_man, 0, CC_NE);
+            int t_q = zc_alloc_temp(c);
+            int sh2 = zc_alloc_temp(c); ir_emit_mov_imm(c, sh2, 51);
+            ir_emit_shr(c, t_q, bits, sh2);
+            int m3 = zc_alloc_temp(c); ir_emit_mov_imm(c, m3, 1);
+            ir_emit_and(c, t_q, t_q, m3);
+            int quiet = zc_ovf_cmp_set_imm(c, t_q, 0, CC_EQ);
+            int res = zc_ovf_and(c, zc_ovf_and(c, eq_exp, ne_man), quiet);
+            c->last_expr_is_float = 0;
+            *out_temp = res;
             return true;
         }
 
@@ -1562,12 +1626,11 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
             return true;
         }
 
-        /* __builtin_inf() / __builtin_inff() - return infinity. */
+        /* __builtin_huge_val{,f,l}() - infinity (C11 <math.h> macros;
+         * the __builtin_inf* spellings are handled by the FP
+         * special-constant matcher above). */
         if (callee_is_ident && callee->s.str &&
-            (strcmp(callee->s.str, "__builtin_inf") == 0 ||
-             strcmp(callee->s.str, "__builtin_inff") == 0 ||
-             strcmp(callee->s.str, "__builtin_infl") == 0 ||
-             strcmp(callee->s.str, "__builtin_huge_val") == 0 ||
+            (strcmp(callee->s.str, "__builtin_huge_val") == 0 ||
              strcmp(callee->s.str, "__builtin_huge_valf") == 0 ||
              strcmp(callee->s.str, "__builtin_huge_vall") == 0)) {
             /* Infinity bit pattern: sign=0, exp=all-ones, mantissa=0 */
@@ -1578,25 +1641,6 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
             if (pad) { uint8_t z8[8] = {0}; zero_cc_buf_put_bytes(&c->rodata_section, z8, pad); }
             size_t rodata_offset = c->rodata_section.length;
             zero_cc_buf_put_bytes(&c->rodata_section, &inf, sizeof(double));
-            int temp = zc_alloc_temp(c);
-            ir_emit_fmov_imm(c, (uint32_t)temp, (int64_t)rodata_offset);
-            c->last_expr_is_float = 1;
-            *out_temp = temp;
-            return true;
-        }
-
-        /* __builtin_nan() / __builtin_nanf() - return quiet NaN. */
-        if (callee_is_ident && callee->s.str &&
-            (strcmp(callee->s.str, "__builtin_nan") == 0 ||
-             strcmp(callee->s.str, "__builtin_nanf") == 0 ||
-             strcmp(callee->s.str, "__builtin_nanl") == 0)) {
-            union { double d; int64_t i; } u;
-            u.i = 0x7FF8000000000000LL;
-            double qnan = u.d;
-            size_t pad = (8 - (c->rodata_section.length % 8)) % 8;
-            if (pad) { uint8_t z8[8] = {0}; zero_cc_buf_put_bytes(&c->rodata_section, z8, pad); }
-            size_t rodata_offset = c->rodata_section.length;
-            zero_cc_buf_put_bytes(&c->rodata_section, &qnan, sizeof(double));
             int temp = zc_alloc_temp(c);
             ir_emit_fmov_imm(c, (uint32_t)temp, (int64_t)rodata_offset);
             c->last_expr_is_float = 1;

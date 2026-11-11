@@ -445,7 +445,13 @@ static int zero_cc_scan_number(ZeroCCLexer *lx, ZeroCCToken *tok) {
          * with f/F (float, bit0) or l/L (long double, bit1) in EITHER order
          * - GCC accepts `1.0iF`, `1.0fi`, `1.0li`, etc.  A leading or
          * trailing i/I marks an imaginary literal (value is the IMAGINARY
-         * part).  Consume up to two suffix characters. */
+         * part).  Consume up to two suffix characters.
+         * C23 (Sprint 160): a _FloatN width may follow the float suffix -
+         * `f16`/`f16b`, `f32`, `f64`, `f128`, and the extended-width
+         * `f32x`/`f64x`/`f128x` (the `b` of f16b replaces nothing - it
+         * marks brain-float).  Bits 4/5/6/7 mark _Float16/_Float32/
+         * _Float64/_Float128 (the extended spellings map to the same
+         * nearest ZeroCC width as their plain-width counterparts). */
         uint8_t suf = 0;
         for (int ss = 0; ss < 2; ss++) {
             char ch = *s;
@@ -454,6 +460,28 @@ static int zero_cc_scan_number(ZeroCCLexer *lx, ZeroCCToken *tok) {
             else if (ch == 'l' || ch == 'L') suf |= 2; /* long double */
             else break;
             s++; offset++; col++;
+        }
+        if (suf & 1) {
+            /* C23 _FloatN literal width after the float suffix. Extended
+             * spellings first (f32x/f64x/f128x/f16b), then plain width; the
+             * trailing character must not be alphanumeric (word boundary). */
+            const char *w = s;
+            struct { const char *sfx; uint8_t bit; } forms[] = {
+                {"16b", 16}, {"32x", 64}, {"64x", 128}, {"128x", 128},
+                {"16", 16}, {"32", 32}, {"64", 64}, {"128", 128},
+            };
+            for (size_t fi = 0; fi < sizeof(forms) / sizeof(forms[0]); fi++) {
+                size_t fl = strlen(forms[fi].sfx);
+                if (strncmp(w, forms[fi].sfx, fl) != 0) continue;
+                char nx = w[fl];
+                if ((nx >= 'a' && nx <= 'z') || (nx >= 'A' && nx <= 'Z') ||
+                    (nx >= '0' && nx <= '9')) continue;
+                suf |= forms[fi].bit;
+                s = (char *)(w + fl);
+                offset += fl;
+                col += (int)fl;
+                break;
+            }
         }
         tok->int_suffix = suf;
         tok->len = s - start;

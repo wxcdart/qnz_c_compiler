@@ -748,7 +748,7 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                                (cl_ti ? type_is_floating(cl_ti) : left_is_float);
                 size_t l_esz = left_cx ? (l_el ? type_size(l_el) : (l_zt ? l_zt->size : 8)) :
                                (cl_ti ? type_size(cl_ti) :
-                                (cl_node && cl_node->tag == NODE_FLOAT ? ((cl_node->flags & 1) ? 4 : 8) :
+                                (cl_node && cl_node->tag == NODE_FLOAT ? ((cl_node->flags & 1) && !(cl_node->flags & 0xC0) ? 4 : 8) :
                                  (left_is_float ? 8 : 4)));
                 if (l_esz == 0) l_esz = 8;
                 if (l_is_fp && l_esz != 4 && l_esz != 8) l_esz = 8;
@@ -757,7 +757,7 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                                (cr_ti ? type_is_floating(cr_ti) : right_is_float);
                 size_t r_esz = right_cx ? (r_el ? type_size(r_el) : (r_zt ? r_zt->size : 8)) :
                                (cr_ti ? type_size(cr_ti) :
-                                (cr_node && cr_node->tag == NODE_FLOAT ? ((cr_node->flags & 1) ? 4 : 8) :
+                                (cr_node && cr_node->tag == NODE_FLOAT ? ((cr_node->flags & 1) && !(cr_node->flags & 0xC0) ? 4 : 8) :
                                  (right_is_float ? 8 : 4)));
                 if (r_esz == 0) r_esz = 8;
                 if (r_is_fp && r_esz != 4 && r_esz != 8) r_esz = 8;

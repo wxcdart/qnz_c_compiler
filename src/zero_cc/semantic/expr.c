@@ -94,7 +94,7 @@ TypeInfo *expr_handle_literal(SemContext *ctx, ZeroCCASTNode *node) {
              * value: element float for f/F, double otherwise (l/L long
              * double is modeled as double).  The value is the imaginary
              * part (0 + v*i). */
-            uint8_t fsuf = (uint8_t)(node->flags & 0xF);
+            uint8_t fsuf = (uint8_t)(node->flags & 0xFF);
             if (fsuf & 8) {
                 TypeInfo *el = (fsuf & 1) ? type_float(ctx->perm_arena) :
                                             type_double(ctx->perm_arena);
@@ -104,9 +104,23 @@ TypeInfo *expr_handle_literal(SemContext *ctx, ZeroCCASTNode *node) {
                     res->details.array.base = el;
                     res->details.array.count = 2;
                 }
+            } else if (fsuf & 128) {
+                /* C23 _Float128/_Float64x (Sprint 160): the 16-byte
+                 * __float128 object model (value in the low 8 bytes). */
+                res = type_double(ctx->perm_arena);
+                if (res) res->is_float128 = true;
+            } else if (fsuf & 64) {
+                /* C23 _Float64/_Float32x (Sprint 160): double.  Must be
+                 * checked before the plain-f bit - `42.0f64`/`42.0f32x`
+                 * carry bit1 (f) together with the width bit. */
+                res = type_double(ctx->perm_arena);
             } else if (fsuf & 1) {
+                /* bit5 = _Float32 and bit4 = _Float16 map to the nearest
+                 * supported width (float); a plain f/F is float. */
                 res = type_float(ctx->perm_arena);
             } else {
+                /* bit6 = _Float64/_Float32x and plain (no suffix) are
+                 * double; bit1 = l/L long double is modeled as double. */
                 res = type_double(ctx->perm_arena);
             }
             break;

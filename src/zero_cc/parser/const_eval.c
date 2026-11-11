@@ -554,7 +554,12 @@ bool zero_cc_tok_is_type_start(ZeroCCCompiler *c, size_t pos) {
                strcmp(name, "__int128") == 0 ||
                strcmp(name, "__int128_t") == 0 ||
                strcmp(name, "__uint128_t") == 0 ||
-               strcmp(name, "__float128") == 0;
+               strcmp(name, "__float128") == 0 ||
+               strcmp(name, "_Float32") == 0 ||
+               strcmp(name, "_Float64") == 0 ||
+               strcmp(name, "_Float128") == 0 ||
+               strcmp(name, "_Float32x") == 0 ||
+               strcmp(name, "_Float64x") == 0;
     }
     return false;
 }

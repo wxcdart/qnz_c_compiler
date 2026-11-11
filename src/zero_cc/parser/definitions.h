@@ -734,6 +734,23 @@ static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c, ZeroCCASTArena
             bool u = (strcmp(tname, "__uint128_t") == 0) || is_unsigned;
             ttype = u ? zero_cc_type_uint128() : zero_cc_type_int128();
             c->token_pos++;
+        } else if (tname && strcmp(tname, "__float128") == 0) {
+            /* GNU __float128 (Sprint 112): 16-byte object, double value model. */
+            ttype = zero_cc_type_float128();
+            c->token_pos++;
+        } else if (tname && (strcmp(tname, "_Float32") == 0)) {
+            /* C23 _FloatN (Sprint 160) - nearest supported width (see
+             * zc_parse_basic_type_spec for the full mapping). */
+            ttype = zero_cc_type_float();
+            c->token_pos++;
+        } else if (tname && (strcmp(tname, "_Float64") == 0 ||
+                             strcmp(tname, "_Float32x") == 0)) {
+            ttype = zero_cc_type_double();
+            c->token_pos++;
+        } else if (tname && (strcmp(tname, "_Float128") == 0 ||
+                             strcmp(tname, "_Float64x") == 0)) {
+            ttype = zero_cc_type_float128();
+            c->token_pos++;
         } else {
             ZeroCCType *found = zero_cc_find_typedef(c, tname);
             if (found) {
