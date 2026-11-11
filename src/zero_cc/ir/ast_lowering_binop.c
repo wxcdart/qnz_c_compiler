@@ -628,10 +628,8 @@ bool zc_node_is_int128(ZeroCCCompiler *c, const ZeroCCASTNode *node) {  /* Sprin
     return false;
 }
 
-/* zero_san v1 (-fsanitize=undefined): emit a signed-integer-overflow trap
- * immediately after a signed binary +,-,* (x86-64 only in v1).
- *
- * The check width is the width of the CONVERSION result (C99 6.3.1.8
+/* zero_san v1 (-fsanitize=undefined): the signed-integer-overflow check
+ * width. The check width is the width of the CONVERSION result (C99 6.3.1.8
  * usual arithmetic conversions) — the op computes in 64-bit registers on
  * sign-extended operands, so the narrower operand is promoted: checking
  * at the narrower operand's width would trap on valid mixed-width code
@@ -641,26 +639,58 @@ bool zc_node_is_int128(ZeroCCCompiler *c, const ZeroCCASTNode *node) {  /* Sprin
  * Only widths the register model expresses (4, 8) are checked; exotic
  * widths (bit-fields, sub-byte, __int128) are skipped, not mis-checked.
  * Pointer operands are excluded (pointer arithmetic has no signed-overflow
- * semantics here; array operands read as unsigned via int_info). */
-static void zc_maybe_emit_ovf_trap(ZeroCCCompiler *c, ZeroCCASTArena *arena,
-                                   ZeroCCASTNode *node, uint32_t result_temp) {
-    if (!c->sanitize_overflow || c->isa != ISA_X86_64) return;
-    ZeroCCASTNode *ln = zero_cc_ast_get(arena, node->left);
-    ZeroCCASTNode *rn = zero_cc_ast_get(arena, node->right);
-    TypeInfo *lti = ln ? ast_node_get_typeinfo(c, ln) : NULL;
-    TypeInfo *rti = rn ? ast_node_get_typeinfo(c, rn) : NULL;
-    if ((lti && type_is_pointer(lti)) || (rti && type_is_pointer(rti))) return;
-    int lu = 0, ru = 0;
-    int lw = zero_cc_expr_int_info(c, arena, node->left, &lu);
-    int rw = zero_cc_expr_int_info(c, arena, node->right, &ru);
+ * semantics here; array operands read as unsigned via int_info).
+ * Shared by the binary-op, compound-assignment, and ++/-- emitters so the
+ * width rule has one source of truth (Sprint 161). Returns 0 when no check
+ * applies. */
+static int zc_ovf_uac_width(int lw, int lu, int rw, int ru) {
     int w;
     if (lw > rw)      w = (lu == 0) ? lw : 0;
     else if (rw > lw) w = (ru == 0) ? rw : 0;
     else              w = (lu == 0 && ru == 0) ? lw : 0;
+    return (w == 4 || w == 8) ? w : 0;
+}
+
+static void zc_emit_ovf_trap(ZeroCCCompiler *c, uint32_t result_temp, int w) {
     if (w != 4 && w != 8) return;
     ir_emit(c, (Instr){.op = OP_OVF_TRAP, .temp_dest = result_temp,
         .temp_src1 = TEMP_NONE, .temp_src2 = TEMP_NONE, .imm = 0,
         .label_idx = 0, .width = (uint8_t)w});
+}
+
+static bool zc_node_is_pointer(ZeroCCCompiler *c, const ZeroCCASTNode *n) {
+    if (!n) return false;
+    TypeInfo *ti = ast_node_get_typeinfo(c, n);
+    return ti && type_is_pointer(ti);
+}
+
+/* zero_san v1 (-fsanitize=undefined): emit a signed-integer-overflow trap
+ * immediately after the arithmetic of a signed binary `+ - *` OR a compound
+ * assignment `+= -= *=` (both carry the lvalue in node->left and the RHS in
+ * node->right, so the UAC width rule is identical). x86-64 only in v1. See
+ * the Sprint 116/161 invariants in ir-and-regalloc.md / sanitizer-roadmap.md. */
+void zc_maybe_emit_ovf_trap(ZeroCCCompiler *c, ZeroCCASTArena *arena,
+                            ZeroCCASTNode *node, uint32_t result_temp) {
+    if (!c->sanitize_overflow || c->isa != ISA_X86_64) return;
+    if (zc_node_is_pointer(c, zero_cc_ast_get(arena, node->left)) ||
+        zc_node_is_pointer(c, zero_cc_ast_get(arena, node->right))) return;
+    int lu = 0, ru = 0;
+    int lw = zero_cc_expr_int_info(c, arena, node->left, &lu);
+    int rw = zero_cc_expr_int_info(c, arena, node->right, &ru);
+    zc_emit_ovf_trap(c, result_temp, zc_ovf_uac_width(lw, lu, rw, ru));
+}
+
+/* zero_san v1: the ++/-- form — the op is `lvalue + 1` (or - 1); the literal
+ * 1 is a signed int, so the check width is the lvalue's promoted width when
+ * it is signed (unsigned lvalues wrap by definition; pointer ++/-- are not
+ * checked). node is the NODE_UNOP; node->left is the lvalue. */
+void zc_maybe_emit_ovf_trap_incdec(ZeroCCCompiler *c, ZeroCCASTArena *arena,
+                                   ZeroCCASTNode *node, uint32_t result_temp) {
+    if (!c->sanitize_overflow || c->isa != ISA_X86_64) return;
+    if (zc_node_is_pointer(c, zero_cc_ast_get(arena, node->left))) return;
+    int lu = 0;
+    int lw = zero_cc_expr_int_info(c, arena, node->left, &lu);
+    zc_emit_ovf_trap(c, result_temp, zc_ovf_uac_width(lw, lu, 4, 0));
 }
 
 int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {

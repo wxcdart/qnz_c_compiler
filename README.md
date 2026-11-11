@@ -12,7 +12,8 @@ ZeroCC is a lightweight, embeddable C99/C11/C23 compiler (with GNU extensions) w
 - **Inline assembly (Phases 1–3 complete)**: GNU extended asm (`__asm__ [volatile] [goto] ("..." : outs : ins : clobbers [: labels])`) with `r`/`m`/`=r`/`+r`/fixed-register (`a`/`b`/`d`/`S`/`D`) operands, matching-digit constraints, symbolic `%[name]` / `%l[name]` operands, AT&T/Intel `{att | intel}` dialect alternatives, and `memory`/`cc`/GPR clobbers — lowered to `OP_ASM`, register-allocated (operands `no_spill`, clobbered registers forbidden for operands, live values across clobbers spilled), and supported across AOT `.s` text emission, in-memory JIT, and raw binary emission via the integrated assembler (`make test-asm` 72/72 runs vs gcc; [`docs/okf/inline-assembly-roadmap.md`](docs/okf/inline-assembly-roadmap.md))
 - **`-fsanitize=undefined`** — target-side signed-integer-overflow trap (bare
   `ud2`; x86-64, both emitters; check width follows the usual arithmetic
-  conversions — Sprints 116–117; `make test-san` flag-ON gate)
+  conversions; covers signed `+ - *`, `++`/`--`, and `+= -= *=` — Sprints 116–117 & 161;
+  `make test-san` flag-ON gate)
 - **`-fstack-protector` / `-fstack-protector-strong` / `-fstack-protector-all`** — GCC/Clang-compatible stack canary guards across all 4 ISAs (`%fs:40` on x86-64, `__stack_chk_guard` on AArch64/RISC-V; Sprint 147)
 - **Multi-translation-unit driver**: multiple `.c` inputs per invocation
   (JIT image merge + per-input `-c`/`-S`)
@@ -95,7 +96,8 @@ zerocc [options] <source.c> [more.c ...]
   -run, --run     Run in JIT mode (default)
   --target <arch> Target architecture (x86-64, aarch64, riscv64, riscv32)
   -fsanitize=undefined  Target-side signed-integer-overflow trap after signed
-                       +,-,* (x86-64, both emitters; Sprints 116-117)
+                       +,-,*, ++/--, and +=,-=,*= (x86-64, both emitters;
+                       Sprints 116-117 & 161)
   --zerocc-link  With -o: link with ZeroCC's own linker (x86-64, aarch64,
                 riscv64, riscv32); auto-links zero_rt (opt out: --no-zerocc-rt)
   --ar <cmd> <lib.a> [objs...]  Built-in GNU ar archiver (rcs, t, x)
@@ -287,7 +289,7 @@ Current status (verified 2026-11-11 at HEAD, Sprints 129–158):
 | **C23 differential gate** (`make test-c23`: 24 cases across gnu23/c11/c99 vs gcc-15) | ✅ Pass | 24/24 |
 | **Inline-asm Phases 1–3 gate** (`make test-asm`: `test/asm/*.c` across `-S` text, JIT, and raw AOT at `-O0..-O3` vs host-gcc reference) | ✅ Pass | 72/72 |
 | **Project-differential gate** (`make test-project-diff`: cJSON, zlib, sqlite3.c at -O0/-O2) | ✅ Pass | 36/36 TUs |
-| **`zero_san` flag-ON sweep** (`make test-san`: `san_ok_*` clean + `san_trap_*` SIGILL at `-O0..-O3`, JIT + AOT, cross-ISA qemu smoke) | ✅ Pass | 101 ok + 3 cross |
+| **`zero_san` flag-ON sweep** (`make test-san`: `san_ok_*` clean + `san_trap_*` SIGILL at `-O0..-O3`, JIT + AOT, cross-ISA qemu smoke) | ✅ Pass | 169 ok + 3 cross |
 | **Multi-file driver** (`make test-driver`, multi-TU JIT/AOT + per-input `-c`/`-S`) | ✅ Pass | 37/37 |
 | **Own linker & archiver** (`make test-linker`, `--zerocc-link` + `--ar` across all 4 ISAs + gcc differential) | ✅ Pass | 45/45 |
 | **Cross-ISA raw-emitter QEMU gate** (`make test-isa-qemu`, vs static-musl reference) | ✅ Pass | 59/59 (all 4 ISAs) |

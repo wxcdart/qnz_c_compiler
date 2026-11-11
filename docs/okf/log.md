@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-11T20:31:16Z
+timestamp: 2026-11-11T23:22:32Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1344,3 +1344,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-11 — Updated `ir-and-regalloc.md`
 - Sprint 160: sNaN-preserving ir_emit_vstoress/vloadss (moved to ast_lowering_builtin_helpers.c, ISA-uniform IR fixups: float quiet bit 22 / double quiet bit 51) + __builtin_issignaling lowering; structure trap: the converting load must always run, fixup is the conditional tail
+
+## 2026-11-11 — Updated `sanitizer-roadmap.md`
+- Sprint 161: zero_san signed-overflow check extended to ++/-- and compound assignment (+= -= *=); §4b-as-built records the shared UAC width rule, the three entry points, and the deliberate false-negative exclusions.
+
+## 2026-11-11 — Updated `ir-and-regalloc.md`
+- Sprint 161: OP_OVF_TRAP coverage extended to ++/-- and compound assignment (new bullet documenting zc_ovf_uac_width + the three entry points).

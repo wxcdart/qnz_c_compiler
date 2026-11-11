@@ -4,7 +4,7 @@ title: Two-Pass IR & Linear Scan Register Allocation
 description: IR instruction format, in-stream call and inline-asm payload conventions, virtual register conventions, and linear scan register allocation constraints.
 resource: middleend/ir-and-regalloc
 tags: [ir, regalloc, ssa, registers, calling-convention]
-timestamp: 2026-11-11T20:31:16Z
+timestamp: 2026-11-11T23:22:32Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -31,6 +31,7 @@ Each `Instr` in `c->ir_arena` has:
 - **Emitter exclusions:** both emitters' generic post-passes (width-extension + spill store-back) **skip `OP_OVF_TRAP`** — its width is check metadata (see the `width` field note), and the ALU op's own store-back already persisted the value. Re-storing on a non-x86 ISA (where the check is skipped) would write scratch-register garbage into the slot.
 - **Scope guard:** lowering emits the op only for `c->isa == ISA_X86_64` (plus a defensive ISA guard in the shared raw-emitter loop, since cross-ISA raw AOT runs through the same function — x86 check bytes must never land in an aarch64/riscv binary); the AOT asm path skips other ISAs. Trap = `ud2` (SIGILL) — no external symbol, works in JIT + host AOT + `--zerocc-link`.
 - **Gate:** `make test-san` (`tools/san_sweep.py`, `test/san/`) — the flag-ON harness the roadmap required as the ongoing soundness guarantee: `san_ok_*` (valid code, exit 0, plus flag-OFF consistency) and `san_trap_*` (real overflow, SIGILL at every -O level in JIT + AOT), plus a cross-ISA qemu smoke. See [Build & Verification](./build-and-verification.md) and [zero_san roadmap](./sanitizer-roadmap.md).
+- **Sprint 161 — coverage extended to `++`/`--` and compound assignment.** The op now rides on the `OP_ADD`/`OP_SUB`/`OP_MUL` of *every* form that spells that arithmetic, not just the binary `+ - *`: the inc/dec `x ± 1` add (`ast_lowering_unop.c`, local/global/non-ident lvalue) and each integer `+= -= *=` site (`ast_lowering_assign.c`, plain local/global, pointer-deref, member via `member_apply_compound`, array-element). The check-width rule is factored into `zc_ovf_uac_width(lw,lu,rw,ru)` with three entry points — `zc_maybe_emit_ovf_trap` (binary **or** compound: `node->left` = lvalue, `node->right` = RHS) and `zc_maybe_emit_ovf_trap_incdec` (the `NODE_UNOP` `++`/`--`, whose RHS is the signed-int literal `1`, so the width is the lvalue's *promoted* width when signed). Deliberately unchecked: unsigned lvalues, pointer `++`/`--`/compound, bit-fields/sub-byte/`__int128`, the float-RHS compound (its C math is FP), and array-element lvalues (read as unsigned-8 through `int_info` — a false-negative, not a false-positive). Narrow lvalues promote to `int` and check at width 4, so a store-back wrap is correctly not a trap. See [zero_san roadmap](./sanitizer-roadmap.md) §4b-as-built.
 
 ### Parameter Promotion (`OP_PARAM_LOAD`)
 

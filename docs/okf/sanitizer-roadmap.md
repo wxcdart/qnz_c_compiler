@@ -4,7 +4,7 @@ title: Target-Side Sanitizer (zero_san) Design & Roadmap
 description: Analysis and phased roadmap for an optional, parked target-side safety-check feature (zero_san) — a codegen-first UBSan-lite signed-overflow check, with bounds, leaks, and ASan/LSan scoped out and justified.
 resource: sanitizer/roadmap
 tags: [sanitizer, zero_san, codegen, ubsan, overflow, bounds, asan, lsan, leak, roadmap, design, safety]
-timestamp: 2026-11-06T20:22:39Z
+timestamp: 2026-11-11T23:22:32Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -67,6 +67,40 @@ status: active
      "sign" post-extension must be `movslq`/MOVSXD, never `movl` (a c-torture 1-bit-bitfield
      test, `execute/pr49123.c`, regressed for one iteration when the post-pass's `width & 7`
      zero-extend-flag strip was mistaken for a bug and the mask removed).
+
+### 4b-as-built. Phase 1 extended to `++`/`--` and compound assignment (Sprint 161)
+
+Sprint 116 shipped the check for the *binary* `+ - *` only. Sprint 161 extends the **same**
+`OP_OVF_TRAP` mechanism to the two other forms C spells for the identical arithmetic, so a
+program that overflows via `x++`, `x--`, `x += y`, `x -= y`, or `x *= y` traps exactly when the
+binary form would:
+
+- **Shared width rule, one source of truth:** the UAC check-width logic is factored out of
+  `zc_maybe_emit_ovf_trap` into `zc_ovf_uac_width(lw,lu,rw,ru)` (+ `zc_emit_ovf_trap`,
+  `zc_node_is_pointer`) in `ast_lowering_binop.c`. Three entry points now call it:
+  - `zc_maybe_emit_ovf_trap(c,arena,node,res)` — a **binary op OR a compound assignment**
+    (both carry the lvalue in `node->left` and the RHS in `node->right`, so the UAC is
+    identical). The compound form is emitted at every integer `+= -= *=` lowering site
+    (`ast_lowering_assign.c`: plain local, global, pointer-deref, member — via
+    `member_apply_compound`, which now takes the `node` — and array-element).
+  - `zc_maybe_emit_ovf_trap_incdec(c,arena,node,res)` — the **`++`/`--`** form; the op is
+    `lvalue + 1` (or `- 1`), the literal `1` is a signed `int`, so the check width is the
+    lvalue's *promoted* width when it is signed. Emitted at every integer inc/dec site
+    (`ast_lowering_unop.c`: local, global, and the non-ident lvalue path — array element,
+    `*p`, `s.f`, `p->f`).
+- **What is deliberately NOT checked (consistent with Sprint 116):** unsigned lvalues
+  (defined wrap); **pointer** `++`/`--` and pointer compound (no signed-overflow semantics);
+  bit-fields, sub-byte, and `__int128` (widths the register model can't express); the
+  float-RHS compound path (the C math is floating-point — a later truncation to int is a
+  different, unimplemented UBSan category); and **array-element** lvalues, which read as
+  unsigned-8 through `zero_cc_expr_int_info` (the Sprint 116 "array operands read as unsigned"
+  decision) — a known false-negative, not a false-positive. Narrow lvalues (`short`/`char`)
+  promote to `int` and are checked at width 4, so a store-back wrap (e.g. `short s=32000; s+=100;`)
+  is correctly *not* a trap.
+- **Verified:** 8 new `test/san/` cases (`san_ok_incdec`, `san_ok_cassign`; `san_trap_{,long_}
+  incdec`, `san_trap_cassign{,_sub}`, `san_trap_long_cassign{,_mul}`) trap/SIGILL and pass at
+  `-O0..-O3` in JIT + AOT; `make test-san` green (0 FAIL). Soundness backstop unchanged — the
+  flag is OFF in c-torture/test-opt, so those gates' output is byte-identical to pre-161.
 
 ZeroCC today has **host-side** sanitizers only — `make asan` builds the *compiler* with
 `-fsanitize=address,undefined`, which finds bugs in ZeroCC's own C, not in compiled programs.
