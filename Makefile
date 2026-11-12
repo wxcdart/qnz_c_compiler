@@ -22,16 +22,16 @@ OBJ_DIR ?= $(BUILD_DIR)/obj
 ZC_BIN ?= $(BUILD_DIR)/bin/zerocc
 TEST_BIN_DIR ?= $(BUILD_DIR)/test
 # test/diag/*.c is the diagnostics-battery corpus (deliberately invalid C,
-# consumed by tools/diag_battery.py) — not test drivers; keep it out of the
+# consumed by tools/verify/diag_battery.py) — not test drivers; keep it out of the
 # test binary glob.  test/jit/builtin_apply.c uses __builtin_apply, which
 # host gcc miscompiles on x86-64 (garbage int/FP results; only the
 # void-return shape works) - it is exercised by the zerocc-only
 # test-opt sweep instead.  test/jit/unroll_nonlocal_goto.c uses a goto
 # from a nested function to an enclosing label (Sprint 99), which host
-# gcc rejects - exercised by tools/loop_unroll_verifier.py instead.
+# gcc rejects - exercised by tools/verify/loop_unroll_verifier.py instead.
 #  test/san/*.c is the zero_san (-fsanitize=undefined)
 # corpus: san_trap_* tests DIE with SIGILL by design, so they cannot run
-# through the host-gcc suite; tools/san_sweep.py (make test-san) drives them
+# through the host-gcc suite; tools/verify/san_sweep.py (make test-san) drives them
 # with zerocc directly at -O0..-O3 in JIT + AOT.
 TEST_SRCS = $(filter-out test/diag/% test/driver/% test/linker/% test/san/% test/abi_interop/% test/jit/builtin_apply.c test/jit/unroll_nonlocal_goto.c,$(wildcard test/*/*.c))
 TESTS = $(patsubst test/%.c,$(TEST_BIN_DIR)/%,$(TEST_SRCS))
@@ -124,7 +124,7 @@ all: $(TESTS) $(ZC_BIN) $(BUILD_DIR)/lib/zero_rt.a $(BUILD_DIR)/lib/zero_rt_aarc
 # --- Vendored static-musl host toolchain ----------------------------------
 # zerocc and every test binary that links the compiler library are built and
 # FULLY STATICALLY linked against the vendored musl (third_party/vendor/musl,
-# built in-tree by tools/musl_host_toolchain.sh). The shipped compiler
+# built in-tree by tools/toolchain/musl_host_toolchain.sh). The shipped compiler
 # therefore has no host-libc (glibc) dependency at runtime (ldd: "not a
 # dynamic executable"). Consequences:
 #   - musl has no dynamic loader: its dlopen/dlsym/dlclose/dlerror are
@@ -163,7 +163,7 @@ $(ZC_CC):
 	@chmod +x $@
 else
 $(ZC_CC): $(MUSL_DIR)/VERSION
-	@HOST_GCC=$(HOST_GCC) BUILD_DIR=$(BUILD_DIR) sh tools/musl_host_toolchain.sh
+	@HOST_GCC=$(HOST_GCC) BUILD_DIR=$(BUILD_DIR) sh tools/toolchain/musl_host_toolchain.sh
 	@test -f $(MUSL_LIBC) || (echo "Error: vendored musl build failed" && exit 1)
 endif
 
@@ -270,7 +270,7 @@ $(ZC_COMPLEX_OBJ): zero_rt/complex/complex.c $(ZC_CC)
 ZC_EMBED_SYMS := $(BUILD_DIR)/gen/embedded_syms.c
 $(ZC_EMBED_SYMS):
 	@mkdir -p $(dir $@)
-	python3 tools/embed_symtab.py --emit-empty $@ || [ $$? -eq 3 ]
+	python3 tools/toolchain/embed_symtab.py --emit-empty $@ || [ $$? -eq 3 ]
 
 # ZeroCC CLI driver (static-musl: see ZC_MUSL_LINK at the top of this file).
 # The former --export-dynamic-symbol=zc_*128 flags are gone: a static binary
@@ -294,7 +294,7 @@ $(EMBED_SYMS_OBJ): $(ZC_EMBED_SYMS) $(ZC_CC)
 $(ZC_BIN): $(MAIN_OBJ) $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ) $(ZC_DLCFN_OBJ) $(ZC_COMPLEX_OBJ) $(EMBED_SYMS_OBJ) $(ZC_CC)
 	@mkdir -p $(dir $@)
 	$(ZC_CC) $(CFLAGS) $(ZC_MUSL_LINK) -o $@ $(MAIN_OBJ) $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ) $(ZC_DLCFN_OBJ) $(ZC_COMPLEX_OBJ) $(EMBED_SYMS_OBJ) $(LDFLAGS)
-	@rc=0; python3 tools/embed_symtab.py --bin $@ --out $(ZC_EMBED_SYMS) || rc=$$?; \
+	@rc=0; python3 tools/toolchain/embed_symtab.py --bin $@ --out $(ZC_EMBED_SYMS) || rc=$$?; \
 	if [ $$rc -eq 3 ]; then \
 		echo "$(ZC_BIN): embedded symtab changed; relinking"; \
 		$(ZC_CC) $(CFLAGS) $(ZC_MUSL_LINK) -o $@ $(MAIN_OBJ) $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ) $(ZC_DLCFN_OBJ) $(ZC_COMPLEX_OBJ) $(EMBED_SYMS_OBJ) $(LDFLAGS); \
@@ -308,7 +308,7 @@ $(TEST_BIN_DIR)/%: test/%.c $(ZC_CC) $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXT
 	$(ZC_CC) $(CFLAGS) $(ZC_MUSL_LINK) $< $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS) $(ZC_DLCFN_OBJ) $(ZC_COMPLEX_OBJ) $(LDFLAGS) -o $@
 
 test: all
-	@python3 tools/test_runner.py
+	@python3 tools/verify/test_runner.py
 
 # Optimizer sweep: compile & run every test at -O0/-O1/-O2/-O3 in BOTH JIT
 # and AOT modes with the zerocc compiler itself, comparing exit code + stdout
@@ -316,35 +316,35 @@ test: all
 # (the normal test suite compiles test binaries with the host compiler, so it
 # never exercises zerocc's optimization passes).
 test-opt: $(ZC_BIN)
-	@python3 tools/opt_sweep.py
+	@python3 tools/verify/opt_sweep.py
 
 # zero_san v1 (-fsanitize=undefined) regression sweep: compiles test/san/*.c
 # with zerocc at -O0..-O3 in JIT + AOT, asserting trap (SIGILL) vs clean
 # exit per the san_ok_/san_trap_ name contract, plus a cross-ISA raw-AOT
 # qemu smoke (no x86 check bytes leak into aarch64/riscv binaries).
 test-san: $(ZC_BIN)
-	@python3 tools/san_sweep.py
+	@python3 tools/verify/san_sweep.py
 
 # Multi-file driver tests (T1): run build/bin/zerocc on multiple .c inputs
 # (JIT --run, AOT -o, per-input -c/-S, duplicate-def / missing-main errors).
 test-driver: $(ZC_BIN)
-	@python3 tools/driver_tests.py
+	@python3 tools/verify/driver_tests.py
 
 # Own-linker (T2) tests: link zerocc-emitted .o files (and .a archives) with
 # zero_cc_link_exec into a directly-executable static ET_EXEC, diffing
 # stdout+exit against the system-linker reference.
 test-linker: $(ZC_BIN)
-	@python3 tools/linker_tests.py
+	@python3 tools/verify/linker_tests.py
 
 # GCC c-torture conformance gate (Sprint 57): runs the vendored gcc.c-torture
 # corpus (third_party/vendor/c-torture) against a gcc -O1 reference and checks
 # against the ratcheting baseline in test/torture/baseline.json.
 test-torture: $(ZC_BIN)
-	@python3 tools/torture_run.py
+	@python3 tools/verify/torture_run.py
 	@# Heavy sub-sweep: the 6 `run_expensive_tests` tests, sequential, merged
 	@# into last_run.json (kept out of the parallel main sweep - their gcc
 	@# reference builds are the corpus's load-sensitive edge cases).
-	@python3 tools/torture_run.py --chunk heavy
+	@python3 tools/verify/torture_run.py --chunk heavy
 
 # C23 differential conformance gate (Sprint 134): feature-tagged C23 cases
 # (std_version, true/false, constexpr, nullptr, designator sizing, #warning,
@@ -359,7 +359,7 @@ test-c23: $(ZC_BIN)
 # baseline when gcc cannot compile the file), plus the pass's own
 # unroll-count accounting (expect-unroll markers).
 test-loop-unroll: $(ZC_BIN)
-	@python3 tools/loop_unroll_verifier.py
+	@python3 tools/verify/loop_unroll_verifier.py
 
 # Inline-assembly Phase 1 differential gate (Sprint 135): every test/asm/*.c
 # compiled under zerocc -O0..-O3 on the AOT *text* path (-S), assembled and
@@ -367,7 +367,7 @@ test-loop-unroll: $(ZC_BIN)
 # host-`gcc -O2` reference. Guards the OP_ASM lowering, operand side table,
 # no_spill LRA, clobber spill/forbidden-mask, and template interpolation.
 test-asm: $(ZC_BIN)
-	@python3 tools/asm_diff.py
+	@python3 tools/verify/asm_diff.py
 
 # External ABI interop gate (Sprint 158, Verification & Scale #4/#5):
 # test/abi_interop/ scenario triples (shared main + zerocc provider + gcc
@@ -377,20 +377,20 @@ test-asm: $(ZC_BIN)
 # AMD64 ABI (struct/sret passing, memory args, data layout) against real
 # gcc - self-differential gates cannot see a shared ABI misunderstanding.
 test-abi-interop: $(ZC_BIN)
-	@python3 tools/abi_interop.py
+	@python3 tools/verify/abi_interop.py
 
 # Project-differential gate (Verification & Scale #1): real-world TUs
 # (cJSON, zlib, the sqlite amalgamation) must compile under zerocc at every
 # level, differential against host gcc acceptance of the same TU.
 test-project-diff: $(ZC_BIN)
-	@python3 tools/project_diff.py
+	@python3 tools/verify/project_diff.py
 
 # Project run + behavior-diff gate (Verification & Scale #2/#3): builds each
 # project's own test programs with gcc AND zerocc, runs both on identical
 # input, and diffs stdout/stderr/exit code.  `--jit` additionally drives the
 # supported cases through the in-process `zerocc --run` merge path.
 test-project-runs: $(ZC_BIN)
-	@python3 tools/project_runs.py
+	@python3 tools/verify/project_runs.py
 
 # zero_rt: the ZeroCC-owned runtime (heap, minimal stdio, strings, exit).
 # Compiled by zerocc itself; the objects are archived with the system `ar`
@@ -580,7 +580,7 @@ $(BUILD_DIR)/obj/zero_rt_riscv32/thread.o: zero_rt/core/thread.c zero_rt/rt_os.h
 # The harness preflights these and reports exactly what is missing. As of
 # Sprint 41 all four ISAs are green (44/44); this gate keeps them honest.
 test-isa-qemu: $(ZC_BIN)
-	@python3 tools/isa_qemu_diff.py
+	@python3 tools/verify/isa_qemu_diff.py
 
 # Cross-ISA __int128 differential gate (Sprint 109): compiles test/jit/int128_*.c
 # for x86-64/aarch64/riscv64 at -O0..-O3 in BOTH AOT paths (raw binary and
@@ -590,7 +590,7 @@ test-isa-qemu: $(ZC_BIN)
 # borrow chains, spilled MUL128, call-return high-half protection) that the
 # x86-64-only test-opt cannot see.
 test-isa128: $(ZC_BIN)
-	@python3 tools/isa128_diff.py
+	@python3 tools/verify/isa128_diff.py
 
 # Host-side ASan/UBSan rebuild of the compiler (catches the compiler's own
 # memory bugs).  Built in a dedicated tree (build_asan) so it cannot clobber
@@ -608,23 +608,23 @@ ASAN_SKIP = dlfcn_embedded_test,float_printf,rodata_demo_jit
 .PHONY: asan asan-unit asan-semantic asan-abi asan-jit
 asan:
 	+$(ASAN_SUBMAKE) all
-	@python3 tools/test_runner.py --build-dir build_asan --skip $(ASAN_SKIP)
+	@python3 tools/verify/test_runner.py --build-dir build_asan --skip $(ASAN_SKIP)
 
 asan-unit:
 	+$(ASAN_SUBMAKE) all
-	@python3 tools/test_runner.py --build-dir build_asan --category unit --skip $(ASAN_SKIP)
+	@python3 tools/verify/test_runner.py --build-dir build_asan --category unit --skip $(ASAN_SKIP)
 
 asan-semantic:
 	+$(ASAN_SUBMAKE) all
-	@python3 tools/test_runner.py --build-dir build_asan --category semantic --skip $(ASAN_SKIP)
+	@python3 tools/verify/test_runner.py --build-dir build_asan --category semantic --skip $(ASAN_SKIP)
 
 asan-abi:
 	+$(ASAN_SUBMAKE) all
-	@python3 tools/test_runner.py --build-dir build_asan --category abi --skip $(ASAN_SKIP)
+	@python3 tools/verify/test_runner.py --build-dir build_asan --category abi --skip $(ASAN_SKIP)
 
 asan-jit:
 	+$(ASAN_SUBMAKE) all
-	@python3 tools/test_runner.py --build-dir build_asan --category jit --skip $(ASAN_SKIP)
+	@python3 tools/verify/test_runner.py --build-dir build_asan --category jit --skip $(ASAN_SKIP)
 
 test-asan: asan
 test-asan-unit: asan-unit
@@ -634,24 +634,24 @@ test-asan-jit: asan-jit
 
 valgrind: all
 	@which valgrind > /dev/null 2>&1 || (echo "Error: valgrind is not installed on this system." && exit 1)
-	@python3 tools/test_runner.py --valgrind
+	@python3 tools/verify/test_runner.py --valgrind
 
 test-valgrind: valgrind
 
 test-unit: $(UNIT_TESTS)
-	@python3 tools/test_runner.py --category unit
+	@python3 tools/verify/test_runner.py --category unit
 
 test-semantic: $(SEMANTIC_TESTS)
-	@python3 tools/test_runner.py --category semantic
+	@python3 tools/verify/test_runner.py --category semantic
 
 test-abi: $(ABI_TESTS)
-	@python3 tools/test_runner.py --category abi
+	@python3 tools/verify/test_runner.py --category abi
 
 test-jit: $(JIT_TESTS)
-	@python3 tools/test_runner.py --category jit
+	@python3 tools/verify/test_runner.py --category jit
 
 test-tap: $(TAP_TESTS)
-	@python3 tools/test_runner.py --tap
+	@python3 tools/verify/test_runner.py --tap
 
 benchmark: $(TEST_BIN_DIR)/abi/benchmark_struct_by_value
 	@echo "Running benchmark..."
@@ -685,12 +685,12 @@ ALL_OBJS = $(ZEROCCLIB_OBJS) $(MAIN_OBJ) $(JIT_INT128_OBJ) $(ZC_DLCFN_OBJ) $(ZC_
 #   make run-test CATEGORY=jit TEST=vla_test
 #   make run-test CATEGORY=unit TEST=ir_test
 run-test:
-	@python3 tools/test_wrapper.py $(CATEGORY)/$(TEST)
+	@python3 tools/verify/test_wrapper.py $(CATEGORY)/$(TEST)
 
 # Shortcut: make test-jit-vla_test
 # Equivalent to: make run-test CATEGORY=jit TEST=vla_test
 test-%:
-	@CATEGORY=$(shell echo $* | sed 's/-.*//') && TEST=$(shell echo $* | sed 's/.*-//') && python3 tools/test_wrapper.py $$CATEGORY/$$TEST
+	@CATEGORY=$(shell echo $* | sed 's/-.*//') && TEST=$(shell echo $* | sed 's/.*-//') && python3 tools/verify/test_wrapper.py $$CATEGORY/$$TEST
 
 # List available tests
 list-tests:

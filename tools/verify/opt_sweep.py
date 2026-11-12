@@ -33,6 +33,12 @@ Usage:
                                [--timeout SEC] [--no-gcc] [--json]
                                [--jit-only|--aot-only] [--keep]
 """
+import sys
+from pathlib import Path
+
+# Make the tools package importable so we can use find_repo_root.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from tools import find_repo_root
 
 import argparse
 import glob
@@ -45,7 +51,7 @@ import tempfile
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = find_repo_root()
 DEFAULT_CORPUS = ["test/jit", "test/aot", "test/licm", "test/inline_audit"]
 LEVELS = [0, 1, 2, 3]
 

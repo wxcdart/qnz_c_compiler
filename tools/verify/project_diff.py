@@ -18,13 +18,19 @@ Usage:
   python3 tools/project_diff.py --projects sqlite
   python3 tools/project_diff.py --levels 0 2 3
 """
+import sys
+from pathlib import Path
+
+# Make the tools package importable so we can use find_repo_root.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from tools import find_repo_root
 import argparse
 import os
 import subprocess
 import sys
 import tempfile
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = find_repo_root()
 ZEROC = os.path.join(ROOT, "build", "bin", "zerocc")
 
 PROJECTS = {

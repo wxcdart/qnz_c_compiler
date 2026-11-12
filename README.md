@@ -302,14 +302,14 @@ Current status (last full verification 2026-11-11, Sprints 129–162; counts dri
 | **Cross-ISA raw-emitter QEMU gate** (`make test-isa-qemu`, vs static-musl reference) | ✅ Pass | 59/59 (all 4 ISAs) |
 | **Cross-ISA `__int128` raw-emitter QEMU gate** (`make test-isa128`, vs static-musl reference) | ✅ Pass | 144/144 (all 3 ISAs × 6 tests × 4 levels × 2 paths) |
 | **GCC c-torture conformance gate** (`make test-torture`, ratcheted baseline, gcc-15 reference) | ✅ Pass | 3,781 PASS / 3,940 corpus (0 MISCOMPILE / 0 REJECT; SKIP-SUPPORT 87, SKIP-C89 33, SKIP-REFSEM 7, SKIP-TARGET: arm 2, ia64 1, mips 4, powerpc 2, s390x 1, windows 1, float16/bfloat16/float128x runtime 3, SKIP-UB/PTR/BOGUS 3, EXPECTED-REJECT 4, NO-REF 1, REF-BUG 11) |
-| **Type-tag verifier** (`tools/type_tag_verifier.py --verify-all`, invariants I1–I10 at `-O0/2/3`) | ✅ Pass | 160 files, RESULT OK |
-| **Loop unroll verifier** (`tools/loop_unroll_verifier.py`, `-O3` constant-trip full unrolling + runtime-bound partial unrolling w/ remainder peel, `expect-unroll`/`expect-partial` markers) | ✅ Pass | 25/25 |
+| **Type-tag verifier** (`tools/verify/type_tag_verifier.py --verify-all`, invariants I1–I10 at `-O0/2/3`) | ✅ Pass | 160 files, RESULT OK |
+| **Loop unroll verifier** (`tools/verify/loop_unroll_verifier.py`, `-O3` constant-trip full unrolling + runtime-bound partial unrolling w/ remainder peel, `expect-unroll`/`expect-partial` markers) | ✅ Pass | 25/25 |
 | **ASan/UBSan rebuild** (`make asan`) | ✅ Pass | 224/224 |
-| **`sret` ABI verifier** (`tools/sret_verifier.py --verify-all`) | ✅ Pass | 6/6 |
+| **`sret` ABI verifier** (`tools/verify/sret_verifier.py --verify-all`) | ✅ Pass | 6/6 |
 | **C11 verification suite** (`tools/c11/test_c11.py`) | ✅ Pass | 11/11 |
 | **VLA verification suite** (`tools/vla/test_vla.py`) | ✅ Pass | 11/11 (incl. VLA-in-loop / VLA-in-block runtime tests — C99 6.7.5.2 legal, gcc-differentially verified) |
-| **Diagnostics battery** (`tools/diag_battery.py`, vs gcc) | ✅ Pass | 16 cases, 8/8 error categories |
-| **C style checker** (`tools/style_check.py`) | ✅ Pass | 0 errors, 0 warnings (Sprint 162) |
+| **Diagnostics battery** (`tools/verify/diag_battery.py`, vs gcc) | ✅ Pass | 16 cases, 8/8 error categories |
+| **C style checker** (`tools/verify/style_check.py`) | ✅ Pass | 0 errors, 0 warnings (Sprint 162) |
 
 ## C23 Support
 
@@ -367,7 +367,7 @@ ZeroCC development and verification rely on a combination of host build tools, r
 | **Python 3** | 3.8+ | Python 3.12.3 | Test runners, ABI verifiers, OKF knowledge graph (`tools/*.py`) | **Core** |
 | **Git** | 2.25+ | Git 2.43.0 | Source tree and revision control | **Core** |
 | **GCC 15** | 15.0+ | GCC 15.2.0 (`gcc-15`) | **Mandatory c-torture reference** (`make test-torture` hard-fails without it; each test's `dg-options`/`-std=` dialect passes through), **differential C23 conformance gate** (`make test-c23`) across dialects (`-std=gnu23`, `c23`, `c11`, `c99`, `gnu89`), and the **reference oracle for the x86-64 ISA gates** (`make test-isa128` ref builds + x86_64 `-S` link; the `musl-gcc-x86_64` wrapper wraps it — rebuild with `--ccbin gcc-15`); overridable via `TORTURE_GCC` / `C23_GCC` | **Differential (required)** |
-| **GCC 14 / 13** | Any recent | GCC 14.2 / 13.3 | Multi-version baseline probes and diagnostics validation (`tools/diag_battery.py`) | **Differential** |
+| **GCC 14 / 13** | Any recent | GCC 14.2 / 13.3 | Multi-version baseline probes and diagnostics validation (`tools/verify/diag_battery.py`) | **Differential** |
 | **QEMU User Static** | 8.0+ | QEMU 8.2.2 (`qemu-*-static`) | Cross-ISA binary execution for x86-64, AArch64, RISC-V 64, RISC-V 32 under Linux | **Cross-ISA** |
 | **Cross Toolchains** | GCC 13+ | `aarch64-linux-gnu-gcc`, `riscv64-linux-gnu-gcc` | Reference cross-compilation & cross-assembling for `make test-isa128` / `test-isa-qemu` (the installed version — no cross `gcc-15` builds exist, and the C99/C11+int128 corpus does not constrain the reference version) | **Cross-ISA** |
 | **Static Musl Toolchains** | musl 1.2.6+ | `musl-gcc-<arch>` in `~/.local/bin` | Static reference binary generation for raw emitter differential gate (`make test-isa-qemu`, built via `tools/setup_musl_cross.sh`) | **Cross-ISA** |
@@ -508,25 +508,25 @@ ZeroCC includes automated verification suites in [`tools/`](tools/)
 (historical debugging scripts are archived in [`tools/archive/`](tools/archive/)):
 
 ```bash
-python3 tools/torture_run.py               # GCC c-torture differential gate (ratcheted baseline)
-python3 tools/san_sweep.py                 # zero_san flag-ON soundness sweep
-python3 tools/opt_sweep.py                 # Optimizer sweep -O0..-O3, JIT + AOT
+python3 tools/verify/torture_run.py               # GCC c-torture differential gate (ratcheted baseline)
+python3 tools/verify/san_sweep.py                 # zero_san flag-ON soundness sweep
+python3 tools/verify/opt_sweep.py                 # Optimizer sweep -O0..-O3, JIT + AOT
 python3 tools/c23/test_c23.py              # C23 differential conformance gate vs gcc-15
-python3 tools/project_diff.py              # Real-world project compilation gate (cJSON, zlib, sqlite3.c)
+python3 tools/verify/project_diff.py              # Real-world project compilation gate (cJSON, zlib, sqlite3.c)
 python3 tools/c11/test_c11.py --verbose    # C11 feature & concurrency suite
 python3 tools/vla/test_vla.py              # VLA & matrix VLA suite
-python3 tools/sret_verifier.py --verify-all  # sret ABI verifier
-python3 tools/abi_interop.py                 # Bidirectional zerocc.o <-> gcc.o external ABI interop gate (Sprint 158)
-python3 tools/type_tag_verifier.py --verify-all  # Per-temp IR type-tag invariants (Sprints 118–120)
-python3 tools/loop_unroll_verifier.py      # -O3 loop unrolling verifier: constant-trip full + runtime-bound partial (Sprints 150/156)
-python3 tools/diag_battery.py              # Differential diagnostics vs gcc (ratchet baseline)
-python3 tools/style_check.py               # C style/convention checker
-python3 tools/simd_regression_suite.py     # Auto-vectorization regression suite
-python3 tools/cross_isa_comparator.py test/aot/hello_world.c  # Multi-ISA asm comparison
-python3 tools/isa128_diff.py --isa aarch64 # Cross-ISA __int128 differential gate
-python3 tools/isa_qemu_diff.py --isa riscv64   # Raw-emitter QEMU differential gate
-python3 tools/isa_qemu_diff.py --isa riscv64 --vec   # SIMD vector raw-emitter QEMU gate
-python3 tools/okf.py lint && python3 tools/okf.py index  # Validate the OKF knowledge graph
+python3 tools/verify/sret_verifier.py --verify-all  # sret ABI verifier
+python3 tools/verify/abi_interop.py                 # Bidirectional zerocc.o <-> gcc.o external ABI interop gate (Sprint 158)
+python3 tools/verify/type_tag_verifier.py --verify-all  # Per-temp IR type-tag invariants (Sprints 118–120)
+python3 tools/verify/loop_unroll_verifier.py      # -O3 loop unrolling verifier: constant-trip full + runtime-bound partial (Sprints 150/156)
+python3 tools/verify/diag_battery.py              # Differential diagnostics vs gcc (ratchet baseline)
+python3 tools/verify/style_check.py               # C style/convention checker
+python3 tools/analysis/simd_regression_suite.py     # Auto-vectorization regression suite
+python3 tools/analysis/cross_isa_comparator.py test/aot/hello_world.c  # Multi-ISA asm comparison
+python3 tools/verify/isa128_diff.py --isa aarch64 # Cross-ISA __int128 differential gate
+python3 tools/verify/isa_qemu_diff.py --isa riscv64   # Raw-emitter QEMU differential gate
+python3 tools/verify/isa_qemu_diff.py --isa riscv64 --vec   # SIMD vector raw-emitter QEMU gate
+python3 tools/okf/okf.py lint && python3 tools/okf/okf.py index  # Validate the OKF knowledge graph
 ```
 
 See [`tools/README.md`](tools/README.md) for the full tool table.
@@ -535,14 +535,14 @@ See [`tools/README.md`](tools/README.md) for the full tool table.
 
 - Read [`AGENTS.md`](AGENTS.md) (build/verification rules) and
   [`docs/coding_style.md`](docs/coding_style.md) (layout, include order,
-  naming `zero_cc_*` / `ZeroCC*` / `ZERO_CC_*`); run `python3 tools/style_check.py`.
+  naming `zero_cc_*` / `ZeroCC*` / `ZERO_CC_*`); run `python3 tools/verify/style_check.py`.
 - Project headers are included relative to the include roots
   (`-Isrc -Iinclude`), e.g. `#include "zero_cc/core/core.h"` — no `../` or
   bare-sibling project includes.
 - Consult the OKF graph ([`docs/okf/index.md`](docs/okf/index.md)) before
   scanning `docs/`. After a feature or fix, update the relevant OKF page and run
-  `python3 tools/okf.py update <page.md> --log "..."`, then
-  `python3 tools/okf.py lint && python3 tools/okf.py index`.
+  `python3 tools/okf/okf.py update <page.md> --log "..."`, then
+  `python3 tools/okf/okf.py lint && python3 tools/okf/okf.py index`.
 - Work lands in numbered sprints with a `docs/CHANGELOG.md` entry each.
 
 ## Roadmap & Known Limitations

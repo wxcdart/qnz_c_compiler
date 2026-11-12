@@ -8,16 +8,16 @@ This directory contains C source files for testing ZeroCC's ELF object file gene
 
 ```bash
 # Run all AOT tests for x86-64
-python3 tools/test_runner.py --mode aot
+python3 tools/verify/test_runner.py --mode aot
 
 # Run AOT tests for a specific target
-python3 tools/test_runner.py --mode aot --target aarch64
+python3 tools/verify/test_runner.py --mode aot --target aarch64
 
 # Run with verbose output
-python3 tools/test_runner.py --mode aot --verbose
+python3 tools/verify/test_runner.py --mode aot --verbose
 
 # Run specific test
-python3 tools/test_runner.py --mode aot test/aot/hello_world
+python3 tools/verify/test_runner.py --mode aot test/aot/hello_world
 ```
 
 ### Manual Testing
@@ -27,7 +27,7 @@ python3 tools/test_runner.py --mode aot test/aot/hello_world
 build/bin/zerocc -c test/aot/hello_world.c -o /tmp/hello.o
 
 # Verify ELF structure
-python3 tools/elf_verify.py /tmp/hello.o --verbose
+python3 tools/analysis/elf_verify.py /tmp/hello.o --verbose
 
 # Link and run
 gcc -o /tmp/hello /tmp/hello.o

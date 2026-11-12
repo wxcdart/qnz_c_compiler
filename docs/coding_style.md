@@ -64,7 +64,7 @@ Rules:
 3. Project headers (`"zero_cc/..."`), umbrella/dependency-first.
 
 The tree is fully ordered this way as of the Sprint 162 style burn-down
-(`tools/style_check.py` reports 0 warnings); new files and edits should keep
+(`tools/verify/style_check.py` reports 0 warnings); new files and edits should keep
 it that way (the INC010 rule is scoped to the flat top include region —
 conditional includes below it, e.g. a freestanding `#if __has_include`
 fallback, are exempt).
@@ -107,7 +107,7 @@ Prefix discipline: a top-level non-`static` function is *module API* and
 must carry its module prefix (`<module>_<action>`); everything else in a
 module is `static` (or module-prefixed when it must be shared within a
 `.c`-include pair). A new module gets its own prefix — do not invent
-bare-word public functions. `tools/style_check.py` (rule NAM001) enforces
+bare-word public functions. `tools/verify/style_check.py` (rule NAM001) enforces
 the prefix presence.
 
 ## 4. Code style
@@ -134,15 +134,15 @@ the prefix presence.
 - **No compiler warnings** on a clean `make rebuild` (the tree is warning-free
   under `-Wall -Wextra`; keep it that way).
 
-## 5. Style checker (`tools/style_check.py`)
+## 5. Style checker (`tools/verify/style_check.py`)
 
 Ruff-style, stdlib-only, fast — codifies the rules in this file so drift is
 catchable in seconds:
 
 ```bash
-python3 tools/style_check.py            # check src/ include/ (errors gate, warnings report)
-python3 tools/style_check.py --fix      # repair trailing whitespace + missing EOF newline
-python3 tools/style_check.py --quiet    # failures only
+python3 tools/verify/style_check.py            # check src/ include/ (errors gate, warnings report)
+python3 tools/verify/style_check.py --fix      # repair trailing whitespace + missing EOF newline
+python3 tools/verify/style_check.py --quiet    # failures only
 ```
 
 Rules: include conventions (no `../`/`./`, no bare subfolder names, no

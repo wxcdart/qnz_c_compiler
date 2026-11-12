@@ -32,6 +32,12 @@ Usage:
   python3 tools/cfg_verifier.py --file test/cfg/nested_loops.c
   python3 tools/cfg_verifier.py --verify-all --dot /tmp/cfgs/
 """
+import sys
+from pathlib import Path
+
+# Make the tools package importable so we can use find_repo_root.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from tools import find_repo_root
 
 import argparse
 import os
@@ -39,7 +45,7 @@ import re
 import subprocess
 import sys
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = find_repo_root()
 ZEROCC = os.path.join(ROOT, "build", "bin", "zerocc")
 SWEEP_CORPUS = ["test/jit", "test/aot", "test/licm", "test/inline_audit"]
 CFG_UNIT_DIR = "test/cfg"

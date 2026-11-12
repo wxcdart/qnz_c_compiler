@@ -3,8 +3,14 @@
 compiles via zerocc, runs, compares rc to the gcc reference). Usage:
   python3 tools/regress_exec_diff.py [file-list]
 Defaults to /tmp/reg_execute.txt (the regression list from last_run.json)."""
+import sys
+from pathlib import Path
+
+# Make the tools package importable so we can use find_repo_root.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from tools import find_repo_root
 import subprocess, sys, os, hashlib, json
-REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO = find_repo_root()
 CORPUS = os.path.join(REPO, 'third_party/vendor/c-torture')
 ZEROC = os.path.join(REPO, 'build/bin/zerocc')
 GCC = os.environ.get('TORTURE_GCC', 'gcc')

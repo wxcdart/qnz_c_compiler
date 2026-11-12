@@ -51,6 +51,12 @@ M1 (TIMEOUT hang) burn-down tools:
   python3 tools/torture_run.py --keep                    # retain artifacts in /tmp/torture_work
   python3 tools/torture_run.py --timeout 30              # override run/build timeout (sec)
 """
+import sys
+from pathlib import Path
+
+# Make the tools package importable so we can use find_repo_root.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from tools import find_repo_root
 
 import argparse
 import concurrent.futures
@@ -67,7 +73,7 @@ import sys
 import time
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parent.parent
+REPO = find_repo_root()
 CORPUS = REPO / "third_party/vendor/c-torture"
 BASELINE_PATH = REPO / "test/torture/baseline.json"
 ZEROC = REPO / "build/bin/zerocc"

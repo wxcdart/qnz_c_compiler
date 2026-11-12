@@ -19,12 +19,17 @@ Exit: 0 = no active NULL slots, 1 = active slots are NULL in tested backend(s).
 """
 from __future__ import annotations
 
-import argparse
-import re
 import sys
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parent.parent
+# Make the tools package importable so we can use find_repo_root.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from tools import find_repo_root
+
+import argparse
+import re
+
+REPO = find_repo_root()
 ISA_DIR = REPO / "src" / "zero_cc" / "isa"
 SRC_DIR = REPO / "src"
 

@@ -45,6 +45,12 @@ Usage:
     python3 tools/abi_interop.py [--zerocc PATH] [--levels 0 1 2]
                                  [--verbose] [--scenario NAME]
 """
+import sys
+from pathlib import Path
+
+# Make the tools package importable so we can use find_repo_root.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from tools import find_repo_root
 
 import argparse
 import glob
@@ -55,7 +61,7 @@ import subprocess
 import sys
 import tempfile
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = find_repo_root()
 CORPUS_DIR = os.path.join(ROOT, "test", "abi_interop")
 
 ZEROCC = os.environ.get("ZEROCC", os.path.join(ROOT, "build", "bin", "zerocc"))

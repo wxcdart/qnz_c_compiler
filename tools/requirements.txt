@@ -1,0 +1,9 @@
+# ZeroCC verification tooling dependencies.
+#
+# All active tools in tools/ (and its subpackages) use only the Python
+# standard library. This file is intentionally empty of third-party
+# requirements so that `pip install -r tools/requirements.txt` is a
+# no-op and every tool runs out of the box with `python3`.
+#
+# If a future tool needs a third-party package, add it here with a pin
+# (e.g. `pyelftools>=0.29`) and document it in tools/README.md.

@@ -12,7 +12,7 @@ status: active
 
 # GCC `c-torture` Conformance Gate (`make test-torture`)
 
-The GCC `gcc.c-torture` test suite is vendored at [`third_party/vendor/c-torture/`](../../third_party/vendor/c-torture/) (from `gcc-mirror` commit `442eb35f`, GPL-2.0-or-later, test corpus only — never linked into compiler or runtime binaries) and driven by [`tools/torture_run.py`](../../tools/torture_run.py) against a ratcheting baseline at [`test/torture/baseline.json`](../../test/torture/baseline.json).
+The GCC `gcc.c-torture` test suite is vendored at [`third_party/vendor/c-torture/`](../../third_party/vendor/c-torture/) (from `gcc-mirror` commit `442eb35f`, GPL-2.0-or-later, test corpus only — never linked into compiler or runtime binaries) and driven by [`tools/verify/torture_run.py`](../../tools/verify/torture_run.py) against a ratcheting baseline at [`test/torture/baseline.json`](../../test/torture/baseline.json).
 
 **Reference compiler: gcc-15 is mandatory (Sprint 141).** The gate defaults to `gcc-15` and hard-fails at startup if it is not installed (no silent fallback to an older reference). The corpus's C23-era tests (`dg-options "-std=c2y"`/`"-std=gnu23"` — the `uabs` family, the fixed-enum `pr111059`/`pr111911` clusters) only build under it, and it keeps the conformance reference aligned with the C23 differential gate (`tools/c23/test_c23.py`), which uses the same compiler. `TORTURE_GCC` still overrides for special runs (the refcache key includes the compiler name, so cached references never mix across switches). Each test's own `dg-options`/`.x` flags — including its `-std=` dialect — are passed to both the reference and zerocc.
 
@@ -25,8 +25,8 @@ The vendored corpus contains **3,940** active test files across two trees (exclu
 - `execute/` (1,924 `.c` files, including `execute/builtins/` and `execute/ieee/`): compile-and-run tests swept across **8 configurations** (`-O0`, `-O1`, `-O2`, `-O3` × `{JIT (--run), AOT (-o)}`) and diffed on `(exit_code, stdout)` against a cached `gcc -O1 -w -lm` reference binary.
 
 ### Pre-Skip Directives (`parse_directives`)
-Because `gcc.c-torture` mixes standard C89/C99/C11 tests with GCC-internal target extensions, `tools/torture_run.py` scans DejaGnu (`dg-*`) directives in the first 60 lines of each file and pre-skips:
-- **`SKIP-TARGET:<feature>`**: `dg-require-effective-target` for GNU/target extensions outside ZeroCC's target contract (`int128`, `named_sections`, `unwrapped`, `arm`, `freestanding`, `alloca`, `bitint`, `dfp`, `fixed_point`, `tls_native`, `vector`, `vxworks_kernel`). Note: `return_address` was removed in Sprint 86, `label_values` was unskipped in Sprint 87 (computed gotos + label difference relocations), `indirect_jumps` was unskipped in Sprint 88, `nested_capture_writeback` was removed in Sprint 92 (runtime VLA param dimensions + runtime VLA `sizeof`), `trampolines` was removed as a blanket target in Sprint 93 (real trampoline stubs + pointer-routed capture landed), **`nonlocal_goto` was unskipped in Sprint 99** (named nonlocal goto across nested-function scopes; computed goto to ancestor frames matches GCC's own rejection), **the last `trampolines` holdout `compile/nested-1.c` was unskipped in Sprint 100** (its blocker was the local VLA-member struct `struct s { int a; char b[argc]; }` passed by value to the nested function - now supported; the targeted `TRAMPOLINES_BLOCKED` set in `tools/torture_run.py` is empty), the last `asm_named_reg` skip (`execute/pr51447.c`) was removed in Sprint 102 (GNU asm labels `register void *ptr asm ("rbx")` are accepted; the object keeps normal storage), and **`untyped_assembly` was unskipped in Sprint 103** — in GCC's DejaGnu it marks the x86 C89/gnu89 mode, not actual `asm` statements (none of the 40 tests contain one); they needed the Sprint 98–102 C89/gnu89 leniencies plus `__builtin_apply`/`__builtin_apply_args` (Sprint 103).
+Because `gcc.c-torture` mixes standard C89/C99/C11 tests with GCC-internal target extensions, `tools/verify/torture_run.py` scans DejaGnu (`dg-*`) directives in the first 60 lines of each file and pre-skips:
+- **`SKIP-TARGET:<feature>`**: `dg-require-effective-target` for GNU/target extensions outside ZeroCC's target contract (`int128`, `named_sections`, `unwrapped`, `arm`, `freestanding`, `alloca`, `bitint`, `dfp`, `fixed_point`, `tls_native`, `vector`, `vxworks_kernel`). Note: `return_address` was removed in Sprint 86, `label_values` was unskipped in Sprint 87 (computed gotos + label difference relocations), `indirect_jumps` was unskipped in Sprint 88, `nested_capture_writeback` was removed in Sprint 92 (runtime VLA param dimensions + runtime VLA `sizeof`), `trampolines` was removed as a blanket target in Sprint 93 (real trampoline stubs + pointer-routed capture landed), **`nonlocal_goto` was unskipped in Sprint 99** (named nonlocal goto across nested-function scopes; computed goto to ancestor frames matches GCC's own rejection), **the last `trampolines` holdout `compile/nested-1.c` was unskipped in Sprint 100** (its blocker was the local VLA-member struct `struct s { int a; char b[argc]; }` passed by value to the nested function - now supported; the targeted `TRAMPOLINES_BLOCKED` set in `tools/verify/torture_run.py` is empty), the last `asm_named_reg` skip (`execute/pr51447.c`) was removed in Sprint 102 (GNU asm labels `register void *ptr asm ("rbx")` are accepted; the object keeps normal storage), and **`untyped_assembly` was unskipped in Sprint 103** — in GCC's DejaGnu it marks the x86 C89/gnu89 mode, not actual `asm` statements (none of the 40 tests contain one); they needed the Sprint 98–102 C89/gnu89 leniencies plus `__builtin_apply`/`__builtin_apply_args` (Sprint 103).
 - **`SKIP-BOGUS`**: negative diagnostic tests (`dg-bogus`).
 - **Clause-aware target clauses (Sprint 159)**: the `{ target … }` clauses on `dg-options`/`dg-additional-options`, `dg-do`, `dg-skip-if`, and `dg-error` are evaluated by `target_matches()` — fnmatch against the host triple, `{ a b }` OR groups, `&&`, `!` negation, nested groups, plus the `EFFECTIVE_TARGETS` named-feature table (the LP64 reading trap: `int32plus` = "int ≥ 32 bits" = TRUE on x86-64, not the ILP32 model). Unsatisfied `dg-do`/`dg-skip-if` clauses pre-skip as `SKIP-TARGET:<arch>`; clause-gated options are withheld from the gcc-15 reference (pre-159 they were applied unconditionally — an aarch64/s390/loongarch/powerpc/ia32 flag made the reference build fail → false NO-REF, the whole 22-test bucket). `dg-skip-if` honors its options argument (braced or bare-quoted; `{ *-*-* } { "-flto" }` only skips under -flto, which the gate never passes). Reference *build* failures (gcc ICE, gas rejection, link errors) and reference *runtime* crashes classify REF-BUG, not NO-REF; the synthesized wrapper defines `link_error()`.
 - **`SKIP-REFSEM`**: tests requiring reference-changing floating-point semantics (`-mfpmath=`, `-ffast-math`, `-frounding-math`, `-fexcess-precision=`). `-fsignaling-nans` was removed from this class in Sprint 160 (its only corpus users — the `*-builtin-issignaling-1.c` family — construct NaN/inf via builtins and classify them; no FP arithmetic on sNaN values, so the flag is unobservable in the diff).
@@ -65,7 +65,7 @@ Recorded in [`test/torture/baseline.json`](../../test/torture/baseline.json) acr
 | **`SKIP-BOGUS` / `SKIP-PTR` / `SKIP-UB`** | **3** | 1 `dg-bogus`, 1 `%p` stdout test, 1 uninitialized heap read (`execute/941014-2.c`) |
 
 ### Ratcheting Invariants
-When `tools/torture_run.py` runs against `test/torture/baseline.json`:
+When `tools/verify/torture_run.py` runs against `test/torture/baseline.json`:
 1. **Bad count may never increase**: `bad = MISCOMPILE + REJECT` tests; the current run's bad count must be ≤ the baseline's.
 2. **No per-test regression**: any test recorded as `PASS` in `baseline.json` that becomes `MISCOMPILE` or `REJECT` fails the gate immediately, even if aggregate counts improved elsewhere. `PASS → TIMEOUT` is *not* a gate failure (per-config budgets are load-sensitive; see the `dg-timeout-factor` note in the TIMEOUT row) — verify a TIMEOUT against an idle machine before treating it as a real regression, using the `last_run.json` per-test diff.
 
@@ -80,19 +80,19 @@ The aggregate `PASS` count is intentionally **not** enforced: a borderline JIT c
 make test-torture
 
 # Quick dev sweep (-O1 AOT only on execute/, -O0 on compile/)
-python3 tools/torture_run.py --quick
+python3 tools/verify/torture_run.py --quick
 
 # Filter by substring, limit count, baseline class, or burn-down chunk (never overwrites baseline.json)
-python3 tools/torture_run.py --only execute/pr --limit 100
-python3 tools/torture_run.py --only pr109386,mzero4,fp-cmp-7  # comma-separated pattern list
-python3 tools/torture_run.py --chunk m2                       # batch-verify the 16 partial MISCOMPILE tests
-python3 tools/torture_run.py --only-class TIMEOUT             # re-run by baseline class (e.g. TIMEOUT)
+python3 tools/verify/torture_run.py --only execute/pr --limit 100
+python3 tools/verify/torture_run.py --only pr109386,mzero4,fp-cmp-7  # comma-separated pattern list
+python3 tools/verify/torture_run.py --chunk m2                       # batch-verify the 16 partial MISCOMPILE tests
+python3 tools/verify/torture_run.py --only-class TIMEOUT             # re-run by baseline class (e.g. TIMEOUT)
 
 # M1 hang triage (TIMEOUT burn-down): exact repro commands per failing config,
 # artifact retention, timeout override, and automated hang capture
-python3 tools/torture_run.py --only "execute/930529-1" --repro
-python3 tools/torture_run.py --keep                  # retain objects/binaries in /tmp/torture_work
-python3 tools/torture_run.py --timeout 30            # override run/build timeout (sec)
+python3 tools/verify/torture_run.py --only "execute/930529-1" --repro
+python3 tools/verify/torture_run.py --keep                  # retain objects/binaries in /tmp/torture_work
+python3 tools/verify/torture_run.py --timeout 30            # override run/build timeout (sec)
 
 # Heavy sub-sweep: the 6 tests marked `dg-require-effective-target
 # run_expensive_tests` (memclr, memcpy-a{1,2,4,8}, limits-fnargs) run
@@ -101,23 +101,23 @@ python3 tools/torture_run.py --timeout 30            # override run/build timeou
 # test-torture` runs both; the heavy run merges into last_run.json and its
 # reference builds get a dg-timeout-factor-scaled build budget.
 make test-torture                                    # main sweep + heavy sub-sweep
-python3 tools/torture_run.py --chunk heavy           # heavy sub-sweep only
+python3 tools/verify/torture_run.py --chunk heavy           # heavy sub-sweep only
 
 # Reference compiler: MANDATORY gcc-15 (Sprint 141) - the C23-era tests
 # (dg-options "-std=c2y"/"-std=gnu23") only build under it.  TORTURE_GCC
 # overrides for special runs (the refcache key includes the compiler
 # name, so cached references never mix across switches).
-TORTURE_GCC=gcc-14 python3 tools/torture_run.py   # e.g. a comparative re-run
+TORTURE_GCC=gcc-14 python3 tools/verify/torture_run.py   # e.g. a comparative re-run
 
 # Timeouts follow DejaGnu semantics: base run budget is 5 s; `dg-timeout N`
 # sets an absolute budget, `dg-timeout-factor N` multiplies the base
 # (the memory-hog tests use factors 4-8). `--parallel` defaults to
 # cpu_count()+2 to avoid oversubscribing small hosts.
-python3 tools/torture_run.py --hang-debug "execute/930529-1"        # capture a hang under gdb
-python3 tools/torture_run.py --hang-debug T --hang-config O2-jit --hang-all
+python3 tools/verify/torture_run.py --hang-debug "execute/930529-1"        # capture a hang under gdb
+python3 tools/verify/torture_run.py --hang-debug T --hang-config O2-jit --hang-all
 
 # Re-record baseline after fixing MISCOMPILE / REJECT / TIMEOUT bugs
-python3 tools/torture_run.py --update-baseline
+python3 tools/verify/torture_run.py --update-baseline
 ```
 
 ### M1 Hang Triage (`--hang-debug`)
@@ -145,7 +145,7 @@ infinite loop** — the `-O2` build succeeds, and the generated `test()` body sp
 
 ## 4. Bugs Uncovered & Fixed in Sprint 57
 
-Bringing up `tools/torture_run.py` exposed and fixed five compiler bugs (reducing `execute/` `MISCOMPILE` from **252 → 218** and eliminating parser hangs):
+Bringing up `tools/verify/torture_run.py` exposed and fixed five compiler bugs (reducing `execute/` `MISCOMPILE` from **252 → 218** and eliminating parser hangs):
 
 1. **Struct/Union `enum` Bitfields & Non-Literal Bitfield Widths** (`src/zero_cc/parser/definitions.h`, `ast_expr.h`, `compile_unit.h`):
    - `enum Lisp_Type type: 3L;` inside a `struct`/`union` (`compile/20000224-1.c`) previously hung the parser because the `TK_STRUCT | TK_UNION | TK_ENUM` member branch did not consume `: width`, and bitfield widths only accepted plain `TK_NUM` instead of `zero_cc_eval_const_expr(c)`. Added progress guards in struct body and brace-initializer loops so unrecognized tokens advance instead of spinning.
@@ -312,7 +312,7 @@ Bringing up `tools/torture_run.py` exposed and fixed five compiler bugs (reducin
     - **Result**: PASS **3,615 → 3,626** (+11: the 8 targeted asm/SSO/`__FUNCTION__`/file-scope-`;` tests + `compile/20041119-1`, `compile/20190827-1`, `execute/20001011-1`); SKIP-C89 **61 → 51**; `SKIP-TARGET:asm_named_reg` **1 → 0**; no PASS→bad. `make test` 165/165, `make test-opt` 126 ok, `make test-driver` 37/37, `make test-isa-qemu` 59/59, diag battery baseline OK. Baseline re-recorded (`--update-baseline`).
 
 - **Sprint 103 — `__builtin_apply` / `__builtin_apply_args`: the entire `SKIP-TARGET:untyped_assembly` bucket unskipped** (see [`docs/CHANGELOG.md`](../CHANGELOG.md) for the full entry):
-    - **The bucket was a misnomer**: in GCC's DejaGnu `untyped_assembly` marks the x86 C89/gnu89 execution mode — **none of the 40 tests contains an `asm` statement**. 38 were already accepted by the Sprint 98–102 C89/gnu89 leniencies (implicit int, K&R definitions, gnu89 implicit declarations); unskipping was mostly bookkeeping in `tools/torture_run.py` (`untyped_assembly` removed from `UNSUPPORTED_TARGETS`).
+    - **The bucket was a misnomer**: in GCC's DejaGnu `untyped_assembly` marks the x86 C89/gnu89 execution mode — **none of the 40 tests contains an `asm` statement**. 38 were already accepted by the Sprint 98–102 C89/gnu89 leniencies (implicit int, K&R definitions, gnu89 implicit declarations); unskipping was mostly bookkeeping in `tools/verify/torture_run.py` (`untyped_assembly` removed from `UNSUPPORTED_TARGETS`).
     - **`__builtin_apply_args()`** (`ir/ast_lowering_builtins.c`): snapshots the current function's parameters into a fresh 8-byte-per-param stack block (narrow params stored at their type width; FP params as 64-bit bit patterns) and returns the block base. **`__builtin_apply(fn, block, n)`**: resolves the callee signature — the `ZeroCCFunction` table for an identifier callee (the semantic TypeInfo often carries no prototype — the first attempt read `param_cnt == 0` and silently called with no arguments, passing stale-register garbage at every -O level), else the pointee's `TypeInfo`; rebuilds the argument stream from the 8-byte slots (int/FP register + stack placement per the normal call convention) and emits the standard indirect call with the indirect-callee spill. An unrecoverable pointee (e.g. cast through `void *`, `compile/930623-1.c`) falls back to a K&R-style indirect call with no argument metadata rather than rejecting.
     - **Inlining interaction (gate-caught)**: a function calling `__builtin_apply_args` must not be inlined — the snapshot must capture the *callee's* parameters, and an inlined body would read the caller's parameter table (pr47237 broke only at -O2/-O3, where `bar` inlines into `main` and `main` has no params). Guard: `zero_cc_ast_has_call(body, "__builtin_apply_args")` joins the `inline_ok` probe in `jit/compile.h`.
     - **GCC's own `__builtin_apply` is broken on x86-64** for non-void results (garbage int/FP values — the legacy builtin only works for the void-return shape pr47237 uses), so the new regression test `test/jit/builtin_apply.c` is zerocc-only: excluded from the host-gcc `make test` glob, swept by `make test-opt` (126 → 127).

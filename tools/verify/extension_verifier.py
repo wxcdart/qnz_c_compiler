@@ -15,6 +15,12 @@ Usage:
   python3 tools/extension_verifier.py --feature offsetof
   python3 tools/extension_verifier.py --diff-gcc
 """
+import sys
+from pathlib import Path
+
+# Make the tools package importable so we can use find_repo_root.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from tools import find_repo_root
 
 import argparse
 import subprocess
@@ -356,7 +362,7 @@ def run_test(compiler: str, test: ExtensionTestCase, verbose: bool = False, diff
         if os.path.exists(bin_path): os.unlink(bin_path)
         if os.path.exists(gcc_bin): os.unlink(gcc_bin)
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = find_repo_root()
 DEFAULT_COMPILER = str(REPO_ROOT / "build" / "bin" / "zerocc")
 
 def main():

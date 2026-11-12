@@ -15,6 +15,12 @@ Verifies:
 Usage:
   python3 tools/prologue_epilogue_verifier.py [--target <isa>] [--verbose]
 """
+import sys
+from pathlib import Path
+
+# Make the tools package importable so we can use find_repo_root.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from tools import find_repo_root
 
 import argparse
 import re
@@ -23,7 +29,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = find_repo_root()
 ZEROCC = REPO_ROOT / "build" / "bin" / "zerocc"
 
 CSR_REGS = {

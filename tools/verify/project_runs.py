@@ -39,13 +39,19 @@ Usage:
   python3 tools/project_runs.py --projects cjson zlib
   python3 tools/project_runs.py --projects sqlite
 """
+import sys
+from pathlib import Path
+
+# Make the tools package importable so we can use find_repo_root.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from tools import find_repo_root
 import argparse
 import os
 import subprocess
 import sys
 import tempfile
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = find_repo_root()
 ZEROC = os.path.join(ROOT, "build", "bin", "zerocc")
 CJ = "test/projects/cjson"
 ZL = "test/projects/zlib"

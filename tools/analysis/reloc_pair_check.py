@@ -29,18 +29,24 @@ Exit: 0 = all objects pass, 1 = violations found, 2 = usage/env error.
 """
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+# Make the tools package importable so we can use find_repo_root.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from tools import find_repo_root
+
 import argparse
 import glob
 import os
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import elf_min  # noqa: E402
 
-REPO = Path(__file__).resolve().parent.parent
+REPO = find_repo_root()
 ZEROC = REPO / "build" / "bin" / "zerocc"
 TEST_DIR = REPO / "test" / "isa_qemu"
 

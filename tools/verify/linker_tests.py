@@ -13,13 +13,19 @@ Links zerocc-emitted .o files (and .a archives) with ZeroCC's own linker
 
 Run:  python3 tools/linker_tests.py     (requires `make build/bin/zerocc`)
 """
+import sys
+from pathlib import Path
+
+# Make the tools package importable so we can use find_repo_root.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from tools import find_repo_root
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = find_repo_root()
 LDIR = os.path.join(ROOT, "test", "linker")
 BIN = os.path.join(ROOT, "build", "bin", "zerocc")
 

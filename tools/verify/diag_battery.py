@@ -26,6 +26,12 @@ Usage:
     python3 tools/diag_battery.py --update-baseline
     python3 tools/diag_battery.py --json          # machine-readable state
 """
+import sys
+from pathlib import Path
+
+# Make the tools package importable so we can use find_repo_root.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from tools import find_repo_root
 import argparse
 import json
 import os
@@ -35,7 +41,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parent.parent
+REPO = find_repo_root()
 ZEROC = REPO / "build" / "bin" / "zerocc"
 CORPUS = REPO / "test" / "diag"
 BASELINE = CORPUS / "baseline.json"

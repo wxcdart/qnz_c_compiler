@@ -65,6 +65,12 @@ Usage:
   python3 tools/type_tag_verifier.py --verify-all --levels 0 2 3
   python3 tools/type_tag_verifier.py --file test/jit/float_ops.c
 """
+import sys
+from pathlib import Path
+
+# Make the tools package importable so we can use find_repo_root.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from tools import find_repo_root
 
 import argparse
 import glob
@@ -73,7 +79,7 @@ import re
 import subprocess
 import sys
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = find_repo_root()
 ZEROCC = os.path.join(ROOT, "build", "bin", "zerocc")
 SWEEP_CORPUS = ["test/jit", "test/aot", "test/licm", "test/inline_audit"]
 SAN_DIR = "test/san"

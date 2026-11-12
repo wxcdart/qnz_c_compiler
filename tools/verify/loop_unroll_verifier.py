@@ -37,6 +37,12 @@ else gcc.
 Usage:
     python3 tools/loop_unroll_verifier.py [--zerocc PATH] [--verbose]
 """
+import sys
+from pathlib import Path
+
+# Make the tools package importable so we can use find_repo_root.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from tools import find_repo_root
 
 import argparse
 import glob
@@ -48,7 +54,7 @@ import subprocess
 import sys
 import tempfile
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = find_repo_root()
 CORPUS_DIR = os.path.join(ROOT, "test", "jit")
 
 ZEROCC = os.environ.get("ZEROCC", os.path.join(ROOT, "build", "bin", "zerocc"))

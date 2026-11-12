@@ -22,6 +22,12 @@ Usage:
     python3 tools/isa_qemu_diff.py --only 07_float    # subset by name
     python3 tools/isa_qemu_diff.py --list
 """
+import sys
+from pathlib import Path
+
+# Make the tools package importable so we can use find_repo_root.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from tools import find_repo_root
 import argparse
 import os
 import shutil
@@ -30,7 +36,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parent.parent
+REPO = find_repo_root()
 ZEROC = REPO / "build" / "bin" / "zerocc"
 TEST_DIR = REPO / "test" / "isa_qemu"
 

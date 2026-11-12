@@ -10,13 +10,19 @@ cannot reach:
 
 Run:  python3 tools/driver_tests.py     (requires `make build/bin/zerocc`)
 """
+import sys
+from pathlib import Path
+
+# Make the tools package importable so we can use find_repo_root.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from tools import find_repo_root
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = find_repo_root()
 DRIVER = os.path.join(ROOT, "test", "driver")
 BIN = os.path.join(ROOT, "build", "bin", "zerocc")
 

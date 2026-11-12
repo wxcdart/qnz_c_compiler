@@ -1,7 +1,7 @@
 ---
 name: c-torture-gate
 description: >-
-  Run and maintain the GCC c-torture differential conformance gate (tools/torture_run.py).
+  Run and maintain the GCC c-torture differential conformance gate (tools/verify/torture_run.py).
   Use when burning down c-torture REJECT/SKIP buckets, unskipping a test category,
   ratcheting test/torture/baseline.json, classifying a test, or diagnosing a gate
   "regression" after a compiler change.
@@ -9,7 +9,7 @@ description: >-
 
 # c-torture Conformance Gate
 
-The gate (`tools/torture_run.py`) differentially tests ZeroCC against the GCC
+The gate (`tools/verify/torture_run.py`) differentially tests ZeroCC against the GCC
 reference over the vendored corpus in `third_party/vendor/c-torture/`. A run
 **regresses** if it loses a class, drops an error count, or makes a
 previously-rejected file compile silently. `MISCOMPILE`, segfaults, and
@@ -18,9 +18,9 @@ previously-rejected file compile silently. `MISCOMPILE`, segfaults, and
 ## Running the Gate
 
 ```bash
-python3 tools/torture_run.py --parallel 4              # gate on baseline
-python3 tools/torture_run.py --parallel 4 --update-baseline   # re-record (only when green)
-python3 tools/torture_run.py --timeout 30 --parallel 4        # override per-test timeout
+python3 tools/verify/torture_run.py --parallel 4              # gate on baseline
+python3 tools/verify/torture_run.py --parallel 4 --update-baseline   # re-record (only when green)
+python3 tools/verify/torture_run.py --timeout 30 --parallel 4        # override per-test timeout
 make test-torture    # = main sweep + sequential heavy sub-sweep
 ```
 
@@ -54,11 +54,11 @@ Three other differential baselines ratchet the same way — **re-record only
 when green and idle, commit the baseline with its cause**:
 
 ```bash
-python3 tools/diag_battery.py                 # compiler-diagnostics gate (test/diag/baseline.json)
-python3 tools/diag_battery.py --update-baseline
-python3 tools/sret_verifier.py --verify-all   # sret ABI verifier (no baseline file)
+python3 tools/verify/diag_battery.py                 # compiler-diagnostics gate (test/diag/baseline.json)
+python3 tools/verify/diag_battery.py --update-baseline
+python3 tools/verify/sret_verifier.py --verify-all   # sret ABI verifier (no baseline file)
 make test-isa-qemu                            # raw-emitter differential vs static-musl ref under QEMU
-python3 tools/isa_qemu_diff.py --isa riscv64  # one ISA
+python3 tools/verify/isa_qemu_diff.py --isa riscv64  # one ISA
 ```
 
 - **diag_battery** differentially classifies zerocc's diagnostics for
@@ -199,7 +199,7 @@ Baseline-derived chunks for the known bad families (Sprint 115k state):
 
 1. Prove the feature actually works with minimal standalone tests (JIT + AOT)
    before touching the harness — not by running the whole category.
-2. Edit `tools/torture_run.py`:
+2. Edit `tools/verify/torture_run.py`:
    - Global category skip → remove the category from `UNSUPPORTED_TARGETS`.
    - Otherwise remove/adjust the targeted skip.
 3. **Targeted skips must be content-based** (scan test source for the blocking
@@ -217,6 +217,6 @@ Baseline-derived chunks for the known bad families (Sprint 115k state):
 
 The change must already pass the full battery (see AGENTS.md §2):
 `make build/bin/zerocc`, `make test`, `make test-opt`, `make test-driver`,
-`make test-isa-qemu`, `python3 tools/diag_battery.py`,
-`python3 tools/style_check.py`, and `grep -rn "ZC_DBG" src/zero_cc/ | wc -l`
+`make test-isa-qemu`, `python3 tools/verify/diag_battery.py`,
+`python3 tools/verify/style_check.py`, and `grep -rn "ZC_DBG" src/zero_cc/ | wc -l`
 must be `0`. A ratchet on top of a red battery records a broken baseline.

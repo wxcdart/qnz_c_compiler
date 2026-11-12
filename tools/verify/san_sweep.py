@@ -27,6 +27,12 @@ Exit status: 0 = all ok, 1 = at least one FAIL.
 Usage:
     python3 tools/san_sweep.py [--zerocc PATH] [--no-cross] [--json]
 """
+import sys
+from pathlib import Path
+
+# Make the tools package importable so we can use find_repo_root.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from tools import find_repo_root
 
 import argparse
 import glob
@@ -37,7 +43,7 @@ import subprocess
 import sys
 import tempfile
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = find_repo_root()
 SAN_DIR = os.path.join(ROOT, "test", "san")
 LEVELS = [0, 1, 2, 3]
 SIGILL_RC = 132  # 128 + SIGILL(4)

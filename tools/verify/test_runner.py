@@ -8,6 +8,12 @@ Modes:
 - JIT (default): Runs pre-compiled test binaries that link against ZeroCC library
 - AOT: Compiles C tests with zerocc, verifies ELF, links, and executes
 """
+import sys
+from pathlib import Path
+
+# Make the tools package importable so we can use find_repo_root.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from tools import find_repo_root
 
 import argparse
 import os
@@ -390,7 +396,7 @@ def main():
     args = parser.parse_args()
     global BUILD_SUBDIR
     BUILD_SUBDIR = args.build_dir
-    root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    root_dir = str(find_repo_root())
 
     # Auto-detect zerocc path
     zerocc_path = args.zerocc

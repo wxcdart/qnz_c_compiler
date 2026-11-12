@@ -35,6 +35,12 @@ Usage:
     python3 tools/isa128_diff.py --only arith        # subset by name
     python3 tools/isa128_diff.py --list
 """
+import sys
+from pathlib import Path
+
+# Make the tools package importable so we can use find_repo_root.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from tools import find_repo_root
 import argparse
 import shutil
 import subprocess
@@ -42,7 +48,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parent.parent
+REPO = find_repo_root()
 ZEROC = REPO / "build" / "bin" / "zerocc"
 TEST_DIR = REPO / "test" / "jit"
 TEST_GLOB = "int128_*.c"

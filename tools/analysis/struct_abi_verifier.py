@@ -10,6 +10,12 @@ Usage:
     python3 tools/struct_abi_verifier.py --asm file.s --verify-args
     python3 tools/struct_abi_verifier.py --mode comprehensive
 """
+import sys
+from pathlib import Path
+
+# Make the tools package importable so we can use find_repo_root.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from tools import find_repo_root
 
 import argparse
 import subprocess
@@ -18,7 +24,7 @@ import re
 import tempfile
 import os
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # repo root (Sprint 157: no hardcoded home paths)
+ROOT = find_repo_root()  # repo root (Sprint 157: no hardcoded home paths)
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Tuple

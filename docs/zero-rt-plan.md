@@ -111,7 +111,7 @@ Extended `zero_rt` to 100% feature and behavioral parity across **AArch64** and 
 ## 8. Verification (all phases)
 
 - Round-trip battery per phase: ZeroCC-compile → zero_rt-link → run → compare exit codes/outputs against host gcc.
-- Existing suite stays green: `make test` (156/156), `make test-opt` (117/117), `make test-isa-qemu` (44/44), `make test-linker` (21/21), `python3 tools/sret_verifier.py --verify-all` (6/6), `python3 tools/okf.py lint && python3 tools/okf.py index`.
+- Existing suite stays green: `make test` (156/156), `make test-opt` (117/117), `make test-isa-qemu` (44/44), `make test-linker` (21/21), `python3 tools/verify/sret_verifier.py --verify-all` (6/6), `python3 tools/okf/okf.py lint && python3 tools/okf/okf.py index`.
 - OKF page [`docs/okf/zero-rt.md`](./okf/zero-rt.md) documents the OS-boundary, self-compilation, linker integration, and cross-platform parity.
 
 ## 9. Related known gaps found during C5/C6 verification (Sprint 25+)

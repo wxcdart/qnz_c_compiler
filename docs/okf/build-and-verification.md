@@ -72,7 +72,7 @@ All project headers are included **relative to the include roots `-Isrc -Iinclud
 | Category | Tools & Minimum Versions | Role in ZeroCC Verification |
 |----------|--------------------------|-----------------------------|
 | **Core Build** | `make` (4.0+), Host `gcc` (13.0+), `python3` (3.8+), `git` | Building compiler binaries, `zero_rt` runtimes, test harnesses, and running test orchestration scripts. |
-| **Dialect Conformance** | `gcc-15` (15.0+), `gcc-14` / `gcc-13` | Differential verification across dialects (`-std=gnu23`, `c23`, `c11`, `c99`, `gnu89`) via `make test-c23` (`tools/c23/test_c23.py`) and diagnostic tests (`tools/diag_battery.py`). Overridable via `C23_GCC`. |
+| **Dialect Conformance** | `gcc-15` (15.0+), `gcc-14` / `gcc-13` | Differential verification across dialects (`-std=gnu23`, `c23`, `c11`, `c99`, `gnu89`) via `make test-c23` (`tools/c23/test_c23.py`) and diagnostic tests (`tools/verify/diag_battery.py`). Overridable via `C23_GCC`. |
 | **Cross-ISA Emulation** | `qemu-user-static` (8.0+), `aarch64-linux-gnu-gcc`, `riscv64-linux-gnu-gcc` | User-mode emulation under Linux for cross-ISA verification (`make test-isa128`). |
 | **Static Musl Reference** | `musl-gcc-<arch>` (in `~/.local/bin`, via `tools/setup_musl_cross.sh`) | Fully static reference binary generation for raw emitter differential testing (`make test-isa-qemu`); the x86_64 wrapper wraps `gcc-15` (Sprint 142), the cross wrappers wrap the installed cross gcc. |
 | **Workflow / Supervision** | `tmux` | Detaching and supervising long-running gates (such as `make test-torture`) without agent/shell command timeout. |
@@ -111,24 +111,24 @@ make asan
 
 ### Optimizer regression sweep (`make test-opt`)
 
-The normal suite compiles the `test/abi`/`test/semantic`/`test/unit` binaries with the host `gcc`, so it **never** exercises zerocc's optimization pipeline. `make test-opt` closes that gap with `tools/opt_sweep.py`: it compiles and runs every standalone test at `-O0/-O1/-O2/-O3` **using `./build/bin/zerocc` itself**, in **both JIT (`--run`) and AOT (`-o`)** modes, and compares each level's `(exit code, stdout)` against the `-O0` baseline. It also (informationally) diffs against `gcc -O2` when the host compiler can build the test. **Baseline probe (Sprint 134):** a non-zero baseline rc with a *building* gcc reference triggers an explicit zerocc compile probe — `zerocc --run` on an uncompilable source exits rc=1 like any process, so pre-Sprint 134 a persistent compile failure was adopted as the stable baseline and the test reported `[OK]` (how the stale `test/jit/c23_features.c` hid for ~50 sprints). Intentional non-zero program exits (successful compile) remain legitimate. **Sweep integrity (Sprint 138):** two further hollow-baseline sources were found while verifying the c-torture strictness burn-down. (1) The sweep's zerocc and gcc compile commands did not pass `-Iinclude -Isrc`, so the 58 **embedding tests** (those including `zero_cc.h` to drive the compiler API) *failed to compile* — their "baseline" was a masqueraded compile failure and every `-O` level "matched" it without running anything; the sweep now passes the include paths. (2) The embedding tests still cannot link standalone (they call zerocc internals like `arena_alloc` that only the zerocc library/process provides), so the sweep now **explicitly skips them** with a documented reason — their real coverage is `make test` (host-gcc build linked against the zerocc library). Post-fix sweep state: the ~93 standalone tests are swept in all applicable modes with **zero** "AOT baseline unavailable" / "gcc reference unavailable" skips. (The same investigation completed the virtual `<elf.h>` — it lacked `EM_RISCV`, `EM_386`, `STB_LOCAL`, `STB_WEAK`, `SHN_UNDEF`, which the embedder headers in `zero_cc.h` use.)
+The normal suite compiles the `test/abi`/`test/semantic`/`test/unit` binaries with the host `gcc`, so it **never** exercises zerocc's optimization pipeline. `make test-opt` closes that gap with `tools/verify/opt_sweep.py`: it compiles and runs every standalone test at `-O0/-O1/-O2/-O3` **using `./build/bin/zerocc` itself**, in **both JIT (`--run`) and AOT (`-o`)** modes, and compares each level's `(exit code, stdout)` against the `-O0` baseline. It also (informationally) diffs against `gcc -O2` when the host compiler can build the test. **Baseline probe (Sprint 134):** a non-zero baseline rc with a *building* gcc reference triggers an explicit zerocc compile probe — `zerocc --run` on an uncompilable source exits rc=1 like any process, so pre-Sprint 134 a persistent compile failure was adopted as the stable baseline and the test reported `[OK]` (how the stale `test/jit/c23_features.c` hid for ~50 sprints). Intentional non-zero program exits (successful compile) remain legitimate. **Sweep integrity (Sprint 138):** two further hollow-baseline sources were found while verifying the c-torture strictness burn-down. (1) The sweep's zerocc and gcc compile commands did not pass `-Iinclude -Isrc`, so the 58 **embedding tests** (those including `zero_cc.h` to drive the compiler API) *failed to compile* — their "baseline" was a masqueraded compile failure and every `-O` level "matched" it without running anything; the sweep now passes the include paths. (2) The embedding tests still cannot link standalone (they call zerocc internals like `arena_alloc` that only the zerocc library/process provides), so the sweep now **explicitly skips them** with a documented reason — their real coverage is `make test` (host-gcc build linked against the zerocc library). Post-fix sweep state: the ~93 standalone tests are swept in all applicable modes with **zero** "AOT baseline unavailable" / "gcc reference unavailable" skips. (The same investigation completed the virtual `<elf.h>` — it lacked `EM_RISCV`, `EM_386`, `STB_LOCAL`, `STB_WEAK`, `SHN_UNDEF`, which the embedder headers in `zero_cc.h` use.)
 
 ```bash
 # Full optimizer sweep (the definitive gate for any optimizer/pass change)
 make test-opt
 
 # Targeted runs
-python3 tools/opt_sweep.py --only break_continue
-python3 tools/opt_sweep.py --jit-only
-python3 tools/opt_sweep.py --aot-only --no-gcc
-python3 tools/opt_sweep.py --timeout 20 --json > /tmp/sweep.json
+python3 tools/verify/opt_sweep.py --only break_continue
+python3 tools/verify/opt_sweep.py --jit-only
+python3 tools/verify/opt_sweep.py --aot-only --no-gcc
+python3 tools/verify/opt_sweep.py --timeout 20 --json > /tmp/sweep.json
 ```
 
 Any change to an optimization pass, LICM, mem2reg, DCE, CSE/GVN, copy propagation, or register allocation **must** pass `make test-opt`. A `-O1`-only pass is not sufficient: later passes at `-O2`/`-O3` transform `-O1` output into code none of the earlier passes saw. Tests that are timing- or nondeterminism-sensitive are flagged `NONDET`/`skipped` rather than hard-failed.
 
 ### zero_san regression sweep (`make test-san`)
 
-`make test` builds test binaries with the host `gcc` and `make test-opt` runs without the sanitizer flag, so neither exercises `-fsanitize=undefined` at all. `make test-san` (`tools/san_sweep.py`, `test/san/`) is the flag-ON soundness gate for the zero_san v1 signed-overflow check (see [zero_san roadmap](./sanitizer-roadmap.md) and [Two-Pass IR & Register Allocation](./ir-and-regalloc.md), `OP_OVF_TRAP`):
+`make test` builds test binaries with the host `gcc` and `make test-opt` runs without the sanitizer flag, so neither exercises `-fsanitize=undefined` at all. `make test-san` (`tools/verify/san_sweep.py`, `test/san/`) is the flag-ON soundness gate for the zero_san v1 signed-overflow check (see [zero_san roadmap](./sanitizer-roadmap.md) and [Two-Pass IR & Register Allocation](./ir-and-regalloc.md), `OP_OVF_TRAP`):
 
 - `san_ok_*.c` — valid C that must **never** false-trap: run with `-fsanitize=undefined` at `-O0..-O3` in both JIT (`--run`) and AOT (`-o`), expecting exit 0 — and also run **without** the flag to prove the instrumentation is behavior-preserving on defined code. Covers mixed-width usual arithmetic conversions (`int + long` must not check at 32-bit), unsigned wrap, 64-bit values beyond the 16-bit range, register-pressure/spill cases, loops, and CSE-shaped duplicate adds.
 - `san_trap_*.c` — a real signed overflow that must **SIGILL (rc 132)** at every `-O` level in both modes — guards the pass interaction (a hoisted/dropped/orphaned check would let the program exit 0 instead).
@@ -136,14 +136,14 @@ Any change to an optimization pass, LICM, mem2reg, DCE, CSE/GVN, copy propagatio
 
 ```bash
 make test-san
-python3 tools/san_sweep.py --no-cross --json > /tmp/san.json
+python3 tools/verify/san_sweep.py --no-cross --json > /tmp/san.json
 ```
 
 Any change to `OP_OVF_TRAP` lowering/emission, the width-extension post-passes, or the extend emitters **must** pass `make test-san` in addition to the usual gates (the c-torture gate and `make test-opt` run without the flag, so a flag-only miscompile is invisible to them).
 
 ## 3. Verifying Individual C Files with ZeroCC Directly
 
-Note that `build/test/abi/*` binaries built by `make all` are compiled by the host `$(CC)` (`gcc`), whereas `test/jit/*` and `tools/sret_verifier.py` invoke `./build/bin/zerocc`. **Always test new ABI features directly with `./build/bin/zerocc` in both AOT and JIT modes**:
+Note that `build/test/abi/*` binaries built by `make all` are compiled by the host `$(CC)` (`gcc`), whereas `test/jit/*` and `tools/verify/sret_verifier.py` invoke `./build/bin/zerocc`. **Always test new ABI features directly with `./build/bin/zerocc` in both AOT and JIT modes**:
 
 ```bash
 # 1. AOT Executable mode (-o)
@@ -174,14 +174,14 @@ make test-san
 # narrow-op population (OVF-deferred / pre-canonicalized / load-store-discipline) and checks
 # I10 (complex/vector address-form temps are never the dest of a scalar FP/128 value op -
 # the Sprint 115l esz / 113 vector-lane bug class) across 160 corpus files at -O0/2/3
-python3 tools/type_tag_verifier.py --verify-all
+python3 tools/verify/type_tag_verifier.py --verify-all
 
 # Verify the CFG layer (-dump-cfg) against an independent Python recomputation
 # of blocks/loops from -dump-ir: tiling, jump targets, pred/succ consistency,
 # reachability, C-vs-Python loop-set equality, and Sprint 149 dominator /
 # post-dominator dataflow (checks 6/7: idom and post_idom cross-checked vs
 # Python round-robin set dataflow). Skips non-standalone tests.
-python3 tools/cfg_verifier.py --verify-all
+python3 tools/verify/cfg_verifier.py --verify-all
 
 # Dump a function's CFG (stable plain text: blocks, succ/pred, loop headers)
 ./build/bin/zerocc -dump-cfg -O0 test/cfg/nested_loops.c -o /tmp/x
@@ -204,18 +204,18 @@ python3 tools/c23/test_c23.py --all
 # IRAsmArgs side table (incl. the arena-rebuild/DCE-remap invariant), the
 # no_spill LRA, clobber spill/forbidden-mask, and template interpolation.
 # Wired as `make test-asm`.
-python3 tools/asm_diff.py
+python3 tools/verify/asm_diff.py
 
 # Run C99 VLA & multi-dimensional matrix VLA verification suite
 python3 tools/vla/test_vla.py
 
 # Verify System V AMD64 sret (>16B struct return) callee & caller assembly patterns (6/6 checks)
-python3 tools/sret_verifier.py --verify-all
+python3 tools/verify/sret_verifier.py --verify-all
 
 # Verify prologue/epilogue emission: selective CSR omission, fallthrough jump
 # elimination, Red Zone, frameless leaves, and omit-frame-pointer shapes
 # (balanced SP adjustments, SP-based CSR symmetry) on all 4 target ISAs
-python3 tools/prologue_epilogue_verifier.py
+python3 tools/verify/prologue_epilogue_verifier.py
 
 # Own-linker (T2) differential battery: link zerocc objects + .a archives with
 # --zerocc-link into a static ET_EXEC, run it, and compare against a
@@ -230,7 +230,7 @@ make test-linker
 # include conventions, tab-free indentation, EOF newline, header guards,
 # <module>_<action> public-function prefix. Errors gate, warnings report.
 # --fix repairs trailing whitespace + missing EOF newline in place.
-python3 tools/style_check.py
+python3 tools/verify/style_check.py
 
 # Diagnostics battery: differential-tests zerocc's compiler diagnostics
 # against gcc on the broken-program corpus in test/diag/*.c. Classifies each
@@ -238,10 +238,10 @@ python3 tools/style_check.py
 # (regression = lost category, dropped error count, or a previously-rejected
 # file compiling silently). Run after parser/semantic/diagnostic changes;
 # --update-baseline re-records after an intentional improvement.
-python3 tools/diag_battery.py
+python3 tools/verify/diag_battery.py
 
 # Cross-verify sret (>16B struct return) execution across x86-64, AArch64, and RISC-V under QEMU
-python3 tools/sret_verifier.py --target-all
+python3 tools/verify/sret_verifier.py --target-all
 # NOTE (Sprint 41): all three targets PASS. The aarch64 `-S` emitter used to emit
 # `sxtw xD, xD` / `uxtw xD, xD` (the source must be a W register: `sxtw xD, wS`);
 # aarch64_asm.c `aarch64_emit_extend_asm` now emits `x<dst>, w<src>` for the
@@ -259,7 +259,7 @@ make test-isa128
 
 ### Cross-ISA Raw-Binary-Emitter Differential Test (`make test-isa-qemu`)
 
-`tools/isa_qemu_diff.py` is the differential harness that was missing for the
+`tools/verify/isa_qemu_diff.py` is the differential harness that was missing for the
 **raw** binary emitters (the `-o`/`-c` AOT paths route aarch64/riscv through the
 *text* emitter, so only x86-64's raw path was ever exercised). For each test in
 `test/isa_qemu/` and each ISA it: builds a static executable via zerocc's **raw
@@ -295,11 +295,11 @@ A uniform musl-static reference is used across all 4 ISAs so the differential
 baseline is consistent. The harness lists exactly what is missing if absent and
 prints the `setup_musl_cross.sh` command to build each reference.
 
-**Current state** (raw emitters): **All 4 target ISAs (59/59 runs)** pass cleanly with 0 failures, 0 timeouts, and 0 mismatches: **x86-64 15/15**, **aarch64 15/15**, **riscv64 15/15**, and **riscv32 14/14** (15 tests in `test/isa_qemu/`; `15_nested_tramp.c` is `isa-skip: riscv32` because RISC-V32 rejects address-taking of capturing nested functions by design). For aarch64, stack frame setup, relocation pairing (`ADR_PREL_PG_HI21`/`ADD_ABS_LO12_NC`), byte/halfword stores, variable shifts, and FP instruction encodings are green. For riscv32, true ELF32 object generation, frame setup, shift/extension width fixups, and struct return registers are green. Run a single ISA with `python3 tools/isa_qemu_diff.py --isa <arch>`.
+**Current state** (raw emitters): **All 4 target ISAs (59/59 runs)** pass cleanly with 0 failures, 0 timeouts, and 0 mismatches: **x86-64 15/15**, **aarch64 15/15**, **riscv64 15/15**, and **riscv32 14/14** (15 tests in `test/isa_qemu/`; `15_nested_tramp.c` is `isa-skip: riscv32` because RISC-V32 rejects address-taking of capturing nested functions by design). For aarch64, stack frame setup, relocation pairing (`ADR_PREL_PG_HI21`/`ADD_ABS_LO12_NC`), byte/halfword stores, variable shifts, and FP instruction encodings are green. For riscv32, true ELF32 object generation, frame setup, shift/extension width fixups, and struct return registers are green. Run a single ISA with `python3 tools/verify/isa_qemu_diff.py --isa <arch>`.
 
 ### Cross-ISA __int128 Differential Gate (`make test-isa128`)
 
-`tools/isa128_diff.py` is the differential guard for the 128-bit (lo,hi) GPR128
+`tools/verify/isa128_diff.py` is the differential guard for the 128-bit (lo,hi) GPR128
 value model and the `__float128` object model. For every `test/jit/int128_*.c` test (arith,
 return-ABI, arg-ABI, fnptr-signatures, float128, type/
 sizeof) and each ISA (`x86-64` native, `aarch64`, `riscv64`) it compiles at
@@ -325,35 +325,35 @@ paths).
 (reference), `qemu-aarch64-static`/`qemu-riscv64-static`, and the
 cross compilers `aarch64-linux-gnu-gcc`/`riscv64-linux-gnu-gcc` (same
 toolchains as `test-isa-qemu`; no musl wrappers needed). Run a subset with
-`python3 tools/isa128_diff.py --isa aarch64 riscv64 --levels 0 2 --paths asm`.
+`python3 tools/verify/isa128_diff.py --isa aarch64 riscv64 --levels 0 2 --paths asm`.
 
 # Verify struct ABI classification and register usage
-python3 tools/struct_abi_verifier.py --test test/abi/struct_return_20byte.c
+python3 tools/verify/struct_abi_verifier.py --test test/abi/struct_return_20byte.c
 
 # RISC-V raw binary emitter encoding oracle (T1: spec round-trip + celebi independent oracle)
-python3 tools/riscv_enc_check.py --zerocc
+python3 tools/analysis/riscv_enc_check.py --zerocc
 
 # RISC-V ELF relocation pairing & section symbol verifier (T2: HI20/LO12 pairs + section addends)
-python3 tools/reloc_pair_check.py --zerocc
+python3 tools/analysis/reloc_pair_check.py --zerocc
 
 # Multi-ISA backend vtable slot auditor (T3: ZeroCCISABackend conformance vs active BE(c)-> calls)
-python3 tools/vtable_check.py --diff riscv64 riscv32
+python3 tools/analysis/vtable_check.py --diff riscv64 riscv32
 
 # Validate the docs/okf/ Open Knowledge Format bundle (YAML frontmatter & graph links)
-python3 tools/okf.py lint
-python3 tools/okf.py index
+python3 tools/okf/okf.py lint
+python3 tools/okf/okf.py index
 
 # GCC c-torture conformance gate (3,940 vendored tests vs gcc reference,
 # ratcheting test/torture/baseline.json; see c-torture-gate.md)
 make test-torture
-python3 tools/torture_run.py --quick
+python3 tools/verify/torture_run.py --quick
 
 # Project-differential gate (Verification & Scale #1): real-world TUs from
 # test/projects/ (cJSON, zlib, the sqlite3.c amalgamation) must compile
 # under zerocc at -O0/-O2, differential against host gcc acceptance
 # (54 TUs at -O0/-O2/-O3 as of Sprint 124).
 make test-project-diff
-python3 tools/project_diff.py --levels 0 2 3
+python3 tools/verify/project_diff.py --levels 0 2 3
 
 # Project run + behavior-diff gate (Verification & Scale #1, phases 2/3):
 # builds each project's own test program with BOTH host gcc and zerocc,
@@ -363,8 +363,8 @@ python3 tools/project_diff.py --levels 0 2 3
 # on-disk SQL suite is SKIPPED (not failed) while a pre-existing pager
 # write-path fd-corruption bug is open.
 make test-project-runs
-python3 tools/project_runs.py
-python3 tools/project_runs.py --jit
+python3 tools/verify/project_runs.py
+python3 tools/verify/project_runs.py --jit
 
 # External ABI interop gate (Verification & Scale #5, Sprint 158):
 # bidirectional zerocc.o <-> gcc.o linking over 13 calling-convention
@@ -374,7 +374,7 @@ python3 tools/project_runs.py --jit
 # 9-16B unit merge, sret) - see abi-sysv-x86_64.md. Excluded from the
 # generic `make test` sweep (the triples are not standalone programs).
 make test-abi-interop
-python3 tools/abi_interop.py
+python3 tools/verify/abi_interop.py
 ```
 
 ## Related Concepts

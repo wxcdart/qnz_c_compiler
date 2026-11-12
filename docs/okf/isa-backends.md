@@ -119,8 +119,8 @@ ZeroCC manages function stack frames and register preservation symmetrically acr
    - **Scope**: the frame-pointer register (`%rbp` / `x29` / `s0`) is currently only *not set up*; it is not yet handed to the register allocator as a general-purpose register, so the win is prologue/epilogue cost, not register pressure.
    - Verified by the QEMU raw-emitter battery (59/59) and the extended `prologue_epilogue_verifier.py` (see below).
 7. **Verification Tools**:
-   - `python3 tools/prologue_epilogue_verifier.py` verifies selective CSR omission, frameless leaf emission (both pure leaf and leaf with promoted arguments), Red Zone usage, omit-frame-pointer shapes (FP-free prologue/epilogue with balanced SP adjustments and LR/ra save-restore on all four ISAs), and store-load symmetry for both FP-based (`[x29, #-N]` / `N(s0)` / `N(%rbp)`) and SP-based (`[sp, #N]` / `N(sp)` / `N(%rsp)`) CSR slots.
-   - `python3 tools/extension_verifier.py` verifies GNU statement expressions, switch case ranges, designated initializer ranges, and `__builtin_offsetof`.
+   - `python3 tools/verify/prologue_epilogue_verifier.py` verifies selective CSR omission, frameless leaf emission (both pure leaf and leaf with promoted arguments), Red Zone usage, omit-frame-pointer shapes (FP-free prologue/epilogue with balanced SP adjustments and LR/ra save-restore on all four ISAs), and store-load symmetry for both FP-based (`[x29, #-N]` / `N(s0)` / `N(%rbp)`) and SP-based (`[sp, #N]` / `N(sp)` / `N(%rsp)`) CSR slots.
+   - `python3 tools/verify/extension_verifier.py` verifies GNU statement expressions, switch case ranges, designated initializer ranges, and `__builtin_offsetof`.
 
 ## Parallel Argument Setup in Function Calls
 
@@ -272,9 +272,9 @@ To systematically eliminate raw-emitter and cross-target crashes, three dedicate
    - Uses `tools/elf_min.py` to audit `.rela.*` records and symbols in raw objects.
    - Verifies every `R_RISCV_PCREL_LO12_I` / `_S` is preceded by a matching `R_RISCV_PCREL_HI20` on the corresponding `auipc`.
    - Catches fatal GNU ld rejections like `SECTION_SYMBOL_ADDEND` (when a PC-relative load references a section symbol such as `.rodata` with a non-zero addend) and section symbol `shndx` mismatches.
-3. **`tools/vtable_check.py` (T3: VTable Conformance & Caller Auditor)**:
+3. **`tools/analysis/vtable_check.py` (T3: VTable Conformance & Caller Auditor)**:
    - Audits `ZeroCCISABackend` definitions against `isa_backend.h` and scans all `BE(c)->` / `backend->` call sites across `src/`.
-   - **Full VTable Parity (Sprint 89)**: All **221/221** backend slots in `ZeroCCISABackend` are now initialized across all 4 targets (`x86_64`, `aarch64`, `riscv64`, `riscv32`), with **0 missing slots** between `riscv64_backend` and `riscv32_backend` (`python3 tools/vtable_check.py --diff riscv64 riscv32`).
+   - **Full VTable Parity (Sprint 89)**: All **221/221** backend slots in `ZeroCCISABackend` are now initialized across all 4 targets (`x86_64`, `aarch64`, `riscv64`, `riscv32`), with **0 missing slots** between `riscv64_backend` and `riscv32_backend` (`python3 tools/analysis/vtable_check.py --diff riscv64 riscv32`).
    - `riscv32_backend` is wired to `riscv64_init_asm_emission(&riscv32_backend)` in `zero_cc_init_backends_once()`, with word-sized `sw`/`lw` awareness (`BE(c)->isa == ISA_RISCV32`) in `riscv_asm.c`, `riscv.c`, and `asm_emitter.c`.
 
 ## Cross-ISA `OP_SYSCALL` (`__zerocc_syscall`, Sprint 89)
