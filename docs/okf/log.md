@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-12T19:59:09Z
+timestamp: 2026-11-12T21:42:38Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1392,3 +1392,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-12 — Updated `isa-backends.md`
 - Sprint 170: Phase 1 RV32 i64 (64-bit pair arithmetic, core ops, dispatch & frontend lowering)
+
+## 2026-11-12 — Updated `rv32-i64-roadmap.md`
+- Create RV32 64-bit integer support roadmap (Phase 1-4 architecture)

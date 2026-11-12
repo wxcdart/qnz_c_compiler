@@ -166,14 +166,12 @@ MC emitter (`ast_lowering_mc.c`, CPU OF flag) and the AOT asm emitter (`asm_emit
   range (the text path uses the assembler's `li`, which is why only the raw path was affected). Pinned by
   `test/isa_qemu/16_imm32_edges.c` (all 4 ISAs, vs musl reference) and `san_trap_cross_{incdec,cassign}.c`
   (all 3 cross ISAs, -O0..-O3).
-- **riscv32 width-8 (still skipped, and correctly so):** zerocc has **no 64-bit integer lowering on
-  riscv32**. `long long` is `sizeof 8` but is added/compared in a single 32-bit register (observed:
-  `LLONG_MAX + 1` prints `286027642044416` vs gcc's `-9223372036854775808`; a 64-bit constant is
+- **riscv32 width-8 (still skipped, and correctly so):** zerocc historically had **no 64-bit integer lowering on
+  riscv32**. `long long` is `sizeof 8` but was added/compared in a single 32-bit register (observed:
+  `LLONG_MAX + 1` prints `286027642044416` vs gcc's `-9223372036854775808`; a 64-bit constant was
   truncated by `riscv64_emit_mov_imm`'s RV32 path). A width-8 overflow check on rv32 would therefore
   check a truncated value and be meaningless. The lowering skip (`ISA_RISCV32 && w == 8`) stays until
-  rv32 i64 add/sub/mul/shift/compare/div and the two-register argument/return ABI exist (the GPR128
-  lo/hi machinery is the natural model). Tracked in the development plan as its own item — it is a
-  conformance gap far larger than the sanitizer.
+  the 4-phase rv32 64-bit implementation reaches Phase 4 (see [rv32-i64-roadmap.md](./rv32-i64-roadmap.md)).
 
 ### 4e. Sprint 166 follow-on — div-by-zero, rem-by-zero, shift-count checks (all 4 ISAs)
 

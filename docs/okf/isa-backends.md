@@ -331,7 +331,7 @@ A 128-bit integer value is a **pair of GPRs** (`REG_CLASS_GPR128`: low in `assig
   - **RISC-V Text Comparison Flag Materialization**: `riscv_emit_cmp_asm` previously emitted `sub t0, src1, src2; mv t1, src1; mv t2, src2` while `riscv_emit_cond_set_asm` read `t1/t2` for unsigned comparisons. When both operands spilled (`src1 == t0`, `src2 == t1`), the subtract clobbered `t0` before the moves, leaving both `t1` and `t2` holding `src1 - src2` and making `t2 <u t1` evaluate to 0 (broke unsigned and 128-bit relational comparisons in `int128_arith.c`). Aligned with the MC path: `riscv_emit_cmp_asm` is a no-op, operands are recorded in `c->lowering.cmp_src1/2`, and `riscv_emit_cond_set_asm` + branch emitters emit `slt`/`sltu`/`beq`/`bne`/`blt`/`bge` directly from operand registers.
 
 ## RV32 64-bit Integer Arithmetic (`REG_CLASS_GPR64`, Sprint 170)
-On 32-bit RISC-V (`--target riscv32`, ILP32 ABI), 64-bit integers (`long long` / `int64_t`) are decomposed into **(lo,hi) 32-bit GPR pairs** (`REG_CLASS_GPR64`), mirroring the GPR128 pair allocation model:
+On 32-bit RISC-V (`--target riscv32`, ILP32 ABI), 64-bit integers (`long long` / `int64_t`) are decomposed into **(lo,hi) 32-bit GPR pairs** (`REG_CLASS_GPR64`), mirroring the GPR128 pair allocation model. See the comprehensive [RV32 64-bit Integer Support Roadmap](./rv32-i64-roadmap.md) for the 4-phase design (Phase 1: Core arithmetic, Phase 2: psABI calling convention, Phase 3: libgcc div/rem, Phase 4: sanitizer width-8 checks).
 - **Register Allocation**: `gpr128_alloc_pair` allocates adjacent callee-saved registers (`s1`, `s2..s11`). Spilled temps occupy an 8-byte stack slot (`slot*8` for lo, `slot*8 + 4` for hi). Temporary renumbering pool count expanded to `TR_POOL_COUNT = 8 * 256`.
 - **Scratch Invariants**: `t0` (5) and `t5` (30) serve as carry/shift scratch. `t2` (7) is reserved as unallocatable on rv32 to serve as third multiply/scratch.
 - **Operations & Emitters**:
@@ -354,6 +354,7 @@ On 32-bit RISC-V (`--target riscv32`, ILP32 ABI), 64-bit integers (`long long` /
 
 ## Related Concepts
 - Return to [Root Index](./index.md)
+- See [RV32 64-bit Integer Support Roadmap](./rv32-i64-roadmap.md)
 - See [System V AMD64 ABI & Struct Calling Conventions](./abi-sysv-x86_64.md)
 - See [Two-Pass IR & Register Allocation](./ir-and-regalloc.md)
 - See [Optimization Passes & Safety Invariants](./optimization-passes.md)
