@@ -235,7 +235,14 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
          * if not. All inline, self-contained labels. */
         case OP_OVF_TRAP: {
             if (c->isa != ISA_X86_64) {
-                /* Not yet implemented for other ISAs - skip silently */
+                /* Sprint 163: compare-based check on aarch64/riscv. Operands
+                 * (a, b) + op are carried in temp_src1/temp_src2 + imm (already
+                 * resolved to phys_src1/phys_src2 by the caller). */
+                if (BE(c)->emit_ovf_trap_asm) {
+                    int width = zc_ovf_trap_width(c, instr);
+                    int op = (int)instr->imm;
+                    BE(c)->emit_ovf_trap_asm(c, phys_dst, phys_src1, phys_src2, width, op, out);
+                }
                 return;
             }
             int width = zc_ovf_trap_width(c, instr);

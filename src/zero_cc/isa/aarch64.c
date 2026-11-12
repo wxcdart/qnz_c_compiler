@@ -666,13 +666,57 @@ static void aarch64_emit_mfence(ZeroCCCompiler *c) {
 
 /* __builtin_trap / __builtin_unreachable */
 static void aarch64_emit_trap(ZeroCCCompiler *c) {
-    /* brk #0 */
-    arm64_emit_u32(c, 0xAA000000);
+    /* brk #0 (verified against aarch64-linux-gnu-as: 0xD4200000) */
+    arm64_emit_u32(c, 0xD4200000);
 }
 
 static void aarch64_emit_trap_asm(ZeroCCCompiler *c, FILE *out) {
     (void)c;
     fprintf(out, "\tbrk #0\n");
+}
+
+/* zero_san (Sprint 163): compare-based signed-overflow check + trap.
+ * `res` holds the raw result of the preceding add/sub/mul; `a`, `b` are the
+ * two clean operands (dead after this check, so clobbered in place).
+ * Encodings verified against aarch64-linux-gnu-as (Sprint 163):
+ *   sxtw Xd,Wn=0x93407C00|Wn<<5|Xd  eor/and Rd,Rn,Rm=0xCx000000|Rm<<16|Rn<<5|Rd
+ *   cmp Rn,Rm=0xEB00001F|Rm<<16|Rn<<5  smulh Rd,Rn,Rm=0x9B407C00|Rm<<16|Rn<<5|Rd
+ *   asr Rd,Rn,#63=0x937FFC00|Rn<<5|Rd  b.eq/b.pl skip-1=0x54000040/0x54000045
+ *   brk #0=0xD4200000 */
+static void aarch64_emit_ovf_trap(ZeroCCCompiler *c, int res, int a, int b, int width, int op) {
+    if (width < 8) {
+        /* sign-extension round-trip (result-only); a (dead) is the scratch. */
+        arm64_emit_u32(c, 0x93407C00u | (uint32_t)(a & 0x1F) | ((uint32_t)(res & 0x1F) << 5));  /* sxtw a, wres */
+        arm64_emit_u32(c, 0xEB00001Fu | ((uint32_t)(a & 0x1F) << 16) | ((uint32_t)(res & 0x1F) << 5)); /* cmp res, a */
+        arm64_emit_u32(c, 0x54000040u);  /* b.eq: skip brk when res fits in 32 bits */
+        arm64_emit_u32(c, 0xD4200000u);  /* brk #0 */
+        return;
+    }
+    if (op == ZC_OVF_OP_MUL) {
+        /* ovf = (smulh(a,b) != asr(res,63)): a = high64(a*b); b = signext(res). */
+        arm64_emit_u32(c, 0x9B407C00u | ((uint32_t)(b & 0x1F) << 16) | ((uint32_t)(a & 0x1F) << 5) | (uint32_t)(a & 0x1F)); /* smulh a, a, b */
+        arm64_emit_u32(c, 0x937FFC00u | ((uint32_t)(res & 0x1F) << 5) | (uint32_t)(b & 0x1F));                    /* asr b, res, #63 */
+        arm64_emit_u32(c, 0xEB00001Fu | ((uint32_t)(b & 0x1F) << 16) | ((uint32_t)(a & 0x1F) << 5));               /* cmp a, b */
+        arm64_emit_u32(c, 0x54000040u);  /* b.eq: skip brk when high == signext(res) */
+        arm64_emit_u32(c, 0xD4200000u);  /* brk #0 */
+        return;
+    }
+    if (op == ZC_OVF_OP_SUB) {
+        /* ovf = signbit((a^res) & (a^b)): compute (a^b)->b first (a intact). */
+        arm64_emit_u32(c, 0xCA000000u | ((uint32_t)(b & 0x1F) << 16) | ((uint32_t)(a & 0x1F) << 5) | (uint32_t)(b & 0x1F)); /* eor b, a, b */
+        arm64_emit_u32(c, 0xCA000000u | ((uint32_t)(res & 0x1F) << 16) | ((uint32_t)(a & 0x1F) << 5) | (uint32_t)(a & 0x1F)); /* eor a, a, res */
+    } else { /* ADD: ovf = signbit((a^res) & (b^res)) */
+        arm64_emit_u32(c, 0xCA000000u | ((uint32_t)(res & 0x1F) << 16) | ((uint32_t)(a & 0x1F) << 5) | (uint32_t)(a & 0x1F)); /* eor a, a, res */
+        arm64_emit_u32(c, 0xCA000000u | ((uint32_t)(res & 0x1F) << 16) | ((uint32_t)(b & 0x1F) << 5) | (uint32_t)(b & 0x1F)); /* eor b, b, res */
+    }
+    arm64_emit_u32(c, 0x8A000000u | ((uint32_t)(b & 0x1F) << 16) | ((uint32_t)(a & 0x1F) << 5) | (uint32_t)(a & 0x1F)); /* and a, a, b */
+    /* Detect the sign bit without a flag-branch (b.pl after `and` misfires in
+     * the qemu TB context). asr sign-extends bit63 (-1 iff overflow), then cbz
+     * branches on the register value (compare-based, like the compiler's other
+     * branches). cbz a,+2 skips the single brk. */
+    arm64_emit_u32(c, 0x937FFC00u | ((uint32_t)(a & 0x1F) << 5) | (uint32_t)(a & 0x1F)); /* asr a, a, #63 */
+    arm64_emit_u32(c, 0xB4000040u | (uint32_t)(a & 0x1F));  /* cbz a, +2: skip brk when a==0 (no overflow) */
+    arm64_emit_u32(c, 0xD4200000u);  /* brk #0 */
 }
 
 static void aarch64_emit_load(ZeroCCCompiler *c, int dst_reg, int base_reg, int32_t offset) {
@@ -2112,6 +2156,7 @@ ZeroCCISABackend aarch64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_atomic_xchg = aarch64_emit_atomic_xchg,
     .emit_mfence = aarch64_emit_mfence,
     .emit_trap = aarch64_emit_trap,
+    .emit_ovf_trap = aarch64_emit_ovf_trap,
     .emit_trap_asm = aarch64_emit_trap_asm,
 
     /* Assembly emission for IR instructions (Option A) */

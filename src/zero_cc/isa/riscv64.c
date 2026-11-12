@@ -1316,13 +1316,60 @@ static void riscv64_emit_mfence(ZeroCCCompiler *c) {
 
 /* __builtin_trap / __builtin_unreachable */
 static void riscv64_emit_trap(ZeroCCCompiler *c) {
-    /* unimp (illegal instruction) */
-    riscv_emit_u32(c, 0x00002007);
+    /* unimp (illegal instruction; verified against riscv64-linux-gnu-as =
+     * 0xC0001073 -> SIGILL). The old 0x00002007 was a valid float-load
+     * (flw x0,0(x0)) that SIGSEGV'd rather than trapping. */
+    riscv_emit_u32(c, 0xC0001073);
 }
 
 static void riscv64_emit_trap_asm(ZeroCCCompiler *c, FILE *out) {
     (void)c;
     fprintf(out, "\tunimp\n");
+}
+
+/* zero_san (Sprint 163): compare-based signed-overflow check + unimp.
+ * `res` = raw result of the preceding add/sub/mul; `a`, `b` = the two clean
+ * operands (dead after this check, clobbered in place). Encodings verified
+ * against riscv64-linux-gnu-as (Sprint 163):
+ *   slli=rv64_I(rd,rs,1,sh,0x13)  srai=rv64_I(rd,rs,5,0x400|sh,0x13)
+ *   mulh=rv64_R(rd,rs1,rs2,1,1)  xor/and=rv64_R(rd,rs1,rs2,4/7,0)
+ *   beq/bge=rv64_B(rs1,rs2,0/5,off)  unimp=0xC0001073
+ * RV64 width 4 uses the sign-extension round-trip (result fits in 32 bits);
+ * RV32 width 4 (int is the natural word) uses the operand overflow formula
+ * (the round-trip is a no-op there). Width 8 (RV64) uses the operand formula
+ * too. The branch skips the single unimp (offset +8). */
+static void riscv64_emit_ovf_trap(ZeroCCCompiler *c, int res, int a, int b,
+                                  int width, int op) {
+    bool is64 = (c->isa == ISA_RISCV64);
+    if (width < 8 && is64) {
+        /* RV64: sign-extension round-trip (result-only); a (dead) is scratch. */
+        riscv_emit_u32(c, rv64_I(RV_REG(a), RV_REG(res), 1, 32, 0x13));     /* slli a, res, 32 */
+        riscv_emit_u32(c, rv64_I(RV_REG(a), RV_REG(a), 5, 0x400 | 32, 0x13)); /* srai a, a, 32 */
+        riscv_emit_u32(c, rv64_B(RV_REG(res), RV_REG(a), 0, 8));            /* beq res, a, +8 */
+        riscv_emit_u32(c, 0xC0001073u);                                     /* unimp */
+        return;
+    }
+    /* width 8 (RV64) or width 4 (RV32): operand-based overflow formula. */
+    int asr_sh = is64 ? 63 : 31;
+    if (op == ZC_OVF_OP_MUL) {
+        /* ovf = (mulh(a,b) != asr(res,sh)): a = high(a*b); b = signext(res). */
+        riscv_emit_u32(c, rv64_R(RV_REG(a), RV_REG(a), RV_REG(b), 1, 1));            /* mulh a, a, b */
+        riscv_emit_u32(c, rv64_I(RV_REG(b), RV_REG(res), 5, 0x400 | asr_sh, 0x13));  /* srai b, res, sh */
+        riscv_emit_u32(c, rv64_B(RV_REG(a), RV_REG(b), 0, 8));                       /* beq a, b, +8 */
+        riscv_emit_u32(c, 0xC0001073u);                                              /* unimp */
+        return;
+    }
+    if (op == ZC_OVF_OP_SUB) {
+        /* ovf = signbit((a^res) & (a^b)): (a^b)->b first (a intact). */
+        riscv_emit_u32(c, rv64_R(RV_REG(b), RV_REG(a), RV_REG(b), 4, 0));            /* xor b, a, b */
+        riscv_emit_u32(c, rv64_R(RV_REG(a), RV_REG(a), RV_REG(res), 4, 0));          /* xor a, a, res */
+    } else { /* ADD: ovf = signbit((a^res) & (b^res)) */
+        riscv_emit_u32(c, rv64_R(RV_REG(a), RV_REG(a), RV_REG(res), 4, 0));          /* xor a, a, res */
+        riscv_emit_u32(c, rv64_R(RV_REG(b), RV_REG(b), RV_REG(res), 4, 0));          /* xor b, b, res */
+    }
+    riscv_emit_u32(c, rv64_R(RV_REG(a), RV_REG(a), RV_REG(b), 7, 0));                /* and a, a, b */
+    riscv_emit_u32(c, rv64_B(RV_REG(a), 0, 5, 8));                                   /* bge a, zero, +8 */
+    riscv_emit_u32(c, 0xC0001073u);                                                  /* unimp */
 }
 
 /* =====================================================================
@@ -1953,6 +2000,7 @@ ZeroCCISABackend riscv64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_atomic_xchg = riscv64_emit_atomic_xchg,
     .emit_mfence = riscv64_emit_mfence,
     .emit_trap = riscv64_emit_trap,
+    .emit_ovf_trap = riscv64_emit_ovf_trap,
     .emit_trap_asm = riscv64_emit_trap_asm,
 
     .get_int_reg = riscv_get_int_reg,

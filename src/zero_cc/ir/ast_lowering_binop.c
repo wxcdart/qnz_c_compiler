@@ -654,11 +654,26 @@ static int zc_ovf_uac_width(int lw, int lu, int rw, int ru) {
     return (w == 4 || w == 8) ? w : 0;
 }
 
-static void zc_emit_ovf_trap(ZeroCCCompiler *c, uint32_t result_temp, int w) {
+static void zc_emit_ovf_trap(ZeroCCCompiler *c, uint32_t result_temp,
+                             uint32_t a_temp, uint32_t b_temp, int w, int op) {
     if (w != 4 && w != 8) return;
-    ir_emit(c, (Instr){.op = OP_OVF_TRAP, .temp_dest = result_temp,
-        .temp_src1 = TEMP_NONE, .temp_src2 = TEMP_NONE, .imm = 0,
-        .label_idx = 0, .width = (uint8_t)w});
+    if (c->isa == ISA_X86_64) {
+        /* x86-64: the check reads the CPU OF flag (width 8) / the sign-
+         * extension round-trip of the result (width 4); the operands are not
+         * needed, so keep the trap operand-less (no extra liveness). */
+        ir_emit(c, (Instr){.op = OP_OVF_TRAP, .temp_dest = result_temp,
+            .temp_src1 = TEMP_NONE, .temp_src2 = TEMP_NONE, .imm = 0,
+            .label_idx = 0, .width = (uint8_t)w});
+    } else {
+        /* aarch64 / riscv64 / riscv32: compare-based check needs the two
+         * operands (clean sign-extended, dead after this check) + the op.
+         * Carrying them as source operands makes liveness keep a/b live to
+         * here, so the emitter can read them. */
+        if (c->isa == ISA_RISCV32 && w == 8) return;  /* rv32 64-bit: follow-up */
+        ir_emit(c, (Instr){.op = OP_OVF_TRAP, .temp_dest = result_temp,
+            .temp_src1 = a_temp, .temp_src2 = b_temp, .imm = (int16_t)op,
+            .label_idx = 0, .width = (uint8_t)w});
+    }
 }
 
 static bool zc_node_is_pointer(ZeroCCCompiler *c, const ZeroCCASTNode *n) {
@@ -673,14 +688,16 @@ static bool zc_node_is_pointer(ZeroCCCompiler *c, const ZeroCCASTNode *n) {
  * node->right, so the UAC width rule is identical). x86-64 only in v1. See
  * the Sprint 116/161 invariants in ir-and-regalloc.md / sanitizer-roadmap.md. */
 void zc_maybe_emit_ovf_trap(ZeroCCCompiler *c, ZeroCCASTArena *arena,
-                            ZeroCCASTNode *node, uint32_t result_temp) {
-    if (!c->sanitize_overflow || c->isa != ISA_X86_64) return;
+                            ZeroCCASTNode *node, uint32_t result_temp,
+                            int a_temp, int b_temp, int op) {
+    if (!c->sanitize_overflow) return;
     if (zc_node_is_pointer(c, zero_cc_ast_get(arena, node->left)) ||
         zc_node_is_pointer(c, zero_cc_ast_get(arena, node->right))) return;
     int lu = 0, ru = 0;
     int lw = zero_cc_expr_int_info(c, arena, node->left, &lu);
     int rw = zero_cc_expr_int_info(c, arena, node->right, &ru);
-    zc_emit_ovf_trap(c, result_temp, zc_ovf_uac_width(lw, lu, rw, ru));
+    zc_emit_ovf_trap(c, result_temp, (uint32_t)a_temp, (uint32_t)b_temp,
+                     zc_ovf_uac_width(lw, lu, rw, ru), op);
 }
 
 /* zero_san v1: the ++/-- form — the op is `lvalue + 1` (or - 1); the literal
@@ -688,12 +705,15 @@ void zc_maybe_emit_ovf_trap(ZeroCCCompiler *c, ZeroCCASTArena *arena,
  * it is signed (unsigned lvalues wrap by definition; pointer ++/-- are not
  * checked). node is the NODE_UNOP; node->left is the lvalue. */
 void zc_maybe_emit_ovf_trap_incdec(ZeroCCCompiler *c, ZeroCCASTArena *arena,
-                                   ZeroCCASTNode *node, uint32_t result_temp) {
-    if (!c->sanitize_overflow || c->isa != ISA_X86_64) return;
+                                   ZeroCCASTNode *node, uint32_t result_temp,
+                                   int a_temp, int b_temp) {
+    if (!c->sanitize_overflow) return;
     if (zc_node_is_pointer(c, zero_cc_ast_get(arena, node->left))) return;
     int lu = 0;
     int lw = zero_cc_expr_int_info(c, arena, node->left, &lu);
-    zc_emit_ovf_trap(c, result_temp, zc_ovf_uac_width(lw, lu, 4, 0));
+    /* inc/dec lower to `lvalue + (±step)` (a signed-int step) => ADD. */
+    zc_emit_ovf_trap(c, result_temp, (uint32_t)a_temp, (uint32_t)b_temp,
+                     zc_ovf_uac_width(lw, lu, 4, 0), ZC_OVF_OP_ADD);
 }
 
 int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
@@ -1759,17 +1779,20 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
         switch (node->aux.op) {
             case TK_PLUS:
                 ir_emit_add(c, result_temp, left_temp, right_temp);
-                zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)result_temp);
+                zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)result_temp,
+                                       left_temp, right_temp, ZC_OVF_OP_ADD);
                 result_temp = zc_binop_bitfield_reduce(c, arena, node->left, node->right, result_temp);
                 break;
             case TK_MINUS:
                 ir_emit_sub(c, result_temp, left_temp, right_temp);
-                zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)result_temp);
+                zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)result_temp,
+                                       left_temp, right_temp, ZC_OVF_OP_SUB);
                 result_temp = zc_binop_bitfield_reduce(c, arena, node->left, node->right, result_temp);
                 break;
             case TK_STAR:
                 ir_emit_mul(c, result_temp, left_temp, right_temp);
-                zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)result_temp);
+                zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)result_temp,
+                                       left_temp, right_temp, ZC_OVF_OP_MUL);
                 result_temp = zc_binop_bitfield_reduce(c, arena, node->left, node->right, result_temp);
                 break;
             case TK_SLASH: {

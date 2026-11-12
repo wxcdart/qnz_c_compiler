@@ -479,10 +479,19 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
              * the raw 64-bit result fits in `width` signed bits and trap (ud2)
              * if not. All inline, no labels/fixups needed. */
             case OP_OVF_TRAP: {
-                /* v1: x86-64 only. Lowering skips other ISAs, but this
-                 * guard keeps the shared raw-emitter loop safe (cross-ISA
-                 * raw AOT would otherwise embed x86 check bytes). */
-                if (c->isa != ISA_X86_64) break;
+                if (c->isa != ISA_X86_64) {
+                    /* Sprint 163: compare-based check on aarch64/riscv.
+                     * The operands (a, b) + op are carried in temp_src1/
+                     * temp_src2 + imm; the shared loop has already resolved
+                     * them to phys_src1/phys_src2 (with spill reloads), so
+                     * they are valid here. */
+                    if (BE(c)->emit_ovf_trap) {
+                        int width = zc_ovf_trap_width(c, instr);
+                        int op = (int)instr->imm;
+                        BE(c)->emit_ovf_trap(c, phys_dst, phys_src1, phys_src2, width, op);
+                    }
+                    break;
+                }
                 int width = zc_ovf_trap_width(c, instr);
                 bool is_spilled = (spill_dst >= 0);
                 int phys = phys_dst;          /* register holding the result */

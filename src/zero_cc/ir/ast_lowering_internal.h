@@ -738,12 +738,19 @@ bool zc_node_is_int128(ZeroCCCompiler *c, const ZeroCCASTNode *node);
  * emit OP_OVF_TRAP immediately after a signed +,-,* — for a binary op OR a
  * compound assignment (node->left = lvalue, node->right = RHS), or for the
  * ++/-- form (node = NODE_UNOP, node->left = lvalue; the op is `lvalue ± 1`).
- * x86-64 only in v1; no-op otherwise. The width rule (UAC, 4/8 only, no
- * pointers/unsigned) is shared; see zc_ovf_uac_width in ast_lowering_binop.c. */
+ * All ISAs (Sprint 163): x86-64 lowers the check from the CPU OF flag /
+ * sign-extension round-trip (no operands needed); aarch64/riscv lower a
+ * compare-based check that reads the two operands (carried in the trap's
+ * temp_src1/temp_src2) and the operation (OP_OVF_TRAP.imm = ZC_OVF_OP_*).
+ * riscv32 emits the check only for width 4 (width 8 = follow-up). No-op
+ * otherwise. The width rule (UAC, 4/8 only, no pointers/unsigned) is shared;
+ * see zc_ovf_uac_width in ast_lowering_binop.c. */
 void zc_maybe_emit_ovf_trap(ZeroCCCompiler *c, ZeroCCASTArena *arena,
-                            ZeroCCASTNode *node, uint32_t result_temp);
+                            ZeroCCASTNode *node, uint32_t result_temp,
+                            int a_temp, int b_temp, int op);
 void zc_maybe_emit_ovf_trap_incdec(ZeroCCCompiler *c, ZeroCCASTArena *arena,
-                                   ZeroCCASTNode *node, uint32_t result_temp);
+                                   ZeroCCASTNode *node, uint32_t result_temp,
+                                   int a_temp, int b_temp);
 
 /* Wide __int128 bitfield RMW (Sprint 114: moved to ast_lowering_bitfield.c). */
 int assign_emit_128_divmod(ZeroCCCompiler *c, int a, int b,

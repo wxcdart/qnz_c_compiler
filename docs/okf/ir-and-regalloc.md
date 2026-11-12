@@ -4,7 +4,7 @@ title: Two-Pass IR & Linear Scan Register Allocation
 description: IR instruction format, in-stream call and inline-asm payload conventions, virtual register conventions, and linear scan register allocation constraints.
 resource: middleend/ir-and-regalloc
 tags: [ir, regalloc, ssa, registers, calling-convention]
-timestamp: 2026-11-11T23:48:25Z
+timestamp: 2026-11-12T01:53:37Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -25,7 +25,7 @@ Each `Instr` in `c->ir_arena` has:
 
 ### `OP_OVF_TRAP` — zero_san v1 signed-overflow check (Sprint 116)
 
-`OP_OVF_TRAP` (`zero_san`, `-fsanitize=undefined`, x86-64 only in v1) is a **pure check** that rides on the result of the preceding signed `OP_ADD`/`OP_SUB`/`OP_MUL`:
+`OP_OVF_TRAP` (`zero_san`, `-fsanitize=undefined`; x86-64 via the OF flag, and since Sprint 163 aarch64/riscv64/riscv32-width-4 via compare-based lowering — the non-x86 form carries `temp_src1`/`temp_src2` operands + `imm = ZC_OVF_OP_{ADD,SUB,MUL}` and dispatches to the `emit_ovf_trap{,_asm}` ISA hooks) is a **pure check** that rides on the result of the preceding signed `OP_ADD`/`OP_SUB`/`OP_MUL`:
 - **Shape:** `temp_dest` = the checked op's result temp, `temp_src1/temp_src2 = TEMP_NONE`, `width` = check width (4 or 8 — the *conversion* width per the usual arithmetic conversions, so `int + long` checks 64-bit, not 32-bit; equal-width mixed signedness → no check at all; pointer/array operands and widths the register model can't express (bit-fields, sub-byte, `__int128`) are skipped, not mis-checked). No sources → the passes treat it conservatively (it is in none of the LICM/CSE/GVN pure-op whitelists, and DCE keeps/drops it in lockstep with the checked op's dest liveness).
 - **Emission contract (both emitters):** the check must stay **adjacent** to its ALU op — the width-8 case reads the CPU OF flag set by the immediately-preceding `addq`/`subq`/`imulq`; the narrow case re-reads the result register via a sign-extension round-trip (`(v << (64-N)) >> (64-N) == v`). The ALU op itself is **never** width-marked, so the raw 64-bit result is still in the register (clean-value invariant). Spilled dests are handled: both emitters map a spilled `temp_dest` to the same scratch register the ALU op wrote (scratch_reg1), with the check's own scratch taken from scratch_reg2.
 - **Emitter exclusions:** both emitters' generic post-passes (width-extension + spill store-back) **skip `OP_OVF_TRAP`** — its width is check metadata (see the `width` field note), and the ALU op's own store-back already persisted the value. Re-storing on a non-x86 ISA (where the check is skipped) would write scratch-register garbage into the slot.

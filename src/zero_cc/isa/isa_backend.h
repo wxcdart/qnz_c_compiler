@@ -52,6 +52,13 @@ typedef struct {
 } ISACallingConvention;
 
 /* Emit backend - instruction generation */
+/* ZeroCC zero_san overflow-check operation (Sprint 163), carried in
+ * OP_OVF_TRAP.imm for the compare-based (non-x86) lowering. x86-64 ignores it
+ * (uses the CPU OF flag). inc/dec always lower to `lvalue + (±step)` => ADD. */
+#define ZC_OVF_OP_ADD 0
+#define ZC_OVF_OP_SUB 1
+#define ZC_OVF_OP_MUL 2
+
 typedef struct ZeroCCISABackend {
     ZeroCCISA isa;
     const ISARegInfo *regs;
@@ -380,6 +387,16 @@ typedef struct ZeroCCISABackend {
      * instruction (x86-64 ud2, AArch64 brk #0, RISC-V unimp). */
     void (*emit_trap)(ZeroCCCompiler *c);
     void (*emit_trap_asm)(ZeroCCCompiler *c, FILE *out);
+    /* zero_san (Sprint 163): compare-based signed-integer-overflow trap for
+     * non-x86 ISAs. `res` holds the raw result of the immediately-preceding
+     * add/sub/mul; `a`, `b` are the two operands (clean sign-extended, and
+     * dead after this check - the implementations may use them in place).
+     * `width` is the check width (4 or 8); `op` is ZC_OVF_OP_ADD/SUB/MUL.
+     * Emits the detection + the target trap (udf/brk/unimp). x86-64 uses its
+     * OF-flag / sign-extension path inline in the shared emitters and leaves
+     * these NULL. */
+    void (*emit_ovf_trap)(ZeroCCCompiler *c, int res, int a, int b, int width, int op);
+    void (*emit_ovf_trap_asm)(ZeroCCCompiler *c, int res, int a, int b, int width, int op, FILE *out);
     /* OS syscall (OP_SYSCALL / __zerocc_syscall): arg_count temps (syscall
      * number first, then up to 6 operands) are resolved and moved into the
      * target's syscall argument registers one at a time, then the syscall

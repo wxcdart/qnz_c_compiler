@@ -1,3 +1,16 @@
+## [Sprint 163] - 2026-11-11 - zero_san Cross-ISA Overflow Checks: aarch64, riscv64, riscv32 (Sanitizer)
+
+`-fsanitize=undefined` signed-overflow checks now fire on all four ISAs (previously x86-64 only; other ISAs silently skipped the check).
+
+- **Lowering**: dropped the `c->isa != ISA_X86_64` gate. `zc_emit_ovf_trap` takes operands + op; non-x86 `OP_OVF_TRAP` carries both operand temps and `imm = ZC_OVF_OP_{ADD,SUB,MUL}`; x86-64 keeps the operand-less OF-flag form. 24 compound-assign + 3 inc/dec sites updated. riscv32 width-8 is skipped (not mis-checked).
+- **Backend vtable**: `emit_ovf_trap` / `emit_ovf_trap_asm` hooks (`isa_backend.h`), dispatched from `ast_lowering_mc.c` and `asm_emitter.c`.
+- **aarch64**: width 4 sxtw round-trip; width 8 add/sub eor/and/asr/`cbz`, mul `smulh`; trap `brk #0` (SIGTRAP).
+- **riscv64/32**: width 4 slli/srai round-trip (RV64) or operand formula; width 8 `mulh`-based; trap `unimp` (SIGILL).
+- **Fixed**: aarch64 and riscv `emit_trap` encodings (riscv's old word was a float load that SIGSEGV'd).
+- **Known false-negatives (safe direction)**: riscv32 width 8; riscv raw/MC width-4 `++`/`--`/compound.
+- **Tests**: `san_trap_cross_int.c`, `san_trap_cross_wide.c` wired into `tools/san_sweep.py` (-O0..-O3 under qemu, per-ISA signal assertion).
+- **Verification**: `make test-san` 213 ok / 0 FAIL (23 cross); `style_check` 0/0 · `make test` 227/227 · `make test-opt` 126 ok / 0 failed · `make asan` 224/224.
+
 ## [Sprint 162] - 2026-11-11 - Style-Warning Burn-Down: 85 → 0 (Tooling / Hygiene)
 
 ZeroCC's `tools/style_check.py` now reports **0 errors, 0 warnings** (was 0 errors, 85 warnings). The tree is clean: a new warning now *regresses* the tree instead of being an accepted legacy instance. Two warning families were burned down.

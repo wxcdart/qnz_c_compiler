@@ -787,6 +787,49 @@ static void aarch64_emit_jeq_asm(ZeroCCCompiler *, const char *label, FILE *out)
     fprintf(out, "\tb.eq\t%s\n", label);
 }
 
+/* zero_san (Sprint 163): compare-based signed-overflow check + trap (text).
+ * Mirrors aarch64_emit_ovf_trap (raw). Uses a self-contained label for the
+ * branch; `a`/`b` (dead operands) are clobbered in place. */
+static void aarch64_emit_ovf_trap_asm(ZeroCCCompiler *c, int res, int a, int b,
+                                      int width, int op, FILE *out) {
+    uint16_t lbl = c->ir_next_label++;
+    char L[32];
+    snprintf(L, sizeof L, ".Lovf_%u", (unsigned)lbl);
+    if (width < 8) {
+        BE(c)->emit_extend_asm(c, a, res, 4, 1, out);   /* sxtw a, wres */
+        BE(c)->emit_cmp_asm(c, res, a, out);            /* cmp res, a */
+        BE(c)->emit_jeq_asm(c, L, out);                 /* b.eq L: skip brk if fits */
+        BE(c)->emit_trap_asm(c, out);                   /* brk #0 */
+        BE(c)->emit_label_asm(c, L, out);               /* L: */
+        return;
+    }
+    if (op == ZC_OVF_OP_MUL) {
+        const char *an = BE(c)->get_hw_reg_name(a), *bn = BE(c)->get_hw_reg_name(b), *rn = BE(c)->get_hw_reg_name(res);
+        fprintf(out, "\tsmulh\t%s, %s, %s\n", an, an, bn);   /* a = high64(a*b) */
+        fprintf(out, "\tasr\t%s, %s, #63\n", bn, rn);        /* b = signext(res) */
+        BE(c)->emit_cmp_asm(c, a, b, out);            /* cmp a, b */
+        BE(c)->emit_jeq_asm(c, L, out);              /* b.eq L: skip brk if equal */
+        BE(c)->emit_trap_asm(c, out);                /* brk #0 */
+        BE(c)->emit_label_asm(c, L, out);            /* L: */
+        return;
+    }
+    if (op == ZC_OVF_OP_SUB) {
+        BE(c)->emit_xor_asm(c, b, a, b, out);        /* eor b, a, b */
+        BE(c)->emit_xor_asm(c, a, a, res, out);      /* eor a, a, res */
+    } else { /* ADD: ovf = signbit((a^res) & (b^res)) */
+        BE(c)->emit_xor_asm(c, a, a, res, out);      /* eor a, a, res */
+        BE(c)->emit_xor_asm(c, b, b, res, out);      /* eor b, b, res */
+    }
+    BE(c)->emit_and_asm(c, a, a, b, out);            /* and a, a, b */
+    /* Sign-bit test via register value, not a flag-branch (b.pl after `and`
+     * misfires in the qemu TB context; matches the compiler's compare-branch
+     * style). asr sign-extends bit63 (-1 iff overflow); cbz skips the brk. */
+    fprintf(out, "\tasr\t%s, %s, #63\n", BE(c)->get_hw_reg_name(a), BE(c)->get_hw_reg_name(a));
+    fprintf(out, "\tcbz\t%s, %s\n", BE(c)->get_hw_reg_name(a), L);
+    BE(c)->emit_trap_asm(c, out);                    /* brk #0 */
+    BE(c)->emit_label_asm(c, L, out);                /* L: */
+}
+
 /* JNE: b.ne label */
 static void aarch64_emit_jne_asm(ZeroCCCompiler *, const char *label, FILE *out) {
     fprintf(out, "\tb.ne\t%s\n", label);
@@ -1515,6 +1558,7 @@ void aarch64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_and_asm = aarch64_emit_and_asm;
     be->emit_or_asm = aarch64_emit_or_asm;
     be->emit_xor_asm = aarch64_emit_xor_asm;
+    be->emit_ovf_trap_asm = aarch64_emit_ovf_trap_asm;
     be->emit_shl_asm = aarch64_emit_shl_asm;
     be->emit_shr_asm = aarch64_emit_shr_asm;
     be->emit_sar_asm = aarch64_emit_sar_asm;

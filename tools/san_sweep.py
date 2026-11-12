@@ -45,6 +45,12 @@ CROSS_ISAS = ["aarch64", "riscv64", "riscv32"]
 CROSS_QEMU = {"aarch64": "qemu-aarch64-static",
               "riscv64": "qemu-riscv64-static",
               "riscv32": "qemu-riscv32-static"}
+# Expected trap exit status (128+signal) per ISA when a signed overflow fires:
+# aarch64 emits brk #0 -> SIGTRAP(5); riscv64/riscv32 emit unimp -> SIGILL(4).
+CROSS_TRAP_RC = {"aarch64": 133, "riscv64": 132, "riscv32": 132}
+# ISAs whose 64-bit (width-8) check is implemented (riscv32 64-bit is a
+# (lo,hi) GPR pair -> documented false-negative, so the wide test is skipped).
+CROSS_WIDE_ISAS = ["aarch64", "riscv64"]
 
 
 def run(cmd, timeout=30):
@@ -167,6 +173,40 @@ def main():
             results.append({"test": "cross", "isa": isa, "rc": rc, "expect": 0,
                             "status": "ok" if ok else "FAIL",
                             "detail": err.strip()[:200]})
+
+    # Cross-ISA trap-firing (Sprint 163): a real signed overflow must TRAP under
+    # qemu on every ISA with a check. 32-bit on all three; 64-bit on aarch64 /
+    # riscv64 only (riscv32 width-8 is a documented false-negative follow-up).
+    cross_trap = [("san_trap_cross_int.c", CROSS_ISAS),
+                  ("san_trap_cross_wide.c", CROSS_WIDE_ISAS)]
+    if not args.no_cross:
+        for tname, isas in cross_trap:
+            tsrc = os.path.join(SAN_DIR, tname)
+            if not os.path.isfile(tsrc):
+                continue
+            for isa in isas:
+                qemu = CROSS_QEMU[isa]
+                if shutil.which(qemu) is None:
+                    results.append({"test": tname, "isa": isa, "status": "skip"})
+                    continue
+                for level in LEVELS:
+                    out = os.path.join(tmpdir, f"xtrap_{isa}_{level}")
+                    rc, _, err = run([args.zerocc, "--target", isa, f"-O{level}",
+                                      "-fsanitize=undefined", tsrc, "-o", out])
+                    if rc != 0:
+                        fails += 1
+                        results.append({"test": tname, "isa": isa, "level": level,
+                                        "status": "FAIL",
+                                        "detail": f"compile rc={rc}: {err.strip()[:200]}"})
+                        continue
+                    rc, _, err = run([qemu, out])
+                    ok = rc in (CROSS_TRAP_RC[isa], 128 - CROSS_TRAP_RC[isa])  # shell 128+sig or Popen -sig
+                    if not ok:
+                        fails += 1
+                    results.append({"test": tname, "isa": isa, "level": level,
+                                    "rc": rc, "expect": CROSS_TRAP_RC[isa],
+                                    "status": "ok" if ok else "FAIL",
+                                    "detail": err.strip()[:200]})
 
     shutil.rmtree(tmpdir, ignore_errors=True)
 

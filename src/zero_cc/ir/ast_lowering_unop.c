@@ -83,7 +83,7 @@ int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                     ir_emit_mov_imm(c, one_temp, (node->aux.op == TK_INC) ? step : -step);
                     /* res = val ± step */
                     ir_emit_add(c, res_temp, val_temp, one_temp);
-                    zc_maybe_emit_ovf_trap_incdec(c, arena, node, (uint32_t)res_temp);
+                    zc_maybe_emit_ovf_trap_incdec(c, arena, node, (uint32_t)res_temp, val_temp, one_temp);
                     zero_cc_emit_int_extend(c, res_temp, &sym->type);
                     /* Store new value back to stack */
                     zc_sym_store(c, sym, 0, res_temp);  /* Sprint 72 */
@@ -132,7 +132,7 @@ int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                     ir_emit_mov_imm(c, one_temp, (node->aux.op == TK_INC) ?
                         lvalue_inc_step(&gv->type) : -lvalue_inc_step(&gv->type));
                     ir_emit_add(c, res_temp, val_temp, one_temp);
-                    zc_maybe_emit_ovf_trap_incdec(c, arena, node, (uint32_t)res_temp);
+                    zc_maybe_emit_ovf_trap_incdec(c, arena, node, (uint32_t)res_temp, val_temp, one_temp);
                     zero_cc_emit_int_extend(c, res_temp, &gv->type);
 
                     if (gv_sz == 1) ir_emit_store_byte(c, res_temp, gaddr_temp);
@@ -451,7 +451,7 @@ int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                 int step_t = zc_alloc_temp(c);
                 ir_emit_mov_imm(c, step_t, (node->aux.op == TK_INC) ? step : -step);
                 ir_emit_add(c, new_t, old_t, step_t);
-                zc_maybe_emit_ovf_trap_incdec(c, arena, node, (uint32_t)new_t);
+                zc_maybe_emit_ovf_trap_incdec(c, arena, node, (uint32_t)new_t, old_t, step_t);
                 if (lval_size == 1) ir_emit_store_byte(c, new_t, addr);
                 else if (lval_size == 2) ir_emit_store_16(c, new_t, addr);
                 else if (lval_size == 4) ir_emit_store_32(c, new_t, addr);

@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-12T00:26:44Z
+timestamp: 2026-11-12T01:53:37Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1359,3 +1359,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-12 — Updated `sanitizer-roadmap.md`
 - Sprint 163 plan: cross-ISA OP_OVF_TRAP (aarch64/riscv64/riscv32) design, gate, pitfalls (§4c)
+
+## 2026-11-12 — Updated `sanitizer-roadmap.md`
+- Sprint 163: cross-ISA OP_OVF_TRAP as-built (aarch64/riscv64/riscv32-w4), hooks, trap encodings, gate
+
+## 2026-11-12 — Updated `ir-and-regalloc.md`
+- Sprint 163: OP_OVF_TRAP non-x86 operand/imm form + ISA hooks

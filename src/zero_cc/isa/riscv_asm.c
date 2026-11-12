@@ -1650,6 +1650,49 @@ static void riscv_emit_inline_asm_asm(ZeroCCCompiler *c, size_t idx, FILE *out) 
     fprintf(out, "\n#NO_APP\n");
 }
 
+/* zero_san (Sprint 163): compare-based signed-overflow check + unimp (text).
+ * Mirrors riscv64_emit_ovf_trap (raw); ISA-aware (RV32/RV64). Uses a self-
+ * contained label; `a`/`b` (dead operands) are clobbered in place. */
+static void riscv64_emit_ovf_trap_asm(ZeroCCCompiler *c, int res, int a, int b,
+                                      int width, int op, FILE *out) {
+    bool is64 = (c->isa == ISA_RISCV64);
+    const char *rn = BE(c)->get_hw_reg_name(res);
+    const char *an = BE(c)->get_hw_reg_name(a);
+    const char *bn = BE(c)->get_hw_reg_name(b);
+    uint16_t lbl = c->ir_next_label++;
+    char L[32];
+    snprintf(L, sizeof L, ".Lovf_%u", (unsigned)lbl);
+    if (width < 8 && is64) {
+        /* RV64: sign-extension round-trip; a (dead) is scratch. */
+        fprintf(out, "\tslli\t%s, %s, 32\n", an, rn);   /* a = res << 32 */
+        fprintf(out, "\tsrai\t%s, %s, 32\n", an, an);   /* a = a >> 32 (arith) */
+        fprintf(out, "\tbeq\t%s, %s, %s\n", rn, an, L); /* skip unimp if fits */
+        BE(c)->emit_trap_asm(c, out);                   /* unimp */
+        BE(c)->emit_label_asm(c, L, out);               /* L: */
+        return;
+    }
+    int asr_sh = is64 ? 63 : 31;
+    if (op == ZC_OVF_OP_MUL) {
+        fprintf(out, "\tmulh\t%s, %s, %s\n", an, an, bn);  /* a = high(a*b) */
+        fprintf(out, "\tsrai\t%s, %s, %d\n", bn, rn, asr_sh); /* b = signext(res) */
+        fprintf(out, "\tbeq\t%s, %s, %s\n", an, bn, L);   /* skip unimp if equal */
+        BE(c)->emit_trap_asm(c, out);                   /* unimp */
+        BE(c)->emit_label_asm(c, L, out);               /* L: */
+        return;
+    }
+    if (op == ZC_OVF_OP_SUB) {
+        BE(c)->emit_xor_asm(c, b, a, b, out);           /* xor b, a, b */
+        BE(c)->emit_xor_asm(c, a, a, res, out);         /* xor a, a, res */
+    } else { /* ADD: ovf = signbit((a^res) & (b^res)) */
+        BE(c)->emit_xor_asm(c, a, a, res, out);         /* xor a, a, res */
+        BE(c)->emit_xor_asm(c, b, b, res, out);         /* xor b, b, res */
+    }
+    BE(c)->emit_and_asm(c, a, a, b, out);               /* and a, a, b */
+    fprintf(out, "\tbge\t%s, zero, %s\n", an, L);        /* skip unimp if a >= 0 */
+    BE(c)->emit_trap_asm(c, out);                       /* unimp */
+    BE(c)->emit_label_asm(c, L, out);                   /* L: */
+}
+
 /* Initialize RISC-V assembly emission functions in backend */
 void riscv64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_inline_asm_asm = riscv_emit_inline_asm_asm;
@@ -1672,6 +1715,7 @@ void riscv64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_and_asm = riscv_emit_and_asm;
     be->emit_or_asm = riscv_emit_or_asm;
     be->emit_xor_asm = riscv_emit_xor_asm;
+    be->emit_ovf_trap_asm = riscv64_emit_ovf_trap_asm;
     be->emit_shl_asm = riscv_emit_shl_asm;
     be->emit_shr_asm = riscv_emit_shr_asm;
     be->emit_sar_asm = riscv_emit_sar_asm;

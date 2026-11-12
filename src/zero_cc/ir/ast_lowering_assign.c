@@ -164,9 +164,9 @@ static void member_apply_compound(ZeroCCCompiler *c, ZeroCCASTArena *arena,
         else ir_emit_deref(c, curr_val, addr);
         int op_res = zc_alloc_temp(c);
         switch (op_tok) {
-            case TK_ADD_ASSIGN: ir_emit_add(c, op_res, curr_val, *right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res); break;
-            case TK_SUB_ASSIGN: ir_emit_sub(c, op_res, curr_val, *right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res); break;
-            case TK_MUL_ASSIGN: ir_emit_mul(c, op_res, curr_val, *right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res); break;
+            case TK_ADD_ASSIGN: ir_emit_add(c, op_res, curr_val, *right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res, curr_val, *right_temp, ZC_OVF_OP_ADD); break;
+            case TK_SUB_ASSIGN: ir_emit_sub(c, op_res, curr_val, *right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res, curr_val, *right_temp, ZC_OVF_OP_SUB); break;
+            case TK_MUL_ASSIGN: ir_emit_mul(c, op_res, curr_val, *right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res, curr_val, *right_temp, ZC_OVF_OP_MUL); break;
             case TK_DIV_ASSIGN: ir_emit_div(c, op_res, curr_val, *right_temp); break;
             case TK_MOD_ASSIGN: ir_emit_mod(c, op_res, curr_val, *right_temp); break;
             case TK_AND_ASSIGN: ir_emit_and(c, op_res, curr_val, *right_temp); break;
@@ -859,9 +859,9 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                     }
                     int res = zc_alloc_temp(c);
                     switch (node->aux.op) {
-                        case TK_ADD_ASSIGN: ir_emit_add(c, res, cur, rvl); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)res); break;
-                        case TK_SUB_ASSIGN: ir_emit_sub(c, res, cur, rvl); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)res); break;
-                        case TK_MUL_ASSIGN: ir_emit_mul(c, res, cur, rvl); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)res); break;
+                        case TK_ADD_ASSIGN: ir_emit_add(c, res, cur, rvl); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)res, cur, rvl, ZC_OVF_OP_ADD); break;
+                        case TK_SUB_ASSIGN: ir_emit_sub(c, res, cur, rvl); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)res, cur, rvl, ZC_OVF_OP_SUB); break;
+                        case TK_MUL_ASSIGN: ir_emit_mul(c, res, cur, rvl); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)res, cur, rvl, ZC_OVF_OP_MUL); break;
                         case TK_DIV_ASSIGN: ir_emit_div(c, res, cur, rvl); break;
                         case TK_MOD_ASSIGN: ir_emit_mod(c, res, cur, rvl); break;
                         case TK_AND_ASSIGN: ir_emit_and(c, res, cur, rvl); break;
@@ -930,9 +930,9 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                     lower_extend_narrow(c, curr_val, target_ti);
                     int op_res = zc_alloc_temp(c);
                     switch (node->aux.op) {
-                        case TK_ADD_ASSIGN: ir_emit_add(c, op_res, curr_val, right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res); break;
-                        case TK_SUB_ASSIGN: ir_emit_sub(c, op_res, curr_val, right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res); break;
-                        case TK_MUL_ASSIGN: ir_emit_mul(c, op_res, curr_val, right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res); break;
+                        case TK_ADD_ASSIGN: ir_emit_add(c, op_res, curr_val, right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res, curr_val, right_temp, ZC_OVF_OP_ADD); break;
+                        case TK_SUB_ASSIGN: ir_emit_sub(c, op_res, curr_val, right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res, curr_val, right_temp, ZC_OVF_OP_SUB); break;
+                        case TK_MUL_ASSIGN: ir_emit_mul(c, op_res, curr_val, right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res, curr_val, right_temp, ZC_OVF_OP_MUL); break;
                         case TK_DIV_ASSIGN: ir_emit_div(c, op_res, curr_val, right_temp); break;
                         case TK_MOD_ASSIGN: ir_emit_mod(c, op_res, curr_val, right_temp); break;
                         case TK_AND_ASSIGN: ir_emit_and(c, op_res, curr_val, right_temp); break;
@@ -1093,9 +1093,9 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                         else ir_emit_deref(c, curr_val, addr);
                         int op_res = zc_alloc_temp(c);
                         switch (node->aux.op) {
-                            case TK_ADD_ASSIGN: ir_emit_add(c, op_res, curr_val, right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res); break;
-                            case TK_SUB_ASSIGN: ir_emit_sub(c, op_res, curr_val, right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res); break;
-                            case TK_MUL_ASSIGN: ir_emit_mul(c, op_res, curr_val, right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res); break;
+                            case TK_ADD_ASSIGN: ir_emit_add(c, op_res, curr_val, right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res, curr_val, right_temp, ZC_OVF_OP_ADD); break;
+                            case TK_SUB_ASSIGN: ir_emit_sub(c, op_res, curr_val, right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res, curr_val, right_temp, ZC_OVF_OP_SUB); break;
+                            case TK_MUL_ASSIGN: ir_emit_mul(c, op_res, curr_val, right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res, curr_val, right_temp, ZC_OVF_OP_MUL); break;
                             case TK_DIV_ASSIGN: ir_emit_div(c, op_res, curr_val, right_temp); break;
                             case TK_MOD_ASSIGN: ir_emit_mod(c, op_res, curr_val, right_temp); break;
                             case TK_AND_ASSIGN: ir_emit_and(c, op_res, curr_val, right_temp); break;
@@ -1721,9 +1721,9 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                     }
                     int op_res = zc_alloc_temp(c);
                     switch (node->aux.op) {
-                        case TK_ADD_ASSIGN: ir_emit_add(c, op_res, curr_val, right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res); break;
-                        case TK_SUB_ASSIGN: ir_emit_sub(c, op_res, curr_val, right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res); break;
-                        case TK_MUL_ASSIGN: ir_emit_mul(c, op_res, curr_val, right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res); break;
+                        case TK_ADD_ASSIGN: ir_emit_add(c, op_res, curr_val, right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res, curr_val, right_temp, ZC_OVF_OP_ADD); break;
+                        case TK_SUB_ASSIGN: ir_emit_sub(c, op_res, curr_val, right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res, curr_val, right_temp, ZC_OVF_OP_SUB); break;
+                        case TK_MUL_ASSIGN: ir_emit_mul(c, op_res, curr_val, right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res, curr_val, right_temp, ZC_OVF_OP_MUL); break;
                         case TK_DIV_ASSIGN: ir_emit_div(c, op_res, curr_val, right_temp); break;
                         case TK_MOD_ASSIGN: ir_emit_mod(c, op_res, curr_val, right_temp); break;
                         case TK_AND_ASSIGN: ir_emit_and(c, op_res, curr_val, right_temp); break;
@@ -2037,9 +2037,9 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                         }
                         int op_res = zc_alloc_temp(c);
                         switch (node->aux.op) {
-                            case TK_ADD_ASSIGN: ir_emit_add(c, op_res, left_temp, right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res); break;
-                            case TK_SUB_ASSIGN: ir_emit_sub(c, op_res, left_temp, right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res); break;
-                            case TK_MUL_ASSIGN: ir_emit_mul(c, op_res, left_temp, right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res); break;
+                            case TK_ADD_ASSIGN: ir_emit_add(c, op_res, left_temp, right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res, left_temp, right_temp, ZC_OVF_OP_ADD); break;
+                            case TK_SUB_ASSIGN: ir_emit_sub(c, op_res, left_temp, right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res, left_temp, right_temp, ZC_OVF_OP_SUB); break;
+                            case TK_MUL_ASSIGN: ir_emit_mul(c, op_res, left_temp, right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res, left_temp, right_temp, ZC_OVF_OP_MUL); break;
                             case TK_DIV_ASSIGN:
                                 ir_emit_div(c, op_res, left_temp, right_temp);
                                 if (zero_cc_binop_is_unsigned(c, arena, node->left, node->right)) ir_mark_last_unsigned(c, 1);
@@ -2243,9 +2243,9 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
 
                     int op_res = zc_alloc_temp(c);
                     switch (node->aux.op) {
-                        case TK_ADD_ASSIGN: ir_emit_add(c, op_res, curr_val, right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res); break;
-                        case TK_SUB_ASSIGN: ir_emit_sub(c, op_res, curr_val, right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res); break;
-                        case TK_MUL_ASSIGN: ir_emit_mul(c, op_res, curr_val, right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res); break;
+                        case TK_ADD_ASSIGN: ir_emit_add(c, op_res, curr_val, right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res, curr_val, right_temp, ZC_OVF_OP_ADD); break;
+                        case TK_SUB_ASSIGN: ir_emit_sub(c, op_res, curr_val, right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res, curr_val, right_temp, ZC_OVF_OP_SUB); break;
+                        case TK_MUL_ASSIGN: ir_emit_mul(c, op_res, curr_val, right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res, curr_val, right_temp, ZC_OVF_OP_MUL); break;
                         case TK_DIV_ASSIGN: ir_emit_div(c, op_res, curr_val, right_temp); break;
                         case TK_MOD_ASSIGN: ir_emit_mod(c, op_res, curr_val, right_temp); break;
                         case TK_AND_ASSIGN: ir_emit_and(c, op_res, curr_val, right_temp); break;
@@ -2343,9 +2343,9 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                     else ir_emit_deref(c, curr_val, xaddr);
                     int op_res = zc_alloc_temp(c);
                     switch (node->aux.op) {
-                        case TK_ADD_ASSIGN: ir_emit_add(c, op_res, curr_val, right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res); break;
-                        case TK_SUB_ASSIGN: ir_emit_sub(c, op_res, curr_val, right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res); break;
-                        case TK_MUL_ASSIGN: ir_emit_mul(c, op_res, curr_val, right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res); break;
+                        case TK_ADD_ASSIGN: ir_emit_add(c, op_res, curr_val, right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res, curr_val, right_temp, ZC_OVF_OP_ADD); break;
+                        case TK_SUB_ASSIGN: ir_emit_sub(c, op_res, curr_val, right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res, curr_val, right_temp, ZC_OVF_OP_SUB); break;
+                        case TK_MUL_ASSIGN: ir_emit_mul(c, op_res, curr_val, right_temp); zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)op_res, curr_val, right_temp, ZC_OVF_OP_MUL); break;
                         case TK_DIV_ASSIGN: ir_emit_div(c, op_res, curr_val, right_temp); break;
                         case TK_MOD_ASSIGN: ir_emit_mod(c, op_res, curr_val, right_temp); break;
                         case TK_AND_ASSIGN: ir_emit_and(c, op_res, curr_val, right_temp); break;
