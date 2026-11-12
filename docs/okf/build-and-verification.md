@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 165-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-11-11T17:10:32Z
+timestamp: 2026-11-12T04:03:59Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -41,6 +41,24 @@ make rebuild
 ### Stale-build guard
 
 `main()` (src/main.c) runs a layout check before anything else: `zero_cc_ast_node_size() != sizeof(ZeroCCASTNode)`. `zero_cc_ast_node_size` is declared in `src/zero_cc/parser/parser.h` and defined in `src/zero_cc/parser/parser.c`; it returns the `ZeroCCASTNode` size compiled into the `parser` object file, which `main` compares against its own `sizeof`. If they differ, an object file was built against an older AST-node layout and would corrupt the AST at runtime, so the binary aborts with a "stale build objects" message. **Implication: any change to the `ZeroCCASTNode` struct layout (adding/removing/reordering fields) requires a full `make clean && make build/bin/zerocc`** — an incremental build that recompiles only some objects leaves the mismatch in place.
+
+### Stale binaries after branch switches / worktree jumps
+
+`make build/bin/zerocc` only rebuilds when its prerequisites (source + headers + objects) are newer than the binary. It does **not** detect that the binary on disk was built from a *different branch's* source. Common stale-binary scenarios:
+
+- **Worktree hopping**: you edit + rebuild in worktree A, then run `./build/bin/zerocc` from worktree B (or `main`) whose source lacks those edits. The binary is newer than B's source, so `make` thinks it's up to date and runs stale code — you see pre-edit behavior or old bugs.
+- **Branch switch**: `git checkout` swaps source files on disk but `build/bin/zerocc` keeps the previous branch's machine code. Until you rebuild, the binary reflects the old branch.
+- **Rebasing / force-pull**: same class — source changes underneath an already-built binary.
+
+**Best practice**: after switching branches or jumping between worktrees, run `make rebuild` (or `make clean && make build/bin/zerocc`) before trusting `./build/bin/zerocc` output. This is cheap (~8-10s) and is the standard reason the Makefile lists "switching branches" under `make rebuild`:
+
+```bash
+# After `git checkout`, `git pull --rebase`, or moving between worktrees:
+make rebuild
+make test-san      # then re-verify against the fresh binary
+```
+
+Header dependencies themselves are tracked correctly via GCC `-MMD -MP` `.d` files (`DEPS = $(shell find $(BUILD_DIR) -name "*.d")` + `-include $(DEPS)`), so ordinary incremental edits within one branch are safe. The stale-binary class is purely a *binary-vs-source-branch mismatch*, not a dependency-tracking defect.
 
 ### Project-header include convention
 

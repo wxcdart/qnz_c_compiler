@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-12T02:15:18Z
+timestamp: 2026-11-12T04:03:59Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1368,3 +1368,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-12 — Updated `sanitizer-roadmap.md`
 - Sprint 164: riscv raw-path gap = RV64 lui+addi immediate miscompile (addiw fix); rv32 width-8 blocked on missing rv32 i64 lowering (§4d)
+
+## 2026-11-12 — Updated `build-and-verification.md`
+- Document stale-binary branch-switch/worktree guidance and make rebuild best practice

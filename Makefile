@@ -36,6 +36,15 @@ TEST_BIN_DIR ?= $(BUILD_DIR)/test
 TEST_SRCS = $(filter-out test/diag/% test/driver/% test/linker/% test/san/% test/abi_interop/% test/jit/builtin_apply.c test/jit/unroll_nonlocal_goto.c,$(wildcard test/*/*.c))
 TESTS = $(patsubst test/%.c,$(TEST_BIN_DIR)/%,$(TEST_SRCS))
 
+# Category-scoped test lists (Fix stale-build Root Cause 3: avoid relinking
+# all 338+ test binaries when running a single category, and avoid pulling
+# in the full `all` tree for gates that only need zerocc itself).
+UNIT_TESTS     = $(patsubst test/%.c,$(TEST_BIN_DIR)/%,$(filter test/unit/%,$(TEST_SRCS)))
+SEMANTIC_TESTS = $(patsubst test/%.c,$(TEST_BIN_DIR)/%,$(filter test/semantic/%,$(TEST_SRCS)))
+ABI_TESTS      = $(patsubst test/%.c,$(TEST_BIN_DIR)/%,$(filter test/abi/%,$(TEST_SRCS)))
+JIT_TESTS      = $(patsubst test/%.c,$(TEST_BIN_DIR)/%,$(filter test/jit/%,$(TEST_SRCS)))
+TAP_TESTS      = $(patsubst test/%.c,$(TEST_BIN_DIR)/%,$(filter test/tap/%,$(TEST_SRCS)))
+
 LEXER_OBJ = $(OBJ_DIR)/src/zero_cc/lexer/lexer.o
 PARSER_OBJ = $(OBJ_DIR)/src/zero_cc/parser/parser.o
 TLS_OBJ = $(OBJ_DIR)/src/zero_cc/jit/tls_backend.o
@@ -268,13 +277,27 @@ $(ZC_EMBED_SYMS):
 # has no dynamic symbol table, and the JIT resolves those helpers through
 # zero_rt's dlfcn (dlsym on the executable's own .symtab).
 ZEROCCLIB_OBJS = $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS)
-$(ZC_BIN): src/main.c $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ) $(ZC_DLCFN_OBJ) $(ZC_COMPLEX_OBJ) $(ZC_EMBED_SYMS) $(ZC_CC)
+# Compile main.c and embedded_syms.c to separate .o files so their -MMD
+# header dependencies are tracked in $(OBJ_DIR)/src/main.d and
+# $(BUILD_DIR)/obj/embedded_syms.d. Compiling them inline on the link line
+# (as before) made GCC overwrite build/bin/zerocc.d with only the last .c
+# file's deps, silently dropping all main.c header deps (stale-build Root Cause 1).
+MAIN_OBJ = $(OBJ_DIR)/src/main.o
+EMBED_SYMS_OBJ = $(BUILD_DIR)/obj/embedded_syms.o
+$(MAIN_OBJ): src/main.c $(ZC_CC)
 	@mkdir -p $(dir $@)
-	$(ZC_CC) $(CFLAGS) $(ZC_MUSL_LINK) -o $@ src/main.c $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ) $(ZC_DLCFN_OBJ) $(ZC_COMPLEX_OBJ) $(LDFLAGS) $(ZC_EMBED_SYMS)
+	$(ZC_CC) $(CFLAGS) -c $< -o $@
+$(EMBED_SYMS_OBJ): $(ZC_EMBED_SYMS) $(ZC_CC)
+	@mkdir -p $(dir $@)
+	$(ZC_CC) $(CFLAGS) -c $< -o $@
+
+$(ZC_BIN): $(MAIN_OBJ) $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ) $(ZC_DLCFN_OBJ) $(ZC_COMPLEX_OBJ) $(EMBED_SYMS_OBJ) $(ZC_CC)
+	@mkdir -p $(dir $@)
+	$(ZC_CC) $(CFLAGS) $(ZC_MUSL_LINK) -o $@ $(MAIN_OBJ) $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ) $(ZC_DLCFN_OBJ) $(ZC_COMPLEX_OBJ) $(EMBED_SYMS_OBJ) $(LDFLAGS)
 	@rc=0; python3 tools/embed_symtab.py --bin $@ --out $(ZC_EMBED_SYMS) || rc=$$?; \
 	if [ $$rc -eq 3 ]; then \
 		echo "$(ZC_BIN): embedded symtab changed; relinking"; \
-		$(ZC_CC) $(CFLAGS) $(ZC_MUSL_LINK) -o $@ src/main.c $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ) $(ZC_DLCFN_OBJ) $(ZC_COMPLEX_OBJ) $(LDFLAGS) $(ZC_EMBED_SYMS); \
+		$(ZC_CC) $(CFLAGS) $(ZC_MUSL_LINK) -o $@ $(MAIN_OBJ) $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ) $(ZC_DLCFN_OBJ) $(ZC_COMPLEX_OBJ) $(EMBED_SYMS_OBJ) $(LDFLAGS); \
 	fi
 
 .PHONY: zerocc
@@ -292,7 +315,7 @@ test: all
 # against the -O0 baseline. This is the definitive optimizer regression gate
 # (the normal test suite compiles test binaries with the host compiler, so it
 # never exercises zerocc's optimization passes).
-test-opt: all
+test-opt: $(ZC_BIN)
 	@python3 tools/opt_sweep.py
 
 # zero_san v1 (-fsanitize=undefined) regression sweep: compiles test/san/*.c
@@ -556,7 +579,7 @@ $(BUILD_DIR)/obj/zero_rt_riscv32/thread.o: zero_rt/core/thread.c zero_rt/rt_os.h
 # and the cross toolchains (aarch64-linux-gnu-gcc, riscv64-linux-gnu-gcc).
 # The harness preflights these and reports exactly what is missing. As of
 # Sprint 41 all four ISAs are green (44/44); this gate keeps them honest.
-test-isa-qemu: all
+test-isa-qemu: $(ZC_BIN)
 	@python3 tools/isa_qemu_diff.py
 
 # Cross-ISA __int128 differential gate (Sprint 109): compiles test/jit/int128_*.c
@@ -566,7 +589,7 @@ test-isa-qemu: all
 # 128-bit (lo,hi) GPR128 emitters (large-offset scratch clobbers, multiword
 # borrow chains, spilled MUL128, call-return high-half protection) that the
 # x86-64-only test-opt cannot see.
-test-isa128: all
+test-isa128: $(ZC_BIN)
 	@python3 tools/isa128_diff.py
 
 # Host-side ASan/UBSan rebuild of the compiler (catches the compiler's own
@@ -615,19 +638,19 @@ valgrind: all
 
 test-valgrind: valgrind
 
-test-unit: all
+test-unit: $(UNIT_TESTS)
 	@python3 tools/test_runner.py --category unit
 
-test-semantic: all
+test-semantic: $(SEMANTIC_TESTS)
 	@python3 tools/test_runner.py --category semantic
 
-test-abi: all
+test-abi: $(ABI_TESTS)
 	@python3 tools/test_runner.py --category abi
 
-test-jit: all
+test-jit: $(JIT_TESTS)
 	@python3 tools/test_runner.py --category jit
 
-test-tap: all
+test-tap: $(TAP_TESTS)
 	@python3 tools/test_runner.py --tap
 
 benchmark: $(TEST_BIN_DIR)/abi/benchmark_struct_by_value
@@ -648,8 +671,13 @@ force-rebuild: rebuild
 golden_test: $(TEST_BIN_DIR)/unit/golden_error_test
 	./$(TEST_BIN_DIR)/unit/golden_error_test
 
-DEPS = $(shell find $(BUILD_DIR) -name "*.d" 2>/dev/null)
--include $(DEPS)
+# Explicit dependency lists instead of a dynamic `find` (Fix stale-build
+# Root Cause 4: orphaned .d files after branch switches/renames used to
+# trigger "No rule to make target" errors, forcing make clean). Track all
+# compiler objects plus the per-test binary .d files.
+ALL_OBJS = $(ZEROCCLIB_OBJS) $(MAIN_OBJ) $(JIT_INT128_OBJ) $(ZC_DLCFN_OBJ) $(ZC_COMPLEX_OBJ) $(EMBED_SYMS_OBJ)
+-include $(ALL_OBJS:.o=.d)
+-include $(TESTS:=.d)
 
 # Run a single test with fresh compilation
 # Usage: make run-test CATEGORY=<category> TEST=<test_name>

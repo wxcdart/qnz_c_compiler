@@ -51,8 +51,14 @@ class TestResult:
         self.error_msg = error_msg
 
 
-def find_test_binaries(root_dir, category=None):
-    """Find compiled test executables across categories in build/test or test."""
+def find_test_binaries(root_dir, category=None, prune_orphans=True):
+    """Find compiled test executables across categories in build/test or test.
+
+    Orphan pruning: an executable whose corresponding test source no longer
+    exists (e.g. after `git checkout` renames/deletes a test) is skipped, and
+    optionally removed from disk so it can't be executed as a phantom test
+    (stale-build Root Cause 2).
+    """
     # "asm" (Sprint 135): host-gcc-built reference binaries for the inline-asm
     # Phase 1 tests - run here as a standing check that the differential
     # reference side stays valid; zerocc's own asm path is gated by
@@ -72,6 +78,13 @@ def find_test_binaries(root_dir, category=None):
         cat_dir = os.path.join(base_dir, cat)
         if not os.path.isdir(cat_dir):
             continue
+        # Set of valid source basenames for this category (test/<cat>/<name>.c)
+        src_dir = os.path.join(root_dir, "test", cat)
+        valid_sources = set()
+        if os.path.isdir(src_dir):
+            for s in os.listdir(src_dir):
+                if s.endswith(".c"):
+                    valid_sources.add(s[:-2])  # strip .c
         for entry in sorted(os.listdir(cat_dir)):
             full_path = os.path.join(cat_dir, entry)
             if (
@@ -79,7 +92,16 @@ def find_test_binaries(root_dir, category=None):
                 and os.access(full_path, os.X_OK)
                 and not entry.endswith((".c", ".h", ".o"))
             ):
-                found.append((f"{cat}/{entry}", full_path, cat))
+                base = entry
+                # Strip known executable suffixes for comparison
+                if base in valid_sources:
+                    found.append((f"{cat}/{entry}", full_path, cat))
+                elif prune_orphans:
+                    # Orphan: no matching source. Remove the stale binary.
+                    try:
+                        os.unlink(full_path)
+                    except OSError:
+                        pass
     return found
 
 
