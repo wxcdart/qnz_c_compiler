@@ -792,7 +792,7 @@ static void aarch64_emit_jeq_asm(ZeroCCCompiler *, const char *label, FILE *out)
  * branch; `a`/`b` (dead operands) are clobbered in place. */
 static void aarch64_emit_ovf_trap_asm(ZeroCCCompiler *c, int res, int a, int b,
                                       int width, int op, FILE *out) {
-    uint16_t lbl = c->ir_next_label++;
+    uint16_t lbl = c->ir_ovf_label++;
     char L[32];
     snprintf(L, sizeof L, ".Lovf_%u", (unsigned)lbl);
     if (width < 8) {

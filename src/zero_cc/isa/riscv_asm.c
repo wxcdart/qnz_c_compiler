@@ -1659,7 +1659,7 @@ static void riscv64_emit_ovf_trap_asm(ZeroCCCompiler *c, int res, int a, int b,
     const char *rn = BE(c)->get_hw_reg_name(res);
     const char *an = BE(c)->get_hw_reg_name(a);
     const char *bn = BE(c)->get_hw_reg_name(b);
-    uint16_t lbl = c->ir_next_label++;
+    uint16_t lbl = c->ir_ovf_label++;
     char L[32];
     snprintf(L, sizeof L, ".Lovf_%u", (unsigned)lbl);
     if (width < 8 && is64) {
