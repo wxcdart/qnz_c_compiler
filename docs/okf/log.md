@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-12T06:47:04Z
+timestamp: 2026-11-12T13:59:02Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1374,3 +1374,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-12 — Updated `sanitizer-roadmap.md`
 - Sprint 166 follow-on: zero_san div-by-zero / rem-by-zero / shift-count checks on all 4 ISAs (pre-op placement, per-ISA emitters, cross-ISA gate corpus, aarch64 raw udiv miscompile fix); documented the pre-existing cross-ISA -O2 f64loop issue
+
+## 2026-11-12 — Updated `sanitizer-roadmap.md`
+- Sprint 167: -fsanitize-trap runtime report (shim __zerocsan_report, all 4 ISAs, raw+text, sweep asserts message+signal) + rv32 musl libgcc-shim __*di3 single-provider link fix

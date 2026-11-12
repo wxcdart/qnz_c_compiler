@@ -1247,7 +1247,11 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         c->lowering.frame_align = (int32_t)N;
     }
 
-    /* Determine if function is a leaf (no calls, no VLAs) */
+    /* Determine if function is a leaf (no calls, no VLAs). With
+     * -fsanitize-trap, an OP_OVF_TRAP site emits a runtime call to
+     * __zerocsan_report (inside the emitter, not as an OP_CALL), so such
+     * a function must not be treated as leaf/frameless: the call needs
+     * 16-byte stack alignment and clobbers the red zone. */
     bool is_leaf = true;
     size_t ir_count = ir_get_count(c);
     const Instr *ir_buf = ir_get_buffer(c);
@@ -1255,7 +1259,8 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         if (ir_buf[i].op == OP_CALL || ir_buf[i].op == OP_CALL_INDIRECT ||
             ir_buf[i].op == OP_VLA_ALLOC || ir_buf[i].op == OP_SYSCALL ||
             ir_buf[i].op == OP_CLONE ||
-            ir_buf[i].op == OP_SETJMP || ir_buf[i].op == OP_LONGJMP) {
+            ir_buf[i].op == OP_SETJMP || ir_buf[i].op == OP_LONGJMP ||
+            (ir_buf[i].op == OP_OVF_TRAP && c->sanitize_report)) {
             is_leaf = false;
             break;
         }

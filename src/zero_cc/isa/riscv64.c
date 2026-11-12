@@ -1344,32 +1344,49 @@ static void riscv64_emit_trap_asm(ZeroCCCompiler *c, FILE *out) {
  * RV64 width 4 uses the sign-extension round-trip (result fits in 32 bits);
  * RV32 width 4 (int is the natural word) uses the operand overflow formula
  * (the round-trip is a no-op there). Width 8 (RV64) uses the operand formula
- * too. The branch skips the single unimp (offset +8).
+ * too. The branch skips the unimp (offset +8) or, with -fsanitize-trap
+ * (Sprint 167), the 4-instruction report block + unimp (offset +24).
  * Follow-on (Sprint 166): div-by-zero / shift-count checks. They test `res`
  * (temp_dest = divisor/count; src1/src2 are TEMP_NONE) directly and must
  * run before the width<8 RV64 round-trip early-return (which is
  * ADD/SUB/MUL-only). t0 is compiler scratch (never allocated to temps).
  * The shift-count bound is width*8 bits (`width` is in bytes). */
+static void riscv64_emit_san_report_block(ZeroCCCompiler *c, int res,
+                                          int width, int op) {
+    /* The value move comes first: `res` may be a0/a1, which the li's write.
+     * mv a2, res = addi a2, res, 0; li a0, op = addi a0, zero, op. */
+    riscv_emit_u32(c, rv64_I(RV_REG(12), RV_REG(res), 0, 0, 0x13));   /* mv a2, res */
+    riscv_emit_u32(c, rv64_I(RV_REG(10), 0, 0, op, 0x13));            /* li a0, op */
+    riscv_emit_u32(c, rv64_I(RV_REG(11), 0, 0, width, 0x13));         /* li a1, width */
+    riscv64_emit_call(c, "__zerocsan_report");
+}
+
 static void riscv64_emit_ovf_trap(ZeroCCCompiler *c, int res, int a, int b,
                                   int width, int op) {
     bool is64 = (c->isa == ISA_RISCV64);
+    int skip = c->sanitize_report ? 24 : 8;  /* -fsanitize-trap block + unimp */
     /* Follow-on (Sprint 166): div-by-zero / shift-count checks.
      * The divisor/count temp is carried in temp_dest (`res`; src1 is
-     * TEMP_NONE for these ops); the check precedes the div/shift.
-     * Both are SKIP-when-ok checks (bne/bge/blt skip the unimp). */
+     * TEMP_NONE for these ops); the check precedes the div/shift, so `res`
+     * still holds the value. Must run before the width<8 result
+     * round-trip below. */
     if (op == ZC_OVF_OP_DIV_ZERO || op == ZC_OVF_OP_REM_ZERO) {
-        /* bne res, zero, +8; unimp  (trap if divisor == 0) */
-        riscv_emit_u32(c, rv64_B(RV_REG(res), 0, 1, 8));
+        /* bne res, zero, skip; unimp  (trap if divisor == 0) */
+        riscv_emit_u32(c, rv64_B(RV_REG(res), 0, 1, skip));
+        if (c->sanitize_report) riscv64_emit_san_report_block(c, res, width, op);
         riscv_emit_u32(c, 0xC0001073u);
         return;
     }
     if (op == ZC_OVF_OP_SHIFT_COUNT) {
-        /* li t0, W; bge res, zero, +8; unimp; blt res, t0, +8; unimp
-         * (W = width*8 bits; t0 is compiler scratch.) */
+        /* li t0, W; bge res, zero, skip; unimp; blt res, t0, skip; unimp
+         * (W = width*8 bits; t0 is compiler scratch.)
+         * Branch funct3: BEQ=0 BNE=1 BLT=4 BGE=5. */
         riscv_emit_u32(c, rv64_I(RV_REG(RV64_T0), 0, 0, width * 8, 0x13)); /* li t0, W */
-        riscv_emit_u32(c, rv64_B(RV_REG(res), 0, 5, 8));                   /* bge res, zero, +8: res >= 0, skip unimp */
+        riscv_emit_u32(c, rv64_B(RV_REG(res), 0, 5, skip));               /* bge res, zero: res >= 0 */
+        if (c->sanitize_report) riscv64_emit_san_report_block(c, res, width, op);
         riscv_emit_u32(c, 0xC0001073u);                                    /* unimp: res < 0 */
-        riscv_emit_u32(c, rv64_B(RV_REG(res), RV_REG(RV64_T0), 1, 8));     /* blt res, t0, +8: res < W, skip unimp */
+        riscv_emit_u32(c, rv64_B(RV_REG(res), RV_REG(RV64_T0), 4, skip));  /* blt res, t0: res < W */
+        if (c->sanitize_report) riscv64_emit_san_report_block(c, res, width, op);
         riscv_emit_u32(c, 0xC0001073u);                                    /* unimp: res >= W */
         return;
     }
@@ -1377,7 +1394,8 @@ static void riscv64_emit_ovf_trap(ZeroCCCompiler *c, int res, int a, int b,
         /* RV64: sign-extension round-trip (result-only); a (dead) is scratch. */
         riscv_emit_u32(c, rv64_I(RV_REG(a), RV_REG(res), 1, 32, 0x13));     /* slli a, res, 32 */
         riscv_emit_u32(c, rv64_I(RV_REG(a), RV_REG(a), 5, 0x400 | 32, 0x13)); /* srai a, a, 32 */
-        riscv_emit_u32(c, rv64_B(RV_REG(res), RV_REG(a), 0, 8));            /* beq res, a, +8 */
+        riscv_emit_u32(c, rv64_B(RV_REG(res), RV_REG(a), 0, skip));         /* beq res, a: fits */
+        if (c->sanitize_report) riscv64_emit_san_report_block(c, res, width, op);
         riscv_emit_u32(c, 0xC0001073u);                                     /* unimp */
         return;
     }
@@ -1387,7 +1405,8 @@ static void riscv64_emit_ovf_trap(ZeroCCCompiler *c, int res, int a, int b,
         /* ovf = (mulh(a,b) != asr(res,sh)): a = high(a*b); b = signext(res). */
         riscv_emit_u32(c, rv64_R(RV_REG(a), RV_REG(a), RV_REG(b), 1, 1));            /* mulh a, a, b */
         riscv_emit_u32(c, rv64_I(RV_REG(b), RV_REG(res), 5, 0x400 | asr_sh, 0x13));  /* srai b, res, sh */
-        riscv_emit_u32(c, rv64_B(RV_REG(a), RV_REG(b), 0, 8));                       /* beq a, b, +8 */
+        riscv_emit_u32(c, rv64_B(RV_REG(a), RV_REG(b), 0, skip));                    /* beq a, b: equal */
+        if (c->sanitize_report) riscv64_emit_san_report_block(c, res, width, op);
         riscv_emit_u32(c, 0xC0001073u);                                              /* unimp */
         return;
     }
@@ -1400,7 +1419,8 @@ static void riscv64_emit_ovf_trap(ZeroCCCompiler *c, int res, int a, int b,
         riscv_emit_u32(c, rv64_R(RV_REG(b), RV_REG(b), RV_REG(res), 4, 0));          /* xor b, b, res */
     }
     riscv_emit_u32(c, rv64_R(RV_REG(a), RV_REG(a), RV_REG(b), 7, 0));                /* and a, a, b */
-    riscv_emit_u32(c, rv64_B(RV_REG(a), 0, 5, 8));                                   /* bge a, zero, +8 */
+    riscv_emit_u32(c, rv64_B(RV_REG(a), 0, 5, skip));                                /* bge a, zero: no overflow */
+    if (c->sanitize_report) riscv64_emit_san_report_block(c, res, width, op);
     riscv_emit_u32(c, 0xC0001073u);                                                  /* unimp */
 }
 

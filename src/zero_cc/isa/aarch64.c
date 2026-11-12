@@ -692,15 +692,38 @@ static void aarch64_emit_trap_asm(ZeroCCCompiler *c, FILE *out) {
  *   cmp Xn,#imm=0xF100001F|imm<<10|Xn<<5   (x5,#0=0xF10000BF, x5,#32=0xF10080BF)
  *   b.ge +4=0x5400004A  b.lt +4=0x5400004B
  *   brk #0=0xD4200000 */
+static void aarch64_emit_call(ZeroCCCompiler *c, const char *func_name);
+
+/* zero_san -fsanitize-trap (Sprint 167): the report block on the aarch64
+ * trap path - the checked value (in `res`), op and width go into x2/x0/x1,
+ * then `bl __zerocsan_report`; the brk after it (caller) keeps the
+ * per-ISA trap signal. The value move comes first: `res` may be x0/x1,
+ * which the immediate moves write. The block sits past the skip branch,
+ * so the fast path is byte-identical to the no-report codegen.
+ * Encodings verified against aarch64-linux-gnu-as:
+ *   mov Xd,Xn = ORR Xd,XZR,Xn = 0xAA0003E0|Xn<<16|Xd
+ *   mov Xd,#imm = MOVZ = 0xD2800000|imm<<5|Xd */
+static void aarch64_emit_san_report_block(ZeroCCCompiler *c, int res, int width, int op) {
+    arm64_emit_u32(c, 0xAA0003E0u | ((uint32_t)(res & 0x1F) << 16) | 2u);  /* mov x2, xres */
+    arm64_emit_u32(c, 0xD2800000u | ((uint32_t)(op & 0xFFFF) << 5));       /* mov x0, #op */
+    arm64_emit_u32(c, 0xD2800000u | ((uint32_t)(width & 0xFFFF) << 5) | 1u); /* mov x1, #width */
+    aarch64_emit_call(c, "__zerocsan_report");
+}
+
 static void aarch64_emit_ovf_trap(ZeroCCCompiler *c, int res, int a, int b, int width, int op) {
+    /* Skip-branch imm19: 2 = skip only the brk (no report); 6 = skip the
+     * 4-instruction report block (mov, mov, mov, bl) + the brk
+     * (-fsanitize-trap, Sprint 167). */
+    int skip = c->sanitize_report ? 6 : 2;
     /* Follow-on (Sprint 166): div-by-zero / shift-count checks. The
      * divisor/count temp is carried in temp_dest (`res`; src1 is TEMP_NONE
      * for these ops) and the check runs before the div/shift, so `res`
      * still holds the value. Must run before the width<8 result
      * round-trip below. */
     if (op == ZC_OVF_OP_DIV_ZERO || op == ZC_OVF_OP_REM_ZERO) {
-        /* cbnz res, +4: skip brk when the divisor != 0 */
-        arm64_emit_u32(c, 0xB5000040u | (uint32_t)(res & 0x1F));
+        /* cbnz res, skip: no trap when the divisor != 0 */
+        arm64_emit_u32(c, 0xB5000000u | ((uint32_t)skip << 5) | (uint32_t)(res & 0x1F));
+        if (c->sanitize_report) aarch64_emit_san_report_block(c, res, width, op);
         arm64_emit_u32(c, 0xD4200000u);  /* brk #0 */
         return;
     }
@@ -709,10 +732,12 @@ static void aarch64_emit_ovf_trap(ZeroCCCompiler *c, int res, int a, int b, int 
          * `width` is the operand width in bytes; the count bound is width*8.
          * cmp = subs XZR, Rn, #imm: Rn in bits 9:5, Rd=31 (0xF100001F base). */
         arm64_emit_u32(c, 0xF100001Fu | ((uint32_t)(res & 0x1F) << 5));  /* cmp res, #0 */
-        arm64_emit_u32(c, 0x5400004Au);                         /* b.ge +4: count >= 0, skip brk */
+        arm64_emit_u32(c, 0x54000000u | ((uint32_t)skip << 5) | 10u);   /* b.ge: count >= 0, skip */
+        if (c->sanitize_report) aarch64_emit_san_report_block(c, res, width, op);
         arm64_emit_u32(c, 0xD4200000u);                         /* brk #0 */
         arm64_emit_u32(c, 0xF100001Fu | ((uint32_t)(width * 8) << 10) | ((uint32_t)(res & 0x1F) << 5));  /* cmp res, #width*8 */
-        arm64_emit_u32(c, 0x5400004Bu);                         /* b.lt +4: count < width bits, skip brk */
+        arm64_emit_u32(c, 0x54000000u | ((uint32_t)skip << 5) | 11u);   /* b.lt: count < width bits, skip */
+        if (c->sanitize_report) aarch64_emit_san_report_block(c, res, width, op);
         arm64_emit_u32(c, 0xD4200000u);                         /* brk #0 */
         return;
     }
@@ -720,7 +745,8 @@ static void aarch64_emit_ovf_trap(ZeroCCCompiler *c, int res, int a, int b, int 
         /* sign-extension round-trip (result-only); a (dead) is the scratch. */
         arm64_emit_u32(c, 0x93407C00u | (uint32_t)(a & 0x1F) | ((uint32_t)(res & 0x1F) << 5));  /* sxtw a, wres */
         arm64_emit_u32(c, 0xEB00001Fu | ((uint32_t)(a & 0x1F) << 16) | ((uint32_t)(res & 0x1F) << 5)); /* cmp res, a */
-        arm64_emit_u32(c, 0x54000040u);  /* b.eq: skip brk when res fits in 32 bits */
+        arm64_emit_u32(c, 0x54000000u | ((uint32_t)skip << 5));  /* b.eq: skip when res fits in 32 bits */
+        if (c->sanitize_report) aarch64_emit_san_report_block(c, res, width, op);
         arm64_emit_u32(c, 0xD4200000u);  /* brk #0 */
         return;
     }
@@ -729,7 +755,8 @@ static void aarch64_emit_ovf_trap(ZeroCCCompiler *c, int res, int a, int b, int 
         arm64_emit_u32(c, 0x9B407C00u | ((uint32_t)(b & 0x1F) << 16) | ((uint32_t)(a & 0x1F) << 5) | (uint32_t)(a & 0x1F)); /* smulh a, a, b */
         arm64_emit_u32(c, 0x937FFC00u | ((uint32_t)(res & 0x1F) << 5) | (uint32_t)(b & 0x1F));                    /* asr b, res, #63 */
         arm64_emit_u32(c, 0xEB00001Fu | ((uint32_t)(b & 0x1F) << 16) | ((uint32_t)(a & 0x1F) << 5));               /* cmp a, b */
-        arm64_emit_u32(c, 0x54000040u);  /* b.eq: skip brk when high == signext(res) */
+        arm64_emit_u32(c, 0x54000000u | ((uint32_t)skip << 5));  /* b.eq: skip when high == signext(res) */
+        if (c->sanitize_report) aarch64_emit_san_report_block(c, res, width, op);
         arm64_emit_u32(c, 0xD4200000u);  /* brk #0 */
         return;
     }
@@ -745,9 +772,10 @@ static void aarch64_emit_ovf_trap(ZeroCCCompiler *c, int res, int a, int b, int 
     /* Detect the sign bit without a flag-branch (b.pl after `and` misfires in
      * the qemu TB context). asr sign-extends bit63 (-1 iff overflow), then cbz
      * branches on the register value (compare-based, like the compiler's other
-     * branches). cbz a,+2 skips the single brk. */
+     * branches). cbz a,skip skips the report block + brk when a==0. */
     arm64_emit_u32(c, 0x937FFC00u | ((uint32_t)(a & 0x1F) << 5) | (uint32_t)(a & 0x1F)); /* asr a, a, #63 */
-    arm64_emit_u32(c, 0xB4000040u | (uint32_t)(a & 0x1F));  /* cbz a, +2: skip brk when a==0 (no overflow) */
+    arm64_emit_u32(c, 0xB4000000u | ((uint32_t)skip << 5) | (uint32_t)(a & 0x1F));  /* cbz a, skip: no overflow */
+    if (c->sanitize_report) aarch64_emit_san_report_block(c, res, width, op);
     arm64_emit_u32(c, 0xD4200000u);  /* brk #0 */
 }
 

@@ -248,7 +248,7 @@ python3 tools/verify/sret_verifier.py --target-all
 # width-4 (sxtw/uxtw) case.
 # Cross-target output defaults to direct RAW binary object emission via
 # elf_writer (ELF64/ELF32), with ZC_TEXT_AOT=1 available as a text escape hatch.
-# All 4 target ISAs pass 59/59 cleanly under QEMU (see isa-backends.md).
+# All 4 target ISAs pass 63/63 cleanly under QEMU (see isa-backends.md).
 
 # Differential-test EVERY target ISA's RAW binary emitter under QEMU (make target below).
 make test-isa-qemu
@@ -295,7 +295,7 @@ A uniform musl-static reference is used across all 4 ISAs so the differential
 baseline is consistent. The harness lists exactly what is missing if absent and
 prints the `setup_musl_cross.sh` command to build each reference.
 
-**Current state** (raw emitters): **All 4 target ISAs (59/59 runs)** pass cleanly with 0 failures, 0 timeouts, and 0 mismatches: **x86-64 15/15**, **aarch64 15/15**, **riscv64 15/15**, and **riscv32 14/14** (15 tests in `test/isa_qemu/`; `15_nested_tramp.c` is `isa-skip: riscv32` because RISC-V32 rejects address-taking of capturing nested functions by design). For aarch64, stack frame setup, relocation pairing (`ADR_PREL_PG_HI21`/`ADD_ABS_LO12_NC`), byte/halfword stores, variable shifts, and FP instruction encodings are green. For riscv32, true ELF32 object generation, frame setup, shift/extension width fixups, and struct return registers are green. Run a single ISA with `python3 tools/verify/isa_qemu_diff.py --isa <arch>`.
+**Current state** (raw emitters): **All 4 target ISAs (63/63 runs)** pass cleanly with 0 failures, 0 timeouts, and 0 mismatches: **x86-64 16/16**, **aarch64 16/16**, **riscv64 16/16**, and **riscv32 15/15** (16 tests in `test/isa_qemu/`; `15_nested_tramp.c` is `isa-skip: riscv32` because RISC-V32 rejects address-taking of capturing nested functions by design). For aarch64, stack frame setup, relocation pairing (`ADR_PREL_PG_HI21`/`ADD_ABS_LO12_NC`), byte/halfword stores, variable shifts, and FP instruction encodings are green. For riscv32, true ELF32 object generation, frame setup, shift/extension width fixups, and struct return registers are green. Run a single ISA with `python3 tools/verify/isa_qemu_diff.py --isa <arch>`.
 
 ### Cross-ISA __int128 Differential Gate (`make test-isa128`)
 

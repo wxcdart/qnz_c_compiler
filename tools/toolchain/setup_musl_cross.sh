@@ -113,7 +113,13 @@ if [ "$ARCH" = "riscv32" ]; then
 /* rv32 libgcc shim for the static-musl cross reference.
  * The Debian riscv64 cross toolchain ships only an rv64 libgcc, so a static
  * musl rv32 build that uses printf is missing these libgcc helpers.
- *   - __udivdi3 / __umoddi3: correct software 64-bit div/mod.
+ *   - __udivdi3 / __umoddi3 / __divdi3 / __moddi3: correct software 64-bit
+ *     div/mod. musl's vfprintf references the unsigned pair with live
+ *     relocations and the signed pair with dormant symbol-table entries,
+ *     so all four are supplied here as the single provider: zero_rt's
+ *     rv32 int128.o deliberately does NOT define them (its definitions
+ *     would multiple-define against this shim whenever both members are
+ *     pulled into one link).
  *   - the __tf2 (long double / __float128) helpers: only ever *called* for
  *     long-double printf, which the isa_qemu battery never does. They abort
  *     loudly if reached (a full rv32 toolchain would supply real ones).
@@ -130,6 +136,20 @@ static uint64_t __udivmoddi3(uint64_t u, uint64_t v, int *rem) {
 }
 uint64_t __udivdi3(uint64_t u, uint64_t v) { return __udivmoddi3(u, v, 0); }
 uint64_t __umoddi3(uint64_t u, uint64_t v) { int r; (void)__udivmoddi3(u, v, &r); return (uint64_t)r; }
+int64_t __divdi3(int64_t a, int64_t b) {
+    int aneg = a < 0, bneg = b < 0;
+    uint64_t ua = aneg ? (uint64_t)-a : (uint64_t)a;
+    uint64_t ub = bneg ? (uint64_t)-b : (uint64_t)b;
+    uint64_t q = __udivmoddi3(ua, ub, 0);
+    return (aneg ^ bneg) ? -(int64_t)q : (int64_t)q;
+}
+int64_t __moddi3(int64_t a, int64_t b) {
+    int aneg = a < 0;
+    uint64_t ua = aneg ? (uint64_t)-a : (uint64_t)a;
+    uint64_t ub = (b < 0) ? (uint64_t)-b : (uint64_t)b;
+    int r; (void)__udivmoddi3(ua, ub, &r);
+    return aneg ? -(int64_t)(uint64_t)r : (int64_t)(uint64_t)r;
+}
 static void __trap(void) { __builtin_trap(); }
 long double __addtf3(long double a, long double b)  { (void)a;(void)b; __trap(); }
 long double __subtf3(long double a, long double b)  { (void)a;(void)b; __trap(); }

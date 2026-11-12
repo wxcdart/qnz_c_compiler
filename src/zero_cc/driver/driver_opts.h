@@ -36,6 +36,7 @@ typedef struct {
     int no_builtin_all;   /* -fno-builtin (all) */
     int profile_opts;     /* --profile-opts */
     int sanitize_overflow; /* -fsanitize=undefined */
+    int sanitize_report;   /* -fsanitize-trap: print a UBSan-style message before each trap */
     ZeroCCStdDialect std_dialect;   /* -std= dialect (default ZC_STD_GNU11) */
     int link_mode;        /* Link with system linker (default when -o specified) */
     int zerocc_link;      /* --zerocc-link: link with ZeroCC's own linker (T2) */
@@ -69,6 +70,8 @@ static void print_usage(const char *prog) {
     fprintf(stderr, "  -fstack-protector-all   Emit stack canaries for all functions\n");
     fprintf(stderr, "  -fstack-protector-strong Emit stack canaries for arrays, VLAs, or address-taken locals\n");
     fprintf(stderr, "  -fno-stack-protector    Disable stack canaries (default)\n");
+    fprintf(stderr, "  -fsanitize=undefined    zero_san: trap on signed overflow, div/rem by zero, bad shift count\n");
+    fprintf(stderr, "  -fsanitize-trap         zero_san: same checks + a UBSan-style message before the trap\n");
     fprintf(stderr, "  -I<dir>         Add include directory\n");
     fprintf(stderr, "  -isystem <dir>  Add system include directory\n");
     fprintf(stderr, "  -D<macro>       Define macro\n");
@@ -198,6 +201,15 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
         }
         else if (strcmp(arg, "-fsanitize=undefined") == 0) {
             opts->sanitize_overflow = 1;
+        }
+        else if (strcmp(arg, "-fsanitize-trap") == 0) {
+            /* GCC/Clang-compatible: enable the zero_san checks in trap mode
+             * with a UBSan-style report before the trap (Sprint 167). */
+            opts->sanitize_overflow = 1;
+            opts->sanitize_report = 1;
+        }
+        else if (strcmp(arg, "-fno-sanitize-trap") == 0) {
+            opts->sanitize_report = 0;
         }
         else if (strncmp(arg, "-fno-builtin-", 13) == 0 && arg[13]) {
             if (opts->no_builtin_count < 16) {

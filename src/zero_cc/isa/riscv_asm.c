@@ -1654,6 +1654,15 @@ static void riscv_emit_inline_asm_asm(ZeroCCCompiler *c, size_t idx, FILE *out) 
 /* zero_san (Sprint 163+): compare-based signed-overflow check + unimp (text).
  * Mirrors riscv64_emit_ovf_trap (raw); ISA-aware (RV32/RV64). Uses a self-
  * contained label; `a`/`b` (dead operands) are clobbered in place. */
+static void riscvasm_emit_san_report_block(ZeroCCCompiler *c, int res,
+                                           int width, int op, FILE *out) {
+    /* The value move comes first: `res` may be a0/a1, which the li's write. */
+    fprintf(out, "\tmv\ta2, %s\n", BE(c)->get_hw_reg_name(res));
+    fprintf(out, "\tli\ta0, %d\n", op);
+    fprintf(out, "\tli\ta1, %d\n", width);
+    fprintf(out, "\tcall\t__zerocsan_report\n");
+}
+
 static void riscv64_emit_ovf_trap_asm(ZeroCCCompiler *c, int res, int a, int b,
                                       int width, int op, FILE *out) {
     bool is64 = (c->isa == ISA_RISCV64);
@@ -1670,6 +1679,8 @@ static void riscv64_emit_ovf_trap_asm(ZeroCCCompiler *c, int res, int a, int b,
     if (op == ZC_OVF_OP_DIV_ZERO || op == ZC_OVF_OP_REM_ZERO) {
         /* bne res, zero, L; unimp  (trap if divisor == 0) */
         fprintf(out, "\tbne\t%s, zero, %s\n", rn, L);
+        if (c->sanitize_report)
+            riscvasm_emit_san_report_block(c, res, width, op, out);
         BE(c)->emit_trap_asm(c, out);
         BE(c)->emit_label_asm(c, L, out);
         return;
@@ -1682,9 +1693,13 @@ static void riscv64_emit_ovf_trap_asm(ZeroCCCompiler *c, int res, int a, int b,
         snprintf(L2, sizeof L2, ".Lovf_%u", (unsigned)lbl2);
         fprintf(out, "\tli\t%s, %d\n", BE(c)->get_hw_reg_name(RV64_T0), width * 8);
         fprintf(out, "\tbge\t%s, zero, %s\n", rn, L);   /* res >= 0: no trap */
+        if (c->sanitize_report)
+            riscvasm_emit_san_report_block(c, res, width, op, out);
         BE(c)->emit_trap_asm(c, out);                   /* unimp: res < 0 */
         BE(c)->emit_label_asm(c, L, out);               /* L: */
         fprintf(out, "\tblt\t%s, %s, %s\n", rn, BE(c)->get_hw_reg_name(RV64_T0), L2); /* res < W: no trap */
+        if (c->sanitize_report)
+            riscvasm_emit_san_report_block(c, res, width, op, out);
         BE(c)->emit_trap_asm(c, out);                   /* unimp: res >= W */
         BE(c)->emit_label_asm(c, L2, out);              /* L2: */
         return;
@@ -1694,6 +1709,8 @@ static void riscv64_emit_ovf_trap_asm(ZeroCCCompiler *c, int res, int a, int b,
         fprintf(out, "\tslli\t%s, %s, 32\n", an, rn);   /* a = res << 32 */
         fprintf(out, "\tsrai\t%s, %s, 32\n", an, an);   /* a = a >> 32 (arith) */
         fprintf(out, "\tbeq\t%s, %s, %s\n", rn, an, L); /* skip unimp if fits */
+        if (c->sanitize_report)
+            riscvasm_emit_san_report_block(c, res, width, op, out);
         BE(c)->emit_trap_asm(c, out);                   /* unimp */
         BE(c)->emit_label_asm(c, L, out);               /* L: */
         return;
@@ -1703,6 +1720,8 @@ static void riscv64_emit_ovf_trap_asm(ZeroCCCompiler *c, int res, int a, int b,
         fprintf(out, "\tmulh\t%s, %s, %s\n", an, an, bn);  /* a = high(a*b) */
         fprintf(out, "\tsrai\t%s, %s, %d\n", bn, rn, asr_sh); /* b = signext(res) */
         fprintf(out, "\tbeq\t%s, %s, %s\n", an, bn, L);   /* skip unimp if equal */
+        if (c->sanitize_report)
+            riscvasm_emit_san_report_block(c, res, width, op, out);
         BE(c)->emit_trap_asm(c, out);                   /* unimp */
         BE(c)->emit_label_asm(c, L, out);               /* L: */
         return;
@@ -1716,6 +1735,8 @@ static void riscv64_emit_ovf_trap_asm(ZeroCCCompiler *c, int res, int a, int b,
     }
     BE(c)->emit_and_asm(c, a, a, b, out);               /* and a, a, b */
     fprintf(out, "\tbge\t%s, zero, %s\n", an, L);        /* skip unimp if a >= 0 */
+    if (c->sanitize_report)
+        riscvasm_emit_san_report_block(c, res, width, op, out);
     BE(c)->emit_trap_asm(c, out);                       /* unimp */
     BE(c)->emit_label_asm(c, L, out);                   /* L: */
 }

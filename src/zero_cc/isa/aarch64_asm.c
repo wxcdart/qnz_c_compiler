@@ -787,6 +787,21 @@ static void aarch64_emit_jeq_asm(ZeroCCCompiler *, const char *label, FILE *out)
     fprintf(out, "\tb.eq\t%s\n", label);
 }
 
+/* zero_san -fsanitize-trap (Sprint 167): the report block on the aarch64
+ * trap path (text) - the checked value (in `res`), op and width go into
+ * x2/x0/x1, then `bl __zerocsan_report`. The caller emits the brk (and the
+ * skip label) after it: the label spans the block automatically, and the
+ * per-ISA trap signal is kept. The value move comes first: `res` may be
+ * x0/x1, which the immediate moves write. */
+static void aarch64asm_emit_san_report_block(ZeroCCCompiler *c, int res,
+                                             int width, int op, FILE *out) {
+    const char *rn = BE(c)->get_hw_reg_name(res);
+    fprintf(out, "\tmov\tx2, %s\n", rn);
+    fprintf(out, "\tmov\tx0, #%d\n", op);
+    fprintf(out, "\tmov\tx1, #%d\n", width);
+    fprintf(out, "\tbl\t__zerocsan_report\n");
+}
+
 /* zero_san (Sprint 163+): compare-based signed-overflow check + trap (text).
  * Mirrors aarch64_emit_ovf_trap (raw). Uses a self-contained label for the
  * branch; `a`/`b` (dead operands) are clobbered in place. */
@@ -801,6 +816,8 @@ static void aarch64_emit_ovf_trap_asm(ZeroCCCompiler *c, int res, int a, int b,
     if (op == ZC_OVF_OP_DIV_ZERO || op == ZC_OVF_OP_REM_ZERO) {
         /* cbnz res, L: skip brk when the divisor != 0 */
         fprintf(out, "\tcbnz\t%s, %s\n", BE(c)->get_hw_reg_name(res), L);
+        if (c->sanitize_report)
+            aarch64asm_emit_san_report_block(c, res, width, op, out);
         BE(c)->emit_trap_asm(c, out);
         BE(c)->emit_label_asm(c, L, out);
         return;
@@ -814,10 +831,14 @@ static void aarch64_emit_ovf_trap_asm(ZeroCCCompiler *c, int res, int a, int b,
         const char *rn = BE(c)->get_hw_reg_name(res);
         fprintf(out, "\tcmp\t%s, #0\n", rn);
         fprintf(out, "\tb.ge\t%s\n", L);              /* count >= 0: no trap */
+        if (c->sanitize_report)
+            aarch64asm_emit_san_report_block(c, res, width, op, out);
         BE(c)->emit_trap_asm(c, out);
         BE(c)->emit_label_asm(c, L, out);
         fprintf(out, "\tcmp\t%s, #%d\n", rn, width * 8);
         fprintf(out, "\tb.lt\t%s\n", L2);             /* count < width bits: no trap */
+        if (c->sanitize_report)
+            aarch64asm_emit_san_report_block(c, res, width, op, out);
         BE(c)->emit_trap_asm(c, out);
         BE(c)->emit_label_asm(c, L2, out);
         return;
@@ -826,6 +847,8 @@ static void aarch64_emit_ovf_trap_asm(ZeroCCCompiler *c, int res, int a, int b,
         BE(c)->emit_extend_asm(c, a, res, 4, 1, out);   /* sxtw a, wres */
         BE(c)->emit_cmp_asm(c, res, a, out);            /* cmp res, a */
         BE(c)->emit_jeq_asm(c, L, out);                 /* b.eq L: skip brk if fits */
+        if (c->sanitize_report)
+            aarch64asm_emit_san_report_block(c, res, width, op, out);
         BE(c)->emit_trap_asm(c, out);                   /* brk #0 */
         BE(c)->emit_label_asm(c, L, out);               /* L: */
         return;
@@ -836,8 +859,10 @@ static void aarch64_emit_ovf_trap_asm(ZeroCCCompiler *c, int res, int a, int b,
         fprintf(out, "\tasr\t%s, %s, #63\n", bn, rn);        /* b = signext(res) */
         BE(c)->emit_cmp_asm(c, a, b, out);            /* cmp a, b */
         BE(c)->emit_jeq_asm(c, L, out);              /* b.eq L: skip brk if equal */
+        if (c->sanitize_report)
+            aarch64asm_emit_san_report_block(c, res, width, op, out);
         BE(c)->emit_trap_asm(c, out);                /* brk #0 */
-        BE(c)->emit_label_asm(c, L, out);            /* L: */
+        BE(c)->emit_label_asm(c, L, out);             /* L: */
         return;
     }
     if (op == ZC_OVF_OP_SUB) {
@@ -853,6 +878,8 @@ static void aarch64_emit_ovf_trap_asm(ZeroCCCompiler *c, int res, int a, int b,
      * style). asr sign-extends bit63 (-1 iff overflow); cbz skips the brk. */
     fprintf(out, "\tasr\t%s, %s, #63\n", BE(c)->get_hw_reg_name(a), BE(c)->get_hw_reg_name(a));
     fprintf(out, "\tcbz\t%s, %s\n", BE(c)->get_hw_reg_name(a), L);
+    if (c->sanitize_report)
+        aarch64asm_emit_san_report_block(c, res, width, op, out);
     BE(c)->emit_trap_asm(c, out);                    /* brk #0 */
     BE(c)->emit_label_asm(c, L, out);                /* L: */
 }

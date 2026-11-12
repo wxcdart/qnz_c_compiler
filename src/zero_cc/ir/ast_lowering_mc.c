@@ -73,6 +73,55 @@ void zc_mc_record_or_patch_label(ZeroCCCompiler *c, size_t patch_pos, uint16_t l
     }
 }
 
+/* zero_san -fsanitize-trap (Sprint 167): the report block emitted on the
+ * trap path of an x86-64 OP_OVF_TRAP site - the checked value (in `phys`),
+ * the op code and the check width go into the ABI arg registers (rdi/rsi/
+ * rdx), then `call __zerocsan_report`; the bare ud2 after the call keeps
+ * the per-ISA trap signal. The block sits PAST the skip branch, so the fast
+ * path is byte-identical to the no-report codegen. `phys` is never clobbered
+ * by the check (OF flag / sign-extension round-trip read it), and the value
+ * move comes first because `phys` may be rdi/rsi/rdx itself, which the
+ * immediate moves below write. */
+static void x86mc_emit_san_report_block(ZeroCCCompiler *c, int phys, int width, int op) {
+    if (phys != 2) {  /* rdx */
+        uint8_t rex = 0x48 | ((phys >= 8) ? 0x01 : 0);
+        me_emit_u8(c, rex);
+        me_emit_u8(c, 0x89);
+        /* mov rdx, phys: 0x89 is `mov r/m, reg` - REG=source (phys),
+         * R/M=destination (rdx=2). REX.R extends the reg field. */
+        me_emit_u8(c, 0xC0 | ((phys & 7) << 3) | 2);
+    }
+    /* `mov edi, imm32` (BF) / `mov esi, imm32` (BE) WITHOUT a REX prefix:
+     * in 64-bit mode the REX.W form is a 10-byte `movabs imm64`, while the
+     * 32-bit form writes the low dword and zero-extends the whole
+     * register (exactly what the report's %u/%d reads need - a byte move
+     * like `mov dil,ib` would leave bits 8-31 stale). */
+    me_emit_u8(c, 0xBF);                                /* mov edi, imm32 */
+    me_emit_u32(c, (uint32_t)(int32_t)op);
+    me_emit_u8(c, 0xBE);                                /* mov esi, imm32 */
+    me_emit_u32(c, (uint32_t)(int32_t)width);
+    BE(c)->emit_call(c, "__zerocsan_report");
+}
+
+/* jcc rel8 (placeholder) + optional report block + ud2, then backpatch the
+ * rel8 displacement to span the whole block (rel8 range check included -
+ * the block is ~25-31 bytes, well inside). */
+static void x86mc_emit_san_check_branch(ZeroCCCompiler *c, uint8_t jcc,
+                                        int phys, int width, int op) {
+    me_emit_u8(c, jcc);
+    size_t dp = me_get_offset(c);
+    me_emit_u8(c, 0x02);  /* displacement placeholder (trap-only size) */
+    if (c->sanitize_report) x86mc_emit_san_report_block(c, phys, width, op);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x0B);  /* ud2 */
+    int32_t d = (int32_t)(me_get_offset(c) - (dp + 1));
+    if (d < -128 || d > 127) {
+        fprintf(stderr, "zerocc: internal: zero_san report block exceeds rel8 range\n");
+        abort();
+    }
+    c->text_section.data[dp] = (uint8_t)(int8_t)d;
+}
+
 /* Emit machine code from IR with allocated registers */
 void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
     const Instr *instrs = ir_get_buffer(c);
@@ -509,35 +558,24 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                         me_emit_u8(c, rex);
                         me_emit_u8(c, 0x85);
                         me_emit_u8(c, 0xC0 | ((phys & 7) << 3) | (phys & 7));
-                        /* jnz rel8,+2 : skip ud2 when divisor != 0 */
-                        me_emit_u8(c, 0x75);
-                        me_emit_u8(c, 0x02);
-                        me_emit_u8(c, 0x0F);
-                        me_emit_u8(c, 0x0B);  /* ud2: divisor == 0 */
+                        /* jnz: skip the trap when divisor != 0 */
+                        x86mc_emit_san_check_branch(c, 0x75, phys, width, op);
                         break;
                     } else { /* ZC_OVF_OP_SHIFT_COUNT */
                         /* Two skip-triplets (count bound = operand bits, width*8):
-                         * cmp $0,%phys; jge +2; ud2      (count < 0 -> trap)
-                         * cmp $W,%phys; jl  +2; ud2      (count >= W -> trap) */
-                        /* cmp $0,%phys  (REX + 0x83 /7 ib, mod=11, reg=7=CMP, r/m=phys;
-                         * 0x83 = imm8 form - 0x81 would consume 4 immediate bytes) */
+                         * cmp $0,%phys; jge <trap>     (count < 0 -> trap)
+                         * cmp $W,%phys; jl  <trap>     (count >= W -> trap)
+                         * (0x83 = imm8 form - 0x81 would consume 4 immediate bytes) */
                         me_emit_u8(c, rex);
                         me_emit_u8(c, 0x83);
                         me_emit_u8(c, 0xC0 | (7 << 3) | (phys & 7));
                         me_emit_u8(c, 0x00);
-                        me_emit_u8(c, 0x7D);  /* jge rel8,+2 : count >= 0, skip ud2 */
-                        me_emit_u8(c, 0x02);
-                        me_emit_u8(c, 0x0F);
-                        me_emit_u8(c, 0x0B);  /* ud2: count < 0 */
-                        /* cmp $width*8,%phys (imm8 form: 32/64 fit) */
+                        x86mc_emit_san_check_branch(c, 0x7D, phys, width, op);  /* jge: count >= 0 */
                         me_emit_u8(c, rex);
                         me_emit_u8(c, 0x83);
                         me_emit_u8(c, 0xC0 | (7 << 3) | (phys & 7));
                         me_emit_u8(c, (uint8_t)(width * 8));
-                        me_emit_u8(c, 0x7C);  /* jl rel8,+2 : count < width bits, skip ud2 */
-                        me_emit_u8(c, 0x02);
-                        me_emit_u8(c, 0x0F);
-                        me_emit_u8(c, 0x0B);  /* ud2: count >= width bits */
+                        x86mc_emit_san_check_branch(c, 0x7C, phys, width, op);  /* jl: count < bits */
                         break;
                     }
                 }
@@ -550,17 +588,15 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 uint8_t rex_cmp  = 0x48 | ((scratch >= 8) ? 0x04 : 0) | ((phys  >= 8) ? 0x01 : 0);
 
                 if (width >= 8) {
-                    /* 64-bit: jno rel8,+2 skips ud2 when no overflow (OF=0).
-                     * Overflow (OF=1) falls through to ud2 → SIGILL. */
-                    me_emit_u8(c, 0x71);  /* jno rel8 */
-                    me_emit_u8(c, 0x02);  /* +2: skip ud2 */
-                    me_emit_u8(c, 0x0F);
-                    me_emit_u8(c, 0x0B);  /* ud2 */
+                    /* 64-bit: jno skips the trap when no overflow (OF=0).
+                     * Overflow (OF=1) falls through to the report block
+                     * (when -fsanitize-trap) + ud2. */
+                    x86mc_emit_san_check_branch(c, 0x71, phys, width, op);
                 } else {
                     /* Narrow: sign-extension round-trip check.
                      * scratch = (phys << (64-N)) >> (64-N) [arithmetic].
-                     * If scratch == phys, value fits in N bits → skip trap.
-                     * Otherwise → overflow → trap. */
+                     * If scratch == phys, value fits in N bits -> skip trap.
+                     * Otherwise -> overflow -> trap. */
                     int shift = 64 - width * 8;
                     /* movq %phys, %scratch  (REX + 0x89 /r, mod=11, reg=phys, r/m=scratch) */
                     me_emit_u8(c, rex_mov);
@@ -585,11 +621,8 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                     me_emit_u8(c, 0x39);
                     me_emit_u8(c, 0xC0 | ((scratch & 7) << 3) | (phys & 7));
 
-                    /* je rel8,+2 : if equal (fits), skip ud2 */
-                    me_emit_u8(c, 0x74);  /* je rel8 */
-                    me_emit_u8(c, 0x02);  /* +2: skip ud2 */
-                    me_emit_u8(c, 0x0F);
-                    me_emit_u8(c, 0x0B);  /* ud2 */
+                    /* je: if equal (fits), skip the report block + ud2 */
+                    x86mc_emit_san_check_branch(c, 0x74, phys, width, op);
                 }
                 break;
             }

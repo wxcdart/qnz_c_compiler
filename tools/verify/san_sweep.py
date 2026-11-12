@@ -13,6 +13,13 @@ from the file-name contract:
                   -O level - guards the pass interaction: LICM/DCE/CSE must
                   not hoist, drop, or orphan the check).
 
+Sprint 167: every san_trap_* file is ALSO run with -fsanitize-trap in both
+modes at every level and must trap with the same signal AND print the
+UBSan-style "zerocc: runtime error:" diagnostic on stderr before dying;
+every san_ok_* file must stay trap-free under -fsanitize-trap (no false
+report). The cross-ISA raw-AOT trap battery additionally verifies the
+message arrives under qemu for aarch64/riscv64/riscv32.
+
 Cross-ISA smoke: san_ok_no_overflow.c is compiled with the flag for
 aarch64/riscv64/riscv32 (raw-AOT default object path) and run under
 qemu-*-static; it must exit 0 - guards the invariant that no x86 check bytes
@@ -57,6 +64,9 @@ CROSS_TRAP_RC = {"aarch64": 133, "riscv64": 132, "riscv32": 132}
 # ISAs whose 64-bit (width-8) check is implemented (riscv32 64-bit is a
 # (lo,hi) GPR pair -> documented false-negative, so the wide test is skipped).
 CROSS_WIDE_ISAS = ["aarch64", "riscv64"]
+# -fsanitize-trap (Sprint 167): the report the trap path prints before the
+# bare trap. Absent from the no-report (-fsanitize=undefined) runs.
+REPORT_PREFIX = "zerocc: runtime error:"
 
 
 # Text-AOT (-S) path link recipes (Sprint 165): zerocc -S, cross-assemble, static
@@ -90,10 +100,10 @@ def rv32_prefix():
     return None
 
 
-def build_cross(zerocc, isa, level, src, out, path):
-    """Compile src for `isa` with -fsanitize=undefined via the raw AOT path or
+def build_cross(zerocc, isa, level, src, out, path, flag="-fsanitize=undefined"):
+    """Compile src for `isa` with the zero_san flag via the raw AOT path or
     the text (-S + cross-assemble + static link) path. Returns (rc, err)."""
-    flags = ["--target", isa, f"-O{level}", "-fsanitize=undefined"]
+    flags = ["--target", isa, f"-O{level}", flag]
     if path == "raw":
         rc, _, err = run([zerocc] + flags + [src, "-o", out])
         return rc, err
@@ -145,10 +155,15 @@ def is_sigill(rc, expected):
     return rc == SIGILL_RC or rc == -4
 
 
+def is_trap(rc, expected):
+    # signal death in either subprocess (-sig) or shell (128+sig) form
+    return rc == expected or rc == -(expected - 128)
+
+
 def run_jit(zerocc, src, level, flag, timeout=30):
     cmd = [zerocc, "--run", f"-O{level}"]
     if flag:
-        cmd.append("-fsanitize=undefined")
+        cmd.append(flag)
     cmd.append(src)
     return run(cmd, timeout)
 
@@ -157,7 +172,7 @@ def run_aot(zerocc, src, level, flag, tmpdir, timeout=60):
     out = os.path.join(tmpdir, "aot_bin")
     cmd = [zerocc, f"-O{level}"]
     if flag:
-        cmd.append("-fsanitize=undefined")
+        cmd.append(flag)
     cmd += [src, "-o", out]
     rc, _, err = run(cmd, timeout)
     if rc != 0:
@@ -193,8 +208,8 @@ def main():
             results.append({"test": name, "status": "skip", "detail": "bad name"})
             continue
         for level in LEVELS:
-            for mode, runner in (("jit", lambda l: run_jit(args.zerocc, src, l, True)),
-                                 ("aot", lambda l: run_aot(args.zerocc, src, l, True, tmpdir))):
+            for mode, runner in (("jit", lambda l: run_jit(args.zerocc, src, l, "-fsanitize=undefined")),
+                                 ("aot", lambda l: run_aot(args.zerocc, src, l, "-fsanitize=undefined", tmpdir))):
                 rc, out, err = runner(level)
                 ok = is_sigill(rc, exp)
                 if not ok:
@@ -203,10 +218,25 @@ def main():
                                 "flag": True, "rc": rc, "expect": exp,
                                 "status": "ok" if ok else "FAIL",
                                 "detail": err.strip()[:200]})
+            # Sprint 167: -fsanitize-trap must trap the SAME way AND print
+            # the UBSan-style diagnostic on stderr first.
+            for mode, runner in (("jit", lambda l: run_jit(args.zerocc, src, l, "-fsanitize-trap")),
+                                 ("aot", lambda l: run_aot(args.zerocc, src, l, "-fsanitize-trap", tmpdir))):
+                rc, out, err = runner(level)
+                if exp == 0:
+                    ok = rc == 0 and REPORT_PREFIX not in err
+                else:
+                    ok = is_trap(rc, exp) and REPORT_PREFIX in err
+                if not ok:
+                    fails += 1
+                results.append({"test": name, "level": level, "mode": mode,
+                                "flag": "-fsanitize-trap", "rc": rc, "expect": exp,
+                                "status": "ok" if ok else "FAIL",
+                                "detail": (err.strip() or "<no report message>")[:200]})
         # ok tests: the flag must be behavior-preserving on defined code
         if exp == 0:
-            for mode, runner in (("jit", lambda l: run_jit(args.zerocc, src, 0, False)),
-                                 ("aot", lambda l: run_aot(args.zerocc, src, 0, False, tmpdir))):
+            for mode, runner in (("jit", lambda l: run_jit(args.zerocc, src, 0, None)),
+                                 ("aot", lambda l: run_aot(args.zerocc, src, 0, None, tmpdir))):
                 rc, out, err = runner(0)
                 ok = rc == 0
                 if not ok:
@@ -283,6 +313,39 @@ def main():
                                     "status": "ok" if ok else "FAIL",
                                     "detail": err.strip()[:200]})
 
+    # Cross-ISA -fsanitize-trap report (Sprint 167): the diagnostic must
+    # reach stderr under qemu on every ISA (raw-AOT path, -O1) before the
+    # per-ISA trap signal kills the process.
+    cross_report = ["san_trap_cross_int.c", "san_trap_cross_divzero.c"]
+    if not args.no_cross:
+        for tname in cross_report:
+            tsrc = os.path.join(SAN_DIR, tname)
+            if not os.path.isfile(tsrc):
+                continue
+            for isa in CROSS_ISAS:
+                qemu = CROSS_QEMU[isa]
+                if shutil.which(qemu) is None:
+                    results.append({"test": tname, "isa": isa, "status": "skip"})
+                    continue
+                out = os.path.join(tmpdir, f"xreport_{isa}")
+                rc, err = build_cross(args.zerocc, isa, 1, tsrc, out, "raw",
+                                      flag="-fsanitize-trap")
+                if rc != 0:
+                    fails += 1
+                    results.append({"test": tname, "isa": isa, "path": "raw",
+                                    "flag": "-fsanitize-trap", "status": "FAIL",
+                                    "detail": f"compile rc={rc}: {err.strip()[:200]}"})
+                    continue
+                rc, _, err = run([qemu, out])
+                ok = is_trap(rc, CROSS_TRAP_RC[isa]) and REPORT_PREFIX in err
+                if not ok:
+                    fails += 1
+                results.append({"test": tname, "isa": isa, "path": "raw",
+                                "flag": "-fsanitize-trap", "rc": rc,
+                                "expect": CROSS_TRAP_RC[isa],
+                                "status": "ok" if ok else "FAIL",
+                                "detail": (err.strip() or "<no report message>")[:200]})
+
     shutil.rmtree(tmpdir, ignore_errors=True)
 
     if args.json:
@@ -294,7 +357,7 @@ def main():
         n_ok = sum(1 for r in results if r["status"] == "ok")
         print(f"san sweep: {n_ok} ok, {fails} FAIL "
               f"({len([r for r in results if 'isa' in r and r.get('status') == 'ok'])} cross), "
-              f"{len([r for r in results if r.get('flag') is True])} flagged runs")
+              f"{len([r for r in results if r.get('flag')])} flagged runs")
 
     return 1 if fails else 0
 

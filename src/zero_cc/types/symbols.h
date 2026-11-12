@@ -309,6 +309,7 @@ typedef struct ZeroCCCompiler {
     int no_builtin_count;         /* -fno-builtin-<name> entries */
     char no_builtin_names[16][32];
     int sanitize_overflow;        /* -fsanitize=undefined: emit OP_OVF_TRAP after signed add/sub/mul */
+    int sanitize_report;          /* -fsanitize-trap: report (UBSan-style) before each zero_san trap */
     int stack_protector;          /* -fstack-protector[-all|-strong]: 0=off, 1=basic, 2=all, 3=strong */
 
     /* IR arena - dynamic instruction buffer */

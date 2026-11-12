@@ -170,6 +170,20 @@ static uint64_t zc_udivmod64(uint64_t u, uint64_t v, uint64_t *rem) {
     return q;
 }
 
+/* 64-bit div/mod wrappers under the standard libgcc symbol names.
+ *
+ * On RISC-V 32 these are provided by the rv32 libgcc SHIM instead
+ * (third_party/vendor/musl-cross/riscv32/lib/libgcc.a, built by
+ * tools/setup_musl_cross.sh): musl's vfprintf references __udivdi3 with a
+ * live relocation and __divdi3 with a dormant one, so if this member were
+ * pulled in (for the zc_*128 helpers, or the dormant reference itself)
+ * its __udivdi3/__umoddi3 definitions would multiple-define against the
+ * shim's. The shim is always on the rv32 system link line, so it is the
+ * single provider there; ZeroCC's own codegen never calls these names
+ * (rv32 i64 division is not lowered - see sanitizer-roadmap.md §4d).
+ * On 64-bit targets the definitions stay (harmless: 64-bit div/mod is
+ * native and nothing references the libgcc names). */
+#if !(defined(__riscv_xlen) && __riscv_xlen == 32)
 uint64_t __udivdi3(uint64_t u, uint64_t v) {
     return zc_udivmod64(u, v, 0);
 }
@@ -196,4 +210,5 @@ int64_t __moddi3(int64_t a, int64_t b) {
     zc_udivmod64(ua, ub, &r);
     return aneg ? -(int64_t)r : (int64_t)r;
 }
+#endif /* !(riscv xlen 32) */
 

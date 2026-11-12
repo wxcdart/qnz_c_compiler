@@ -19,6 +19,29 @@ static inline int asm_get_phys_reg(RegAllocator *ra, int temp) {
     return regalloc_get_reg_for_temp(ra, temp);
 }
 
+/* zero_san -fsanitize-trap (Sprint 167): the report block on the x86-64
+ * trap path - the checked value (in `reg`), the op code and the check
+ * width go into the ABI arg registers (%rdi/%rsi/%rdx), then
+ * `call __zerocsan_report`. The caller emits the ud2 (and the skip label)
+ * after it: the label spans the block automatically, and the per-ISA trap
+ * signal is kept. The value move comes first: `reg` may be %rdi/%rsi/%rdx
+ * itself, which the immediate moves below write. The block sits past the
+ * skip branch, so the fast path is byte-identical to the no-report
+ * codegen. */
+static void x86asm_emit_san_report_block(ZeroCCCompiler *c, const char *reg,
+                                         int width, int op, FILE *out) {
+    (void)c;
+    if (strcmp(reg, "rdx") != 0) {
+        fprintf(out, "\tmovq\t%%%s,%%rdx\n", reg);
+    }
+    /* 32-bit immediate moves zero-extend into the 64-bit register - a
+     * byte move (`mov $n,%dil`) would leave bits 8-31 stale and the
+     * report's %u/%d reads would see garbage. */
+    fprintf(out, "\tmov\t$%d,%%edi\n", op);
+    fprintf(out, "\tmov\t$%d,%%esi\n", width);
+    fprintf(out, "\tcall\t__zerocsan_report\n");
+}
+
 /* Emit function label (.globl and func:) */
 void emit_function_label_asm(ZeroCCCompiler *c) {
     FILE *out = c->asm_out ? c->asm_out : stdout;
@@ -268,23 +291,29 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
                     /* test %reg,%reg; jnz .Lskip  (trap if divisor == 0) */
                     fprintf(out, "\ttest\t%%%s,%%%s\n", reg, reg);
                     fprintf(out, "\tjnz\t%s\n", lbl);
+                    if (c->sanitize_report)
+                        x86asm_emit_san_report_block(c, reg, width, op, out);
                     fprintf(out, "\tud2\n");            /* trap: divisor == 0 */
                     fprintf(out, "%s:\n", lbl);
                     return;
                 } else { /* ZC_OVF_OP_SHIFT_COUNT */
                     /* Two independent skip-triplets (count bound is the
                      * operand bit width: width*8):
-                     *   cmp $0;  jge .L1; ud2; .L1:    (count < 0 -> trap)
-                     *   cmp $W;  jl  .L2; ud2; .L2:    (count >= W -> trap) */
+                     *   cmp $0;  jge .L1; <report> ud2; .L1:    (count < 0 -> trap)
+                     *   cmp $W;  jl  .L2; <report> ud2; .L2:    (count >= W -> trap) */
                     uint16_t lbl2 = c->ir_next_label++;
                     char lbl2s[32];
                     snprintf(lbl2s, sizeof(lbl2s), ".Lovf_%u", (unsigned)lbl2);
                     fprintf(out, "\tcmp\t$0,%%%s\n", reg);
                     fprintf(out, "\tjge\t%s\n", lbl);
+                    if (c->sanitize_report)
+                        x86asm_emit_san_report_block(c, reg, width, op, out);
                     fprintf(out, "\tud2\n");            /* trap: count < 0 */
                     fprintf(out, "%s:\n", lbl);
                     fprintf(out, "\tcmp\t$%d,%%%s\n", width * 8, reg);
                     fprintf(out, "\tjl\t%s\n", lbl2s);
+                    if (c->sanitize_report)
+                        x86asm_emit_san_report_block(c, reg, width, op, out);
                     fprintf(out, "\tud2\n");            /* trap: count >= bits */
                     fprintf(out, "%s:\n", lbl2s);
                 }
@@ -292,9 +321,12 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             }
 
             if (width >= 8) {
-                /* 64-bit: jno skips ud2 when no overflow (OF=0).
-                 * Overflow (OF=1) falls through to ud2 -> SIGILL. */
+                /* 64-bit: jno skips the trap when no overflow (OF=0).
+                 * Overflow (OF=1) falls through to the report block
+                 * (when -fsanitize-trap) + ud2 -> SIGILL. */
                 fprintf(out, "\tjno\t%s\n", lbl);
+                if (c->sanitize_report)
+                    x86asm_emit_san_report_block(c, reg, width, op, out);
                 fprintf(out, "\tud2\n");
                 fprintf(out, "%s:\n", lbl);
             } else {
@@ -308,6 +340,8 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
                 fprintf(out, "\tsar\t$%d,%%%s\n", shift, scratch_name);
                 fprintf(out, "\tcmp\t%%%s,%%%s\n", scratch_name, reg);
                 fprintf(out, "\tje\t%s\n", lbl);   /* equal (fits): skip trap */
+                if (c->sanitize_report)
+                    x86asm_emit_san_report_block(c, reg, width, op, out);
                 fprintf(out, "\tud2\n");            /* trap on overflow */
                 fprintf(out, "%s:\n", lbl);
             }

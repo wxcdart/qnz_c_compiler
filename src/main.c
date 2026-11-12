@@ -270,6 +270,7 @@ static ZeroCCCompiler *jit_compile_tu(CompileOptions *opts, const char *input, i
                  "%s", opts->no_builtin[nb]);
     }
     comp->sanitize_overflow = opts->sanitize_overflow != 0;
+    comp->sanitize_report = opts->sanitize_report != 0;
     comp->stack_protector = opts->stack_protector;
     comp->std_dialect = opts->std_dialect;
 
@@ -524,6 +525,7 @@ static int compile_object_single(CompileOptions *opts, const char *input,
                  "%s", opts->no_builtin[nb]);
     }
     comp->sanitize_overflow = opts->sanitize_overflow != 0;
+    comp->sanitize_report = opts->sanitize_report != 0;
     comp->stack_protector = opts->stack_protector;
     comp->std_dialect = opts->std_dialect;
 
@@ -1641,15 +1643,23 @@ static int compile_and_link(CompileOptions *opts) {
             for (int i = 0; i < obj_count; i++) unlink(obj_paths[i]);
             return 1;
         }
+        /* zero_rt_riscv32.a as a fallback archive after libc (parity with
+         * the other ISAs' system link): supplies zero_rt-only symbols
+         * (threads, __int128 math, zero_san __zerocsan_report, ...).  It
+         * never shadows musl (listed after libc.a). */
+        char rt_arg[2100] = "";
+        if (!opts->no_zerocc_rt && rt_path[0] && access(rt_path, R_OK) == 0) {
+            snprintf(rt_arg, sizeof(rt_arg), " %s", rt_path);
+        }
         snprintf(cmd, sizeof(cmd),
                  "riscv64-linux-gnu-gcc -march=rv32gc -mabi=ilp32 -static -no-pie -Wl,-m,elf32lriscv -nostdlib "
                  "%s/lib/crt1.o %s/lib/crti.o "
                  "%s "
-                 "%s/lib/libc.a %s/lib/libgcc.a %s/lib/crtn.o "
+                 "%s/lib/libc.a %s/lib/libgcc.a%s %s/lib/crtn.o "
                  "-o %s%s 2>&1",
                  musl_prefix, musl_prefix,
                  all_objs,
-                 musl_prefix, musl_prefix, musl_prefix,
+                 musl_prefix, musl_prefix, rt_arg, musl_prefix,
                  output, lib_args);
     } else {
         char rt_arg[2100] = "";

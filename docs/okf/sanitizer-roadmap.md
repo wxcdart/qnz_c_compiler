@@ -4,7 +4,7 @@ title: Target-Side Sanitizer (zero_san) Design & Roadmap
 description: Analysis and phased roadmap for an optional, parked target-side safety-check feature (zero_san) — a codegen-first UBSan-lite signed-overflow check, with bounds, leaks, and ASan/LSan scoped out and justified.
 resource: sanitizer/roadmap
 tags: [sanitizer, zero_san, codegen, ubsan, overflow, bounds, asan, lsan, leak, roadmap, design, safety]
-timestamp: 2026-11-12T06:47:04Z
+timestamp: 2026-11-12T13:59:02Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -12,7 +12,7 @@ status: active
 
 # Target-Side Sanitizer (`zero_san`) — Design & Roadmap
 
-> **Status: Phase 1 IMPLEMENTED (Sprint 116, x86-64, both emitters, `-fsanitize=undefined`); cross-ISA extension (aarch64 / riscv64 / riscv32 width-4) SHIPPED in Sprint 163, §4c; div-by-zero / rem-by-zero / shift-count checks (all 4 ISAs) SHIPPED in Sprint 166 follow-on, §4e.**
+> **Status: Phase 1 IMPLEMENTED (Sprint 116, x86-64, both emitters, `-fsanitize=undefined`); cross-ISA extension (aarch64 / riscv64 / riscv32 width-4) SHIPPED in Sprint 163, §4c; div-by-zero / rem-by-zero / shift-count checks (all 4 ISAs) SHIPPED in Sprint 166 follow-on, §4e; `-fsanitize-trap` runtime diagnostics SHIPPED in Sprint 167, §4f.**
 > Sections below preserve the traced invariants and cost analysis; **§4-as-built** records the
 > shipped mechanism and the traps found while landing it. Phases 2–3 (bounds, leaks) remain
 > parked; ASan/LSan remain out of scope per §8.
@@ -245,15 +245,105 @@ it must sit immediately before its guarded DIV/MOD/SHL/SHR/SAR and check that op
 `[ovf=5]` count tag may be a signed int *narrower* than the check width (int count on a long
 shift). `[ovf=0/1/2]` keep the original post-ALU rule.
 
-**Not yet started (roadmap items, unchanged):** `-fsanitize-trap` diagnostics (op-level site
-reporting when a trap fires — needs the runtime shim §4-as-built deliberately avoided) and the
-Phase 3 at-exit leak report in `zero_rt/heap.c` (§4.3).
+**Not yet started (roadmap items, unchanged):** the Phase 3 at-exit leak report in
+`zero_rt/heap.c` (§4.3). (`-fsanitize-trap` diagnostics landed in the Sprint 167 follow-on —
+§4f.)
 
 ZeroCC today has **host-side** sanitizers only — `make asan` builds the *compiler* with
 `-fsanitize=address,undefined`, which finds bugs in ZeroCC's own C, not in compiled programs.
 It has **no target-side** instrumentation: `zerocc -fsanitize=address prog.c` is tolerated and
 ignored, and the output contains no `__asan` symbols. This page plans the (optional)
 target-side feature.
+
+### 4f. Sprint 167 — `-fsanitize-trap` runtime diagnostics (op + width + value report)
+
+§4-as-built's open decision 4 ("no diagnostic at all in v1; a reporting hook would need the
+runtime shim this design deliberately avoided") is now resolved **in the minimal-shim form**:
+with `-fsanitize-trap` (which also implies the `-fsanitize=undefined` checks), every trap site
+calls a small runtime reporter **before** the bare trap, so the user sees what fired:
+
+```
+zerocc: runtime error: signed integer overflow: 3000000000 cannot be represented in an 'int'
+zerocc: runtime error: division by zero
+zerocc: runtime error: negative shift exponent: -1
+zerocc: runtime error: shift exponent 33 is too large for 32-bit type 'int'
+```
+
+followed by the per-ISA trap signal (SIGILL/`ud2`, SIGTRAP/`brk #0`) as the process death —
+**GCC/Clang `-fsanitize-trap` semantics: report first, trap second.**
+
+**The shim.** `__zerocsan_report(unsigned op, unsigned width, long value)` — op is the same
+`ZC_OVF_OP_*` code that already rides `OP_OVF_TRAP.imm` (kept in sync by comment, 0..5);
+`value` is the raw checked register (the overflow result; the count for shifts — contracted to
+the check width when printed; the zero divisor for div/rem is passed but not printed, UBSan
+parity). Site info is op-level only (no DWARF — decision 4 stands on the *file:line* axis; the
+op+width+value report is the v1 scope).
+
+**Runtime follows link mode (the §2 table, finally exercised):**
+- **JIT `--run`:** the driver links a host-compiled copy
+  (`zero_rt/jit/san_report_host.c` → `jit_san_report.o`, the `JIT_INT128_OBJ` pattern) and the
+  JIT's abs-call relocation resolves it via `zero_cc_resolve_symbol`/`dlsym` at load.
+- **AOT `-o` / `--zerocc-link`:** `san.o` is a member of all four `zero_rt_<isa>.a` fallback
+  archives (already on the system/cross link line) — pulled in only when the report call is
+  present, so flag-OFF builds are byte-identical in content.
+
+**Stdio-free emission (the load-bearing constraint).** The reporter formats into a local
+buffer and writes raw to fd 2 — **zero_rt's own `stdio.o` must never be pulled into
+host-linked builds**: it defines `stdout`/`stderr`/`stdin` as data objects, and on
+whole-archive-musl cross links (and any libc that materializes them) a pulled-in `stdio.o`
+multiple-defines against the system libc (observed: the first implementation used
+`fprintf`/`stderr` and every cross-ISA link failed). Hence:
+- zero_rt-side copy (`zero_rt/core/san_report.c`) emits via `zeroc_rt_write(2, ...)` (the only
+  member pulled in is `os.o`, all `zeroc_rt_*`-prefixed, no libc collisions);
+- the host-side copy (`zero_rt/jit/san_report_host.c`) uses the host libc `write(2)`;
+- both share the formatters via `zero_rt/core/san_fmt.h` (static inline; messages byte-identical).
+
+**Trap-site emission (all 4 ISAs × MC + text).** The report block sits **past the skip
+branch** and immediately before the bare trap, so the fast path is byte-identical to the
+no-report codegen: `…skip-branch; [mov value→arg; op/width→args; call __zerocsan_report];
+<trap>`. The value move comes first (the checked register may *be* an ABI arg register, which
+the op/width moves write). Raw-MC skip branches get their target patched to span block+trap
+(x86 `rel8` backpatch with a range check; aarch64 `imm19` 2→6; riscv `imm13` 8→24). The text
+paths get it for free (labels span the block).
+
+**Frameless-function fix (found by the first test run).** A frameless/red-zone function with a
+report call violates the call ABI: at the call site RSP is entry-RSP (8 mod 16), so
+`call`-ing into a glibc function that stores 16-aligned (`movaps` against `rbp-0x80`)
+**segfaults** — and the callee would clobber the red-zone locals. Fix in `ast_lowering.c`:
+the leaf scan now treats `OP_OVF_TRAP && c->sanitize_report` as a call (`is_leaf = false`),
+which disables frameless/red-zone emission and gives the function a real (possibly 8-byte)
+frame with 16-byte call alignment on every ISA. The no-report flag and flag-OFF builds are
+untouched (the report call is an emitter-level artifact the IR scan couldn't see).
+
+**Bugs caught while landing (all pinned by the sweep):** (1) x86 value-move ModRM had
+reg/rm swapped (`mov rdi,rdx` instead of `mov rdx,rdi` — the count register read garbage);
+(2) x86 `REX.W + B8/rd` is a 10-byte `movabs imm64`, not a 32-bit move — the no-REX
+`BF/BE imm32` forms are the zero-extending 32-bit moves (the byte-move
+`mov dil,ib` leaves bits 8–31 stale and the report's `%u` reads garbage); (3) the riscv raw
+shift check used branch funct3 1 where **1 = BNE** (BLT is 4) — `bne count,32` never traps at
+count 33; the text path's `blt` mnemonic was correct, which is why the raw/text split matters.
+
+**Known pre-existing gap surfaced (not a Sprint 167 defect):** rv32 `long`-width
+(`= 32-bit`-dividing) div/rem checks are missing — zerocc's rv32 `long` div lowers as an
+unmarked 32-bit `DIV` with no `OP_OVF_TRAP` at all (the `int`-width case is checked). Same
+class as the rv32 i64 gap (§4d): the rv32 width-8 div/shift checks wait on rv32 i64 lowering.
+
+**rv32 static-musl link fix (forced by the raw-AOT zero_rt link):** `-fsanitize-trap`/sanitized
+rv32 raw-AOT binaries pull `zero_rt_riscv32.a(int128.o)` into the static-musl link (for the
+`zc_*128` helpers, and via musl vfprintf's dormant `U __divdi3` symbol-table entry, which only
+becomes a real archive pull when some archive defines it). `int128.o` historically defined the
+libgcc-ABI 64-bit div/mod wrappers, so both members got pulled and `__udivdi3`/`__umoddi3`
+multiple-defined against the committed rv32 libgcc shim → 13 rv32 build-fails. Fix: the shim
+(`tools/setup_musl_cross.sh`) now defines all four of `__{u,}divdi3`/`__{u,}moddi3` (the single
+provider on the rv32 system link line), and `int128.c` guards the four wrappers out on rv32
+(`#if !(defined(__riscv_xlen) && __riscv_xlen == 32)`); 64-bit targets keep them (harmless —
+64-bit div/mod is native there and nothing references the names).
+
+**Gate:** `tools/san_sweep.py` now runs every `san_trap_*` file with `-fsanitize-trap` in JIT
+and AOT at -O0..-O3, asserting **both** the per-ISA trap signal **and** the
+`zerocc: runtime error:` message on stderr; every `san_ok_*` must stay report-free and exit 0;
+the cross battery adds `-fsanitize-trap` raw-AOT runs of `san_trap_cross_{int,divzero}.c` under
+qemu on all 3 ISAs with the message assertion. `make test-san`: 608 ok / 0 FAIL (80 cross).
 
 ---
 
@@ -387,7 +477,10 @@ ASan-class and stays out of scope.
    the flag-OFF conformance backstop.
 4. ~~**Report:** op-level for v1, defer DWARF.~~ **Resolved: op-level** (the trap is a bare
    `ud2` — no diagnostic at all in v1; a reporting hook would need the runtime shim this design
-   deliberately avoids).
+   deliberately avoided). **Extended (Sprint 167, §4f):** `-fsanitize-trap` brings the shim
+   back in minimal form — `__zerocsan_report(op, width, value)` prints a UBSan-style line to
+   stderr before the bare trap (report first, trap second, per-ISA signal kept). Site info
+   stays op-level: no file:line until a DWARF emitter exists.
 
 ## 8. Why ASan/LSan is out of scope (cost decomposition)
 
