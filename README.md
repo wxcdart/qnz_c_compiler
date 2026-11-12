@@ -296,7 +296,7 @@ Current status (last full verification 2026-11-11, Sprints 129–162; counts dri
 | **C23 differential gate** (`make test-c23`: 24 cases across gnu23/c11/c99 vs gcc-15) | ✅ Pass | 24/24 |
 | **Inline-asm Phases 1–3 gate** (`make test-asm`: `test/asm/*.c` across `-S` text, JIT, and raw AOT at `-O0..-O3` vs host-gcc reference) | ✅ Pass | 72/72 |
 | **Project-differential gate** (`make test-project-diff`: cJSON, zlib, sqlite3.c at -O0/-O2) | ✅ Pass | 36/36 TUs |
-| **`zero_san` flag-ON sweep** (`make test-san`: `san_ok_*` clean + `san_trap_*` SIGILL at `-O0..-O3`, JIT + AOT, cross-ISA qemu smoke) | ✅ Pass | 177 ok + 3 cross |
+| **`zero_san` flag-ON sweep** (`make test-san`: `san_ok_*` clean + `san_trap_*` SIGILL at `-O0..-O3`, JIT + AOT, cross-ISA qemu smoke on **both** raw-AOT and `-S`+cross-assembler paths) | ✅ Pass | 256 ok / 0 FAIL (50 cross-ISA runs, both paths × all 4 ISAs) |
 | **Multi-file driver** (`make test-driver`, multi-TU JIT/AOT + per-input `-c`/`-S`) | ✅ Pass | 37/37 |
 | **Own linker & archiver** (`make test-linker`, `--zerocc-link` + `--ar` across all 4 ISAs + gcc differential) | ✅ Pass | 45/45 |
 | **Cross-ISA raw-emitter QEMU gate** (`make test-isa-qemu`, vs static-musl reference) | ✅ Pass | 59/59 (all 4 ISAs) |
@@ -394,10 +394,29 @@ sudo apt install -y gcc-15  # or via ppa:ubuntu-toolchain-r/test if not in defau
 sudo apt install -y qemu-user-static gcc-aarch64-linux-gnu gcc-riscv64-linux-gnu
 
 # Build static musl cross-wrappers for raw-emitter differential verification
-tools/setup_musl_cross.sh --arch aarch64 --ccbin aarch64-linux-gnu-gcc
-tools/setup_musl_cross.sh --arch riscv64 --ccbin riscv64-linux-gnu-gcc
-tools/setup_musl_cross.sh --arch riscv32 --ccbin riscv64-linux-gnu-gcc --extra "-march=rv32gc -mabi=ilp32" --host riscv32-linux-musl
+tools/toolchain/setup_musl_cross.sh --arch aarch64 --ccbin aarch64-linux-gnu-gcc
+tools/toolchain/setup_musl_cross.sh --arch riscv64 --ccbin riscv64-linux-gnu-gcc
+tools/toolchain/setup_musl_cross.sh --arch riscv32 --ccbin riscv64-linux-gnu-gcc --extra "-march=rv32gc -mabi=ilp32" --host riscv32-linux-musl
 ```
+
+### Tools Layout
+
+ZeroCC's verification tooling lives in `tools/` organized by concern:
+
+| Subpackage | Contents |
+| :--- | :--- |
+| `tools/verify/` | Regression gates: san_sweep, opt_sweep, torture_run, diag_battery, test_runner, driver_tests, linker_tests, project_diff/runs, abi_interop, asm_diff, cfg_verifier, loop_unroll_verifier, style_check, sret_verifier, type_tag_verifier, isa_qemu_diff, isa128_diff, regress_exec_diff, extension_verifier |
+| `tools/analysis/` | Codegen inspection: elf_verify, elf_min, riscv_enc_check, reloc_pair_check, vtable_check, cross_isa_comparator, struct_abi_verifier, struct_return_verifier, struct_asm_analyzer, prologue_epilogue_verifier, simd_regression_suite, literal_verifier, qemu_test_runner |
+| `tools/okf/` | Knowledge graph tooling: okf.py |
+| `tools/toolchain/` | Toolchain setup: setup_musl_cross.sh, musl_host_toolchain.sh, embed_symtab.py, setup_dev_env.sh |
+| `tools/suites/` | Test suite generators: struct_test_generator.py |
+| `tools/c11/`, `tools/c23/`, `tools/vla/` | Standalone dialect verification suites |
+
+All tools are stdlib-only (see `tools/requirements.txt`) and are run as standalone scripts:
+`python3 tools/<subdir>/<script>.py`. Each tool locates the repository root via
+`find_repo_root()` (`tools/__init__.py`) instead of hardcoded relative paths,
+so moving or nesting `tools/` deeper never breaks path resolution. See
+`tools/README.md` for the full tool table and guidance on adding new tools.
 
 ## Building
 

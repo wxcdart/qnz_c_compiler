@@ -1,3 +1,40 @@
+## [Sprint 165] - 2026-11-12 - zero_san Cross-ISA Asm-Path Verification (Sanitizer / Tooling)
+
+Extended `tools/verify/san_sweep.py` (`make test-san`) to exercise the cross-ISA zero_san smoke and trap suites on **both** the raw-AOT path (`-o`) and the text (`-S` + cross-assembler + static link) path under `qemu-*-static`. Previously only the raw-AOT path was covered; `make test` never exercises `-fsanitize=undefined` at all.
+
+- **`tools/verify/san_sweep.py`**: added `build_cross()` helper with per-ISA link recipes — aarch64/riscv64 link via the system cross gcc (`-static`); riscv32 assembles with `riscv64-linux-gnu-gcc -march=rv32gc -mabi=ilp32` and links explicitly against the committed static-musl rv32 prefix (`third_party/vendor/musl-cross/riscv32`, or `$ZC_RV32_MUSL`), since the Debian riscv64 cross gcc ships only an rv64 libgcc. The smoke test (`san_ok_cross_smoke.c`) and trap tests (`san_trap_cross_{int,incdec,cassign,wide}.c`) now run on every ISA at both `-O1` (smoke) and `-O0..-O3` (trap), on both paths.
+- **Bug fix — text-asm overflow-trap label collision**: `.Lovf_%u` labels were regenerated per function (`ir_next_label` resets per function), so multi-check sources (e.g. `san_ok_cross_smoke.c`) failed to assemble with `symbol .Lovf_1 already defined`. Added a monotonic `ir_ovf_label` seed to `ZeroCCCompiler` (`types/symbols.h`) and switched the riscv/aarch64 text ovf-trap emitters to it (`riscv_asm.c`, `aarch64_asm.c`), so labels stay unique within one `.s` file.
+- **Verification**: `make test-san` **256 ok / 0 FAIL** (50 cross-ISA runs covering both paths × all 4 ISAs) · `make test` 227/227 · `make test-opt` 126 ok / 0 failed · `style_check` 0/0 · OKF lint + index PASS.
+
+---
+
+## [Sprint 164b] - 2026-11-12 - Stale-Build Root Cause Fixes (Makefile / Tooling)
+
+Fixed four stale-build root causes that silently ran stale compiler/test binaries after edits, branch switches, or worktree jumps.
+
+1. **Makefile — `build/bin/zerocc` header deps dropped (Root Cause 1)**: `main.c` and `embedded_syms.c` were compiled inline on the link line, so GCC's `-MMD -MP` output for `build/bin/zerocc.d` contained only `embedded_syms.c` — none of `main.c`'s headers (`zero_cc.h`, `driver_opts.h`, etc.) were tracked. Editing them silently produced a stale binary. Now `main.c` compiles to `build/obj/src/main.o` and `embedded_syms.c` to `build/obj/embedded_syms.o`, each with its own `.d` file; both are linked into `build/bin/zerocc`.
+2. **Makefile — monolithic `all` prerequisite (Root Cause 3)**: `test-unit`/`test-semantic`/`test-abi`/`test-jit`/`test-tap` all depended on `all` (338+ test binaries + 4 runtimes), and `test-opt`/`test-isa-qemu`/`test-isa128` depended on `all` despite only needing `zerocc`. Now category-scoped test lists (`UNIT_TESTS`, `SEMANTIC_TESTS`, `ABI_TESTS`, `JIT_TESTS`, `TAP_TESTS`) and `test-opt`/`test-isa-qemu`/`test-isa128` depend on `$(ZC_BIN)` only.
+3. **Makefile — dynamic `find` dependency list (Root Cause 4)**: `DEPS = $(shell find $(BUILD_DIR) -name "*.d")` included orphaned `.d` files after branch switches/renames, triggering "No rule to make target" errors that forced `make clean`. Replaced with explicit `-include $(ALL_OBJS:.o=.d)` + `-include $(TESTS:=.d)`.
+4. **`tools/verify/test_runner.py` — orphan binaries run as phantom tests (Root Cause 2)**: `find_test_binaries()` scanned existing executables with no source check, so deleted/renamed tests kept running. Now prunes orphans: an executable with no matching `test/<cat>/<name>.c` is skipped and removed from disk.
+
+## [Sprint 164c] - 2026-11-12 - Tools Reorganization + `find_repo_root()` Helper (Tooling / Hygiene)
+
+Reorganized the flat `tools/` directory (40 scripts) into purpose-based subpackages and added a robust repo-root locator.
+
+- **`tools/verify/`** — regression gates: san_sweep, opt_sweep, torture_run, diag_battery, test_runner, driver_tests, linker_tests, project_diff/runs, abi_interop, asm_diff, cfg_verifier, loop_unroll_verifier, style_check, sret_verifier, type_tag_verifier, isa_qemu_diff, isa128_diff, regress_exec_diff, extension_verifier
+- **`tools/analysis/`** — codegen inspection: elf_verify, elf_min, riscv_enc_check, reloc_pair_check, vtable_check, cross_isa_comparator, struct_abi_verifier, struct_return_verifier, struct_asm_analyzer, prologue_epilogue_verifier, simd_regression_suite, literal_verifier, qemu_test_runner
+- **`tools/okf/`** — knowledge graph tooling (okf.py)
+- **`tools/toolchain/`** — toolchain setup: setup_musl_cross.sh, musl_host_toolchain.sh, embed_symtab.py, setup_dev_env.sh
+- **`tools/suites/`** — test suite generators (struct_test_generator.py)
+- All tools now use [`find_repo_root()`](tools/__init__.py) instead of hardcoded `os.path.dirname(...)` chains, so moving or nesting `tools/` deeper never breaks path resolution.
+- **`tools/README.md`** rewritten with complete tool inventory, `find_repo_root()` docs, stdlib-only requirement note, and quick verification commands.
+- **`tools/requirements.txt`** added documenting stdlib-only design (`pip install -r` is a no-op).
+- All references in `Makefile`, `AGENTS.md`, `docs/okf/build-and-verification.md`, `README.md`, and `.agents/skills/c-torture-gate/SKILL.md` updated to new paths.
+- **AGENTS.md / OKF**: added a "Adding or Modifying Verification Tools" section to AGENTS.md and a "Tool Maintenance" section to `docs/okf/build-and-verification.md` covering layout conventions, path resolution, stdlib-only rule, and the full update checklist.
+- **Verification**: `make test` 227/227 · `make test-san` 256 ok / 0 FAIL · `make test-opt` 126 ok / 0 failed · `python3 tools/verify/style_check.py` 0/0 · `python3 tools/okf/okf.py lint + index` PASS.
+
+---
+
 ## [Sprint 164] - 2026-11-11 - RV64 Immediate Miscompile Fix + zero_san riscv Raw-Path Gap Closed (Sanitizer / Backend)
 
 Investigating the Sprint 163 "riscv raw-path width-4 `++`/`--`/compound doesn't trap" gap found a real **RV64 miscompile**, not a sanitizer defect.
