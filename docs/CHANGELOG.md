@@ -1,3 +1,20 @@
+# CHANGELOG
+
+## [Sprint 166 follow-on] - 2026-11-12 - zero_san div-by-zero / rem-by-zero / shift-count Checks, All 4 ISAs (Sanitizer / Codegen)
+
+Extended the zero_san (`-fsanitize=undefined`) per-op trap to the two remaining UB classes that fit the `OP_OVF_TRAP` design: **division/remainder by zero** and **out-of-range shift counts** (count < 0 or ≥ operand bit width), on x86-64, aarch64, riscv64 and riscv32 (width-8 on rv32 stays skipped — rv32 i64 gap, documented false-negative).
+
+- **Lowering** (`ast_lowering_binop.c`): new `zc_maybe_emit_{div_zero,rem_zero,shift_count}_trap` entry points (same UAC width rule: signed, widths 4/8 only). **Pre-op placement** — the check is emitted *before* `ir_emit_div/mod/shl/shr/sar`: x86 `idiv` by zero raises SIGFPE at the instruction, so a post-check is unreachable (aarch64/riscv div-by-zero is defined, but pre-op is uniform). The divisor/count temp rides in `temp_dest`; liveness holds because the guarded op is its last real use. `zc_emit_ovf_trap`'s x86 branch now carries the op code in `.imm` (it previously dropped it).
+- **Emitters:** x86-64 (AOT `test; jnz; ud2` / `cmp $0; jge; ud2; cmp $W; jl; ud2`, raw MC with `0x83` imm8 compares); aarch64 (raw `cbnz +4; brk` / `cmp; b.ge; brk; cmp #W; b.lt; brk` + text); riscv64/riscv32 (raw + text `bne; unimp` and `li t0,W; bge; unimp; blt; unimp`). **W = width*8 bits** (32/64 — not the byte width). RISC-V new-op blocks run before the `width<8 && is64` ADD/SUB/MUL round-trip early-return, which would otherwise swallow width-4 checks on RV64.
+- **Bugs found & fixed while landing:** (1) the original draft's branch directions were inverted (skipped the trap on the faulting condition) and the RISC-V text path left a branch target undefined; (2) x86 raw-MC `cmp` used opcode `0x81` (imm32 form) with a 1-byte immediate, corrupting the instruction stream; (3) the AArch64 raw `cmp Xn,#imm` encoding was `0xF1000000|Rn` — actually `subs Rn, XZR, #imm`, zeroing the checked register (correct base is `0xF100001F | Rn<<5`); (4) **pre-existing:** the raw AArch64 `emit_div`/`emit_mod` were hardcoded to `udiv` — every signed division on raw-AOT aarch64 miscompiled (e.g. `−100/−7` → 1); now selected from `c->lowering.div_is_unsigned` (`sdiv` = 0x9AC00C00), matching the text path.
+- **Gate corpus** (`test/san/`, all run by `make test-san`): `san_ok_divshift.c` (valid div/rem/shift incl. counts 4..30 — false-trapped while the bound was the byte width), `san_trap_{divzero,remzero,shiftcount,shiftcount_neg,shiftcount64}.c`, cross-ISA `san_trap_cross_{divzero,shift}.c` (32-bit, all 3 ISAs × -O0..-O3 × raw+text under qemu), and 32-bit div/rem/shift cases added to `san_ok_cross_smoke.c`; `tools/san_sweep.py` cross-trap list extended.
+- **Type-tag verifier:** `-dump-ir` now prints `OVF_TRAP rN [ovf=K]`; I2 accepts the new op codes as pre-op checks (immediately before the guarded DIV/MOD/SHL/SHR/SAR, checking its src2; shift-count tag may be a signed int narrower than the check width).
+- **Not yet started (tracked):** `-fsanitize-trap` op-level site diagnostics; Phase 3 at-exit leak report in `zero_rt/heap.c`.
+- **Known pre-existing issue (documented, not fixed):** `san_ok_cross_smoke.c`'s `f64loop` case fails at -O2/-O3 on all cross ISAs (reproduced on the pre-change file — a separate cross-ISA -O2 loop bug; the sweep's ok-smoke runs at -O1).
+- **Verification:** `make test-san` **346 ok / 0 FAIL** (74 cross) · `make test` 227/227 · `make test-opt` 126 ok / 0 failed · `make test-isa-qemu` 63/63 · `make test-asm` 72/72 · `type_tag_verifier` OK (494 OVF_TRAPs) · `style_check` 0/0 · OKF lint + index PASS.
+
+---
+
 ## [Sprint 165] - 2026-11-12 - zero_san Cross-ISA Asm-Path Verification (Sanitizer / Tooling)
 
 Extended `tools/verify/san_sweep.py` (`make test-san`) to exercise the cross-ISA zero_san smoke and trap suites on **both** the raw-AOT path (`-o`) and the text (`-S` + cross-assembler + static link) path under `qemu-*-static`. Previously only the raw-AOT path was covered; `make test` never exercises `-fsanitize=undefined` at all.

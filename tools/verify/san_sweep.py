@@ -250,7 +250,9 @@ def main():
     cross_trap = [("san_trap_cross_int.c", CROSS_ISAS),
                   ("san_trap_cross_incdec.c", CROSS_ISAS),
                   ("san_trap_cross_cassign.c", CROSS_ISAS),
-                  ("san_trap_cross_wide.c", CROSS_WIDE_ISAS)]
+                  ("san_trap_cross_wide.c", CROSS_WIDE_ISAS),
+                  ("san_trap_cross_divzero.c", CROSS_ISAS),
+                  ("san_trap_cross_shift.c", CROSS_ISAS)]
     if not args.no_cross:
         for tname, isas in cross_trap:
             tsrc = os.path.join(SAN_DIR, tname)

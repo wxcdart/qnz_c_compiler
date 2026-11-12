@@ -751,6 +751,17 @@ void zc_maybe_emit_ovf_trap(ZeroCCCompiler *c, ZeroCCASTArena *arena,
 void zc_maybe_emit_ovf_trap_incdec(ZeroCCCompiler *c, ZeroCCASTArena *arena,
                                    ZeroCCASTNode *node, uint32_t result_temp,
                                    int a_temp, int b_temp);
+/* zero_san follow-on (Sprint 166): div-by-zero / rem-by-zero / shift-count
+ * checks. Emits OP_OVF_TRAP with op = ZC_OVF_OP_DIV_ZERO / REM_ZERO /
+ * SHIFT_COUNT, placed BEFORE the guarded DIV/MOD/SHL/SHR/SAR; temp_dest
+ * carries the divisor/count temp (src1 is TEMP_NONE) and the emitter tests
+ * it. No-op when width is not 4/8 or sanitize_overflow is off. */
+void zc_maybe_emit_div_zero_trap(ZeroCCCompiler *c, ZeroCCASTArena *arena,
+                                 ZeroCCASTNode *node, uint32_t divisor_temp);
+void zc_maybe_emit_rem_zero_trap(ZeroCCCompiler *c, ZeroCCASTArena *arena,
+                                 ZeroCCASTNode *node, uint32_t divisor_temp);
+void zc_maybe_emit_shift_count_trap(ZeroCCCompiler *c, ZeroCCASTArena *arena,
+                                    ZeroCCASTNode *node, uint32_t count_temp);
 
 /* Wide __int128 bitfield RMW (Sprint 114: moved to ast_lowering_bitfield.c). */
 int assign_emit_128_divmod(ZeroCCCompiler *c, int a, int b,

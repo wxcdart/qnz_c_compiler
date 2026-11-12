@@ -257,6 +257,40 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             char lbl[32];
             snprintf(lbl, sizeof(lbl), ".Lovf_%u", (unsigned)trap_lbl);
 
+            /* Follow-on (Sprint 166): div-by-zero / shift-count checks.
+             * These test a register directly (no OF flag). temp_dest holds
+             * the divisor/count temp (set at lowering), so phys_dst is the
+             * register to test. */
+            int op = (int)instr->imm;
+            if (op == ZC_OVF_OP_DIV_ZERO || op == ZC_OVF_OP_REM_ZERO ||
+                op == ZC_OVF_OP_SHIFT_COUNT) {
+                if (op == ZC_OVF_OP_DIV_ZERO || op == ZC_OVF_OP_REM_ZERO) {
+                    /* test %reg,%reg; jnz .Lskip  (trap if divisor == 0) */
+                    fprintf(out, "\ttest\t%%%s,%%%s\n", reg, reg);
+                    fprintf(out, "\tjnz\t%s\n", lbl);
+                    fprintf(out, "\tud2\n");            /* trap: divisor == 0 */
+                    fprintf(out, "%s:\n", lbl);
+                    return;
+                } else { /* ZC_OVF_OP_SHIFT_COUNT */
+                    /* Two independent skip-triplets (count bound is the
+                     * operand bit width: width*8):
+                     *   cmp $0;  jge .L1; ud2; .L1:    (count < 0 -> trap)
+                     *   cmp $W;  jl  .L2; ud2; .L2:    (count >= W -> trap) */
+                    uint16_t lbl2 = c->ir_next_label++;
+                    char lbl2s[32];
+                    snprintf(lbl2s, sizeof(lbl2s), ".Lovf_%u", (unsigned)lbl2);
+                    fprintf(out, "\tcmp\t$0,%%%s\n", reg);
+                    fprintf(out, "\tjge\t%s\n", lbl);
+                    fprintf(out, "\tud2\n");            /* trap: count < 0 */
+                    fprintf(out, "%s:\n", lbl);
+                    fprintf(out, "\tcmp\t$%d,%%%s\n", width * 8, reg);
+                    fprintf(out, "\tjl\t%s\n", lbl2s);
+                    fprintf(out, "\tud2\n");            /* trap: count >= bits */
+                    fprintf(out, "%s:\n", lbl2s);
+                }
+                return;
+            }
+
             if (width >= 8) {
                 /* 64-bit: jno skips ud2 when no overflow (OF=0).
                  * Overflow (OF=1) falls through to ud2 -> SIGILL. */

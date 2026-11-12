@@ -16,10 +16,16 @@ the backend's type conventions against the frontend's tags:
       signed, {9,10,12,16} unsigned) must agree with the dest temp's tag
       (class + width).  Exotic bit-field marks (w not in that set) skip.
   I2  OP_OVF_TRAP: check width in {4,8}; the checked temp's tag must be a
-      SIGNED int of exactly that width; the immediately-preceding
-      instruction must be an unmarked ADD/SUB/MUL on the same temp
-      (emission contract + clean-value invariant: the ALU op is never
-      width-marked so the raw 64-bit result reaches the check).
+      SIGNED int of exactly that width. op code [ovf=0/1/2] (ADD/SUB/MUL,
+      v1): the immediately-preceding instruction must be an unmarked
+      ADD/SUB/MUL on the same temp (emission contract + clean-value
+      invariant: the ALU op is never width-marked so the raw 64-bit result
+      reaches the check). op code [ovf=3/4/5] (Sprint 166 follow-on:
+      div-zero / rem-zero / shift-count): PRE-op check - the trap must sit
+      immediately before its guarded DIV/MOD/SHL/SHR/SAR and check that op's
+      src2 (the divisor/count temp). For [ovf=5] the count tag may be a
+      signed int NARROWER than the check width (int count on a long shift);
+      for [ovf=3/4] the divisor tag must match the check width exactly.
   I3  FP ops: value operands/dests of FP-producing ops must carry FLOAT
       tags (and conversions must go the right direction).
   I4  128-bit ops: *128 ops define/require int128/uint128 tags; 64-bit
@@ -91,6 +97,10 @@ TAG_ITEM = re.compile(r"r(\d+)=([a-z0-9_]+)(?:,(\d+))?\b")
 WIDTH_ANN = re.compile(r"\[w=(\d+)\]")
 UNSIGNED_ANN = re.compile(r"\[u\]")
 FLAGS_ANN = re.compile(r"\[flags_out=.*$")
+OVF_OP_ANN = re.compile(r"\[ovf=(\d+)\]")
+# Sprint 166 follow-on: OVF_TRAP op codes that are PRE-op checks, and the
+# guarded op(s) each one must immediately precede (its src2 = divisor/count).
+OVF_PREOP_GUARD = {3: ("DIV",), 4: ("MOD",), 5: ("SHL", "SHR", "SAR")}
 REG_TOKEN = re.compile(r"\b(?:r|xmm)(\d+)\b")
 FIRST_REG = re.compile(r"^(?:r|xmm)(\d+)")
 
@@ -279,30 +289,61 @@ def check_function(fn, ins, tags, stats):
             cw = wmark
             t = srcs[0] if srcs else dest
             tag = tags.get(t) if t is not None else None
+            om = OVF_OP_ANN.search(rest)
+            ovf = int(om.group(1)) if om else 0
             if cw not in (4, 8):
                 v.append("I2 r%s: OVF_TRAP check width %d not in {4,8}"
                          % (t, cw))
             elif tag is None:
                 stats["i2_untagged"] += 1
+            elif ovf == 5:
+                # Shift-count: the checked temp is the COUNT - its type is
+                # the (integer-promoted) count expression, which may be
+                # narrower than the shifted operand (int count on a long
+                # shift) - so any signed-int width is valid, not just cw.
+                if cls_of(tag) != "int":
+                    v.append("I2 r%s: OVF_TRAP [ovf=5] count tag=%s,%d "
+                             "(must be a signed int)"
+                             % (t, tag[0], tag[1]))
             elif cls_of(tag) != "int" or tag[1] != cw:
                 v.append("I2 r%s: OVF_TRAP width %d but tag=%s,%d "
                          "(must be signed int of the check width)"
                          % (t, cw, tag[0], tag[1]))
-            prev = by_idx.get(idx - 1)
-            if prev is None or prev[1] not in ("ADD", "SUB", "MUL") \
-                    or prev[0] + 1 != idx:
-                v.append("I2 r%s: OVF_TRAP not immediately after an "
-                         "ADD/SUB/MUL (got %s)"
-                         % (t, prev[1] if prev else "<none>"))
-            elif prev[3] != 0:
-                v.append("I2 r%s: checked ALU op is width-marked (w=%d) - "
-                         "clean-value invariant broken"
-                         % (t, prev[3]))
-            elif prev[1] in ("ADD", "SUB", "MUL"):
-                pm = re.match(r"^r(\d+),?", prev[2])
-                if pm and int(pm.group(1)) != t:
-                    v.append("I2 r%s: OVF_TRAP temp != ALU dest r%s"
-                             % (t, pm.group(1)))
+            if ovf in (3, 4, 5):
+                # Sprint 166 follow-on: div-zero / rem-zero / shift-count
+                # checks are PRE-op: the trap sits immediately before the
+                # guarded DIV/MOD/SHL/SHR/SAR and checks its src2
+                # (divisor/count). The checked temp's own value is tested,
+                # so no ADD/SUB/MUL adjacency is required.
+                nxt = by_idx.get(idx + 1)
+                want = OVF_PREOP_GUARD.get(ovf)
+                if nxt is None or nxt[1] not in want or nxt[0] != idx + 1:
+                    v.append("I2 r%s: OVF_TRAP [ovf=%d] not immediately "
+                             "before its guarded op %s (got %s)"
+                             % (t, ovf, "/".join(want),
+                                nxt[1] if nxt else "<none>"))
+                else:
+                    ns = re.findall(r"\br(\d+)\b", nxt[2].split("[", 1)[0])
+                    if len(ns) >= 3 and int(ns[2]) != t:
+                        v.append("I2 r%s: OVF_TRAP [ovf=%d] temp != "
+                                 "guarded op's src2 r%s"
+                                 % (t, ovf, ns[2]))
+            else:
+                prev = by_idx.get(idx - 1)
+                if prev is None or prev[1] not in ("ADD", "SUB", "MUL") \
+                        or prev[0] + 1 != idx:
+                    v.append("I2 r%s: OVF_TRAP not immediately after an "
+                             "ADD/SUB/MUL (got %s)"
+                             % (t, prev[1] if prev else "<none>"))
+                elif prev[3] != 0:
+                    v.append("I2 r%s: checked ALU op is width-marked (w=%d) - "
+                             "clean-value invariant broken"
+                             % (t, prev[3]))
+                elif prev[1] in ("ADD", "SUB", "MUL"):
+                    pm = re.match(r"^r(\d+),?", prev[2])
+                    if pm and int(pm.group(1)) != t:
+                        v.append("I2 r%s: OVF_TRAP temp != ALU dest r%s"
+                                 % (t, pm.group(1)))
 
         # --- I3: FP ops -------------------------------------------------
         if op in FP_VALUE_OPS:

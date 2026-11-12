@@ -265,7 +265,7 @@ void ir_dump(const ZeroCCCompiler *c, FILE *f) {
                          break;
             case OP_MUL: fprintf(f, "MUL r%u, r%u, r%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);
                          break;
-            case OP_OVF_TRAP: fprintf(f, "OVF_TRAP r%u", instr->temp_dest);
+            case OP_OVF_TRAP: fprintf(f, "OVF_TRAP r%u [ovf=%d]", instr->temp_dest, (int)instr->imm);
                               break;
             case OP_DIV: fprintf(f, "DIV r%u, r%u, r%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);
                          break;

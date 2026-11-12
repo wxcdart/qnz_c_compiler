@@ -58,6 +58,16 @@ typedef struct {
 #define ZC_OVF_OP_ADD 0
 #define ZC_OVF_OP_SUB 1
 #define ZC_OVF_OP_MUL 2
+/* zero_san follow-on (Sprint 166): div-by-zero and shift-count checks.
+ * ZC_OVF_OP_DIV_ZERO / ZC_OVF_OP_REM_ZERO: trap if the divisor is 0.
+ * ZC_OVF_OP_SHIFT_COUNT: trap if the shift count is < 0 or >= the operand
+ * bit width (width*8; `width` is 4 or 8 bytes). For these, the check is
+ * emitted BEFORE the guarded op and the divisor/count temp rides in
+ * temp_dest (src1/src2 are TEMP_NONE) - the emitter tests `res`, never
+ * `a`/`b`. */
+#define ZC_OVF_OP_DIV_ZERO 3
+#define ZC_OVF_OP_REM_ZERO 4
+#define ZC_OVF_OP_SHIFT_COUNT 5
 
 typedef struct ZeroCCISABackend {
     ZeroCCISA isa;
@@ -387,14 +397,20 @@ typedef struct ZeroCCISABackend {
      * instruction (x86-64 ud2, AArch64 brk #0, RISC-V unimp). */
     void (*emit_trap)(ZeroCCCompiler *c);
     void (*emit_trap_asm)(ZeroCCCompiler *c, FILE *out);
-    /* zero_san (Sprint 163): compare-based signed-integer-overflow trap for
+    /* zero_san (Sprint 163+): compare-based signed-integer-overflow trap for
      * non-x86 ISAs. `res` holds the raw result of the immediately-preceding
      * add/sub/mul; `a`, `b` are the two operands (clean sign-extended, and
      * dead after this check - the implementations may use them in place).
      * `width` is the check width (4 or 8); `op` is ZC_OVF_OP_ADD/SUB/MUL.
      * Emits the detection + the target trap (udf/brk/unimp). x86-64 uses its
      * OF-flag / sign-extension path inline in the shared emitters and leaves
-     * these NULL. */
+     * these NULL.
+     *
+     * Follow-on (Sprint 166): ZC_OVF_OP_DIV_ZERO/REM_ZERO trap if `res`
+     * (the divisor temp) is 0; ZC_OVF_OP_SHIFT_COUNT traps if `res` (the
+     * shift count) is < 0 or >= width*8 (the operand bit width). For these
+     * ops `a`/`b` are TEMP_NONE - only `res` is read - and the check is
+     * emitted before the guarded DIV/MOD/SHL/SHR/SAR. */
     void (*emit_ovf_trap)(ZeroCCCompiler *c, int res, int a, int b, int width, int op);
     void (*emit_ovf_trap_asm)(ZeroCCCompiler *c, int res, int a, int b, int width, int op, FILE *out);
     /* OS syscall (OP_SYSCALL / __zerocc_syscall): arg_count temps (syscall

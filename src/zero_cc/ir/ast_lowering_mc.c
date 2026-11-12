@@ -497,6 +497,51 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 int phys = phys_dst;          /* register holding the result */
                 int scratch = is_spilled ? BE(c)->scratch_reg2 : BE(c)->scratch_reg1;
 
+                /* Follow-on (Sprint 166): div-by-zero / shift-count checks.
+                 * These test a register directly (no OF flag). phys_dst holds
+                 * the divisor/count temp (set at lowering). */
+                int op = (int)instr->imm;
+                if (op == ZC_OVF_OP_DIV_ZERO || op == ZC_OVF_OP_REM_ZERO ||
+                    op == ZC_OVF_OP_SHIFT_COUNT) {
+                    uint8_t rex = 0x48 | ((phys >= 8) ? 0x04 : 0) | ((phys >= 8) ? 0x01 : 0);
+                    if (op == ZC_OVF_OP_DIV_ZERO || op == ZC_OVF_OP_REM_ZERO) {
+                        /* test %phys,%phys  (REX + 0x85 /r, mod=11, reg=phys, r/m=phys) */
+                        me_emit_u8(c, rex);
+                        me_emit_u8(c, 0x85);
+                        me_emit_u8(c, 0xC0 | ((phys & 7) << 3) | (phys & 7));
+                        /* jnz rel8,+2 : skip ud2 when divisor != 0 */
+                        me_emit_u8(c, 0x75);
+                        me_emit_u8(c, 0x02);
+                        me_emit_u8(c, 0x0F);
+                        me_emit_u8(c, 0x0B);  /* ud2: divisor == 0 */
+                        break;
+                    } else { /* ZC_OVF_OP_SHIFT_COUNT */
+                        /* Two skip-triplets (count bound = operand bits, width*8):
+                         * cmp $0,%phys; jge +2; ud2      (count < 0 -> trap)
+                         * cmp $W,%phys; jl  +2; ud2      (count >= W -> trap) */
+                        /* cmp $0,%phys  (REX + 0x83 /7 ib, mod=11, reg=7=CMP, r/m=phys;
+                         * 0x83 = imm8 form - 0x81 would consume 4 immediate bytes) */
+                        me_emit_u8(c, rex);
+                        me_emit_u8(c, 0x83);
+                        me_emit_u8(c, 0xC0 | (7 << 3) | (phys & 7));
+                        me_emit_u8(c, 0x00);
+                        me_emit_u8(c, 0x7D);  /* jge rel8,+2 : count >= 0, skip ud2 */
+                        me_emit_u8(c, 0x02);
+                        me_emit_u8(c, 0x0F);
+                        me_emit_u8(c, 0x0B);  /* ud2: count < 0 */
+                        /* cmp $width*8,%phys (imm8 form: 32/64 fit) */
+                        me_emit_u8(c, rex);
+                        me_emit_u8(c, 0x83);
+                        me_emit_u8(c, 0xC0 | (7 << 3) | (phys & 7));
+                        me_emit_u8(c, (uint8_t)(width * 8));
+                        me_emit_u8(c, 0x7C);  /* jl rel8,+2 : count < width bits, skip ud2 */
+                        me_emit_u8(c, 0x02);
+                        me_emit_u8(c, 0x0F);
+                        me_emit_u8(c, 0x0B);  /* ud2: count >= width bits */
+                        break;
+                    }
+                }
+
                 /* REX prefix: 0100WRAB.
                  * W=1 (64-bit). R (bit 2, val 0x04) extends the reg field.
                  * B (bit 0, val 0x01) extends the r/m field. */

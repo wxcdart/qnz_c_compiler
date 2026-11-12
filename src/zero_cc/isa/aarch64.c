@@ -244,8 +244,11 @@ static void aarch64_emit_mul(ZeroCCCompiler *c, int dst, int src1, int src2) {
 }
 
 static void aarch64_emit_div(ZeroCCCompiler *c, int dst, int src1, int src2) {
-    /* udiv/sdiv dst, src1, src2 */
-    arm64_emit_u32(c, 0x9AC00800 | (src2 << 16) | (src1 << 5) | dst);  /* udiv */
+    /* udiv/sdiv dst, src1, src2. The sign flag is set per-instruction by
+     * the emission loop (zc_div_is_unsigned) before the call.
+     * udiv=0x9AC00800|...  sdiv=0x9AC00C00|... (verified vs gas). */
+    uint32_t base = c->lowering.div_is_unsigned ? 0x9AC00800u : 0x9AC00C00u;
+    arm64_emit_u32(c, base | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5) | (dst & 0x1F));
 }
 
 static void aarch64_emit_and(ZeroCCCompiler *c, int dst, int src1, int src2) {
@@ -682,8 +685,37 @@ static void aarch64_emit_trap_asm(ZeroCCCompiler *c, FILE *out) {
  *   sxtw Xd,Wn=0x93407C00|Wn<<5|Xd  eor/and Rd,Rn,Rm=0xCx000000|Rm<<16|Rn<<5|Rd
  *   cmp Rn,Rm=0xEB00001F|Rm<<16|Rn<<5  smulh Rd,Rn,Rm=0x9B407C00|Rm<<16|Rn<<5|Rd
  *   asr Rd,Rn,#63=0x937FFC00|Rn<<5|Rd  b.eq/b.pl skip-1=0x54000040/0x54000045
+ *   brk #0=0xD4200000
+ * Follow-on (Sprint 166) div-zero / shift-count encodings, also verified
+ * against aarch64-linux-gnu-as (Rn is in bits 9:5, Rd=31/XZR):
+ *   cbnz Xn,+4=0xB5000040|Xn
+ *   cmp Xn,#imm=0xF100001F|imm<<10|Xn<<5   (x5,#0=0xF10000BF, x5,#32=0xF10080BF)
+ *   b.ge +4=0x5400004A  b.lt +4=0x5400004B
  *   brk #0=0xD4200000 */
 static void aarch64_emit_ovf_trap(ZeroCCCompiler *c, int res, int a, int b, int width, int op) {
+    /* Follow-on (Sprint 166): div-by-zero / shift-count checks. The
+     * divisor/count temp is carried in temp_dest (`res`; src1 is TEMP_NONE
+     * for these ops) and the check runs before the div/shift, so `res`
+     * still holds the value. Must run before the width<8 result
+     * round-trip below. */
+    if (op == ZC_OVF_OP_DIV_ZERO || op == ZC_OVF_OP_REM_ZERO) {
+        /* cbnz res, +4: skip brk when the divisor != 0 */
+        arm64_emit_u32(c, 0xB5000040u | (uint32_t)(res & 0x1F));
+        arm64_emit_u32(c, 0xD4200000u);  /* brk #0 */
+        return;
+    }
+    if (op == ZC_OVF_OP_SHIFT_COUNT) {
+        /* Trap when the count is < 0 or >= the operand bit width.
+         * `width` is the operand width in bytes; the count bound is width*8.
+         * cmp = subs XZR, Rn, #imm: Rn in bits 9:5, Rd=31 (0xF100001F base). */
+        arm64_emit_u32(c, 0xF100001Fu | ((uint32_t)(res & 0x1F) << 5));  /* cmp res, #0 */
+        arm64_emit_u32(c, 0x5400004Au);                         /* b.ge +4: count >= 0, skip brk */
+        arm64_emit_u32(c, 0xD4200000u);                         /* brk #0 */
+        arm64_emit_u32(c, 0xF100001Fu | ((uint32_t)(width * 8) << 10) | ((uint32_t)(res & 0x1F) << 5));  /* cmp res, #width*8 */
+        arm64_emit_u32(c, 0x5400004Bu);                         /* b.lt +4: count < width bits, skip brk */
+        arm64_emit_u32(c, 0xD4200000u);                         /* brk #0 */
+        return;
+    }
     if (width < 8) {
         /* sign-extension round-trip (result-only); a (dead) is the scratch. */
         arm64_emit_u32(c, 0x93407C00u | (uint32_t)(a & 0x1F) | ((uint32_t)(res & 0x1F) << 5));  /* sxtw a, wres */
@@ -1395,8 +1427,8 @@ static void aarch64_emit_cqo(ZeroCCCompiler *c) {
 }
 
 static void aarch64_emit_idiv(ZeroCCCompiler *c, int src) {
-    /* sdiv X0, X0, Xn */
-    arm64_emit_u32(c, 0x9AC00800 | ((src & 0x1F) << 16) | 0x0);
+    /* sdiv X0, X0, Xn (signed; sdiv base = 0x9AC00C00) */
+    arm64_emit_u32(c, 0x9AC00C00 | ((src & 0x1F) << 16) | 0x0);
 }
 
 static void aarch64_emit_lea(ZeroCCCompiler *c, int dst, int base, int32_t offset) {
@@ -1454,9 +1486,10 @@ static void aarch64_emit_mod(ZeroCCCompiler *c, int dst, int src1, int src2) {
      * Use x16 (IP0 - caller-saved scratch) as temporary */
     int tmp = 16; /* x16 */
 
-    /* tmp = src1 / src2 (sdiv tmp, src1, src2)
-     * sdiv: 0x9AC00800 | (Rm << 16) | (Rn << 5) | Rd */
-    arm64_emit_u32(c, 0x9AC00800 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5) | (tmp & 0x1F));
+    /* tmp = src1 / src2 (sdiv/udiv tmp, src1, src2; sign flag set by the
+     * emission loop - sdiv=0x9AC00C00, udiv=0x9AC00800) */
+    arm64_emit_u32(c, (c->lowering.div_is_unsigned ? 0x9AC00800u : 0x9AC00C00u)
+                    | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5) | (tmp & 0x1F));
 
     /* dst = src1 - (tmp * src2) (msub dst, tmp, src2, src1)
      * msub: 0x9B008000 | (Rm << 16) | (Ra << 10) | (Rn << 5) | Rd */

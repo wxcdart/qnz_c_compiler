@@ -4,7 +4,7 @@ title: Target-Side Sanitizer (zero_san) Design & Roadmap
 description: Analysis and phased roadmap for an optional, parked target-side safety-check feature (zero_san) — a codegen-first UBSan-lite signed-overflow check, with bounds, leaks, and ASan/LSan scoped out and justified.
 resource: sanitizer/roadmap
 tags: [sanitizer, zero_san, codegen, ubsan, overflow, bounds, asan, lsan, leak, roadmap, design, safety]
-timestamp: 2026-11-12T02:15:18Z
+timestamp: 2026-11-12T06:47:04Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -12,7 +12,7 @@ status: active
 
 # Target-Side Sanitizer (`zero_san`) — Design & Roadmap
 
-> **Status: Phase 1 IMPLEMENTED (Sprint 116, x86-64, both emitters, `-fsanitize=undefined`); cross-ISA extension (aarch64 / riscv64 / riscv32 width-4) SHIPPED in Sprint 163, §4c.**
+> **Status: Phase 1 IMPLEMENTED (Sprint 116, x86-64, both emitters, `-fsanitize=undefined`); cross-ISA extension (aarch64 / riscv64 / riscv32 width-4) SHIPPED in Sprint 163, §4c; div-by-zero / rem-by-zero / shift-count checks (all 4 ISAs) SHIPPED in Sprint 166 follow-on, §4e.**
 > Sections below preserve the traced invariants and cost analysis; **§4-as-built** records the
 > shipped mechanism and the traps found while landing it. Phases 2–3 (bounds, leaks) remain
 > parked; ASan/LSan remain out of scope per §8.
@@ -174,6 +174,80 @@ MC emitter (`ast_lowering_mc.c`, CPU OF flag) and the AOT asm emitter (`asm_emit
   rv32 i64 add/sub/mul/shift/compare/div and the two-register argument/return ABI exist (the GPR128
   lo/hi machinery is the natural model). Tracked in the development plan as its own item — it is a
   conformance gap far larger than the sanitizer.
+
+### 4e. Sprint 166 follow-on — div-by-zero, rem-by-zero, shift-count checks (all 4 ISAs)
+
+The v1 check covered signed `+ - *` (incl. compound/inc-dec) only. This follow-on extends the same
+`OP_OVF_TRAP` mechanism to the other two UB classes that share the per-op trap design:
+**division/remainder by zero** and **out-of-range shift counts** (C 6.5.8p5: count < 0 or ≥ the
+shifted operand's bit width). Op codes `ZC_OVF_OP_{DIV_ZERO,REM_ZERO,SHIFT_COUNT}` = 3/4/5 in
+`isa_backend.h`; lowering entry points `zc_maybe_emit_{div_zero,rem_zero,shift_count}_trap` in
+`ast_lowering_binop.c` (same UAC width rule — signed only, widths 4/8 only; unsigned div/mod/shift
+are defined and unchecked, as with unsigned arithmetic).
+
+**Pre-op placement (the load-bearing decision).** The check is emitted **before** the guarded op
+(`ir_emit_div/mod/shl/shr/sar`), not after — because on x86-64 `idiv` by zero raises **#DE (SIGFPE)
+at the instruction itself**, so a post-check is unreachable. (aarch64 `sdiv`/riscv `div` by zero are
+*defined* results, so a post-check would work there, but pre-op is uniform and strictly earlier.)
+The checked temp (divisor/count) rides in `temp_dest` with `temp_src1 = TEMP_NONE` on **all** ISAs
+(the x86 branch of `zc_emit_ovf_trap` now carries the op code in `.imm` instead of dropping it — the
+original v1 x86 form predates these ops); the emitter tests `temp_dest`'s register. Liveness is safe
+without extra use-marking: the temp's interval is [first def, last use] and its last real use is the
+guarded op immediately after the trap, so the divisor/count is still in its register at the check
+(a post-shift placement was tried and fails on x86 — after the shift the count temp is dead and its
+register is reused, so the check read a stale value).
+
+**Per-ISA emission (skip-when-ok, each guard = one branch + one trap):**
+- **x86-64** (`asm_emitter.c` + `ast_lowering_mc.c`): div/rem = `test %r,%r; jnz skip; ud2`;
+  shift = `cmp $0,%r; jge L; ud2; L: cmp $W,%r; jl L2; ud2; L2:` where **W = width*8 bits**
+  (4/8-byte width → bound 32/64, *not* 4/8). The MC path encodes the compares as `0x83` (imm8),
+  never `0x81` (imm32) — `0x81` with one immediate byte eats three instruction bytes.
+- **aarch64** (`aarch64.c`/`aarch64_asm.c`): div/rem = `cbnz res,+4; brk #0`; shift =
+  `cmp res,#0; b.ge +4; brk; cmp res,#W; b.lt +4; brk`. The `cmp Xn,#imm` encoding is
+  **0xF100001F | imm<<10 | Rn<<5** (Rn in bits 9:5, Rd=XZR) — the tempting 0xF1000000|Rn is
+  `subs Rn_field-as-Rd, XZR, #imm`, which zeros the checked register (found empirically: a
+  false-trap + corrupted shift in the cross smoke).
+- **riscv64/riscv32** (`riscv64.c` raw + `riscv_asm.c` text, RV32 reuses both): div/rem =
+  `bne res,zero,+8; unimp`; shift = `li t0,W; bge res,zero,+8; unimp; blt res,t0,+8; unimp`
+  (t0 = compiler scratch, never allocated). **Both new-op blocks run before the
+  `width < 8 && is64` round-trip early-return** — that early-return is ADD/SUB/MUL-only and would
+  otherwise swallow the width-4 div/shift checks on RV64 (checking "does the divisor fit in 32
+  bits" instead of "is it zero").
+- **riscv32 width 8:** still skipped at lowering (rv32 i64 gap, §4d) — 32-bit div/shift checks
+  work natively.
+
+**Invariants pinned by the new gate corpus** (8 new `test/san/` files, all in `make test-san`):
+`san_ok_divshift.c` (non-zero divisors incl. −1, counts 0..30/0..62 — counts 4..30 in particular
+false-trapped while the bound was the byte width), `san_trap_{divzero,remzero,shiftcount,
+shiftcount_neg,shiftcount64}.c` (runtime zeros/counts via volatile loads so no pass can fold them
+away; negative count and width-8 bound get their own cases), and cross-ISA
+`san_trap_cross_{divzero,shift}.c` (32-bit, all 3 ISAs × -O0..-O3 × raw+text under qemu;
+`san_ok_cross_smoke.c` gained 32-bit div/rem/shift cases so the cross smoke exercises the new
+emitters' skip path). `tools/san_sweep.py`'s cross-trap list extended accordingly.
+
+**Pre-existing bug found and fixed on the way (not a sanitizer defect):** the **raw** AArch64
+div/mod emitters were hardcoded to `udiv` (0x9AC00800) — every *signed* division on raw-AOT
+aarch64 was miscompiled (e.g. `−100 / −7` → 1 instead of 14); the text path already selected
+`sdiv` via `c->lowering.div_is_unsigned`. `aarch64_emit_div/emit_mod` now select the encoding from
+that flag (`sdiv` = 0x9AC00C00); the dead `emit_idiv` helper got the correct sdiv encoding too.
+Surfaced by the new `div32(-100,-7)` smoke case. (The original cross smoke had no division, which
+is why it was never caught.)
+
+**Known pre-existing issue (documented, not fixed here):** `san_ok_cross_smoke.c`'s `f64loop` case
+fails at **-O2/-O3 on all three cross ISAs** (returns 7; `f64loop(10) != 123450L`) — reproduced on
+the pre-change file, so unrelated to this work. The sweep runs the ok-smoke at -O1 only (the
+cross-trap files cover -O0..-O3), so the gate stays green; a separate cross-ISA -O2 loop bug to
+track.
+
+**Type-tag verifier (I2) extended for the new ops:** `ir.c` now prints `OVF_TRAP rN [ovf=K]` in
+`-dump-ir`; `tools/verify/type_tag_verifier.py` I2 accepts `[ovf=3/4/5]` as a **pre-op** check —
+it must sit immediately before its guarded DIV/MOD/SHL/SHR/SAR and check that op's src2, and the
+`[ovf=5]` count tag may be a signed int *narrower* than the check width (int count on a long
+shift). `[ovf=0/1/2]` keep the original post-ALU rule.
+
+**Not yet started (roadmap items, unchanged):** `-fsanitize-trap` diagnostics (op-level site
+reporting when a trap fires — needs the runtime shim §4-as-built deliberately avoided) and the
+Phase 3 at-exit leak report in `zero_rt/heap.c` (§4.3).
 
 ZeroCC today has **host-side** sanitizers only — `make asan` builds the *compiler* with
 `-fsanitize=address,undefined`, which finds bugs in ZeroCC's own C, not in compiled programs.

@@ -658,11 +658,15 @@ static void zc_emit_ovf_trap(ZeroCCCompiler *c, uint32_t result_temp,
                              uint32_t a_temp, uint32_t b_temp, int w, int op) {
     if (w != 4 && w != 8) return;
     if (c->isa == ISA_X86_64) {
-        /* x86-64: the check reads the CPU OF flag (width 8) / the sign-
-         * extension round-trip of the result (width 4); the operands are not
-         * needed, so keep the trap operand-less (no extra liveness). */
+        /* x86-64: ADD/SUB/MUL read the CPU OF flag (width 8) / the
+         * sign-extension round-trip of the result (width 4); the operands
+         * are not needed, so keep the trap operand-less (no extra
+         * liveness). The op code still rides in .imm: DIV_ZERO/REM_ZERO/
+         * SHIFT_COUNT are register tests, not OF/round-trip checks, and
+         * the emitters dispatch on it (Sprint 166 follow-on). */
         ir_emit(c, (Instr){.op = OP_OVF_TRAP, .temp_dest = result_temp,
-            .temp_src1 = TEMP_NONE, .temp_src2 = TEMP_NONE, .imm = 0,
+            .temp_src1 = TEMP_NONE, .temp_src2 = TEMP_NONE,
+            .imm = (int16_t)op,
             .label_idx = 0, .width = (uint8_t)w});
     } else {
         /* aarch64 / riscv64 / riscv32: compare-based check needs the two
@@ -714,6 +718,61 @@ void zc_maybe_emit_ovf_trap_incdec(ZeroCCCompiler *c, ZeroCCASTArena *arena,
     /* inc/dec lower to `lvalue + (±step)` (a signed-int step) => ADD. */
     zc_emit_ovf_trap(c, result_temp, (uint32_t)a_temp, (uint32_t)b_temp,
                      zc_ovf_uac_width(lw, lu, 4, 0), ZC_OVF_OP_ADD);
+}
+
+/* zero_san follow-on (Sprint 166): div-by-zero check. Emits OP_OVF_TRAP with
+ * op = ZC_OVF_OP_DIV_ZERO, placed BEFORE the div (x86 idiv would raise
+ * SIGFPE first). temp_dest carries the divisor temp (src1 is TEMP_NONE), so
+ * the emitter tests it; the div is the temp's last real use, keeping it in
+ * its register across the check. No-op when the width is not 4/8 or
+ * sanitize_overflow is off. */
+void zc_maybe_emit_div_zero_trap(ZeroCCCompiler *c, ZeroCCASTArena *arena,
+                                 ZeroCCASTNode *node, uint32_t divisor_temp) {
+    if (!c->sanitize_overflow) return;
+    int lu = 0, ru = 0;
+    int lw = zero_cc_expr_int_info(c, arena, node->left, &lu);
+    int rw = zero_cc_expr_int_info(c, arena, node->right, &ru);
+    int w;
+    if (lw > rw)      w = (lu == 0) ? lw : 0;
+    else if (rw > lw) w = (ru == 0) ? rw : 0;
+    else              w = (lu == 0 && ru == 0) ? lw : 0;
+    if (w != 4 && w != 8) return;
+    zc_emit_ovf_trap(c, divisor_temp, TEMP_NONE, TEMP_NONE, w, ZC_OVF_OP_DIV_ZERO);
+}
+
+/* zero_san follow-on (Sprint 166): remainder-by-zero check. Same as
+ * div-zero but for the modulo operator (op = ZC_OVF_OP_REM_ZERO). */
+void zc_maybe_emit_rem_zero_trap(ZeroCCCompiler *c, ZeroCCASTArena *arena,
+                                 ZeroCCASTNode *node, uint32_t divisor_temp) {
+    if (!c->sanitize_overflow) return;
+    int lu = 0, ru = 0;
+    int lw = zero_cc_expr_int_info(c, arena, node->left, &lu);
+    int rw = zero_cc_expr_int_info(c, arena, node->right, &ru);
+    int w;
+    if (lw > rw)      w = (lu == 0) ? lw : 0;
+    else if (rw > lw) w = (ru == 0) ? rw : 0;
+    else              w = (lu == 0 && ru == 0) ? lw : 0;
+    if (w != 4 && w != 8) return;
+    zc_emit_ovf_trap(c, divisor_temp, TEMP_NONE, TEMP_NONE, w, ZC_OVF_OP_REM_ZERO);
+}
+
+/* zero_san follow-on (Sprint 166): shift-count check, placed BEFORE the
+ * shift (see div-zero above for the liveness rationale). Traps if the shift
+ * count is < 0 or >= the operand bit width. temp_dest carries the count
+ * temp (src1 is TEMP_NONE). No-op when the width is not 4/8 or
+ * sanitize_overflow is off. */
+void zc_maybe_emit_shift_count_trap(ZeroCCCompiler *c, ZeroCCASTArena *arena,
+                                     ZeroCCASTNode *node, uint32_t count_temp) {
+    if (!c->sanitize_overflow) return;
+    int lu = 0, ru = 0;
+    int lw = zero_cc_expr_int_info(c, arena, node->left, &lu);
+    int rw = zero_cc_expr_int_info(c, arena, node->right, &ru);
+    int w;
+    if (lw > rw)      w = (lu == 0) ? lw : 0;
+    else if (rw > lw) w = (ru == 0) ? rw : 0;
+    else              w = (lu == 0 && ru == 0) ? lw : 0;
+    if (w != 4 && w != 8) return;
+    zc_emit_ovf_trap(c, count_temp, TEMP_NONE, TEMP_NONE, w, ZC_OVF_OP_SHIFT_COUNT);
 }
 
 int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
@@ -1807,6 +1866,11 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                     ir_emit_zext(c, left_temp, 4);
                     ir_emit_zext(c, right_temp, 4);
                 }
+                /* Check BEFORE the div: x86 idiv raises SIGFPE on a zero
+                 * divisor, so a post-check is too late (aarch64/riscv div-
+                 * by-zero is defined, but a pre-check is equally valid).
+                 * The divisor temp is live across both instructions. */
+                zc_maybe_emit_div_zero_trap(c, arena, node, right_temp);
                 ir_emit_div(c, result_temp, left_temp, right_temp);
                 result_temp = zc_binop_bitfield_reduce(c, arena, node->left, AST_NULL, result_temp);
                 if (zero_cc_binop_is_unsigned(c, arena, node->left, node->right)) {
@@ -1824,6 +1888,8 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                     ir_emit_zext(c, left_temp, 4);
                     ir_emit_zext(c, right_temp, 4);
                 }
+                /* Check BEFORE the mod: see TK_SLASH (x86 idiv SIGFPE). */
+                zc_maybe_emit_rem_zero_trap(c, arena, node, right_temp);
                 ir_emit_mod(c, result_temp, left_temp, right_temp);
                 result_temp = zc_binop_bitfield_reduce(c, arena, node->left, AST_NULL, result_temp);
                 if (zero_cc_binop_is_unsigned(c, arena, node->left, node->right)) {
@@ -1841,6 +1907,10 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                 ir_emit_xor(c, result_temp, left_temp, right_temp);
                 break;
             case TK_SHL:
+                /* Check BEFORE the shift (uniform with TK_SLASH): the
+                 * count temp's last real use is the shift, so a post-check
+                 * would find its register already freed/reused. */
+                zc_maybe_emit_shift_count_trap(c, arena, node, right_temp);
                 ir_emit_shl(c, result_temp, left_temp, right_temp);
                 /* C11 6.5.8: the shift result is reduced to the width
                  * of the (un-promoted) bit-field when the left operand
@@ -1854,6 +1924,8 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                  * defined; gcc defines it as arithmetic for signed). */
                 int lu = 0;
                 zero_cc_expr_int_info(c, arena, node->left, &lu);
+                /* Check BEFORE the shift: see TK_SHL. */
+                zc_maybe_emit_shift_count_trap(c, arena, node, right_temp);
                 if (!lu) {
                     ir_emit_sar(c, result_temp, left_temp, right_temp);
                 } else {

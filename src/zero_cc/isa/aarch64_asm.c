@@ -787,7 +787,7 @@ static void aarch64_emit_jeq_asm(ZeroCCCompiler *, const char *label, FILE *out)
     fprintf(out, "\tb.eq\t%s\n", label);
 }
 
-/* zero_san (Sprint 163): compare-based signed-overflow check + trap (text).
+/* zero_san (Sprint 163+): compare-based signed-overflow check + trap (text).
  * Mirrors aarch64_emit_ovf_trap (raw). Uses a self-contained label for the
  * branch; `a`/`b` (dead operands) are clobbered in place. */
 static void aarch64_emit_ovf_trap_asm(ZeroCCCompiler *c, int res, int a, int b,
@@ -795,6 +795,33 @@ static void aarch64_emit_ovf_trap_asm(ZeroCCCompiler *c, int res, int a, int b,
     uint16_t lbl = c->ir_ovf_label++;
     char L[32];
     snprintf(L, sizeof L, ".Lovf_%u", (unsigned)lbl);
+    /* Follow-on (Sprint 166): div-by-zero / shift-count checks (mirrors the
+     * raw emitter). The divisor/count temp is in temp_dest (`res`; src1 is
+     * TEMP_NONE for these ops); the check precedes the div/shift. */
+    if (op == ZC_OVF_OP_DIV_ZERO || op == ZC_OVF_OP_REM_ZERO) {
+        /* cbnz res, L: skip brk when the divisor != 0 */
+        fprintf(out, "\tcbnz\t%s, %s\n", BE(c)->get_hw_reg_name(res), L);
+        BE(c)->emit_trap_asm(c, out);
+        BE(c)->emit_label_asm(c, L, out);
+        return;
+    }
+    if (op == ZC_OVF_OP_SHIFT_COUNT) {
+        /* Trap when the count is < 0 or >= the operand bit width (width*8;
+         * `width` is in bytes). */
+        char L2[32];
+        uint16_t lbl2 = c->ir_ovf_label++;
+        snprintf(L2, sizeof L2, ".Lovf_%u", (unsigned)lbl2);
+        const char *rn = BE(c)->get_hw_reg_name(res);
+        fprintf(out, "\tcmp\t%s, #0\n", rn);
+        fprintf(out, "\tb.ge\t%s\n", L);              /* count >= 0: no trap */
+        BE(c)->emit_trap_asm(c, out);
+        BE(c)->emit_label_asm(c, L, out);
+        fprintf(out, "\tcmp\t%s, #%d\n", rn, width * 8);
+        fprintf(out, "\tb.lt\t%s\n", L2);             /* count < width bits: no trap */
+        BE(c)->emit_trap_asm(c, out);
+        BE(c)->emit_label_asm(c, L2, out);
+        return;
+    }
     if (width < 8) {
         BE(c)->emit_extend_asm(c, a, res, 4, 1, out);   /* sxtw a, wres */
         BE(c)->emit_cmp_asm(c, res, a, out);            /* cmp res, a */
