@@ -175,7 +175,10 @@ typedef struct ZeroCCCompiler {
     /* Register allocator state */
     RegAllocator regalloc;                /* Linear-scan register allocator */
     int next_temp_id;                     /* Next temporary variable ID */
-    uint16_t ir_next_label;               /* Next IR label index */
+    uint16_t ir_next_label;               /* Next IR label index (resets per function) */
+    uint16_t ir_ovf_label;                /* Monotonic text-asm overflow-trap label seed
+                                             (never reset per function, so .Lovf_%u labels
+                                             stay unique across functions in one .s file) */
     /* Sprint 118 (type-system hardening #1): per-temp value-type tag table,
      * indexed by temp id (0..65534); lazily allocated, reset in ir_reset.
      * Stamped at lowering from the AST node's semantic TypeInfo (the

@@ -53,6 +53,69 @@ CROSS_TRAP_RC = {"aarch64": 133, "riscv64": 132, "riscv32": 132}
 CROSS_WIDE_ISAS = ["aarch64", "riscv64"]
 
 
+# Text-AOT (-S) path link recipes (Sprint 165): zerocc -S, cross-assemble, static
+# link. aarch64/riscv64 use the system cross gcc; riscv32 has no Debian rv32 libc,
+# so it assembles with the rv64 cross gcc (-march=rv32gc) and links explicitly
+# against the static-musl rv32 prefix ($ZC_RV32_MUSL or the in-tree default).
+CROSS_ASM_CC = {
+    "aarch64": ["aarch64-linux-gnu-gcc", "-mabi=lp64", "-march=armv8-a"],
+    "riscv64": ["riscv64-linux-gnu-gcc", "-mabi=lp64d", "-march=rv64gc"],
+    "riscv32": ["riscv64-linux-gnu-gcc", "-mabi=ilp32", "-march=rv32gc"],
+}
+PATHS = ["raw", "asm"]
+
+
+def rv32_prefix():
+    # Static-musl rv32 prefix. The Debian riscv64 cross gcc ships only an rv64
+    # libgcc (ABI-incompatible with elf32), so linking an rv32 static executable
+    # needs the committed static-musl crt/libc/libgcc from
+    # third_party/vendor/musl-cross/riscv32 (built by tools/setup_musl_cross.sh,
+    # also mirrored at /home/ubuntu/dev/musl-cross/riscv32 in this environment).
+    cand = [os.environ.get("ZC_RV32_MUSL", ""),
+            os.path.join(ROOT, "third_party", "vendor", "musl-cross", "riscv32"),
+            "/home/ubuntu/dev/musl-cross/riscv32"]
+    needed = ["Scrt1.o", "crti.o", "crtn.o", "libc.a", "libgcc.a"]
+    for c in cand:
+        if not c:
+            continue
+        lib = os.path.join(c, "lib")
+        if all(os.path.isfile(os.path.join(lib, f)) for f in needed):
+            return c
+    return None
+
+
+def build_cross(zerocc, isa, level, src, out, path):
+    """Compile src for `isa` with -fsanitize=undefined via the raw AOT path or
+    the text (-S + cross-assemble + static link) path. Returns (rc, err)."""
+    flags = ["--target", isa, f"-O{level}", "-fsanitize=undefined"]
+    if path == "raw":
+        rc, _, err = run([zerocc] + flags + [src, "-o", out])
+        return rc, err
+    asm = out + ".s"
+    rc, _, err = run([zerocc] + flags + ["-S", src, "-o", asm])
+    if rc != 0:
+        return rc, err
+    cc = CROSS_ASM_CC[isa]
+    if shutil.which(cc[0]) is None:
+        return 1, f"{cc[0]} not found"
+    if isa != "riscv32":
+        rc, _, err = run(cc + ["-static", asm, "-o", out])
+        return rc, err
+    pfx = rv32_prefix()
+    if pfx is None:
+        return 1, "RV32 musl prefix not found (set ZC_RV32_MUSL)"
+    obj = out + ".o"
+    rc, _, err = run(cc + ["-c", asm, "-o", obj])
+    if rc != 0:
+        return rc, err
+    lib = os.path.join(pfx, "lib")
+    rc, _, err = run(cc + ["-static", "-no-pie", "-Wl,-m,elf32lriscv", "-nostdlib",
+                           os.path.join(lib, "Scrt1.o"), os.path.join(lib, "crti.o"), obj,
+                           os.path.join(lib, "libc.a"), os.path.join(lib, "libgcc.a"),
+                           os.path.join(lib, "crtn.o"), "-o", out])
+    return rc, err
+
+
 def run(cmd, timeout=30):
     try:
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
@@ -157,22 +220,23 @@ def main():
                 print(f"  cross {isa}: qemu ({qemu}) not found - SKIPPED")
                 results.append({"test": "cross", "isa": isa, "status": "skip"})
                 continue
-            out = os.path.join(tmpdir, f"cross_{isa}")
-            rc, _, err = run([args.zerocc, "--target", isa, "-O1",
-                              "-fsanitize=undefined", cross_src, "-o", out])
-            if rc != 0:
-                fails += 1
-                results.append({"test": "cross", "isa": isa, "status": "FAIL",
-                                "detail": f"compile rc={rc}: {err.strip()[:200]}"})
-                continue
-            rc, outp, err = run([qemu, out])
-            ok = rc == 0
-            if not ok:
-                fails += 1
-            cross_done += 1
-            results.append({"test": "cross", "isa": isa, "rc": rc, "expect": 0,
-                            "status": "ok" if ok else "FAIL",
-                            "detail": err.strip()[:200]})
+            for path in PATHS:
+                out = os.path.join(tmpdir, f"cross_{isa}_{path}")
+                rc, err = build_cross(args.zerocc, isa, 1, cross_src, out, path)
+                if rc != 0:
+                    fails += 1
+                    results.append({"test": "cross", "isa": isa, "path": path,
+                                    "status": "FAIL",
+                                    "detail": f"compile rc={rc}: {err.strip()[:200]}"})
+                    continue
+                rc, outp, err = run([qemu, out])
+                ok = rc == 0
+                if not ok:
+                    fails += 1
+                cross_done += 1
+                results.append({"test": "cross", "isa": isa, "path": path, "rc": rc,
+                                "expect": 0, "status": "ok" if ok else "FAIL",
+                                "detail": err.strip()[:200]})
 
     # Cross-ISA trap-firing (Sprint 163): a real signed overflow must TRAP under
     # qemu on every ISA with a check. 32-bit on all three; 64-bit on aarch64 /
@@ -192,13 +256,13 @@ def main():
                     results.append({"test": tname, "isa": isa, "status": "skip"})
                     continue
                 for level in LEVELS:
-                    out = os.path.join(tmpdir, f"xtrap_{isa}_{level}")
-                    rc, _, err = run([args.zerocc, "--target", isa, f"-O{level}",
-                                      "-fsanitize=undefined", tsrc, "-o", out])
+                    for path in PATHS:
+                        out = os.path.join(tmpdir, f"xtrap_{isa}_{level}_{path}")
+                        rc, err = build_cross(args.zerocc, isa, level, tsrc, out, path)
                     if rc != 0:
                         fails += 1
                         results.append({"test": tname, "isa": isa, "level": level,
-                                        "status": "FAIL",
+                                        "path": path, "status": "FAIL",
                                         "detail": f"compile rc={rc}: {err.strip()[:200]}"})
                         continue
                     rc, _, err = run([qemu, out])
@@ -206,7 +270,8 @@ def main():
                     if not ok:
                         fails += 1
                     results.append({"test": tname, "isa": isa, "level": level,
-                                    "rc": rc, "expect": CROSS_TRAP_RC[isa],
+                                    "path": path, "rc": rc,
+                                    "expect": CROSS_TRAP_RC[isa],
                                     "status": "ok" if ok else "FAIL",
                                     "detail": err.strip()[:200]})
 
