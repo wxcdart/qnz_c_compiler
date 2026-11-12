@@ -449,13 +449,22 @@ static void riscv_emit_extend_asm(ZeroCCCompiler *c, int dst, int src, int width
 }
 
 /* CMP: no instruction needed; operands recorded in c->lowering.cmp_src1/2 (mirrors MC). */
+/* Forward decl (Sprint 170 rv32 i64 64-bit predicate materializer, defined
+ * with the pair emitters below). */
+static void riscv_emit_64_pred_asm(ZeroCCCompiler *c, int dst, int cond, FILE *out);
+
 static void riscv_emit_cmp_asm(ZeroCCCompiler *c, int src1, int src2, FILE *out) {
-    (void)c; (void)src1; (void)src2; (void)out;
+    (void)src1; (void)src2; (void)out;
+    c->lowering.cmp_is_64 = 0;  /* a 32-bit compare (Sprint 170) */
 }
 
 /* COND_SET: materialize predicate into dst (mirrors riscv64_emit_cond_set). */
 static void riscv_emit_cond_set_asm(ZeroCCCompiler *c, int dst, int cond, FILE *out) {
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
+    if (c->lowering.cmp_is_64) {
+        riscv_emit_64_pred_asm(c, dst, cond, out);  /* Sprint 170 (rv32 i64) */
+        return;
+    }
     if (c->lowering.cmp_is_fp) {
         switch (cond) {
             case 0: /* CC_LT: t0 < 0 */
@@ -910,6 +919,11 @@ static void riscv_emit_jmp_asm(ZeroCCCompiler *, const char *label, FILE *out) {
 
 /* JEQ: beq s1, s2, label */
 static void riscv_emit_jeq_asm(ZeroCCCompiler *c, const char *label, FILE *out) {
+    if (c->lowering.cmp_is_64) {  /* Sprint 170 (rv32 i64) */
+        riscv_emit_64_pred_asm(c, 5 /* t0 */, 4 /* EQ */, out);
+        fprintf(out, "\tbeq\tt0, zero, %s\n", label);
+        return;
+    }
     if (c->lowering.cmp_is_fp) {
         fprintf(out, "\tbeq\tt0, zero, %s\n", label);
     } else {
@@ -921,6 +935,11 @@ static void riscv_emit_jeq_asm(ZeroCCCompiler *c, const char *label, FILE *out) 
 
 /* JNE: bne s1, s2, label */
 static void riscv_emit_jne_asm(ZeroCCCompiler *c, const char *label, FILE *out) {
+    if (c->lowering.cmp_is_64) {  /* Sprint 170 (rv32 i64) */
+        riscv_emit_64_pred_asm(c, 5 /* t0 */, 5 /* NE */, out);
+        fprintf(out, "\tbne\tt0, zero, %s\n", label);
+        return;
+    }
     if (c->lowering.cmp_is_fp) {
         fprintf(out, "\tbne\tt0, zero, %s\n", label);
     } else {
@@ -932,6 +951,11 @@ static void riscv_emit_jne_asm(ZeroCCCompiler *c, const char *label, FILE *out) 
 
 /* JLT: blt s1, s2, label */
 static void riscv_emit_jlt_asm(ZeroCCCompiler *c, const char *label, FILE *out) {
+    if (c->lowering.cmp_is_64) {  /* Sprint 170 (rv32 i64) */
+        riscv_emit_64_pred_asm(c, 5 /* t0 */, 0 /* LT */, out);
+        fprintf(out, "\tbne\tt0, zero, %s\n", label);
+        return;
+    }
     if (c->lowering.cmp_is_fp) {
         fprintf(out, "\tblt\tt0, zero, %s\n", label);
     } else {
@@ -943,6 +967,11 @@ static void riscv_emit_jlt_asm(ZeroCCCompiler *c, const char *label, FILE *out) 
 
 /* JLE: bge s2, s1, label (ble s1, s2) */
 static void riscv_emit_jle_asm(ZeroCCCompiler *c, const char *label, FILE *out) {
+    if (c->lowering.cmp_is_64) {  /* Sprint 170 (rv32 i64) */
+        riscv_emit_64_pred_asm(c, 5 /* t0 */, 1 /* LE */, out);
+        fprintf(out, "\tbne\tt0, zero, %s\n", label);
+        return;
+    }
     if (c->lowering.cmp_is_fp) {
         fprintf(out, "\tble\tt0, zero, %s\n", label);
     } else {
@@ -954,6 +983,11 @@ static void riscv_emit_jle_asm(ZeroCCCompiler *c, const char *label, FILE *out) 
 
 /* JGT: blt s2, s1, label (bgt s1, s2) */
 static void riscv_emit_jgt_asm(ZeroCCCompiler *c, const char *label, FILE *out) {
+    if (c->lowering.cmp_is_64) {  /* Sprint 170 (rv32 i64) */
+        riscv_emit_64_pred_asm(c, 5 /* t0 */, 2 /* GT */, out);
+        fprintf(out, "\tbne\tt0, zero, %s\n", label);
+        return;
+    }
     if (c->lowering.cmp_is_fp) {
         fprintf(out, "\tbgt\tt0, zero, %s\n", label);
     } else {
@@ -965,6 +999,11 @@ static void riscv_emit_jgt_asm(ZeroCCCompiler *c, const char *label, FILE *out) 
 
 /* JGE: bge s1, s2, label */
 static void riscv_emit_jge_asm(ZeroCCCompiler *c, const char *label, FILE *out) {
+    if (c->lowering.cmp_is_64) {  /* Sprint 170 (rv32 i64) */
+        riscv_emit_64_pred_asm(c, 5 /* t0 */, 3 /* GE */, out);
+        fprintf(out, "\tbne\tt0, zero, %s\n", label);
+        return;
+    }
     if (c->lowering.cmp_is_fp) {
         fprintf(out, "\tbge\tt0, zero, %s\n", label);
     } else {
@@ -1539,6 +1578,272 @@ static void riscv_emit_trunc128_64_asm(ZeroCCCompiler *c, int dst, int slo, FILE
         fprintf(out, "\tmv\t%s, %s\n", BE(c)->get_hw_reg_name(dst), BE(c)->get_hw_reg_name(slo));
 }
 
+/* ---- Sprint 170 (rv32 i64): 64-bit (lo,hi) pair asm emitters ----
+ * Mirrors the raw emitters in riscv64.c. Local labels for the shift
+ * sequences get a per-call sequence number (unique within the output). */
+static void riscv_emit_64_pred_asm(ZeroCCCompiler *c, int dst, int cond, FILE *out) {
+    const char *dst_n = BE(c)->get_hw_reg_name(dst);
+    const char *t0_n = BE(c)->get_hw_reg_name(5), *t2_n = BE(c)->get_hw_reg_name(7),
+               *t5_n = BE(c)->get_hw_reg_name(30);
+    int alo = c->lowering.cmp64_s1_lo, ahi = c->lowering.cmp64_s1_hi;
+    int blo = c->lowering.cmp64_s2_lo, bhi = c->lowering.cmp64_s2_hi;
+    if (cond == 4) {  /* EQ */
+        fprintf(out, "\tsub\t%s, %s, %s\n", t0_n, BE(c)->get_hw_reg_name(ahi), BE(c)->get_hw_reg_name(bhi));
+        fprintf(out, "\tsltiu\t%s, %s, 1\n", t0_n, t0_n);
+        fprintf(out, "\tsub\t%s, %s, %s\n", t2_n, BE(c)->get_hw_reg_name(alo), BE(c)->get_hw_reg_name(blo));
+        fprintf(out, "\tsltiu\t%s, %s, 1\n", t2_n, t2_n);
+        fprintf(out, "\tand\t%s, %s, %s\n", dst_n, t0_n, t2_n);
+        return;
+    }
+    if (cond == 5) {  /* NE */
+        fprintf(out, "\tsub\t%s, %s, %s\n", t0_n, BE(c)->get_hw_reg_name(ahi), BE(c)->get_hw_reg_name(bhi));
+        fprintf(out, "\tsltiu\t%s, %s, 1\n", t0_n, t0_n);
+        fprintf(out, "\txori\t%s, %s, 1\n", t0_n, t0_n);
+        fprintf(out, "\tsub\t%s, %s, %s\n", t2_n, BE(c)->get_hw_reg_name(alo), BE(c)->get_hw_reg_name(blo));
+        fprintf(out, "\tsltiu\t%s, %s, 1\n", t2_n, t2_n);
+        fprintf(out, "\txori\t%s, %s, 1\n", t2_n, t2_n);
+        fprintf(out, "\tor\t%s, %s, %s\n", dst_n, t0_n, t2_n);
+        return;
+    }
+    const char *hi_f3 = (cond >= 6) ? "sltu" : "slt";
+    int hi1 = (cond == 2 || cond == 3 || cond == 8 || cond == 9) ? bhi : ahi;
+    int hi2 = (cond == 2 || cond == 3 || cond == 8 || cond == 9) ? ahi : bhi;
+    int lo1, lo2; int lo_neg = 0;
+    switch (cond) {
+        case 0: case 6:  lo1 = alo; lo2 = blo; break;
+        case 1: case 7:  lo1 = blo; lo2 = alo; lo_neg = 1; break;
+        case 2: case 8:  lo1 = blo; lo2 = alo; break;
+        default:         lo1 = alo; lo2 = blo; lo_neg = 1; break;
+    }
+    fprintf(out, "\t%s\t%s, %s, %s\n", hi_f3, t0_n, BE(c)->get_hw_reg_name(hi1), BE(c)->get_hw_reg_name(hi2));
+    fprintf(out, "\tsub\t%s, %s, %s\n", t5_n, BE(c)->get_hw_reg_name(hi1), BE(c)->get_hw_reg_name(hi2));
+    fprintf(out, "\tsltiu\t%s, %s, 1\n", t5_n, t5_n);
+    fprintf(out, "\tsltu\t%s, %s, %s\n", t2_n, BE(c)->get_hw_reg_name(lo1), BE(c)->get_hw_reg_name(lo2));
+    if (lo_neg) fprintf(out, "\txori\t%s, %s, 1\n", t2_n, t2_n);
+    fprintf(out, "\tand\t%s, %s, %s\n", t2_n, t2_n, t5_n);
+    fprintf(out, "\tor\t%s, %s, %s\n", dst_n, t0_n, t2_n);
+}
+
+static void riscv_emit_add64_asm(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi, FILE *out) {
+    const char *dlo_n = BE(c)->get_hw_reg_name(dlo), *dhi_n = BE(c)->get_hw_reg_name(dhi);
+    const char *alo_n = BE(c)->get_hw_reg_name(alo), *ahi_n = BE(c)->get_hw_reg_name(ahi);
+    const char *blo_n = BE(c)->get_hw_reg_name(blo), *bhi_n = BE(c)->get_hw_reg_name(bhi);
+    const char *t0_n = BE(c)->get_hw_reg_name(5), *t2_n = BE(c)->get_hw_reg_name(7);
+    fprintf(out, "\tadd\t%s, %s, %s\n", t0_n, alo_n, blo_n);
+    fprintf(out, "\tsltu\t%s, %s, %s\n", t2_n, t0_n, alo_n); /* carry: sum <u alo */
+    fprintf(out, "\tadd\t%s, %s, %s\n", dhi_n, ahi_n, bhi_n);
+    fprintf(out, "\tadd\t%s, %s, %s\n", dhi_n, dhi_n, t2_n);
+    fprintf(out, "\tmv\t%s, %s\n", dlo_n, t0_n);
+}
+static void riscv_emit_sub64_asm(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi, FILE *out) {
+    const char *dlo_n = BE(c)->get_hw_reg_name(dlo), *dhi_n = BE(c)->get_hw_reg_name(dhi);
+    const char *alo_n = BE(c)->get_hw_reg_name(alo), *ahi_n = BE(c)->get_hw_reg_name(ahi);
+    const char *blo_n = BE(c)->get_hw_reg_name(blo), *bhi_n = BE(c)->get_hw_reg_name(bhi);
+    const char *t0_n = BE(c)->get_hw_reg_name(5);
+    fprintf(out, "\tsltu\t%s, %s, %s\n", t0_n, blo_n, alo_n); /* borrow BEFORE the sub */
+    fprintf(out, "\tsub\t%s, %s, %s\n", dlo_n, alo_n, blo_n);
+    fprintf(out, "\tsub\t%s, %s, %s\n", dhi_n, ahi_n, bhi_n);
+    fprintf(out, "\tsub\t%s, %s, %s\n", dhi_n, dhi_n, t0_n);
+}
+static void riscv_emit_mul64_asm(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi, FILE *out) {
+    const char *dlo_n = BE(c)->get_hw_reg_name(dlo), *dhi_n = BE(c)->get_hw_reg_name(dhi);
+    const char *alo_n = BE(c)->get_hw_reg_name(alo), *ahi_n = BE(c)->get_hw_reg_name(ahi);
+    const char *blo_n = BE(c)->get_hw_reg_name(blo), *bhi_n = BE(c)->get_hw_reg_name(bhi);
+    const char *t0_n = BE(c)->get_hw_reg_name(5), *t2_n = BE(c)->get_hw_reg_name(7),
+               *t5_n = BE(c)->get_hw_reg_name(30);
+    fprintf(out, "\tmul\t%s, %s, %s\n", dlo_n, alo_n, blo_n);   /* P0.lo */
+    fprintf(out, "\tmulh\t%s, %s, %s\n", t0_n, alo_n, blo_n);   /* P0.hi */
+    fprintf(out, "\tmul\t%s, %s, %s\n", t5_n, ahi_n, blo_n);   /* P1a.lo */
+    fprintf(out, "\tmul\t%s, %s, %s\n", t2_n, alo_n, bhi_n);   /* P1b.lo */
+    fprintf(out, "\tadd\t%s, %s, %s\n", t0_n, t0_n, t5_n);
+    fprintf(out, "\tadd\t%s, %s, %s\n", t0_n, t0_n, t2_n);
+    fprintf(out, "\tmv\t%s, %s\n", dhi_n, t0_n);
+}
+static void riscv_emit_and64_asm(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi, FILE *out) {
+    fprintf(out, "\tand\t%s, %s, %s\n", BE(c)->get_hw_reg_name(dlo), BE(c)->get_hw_reg_name(alo), BE(c)->get_hw_reg_name(blo));
+    fprintf(out, "\tand\t%s, %s, %s\n", BE(c)->get_hw_reg_name(dhi), BE(c)->get_hw_reg_name(ahi), BE(c)->get_hw_reg_name(bhi));
+}
+static void riscv_emit_or64_asm(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi, FILE *out) {
+    fprintf(out, "\tor\t%s, %s, %s\n", BE(c)->get_hw_reg_name(dlo), BE(c)->get_hw_reg_name(alo), BE(c)->get_hw_reg_name(blo));
+    fprintf(out, "\tor\t%s, %s, %s\n", BE(c)->get_hw_reg_name(dhi), BE(c)->get_hw_reg_name(ahi), BE(c)->get_hw_reg_name(bhi));
+}
+static void riscv_emit_xor64_asm(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi, FILE *out) {
+    fprintf(out, "\txor\t%s, %s, %s\n", BE(c)->get_hw_reg_name(dlo), BE(c)->get_hw_reg_name(alo), BE(c)->get_hw_reg_name(blo));
+    fprintf(out, "\txor\t%s, %s, %s\n", BE(c)->get_hw_reg_name(dhi), BE(c)->get_hw_reg_name(ahi), BE(c)->get_hw_reg_name(bhi));
+}
+static void riscv_emit_not64_asm(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi, FILE *out) {
+    fprintf(out, "\txori\t%s, %s, -1\n", BE(c)->get_hw_reg_name(dlo), BE(c)->get_hw_reg_name(slo));
+    fprintf(out, "\txori\t%s, %s, -1\n", BE(c)->get_hw_reg_name(dhi), BE(c)->get_hw_reg_name(shi));
+}
+static void riscv_emit_neg64_asm(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi, FILE *out) {
+    const char *t0_n = BE(c)->get_hw_reg_name(5);
+    fprintf(out, "\tsub\t%s, zero, %s\n", BE(c)->get_hw_reg_name(dlo), BE(c)->get_hw_reg_name(slo));
+    fprintf(out, "\tsltiu\t%s, %s, 1\n", t0_n, BE(c)->get_hw_reg_name(dlo));
+    fprintf(out, "\txori\t%s, %s, -1\n", BE(c)->get_hw_reg_name(dhi), BE(c)->get_hw_reg_name(shi));
+    fprintf(out, "\tadd\t%s, %s, %s\n", BE(c)->get_hw_reg_name(dhi), BE(c)->get_hw_reg_name(dhi), t0_n);
+}
+
+/* 64-bit register-count shift (asm): named local labels, same branch shape
+ * as the raw emitter (t0/t2/t5 scratch only). */
+static unsigned riscv_64shift_lbl_seq = 0;
+static void riscv_emit_shl64_asm(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi, int cnt, FILE *out) {
+    unsigned seq = riscv_64shift_lbl_seq++;
+    char la[32], lb[32], le[32];
+    snprintf(la, sizeof la, ".Lshl64_1_%u", seq);
+    snprintf(lb, sizeof lb, ".Lshl64_2_%u", seq);
+    snprintf(le, sizeof le, ".Lshl64_e_%u", seq);
+    const char *dlo_n = BE(c)->get_hw_reg_name(dlo), *dhi_n = BE(c)->get_hw_reg_name(dhi);
+    const char *slo_n = BE(c)->get_hw_reg_name(slo), *shi_n = BE(c)->get_hw_reg_name(shi);
+    const char *cnt_n = BE(c)->get_hw_reg_name(cnt);
+    const char *t0_n = BE(c)->get_hw_reg_name(5), *t2_n = BE(c)->get_hw_reg_name(7),
+               *t5_n = BE(c)->get_hw_reg_name(30);
+    fprintf(out, "\tli\t%s, 32\n", t5_n);
+    fprintf(out, "\tblt\t%s, %s, %s\n", cnt_n, t5_n, la);
+    fprintf(out, "\tli\t%s, 64\n", t5_n);
+    fprintf(out, "\tblt\t%s, %s, %s\n", cnt_n, t5_n, lb);
+    fprintf(out, "\tli\t%s, 0\n", dlo_n);
+    fprintf(out, "\tli\t%s, 0\n", dhi_n);
+    fprintf(out, "\tj\t%s\n", le);
+    fprintf(out, "%s:\n", lb);  /* 32 <= cnt < 64: dlo = 0; dhi = slo << (cnt-32) */
+    fprintf(out, "\tli\t%s, 0\n", dlo_n);
+    fprintf(out, "\tsub\t%s, %s, %s\n", t5_n, cnt_n, t5_n);
+    fprintf(out, "\tsll\t%s, %s, %s\n", dhi_n, slo_n, t5_n);
+    fprintf(out, "\tj\t%s\n", le);
+    fprintf(out, "%s:\n", la);  /* 0 <= cnt < 32 */
+    fprintf(out, "\tli\t%s, 32\n", t5_n);
+    fprintf(out, "\tsub\t%s, %s, %s\n", t5_n, t5_n, cnt_n);
+    fprintf(out, "\tsrl\t%s, %s, %s\n", t2_n, slo_n, t5_n);
+    fprintf(out, "\tsll\t%s, %s, %s\n", dlo_n, slo_n, cnt_n);
+    fprintf(out, "\tsll\t%s, %s, %s\n", dhi_n, shi_n, cnt_n);
+    fprintf(out, "\taddi\t%s, %s, -1\n", t0_n, cnt_n);
+    fprintf(out, "\tsrai\t%s, %s, 31\n", t0_n, t0_n);
+    fprintf(out, "\txori\t%s, %s, -1\n", t0_n, t0_n);
+    fprintf(out, "\tand\t%s, %s, %s\n", t2_n, t2_n, t0_n);
+    fprintf(out, "\tor\t%s, %s, %s\n", dhi_n, dhi_n, t2_n);
+    fprintf(out, "%s:\n", le);
+}
+static void riscv_emit_shr64_asm(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi, int cnt, FILE *out) {
+    unsigned seq = riscv_64shift_lbl_seq++;
+    char la[32], lb[32], le[32];
+    snprintf(la, sizeof la, ".Lshr64_1_%u", seq);
+    snprintf(lb, sizeof lb, ".Lshr64_2_%u", seq);
+    snprintf(le, sizeof le, ".Lshr64_e_%u", seq);
+    const char *dlo_n = BE(c)->get_hw_reg_name(dlo), *dhi_n = BE(c)->get_hw_reg_name(dhi);
+    const char *slo_n = BE(c)->get_hw_reg_name(slo), *shi_n = BE(c)->get_hw_reg_name(shi);
+    const char *cnt_n = BE(c)->get_hw_reg_name(cnt);
+    const char *t2_n = BE(c)->get_hw_reg_name(7),
+               *t5_n = BE(c)->get_hw_reg_name(30);
+    fprintf(out, "\tli\t%s, 32\n", t5_n);
+    fprintf(out, "\tblt\t%s, %s, %s\n", cnt_n, t5_n, la);
+    fprintf(out, "\tli\t%s, 64\n", t5_n);
+    fprintf(out, "\tblt\t%s, %s, %s\n", cnt_n, t5_n, lb);
+    fprintf(out, "\tli\t%s, 0\n", dlo_n);
+    fprintf(out, "\tli\t%s, 0\n", dhi_n);
+    fprintf(out, "\tj\t%s\n", le);
+    fprintf(out, "%s:\n", lb);  /* 32 <= cnt < 64: dhi = 0; dlo = shi >> (cnt-32) */
+    fprintf(out, "\tli\t%s, 0\n", dhi_n);
+    fprintf(out, "\tsub\t%s, %s, %s\n", t5_n, cnt_n, t5_n);
+    fprintf(out, "\tsrl\t%s, %s, %s\n", dlo_n, shi_n, t5_n);
+    fprintf(out, "\tj\t%s\n", le);
+    fprintf(out, "%s:\n", la);  /* 0 <= cnt < 32 */
+    fprintf(out, "\tli\t%s, 32\n", t5_n);
+    fprintf(out, "\tsub\t%s, %s, %s\n", t5_n, t5_n, cnt_n);
+    fprintf(out, "\tsll\t%s, %s, %s\n", t2_n, shi_n, t5_n);
+    fprintf(out, "\tsrl\t%s, %s, %s\n", dlo_n, slo_n, cnt_n);
+    fprintf(out, "\tsrl\t%s, %s, %s\n", dhi_n, shi_n, cnt_n);
+    fprintf(out, "\taddi\t%s, %s, -1\n", t5_n, cnt_n);
+    fprintf(out, "\tsrai\t%s, %s, 31\n", t5_n, t5_n);
+    fprintf(out, "\txori\t%s, %s, -1\n", t5_n, t5_n);
+    fprintf(out, "\tand\t%s, %s, %s\n", t2_n, t2_n, t5_n);
+    fprintf(out, "\tor\t%s, %s, %s\n", dlo_n, dlo_n, t2_n);
+    fprintf(out, "%s:\n", le);
+}
+static void riscv_emit_sar64_asm(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi, int cnt, FILE *out) {
+    unsigned seq = riscv_64shift_lbl_seq++;
+    char la[32], lb[32], le[32];
+    snprintf(la, sizeof la, ".Lsar64_1_%u", seq);
+    snprintf(lb, sizeof lb, ".Lsar64_2_%u", seq);
+    snprintf(le, sizeof le, ".Lsar64_e_%u", seq);
+    const char *dlo_n = BE(c)->get_hw_reg_name(dlo), *dhi_n = BE(c)->get_hw_reg_name(dhi);
+    const char *slo_n = BE(c)->get_hw_reg_name(slo), *shi_n = BE(c)->get_hw_reg_name(shi);
+    const char *cnt_n = BE(c)->get_hw_reg_name(cnt);
+    const char *t2_n = BE(c)->get_hw_reg_name(7),
+               *t5_n = BE(c)->get_hw_reg_name(30);
+    fprintf(out, "\tli\t%s, 32\n", t5_n);
+    fprintf(out, "\tblt\t%s, %s, %s\n", cnt_n, t5_n, la);
+    fprintf(out, "\tli\t%s, 64\n", t5_n);
+    fprintf(out, "\tblt\t%s, %s, %s\n", cnt_n, t5_n, lb);
+    fprintf(out, "\tsrai\t%s, %s, 31\n", dlo_n, shi_n);
+    fprintf(out, "\tsrai\t%s, %s, 31\n", dhi_n, shi_n);
+    fprintf(out, "\tj\t%s\n", le);
+    fprintf(out, "%s:\n", lb);  /* 32 <= cnt < 64 */
+    fprintf(out, "\tsub\t%s, %s, %s\n", t5_n, cnt_n, t5_n);
+    fprintf(out, "\tsra\t%s, %s, %s\n", dlo_n, shi_n, t5_n);
+    fprintf(out, "\tsrai\t%s, %s, 31\n", dhi_n, shi_n);
+    fprintf(out, "\tj\t%s\n", le);
+    fprintf(out, "%s:\n", la);  /* 0 <= cnt < 32 */
+    fprintf(out, "\tli\t%s, 32\n", t5_n);
+    fprintf(out, "\tsub\t%s, %s, %s\n", t5_n, t5_n, cnt_n);
+    fprintf(out, "\tsll\t%s, %s, %s\n", t2_n, shi_n, t5_n);
+    fprintf(out, "\tsra\t%s, %s, %s\n", dhi_n, shi_n, cnt_n);
+    fprintf(out, "\tsrl\t%s, %s, %s\n", dlo_n, slo_n, cnt_n);
+    fprintf(out, "\taddi\t%s, %s, -1\n", t5_n, cnt_n);
+    fprintf(out, "\tsrai\t%s, %s, 31\n", t5_n, t5_n);
+    fprintf(out, "\txori\t%s, %s, -1\n", t5_n, t5_n);
+    fprintf(out, "\tand\t%s, %s, %s\n", t2_n, t2_n, t5_n);
+    fprintf(out, "\tor\t%s, %s, %s\n", dlo_n, dlo_n, t2_n);
+    fprintf(out, "%s:\n", le);
+}
+
+static void riscv_emit_cmp64_asm(ZeroCCCompiler *c, int a_lo, int a_hi, int b_lo, int b_hi, FILE *out) {
+    (void)a_lo; (void)a_hi; (void)b_lo; (void)b_hi; (void)out;  /* state recorded by the dispatch */
+    c->lowering.cmp_is_64 = 1;
+    c->lowering.cmp64_s1_lo = a_lo; c->lowering.cmp64_s1_hi = a_hi;
+    c->lowering.cmp64_s2_lo = b_lo; c->lowering.cmp64_s2_hi = b_hi;
+}
+static void riscv_emit_mov64_asm(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi, FILE *out) {
+    if (dlo != slo) fprintf(out, "\tmv\t%s, %s\n", BE(c)->get_hw_reg_name(dlo), BE(c)->get_hw_reg_name(slo));
+    if (dhi != shi) fprintf(out, "\tmv\t%s, %s\n", BE(c)->get_hw_reg_name(dhi), BE(c)->get_hw_reg_name(shi));
+}
+static void riscv_emit_load64_asm(ZeroCCCompiler *c, int dlo, int dhi, int base, int32_t offset, FILE *out) {
+    if (BE(c)->emit_load_asm) {
+        if (dlo == base) {
+            BE(c)->emit_load_asm(c, dhi, base, offset + 4, out);
+            BE(c)->emit_load_asm(c, dlo, base, offset, out);
+        } else {
+            BE(c)->emit_load_asm(c, dlo, base, offset, out);
+            BE(c)->emit_load_asm(c, dhi, base, offset + 4, out);
+        }
+    }
+}
+static void riscv_emit_store64_asm(ZeroCCCompiler *c, int slo, int shi, int base, int32_t offset, FILE *out) {
+    if (BE(c)->emit_store_asm) {
+        BE(c)->emit_store_asm(c, slo, base, offset, out);
+        BE(c)->emit_store_asm(c, shi, base, offset + 4, out);
+    }
+}
+static void riscv_emit_zext32_64_asm(ZeroCCCompiler *c, int dlo, int dhi, int src, FILE *out) {
+    fprintf(out, "\tmv\t%s, %s\n", BE(c)->get_hw_reg_name(dlo), BE(c)->get_hw_reg_name(src));
+    fprintf(out, "\tli\t%s, 0\n", BE(c)->get_hw_reg_name(dhi));
+}
+static void riscv_emit_sext32_64_asm(ZeroCCCompiler *c, int dlo, int dhi, int src, FILE *out) {
+    /* dlo first: dhi may alias src (the srai would clobber it). */
+    fprintf(out, "\tmv\t%s, %s\n", BE(c)->get_hw_reg_name(dlo), BE(c)->get_hw_reg_name(src));
+    fprintf(out, "\tmv\t%s, %s\n", BE(c)->get_hw_reg_name(dhi), BE(c)->get_hw_reg_name(src));
+    fprintf(out, "\tsrai\t%s, %s, 31\n", BE(c)->get_hw_reg_name(dhi), BE(c)->get_hw_reg_name(dhi));
+}
+static void riscv_emit_trunc64_32_asm(ZeroCCCompiler *c, int dst, int slo, int shi, FILE *out) {
+    (void)shi;
+    if (dst != slo)
+        fprintf(out, "\tmv\t%s, %s\n", BE(c)->get_hw_reg_name(dst), BE(c)->get_hw_reg_name(slo));
+}
+static void riscv_emit_mov64_imm_asm(ZeroCCCompiler *c, int dlo, int dhi, int64_t imm, FILE *out) {
+    int64_t lo = (int32_t)(imm & 0xFFFFFFFFLL);
+    int64_t hi = (int32_t)((uint64_t)imm >> 32);
+    fprintf(out, "\tli\t%s, %lld\n", BE(c)->get_hw_reg_name(dlo), (long long)lo);
+    fprintf(out, "\tli\t%s, %lld\n", BE(c)->get_hw_reg_name(dhi), (long long)hi);
+}
+
 static void riscv_emit_inline_asm_asm(ZeroCCCompiler *c, size_t idx, FILE *out) {
     const Instr *instr = ir_get(c, idx);
     if (!instr) return;
@@ -1799,6 +2104,28 @@ void riscv64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_zext64_128_asm = riscv_emit_zext64_128_asm;
     be->emit_sext64_128_asm = riscv_emit_sext64_128_asm;
     be->emit_trunc128_64_asm = riscv_emit_trunc128_64_asm;
+    /* Sprint 170 (rv32 i64): 64-bit pair asm emitters. Installed on both
+     * RISC-V tables (harmless on rv64 - the lowering never emits *64 ops
+     * there and cmp_is_64 is never set). */
+    be->emit_add64_asm = riscv_emit_add64_asm;
+    be->emit_sub64_asm = riscv_emit_sub64_asm;
+    be->emit_mul64_asm = riscv_emit_mul64_asm;
+    be->emit_and64_asm = riscv_emit_and64_asm;
+    be->emit_or64_asm = riscv_emit_or64_asm;
+    be->emit_xor64_asm = riscv_emit_xor64_asm;
+    be->emit_not64_asm = riscv_emit_not64_asm;
+    be->emit_neg64_asm = riscv_emit_neg64_asm;
+    be->emit_shl64_asm = riscv_emit_shl64_asm;
+    be->emit_shr64_asm = riscv_emit_shr64_asm;
+    be->emit_sar64_asm = riscv_emit_sar64_asm;
+    be->emit_cmp64_asm = riscv_emit_cmp64_asm;
+    be->emit_mov64_asm = riscv_emit_mov64_asm;
+    be->emit_load64_asm = riscv_emit_load64_asm;
+    be->emit_store64_asm = riscv_emit_store64_asm;
+    be->emit_zext32_64_asm = riscv_emit_zext32_64_asm;
+    be->emit_sext32_64_asm = riscv_emit_sext32_64_asm;
+    be->emit_trunc64_32_asm = riscv_emit_trunc64_32_asm;
+    be->emit_mov64_imm_asm = riscv_emit_mov64_imm_asm;
     be->emit_lea_asm = riscv_emit_lea_asm;
     be->emit_deref_asm = riscv_emit_deref_asm;
     be->emit_call_asm = riscv_emit_call_asm;

@@ -19,6 +19,28 @@
  * large frames); defined in riscv64.c. */
 extern void riscv64_emit_mov_imm(ZeroCCCompiler *c, int dst_reg, int64_t imm);
 
+/* Sprint 170 (rv32 i64): the 64-bit (lo,hi) pair emitters, defined in
+ * riscv64.c (shared MC code) and installed on the RV32 vtable below. */
+extern void riscv64_emit_add64(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi);
+extern void riscv64_emit_sub64(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi);
+extern void riscv64_emit_mul64(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi);
+extern void riscv64_emit_and64(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi);
+extern void riscv64_emit_or64(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi);
+extern void riscv64_emit_xor64(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi);
+extern void riscv64_emit_not64(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi);
+extern void riscv64_emit_neg64(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi);
+extern void riscv64_emit_shl64(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi, int cnt);
+extern void riscv64_emit_shr64(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi, int cnt);
+extern void riscv64_emit_sar64(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi, int cnt);
+extern void riscv64_emit_cmp64(ZeroCCCompiler *c, int a_lo, int a_hi, int b_lo, int b_hi);
+extern void riscv64_emit_mov64(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi);
+extern void riscv64_emit_load64(ZeroCCCompiler *c, int dlo, int dhi, int base, int32_t offset);
+extern void riscv64_emit_store64(ZeroCCCompiler *c, int s_lo, int s_hi, int base, int32_t offset);
+extern void riscv64_emit_zext32_64(ZeroCCCompiler *c, int dlo, int dhi, int src);
+extern void riscv64_emit_sext32_64(ZeroCCCompiler *c, int dlo, int dhi, int src);
+extern void riscv64_emit_trunc64_32(ZeroCCCompiler *c, int dst, int s_lo, int s_hi);
+extern void riscv64_emit_mov64_imm(ZeroCCCompiler *c, int dlo, int dhi, int64_t imm);
+
 /* RISC-V 32-bit calling convention (similar but different register sizes) */
 static const int riscv32_int_arg_regs[] = {10, 11, 12, 13, 14, 15, 16, 17};  /* a0-a7 */
 static const int riscv32_fp_arg_regs[] = {10, 11, 12, 13, 14, 15, 16, 17};  /* fa0-fa7 */
@@ -141,4 +163,41 @@ void riscv32_init_backend(void) {
     riscv32_backend.g128_scratch_pair_count = 0;
     riscv32_backend.emit_mul128_spilled = NULL;
     riscv32_backend.emit_mul128_mixed = NULL;
+
+    /* Sprint 170 (rv32 i64): the 64-bit pair ops need reserved spill-scratch
+     * pairs. Reuse the GPR128 pair slots (t1,t3) / (t4,t6) - on rv32 there
+     * are no 128-bit values, so the pairs are exclusively GPR64 scratch. The
+     * pair emitters additionally use t0 (5) and t5 (30) as carry/shift
+     * scratch, and t2 (7) is unallocatable on rv32 (see regalloc.h) so it
+     * serves as the MUL64 third scratch. None of these is clobbered by
+     * emit_load/emit_store (large offsets use t5 only) or emit_mov_imm
+     * (rv32 writes only the destination). */
+    riscv32_backend.g128_scratch_lo[0] = 6;   /* t1 */
+    riscv32_backend.g128_scratch_hi[0] = 28;  /* t3 */
+    riscv32_backend.g128_scratch_lo[1] = 29;  /* t4 */
+    riscv32_backend.g128_scratch_hi[1] = 31;  /* t6 */
+    riscv32_backend.g128_scratch_pair_count = 2;
+
+    /* The RV64 table inherited 128-bit emitters; keep them (dead on rv32 -
+     * the lowering rejects 128-bit) but install the 64-bit pair emitters. */
+    riscv32_backend.emit_add64 = riscv64_emit_add64;
+    riscv32_backend.emit_sub64 = riscv64_emit_sub64;
+    riscv32_backend.emit_mul64 = riscv64_emit_mul64;
+    riscv32_backend.emit_and64 = riscv64_emit_and64;
+    riscv32_backend.emit_or64 = riscv64_emit_or64;
+    riscv32_backend.emit_xor64 = riscv64_emit_xor64;
+    riscv32_backend.emit_not64 = riscv64_emit_not64;
+    riscv32_backend.emit_neg64 = riscv64_emit_neg64;
+    riscv32_backend.emit_shl64 = riscv64_emit_shl64;
+    riscv32_backend.emit_shr64 = riscv64_emit_shr64;
+    riscv32_backend.emit_sar64 = riscv64_emit_sar64;
+    riscv32_backend.emit_cmp64 = riscv64_emit_cmp64;
+    riscv32_backend.emit_mov64 = riscv64_emit_mov64;
+    riscv32_backend.emit_load64 = riscv64_emit_load64;
+    riscv32_backend.emit_store64 = riscv64_emit_store64;
+    riscv32_backend.emit_zext32_64 = riscv64_emit_zext32_64;
+    riscv32_backend.emit_sext32_64 = riscv64_emit_sext32_64;
+    riscv32_backend.emit_trunc64_32 = riscv64_emit_trunc64_32;
+    riscv32_backend.emit_mov64_imm = riscv64_emit_mov64_imm;
+    /* DIV64/MOD64/UDIV64/UMOD64: NULL until Phase 3 (libgcc __divdi3 & co). */
 }

@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-11-10T05:24:16Z
+timestamp: 2026-11-12T19:59:09Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -329,6 +329,20 @@ A 128-bit integer value is a **pair of GPRs** (`REG_CLASS_GPR128`: low in `assig
   - **x86-64 `mul128_mixed` opcode byte**: line 159 of `src/zero_cc/isa/x86_64.c` defined `mul_op` as `{0xFF}` (`/4` encodes `jmp *%reg`), crashing on register-form 128-bit multiplications; corrected to `{0xF7}` (`mul %reg`).
   - **Text-AOT Call FP Spill Reloads**: in `x86_64_asm.c`, `aarch64_asm.c`, and `riscv_asm.c`, `emit_call_asm` failed to check if an FP argument temp was spilled (`phys_reg == -1`, `sp >= 0`), defaulting to register 0 and omitting the stack reload; added `emit_load_fp_asm` from `spill_base_offset + (sp + 1) * 8`.
   - **RISC-V Text Comparison Flag Materialization**: `riscv_emit_cmp_asm` previously emitted `sub t0, src1, src2; mv t1, src1; mv t2, src2` while `riscv_emit_cond_set_asm` read `t1/t2` for unsigned comparisons. When both operands spilled (`src1 == t0`, `src2 == t1`), the subtract clobbered `t0` before the moves, leaving both `t1` and `t2` holding `src1 - src2` and making `t2 <u t1` evaluate to 0 (broke unsigned and 128-bit relational comparisons in `int128_arith.c`). Aligned with the MC path: `riscv_emit_cmp_asm` is a no-op, operands are recorded in `c->lowering.cmp_src1/2`, and `riscv_emit_cond_set_asm` + branch emitters emit `slt`/`sltu`/`beq`/`bne`/`blt`/`bge` directly from operand registers.
+
+## RV32 64-bit Integer Arithmetic (`REG_CLASS_GPR64`, Sprint 170)
+On 32-bit RISC-V (`--target riscv32`, ILP32 ABI), 64-bit integers (`long long` / `int64_t`) are decomposed into **(lo,hi) 32-bit GPR pairs** (`REG_CLASS_GPR64`), mirroring the GPR128 pair allocation model:
+- **Register Allocation**: `gpr128_alloc_pair` allocates adjacent callee-saved registers (`s1`, `s2..s11`). Spilled temps occupy an 8-byte stack slot (`slot*8` for lo, `slot*8 + 4` for hi). Temporary renumbering pool count expanded to `TR_POOL_COUNT = 8 * 256`.
+- **Scratch Invariants**: `t0` (5) and `t5` (30) serve as carry/shift scratch. `t2` (7) is reserved as unallocatable on rv32 to serve as third multiply/scratch.
+- **Operations & Emitters**:
+  - `ADD64`/`SUB64`: 32-bit `add` + unsigned overflow carry `sltu t2, sum, alo` / borrow `sltu t0, blo, alo`.
+  - `MUL64`: low 64 bits of 64x64 product: `alo*blo` + cross terms `ahi*blo + alo*bhi`.
+  - `AND64`/`OR64`/`XOR64`/`NOT64`/`NEG64`: elementwise 32-bit bitwise logic; two's-complement negation with carry.
+  - `SHL64`/`SHR64`/`SAR64`: 3-way branch `<32`, `32..63`, `>=64` with cross terms read before dest clobber; alias-safe.
+  - `CMP64` + predicate materialization: `EQ`, `NE`, `LT`, `LE`, `GT`, `GE` signed/unsigned comparisons.
+  - `MOV64_IMM`: loads low word into `dlo`, high word into `dhi`.
+  - `LOAD64`/`STORE64`: adjacent 32-bit memory access with alias-safe load ordering.
+- **Frontend Lowering**: Intercepts 64-bit binops, compound/simple assignments (`ast_lowering_assign.c`), local declaration initializers (`ast_lowering_stmt.c`), and identifier loads (`ast_lowering_expr.c`), normalizing constants via `zc_operand_to64`.
 
 ## GNU `__float128` (quad precision) Support (Sprint 112)
 `__float128` is a 16-byte, 16-aligned scalar floating type. ZeroCC models it with the **same object/value model as `long double`**: the value travels through the 64-bit double value model (value in the low 8 bytes of the 16-byte storage); true binary128 (113-bit significand) arithmetic is **not** implemented. This is a deliberate v1: the compiler's FP pipeline is IEEE-754 double throughout (FADD/FSUB/... and the FP register ABI are 64-bit), so the full cost of a 128-bit FP value model (software mul/div, 3-register pass-by-value, libm) is not justified yet. Values exactly representable in double produce results identical to a true binary128 implementation, which is what the regression gate relies on.

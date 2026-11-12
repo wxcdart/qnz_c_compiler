@@ -195,6 +195,33 @@ static inline void zc_sym_store(ZeroCCCompiler *c, const ZeroCCSym *sym, int32_t
     }
 }
 
+/* Sprint 170 (rv32 i64): 64-bit (lo,hi) pair load/store of a local symbol.
+ * `dest`/`val` are GPR64 temps (a (lo,hi) 32-bit GPR pair). The value lives
+ * as two adjacent 32-bit words at the symbol's frame slot (or data-section
+ * object). Frame slots materialize the address with a LEA then use the
+ * pointer-form 64-bit load/store (the frame-load OP_MOV convention only
+ * expresses a single 32-bit word on rv32). rv32 only. */
+static inline void zc_sym_load64(ZeroCCCompiler *c, const ZeroCCSym *sym, int32_t extra, int dest) {
+    if (zc_sym_uses_data_section(sym)) {
+        int a = zc_sym_addr(c, sym, extra);
+        ir_emit_load64(c, dest, a, 0);
+    } else {
+        int a = c->next_temp_id++;
+        ir_emit_lea(c, a, BE(c)->fp_reg, -sym->stack_offset + extra);
+        ir_emit_load64(c, dest, a, 0);
+    }
+}
+static inline void zc_sym_store64(ZeroCCCompiler *c, const ZeroCCSym *sym, int32_t extra, int val) {
+    if (zc_sym_uses_data_section(sym)) {
+        int a = zc_sym_addr(c, sym, extra);
+        ir_emit_store64(c, val, a, 0);
+    } else {
+        int a = c->next_temp_id++;
+        ir_emit_lea(c, a, BE(c)->fp_reg, -sym->stack_offset + extra);
+        ir_emit_store64(c, val, a, 0);
+    }
+}
+
 /* C99 narrow-integer width semantics. The machine word is 64 bits, so
  * 1/2/4-byte integer values must be explicitly extended to full width at
  * every load/use boundary, otherwise overflowed `int` results keep 64-bit
@@ -733,6 +760,11 @@ int zc_lower_binop128(ZeroCCCompiler *c, ZeroCCASTArena *arena,
                       ZeroCCASTNode *cr_node, const TypeInfo *cl_ti,
                       const TypeInfo *cr_ti);
 bool zc_node_is_int128(ZeroCCCompiler *c, const ZeroCCASTNode *node);
+/* Sprint 170 (rv32 i64): 64-bit integer node / binop lowering (see
+ * ast_lowering_binop.c). */
+bool zc_node_is_int64(ZeroCCCompiler *c, const ZeroCCASTNode *node);
+int zc_lower_binop64(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node);
+int zc_operand_to64(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef oref);
 
 /* zero_san v1 signed-overflow traps (Sprint 116 / Sprint 161 extension):
  * emit OP_OVF_TRAP immediately after a signed +,-,* — for a binary op OR a

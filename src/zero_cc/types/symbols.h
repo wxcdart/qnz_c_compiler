@@ -45,6 +45,14 @@ typedef struct ZeroCCCompiler {
      * 64-bit temp (a constant, a narrow value, a boolean, ...). Consumers
      * (assignment, binop) use it to decide whether to widen to GPR128. */
     int last_expr_is_128;
+    /* Sprint 170 (rv32 i64): 1 if the most recent lower_expr produced a
+     * 64-bit (lo,hi) GPR64 value (a 64-bit local/global load, a 64-bit
+     * arithmetic binop/unop, or a 64-bit cast) on --target riscv32; 0
+     * otherwise (a 32-bit temp, a constant, a pointer, ...). Mirrors
+     * last_expr_is_128 but for the 64-bit pair ops. Consumers (assignment,
+     * binop) use it to decide whether to emit *64 pair ops. Always 0 on
+     * non-rv32 targets. */
+    int last_expr_is_64;
     /* Pointer stars consumed by the most recent zero_cc_parse_type_name
      * call (declarator stars immediately following the base specifier,
      * e.g. the `*` in `char *a, *b;`).  Multi-declarator parsing uses this

@@ -628,6 +628,127 @@ bool zc_node_is_int128(ZeroCCCompiler *c, const ZeroCCASTNode *node) {  /* Sprin
     return false;
 }
 
+/* Sprint 170 (rv32 i64): true when the node's value is a 64-bit integer
+ * (the compiler models `long`/`long long` as 64-bit = TYPE_KIND_LONG /
+ * TYPE_INT64|UINT64). Pointers are a different kind and never match. */
+bool zc_node_is_int64(ZeroCCCompiler *c, const ZeroCCASTNode *node) {
+    if (!node) return false;
+    const TypeInfo *ti = ast_node_get_typeinfo(c, node);
+    if (ti && ti->kind == TYPE_KIND_LONG && type_size(ti) == 8) return true;
+    if (node->tag == NODE_IDENT && node->s.str) {
+        ZeroCCSym *s = zero_cc_find_local(c, node->s.str);
+        if (s && (s->type.tag == TYPE_INT64 || s->type.tag == TYPE_UINT64)) return true;
+        ZeroCCGlobalVar *gv = find_global_var(c, node->s.str);
+        if (gv && (gv->type.tag == TYPE_INT64 || gv->type.tag == TYPE_UINT64)) return true;
+    }
+    return false;
+}
+
+/* Sprint 170 (rv32 i64): lower a 64-bit binop operand to a GPR64 (lo,hi) temp.
+ * A NODE_INT constant is emitted directly as a 64-bit immediate (the 32-bit
+ * mov_imm path would drop the high word); a 64-bit value (a 64-bit load or a
+ * nested 64-bit op) passes through; any narrower integer is sign/zero-
+ * extended to 64 per its signedness (C usual arithmetic conversions). */
+int zc_operand_to64(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef oref) {
+    ZeroCCASTNode *onode = zero_cc_ast_get(arena, oref);
+    if (onode && onode->tag == NODE_INT) {
+        int us = 0;
+        int w = zero_cc_expr_int_info(c, arena, oref, &us);
+        int64_t v = onode->int_val;
+        if (w < 8) {
+            if (us) v = (int64_t)(uint64_t)(uint32_t)(int32_t)v;  /* zero-extend 32 */
+            else     v = (int64_t)(int32_t)(int32_t)v;             /* sign-extend 32 */
+        }
+        int d = zc_alloc_temp(c);
+        ir_emit_mov64_imm(c, d, v);
+        return d;
+    }
+    int t = lower_expr(c, arena, oref);
+    if (c->last_expr_is_64) return t;  /* already a GPR64 temp */
+    int us = 0;
+    zero_cc_expr_int_info(c, arena, oref, &us);
+    int d = zc_alloc_temp(c);
+    if (us) ir_emit_zext32_64(c, d, t);
+    else    ir_emit_sext32_64(c, d, t);
+    return d;
+}
+
+/* Sprint 170 (rv32 i64): lower a 64-bit integer binop (add/sub/mul, bitwise
+ * and/or/xor, shifts, ordered/equality compares) on the (lo,hi) GPR64 pair.
+ * Returns the result GPR64 temp, or TEMP_NONE when the op is not a Phase-1
+ * 64-bit integer op (div/rem are Phase 3; pointer/float/logical fall through
+ * to the 32-bit path). The result is a GPR64 temp and sets last_expr_is_64. */
+int zc_lower_binop64(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
+    uint32_t op = node->aux.op;
+    bool is_arith = (op == TK_PLUS || op == TK_MINUS || op == TK_STAR);
+    bool is_logic = (op == TK_AMP || op == TK_PIPE || op == TK_CARET);
+    bool is_shift = (op == TK_SHL || op == TK_SHR);
+    bool is_cmp   = (op == TK_EQ || op == TK_NE || op == TK_LT ||
+                     op == TK_LE || op == TK_GT || op == TK_GE);
+    if (!is_arith && !is_logic && !is_shift && !is_cmp) return TEMP_NONE;
+
+    /* A float operand is not a 64-bit integer op. */
+    ZeroCCASTNode *ln = zero_cc_ast_get(arena, node->left);
+    ZeroCCASTNode *rn = zero_cc_ast_get(arena, node->right);
+    if (ln && (ln->tag == NODE_FLOAT)) return TEMP_NONE;
+    if (rn && (rn->tag == NODE_FLOAT)) return TEMP_NONE;
+
+    int l, r;
+    if (is_shift) {
+        /* value operand -> 64-bit; count operand -> 32-bit (trunc if 64). */
+        l = zc_operand_to64(c, arena, node->left);
+        r = lower_expr(c, arena, node->right);
+        if (c->last_expr_is_64) {
+            int t = zc_alloc_temp(c);
+            ir_emit_trunc64_32(c, t, r);
+            r = t;
+        }
+    } else {
+        l = zc_operand_to64(c, arena, node->left);
+        r = zc_operand_to64(c, arena, node->right);
+    }
+
+    int result_temp = zc_alloc_temp(c);
+    if (is_arith) {
+        if (op == TK_PLUS)      ir_emit_add64(c, result_temp, l, r);
+        else if (op == TK_MINUS) ir_emit_sub64(c, result_temp, l, r);
+        else                     ir_emit_mul64(c, result_temp, l, r);
+    } else if (is_logic) {
+        if (op == TK_AMP)      ir_emit_and64(c, result_temp, l, r);
+        else if (op == TK_PIPE) ir_emit_or64(c, result_temp, l, r);
+        else                    ir_emit_xor64(c, result_temp, l, r);
+    } else if (is_shift) {
+        if (op == TK_SHL) ir_emit_shl64(c, result_temp, l, r);
+        else {
+            /* Signed >> is an arithmetic shift (C: gcc defines it so). */
+            int lu = 0;
+            zero_cc_expr_int_info(c, arena, node->left, &lu);
+            if (lu) ir_emit_shr64(c, result_temp, l, r);  /* unsigned: logical */
+            else    ir_emit_sar64(c, result_temp, l, r);  /* signed: arithmetic */
+        }
+    } else { /* is_cmp */
+        int cond;
+        switch (op) {
+            case TK_EQ: cond = CC_EQ; break;
+            case TK_NE: cond = CC_NE; break;
+            case TK_LT: cond = CC_LT; break;
+            case TK_LE: cond = CC_LE; break;
+            case TK_GT: cond = CC_GT; break;
+            default:    cond = CC_GE; break;
+        }
+        if (cond >= CC_LT && cond <= CC_GE &&
+            zero_cc_binop_is_unsigned(c, arena, node->left, node->right)) {
+            cond += 6;  /* signed -> unsigned variant (matches the 32-bit path) */
+        }
+        ir_emit_cmp64(c, l, r);
+        ir_emit_cond_set(c, result_temp, cond);
+        c->last_expr_is_64 = 0;  /* the result is a 0/1 boolean, not 64-bit */
+        return result_temp;
+    }
+    c->last_expr_is_64 = 1;
+    return result_temp;
+}
+
 /* zero_san v1 (-fsanitize=undefined): the signed-integer-overflow check
  * width. The check width is the width of the CONVERSION result (C99 6.3.1.8
  * usual arithmetic conversions) — the op computes in 64-bit registers on
@@ -798,6 +919,17 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                     !(cr_ti && cr_ti->kind == TYPE_KIND_COMPLEX)) {
                     int r128 = zc_lower_binop128(c, arena, node, cl_node, cr_node, cl_ti, cr_ti);
                     if (r128 != TEMP_NONE) { c->last_expr_is_float = 0; return r128; }
+                }
+            }
+            /* Sprint 170 (rv32 i64): a 64-bit integer operand (and not a
+             * complex/128 op) lowers on the (lo,hi) GPR64 pair. */
+            if (c->isa == ISA_RISCV32 &&
+                !((cres_ti && cres_ti->kind == TYPE_KIND_COMPLEX) ||
+                  (cl_ti && cl_ti->kind == TYPE_KIND_COMPLEX) ||
+                  (cr_ti && cr_ti->kind == TYPE_KIND_COMPLEX))) {
+                if (zc_node_is_int64(c, cl_node) || zc_node_is_int64(c, cr_node)) {
+                    int r64 = zc_lower_binop64(c, arena, node);
+                    if (r64 != TEMP_NONE) { c->last_expr_is_float = 0; return r64; }
                 }
             }
             bool is_cx_eqne = (node->aux.op == TK_EQ || node->aux.op == TK_NE) &&

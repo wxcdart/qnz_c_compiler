@@ -34,6 +34,9 @@ typedef enum RegClass {
     REG_CLASS_VEC,    /* Vector registers (XMM/NEON/RVV): xmm0-xmm15/v0-v31 */
     REG_CLASS_GPR128, /* GNU __int128: a pair of GPRs (lo = assigned_reg, hi =
                         * assigned_reg_hi). 128-bit integer value model. */
+    REG_CLASS_GPR64,  /* Sprint 170 (rv32 i64): a 64-bit integer in a pair of
+                        * 32-bit GPRs (lo = assigned_reg, hi = assigned_reg_hi).
+                        * rv32 only; spills to ONE 8-byte slot (two 4-byte words). */
     REG_CLASS_COUNT
 } RegClass;
 
@@ -364,7 +367,8 @@ static void expire_old_intervals(RegAllocator *ra, size_t current_pos) {
                 if (!still_in_use) {
                     if (active->reg_class == REG_CLASS_GPR) {
                         ra->gpr_free[active->assigned_reg] = true;
-                    } else if (active->reg_class == REG_CLASS_GPR128) {
+                    } else if (active->reg_class == REG_CLASS_GPR128 ||
+                               active->reg_class == REG_CLASS_GPR64) {
                         ra->gpr_free[active->assigned_reg] = true;
                         if (active->assigned_reg_hi >= 0) {
                             ra->gpr_free[active->assigned_reg_hi] = true;
@@ -559,7 +563,10 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
              * never use a register that can hold a live reloaded value (t0/t1 hold
              * 64-bit spill reloads, t3/t4/t6 hold 128-bit halves), or it clobbers
              * the operand (FAIL 45: src2's address li overwrote src1's reload in t0).
-             * It is therefore not allocatable. */
+             * It is therefore not allocatable.
+             * Sprint 170 (rv32 i64): t2 (7) is ALSO reserved on rv32 - the 64-bit
+             * pair emitters use it as the third carry/multiply scratch alongside
+             * t0/t5, so a live value there would be clobbered mid-op. */
             static const int riscv_pool[] = {
                 10, 11, 12, 13, 14, 15, 16, 17,
                 7,
@@ -567,6 +574,7 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
             };
             for (size_t pool_idx = 0; pool_idx < sizeof(riscv_pool)/sizeof(riscv_pool[0]); pool_idx++) {
                 int phys_reg = riscv_pool[pool_idx];
+                if (ra->target_isa == ISA_RISCV32 && phys_reg == 7) continue;  /* t2 = 64-bit-op scratch (Sprint 170) */
                 if (ra->gpr_free[phys_reg] && !regalloc_reg_conflicts_fixed(ra, phys_reg, interval)) {
                     ra->gpr_free[phys_reg] = false;
                     if (phys_reg == 9 || (phys_reg >= 18 && phys_reg <= 27)) {
@@ -628,6 +636,19 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
                                      sizeof(cs_pool)/sizeof(cs_pool[0]), cs_mask);
         }
         return -1; /* other ISAs (e.g. riscv32, 32-bit GPRs): spill for now */
+    } else if (interval->reg_class == REG_CLASS_GPR64) {
+        /* Sprint 170 (rv32 i64): a 64-bit value in a (lo,hi) pair of 32-bit
+         * GPRs. Allocate from the RISC-V callee-saved pool (s1, s2-s11) so a
+         * 64-bit value survives the calls between producer and use. */
+        if (ra->target_isa == ISA_RISCV32) {
+            static const int cs_pool[] = {9, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27};
+            static const uint32_t cs_mask =
+                (1u<<9)|(1u<<18)|(1u<<19)|(1u<<20)|(1u<<21)|(1u<<22)|
+                (1u<<23)|(1u<<24)|(1u<<25)|(1u<<26)|(1u<<27);
+            return gpr128_alloc_pair(ra, interval, cs_pool,
+                                     sizeof(cs_pool)/sizeof(cs_pool[0]), cs_mask);
+        }
+        return -1; /* GPR64 is rv32-only */
     } else if (interval->reg_class == REG_CLASS_XMM) {
         /* All FP registers are caller-saved on every supported ABI: an FP
          * interval that spans a call cannot live in a register - force the
@@ -681,6 +702,10 @@ static void spill_interval(RegAllocator *ra, LiveInterval *interval) {
          * backend loads/stores the (lo,hi) pair at offset (slot+1)*8. */
         interval->spill_slot = ra->next_spill_slot;
         ra->next_spill_slot += 2;
+    } else if (interval->reg_class == REG_CLASS_GPR64) {
+        /* Sprint 170 (rv32 i64): a 64-bit value fits ONE 8-byte slot (two
+         * 4-byte words). The backend stores lo at slot*8 and hi at slot*8+4. */
+        interval->spill_slot = ra->next_spill_slot++;
     } else {
         interval->spill_slot = ra->next_spill_slot++;
     }
@@ -1128,9 +1153,10 @@ static int regalloc_get_reg_for_temp(RegAllocator *ra, int temp_id) {
     return def_ret_reg;  /* Not found - use default */
 }
 
-/* Get the HIGH-half physical register for a REG_CLASS_GPR128 temp (the low
- * half is what regalloc_get_reg_for_temp returns). Returns -1 for non-128-bit
- * temps or spilled 128-bit temps (the caller must handle the spilled case). */
+/* Get the HIGH-half physical register for a REG_CLASS_GPR128 / REG_CLASS_GPR64
+ * temp (the low half is what regalloc_get_reg_for_temp returns). Returns -1
+ * for non-pair temps or spilled pair temps (the caller must handle the
+ * spilled case). */
 static int regalloc_get_reg_hi_for_temp(RegAllocator *ra, int temp_id) __attribute__((unused));
 static int regalloc_get_reg_hi_for_temp(RegAllocator *ra, int temp_id) {
     if (!ra || (uint32_t)temp_id == TEMP_NONE) return -1;
@@ -1138,7 +1164,8 @@ static int regalloc_get_reg_hi_for_temp(RegAllocator *ra, int temp_id) {
         int32_t idx = ra->temp_to_interval[temp_id];
         if (idx >= 0 && (size_t)idx < ra->interval_count) {
             LiveInterval *iv = &ra->intervals[idx];
-            if (iv->reg_class == REG_CLASS_GPR128 && !iv->is_spilled &&
+            if ((iv->reg_class == REG_CLASS_GPR128 ||
+                 iv->reg_class == REG_CLASS_GPR64) && !iv->is_spilled &&
                 iv->assigned_reg >= 0 && iv->assigned_reg_hi >= 0) {
                 return iv->assigned_reg_hi;
             }

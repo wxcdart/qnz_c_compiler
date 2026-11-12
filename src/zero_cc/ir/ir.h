@@ -359,6 +359,36 @@ typedef enum {
     OP_HI128,          /* dest (64) = high 64 bits of src1 (128) */
     OP_MK128,          /* dest (128) = {hi64 = src2, lo64 = src1} */
 
+    /* Sprint 170 (rv32 i64): 64-bit integer ops on a 32-bit target. A 64-bit
+     * value lives in ONE REG_CLASS_GPR64 temp = a (lo,hi) pair of 32-bit GPRs
+     * (lo = regalloc_get_reg_for_temp, hi = regalloc_get_reg_hi_for_temp).
+     * Emitted ONLY when --target riscv32; on the 64-bit ISAs width-8 values
+     * stay single-register and use the plain ops. Each lowers to a (lo,hi)
+     * decomposition built from 32-bit RV32I/M primitives. */
+    OP_ADD64,          /* dest = src1 + src2 (64-bit, unsigned carry into hi) */
+    OP_SUB64,          /* dest = src1 - src2 (64-bit, unsigned borrow into hi) */
+    OP_MUL64,          /* dest = src1 * src2 (64x64 -> low 64 bits) */
+    OP_AND64,          /* dest = src1 & src2 (per-half) */
+    OP_OR64,           /* dest = src1 | src2 (per-half) */
+    OP_XOR64,          /* dest = src1 ^ src2 (per-half) */
+    OP_NOT64,          /* dest = ~src1 (per-half) */
+    OP_NEG64,          /* dest = -src1 (two's complement, 64-bit) */
+    OP_SHL64,          /* dest = src1 << src2 (src2 = count, 0..63) */
+    OP_SHR64,          /* dest = src1 >> src2 (logical) */
+    OP_SAR64,          /* dest = src1 >> src2 (arithmetic) */
+    OP_CMP64,          /* compare src1, src2 (64-bit); cond = signedness<<1|cc */
+    OP_MOV64,          /* dest (64) = src1 (64) */
+    OP_LOAD64,         /* dest (64) = *(64-bit *)src1 (address) */
+    OP_STORE64,        /* *(64-bit *)src2 (address) = src1 (64) */
+    OP_ZEXT32_64,      /* dest (64) = (u64)src1 (32-bit, zero-extended; hi=0) */
+    OP_SEXT32_64,      /* dest (64) = (s64)src1 (32-bit, sign-extended) */
+    OP_TRUNC64_32,     /* dest (32) = low 32 bits of src1 (64) */
+    OP_MOV64_IMM,      /* dest (64) = imm64 */
+    OP_DIV64,          /* dest = src1 / src2 (signed 64-bit, trunc toward 0) */
+    OP_MOD64,          /* dest = src1 % src2 (signed 64-bit remainder) */
+    OP_UDIV64,         /* dest = src1 / src2 (unsigned 64-bit) */
+    OP_UMOD64,         /* dest = src1 % src2 (unsigned 64-bit) */
+
     /* Sprint 115m: raw 4-byte (single-precision) FP access for the real
      * SysV/AArch64/RISC-V ABI float boundary: the LOW 32 bits of the FP
      * register hold the float pattern (upper bits undefined), with NO
@@ -574,6 +604,29 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_LO128: return "LO128";
         case OP_HI128: return "HI128";
         case OP_MK128: return "MK128";
+        case OP_ADD64: return "ADD64";
+        case OP_SUB64: return "SUB64";
+        case OP_MUL64: return "MUL64";
+        case OP_AND64: return "AND64";
+        case OP_OR64: return "OR64";
+        case OP_XOR64: return "XOR64";
+        case OP_NOT64: return "NOT64";
+        case OP_NEG64: return "NEG64";
+        case OP_SHL64: return "SHL64";
+        case OP_SHR64: return "SHR64";
+        case OP_SAR64: return "SAR64";
+        case OP_CMP64: return "CMP64";
+        case OP_MOV64: return "MOV64";
+        case OP_LOAD64: return "LOAD64";
+        case OP_STORE64: return "STORE64";
+        case OP_ZEXT32_64: return "ZEXT32_64";
+        case OP_SEXT32_64: return "SEXT32_64";
+        case OP_TRUNC64_32: return "TRUNC64_32";
+        case OP_MOV64_IMM: return "MOV64_IMM";
+        case OP_DIV64: return "DIV64";
+        case OP_MOD64: return "MOD64";
+        case OP_UDIV64: return "UDIV64";
+        case OP_UMOD64: return "UMOD64";
         case OP_VLOADSS_RAW: return "VLOADSS_RAW";
         case OP_VSTORESS_RAW: return "VSTORESS_RAW";
         case OP_CVTTSD2SS: return "CVTTSD2SS";

@@ -284,6 +284,80 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
             }
         }
 
+        /* Sprint 170 (rv32 i64): assignment to a 64-bit scalar lvalue (local,
+         * global, or element). Store the full 8 bytes as a (lo,hi) GPR64 pair.
+         * Compound ops (+= -= *= &= |= ^= <<= >>=) desugar to a 64-bit binop
+         * on the loaded LHS and the RHS; div/mod are Phase 3 (libgcc). */
+        if (c->isa == ISA_RISCV32 && left_node && node->right != AST_NULL) {
+            TypeInfo *lhs_ti64 = ast_node_get_typeinfo(c, left_node);
+            ZeroCCSym *lhs_sym64 = (left_node->tag == NODE_IDENT) ? zero_cc_find_local(c, left_node->s.str) : NULL;
+            ZeroCCGlobalVar *lhs_gv64 = (left_node->tag == NODE_IDENT && left_node->s.str) ? find_global_var(c, left_node->s.str) : NULL;
+            bool lhs_is64 = (lhs_ti64 && lhs_ti64->kind == TYPE_KIND_LONG && type_size(lhs_ti64) == 8) ||
+                            (lhs_sym64 && (lhs_sym64->type.tag == TYPE_INT64 || lhs_sym64->type.tag == TYPE_UINT64)) ||
+                            (lhs_gv64 && (lhs_gv64->type.tag == TYPE_INT64 || lhs_gv64->type.tag == TYPE_UINT64));
+            if (lhs_is64 && !(left_node->flags & NODE_MEMBER_IS_BITFIELD)) {
+                bool unsigned_64 = lhs_ti64 ? type_is_unsigned(lhs_ti64) :
+                              (lhs_sym64 ? zero_cc_type_is_unsigned(&lhs_sym64->type) :
+                               (lhs_gv64 ? zero_cc_type_is_unsigned(&lhs_gv64->type) : false));
+                uint32_t cop = 0;
+                if (is_compound) {
+                    cop = node->aux.op == TK_ADD_ASSIGN ? TK_PLUS :
+                          node->aux.op == TK_SUB_ASSIGN ? TK_MINUS :
+                          node->aux.op == TK_MUL_ASSIGN ? TK_STAR :
+                          node->aux.op == TK_AND_ASSIGN ? TK_AMP :
+                          node->aux.op == TK_OR_ASSIGN ? TK_PIPE :
+                          node->aux.op == TK_XOR_ASSIGN ? TK_CARET :
+                          node->aux.op == TK_SHL_ASSIGN ? TK_SHL :
+                          node->aux.op == TK_SHR_ASSIGN ? TK_SHR : 0;
+                }
+                bool shift64 = (cop == TK_SHL || cop == TK_SHR);
+                bool supported64 = !is_compound || (cop == TK_PLUS || cop == TK_MINUS ||
+                                     cop == TK_STAR || cop == TK_AMP || cop == TK_PIPE ||
+                                     cop == TK_CARET || shift64);
+                if (supported64) {
+                    int target = zero_cc_lower_lvalue_addr(c, arena, node->left);
+                    if (target != TEMP_NONE) {
+                        int val;
+                        if (!is_compound) {
+                            val = zc_operand_to64(c, arena, node->right);
+                        } else {
+                            int lv = zc_operand_to64(c, arena, node->left);
+                            int rv;
+                            if (shift64) {
+                                /* shift count is 32-bit (trunc a 64-bit count) */
+                                rv = lower_expr(c, arena, node->right);
+                                if (c->last_expr_is_64) {
+                                    int t = zc_alloc_temp(c);
+                                    ir_emit_trunc64_32(c, t, rv);
+                                    rv = t;
+                                }
+                            } else {
+                                rv = zc_operand_to64(c, arena, node->right);
+                            }
+                            val = zc_alloc_temp(c);
+                            switch (cop) {
+                                case TK_PLUS:  ir_emit_add64(c, val, lv, rv); break;
+                                case TK_MINUS: ir_emit_sub64(c, val, lv, rv); break;
+                                case TK_STAR:  ir_emit_mul64(c, val, lv, rv); break;
+                                case TK_AMP:   ir_emit_and64(c, val, lv, rv); break;
+                                case TK_PIPE:  ir_emit_or64(c, val, lv, rv); break;
+                                case TK_CARET: ir_emit_xor64(c, val, lv, rv); break;
+                                case TK_SHL:   ir_emit_shl64(c, val, lv, rv); break;
+                                default:       /* TK_SHR */
+                                    if (unsigned_64) ir_emit_shr64(c, val, lv, rv);
+                                    else              ir_emit_sar64(c, val, lv, rv);
+                                    break;
+                            }
+                        }
+                        ir_emit_store64(c, val, target, 0);
+                        c->last_expr_is_float = 0;
+                        c->last_expr_is_64 = 1;  /* the stored value is 64-bit */
+                        return val;
+                    }
+                }
+            }
+        }
+
         /* GNU variably-modified struct/union target: the object is
          * runtime-sized (the static layout size is a 2-element
          * placeholder), so the value copy must use the runtime size.

@@ -301,6 +301,30 @@ void ir_dump(const ZeroCCCompiler *c, FILE *f) {
             case OP_LO128: fprintf(f, "LO128 r%u, r%u", instr->temp_dest, instr->temp_src1); break;
             case OP_HI128: fprintf(f, "HI128 r%u, r%u", instr->temp_dest, instr->temp_src1); break;
             case OP_MK128: fprintf(f, "MK128 r%u, r%u(lo), r%u(hi)", instr->temp_dest, instr->temp_src1, instr->temp_src2); break;
+            /* Sprint 170 (rv32 i64) */
+            case OP_ADD64: fprintf(f, "ADD64 r%u, r%u, r%u", instr->temp_dest, instr->temp_src1, instr->temp_src2); break;
+            case OP_SUB64: fprintf(f, "SUB64 r%u, r%u, r%u", instr->temp_dest, instr->temp_src1, instr->temp_src2); break;
+            case OP_MUL64: fprintf(f, "MUL64 r%u, r%u, r%u", instr->temp_dest, instr->temp_src1, instr->temp_src2); break;
+            case OP_AND64: fprintf(f, "AND64 r%u, r%u, r%u", instr->temp_dest, instr->temp_src1, instr->temp_src2); break;
+            case OP_OR64:  fprintf(f, "OR64 r%u, r%u, r%u", instr->temp_dest, instr->temp_src1, instr->temp_src2); break;
+            case OP_XOR64: fprintf(f, "XOR64 r%u, r%u, r%u", instr->temp_dest, instr->temp_src1, instr->temp_src2); break;
+            case OP_NOT64: fprintf(f, "NOT64 r%u, r%u", instr->temp_dest, instr->temp_src1); break;
+            case OP_NEG64: fprintf(f, "NEG64 r%u, r%u", instr->temp_dest, instr->temp_src1); break;
+            case OP_SHL64: fprintf(f, "SHL64 r%u, r%u, r%u", instr->temp_dest, instr->temp_src1, instr->temp_src2); break;
+            case OP_SHR64: fprintf(f, "SHR64 r%u, r%u, r%u", instr->temp_dest, instr->temp_src1, instr->temp_src2); break;
+            case OP_SAR64: fprintf(f, "SAR64 r%u, r%u, r%u", instr->temp_dest, instr->temp_src1, instr->temp_src2); break;
+            case OP_CMP64: fprintf(f, "CMP64 r%u, r%u", instr->temp_src1, instr->temp_src2); break;
+            case OP_MOV64: fprintf(f, "MOV64 r%u, r%u", instr->temp_dest, instr->temp_src1); break;
+            case OP_LOAD64: fprintf(f, "LOAD64 r%u, [r%u+%d]", instr->temp_dest, instr->temp_src1, (int)instr->imm); break;
+            case OP_STORE64: fprintf(f, "STORE64 [r%u+%d], r%u", instr->temp_src2, (int)instr->imm, instr->temp_src1); break;
+            case OP_ZEXT32_64: fprintf(f, "ZEXT32_64 r%u, r%u", instr->temp_dest, instr->temp_src1); break;
+            case OP_SEXT32_64: fprintf(f, "SEXT32_64 r%u, r%u", instr->temp_dest, instr->temp_src1); break;
+            case OP_TRUNC64_32: fprintf(f, "TRUNC64_32 r%u, r%u", instr->temp_dest, instr->temp_src1); break;
+            case OP_MOV64_IMM: fprintf(f, "MOV64_IMM r%u, %lld", instr->temp_dest, (long long)instr->imm64); break;
+            case OP_DIV64: fprintf(f, "DIV64 r%u, r%u, r%u", instr->temp_dest, instr->temp_src1, instr->temp_src2); break;
+            case OP_MOD64: fprintf(f, "MOD64 r%u, r%u, r%u", instr->temp_dest, instr->temp_src1, instr->temp_src2); break;
+            case OP_UDIV64: fprintf(f, "UDIV64 r%u, r%u, r%u", instr->temp_dest, instr->temp_src1, instr->temp_src2); break;
+            case OP_UMOD64: fprintf(f, "UMOD64 r%u, r%u, r%u", instr->temp_dest, instr->temp_src1, instr->temp_src2); break;
             case OP_NEG: fprintf(f, "NEG r%u, r%u", instr->temp_dest, instr->temp_src1);
                          break;
             case OP_SEXT8: case OP_SEXT16: case OP_SEXT32:

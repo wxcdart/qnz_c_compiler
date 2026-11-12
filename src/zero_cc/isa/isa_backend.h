@@ -293,6 +293,65 @@ typedef struct ZeroCCISABackend {
     void (*emit_trunc128_64)(ZeroCCCompiler *c, int dst, int s_lo);
     void (*emit_mov128_imm)(ZeroCCCompiler *c, int dlo, int dhi, int64_t imm);
 
+    /* Sprint 170 (rv32 i64): 64-bit integer ops on a (lo,hi) pair of 32-bit
+     * GPRs. Emitted only for --target riscv32; on the 64-bit ISAs width-8
+     * values stay single-register and these are NULL. The pair emitters must
+     * be alias-safe for d==a and d==b (in-place compound ops) and may use
+     * only the reserved t0/t2/t5 scratch (never an allocatable register).
+     * DIV64/MOD64/UDIV64/UMOD64 are Phase 3 (libgcc __divdi3/__moddi3/...); they
+     * are NULL until then and the lowering keeps the pre-Sprint-170 path. */
+    void (*emit_add64)(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi);
+    void (*emit_sub64)(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi);
+    void (*emit_mul64)(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi);
+    void (*emit_and64)(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi);
+    void (*emit_or64)(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi);
+    void (*emit_xor64)(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi);
+    void (*emit_not64)(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi);
+    void (*emit_neg64)(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi);
+    void (*emit_shl64)(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi, int cnt);
+    void (*emit_shr64)(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi, int cnt);
+    void (*emit_sar64)(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi, int cnt);
+    /* CMP64: record the (lo,hi) operand pairs for flag re-materialization by
+     * emit_cond_set / the jcond family (RISC-V has no flags register). */
+    void (*emit_cmp64)(ZeroCCCompiler *c, int a_lo, int a_hi, int b_lo, int b_hi);
+    void (*emit_mov64)(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi);
+    void (*emit_load64)(ZeroCCCompiler *c, int dlo, int dhi, int base, int32_t offset);
+    void (*emit_store64)(ZeroCCCompiler *c, int s_lo, int s_hi, int base, int32_t offset);
+    void (*emit_zext32_64)(ZeroCCCompiler *c, int dlo, int dhi, int src);
+    void (*emit_sext32_64)(ZeroCCCompiler *c, int dlo, int dhi, int src);
+    void (*emit_trunc64_32)(ZeroCCCompiler *c, int dst, int s_lo, int s_hi);
+    void (*emit_mov64_imm)(ZeroCCCompiler *c, int dlo, int dhi, int64_t imm);
+    void (*emit_div64)(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi);
+    void (*emit_mod64)(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi);
+    void (*emit_udiv64)(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi);
+    void (*emit_umod64)(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi);
+
+    /* Sprint 170 (rv32 i64) -S (assembly-text) counterparts of the pair
+     * emitters above; NULL on backends without rv32 64-bit support. */
+    void (*emit_add64_asm)(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi, FILE *out);
+    void (*emit_sub64_asm)(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi, FILE *out);
+    void (*emit_mul64_asm)(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi, FILE *out);
+    void (*emit_and64_asm)(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi, FILE *out);
+    void (*emit_or64_asm)(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi, FILE *out);
+    void (*emit_xor64_asm)(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi, FILE *out);
+    void (*emit_not64_asm)(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi, FILE *out);
+    void (*emit_neg64_asm)(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi, FILE *out);
+    void (*emit_shl64_asm)(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi, int cnt, FILE *out);
+    void (*emit_shr64_asm)(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi, int cnt, FILE *out);
+    void (*emit_sar64_asm)(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi, int cnt, FILE *out);
+    void (*emit_cmp64_asm)(ZeroCCCompiler *c, int a_lo, int a_hi, int b_lo, int b_hi, FILE *out);
+    void (*emit_mov64_asm)(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi, FILE *out);
+    void (*emit_load64_asm)(ZeroCCCompiler *c, int dlo, int dhi, int base, int32_t offset, FILE *out);
+    void (*emit_store64_asm)(ZeroCCCompiler *c, int s_lo, int s_hi, int base, int32_t offset, FILE *out);
+    void (*emit_zext32_64_asm)(ZeroCCCompiler *c, int dlo, int dhi, int src, FILE *out);
+    void (*emit_sext32_64_asm)(ZeroCCCompiler *c, int dlo, int dhi, int src, FILE *out);
+    void (*emit_trunc64_32_asm)(ZeroCCCompiler *c, int dst, int s_lo, int s_hi, FILE *out);
+    void (*emit_mov64_imm_asm)(ZeroCCCompiler *c, int dlo, int dhi, int64_t imm, FILE *out);
+    void (*emit_div64_asm)(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi, FILE *out);
+    void (*emit_mod64_asm)(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi, FILE *out);
+    void (*emit_udiv64_asm)(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi, FILE *out);
+    void (*emit_umod64_asm)(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi, FILE *out);
+
     /* GNU __int128 -S (assembly-text) counterparts of the MC emitters above.
      * NULL on backends without 128-bit support; asm_emitter.c dispatches the
      * OP_*128 ops through these so `zerocc -S` emits real code instead of the

@@ -695,6 +695,18 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
                     instr->op == OP_LOAD128 || instr->op == OP_ZEXT64_128 || instr->op == OP_SEXT64_128 ||
                     instr->op == OP_MOV128_IMM || instr->op == OP_MK128) {
                     lra->temp_reg_class[instr->temp_dest] = REG_CLASS_GPR128;
+                } else if (instr->op == OP_ADD64 || instr->op == OP_SUB64 ||
+                    instr->op == OP_MUL64 || instr->op == OP_AND64 ||
+                    instr->op == OP_OR64 || instr->op == OP_XOR64 ||
+                    instr->op == OP_NOT64 || instr->op == OP_NEG64 ||
+                    instr->op == OP_SHL64 || instr->op == OP_SHR64 ||
+                    instr->op == OP_SAR64 || instr->op == OP_MOV64 ||
+                    instr->op == OP_LOAD64 || instr->op == OP_ZEXT32_64 ||
+                    instr->op == OP_SEXT32_64 || instr->op == OP_MOV64_IMM ||
+                    instr->op == OP_DIV64 || instr->op == OP_MOD64 ||
+                    instr->op == OP_UDIV64 || instr->op == OP_UMOD64) {
+                    /* Sprint 170: rv32 64-bit pair result. */
+                    lra->temp_reg_class[instr->temp_dest] = REG_CLASS_GPR64;
                 }
             }
         }
@@ -721,6 +733,17 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
                     instr->op == OP_MOV128 || instr->op == OP_STORE128 || instr->op == OP_TRUNC128_64 ||
                     instr->op == OP_LO128 || instr->op == OP_HI128) {
                     lra->temp_reg_class[instr->temp_src1] = REG_CLASS_GPR128;
+                } else if (instr->op == OP_ADD64 || instr->op == OP_SUB64 ||
+                    instr->op == OP_MUL64 || instr->op == OP_AND64 ||
+                    instr->op == OP_OR64 || instr->op == OP_XOR64 ||
+                    instr->op == OP_NOT64 || instr->op == OP_NEG64 ||
+                    instr->op == OP_SHL64 || instr->op == OP_SHR64 ||
+                    instr->op == OP_SAR64 || instr->op == OP_CMP64 ||
+                    instr->op == OP_MOV64 || instr->op == OP_STORE64 ||
+                    instr->op == OP_TRUNC64_32 ||
+                    instr->op == OP_DIV64 || instr->op == OP_MOD64 ||
+                    instr->op == OP_UDIV64 || instr->op == OP_UMOD64) {
+                    lra->temp_reg_class[instr->temp_src1] = REG_CLASS_GPR64;
                 }
             }
         }
@@ -740,6 +763,13 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
                     instr->op == OP_AND128 || instr->op == OP_OR128 || instr->op == OP_XOR128 ||
                     instr->op == OP_CMP128) {
                     lra->temp_reg_class[instr->temp_src2] = REG_CLASS_GPR128;
+                } else if (instr->op == OP_ADD64 || instr->op == OP_SUB64 ||
+                    instr->op == OP_MUL64 || instr->op == OP_AND64 ||
+                    instr->op == OP_OR64 || instr->op == OP_XOR64 ||
+                    instr->op == OP_CMP64 ||
+                    instr->op == OP_DIV64 || instr->op == OP_MOD64 ||
+                    instr->op == OP_UDIV64 || instr->op == OP_UMOD64) {
+                    lra->temp_reg_class[instr->temp_src2] = REG_CLASS_GPR64;
                 }
             }
         }

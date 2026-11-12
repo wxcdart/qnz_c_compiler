@@ -113,6 +113,13 @@ typedef struct {
     int cmp_src1;                      /* First operand of last CMP instruction */
     int cmp_src2;                      /* Second operand of last CMP instruction */
     int cmp_is_fp;                     /* Last CMP had FP-class operands */
+    /* Sprint 170 (rv32 i64): last OP_CMP64 operand pairs. cmp_is_64 is set
+     * by OP_CMP64 and cleared by every other flag producer; the flag
+     * consumers (cond_set / jeq / jne / jlt family) re-materialize the
+     * 64-bit predicate from these four registers. */
+    int cmp_is_64;                     /* Last flag producer was OP_CMP64 */
+    int cmp64_s1_lo, cmp64_s1_hi;      /* First 64-bit operand (lo,hi) regs */
+    int cmp64_s2_lo, cmp64_s2_hi;      /* Second 64-bit operand (lo,hi) regs */
     int div_is_unsigned;               /* Current DIV/MOD uses unsigned division */
 
     /* Hybrid VLA enforcement state */

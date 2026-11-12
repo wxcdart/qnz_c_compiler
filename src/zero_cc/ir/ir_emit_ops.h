@@ -520,5 +520,83 @@ static inline void ir_emit_mk128(ZeroCCCompiler *c, int d, int lo, int hi) {
     ir_emit(c, (Instr){.op = OP_MK128, .temp_dest = d, .temp_src1 = lo, .temp_src2 = hi, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
 }
 
+/* Sprint 170 (rv32 i64): 64-bit (lo,hi) pair ops. dest/src1/src2 are GPR64
+ * temps (one temp = a (lo,hi) 32-bit GPR pair) EXCEPT where noted: the shift
+ * count (src2 of SHL64/SHR64/SAR64), the load/store base (32-bit), the
+ * TRUNC64_32 dest (32-bit), and the 32-bit sources of ZEXT32_64/SEXT32_64.
+ * Emitted only for --target riscv32. */
+static inline void ir_emit_add64(ZeroCCCompiler *c, int d, int a, int b) {
+    ir_emit(c, (Instr){.op = OP_ADD64, .temp_dest = d, .temp_src1 = a, .temp_src2 = b, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
+static inline void ir_emit_sub64(ZeroCCCompiler *c, int d, int a, int b) {
+    ir_emit(c, (Instr){.op = OP_SUB64, .temp_dest = d, .temp_src1 = a, .temp_src2 = b, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
+static inline void ir_emit_mul64(ZeroCCCompiler *c, int d, int a, int b) {
+    ir_emit(c, (Instr){.op = OP_MUL64, .temp_dest = d, .temp_src1 = a, .temp_src2 = b, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
+static inline void ir_emit_and64(ZeroCCCompiler *c, int d, int a, int b) {
+    ir_emit(c, (Instr){.op = OP_AND64, .temp_dest = d, .temp_src1 = a, .temp_src2 = b, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
+static inline void ir_emit_or64(ZeroCCCompiler *c, int d, int a, int b) {
+    ir_emit(c, (Instr){.op = OP_OR64, .temp_dest = d, .temp_src1 = a, .temp_src2 = b, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
+static inline void ir_emit_xor64(ZeroCCCompiler *c, int d, int a, int b) {
+    ir_emit(c, (Instr){.op = OP_XOR64, .temp_dest = d, .temp_src1 = a, .temp_src2 = b, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
+static inline void ir_emit_not64(ZeroCCCompiler *c, int d, int a) {
+    ir_emit(c, (Instr){.op = OP_NOT64, .temp_dest = d, .temp_src1 = a, .temp_src2 = TEMP_NONE, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
+static inline void ir_emit_neg64(ZeroCCCompiler *c, int d, int a) {
+    ir_emit(c, (Instr){.op = OP_NEG64, .temp_dest = d, .temp_src1 = a, .temp_src2 = TEMP_NONE, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
+static inline void ir_emit_shl64(ZeroCCCompiler *c, int d, int a, int cnt) {
+    ir_emit(c, (Instr){.op = OP_SHL64, .temp_dest = d, .temp_src1 = a, .temp_src2 = cnt, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
+static inline void ir_emit_shr64(ZeroCCCompiler *c, int d, int a, int cnt) {
+    ir_emit(c, (Instr){.op = OP_SHR64, .temp_dest = d, .temp_src1 = a, .temp_src2 = cnt, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
+static inline void ir_emit_sar64(ZeroCCCompiler *c, int d, int a, int cnt) {
+    ir_emit(c, (Instr){.op = OP_SAR64, .temp_dest = d, .temp_src1 = a, .temp_src2 = cnt, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
+/* 64-bit compare (sets flags, consumed by the following cond_set/j*). */
+static inline void ir_emit_cmp64(ZeroCCCompiler *c, int a, int b) {
+    ir_emit(c, (Instr){.op = OP_CMP64, .temp_dest = TEMP_NONE, .temp_src1 = a, .temp_src2 = b, .cond = 0, .flags_out = REG_FLAGS, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
+static inline void ir_emit_mov64(ZeroCCCompiler *c, int d, int a) {
+    ir_emit(c, (Instr){.op = OP_MOV64, .temp_dest = d, .temp_src1 = a, .temp_src2 = TEMP_NONE, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
+/* Load 8 bytes at [base_addr + offset] into a GPR64 temp. */
+static inline void ir_emit_load64(ZeroCCCompiler *c, int d, int base_addr, int32_t offset) {
+    ir_emit(c, (Instr){.op = OP_LOAD64, .temp_dest = d, .temp_src1 = base_addr, .temp_src2 = TEMP_NONE, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = (uint32_t)(uint32_t)(int32_t)offset, .imm64 = 0, .label_idx = 0});
+}
+/* Store a GPR64 temp to [base_addr + offset]. */
+static inline void ir_emit_store64(ZeroCCCompiler *c, int a, int base_addr, int32_t offset) {
+    ir_emit(c, (Instr){.op = OP_STORE64, .temp_dest = TEMP_NONE, .temp_src1 = a, .temp_src2 = base_addr, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = (uint32_t)(uint32_t)(int32_t)offset, .imm64 = 0, .label_idx = 0});
+}
+static inline void ir_emit_zext32_64(ZeroCCCompiler *c, int d, int a) {
+    ir_emit(c, (Instr){.op = OP_ZEXT32_64, .temp_dest = d, .temp_src1 = a, .temp_src2 = TEMP_NONE, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
+static inline void ir_emit_sext32_64(ZeroCCCompiler *c, int d, int a) {
+    ir_emit(c, (Instr){.op = OP_SEXT32_64, .temp_dest = d, .temp_src1 = a, .temp_src2 = TEMP_NONE, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
+/* dest (32-bit temp) = low 32 bits of a GPR64 temp. */
+static inline void ir_emit_trunc64_32(ZeroCCCompiler *c, int d, int a) {
+    ir_emit(c, (Instr){.op = OP_TRUNC64_32, .temp_dest = d, .temp_src1 = a, .temp_src2 = TEMP_NONE, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
+static inline void ir_emit_mov64_imm(ZeroCCCompiler *c, int d, int64_t imm) {
+    ir_emit(c, (Instr){.op = OP_MOV64_IMM, .temp_dest = d, .temp_src1 = TEMP_NONE, .temp_src2 = TEMP_NONE, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = imm, .label_idx = 0});
+}
+static inline void ir_emit_div64(ZeroCCCompiler *c, int d, int a, int b) {
+    ir_emit(c, (Instr){.op = OP_DIV64, .temp_dest = d, .temp_src1 = a, .temp_src2 = b, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
+static inline void ir_emit_mod64(ZeroCCCompiler *c, int d, int a, int b) {
+    ir_emit(c, (Instr){.op = OP_MOD64, .temp_dest = d, .temp_src1 = a, .temp_src2 = b, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
+static inline void ir_emit_udiv64(ZeroCCCompiler *c, int d, int a, int b) {
+    ir_emit(c, (Instr){.op = OP_UDIV64, .temp_dest = d, .temp_src1 = a, .temp_src2 = b, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
+static inline void ir_emit_umod64(ZeroCCCompiler *c, int d, int a, int b) {
+    ir_emit(c, (Instr){.op = OP_UMOD64, .temp_dest = d, .temp_src1 = a, .temp_src2 = b, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
 
 #endif /* ZERO_CC_PARSER_IR_EMIT_OPS_H */

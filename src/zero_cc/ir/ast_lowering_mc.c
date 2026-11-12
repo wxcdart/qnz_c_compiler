@@ -412,11 +412,139 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
             phys_dst = g128_dlo; phys_src1 = g128_s1lo; phys_src2 = g128_s2lo;
         }
 
+        /* --- 64-bit (GPR64) spill handling (Sprint 170 rv32 i64) ---
+         * A spilled REG_CLASS_GPR64 temp is ONE 8-byte slot (lo at
+         * slot*8, hi at slot*8+4). Spilled pair operands reload into the
+         * reserved (lo,hi) scratch pairs (on rv32 the GPR128 slots: (t1,t3),
+         * (t4,t6) - no 128-bit values exist there), a spilled dst stores
+         * back from its pair. Assignment order mirrors the 128-bit block:
+         * src1 -> pair0, src2 -> pair1, dst -> pair0 if free else pair1,
+         * else in-place into src1's pair (the pair emitters are alias-safe
+         * for d==a/d==b). 32-bit operands of a pair op (shift counts, load/
+         * store base addresses) take the generic reload below - except a
+         * 64-bit shift count, which must go to scratch_reg1 (t0) whenever a
+         * pair scratch is in use, because the generic src2 target
+         * (scratch_reg2 = t1) IS pair0's low half. */
+        bool op64 = (instr->op == OP_ADD64 || instr->op == OP_SUB64 ||
+                     instr->op == OP_MUL64 || instr->op == OP_AND64 ||
+                     instr->op == OP_OR64  || instr->op == OP_XOR64 ||
+                     instr->op == OP_NOT64 || instr->op == OP_NEG64 ||
+                     instr->op == OP_SHL64 || instr->op == OP_SHR64 ||
+                     instr->op == OP_SAR64 || instr->op == OP_CMP64 ||
+                     instr->op == OP_MOV64 || instr->op == OP_LOAD64 ||
+                     instr->op == OP_STORE64 || instr->op == OP_MOV64_IMM ||
+                     instr->op == OP_ZEXT32_64 || instr->op == OP_SEXT32_64 ||
+                     instr->op == OP_TRUNC64_32 ||
+                     instr->op == OP_DIV64 || instr->op == OP_MOD64 ||
+                     instr->op == OP_UDIV64 || instr->op == OP_UMOD64);
+        /* Operand widths are per-op semantics (mirrors live_range.h): the
+         * shift COUNT and the load/store base are 32-bit; TRUNC64_32's dst,
+         * CMP64's absence of a dst, and STORE64's absence of a dst. */
+        bool d64_is = op64 && !(instr->op == OP_CMP64 || instr->op == OP_STORE64 ||
+                                instr->op == OP_TRUNC64_32);
+        bool s1_64 = instr->op == OP_ADD64 || instr->op == OP_SUB64 ||
+            instr->op == OP_MUL64 || instr->op == OP_AND64 ||
+            instr->op == OP_OR64  || instr->op == OP_XOR64 ||
+            instr->op == OP_NOT64 || instr->op == OP_NEG64 ||
+            instr->op == OP_SHL64 || instr->op == OP_SHR64 ||
+            instr->op == OP_SAR64 || instr->op == OP_CMP64 ||
+            instr->op == OP_MOV64 || instr->op == OP_STORE64 ||
+            instr->op == OP_TRUNC64_32 ||
+            instr->op == OP_DIV64 || instr->op == OP_MOD64 ||
+            instr->op == OP_UDIV64 || instr->op == OP_UMOD64;
+        bool s2_64 = instr->op == OP_ADD64 || instr->op == OP_SUB64 ||
+            instr->op == OP_MUL64 || instr->op == OP_AND64 ||
+            instr->op == OP_OR64  || instr->op == OP_XOR64 ||
+            instr->op == OP_CMP64 ||
+            instr->op == OP_DIV64 || instr->op == OP_MOD64 ||
+            instr->op == OP_UDIV64 || instr->op == OP_UMOD64;
+        bool d64_sp = d64_is && spill_dst >= 0;
+        bool s164_sp = op64 && s1_64 && spill_src1 >= 0;
+        bool s264_sp = op64 && s2_64 && spill_src2 >= 0;
+        int g64_np = BE(c)->g128_scratch_pair_count;
+        int p64_s1 = -1, p64_s2 = -1, p64_dst = -1;
+        if (s164_sp && g64_np > 0) p64_s1 = 0;
+        if (s264_sp && g64_np > 1) p64_s2 = 1;
+        if (d64_sp) {
+            if (g64_np > 0 && p64_s1 < 0) p64_dst = 0;
+            else if (g64_np > 1 && p64_s2 < 0) p64_dst = 1;
+            else p64_dst = p64_s1;  /* all three spilled: in-place into src1's pair */
+        }
+        int g64_dlo = phys_dst, g64_dhi = regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_dest);
+        int g64_s1lo = phys_src1, g64_s1hi = regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_src1);
+        int g64_s2lo = phys_src2, g64_s2hi = regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_src2);
+        /* STORE64 with the 64-bit value AND the 32-bit base spilled: the
+         * generic base reload targets scratch_reg2 (t1 on RISC-V) - pair0's
+         * low half the value reloads into. Reload the base to scratch_reg1
+         * (t0) instead and store straight from the value pair. (Sprint 170,
+         * mirrors the STORE128 streaming case.) */
+        if (instr->op == OP_STORE64 && s164_sp && spill_src2 >= 0) {
+            int32_t off_v = spill_base_offset + (spill_src1 + 1) * 8;
+            int32_t off_b = spill_base_offset + (spill_src2 + 1) * 8;
+            int base_r = BE(c)->scratch_reg1, tmp_r = BE(c)->scratch_reg2;
+            BE(c)->emit_load(c, base_r, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_b));
+            if (g64_np > 0) {
+                BE(c)->emit_load(c, BE(c)->g128_scratch_lo[0], zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_v));
+                BE(c)->emit_load(c, BE(c)->g128_scratch_hi[0], zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_v - 4));
+                BE(c)->emit_store(c, BE(c)->g128_scratch_lo[0], base_r, 0);
+                BE(c)->emit_store(c, BE(c)->g128_scratch_hi[0], base_r, 4);
+            } else {
+                BE(c)->emit_load(c, tmp_r, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_v));
+                BE(c)->emit_store(c, tmp_r, base_r, 0);
+                BE(c)->emit_load(c, tmp_r, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_v - 4));
+                BE(c)->emit_store(c, tmp_r, base_r, 4);
+            }
+            continue;  /* result is in memory; nothing to store back */
+        }
+        if (s164_sp && p64_s1 >= 0) {
+            int32_t off = spill_base_offset + (spill_src1 + 1) * 8;
+            if (BE(c)->emit_load) {
+                BE(c)->emit_load(c, BE(c)->g128_scratch_lo[p64_s1], zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off));
+                BE(c)->emit_load(c, BE(c)->g128_scratch_hi[p64_s1], zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off - 4));
+            }
+            g64_s1lo = BE(c)->g128_scratch_lo[p64_s1];
+            g64_s1hi = BE(c)->g128_scratch_hi[p64_s1];
+        }
+        if (s264_sp && p64_s2 >= 0) {
+            int32_t off = spill_base_offset + (spill_src2 + 1) * 8;
+            if (BE(c)->emit_load) {
+                BE(c)->emit_load(c, BE(c)->g128_scratch_lo[p64_s2], zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off));
+                BE(c)->emit_load(c, BE(c)->g128_scratch_hi[p64_s2], zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off - 4));
+            }
+            g64_s2lo = BE(c)->g128_scratch_lo[p64_s2];
+            g64_s2hi = BE(c)->g128_scratch_hi[p64_s2];
+        }
+        if (d64_sp) {
+            if (p64_dst >= 0 && p64_dst != p64_s1) {
+                g64_dlo = BE(c)->g128_scratch_lo[p64_dst];
+                g64_dhi = BE(c)->g128_scratch_hi[p64_dst];
+            } else if (p64_dst == p64_s1) {
+                g64_dlo = g64_s1lo; g64_dhi = g64_s1hi;  /* in-place */
+            }
+        }
+        /* 64-bit shift count spilled while a pair scratch is in use: route it
+         * to scratch_reg1 (t0) - the pair emitters never use t0 as an operand
+         * (they use t0/t2/t5 only as carry/shift scratch AFTER reading all
+         * operands), while the generic src2 target scratch_reg2 (t1) is
+         * pair0's low half and would clobber the reloaded value. */
+        bool sh64_cnt_sp = (instr->op == OP_SHL64 || instr->op == OP_SHR64 ||
+                            instr->op == OP_SAR64) && spill_src2 >= 0 &&
+                           (s164_sp || d64_sp);
+        if (sh64_cnt_sp) {
+            int32_t slot_off = spill_base_offset + (spill_src2 + 1) * 8;
+            if (BE(c)->emit_load) {
+                BE(c)->emit_load(c, BE(c)->scratch_reg1, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off));
+            }
+            phys_src2 = BE(c)->scratch_reg1;
+        }
+        if (op64) {
+            phys_dst = g64_dlo; phys_src1 = g64_s1lo; phys_src2 = g64_s2lo;
+        }
 
         /* Reload spilled sources into scratch registers (64-bit / FP). FP-class values
          * use the FP scratch XMMs with movsd (emit_load_fp); GPR values use
          * r10/r11 (C8). GPR128 operands are handled above (skipped here). */
-        if (spill_src1 >= 0 && !s128_sp) {
+        if (spill_src1 >= 0 && !s128_sp && !s164_sp) {
             int32_t slot_off = spill_base_offset + (spill_src1 + 1) * 8;
             if (regalloc_get_class_for_temp(&c->regalloc, instr->temp_src1) == REG_CLASS_XMM) {
                 if (BE(c)->emit_load_fp) {
@@ -430,7 +558,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 phys_src1 = BE(c)->scratch_reg1;
             }
         }
-        if (spill_src2 >= 0 && !s228_sp) {
+        if (spill_src2 >= 0 && !s228_sp && !s264_sp && !sh64_cnt_sp) {
             int32_t slot_off = spill_base_offset + (spill_src2 + 1) * 8;
             if (regalloc_get_class_for_temp(&c->regalloc, instr->temp_src2) == REG_CLASS_XMM) {
                 if (BE(c)->emit_load_fp) {
@@ -444,7 +572,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 phys_src2 = BE(c)->scratch_reg2;
             }
         }
-        if (spill_dst >= 0 && !d128_sp) {
+        if (spill_dst >= 0 && !d128_sp && !d64_sp) {
             if (regalloc_get_class_for_temp(&c->regalloc, instr->temp_dest) == REG_CLASS_XMM) {
                 phys_dst = BE(c)->fp_scratch_reg1;
             } else {
@@ -752,6 +880,102 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 BE(c)->emit_mov_reg(c, g128_dhi, phys_src2);  /* dest.hi = src2 */
                 break;
 
+            /* --- Sprint 170 (rv32 i64): 64-bit (lo,hi) pair ops --- */
+            case OP_ADD64:
+                if (BE(c)->emit_add64)
+                    BE(c)->emit_add64(c, phys_dst, g64_dhi, phys_src1, g64_s1hi, phys_src2, g64_s2hi);
+                break;
+            case OP_SUB64:
+                if (BE(c)->emit_sub64)
+                    BE(c)->emit_sub64(c, phys_dst, g64_dhi, phys_src1, g64_s1hi, phys_src2, g64_s2hi);
+                break;
+            case OP_MUL64:
+                if (BE(c)->emit_mul64)
+                    BE(c)->emit_mul64(c, phys_dst, g64_dhi, phys_src1, g64_s1hi, phys_src2, g64_s2hi);
+                break;
+            case OP_AND64:
+                if (BE(c)->emit_and64)
+                    BE(c)->emit_and64(c, phys_dst, g64_dhi, phys_src1, g64_s1hi, phys_src2, g64_s2hi);
+                break;
+            case OP_OR64:
+                if (BE(c)->emit_or64)
+                    BE(c)->emit_or64(c, phys_dst, g64_dhi, phys_src1, g64_s1hi, phys_src2, g64_s2hi);
+                break;
+            case OP_XOR64:
+                if (BE(c)->emit_xor64)
+                    BE(c)->emit_xor64(c, phys_dst, g64_dhi, phys_src1, g64_s1hi, phys_src2, g64_s2hi);
+                break;
+            case OP_NOT64:
+                if (BE(c)->emit_not64)
+                    BE(c)->emit_not64(c, phys_dst, g64_dhi, phys_src1, g64_s1hi);
+                break;
+            case OP_NEG64:
+                if (BE(c)->emit_neg64)
+                    BE(c)->emit_neg64(c, phys_dst, g64_dhi, phys_src1, g64_s1hi);
+                break;
+            case OP_SHL64:
+                if (BE(c)->emit_shl64)
+                    BE(c)->emit_shl64(c, phys_dst, g64_dhi, phys_src1, g64_s1hi, phys_src2);
+                break;
+            case OP_SHR64:
+                if (BE(c)->emit_shr64)
+                    BE(c)->emit_shr64(c, phys_dst, g64_dhi, phys_src1, g64_s1hi, phys_src2);
+                break;
+            case OP_SAR64:
+                if (BE(c)->emit_sar64)
+                    BE(c)->emit_sar64(c, phys_dst, g64_dhi, phys_src1, g64_s1hi, phys_src2);
+                break;
+            case OP_CMP64:
+                /* RISC-V: record the operand pairs for flag re-materialization
+                 * by the following OP_COND_SET / branch. */
+                if (BE(c)->emit_cmp64)
+                    BE(c)->emit_cmp64(c, phys_src1, g64_s1hi, phys_src2, g64_s2hi);
+                break;
+            case OP_MOV64:
+                if (BE(c)->emit_mov64)
+                    BE(c)->emit_mov64(c, phys_dst, g64_dhi, phys_src1, g64_s1hi);
+                break;
+            case OP_LOAD64:
+                if (BE(c)->emit_load64)
+                    BE(c)->emit_load64(c, phys_dst, g64_dhi, phys_src1, (int32_t)instr->imm);
+                break;
+            case OP_STORE64:
+                if (BE(c)->emit_store64)
+                    BE(c)->emit_store64(c, phys_src1, g64_s1hi, phys_src2, (int32_t)instr->imm);
+                break;
+            case OP_ZEXT32_64:
+                if (BE(c)->emit_zext32_64)
+                    BE(c)->emit_zext32_64(c, phys_dst, g64_dhi, phys_src1);
+                break;
+            case OP_SEXT32_64:
+                if (BE(c)->emit_sext32_64)
+                    BE(c)->emit_sext32_64(c, phys_dst, g64_dhi, phys_src1);
+                break;
+            case OP_TRUNC64_32:
+                if (BE(c)->emit_trunc64_32)
+                    BE(c)->emit_trunc64_32(c, phys_dst, phys_src1, g64_s1hi);
+                break;
+            case OP_MOV64_IMM:
+                if (BE(c)->emit_mov64_imm)
+                    BE(c)->emit_mov64_imm(c, phys_dst, g64_dhi, instr->imm64);
+                break;
+            case OP_DIV64:
+                if (BE(c)->emit_div64)
+                    BE(c)->emit_div64(c, phys_dst, g64_dhi, phys_src1, g64_s1hi, phys_src2, g64_s2hi);
+                break;
+            case OP_MOD64:
+                if (BE(c)->emit_mod64)
+                    BE(c)->emit_mod64(c, phys_dst, g64_dhi, phys_src1, g64_s1hi, phys_src2, g64_s2hi);
+                break;
+            case OP_UDIV64:
+                if (BE(c)->emit_udiv64)
+                    BE(c)->emit_udiv64(c, phys_dst, g64_dhi, phys_src1, g64_s1hi, phys_src2, g64_s2hi);
+                break;
+            case OP_UMOD64:
+                if (BE(c)->emit_umod64)
+                    BE(c)->emit_umod64(c, phys_dst, g64_dhi, phys_src1, g64_s1hi, phys_src2, g64_s2hi);
+                break;
+
             case OP_SHL:
                 BE(c)->emit_shl(c, phys_dst, phys_src1, phys_src2);
                 break;
@@ -802,6 +1026,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                     c->lowering.cmp_src1 = phys_src1;
                     c->lowering.cmp_src2 = 0;  /* zero register */
                     c->lowering.cmp_is_fp = (rc0 == REG_CLASS_XMM || rc0 == REG_CLASS_VEC);
+                    c->lowering.cmp_is_64 = 0;  /* a 32-bit zero test (Sprint 170) */
                 }
                 BE(c)->emit_cmp_zero(c, phys_src1);
                 break;
@@ -2201,6 +2426,13 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 if (BE(c)->emit_store) {
                     BE(c)->emit_store(c, g128_dlo, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off));
                     BE(c)->emit_store(c, g128_dhi, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off - 8));
+                }
+            } else if (d64_sp) {
+                /* Sprint 170 (rv32 i64): ONE 8-byte slot - lo at slot*8,
+                 * hi at slot*8+4. */
+                if (BE(c)->emit_store) {
+                    BE(c)->emit_store(c, g64_dlo, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off));
+                    BE(c)->emit_store(c, g64_dhi, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off - 4));
                 }
             } else if (regalloc_get_class_for_temp(&c->regalloc, instr->temp_dest) == REG_CLASS_XMM) {
                 if (BE(c)->emit_store_fp) {

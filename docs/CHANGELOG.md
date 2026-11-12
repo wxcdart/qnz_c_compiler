@@ -1,5 +1,31 @@
 # CHANGELOG
 
+## [Sprint 170] - 2026-11-12 - Phase 1 RV32 i64 (64-Bit Pair Arithmetic, Core Ops, Dispatch & Frontend Lowering) (RISC-V / Frontend / Codegen)
+
+Shipped Phase 1 64-bit integer arithmetic on `--target riscv32` (ILP32 ABI, `lo/hi` 32-bit GPR pairs) across both raw binary and `-S` assembly emitters, unblocking 64-bit computation and variable assignment under QEMU.
+
+- **Frontend Lowering (`ast_lowering_*.c`):**
+  - Added rv32 64-bit expression lowering hooks in `ast_lowering_expr.c`, `ast_lowering_binop.c`, `ast_lowering_assign.c`, and `ast_lowering_stmt.c`.
+  - Routed 64-bit local variable declarations (`unsigned long long x = ...`) through `zc_operand_to64` and `zc_sym_store64` (`OP_STORE64`), fixing an issue where local initializers were evaluated with 32-bit `lower_expr` and stored only the low word via `sw a0, 8(sp)` while leaving `12(sp)` unwritten.
+  - Added support for 64-bit binary operations, compound and simple assignments, and memory loads/stores on rv32.
+- **Register Allocator (`regalloc.h`, `opt_temp_renumber.c`, `live_range.h`):**
+  - Expanded `TR_POOL_COUNT` from `256` to `8 * 256` to accommodate `REG_CLASS_GPR64` virtual register pairs.
+  - Reserved `t2` on rv32 so it can serve as a dedicated scratch register for 64-bit carry/borrow calculation without clobbering allocated temporaries.
+- **Raw and Assembly Emitters (`riscv64.c`, `riscv_asm.c`):**
+  - Core 64-bit opcodes implemented across raw and `-S` assembly: `OP_ADD64`, `OP_SUB64`, `OP_MUL64`, `OP_AND64`, `OP_OR64`, `OP_XOR64`, `OP_NOT64`, `OP_NEG64`, `OP_MOV64`, `OP_LOAD64`, `OP_STORE64`, `OP_MOV64_IMM`.
+  - Fixed `ADD64` carry computation: replaced invalid borrow check (`sltu t0, alo, blo`) with `sum = alo + blo; carry = (sum <u alo)` using scratch `t2` in both raw and text paths (resolved mismatch in `test/isa_qemu/13_syscall.c`).
+  - Corrected raw and ASM 64-bit shift emitters (`SHL64`, `SHR64`, `SAR64`): fixed branch offsets, destination aliasing, and eliminated invalid ASM instructions (`sub t5, cnt, 32` and `srli t2, slo, t5`).
+  - Fixed `SHR64` logical right shift high-word corruption where `slo << (32 - cnt)` was erroneously OR-ed into `dhi`.
+- **Verification:**
+  - `make build/bin/zerocc`: Clean build without warnings.
+  - `python3 tools/verify/isa_qemu_diff.py --isa riscv32`: 15/15 passed under QEMU (0 mismatch, 0 timeout, 0 build-fail; 1 isa-skipped).
+  - Shift matrix test matrix (SHL, SHR, SAR across shift counts 0, 1, 31, 32, 33, 63, 64) passed in both raw binary and `-S` assembly paths under `qemu-riscv32-static`.
+  - `make test`: 227/227 passed.
+  - `python3 tools/verify/style_check.py`: 179 files, 0 errors, 0 warnings.
+  - OKF lint + index: PASS.
+
+---
+
 ## [Sprint 169] - 2026-11-12 - `-fsanitize=leak` Freestanding Atexit Leak Report + Own-Linker BSS-Overlap Fix (Sanitizer / Runtime / Linker)
 
 Shipped the last remaining `zero_san` Phase 3 workstream (OKF `sanitizer-roadmap.md` §4.3/§4h): **`-fsanitize=leak`** — a freestanding atexit "still-allocated" leak report on the zero_rt heap, exactly as designed: **no codegen** (the allocator's own header bookkeeping is the detector), freestanding-only, with an ignore set for intentional resident buffers. Landed alongside a **latent own-linker bug the feature exposed**: multi-object BSS sections were silently aliased.

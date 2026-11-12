@@ -842,6 +842,7 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
     ZeroCCASTNode *node = zero_cc_ast_get(arena, ref);
     if (!node) return TEMP_NONE;
     c->last_expr_is_128 = 0;  /* GNU __int128 (Sprint 109): 128-bit cases set it */
+    c->last_expr_is_64 = 0;   /* Sprint 170 (rv32 i64): 64-bit cases set it */
 
     switch (node->tag) {
         case NODE_INT: {
@@ -1104,6 +1105,15 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                     c->last_expr_is_float = 0;
                     c->last_expr_is_128 = 1;
                     return temp;
+                } else if (c->isa == ISA_RISCV32 &&
+                           (sym->type.tag == TYPE_INT64 || sym->type.tag == TYPE_UINT64)) {
+                    /* Sprint 170 (rv32 i64): load the full 8 bytes into a
+                     * GPR64 (lo,hi) temp. */
+                    int temp = zc_alloc_temp(c);
+                    zc_sym_load64(c, sym, 0, temp);
+                    c->last_expr_is_float = 0;
+                    c->last_expr_is_64 = 1;
+                    return temp;
                 } else {
                     int temp = zc_alloc_temp(c);
                     zc_sym_load(c, sym, 0, temp);  /* Sprint 72 */
@@ -1154,6 +1164,15 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                         ir_emit_load128(c, val_temp, addr_temp);
                         c->last_expr_is_float = 0;
                         c->last_expr_is_128 = 1;
+                        return val_temp;
+                    }
+                    if (c->isa == ISA_RISCV32 &&
+                        (gv->type.tag == TYPE_INT64 || gv->type.tag == TYPE_UINT64)) {
+                        /* Sprint 170 (rv32 i64): load the full 8 bytes into a
+                         * GPR64 (lo,hi) temp. */
+                        ir_emit_load64(c, val_temp, addr_temp, 0);
+                        c->last_expr_is_float = 0;
+                        c->last_expr_is_64 = 1;
                         return val_temp;
                     }
                     size_t gv_sz = gv->size > 0 ? gv->size : 4;

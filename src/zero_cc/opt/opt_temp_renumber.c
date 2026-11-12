@@ -56,9 +56,11 @@
 #define TR_ID_LIMIT 65536  /* new ids must stay < this (16-bit user temp budget) */
 #define TR_NO_POS    ((size_t)-1)
 
-/* Free-list pool key: (reg class, type tag). */
+/* Free-list pool key: (reg class, type tag). The class field indexes up to
+ * REG_CLASS_GPR64 (=4); size the pool for 8 classes to leave headroom for
+ * future classes (a class >= TR_POOL_COUNT/256 would overflow pool_head). */
 #define TR_POOL_KEY(cls, tag) ((size_t)(cls) * 256 + (size_t)(tag))
-#define TR_POOL_COUNT (4 * 256)
+#define TR_POOL_COUNT (8 * 256)
 
 int opt_temp_renumber(ZeroCCCompiler *c, const char *fn_name) {
     if (!c) return 0;
