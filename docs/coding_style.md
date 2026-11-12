@@ -179,8 +179,8 @@ QEMU gate for raw-emitter changes).
   `docs/CHANGELOG.md` (newest first) with a verification-results block.
 - **OKF upkeep** (mandatory for any architectural change — see
   `AGENTS.md` §3): update the relevant concept page(s), then
-  `python3 tools/okf.py update <page.md> --log "..."` and
-  `python3 tools/okf.py lint && python3 tools/okf.py index`.
+  `python3 tools/okf/okf.py update <page.md> --log "..."` and
+  `python3 tools/okf/okf.py lint && python3 tools/okf/okf.py index`.
 - **New regression tests**: drop them in `test/<category>/` (auto-picked by
   the Makefile wildcard); for preprocessor/frontend behavior prefer a
   library-API test (host-gcc-built, runs under `make test`) plus a direct

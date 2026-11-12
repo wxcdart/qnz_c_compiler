@@ -17,13 +17,13 @@ This skill provides the workflow for traversing and maintaining the structured k
 3. **Ranked Search & Table of Contents**: Before falling back to raw `grep` across legacy docs, use `tools/okf.py`:
    ```bash
    # Ranked keyword search across title (5x), tags/resource (4x), description (3x), headings (2x), body (1x)
-   python3 tools/okf.py search <keywords>
+   python3 tools/okf/okf.py search <keywords>
 
    # Print full Table of Contents with summaries and tags
-   python3 tools/okf.py search --toc
+   python3 tools/okf/okf.py search --toc
 
    # Check bundle status and page timestamps
-   python3 tools/okf.py status
+   python3 tools/okf/okf.py status
    ```
 
 ## 2. Adding or Updating an OKF Concept Node
@@ -49,7 +49,7 @@ status: active
 - Include a `## Related Concepts` section at the bottom of each concept file with relative links back to `[Root Index](./index.md)` and related peer nodes.
 - After editing a concept page, bump its timestamp and append a changelog entry to [`docs/okf/log.md`](../../../docs/okf/log.md):
   ```bash
-  python3 tools/okf.py update <page.md> --log "Describe the architectural update"
+  python3 tools/okf/okf.py update <page.md> --log "Describe the architectural update"
   ```
 
 ## 3. Validating the OKF Bundle
@@ -57,8 +57,8 @@ status: active
 After creating or editing any file in `docs/okf/`, always run:
 
 ```bash
-python3 tools/okf.py lint
-python3 tools/okf.py index
+python3 tools/okf/okf.py lint
+python3 tools/okf/okf.py index
 ```
 
 Ensure both report `[PASS]` / `[OK]` with `0` broken links, valid YAML frontmatter, and 100% reachability from `index.md`.

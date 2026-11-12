@@ -36,7 +36,7 @@ ZeroCC follows a **runtime-follows-link-mode** dual-path model for multithreadin
    - **Futex Domain Alignment**: Uses standard process-shared futexes (`FUTEX_WAIT = 0`, `FUTEX_WAKE = 1`) matching kernel `CLONE_CHILD_CLEARTID` wakeups on thread exit, avoiding lost wakeups in `thrd_join` / `pthread_join`.
    - **Thread-Safe Heap**: `zero_rt/core/heap.c` protects `malloc`, `free`, and `realloc` with an internal futex spin-wait lock.
    - **Atomic LL/SC Hardware CAS Loops**: Fixed AArch64 and RISC-V atomic CAS sequences to use proper LL/SC retry loops (`ldxr`/`stxr` + `cbnz`, `lr`/`sc` + `bnez`), eliminating spurious branch hangs.
-   - **Verification**: `test/jit/thread_test.c` and `test/jit/pthread_test.c` differential-tested and validated under `--zerocc-link` natively on x86-64 and under QEMU on AArch64, RISC-V 64, and RISC-V 32 (`tools/linker_tests.py`, 31/31 passed).
+   - **Verification**: `test/jit/thread_test.c` and `test/jit/pthread_test.c` differential-tested and validated under `--zerocc-link` natively on x86-64 and under QEMU on AArch64, RISC-V 64, and RISC-V 32 (`tools/verify/linker_tests.py`, 31/31 passed).
 
 ## Stack Protection Runtime Support (Sprint 147)
 
