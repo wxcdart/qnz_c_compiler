@@ -377,6 +377,63 @@ make test-abi-interop
 python3 tools/verify/abi_interop.py
 ```
 
+## Tool Maintenance
+
+ZeroCC's verification tools live in `tools/` organized by concern. When adding,
+moving, renaming, or modifying a tool, follow this checklist to keep the repo
+consistent:
+
+### Tool Layout Conventions
+
+| Subpackage | Purpose |
+| :--- | :--- |
+| `tools/verify/` | Regression gates (san_sweep, opt_sweep, torture_run, diag_battery, test_runner, driver_tests, linker_tests, project_diff/runs, abi_interop, asm_diff, cfg_verifier, loop_unroll_verifier, style_check, sret_verifier, type_tag_verifier, isa_qemu_diff, isa128_diff, regress_exec_diff, extension_verifier) |
+| `tools/analysis/` | Codegen inspection (elf_verify, elf_min, riscv_enc_check, reloc_pair_check, vtable_check, cross_isa_comparator, struct_abi_verifier, struct_return_verifier, struct_asm_analyzer, prologue_epilogue_verifier, simd_regression_suite, literal_verifier, qemu_test_runner) |
+| `tools/okf/` | Knowledge graph tooling (okf.py) |
+| `tools/toolchain/` | Toolchain setup (setup_musl_cross.sh, musl_host_toolchain.sh, embed_symtab.py, setup_dev_env.sh) |
+| `tools/suites/` | Test suite generators (struct_test_generator.py) |
+| `tools/c11/`, `tools/c23/`, `tools/vla/` | Standalone dialect verification suites |
+
+### Path Resolution (`find_repo_root`)
+
+Every tool locates the repository root via `find_repo_root()` (`tools/__init__.py`)
+instead of hardcoded `os.path.dirname(...)` chains. It walks up from the tool's
+directory until it finds a repository marker (`AGENTS.md`, `Makefile`,
+`docs/okf/index.md`). Import pattern:
+
+```python
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from tools import find_repo_root
+ROOT = find_repo_root()
+```
+
+This keeps paths correct regardless of nesting depth or future moves to the
+`tools/` folder.
+
+### Checklist for Adding / Modifying / Moving a Tool
+
+1. **Place it in the right subpackage** — choose by purpose (see table above).
+2. **Use `find_repo_root()` for path resolution** — never hardcode relative
+   `../../` paths or assume a fixed tools/ depth.
+3. **Keep it stdlib-only** — all tools must run with `python3` and no
+   third-party packages. If a dependency is truly necessary, add it to
+   `tools/requirements.txt`.
+4. **Update all references** — after adding/moving/renaming a tool, update
+   paths in:
+   - `Makefile` (test target prerequisites and recipe commands)
+   - `AGENTS.md` (Build & Verification Rules)
+   - `docs/okf/build-and-verification.md` (this file)
+   - `tools/README.md` (tool inventory table)
+   - `README.md` (top-level quick commands)
+   - `.agents/skills/*` (skill documentation, if referenced)
+5. **Run OKF maintenance** — `python3 tools/okf/okf.py lint &&
+   python3 tools/okf/okf.py index` to verify YAML frontmatter schemas,
+   relative markdown links, and graph reachability if you touched `docs/okf/`.
+6. **Run the gates** — `make test`, `make test-san`, `make test-opt`, and
+   `python3 tools/verify/style_check.py` must all pass.
+
 ## Related Concepts
 - Return to [Root Index](./index.md)
 - See [Bundle Log](./log.md)

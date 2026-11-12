@@ -58,6 +58,41 @@ Before scanning the 80+ historical files in `docs/`, **always consult the Open K
 - **Optimizer Changes Require the Sweep**: `make test` compiles test binaries with the host `gcc`, so it does **not** exercise zerocc's optimizer. Any change to an optimization pass, LICM, mem2reg, DCE, CSE/GVN, copy propagation, or register allocation **must** pass `make test-opt` (which runs every test at `-O0/-O1/-O2/-O3` in both JIT and AOT and compares against the `-O0` baseline). A `-O1` pass is not sufficient: later passes (CSE/GVN/LICM at `-O2`, strength reduction at `-O3`) can transform `-O1` output into something none of the earlier passes saw.
 - **Long gates: background them** (the multi-minute outlier — the full c-torture sweep — must not block the loop; each agent command runs in an ephemeral shell, so the work must be detached from it). **Use tmux only if it exists on the host** (`command -v tmux`): `tmux kill-session -t torture 2>/dev/null; tmux new-session -d -s torture "make test-torture 2>&1 | tail -40 > /tmp/gate.log; echo DONE >> /tmp/gate.log"`. **Without tmux**, the same discipline with a plain background job: `nohup bash -c 'make test-torture 2>&1 | tail -40 > /tmp/gate.log; echo DONE >> /tmp/gate.log' >/dev/null 2>&1 &`. Either way: poll the log file and `test/torture/last_run.json` mtime; the `DONE` sentinel (not the pane) is the completion signal. Two hard rules, independent of the supervisor: **(1) never rebuild `build/bin/zerocc` while the gate runs** — the running gate execs the binary and dies with `PermissionError` on the replaced file; finish/kill the gate, rebuild, relaunch. **(2) interpret results by diffing `test/torture/last_run.json` against `test/torture/baseline.json`** (per-test class + per-config status), never by reading the truncated log tail. Everything shorter than a couple of minutes runs foreground with a timeout. Tear down the session (`tmux kill-session`) when done.
 
+## 4. Adding or Modifying Verification Tools
+
+ZeroCC's tools live in `tools/` organized by concern:
+
+| Subpackage | Purpose |
+| :--- | :--- |
+| `tools/verify/` | Regression gates (san_sweep, opt_sweep, torture_run, diag_battery, test_runner, driver_tests, linker_tests, project_diff/runs, abi_interop, asm_diff, cfg_verifier, loop_unroll_verifier, style_check, sret_verifier, type_tag_verifier, isa_qemu_diff, isa128_diff, regress_exec_diff, extension_verifier) |
+| `tools/analysis/` | Codegen inspection (elf_verify, elf_min, riscv_enc_check, reloc_pair_check, vtable_check, cross_isa_comparator, struct_abi_verifier, struct_return_verifier, struct_asm_analyzer, prologue_epilogue_verifier, simd_regression_suite, literal_verifier, qemu_test_runner) |
+| `tools/okf/` | Knowledge graph tooling (okf.py) |
+| `tools/toolchain/` | Toolchain setup (setup_musl_cross.sh, musl_host_toolchain.sh, embed_symtab.py, setup_dev_env.sh) |
+| `tools/suites/` | Test suite generators (struct_test_generator.py) |
+| `tools/c11/`, `tools/c23/`, `tools/vla/` | Standalone dialect verification suites |
+
+When adding a new tool or modifying an existing one, follow this checklist:
+
+1. **Place it in the right subpackage** — choose by purpose (see table above).
+2. **Use `find_repo_root()` for path resolution** — import it from `tools/__init__.py` instead of hardcoded `os.path.dirname(...)` chains. This keeps paths correct regardless of nesting depth or future moves:
+   ```python
+   import sys
+   from pathlib import Path
+   sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+   from tools import find_repo_root
+   ROOT = find_repo_root()
+   ```
+3. **Keep it stdlib-only** — all tools must run with `python3` and no third-party packages. If a dependency is truly necessary, add it to `tools/requirements.txt`.
+4. **Update all references** — after adding/moving/renaming a tool, update paths in:
+   - `Makefile` (test target prerequisites and recipe commands)
+   - `AGENTS.md` (Build & Verification Rules)
+   - `docs/okf/build-and-verification.md` (verification workflows)
+   - `tools/README.md` (tool inventory table)
+   - `README.md` (top-level quick commands)
+   - `.agents/skills/*` (skill documentation, if referenced)
+5. **Run OKF maintenance** — `python3 tools/okf/okf.py lint && python3 tools/okf/okf.py index` to verify graph reachability if you touched `docs/okf/`.
+6. **Run the gates** — `make test`, `make test-san`, `make test-opt`, and `python3 tools/verify/style_check.py` must all pass.
+
 ## 3. Maintaining the OKF Knowledge Bundle
 
 When completing a feature, bug fix, or architectural change:
