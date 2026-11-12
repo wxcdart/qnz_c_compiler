@@ -257,22 +257,29 @@ def main():
                 results.append({"test": "cross", "isa": isa, "status": "skip"})
                 continue
             for path in PATHS:
-                out = os.path.join(tmpdir, f"cross_{isa}_{path}")
-                rc, err = build_cross(args.zerocc, isa, 1, cross_src, out, path)
-                if rc != 0:
-                    fails += 1
+                # Sprint 168: run the smoke at every -O level, not just -O1.
+                # The old -O1-only smoke hid the f64loop miscompile: the OVF
+                # check's in-place clobber of (assumed-dead) operands only
+                # misfired at -O2/-O3, when LICM hoisted a loop-invariant
+                # addend out of the loop (3440441 instead of 123450).
+                for level in (0, 1, 2, 3):
+                    out = os.path.join(tmpdir, f"cross_{isa}_{path}_O{level}")
+                    rc, err = build_cross(args.zerocc, isa, level, cross_src, out, path)
+                    if rc != 0:
+                        fails += 1
+                        results.append({"test": "cross", "isa": isa, "path": path,
+                                        "level": level, "status": "FAIL",
+                                        "detail": f"compile rc={rc}: {err.strip()[:200]}"})
+                        continue
+                    rc, outp, err = run([qemu, out])
+                    ok = rc == 0
+                    if not ok:
+                        fails += 1
+                    cross_done += 1
                     results.append({"test": "cross", "isa": isa, "path": path,
-                                    "status": "FAIL",
-                                    "detail": f"compile rc={rc}: {err.strip()[:200]}"})
-                    continue
-                rc, outp, err = run([qemu, out])
-                ok = rc == 0
-                if not ok:
-                    fails += 1
-                cross_done += 1
-                results.append({"test": "cross", "isa": isa, "path": path, "rc": rc,
-                                "expect": 0, "status": "ok" if ok else "FAIL",
-                                "detail": err.strip()[:200]})
+                                    "level": level, "rc": rc,
+                                    "expect": 0, "status": "ok" if ok else "FAIL",
+                                    "detail": err.strip()[:200]})
 
     # Cross-ISA trap-firing (Sprint 163): a real signed overflow must TRAP under
     # qemu on every ISA with a check. 32-bit on all three; 64-bit on aarch64 /

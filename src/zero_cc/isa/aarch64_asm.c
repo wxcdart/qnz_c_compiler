@@ -804,12 +804,17 @@ static void aarch64asm_emit_san_report_block(ZeroCCCompiler *c, int res,
 
 /* zero_san (Sprint 163+): compare-based signed-overflow check + trap (text).
  * Mirrors aarch64_emit_ovf_trap (raw). Uses a self-contained label for the
- * branch; `a`/`b` (dead operands) are clobbered in place. */
+ * branch. Sprint 168: check temporaries live in x16/x17 (never allocated to
+ * temps by LRA), never in `a`/`b` - the original in-place clobber of the
+ * (assumed-dead) operands miscompiled -O2/-O3 when LICM kept an operand live
+ * across the check (f64loop: hoisted addend destroyed by `eor b, b, res`). */
 static void aarch64_emit_ovf_trap_asm(ZeroCCCompiler *c, int res, int a, int b,
                                       int width, int op, FILE *out) {
     uint16_t lbl = c->ir_ovf_label++;
     char L[32];
     snprintf(L, sizeof L, ".Lovf_%u", (unsigned)lbl);
+    const char *s1 = BE(c)->get_hw_reg_name(16);  /* x16 - OVF check scratch */
+    const char *s2 = BE(c)->get_hw_reg_name(17);  /* x17 - OVF check scratch */
     /* Follow-on (Sprint 166): div-by-zero / shift-count checks (mirrors the
      * raw emitter). The divisor/count temp is in temp_dest (`res`; src1 is
      * TEMP_NONE for these ops); the check precedes the div/shift. */
@@ -844,8 +849,8 @@ static void aarch64_emit_ovf_trap_asm(ZeroCCCompiler *c, int res, int a, int b,
         return;
     }
     if (width < 8) {
-        BE(c)->emit_extend_asm(c, a, res, 4, 1, out);   /* sxtw a, wres */
-        BE(c)->emit_cmp_asm(c, res, a, out);            /* cmp res, a */
+        BE(c)->emit_extend_asm(c, 16, res, 4, 1, out);   /* sxtw x16, wres */
+        BE(c)->emit_cmp_asm(c, res, 16, out);            /* cmp res, x16 */
         BE(c)->emit_jeq_asm(c, L, out);                 /* b.eq L: skip brk if fits */
         if (c->sanitize_report)
             aarch64asm_emit_san_report_block(c, res, width, op, out);
@@ -855,9 +860,9 @@ static void aarch64_emit_ovf_trap_asm(ZeroCCCompiler *c, int res, int a, int b,
     }
     if (op == ZC_OVF_OP_MUL) {
         const char *an = BE(c)->get_hw_reg_name(a), *bn = BE(c)->get_hw_reg_name(b), *rn = BE(c)->get_hw_reg_name(res);
-        fprintf(out, "\tsmulh\t%s, %s, %s\n", an, an, bn);   /* a = high64(a*b) */
-        fprintf(out, "\tasr\t%s, %s, #63\n", bn, rn);        /* b = signext(res) */
-        BE(c)->emit_cmp_asm(c, a, b, out);            /* cmp a, b */
+        fprintf(out, "\tsmulh\t%s, %s, %s\n", s1, an, bn);   /* x16 = high64(a*b) */
+        fprintf(out, "\tasr\t%s, %s, #63\n", s2, rn);        /* x17 = signext(res) */
+        BE(c)->emit_cmp_asm(c, 16, 17, out);         /* cmp x16, x17 */
         BE(c)->emit_jeq_asm(c, L, out);              /* b.eq L: skip brk if equal */
         if (c->sanitize_report)
             aarch64asm_emit_san_report_block(c, res, width, op, out);
@@ -866,18 +871,19 @@ static void aarch64_emit_ovf_trap_asm(ZeroCCCompiler *c, int res, int a, int b,
         return;
     }
     if (op == ZC_OVF_OP_SUB) {
-        BE(c)->emit_xor_asm(c, b, a, b, out);        /* eor b, a, b */
-        BE(c)->emit_xor_asm(c, a, a, res, out);      /* eor a, a, res */
+        /* ovf = signbit((a^res) & (a^b)); operands left intact. */
+        BE(c)->emit_xor_asm(c, 16, res, a, out);      /* eor x16, res, a */
+        BE(c)->emit_xor_asm(c, 17, a, b, out);        /* eor x17, a, b */
     } else { /* ADD: ovf = signbit((a^res) & (b^res)) */
-        BE(c)->emit_xor_asm(c, a, a, res, out);      /* eor a, a, res */
-        BE(c)->emit_xor_asm(c, b, b, res, out);      /* eor b, b, res */
+        BE(c)->emit_xor_asm(c, 16, a, res, out);      /* eor x16, a, res */
+        BE(c)->emit_xor_asm(c, 17, b, res, out);      /* eor x17, b, res */
     }
-    BE(c)->emit_and_asm(c, a, a, b, out);            /* and a, a, b */
+    BE(c)->emit_and_asm(c, 16, 16, 17, out);          /* and x16, x16, x17 */
     /* Sign-bit test via register value, not a flag-branch (b.pl after `and`
      * misfires in the qemu TB context; matches the compiler's compare-branch
      * style). asr sign-extends bit63 (-1 iff overflow); cbz skips the brk. */
-    fprintf(out, "\tasr\t%s, %s, #63\n", BE(c)->get_hw_reg_name(a), BE(c)->get_hw_reg_name(a));
-    fprintf(out, "\tcbz\t%s, %s\n", BE(c)->get_hw_reg_name(a), L);
+    fprintf(out, "\tasr\t%s, %s, #63\n", s1, s1);
+    fprintf(out, "\tcbz\t%s, %s\n", s1, L);
     if (c->sanitize_report)
         aarch64asm_emit_san_report_block(c, res, width, op, out);
     BE(c)->emit_trap_asm(c, out);                    /* brk #0 */

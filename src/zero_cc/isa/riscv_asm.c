@@ -1653,7 +1653,11 @@ static void riscv_emit_inline_asm_asm(ZeroCCCompiler *c, size_t idx, FILE *out) 
 
 /* zero_san (Sprint 163+): compare-based signed-overflow check + unimp (text).
  * Mirrors riscv64_emit_ovf_trap (raw); ISA-aware (RV32/RV64). Uses a self-
- * contained label; `a`/`b` (dead operands) are clobbered in place. */
+ * contained label. Sprint 168: check temporaries live in t3/t4 (never
+ * allocated to temps by LRA), never in `a`/`b` - the original in-place
+ * clobber of the (assumed-dead) operands miscompiled -O2/-O3 when LICM kept
+ * an operand live across the check (f64loop: hoisted addend destroyed by
+ * `xor b, b, res`). */
 static void riscvasm_emit_san_report_block(ZeroCCCompiler *c, int res,
                                            int width, int op, FILE *out) {
     /* The value move comes first: `res` may be a0/a1, which the li's write. */
@@ -1686,18 +1690,19 @@ static void riscv64_emit_ovf_trap_asm(ZeroCCCompiler *c, int res, int a, int b,
         return;
     }
     if (op == ZC_OVF_OP_SHIFT_COUNT) {
-        /* li t0, W; bge res, zero, L; unimp; L: blt res, t0, L2; unimp; L2:
-         * (W = width*8 bits; t0 is compiler scratch.) */
+        /* li t4, W; bge res, zero, L; unimp; L: blt res, t4, L2; unimp; L2:
+         * (W = width*8 bits; t4 is the check scratch - never t0, which may
+         * hold the spill-reloaded count). */
         char L2[32];
         uint16_t lbl2 = c->ir_ovf_label++;
         snprintf(L2, sizeof L2, ".Lovf_%u", (unsigned)lbl2);
-        fprintf(out, "\tli\t%s, %d\n", BE(c)->get_hw_reg_name(RV64_T0), width * 8);
+        fprintf(out, "\tli\t%s, %d\n", BE(c)->get_hw_reg_name(29), width * 8);
         fprintf(out, "\tbge\t%s, zero, %s\n", rn, L);   /* res >= 0: no trap */
         if (c->sanitize_report)
             riscvasm_emit_san_report_block(c, res, width, op, out);
         BE(c)->emit_trap_asm(c, out);                   /* unimp: res < 0 */
         BE(c)->emit_label_asm(c, L, out);               /* L: */
-        fprintf(out, "\tblt\t%s, %s, %s\n", rn, BE(c)->get_hw_reg_name(RV64_T0), L2); /* res < W: no trap */
+        fprintf(out, "\tblt\t%s, %s, %s\n", rn, BE(c)->get_hw_reg_name(29), L2); /* res < W: no trap */
         if (c->sanitize_report)
             riscvasm_emit_san_report_block(c, res, width, op, out);
         BE(c)->emit_trap_asm(c, out);                   /* unimp: res >= W */
@@ -1705,10 +1710,10 @@ static void riscv64_emit_ovf_trap_asm(ZeroCCCompiler *c, int res, int a, int b,
         return;
     }
     if (width < 8 && is64) {
-        /* RV64: sign-extension round-trip; a (dead) is scratch. */
-        fprintf(out, "\tslli\t%s, %s, 32\n", an, rn);   /* a = res << 32 */
-        fprintf(out, "\tsrai\t%s, %s, 32\n", an, an);   /* a = a >> 32 (arith) */
-        fprintf(out, "\tbeq\t%s, %s, %s\n", rn, an, L); /* skip unimp if fits */
+        /* RV64: sign-extension round-trip; t3 is the scratch. */
+        fprintf(out, "\tslli\t%s, %s, 32\n", BE(c)->get_hw_reg_name(28), rn);   /* t3 = res << 32 */
+        fprintf(out, "\tsrai\t%s, %s, 32\n", BE(c)->get_hw_reg_name(28), BE(c)->get_hw_reg_name(28)); /* t3 = t3 >> 32 (arith) */
+        fprintf(out, "\tbeq\t%s, %s, %s\n", rn, BE(c)->get_hw_reg_name(28), L); /* skip unimp if fits */
         if (c->sanitize_report)
             riscvasm_emit_san_report_block(c, res, width, op, out);
         BE(c)->emit_trap_asm(c, out);                   /* unimp */
@@ -1717,9 +1722,10 @@ static void riscv64_emit_ovf_trap_asm(ZeroCCCompiler *c, int res, int a, int b,
     }
     int asr_sh = is64 ? 63 : 31;
     if (op == ZC_OVF_OP_MUL) {
-        fprintf(out, "\tmulh\t%s, %s, %s\n", an, an, bn);  /* a = high(a*b) */
-        fprintf(out, "\tsrai\t%s, %s, %d\n", bn, rn, asr_sh); /* b = signext(res) */
-        fprintf(out, "\tbeq\t%s, %s, %s\n", an, bn, L);   /* skip unimp if equal */
+        /* t3 = high(a*b); t4 = signext(res); operands left intact. */
+        fprintf(out, "\tmulh\t%s, %s, %s\n", BE(c)->get_hw_reg_name(28), an, bn);
+        fprintf(out, "\tsrai\t%s, %s, %d\n", BE(c)->get_hw_reg_name(29), rn, asr_sh);
+        fprintf(out, "\tbeq\t%s, %s, %s\n", BE(c)->get_hw_reg_name(28), BE(c)->get_hw_reg_name(29), L);   /* skip unimp if equal */
         if (c->sanitize_report)
             riscvasm_emit_san_report_block(c, res, width, op, out);
         BE(c)->emit_trap_asm(c, out);                   /* unimp */
@@ -1727,14 +1733,15 @@ static void riscv64_emit_ovf_trap_asm(ZeroCCCompiler *c, int res, int a, int b,
         return;
     }
     if (op == ZC_OVF_OP_SUB) {
-        BE(c)->emit_xor_asm(c, b, a, b, out);           /* xor b, a, b */
-        BE(c)->emit_xor_asm(c, a, a, res, out);         /* xor a, a, res */
+        /* ovf = signbit((a^res) & (a^b)); t3/t4 are the temporaries. */
+        BE(c)->emit_xor_asm(c, 28, res, a, out);        /* xor t3, res, a */
+        BE(c)->emit_xor_asm(c, 29, a, b, out);          /* xor t4, a, b */
     } else { /* ADD: ovf = signbit((a^res) & (b^res)) */
-        BE(c)->emit_xor_asm(c, a, a, res, out);         /* xor a, a, res */
-        BE(c)->emit_xor_asm(c, b, b, res, out);         /* xor b, b, res */
+        BE(c)->emit_xor_asm(c, 28, a, res, out);        /* xor t3, a, res */
+        BE(c)->emit_xor_asm(c, 29, b, res, out);        /* xor t4, b, res */
     }
-    BE(c)->emit_and_asm(c, a, a, b, out);               /* and a, a, b */
-    fprintf(out, "\tbge\t%s, zero, %s\n", an, L);        /* skip unimp if a >= 0 */
+    BE(c)->emit_and_asm(c, 28, 28, 29, out);            /* and t3, t3, t4 */
+    fprintf(out, "\tbge\t%s, zero, %s\n", BE(c)->get_hw_reg_name(28), L); /* skip unimp if t3 >= 0 */
     if (c->sanitize_report)
         riscvasm_emit_san_report_block(c, res, width, op, out);
     BE(c)->emit_trap_asm(c, out);                       /* unimp */

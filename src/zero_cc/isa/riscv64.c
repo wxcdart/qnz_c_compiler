@@ -1335,9 +1335,8 @@ static void riscv64_emit_trap_asm(ZeroCCCompiler *c, FILE *out) {
 }
 
 /* zero_san (Sprint 163): compare-based signed-overflow check + unimp.
- * `res` = raw result of the preceding add/sub/mul; `a`, `b` = the two clean
- * operands (dead after this check, clobbered in place). Encodings verified
- * against riscv64-linux-gnu-as (Sprint 163):
+ * `res` = raw result of the preceding add/sub/mul; `a`, `b` = the two
+ * operands. Encodings verified against riscv64-linux-gnu-as (Sprint 163):
  *   slli=rv64_I(rd,rs,1,sh,0x13)  srai=rv64_I(rd,rs,5,0x400|sh,0x13)
  *   mulh=rv64_R(rd,rs1,rs2,1,1)  xor/and=rv64_R(rd,rs1,rs2,4/7,0)
  *   beq/bge=rv64_B(rs1,rs2,0/5,off)  unimp=0xC0001073
@@ -1349,8 +1348,19 @@ static void riscv64_emit_trap_asm(ZeroCCCompiler *c, FILE *out) {
  * Follow-on (Sprint 166): div-by-zero / shift-count checks. They test `res`
  * (temp_dest = divisor/count; src1/src2 are TEMP_NONE) directly and must
  * run before the width<8 RV64 round-trip early-return (which is
- * ADD/SUB/MUL-only). t0 is compiler scratch (never allocated to temps).
- * The shift-count bound is width*8 bits (`width` is in bytes). */
+ * ADD/SUB/MUL-only).
+ * Scratch discipline (Sprint 168 - f64loop fix): the check temporaries live
+ * in t3/t4 (28/29 - never allocated to temps by LRA; reserved for 128-bit
+ * spill scratch in the regalloc pool), NEVER in `a`/`b`. The original
+ * "dead, clobbered in place" design miscompiled whenever the optimizer kept
+ * an operand live across the check: -O2 LICM hoists a loop-invariant addend
+ * out of `s = s + C`, and the check's `xor b, b, res` then destroyed the
+ * hoisted constant every iteration (f64loop returned 3440441 instead of
+ * 123450 at -O2/-O3 on aarch64/riscv64, 61725 on riscv32). t3/t4 are also
+ * guaranteed distinct from {res,a,b}: those can only be allocated regs or
+ * scratch_reg1/2 (t0/t1) when a source/dest was spill-reloaded - which is
+ * also why the shift-count bound is materialized in t4, not t0 (a spilled
+ * count sits in t0). */
 static void riscv64_emit_san_report_block(ZeroCCCompiler *c, int res,
                                           int width, int op) {
     /* The value move comes first: `res` may be a0/a1, which the li's write.
@@ -1378,48 +1388,50 @@ static void riscv64_emit_ovf_trap(ZeroCCCompiler *c, int res, int a, int b,
         return;
     }
     if (op == ZC_OVF_OP_SHIFT_COUNT) {
-        /* li t0, W; bge res, zero, skip; unimp; blt res, t0, skip; unimp
-         * (W = width*8 bits; t0 is compiler scratch.)
+        /* li t4, W; bge res, zero, skip; unimp; blt res, t4, skip; unimp
+         * (W = width*8 bits; t4 is the check scratch - never t0, which may
+         * hold the spill-reloaded count).
          * Branch funct3: BEQ=0 BNE=1 BLT=4 BGE=5. */
-        riscv_emit_u32(c, rv64_I(RV_REG(RV64_T0), 0, 0, width * 8, 0x13)); /* li t0, W */
+        riscv_emit_u32(c, rv64_I(RV_REG(29), 0, 0, width * 8, 0x13));     /* li t4, W */
         riscv_emit_u32(c, rv64_B(RV_REG(res), 0, 5, skip));               /* bge res, zero: res >= 0 */
         if (c->sanitize_report) riscv64_emit_san_report_block(c, res, width, op);
         riscv_emit_u32(c, 0xC0001073u);                                    /* unimp: res < 0 */
-        riscv_emit_u32(c, rv64_B(RV_REG(res), RV_REG(RV64_T0), 4, skip));  /* blt res, t0: res < W */
+        riscv_emit_u32(c, rv64_B(RV_REG(res), RV_REG(29), 4, skip));       /* blt res, t4: res < W */
         if (c->sanitize_report) riscv64_emit_san_report_block(c, res, width, op);
         riscv_emit_u32(c, 0xC0001073u);                                    /* unimp: res >= W */
         return;
     }
     if (width < 8 && is64) {
-        /* RV64: sign-extension round-trip (result-only); a (dead) is scratch. */
-        riscv_emit_u32(c, rv64_I(RV_REG(a), RV_REG(res), 1, 32, 0x13));     /* slli a, res, 32 */
-        riscv_emit_u32(c, rv64_I(RV_REG(a), RV_REG(a), 5, 0x400 | 32, 0x13)); /* srai a, a, 32 */
-        riscv_emit_u32(c, rv64_B(RV_REG(res), RV_REG(a), 0, skip));         /* beq res, a: fits */
+        /* RV64: sign-extension round-trip (result-only); t3 is the scratch. */
+        riscv_emit_u32(c, rv64_I(RV_REG(28), RV_REG(res), 1, 32, 0x13));     /* slli t3, res, 32 */
+        riscv_emit_u32(c, rv64_I(RV_REG(28), RV_REG(28), 5, 0x400 | 32, 0x13)); /* srai t3, t3, 32 */
+        riscv_emit_u32(c, rv64_B(RV_REG(res), RV_REG(28), 0, skip));        /* beq res, t3: fits */
         if (c->sanitize_report) riscv64_emit_san_report_block(c, res, width, op);
         riscv_emit_u32(c, 0xC0001073u);                                     /* unimp */
         return;
     }
-    /* width 8 (RV64) or width 4 (RV32): operand-based overflow formula. */
+    /* width 8 (RV64) or width 4 (RV32): operand-based overflow formula,
+     * computed in t3/t4 so live operands are left intact. */
     int asr_sh = is64 ? 63 : 31;
     if (op == ZC_OVF_OP_MUL) {
-        /* ovf = (mulh(a,b) != asr(res,sh)): a = high(a*b); b = signext(res). */
-        riscv_emit_u32(c, rv64_R(RV_REG(a), RV_REG(a), RV_REG(b), 1, 1));            /* mulh a, a, b */
-        riscv_emit_u32(c, rv64_I(RV_REG(b), RV_REG(res), 5, 0x400 | asr_sh, 0x13));  /* srai b, res, sh */
-        riscv_emit_u32(c, rv64_B(RV_REG(a), RV_REG(b), 0, skip));                    /* beq a, b: equal */
+        /* ovf = (mulh(a,b) != asr(res,sh)): t3 = high(a*b); t4 = signext(res). */
+        riscv_emit_u32(c, rv64_R(RV_REG(28), RV_REG(a), RV_REG(b), 1, 1));            /* mulh t3, a, b */
+        riscv_emit_u32(c, rv64_I(RV_REG(29), RV_REG(res), 5, 0x400 | asr_sh, 0x13));  /* srai t4, res, sh */
+        riscv_emit_u32(c, rv64_B(RV_REG(28), RV_REG(29), 0, skip));                   /* beq t3, t4: equal */
         if (c->sanitize_report) riscv64_emit_san_report_block(c, res, width, op);
         riscv_emit_u32(c, 0xC0001073u);                                              /* unimp */
         return;
     }
     if (op == ZC_OVF_OP_SUB) {
-        /* ovf = signbit((a^res) & (a^b)): (a^b)->b first (a intact). */
-        riscv_emit_u32(c, rv64_R(RV_REG(b), RV_REG(a), RV_REG(b), 4, 0));            /* xor b, a, b */
-        riscv_emit_u32(c, rv64_R(RV_REG(a), RV_REG(a), RV_REG(res), 4, 0));          /* xor a, a, res */
+        /* ovf = signbit((a^res) & (a^b)); t3/t4 are the temporaries. */
+        riscv_emit_u32(c, rv64_R(RV_REG(28), RV_REG(res), RV_REG(a), 4, 0));          /* xor t3, res, a */
+        riscv_emit_u32(c, rv64_R(RV_REG(29), RV_REG(a), RV_REG(b), 4, 0));            /* xor t4, a, b */
     } else { /* ADD: ovf = signbit((a^res) & (b^res)) */
-        riscv_emit_u32(c, rv64_R(RV_REG(a), RV_REG(a), RV_REG(res), 4, 0));          /* xor a, a, res */
-        riscv_emit_u32(c, rv64_R(RV_REG(b), RV_REG(b), RV_REG(res), 4, 0));          /* xor b, b, res */
+        riscv_emit_u32(c, rv64_R(RV_REG(28), RV_REG(a), RV_REG(res), 4, 0));          /* xor t3, a, res */
+        riscv_emit_u32(c, rv64_R(RV_REG(29), RV_REG(b), RV_REG(res), 4, 0));          /* xor t4, b, res */
     }
-    riscv_emit_u32(c, rv64_R(RV_REG(a), RV_REG(a), RV_REG(b), 7, 0));                /* and a, a, b */
-    riscv_emit_u32(c, rv64_B(RV_REG(a), 0, 5, skip));                                /* bge a, zero: no overflow */
+    riscv_emit_u32(c, rv64_R(RV_REG(28), RV_REG(28), RV_REG(29), 7, 0));              /* and t3, t3, t4 */
+    riscv_emit_u32(c, rv64_B(RV_REG(28), 0, 5, skip));                                /* bge t3, zero: no overflow */
     if (c->sanitize_report) riscv64_emit_san_report_block(c, res, width, op);
     riscv_emit_u32(c, 0xC0001073u);                                                  /* unimp */
 }

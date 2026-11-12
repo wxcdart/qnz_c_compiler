@@ -15,6 +15,14 @@ unsigned uwrap(unsigned a, unsigned b) { return a + b; }
 unsigned long ulwrap(unsigned long a, unsigned long b) { return a + b; }
 long f64(long a, long b) { long x = a + b; return x; }
 long f64loop(int n) { long s = 0; for (int i = 0; i < n; i++) s = s + 12345L; return s; }
+/* Sprint 168: loop variants of the sub/mul checks. The OVF check used to
+ * clobber its operand registers in place (assumed dead); at -O2/-O3 LICM
+ * hoists the invariant addend out of the loop and the check destroyed it
+ * every iteration (f64loop returned 3440441 instead of 123450). The sweep
+ * now runs this file at -O0..-O3 so the sub/mul check computations are
+ * covered under hoisting as well. */
+long f64loop_sub(int n) { long s = 0; for (int i = 0; i < n; i++) s = s - 12345L; return s; }
+long f64loop_mul(int n) { long s = 1; for (int i = 0; i < n; i++) s = s * 2L; return s; }
 long mul_ll(long a, long b) { return a * b; }
 long mul_il(int i, long l) { return (long)i * l; }
 /* Sprint 166 follow-on: valid 32-bit div/mod/shift under the flag. int is
@@ -42,5 +50,7 @@ int main(void) {
     if (ushl32(1u, 4) != 16u) return 14;
     if (ushl32(1u, 30) != 0x40000000u) return 15;
     if (sshr32(-8, 1) != -4) return 16;
+    if (f64loop_sub(10) != -123450L) return 17;
+    if (f64loop_mul(10) != 1024L) return 18;
     return 0;
 }

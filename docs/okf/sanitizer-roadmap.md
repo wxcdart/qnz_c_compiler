@@ -4,7 +4,7 @@ title: Target-Side Sanitizer (zero_san) Design & Roadmap
 description: Analysis and phased roadmap for an optional, parked target-side safety-check feature (zero_san) — a codegen-first UBSan-lite signed-overflow check, with bounds, leaks, and ASan/LSan scoped out and justified.
 resource: sanitizer/roadmap
 tags: [sanitizer, zero_san, codegen, ubsan, overflow, bounds, asan, lsan, leak, roadmap, design, safety]
-timestamp: 2026-11-12T13:59:02Z
+timestamp: 2026-11-12T14:52:16Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -12,7 +12,7 @@ status: active
 
 # Target-Side Sanitizer (`zero_san`) — Design & Roadmap
 
-> **Status: Phase 1 IMPLEMENTED (Sprint 116, x86-64, both emitters, `-fsanitize=undefined`); cross-ISA extension (aarch64 / riscv64 / riscv32 width-4) SHIPPED in Sprint 163, §4c; div-by-zero / rem-by-zero / shift-count checks (all 4 ISAs) SHIPPED in Sprint 166 follow-on, §4e; `-fsanitize-trap` runtime diagnostics SHIPPED in Sprint 167, §4f.**
+> **Status: Phase 1 IMPLEMENTED (Sprint 116, x86-64, both emitters, `-fsanitize=undefined`); cross-ISA extension (aarch64 / riscv64 / riscv32 width-4) SHIPPED in Sprint 163, §4c; div-by-zero / rem-by-zero / shift-count checks (all 4 ISAs) SHIPPED in Sprint 166 follow-on, §4e; `-fsanitize-trap` runtime diagnostics SHIPPED in Sprint 167, §4f; OVF-check live-operand clobber (the `f64loop` -O2/-O3 cross-ISA miscompile) FIXED in Sprint 168, §4g.**
 > Sections below preserve the traced invariants and cost analysis; **§4-as-built** records the
 > shipped mechanism and the traps found while landing it. Phases 2–3 (bounds, leaks) remain
 > parked; ASan/LSan remain out of scope per §8.
@@ -233,11 +233,12 @@ that flag (`sdiv` = 0x9AC00C00); the dead `emit_idiv` helper got the correct sdi
 Surfaced by the new `div32(-100,-7)` smoke case. (The original cross smoke had no division, which
 is why it was never caught.)
 
-**Known pre-existing issue (documented, not fixed here):** `san_ok_cross_smoke.c`'s `f64loop` case
-fails at **-O2/-O3 on all three cross ISAs** (returns 7; `f64loop(10) != 123450L`) — reproduced on
-the pre-change file, so unrelated to this work. The sweep runs the ok-smoke at -O1 only (the
-cross-trap files cover -O0..-O3), so the gate stays green; a separate cross-ISA -O2 loop bug to
-track.
+**Known pre-existing issue (documented here, FIXED in Sprint 168 — §4g):** `san_ok_cross_smoke.c`'s `f64loop` case
+failed at **-O2/-O3 on all three cross ISAs** (returned 7; `f64loop(10) != 123450L`) — reproduced on
+the pre-change file, so unrelated to this work. The sweep ran the ok-smoke at -O1 only (the
+cross-trap files cover -O0..-O3), which is why the gate stayed green. Root cause: the OVF check
+emitters clobbered their operand registers (assumed dead); -O2 LICM hoists a loop-invariant
+addend out of the loop and the check destroyed it every iteration.
 
 **Type-tag verifier (I2) extended for the new ops:** `ir.c` now prints `OVF_TRAP rN [ovf=K]` in
 `-dump-ir`; `tools/verify/type_tag_verifier.py` I2 accepts `[ovf=3/4/5]` as a **pre-op** check —
@@ -344,6 +345,43 @@ and AOT at -O0..-O3, asserting **both** the per-ISA trap signal **and** the
 `zerocc: runtime error:` message on stderr; every `san_ok_*` must stay report-free and exit 0;
 the cross battery adds `-fsanitize-trap` raw-AOT runs of `san_trap_cross_{int,divzero}.c` under
 qemu on all 3 ISAs with the message assertion. `make test-san`: 608 ok / 0 FAIL (80 cross).
+
+### 4g. Sprint 168 — the OVF check must not clobber live operands (the `f64loop` -O2/-O3 cross-ISA miscompile)
+
+The compare-based overflow check on aarch64/riscv64/riscv32 computed its temporaries **inside
+the operand registers** — the aarch64 ADD check literally read
+`eor b, b, res` ("`b` (dead) is the scratch"), and riscv read `xor b, b, res` — on the
+assumption that `a`/`b` (OVF_TRAP's `temp_src1`/`temp_src2`) were dead after the checked op.
+They are not: those temps are ordinary live values. The assumption was invisible until **-O2
+LICM hoisted a loop-invariant operand out of a loop**: `f64loop` (`long s = 0; for (...) s = s + 12345L;`)
+returned **3440441** instead of 123450 at -O2/-O3 on aarch64/riscv64 (the hoisted `movz x2,
+#12345` got re-XORed by the check each iteration) and **61725** (exactly half — 5 effective
+iterations) on riscv32. x86-64 was immune: its check reads the CPU flags of the preceding
+op into the reserved r10/r11 scratch, never touching operands. The bug is in the *emitters*,
+not the optimizer — LICM doing its job exposed an emitter that assumed dead operands.
+
+**The fix (all four non-x86 check sites: raw + text × aarch64 + riscv):** the check
+temporaries now live in registers that LRA **never allocates to temps** — `x16`/`x17` (IP0/IP1)
+on aarch64, `t3`/`t4` (28/29) on riscv — and are guaranteed distinct from `{res, a, b}`:
+
+- ADD: `eor t, a, res; eor t2, b, res; and t, t, t2` (sign-bit test as before)
+- SUB: `eor t, res, a; eor t2, a, b; and t, t, t2`
+- MUL: `smulh/mulh t, a, b; asr/srai t2, res, sh; cmp/beq t, t2`
+- width<8 round-trip: `sxtw/slli t, res; cmp/beq res, t`
+
+`{res, a, b}` can only be allocated regs or `scratch_reg1/2` (x9/x10, t0/t1) when a
+source/dest was **spill-reloaded** into scratch just before the trap site — which is why the
+check scratch is the *other* reserved set (x16/x17, t3/t4), not the spill scratch. The same
+distinctness rule moved the riscv shift-count bound from `t0` to `t4`: a spilled count sits in
+t0, and `li t0, W` would have destroyed it (a latent false-positive in the same class).
+The report block (Sprint 167) needed no change: it sits on the fatal path (traps immediately
+after), where clobbering caller-saved regs before `brk`/`unimp`/`ud2` is harmless.
+
+**Gate hardening:** `san_ok_cross_smoke.c` gained `f64loop_sub`/`f64loop_mul` (loop-based
+sub/mul check computations under hoisting), `test/san/san_ok_hoisted_invariant.c` pins the
+pattern host-side (JIT + AOT, all levels), and the sweep's cross battery now runs the ok-smoke
+at **-O0..-O3** (not -O1 only, which had hidden this). `make test-san`: 644 ok / 0 FAIL
+(98 cross).
 
 ---
 
