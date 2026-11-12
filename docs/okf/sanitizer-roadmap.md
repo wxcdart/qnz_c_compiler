@@ -4,7 +4,7 @@ title: Target-Side Sanitizer (zero_san) Design & Roadmap
 description: Analysis and phased roadmap for an optional, parked target-side safety-check feature (zero_san) — a codegen-first UBSan-lite signed-overflow check, with bounds, leaks, and ASan/LSan scoped out and justified.
 resource: sanitizer/roadmap
 tags: [sanitizer, zero_san, codegen, ubsan, overflow, bounds, asan, lsan, leak, roadmap, design, safety]
-timestamp: 2026-11-12T01:53:37Z
+timestamp: 2026-11-12T02:15:18Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -148,14 +148,32 @@ MC emitter (`ast_lowering_mc.c`, CPU OF flag) and the AOT asm emitter (`asm_emit
 - **Pre-existing trap-encoding bugs fixed on the way:** the aarch64 `emit_trap` encoding is now the real
   `brk #0` (0xD4200000); the riscv `emit_trap` was `0x00002007` — a *float load* that SIGSEGV'd —
   now `0xC0001073` (`unimp`).
-- **Known false-negatives (safe direction, never false traps):** riscv32 **width 8** (a lo/hi GPR pair;
-  skipped at lowering, follow-up via the GPR128 machinery) and the riscv **raw/MC** path for width-4
-  `++`/`--`/compound-assign (the text/AOT-asm path covers it; binary ops are covered on both).
+- **Known false-negative (safe direction, never false traps):** riscv32 **width 8**. See §4d.
 - **Gate:** `tools/san_sweep.py` gained a cross-trap section: `san_trap_cross_int.c` (32-bit) on
   aarch64/riscv64/riscv32 and `san_trap_cross_wide.c` (64-bit) on aarch64/riscv64, each at -O0..-O3
   under `qemu-*-static`, asserting the per-ISA signal (`CROSS_TRAP_RC`; accepts shell `128+sig` or
   Popen `-sig`). `make test-san`: 213 ok / 0 FAIL (23 cross). riscv32 needs `ZC_RV32_MUSL` when run from
   a worktree without the in-tree musl-cross libs.
+
+### 4d. Sprint 164 — the "riscv raw-path width-4" gap was an RV64 immediate-loader miscompile; rv32 width-8 is blocked on rv32 i64
+
+- **riscv64 raw path, width-4 `++`/`--`/compound (FIXED):** not a sanitizer bug. `riscv64_emit_mov_imm_32`
+  materialized 32-bit constants with `lui`+`addi`; for `hi == 0x80000` (values `0x7FFFF800..0x7FFFFFFF`,
+  e.g. `INT_MAX`) `lui` yields `0xFFFFFFFF80000000` and the positive `addi` remainder never carries
+  into bits 32-63, so `INT_MAX` loaded as `0xFFFFFFFF7FFFFFFF`. The 32-bit sign-extension round-trip then
+  saw a fitting sum and (correctly, for that wrong value) did not trap. Fix: `addiw` (opcode 0x1B) after
+  `lui` on RV64 (RV32 keeps `addi`). This was a **general RV64 miscompile** of any int constant in that
+  range (the text path uses the assembler's `li`, which is why only the raw path was affected). Pinned by
+  `test/isa_qemu/16_imm32_edges.c` (all 4 ISAs, vs musl reference) and `san_trap_cross_{incdec,cassign}.c`
+  (all 3 cross ISAs, -O0..-O3).
+- **riscv32 width-8 (still skipped, and correctly so):** zerocc has **no 64-bit integer lowering on
+  riscv32**. `long long` is `sizeof 8` but is added/compared in a single 32-bit register (observed:
+  `LLONG_MAX + 1` prints `286027642044416` vs gcc's `-9223372036854775808`; a 64-bit constant is
+  truncated by `riscv64_emit_mov_imm`'s RV32 path). A width-8 overflow check on rv32 would therefore
+  check a truncated value and be meaningless. The lowering skip (`ISA_RISCV32 && w == 8`) stays until
+  rv32 i64 add/sub/mul/shift/compare/div and the two-register argument/return ABI exist (the GPR128
+  lo/hi machinery is the natural model). Tracked in the development plan as its own item — it is a
+  conformance gap far larger than the sanitizer.
 
 ZeroCC today has **host-side** sanitizers only — `make asan` builds the *compiler* with
 `-fsanitize=address,undefined`, which finds bugs in ZeroCC's own C, not in compiled programs.

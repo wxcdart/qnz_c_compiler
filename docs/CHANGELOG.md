@@ -1,3 +1,12 @@
+## [Sprint 164] - 2026-11-11 - RV64 Immediate Miscompile Fix + zero_san riscv Raw-Path Gap Closed (Sanitizer / Backend)
+
+Investigating the Sprint 163 "riscv raw-path width-4 `++`/`--`/compound doesn't trap" gap found a real **RV64 miscompile**, not a sanitizer defect.
+
+- **Fix (`isa/riscv64.c`, `riscv64_emit_mov_imm_32`)**: after `lui`, RV64 now uses `addiw` (0x1B) instead of `addi`. For `0x7FFFF800..0x7FFFFFFF` (e.g. `INT_MAX`) `lui` sign-extends to `0xFFFFFFFF80000000` and the positive remainder never fixed bits 32-63, so `INT_MAX` loaded as `0xFFFFFFFF7FFFFFFF` (raw path only; the `-S` path uses the assembler's `li`). RV32 unchanged.
+- **Finding (not fixed, documented)**: riscv32 has **no 64-bit integer lowering** — `long long` arithmetic is computed in one 32-bit register (`LLONG_MAX + 1` prints garbage vs gcc). rv32 width-8 overflow checks stay skipped until that exists; recorded in the development plan and `sanitizer-roadmap.md` §4d.
+- **Tests**: `test/isa_qemu/16_imm32_edges.c` (all 4 ISAs vs musl reference), `test/san/san_trap_cross_incdec.c` and `san_trap_cross_cassign.c` (wired into `tools/san_sweep.py`, -O0..-O3 on aarch64/riscv64/riscv32).
+- **Verification**: `make test-san` 253 ok / 0 FAIL (47 cross) · `make test-isa-qemu` all 4 ISAs green (x86-64 16/16, aarch64 16/16, riscv64 16/16, riscv32 15/15) · `style_check` 0/0 · `make test` 227/227 · `make test-opt` 126 ok / 0 failed · `make test-isa128` 144/144 · `make test-linker` 45/45.
+
 ## [Sprint 163] - 2026-11-11 - zero_san Cross-ISA Overflow Checks: aarch64, riscv64, riscv32 (Sanitizer)
 
 `-fsanitize=undefined` signed-overflow checks now fire on all four ISAs (previously x86-64 only; other ISAs silently skipped the check).

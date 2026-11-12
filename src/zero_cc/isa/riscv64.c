@@ -171,7 +171,14 @@ static void riscv64_emit_mov_imm_32(ZeroCCCompiler *c, int dst_reg, int32_t imm)
             riscv_emit_u32(c, rv64_LUI(RV_REG(dst_reg), hi));      /* lui dst, hi */
         }
         if (lo64) {
-            riscv_emit_u32(c, rv64_I(RV_REG(dst_reg), hi ? RV_REG(dst_reg) : 0, 0, (int16_t)lo64, 0x13));
+            /* RV64: use ADDIW (opcode 0x1B) after LUI so the sum is re-sign-
+             * extended from bit 31. Plain ADDI is wrong for hi == 0x80000
+             * (imm 0x7FFFF800..0x7FFFFFFF): LUI yields 0xFFFFFFFF80000000 and
+             * the positive remainder never carries back, leaving garbage in
+             * bits 32-63 (e.g. INT_MAX -> 0xFFFFFFFF7FFFFFFF; Sprint 164).
+             * RV32 has no ADDIW and needs none (XLEN == 32). */
+            uint32_t opc = (hi && c->isa == ISA_RISCV64) ? 0x1B : 0x13;
+            riscv_emit_u32(c, rv64_I(RV_REG(dst_reg), hi ? RV_REG(dst_reg) : 0, 0, (int16_t)lo64, opc));
         }
     }
 }

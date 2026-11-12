@@ -178,6 +178,8 @@ def main():
     # qemu on every ISA with a check. 32-bit on all three; 64-bit on aarch64 /
     # riscv64 only (riscv32 width-8 is a documented false-negative follow-up).
     cross_trap = [("san_trap_cross_int.c", CROSS_ISAS),
+                  ("san_trap_cross_incdec.c", CROSS_ISAS),
+                  ("san_trap_cross_cassign.c", CROSS_ISAS),
                   ("san_trap_cross_wide.c", CROSS_WIDE_ISAS)]
     if not args.no_cross:
         for tname, isas in cross_trap:

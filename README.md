@@ -16,8 +16,8 @@ ZeroCC is a lightweight, embeddable C99/C11/C23 compiler (with GNU extensions) w
   via compare-based lowering); both emitters; check width follows the usual
   arithmetic conversions; covers signed `+ - *`, `++`/`--`, and `+= -= *=` —
   Sprints 116–117, 161 & 163; `make test-san` flag-ON gate incl. cross-ISA qemu
-  trap-firing. Known safe-direction gaps: RISC-V 32 width-8 and RISC-V raw-path
-  width-4 `++`/`--`/compound (see [`docs/okf/sanitizer-roadmap.md`](docs/okf/sanitizer-roadmap.md) §4c)
+  trap-firing. Known safe-direction gap: RISC-V 32 width-8 (blocked on rv32 64-bit integer
+  lowering; see [`docs/okf/sanitizer-roadmap.md`](docs/okf/sanitizer-roadmap.md) §4c)
 - **`-fstack-protector` / `-fstack-protector-strong` / `-fstack-protector-all`** — GCC/Clang-compatible stack canary guards across all 4 ISAs (`%fs:40` on x86-64, `__stack_chk_guard` on AArch64/RISC-V; Sprint 147)
 - **Multi-translation-unit driver**: multiple `.c` inputs per invocation
   (JIT image merge + per-input `-c`/`-S`)
@@ -549,8 +549,10 @@ See [`tools/README.md`](tools/README.md) for the full tool table.
 
 Tracked in [`docs/ZEROCC_Development_Plan.md`](docs/ZEROCC_Development_Plan.md). Highlights:
 
-- **`zero_san`**: rv32 width-8 and riscv raw-path width-4 inc/dec/compound
-  checks (current safe-direction gaps), then div-by-zero / shift-count checks,
+- **RISC-V 32 64-bit integers**: `long long` arithmetic on riscv32 is computed in a
+  single 32-bit register (miscompiles; blocks rv32 width-8 sanitizer checks) —
+  needs lo/hi-pair i64 lowering and the two-register ABI.
+- **`zero_san`**: rv32 width-8 checks (after rv32 i64), then div-by-zero / shift-count checks,
   op-level trap reports, and a leak report (Phase 3). Bounds checking is
   parked; ASan/LSan are out of scope.
 - **Conformance**: remaining c-torture `SKIP-*` buckets (e.g. `float16` /
