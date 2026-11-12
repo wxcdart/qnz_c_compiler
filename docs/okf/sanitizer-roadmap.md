@@ -4,7 +4,7 @@ title: Target-Side Sanitizer (zero_san) Design & Roadmap
 description: Analysis and phased roadmap for an optional, parked target-side safety-check feature (zero_san) — a codegen-first UBSan-lite signed-overflow check, with bounds, leaks, and ASan/LSan scoped out and justified.
 resource: sanitizer/roadmap
 tags: [sanitizer, zero_san, codegen, ubsan, overflow, bounds, asan, lsan, leak, roadmap, design, safety]
-timestamp: 2026-11-11T23:48:25Z
+timestamp: 2026-11-12T00:26:44Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -12,7 +12,7 @@ status: active
 
 # Target-Side Sanitizer (`zero_san`) — Design & Roadmap
 
-> **Status: Phase 1 IMPLEMENTED (Sprint 116, x86-64, both emitters, `-fsanitize=undefined`).**
+> **Status: Phase 1 IMPLEMENTED (Sprint 116, x86-64, both emitters, `-fsanitize=undefined`); cross-ISA extension planned in §4c (Sprint 163).**
 > Sections below preserve the traced invariants and cost analysis; **§4-as-built** records the
 > shipped mechanism and the traps found while landing it. Phases 2–3 (bounds, leaks) remain
 > parked; ASan/LSan remain out of scope per §8.
@@ -105,6 +105,31 @@ binary form would:
   `san_trap_arr_elem`) trap/SIGILL and pass at
   `-O0..-O3` in JIT + AOT; `make test-san` green (0 FAIL). Soundness backstop unchanged — the
   flag is OFF in c-torture/test-opt, so those gates' output is byte-identical to pre-161.
+
+### 4c. Sprint 163 plan — cross-ISA `OP_OVF_TRAP` (aarch64, riscv64, riscv32) — IN PROGRESS
+
+Today the check is x86-64 only: the lowering guard (`c->isa != ISA_X86_64` at the two
+`ast_lowering_binop.c` entry points) is the single gate, `OP_OVF_TRAP` is lowered only by the x86
+MC emitter (`ast_lowering_mc.c`, CPU OF flag) and the AOT asm emitter (`asm_emitter.c`), and
+`san_ok_cross_smoke.c` only proves valid code does not false-trap elsewhere. Plan (branch
+`sprint-163-san-cross-isa`):
+
+1. **Drop the x86-only guard** (lowering + defensive guard in the shared raw-emitter loop + AOT-asm skip).
+2. **aarch64 + riscv64, compare-based (no OF flag), MC + AOT-asm:** add — result out of signed
+   range relative to operands (`(a^r)&(b^r) < 0`, or `adds`/`b.vc` on aarch64 where the flags exist);
+   sub — `(a^b)&(a^r) < 0`; mul — `smulh` vs sign of low half (aarch64/riscv64 `mulh`), or
+   division bound for width 4 via widening to 64-bit and a sign-extension round-trip. Width 4 on
+   64-bit ISAs: compute in 64-bit and compare against `sext32(res)` (mirror of the x86 width-4 path).
+   Trap = `brk #0` (aarch64) / `ebreak` (riscv) -> SIGTRAP; the sweep must accept the per-ISA signal.
+3. **riscv32:** width 4 first (native compare-based lowering). Width 8 is a lo/hi GPR pair — follow-up,
+   reusing the GPR128 (lo,hi) machinery; until then width-8 sites on rv32 are *skipped, not mis-checked*
+   (same rule as bit-fields/`__int128`).
+4. **Gate:** extend the cross-ISA qemu smoke from "no false trap" to also assert real traps fire under
+   `qemu-*-static` (new `san_trap_cross_*` cases: add/sub/mul/incdec/cassign at widths 4 and 8, run at
+   -O0..-O3 on aarch64/riscv64/riscv32-w4). Adjacency/pass-interaction invariants of §4-as-built carry
+   over unchanged (OP_OVF_TRAP is in no pure-op whitelist).
+5. **Pitfalls to pin:** emitter post-pass width-mask exclusion (`width & 7`) on every new emitter;
+   scratch-register clobber on spilled operands; sign-extension copy must not clobber the other operand.
 
 ZeroCC today has **host-side** sanitizers only — `make asan` builds the *compiler* with
 `-fsanitize=address,undefined`, which finds bugs in ZeroCC's own C, not in compiled programs.

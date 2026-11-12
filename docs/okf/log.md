@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-11T23:48:25Z
+timestamp: 2026-11-12T00:26:44Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1356,3 +1356,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-11 — Updated `ir-and-regalloc.md`
 - Sprint 161 correction: array-element lvalues are checked at the element width (element TypeInfo), not skipped; only decayed-array pointer arithmetic is excluded.
+
+## 2026-11-12 — Updated `sanitizer-roadmap.md`
+- Sprint 163 plan: cross-ISA OP_OVF_TRAP (aarch64/riscv64/riscv32) design, gate, pitfalls (§4c)
