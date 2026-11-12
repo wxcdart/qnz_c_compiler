@@ -298,7 +298,7 @@ int main(void) {
     }
     char err[1024] = {0};
     const char *objsA[2] = { Aa, Ab };
-    if (zero_cc_link_exec(Abn, objsA, 2, NULL, 0, err, sizeof(err)) != 0) {
+    if (zero_cc_link_exec(Abn, objsA, 2, NULL, 0, NULL, err, sizeof(err)) != 0) {
         fprintf(stderr, "FAIL(A): link: %s\n", err);
         return 1;
     }
@@ -368,7 +368,7 @@ int main(void) {
     }
     const char *objsB[2] = { Ba, Bb };
     char errB[1024] = {0};
-    int rcB = zero_cc_link_exec(Bbn, objsB, 2, NULL, 0, errB, sizeof(errB));
+    int rcB = zero_cc_link_exec(Bbn, objsB, 2, NULL, 0, NULL, errB, sizeof(errB));
     if (rcB == 0) {
         fprintf(stderr, "FAIL(B): far lea linked (should be a clean error)\n");
         fails++;

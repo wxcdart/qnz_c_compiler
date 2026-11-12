@@ -4,7 +4,7 @@ title: Zero_RT — ZeroCC's Own Freestanding Runtime (Linux x86-64 + AArch64/RIS
 description: The zero_rt/ runtime (heap, strings, exit, minimal stdio with Ryū float formatting) compiled by zerocc itself, auto-linked by --zerocc-link, and the zeroc_main_wrapper entry routing that makes atexit work on a plain return from main.
 resource: zero-rt
 tags: [zero-rt, runtime, freestanding, heap, stdio, ryu, zero-cc-link, phase-0]
-timestamp: 2026-11-09T21:42:57Z
+timestamp: 2026-11-12T17:46:29Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -18,9 +18,9 @@ status: active
 
 - `rt_os.h` — OS-boundary declarations. Syscalls go through the `__zerocc_syscall(...)` IR builtin (`OP_SYSCALL`, see [ir-and-regalloc.md](./ir-and-regalloc.md) and [isa-backends.md](./isa-backends.md)), which is implemented across all **4 target ISAs** (`x86_64` `syscall`, `aarch64` `svc #0`, `riscv64`/`riscv32` `ecall`) in both raw machine-code and GAS `.s` assembly emitters (Sprint 89), not inline asm.
 - `linux/os.c` — syscall implementations: `read`, `write`, `brk`, `getpid`, `exit_group`.
-- `core/heap.c` — `malloc`/`free`/`calloc`/`realloc` on a `brk`-backed first-fit allocator.
+- `core/heap.c` — `malloc`/`free`/`calloc`/`realloc` on a `brk`-backed first-fit allocator, plus the `-fsanitize=leak` atexit report (Sprint 169): `zeroc_rt_leak_report_set`/`zeroc_rt_leak_ignore` walk the arena at exit, report live blocks to fd 2 (stdio-free), and request exit code 23; the report is enabled by the `zeroc_leak_main_wrapper` entry (see `exit.c` below).
 - `core/string.c` — `memcpy`/`memmove`/`memset`/`memcmp`, `strlen`/`strcpy`/`strcat`/etc.
-- `core/exit.c` — `atexit`/`exit`/`abort` plus **`zeroc_main_wrapper`**: calls `main`, then `exit(status)`, so the atexit list runs on a plain `return` from `main`.
+- `core/exit.c` — `atexit`/`exit`/`abort` plus **`zeroc_main_wrapper`**: calls `main`, then `exit(status)`, so the atexit list runs on a plain `return` from `main`. **`zeroc_leak_main_wrapper`** (Sprint 169) is the `-fsanitize=leak` variant: it first calls `zeroc_rt_leak_report_set(1)`, then takes the same entry path; the own linker routes the `_start` stub through it when the driver requests it (and `exit()` honors `zeroc_rt_set_exit_override` — the leak report's exit 23 — only when the program would otherwise exit 0).
 - `core/stdio.c` — unbuffered `printf`/`fprintf`/`sprintf`/`snprintf`/`puts`/`putchar`; float formatting via vendored **Ryū** (`third_party/vendor/ryu/`, Apache-2.0 OR Boost-1.0: `d2fixed_buffered` for `%f`, `d2exp_buffered` for `%e`/`%g`).
 - `core/int128.c` — freestanding 128-bit integer div/mod/shift (`zc_udiv128`, `zc_sdiv128`, `zc_umod128`, `zc_smod128`, `zc_shl128_v`, `zc_shr128_v`, `zc_sar128_v`).
 - `complex/complex.c` (Sprint 144) — clean-room MIT complex double division (`__divdc3`) using scaled Smith's algorithm (CACM 1962, Alg 116) and ISO C99 Annex G.5.1 infinity/NaN recovery. Closes the last `libgcc` runtime dependency called by ZeroCC IR lowering; linked as `ZC_COMPLEX_OBJ` into `zerocc` for host static musl JIT symbol resolution, and compiled into target `zero_rt.a` archives.

@@ -132,4 +132,18 @@ int       zeroc_rt_gettid(void);
 void      zeroc_rt_exit(int status);        /* does not return */
 int       zeroc_rt_nanosleep(const void *req, void *rem);
 
+/* -fsanitize=leak (Sprint 169): freestanding atexit leak report.
+ * zeroc_rt_leak_report_set(1) enables the "still allocated at exit" report
+ * from the zero_rt heap (called by zeroc_leak_main_wrapper, the --zerocc-link
+ * stub target when -fsanitize=leak is passed); zeroc_rt_leak_ignore marks an
+ * intentionally-resident block so the report skips it. The report prints to
+ * fd 2 and requests exit code 23 (LSan's convention) when the program would
+ * otherwise exit 0. Freestanding-only: host-linked builds never pull the
+ * zero_rt heap in, so these are inactive there. */
+void      zeroc_rt_leak_report_set(int on);
+void      zeroc_rt_leak_ignore(void *ptr);
+/* exit() substitutes `code` for a 0 exit (set from an atexit handler, e.g.
+ * the leak report). A non-zero exit the program already chose is kept. */
+void      zeroc_rt_set_exit_override(int code);
+
 #endif /* ZERO_RT_OS_H */

@@ -1578,6 +1578,23 @@ static int compile_and_link(CompileOptions *opts) {
         const char *objs_ref[ZERO_CC_MAX_INPUTS];
         for (int i = 0; i < obj_count; i++) objs_ref[i] = obj_paths[i];
 
+        /* -fsanitize=leak (Sprint 169): the leak report lives in the
+         * freestanding zero_rt heap, so the stub must route main through
+         * zeroc_leak_main_wrapper (which enables the atexit report). The
+         * flag is a no-op for host-linked / JIT builds - the host allocator
+         * cannot be inspected (use the host LSan/Valgrind there). */
+        const char *entry_wrapper = NULL;
+        if (opts->sanitize_leak) {
+            if (!opts->no_zerocc_rt && rt_path[0] && access(rt_path, R_OK) == 0) {
+                entry_wrapper = "zeroc_leak_main_wrapper";
+            } else {
+                fprintf(stderr,
+                        "zerocc: note: -fsanitize=leak is freestanding-only "
+                        "and zero_rt is not linked (--no-zerocc-rt or zero_rt "
+                        "missing); the atexit leak report is disabled\n");
+            }
+        }
+
         if (!opts->no_zerocc_rt && rt_path[0] && access(rt_path, R_OK) == 0
             && arch_count < 32) {
             arch_paths[arch_count++] = rt_path;
@@ -1586,10 +1603,12 @@ static int compile_and_link(CompileOptions *opts) {
 
         int lr = opts->zerocc_link_pie
                      ? zero_cc_link_exec_pie(output, objs_ref, obj_count,
-                                             arch_paths, arch_count, link_err,
+                                             arch_paths, arch_count,
+                                             entry_wrapper, link_err,
                                              sizeof link_err)
                      : zero_cc_link_exec(output, objs_ref, obj_count,
-                                         arch_paths, arch_count, link_err,
+                                         arch_paths, arch_count,
+                                         entry_wrapper, link_err,
                                          sizeof link_err);
         for (int i = 0; i < obj_count; i++) {
             if (obj_temp[i] && !getenv("ZC_KEEP_OBJ")) unlink(obj_paths[i]);
@@ -1766,6 +1785,13 @@ int main(int argc, char **argv) {
 
     /* Determine mode: -E -> preprocess only, -c -> object file,
      * -S -> assembly, -o without -c -> executable, else JIT */
+    if (opts.sanitize_leak && !opts.zerocc_link && !opts.emit_object &&
+        !opts.emit_asm && !opts.emit_preproc) {
+        fprintf(stderr,
+                "zerocc: note: -fsanitize=leak is freestanding-only "
+                "(--zerocc-link): the host allocator cannot be inspected, "
+                "so the atexit leak report is disabled for this build\n");
+    }
     int rc;
     if (opts.emit_preproc) {
         rc = compile_preprocess(&opts);

@@ -51,4 +51,20 @@ static char *san_fmt_str(char *p, const char *s) {
     return p;
 }
 
+/* Format `v` as lowercase hex (no 0x prefix) into p, return the end
+ * pointer. Used by the -fsanitize=leak atexit report for block addresses.
+ * `unused`: the host JIT reporter does not format addresses. */
+static __attribute__((unused)) char *san_fmt_hex(char *p, uintptr_t v) {
+    if (v == 0) { *p++ = '0'; return p; }
+    char tmp[20];
+    int n = 0;
+    while (v != 0) {
+        unsigned d = (unsigned)(v & 15);
+        tmp[n++] = (char)(d < 10 ? '0' + d : 'a' + (d - 10));
+        v >>= 4;
+    }
+    while (n > 0) *p++ = tmp[--n];
+    return p;
+}
+
 #endif /* ZERO_RT_SAN_FMT_H */

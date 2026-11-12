@@ -419,7 +419,7 @@ $(BUILD_DIR)/lib/zero_rt.a: $(ZERO_RT_OBJS) $(BUILD_DIR)/bin/zerocc
 $(BUILD_DIR)/obj/zero_rt/os.o: zero_rt/linux/os.c zero_rt/rt_os.h $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc -c $< $(ZERO_RT_CFLAGS) -o $@
-$(BUILD_DIR)/obj/zero_rt/heap.o: zero_rt/core/heap.c $(BUILD_DIR)/bin/zerocc
+$(BUILD_DIR)/obj/zero_rt/heap.o: zero_rt/core/heap.c zero_rt/rt_os.h zero_rt/core/san_fmt.h $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc -c $< $(ZERO_RT_CFLAGS) -o $@
 $(BUILD_DIR)/obj/zero_rt/string.o: zero_rt/core/string.c $(BUILD_DIR)/bin/zerocc
@@ -449,7 +449,7 @@ $(BUILD_DIR)/obj/zero_rt/errno.o: zero_rt/core/errno.c $(BUILD_DIR)/bin/zerocc
 $(BUILD_DIR)/obj/zero_rt/thread.o: zero_rt/core/thread.c zero_rt/rt_os.h $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc -c $< $(ZERO_RT_CFLAGS) -o $@
-$(BUILD_DIR)/obj/zero_rt/san.o: zero_rt/core/san_report.c $(BUILD_DIR)/bin/zerocc
+$(BUILD_DIR)/obj/zero_rt/san.o: zero_rt/core/san_report.c zero_rt/core/san_fmt.h $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc -c $< $(ZERO_RT_CFLAGS) -o $@
 
@@ -467,7 +467,7 @@ $(BUILD_DIR)/lib/zero_rt_aarch64.a: $(ZERO_RT_AARCH64_OBJS) $(BUILD_DIR)/bin/zer
 $(BUILD_DIR)/obj/zero_rt_aarch64/os.o: zero_rt/linux/os.c zero_rt/rt_os.h $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --target aarch64 -c $< $(ZERO_RT_CFLAGS) -o $@
-$(BUILD_DIR)/obj/zero_rt_aarch64/heap.o: zero_rt/core/heap.c $(BUILD_DIR)/bin/zerocc
+$(BUILD_DIR)/obj/zero_rt_aarch64/heap.o: zero_rt/core/heap.c zero_rt/rt_os.h zero_rt/core/san_fmt.h $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --target aarch64 -c $< $(ZERO_RT_CFLAGS) -o $@
 $(BUILD_DIR)/obj/zero_rt_aarch64/string.o: zero_rt/core/string.c $(BUILD_DIR)/bin/zerocc
@@ -497,7 +497,7 @@ $(BUILD_DIR)/obj/zero_rt_aarch64/errno.o: zero_rt/core/errno.c $(BUILD_DIR)/bin/
 $(BUILD_DIR)/obj/zero_rt_aarch64/thread.o: zero_rt/core/thread.c zero_rt/rt_os.h $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --target aarch64 -c $< $(ZERO_RT_CFLAGS) -o $@
-$(BUILD_DIR)/obj/zero_rt_aarch64/san.o: zero_rt/core/san_report.c $(BUILD_DIR)/bin/zerocc
+$(BUILD_DIR)/obj/zero_rt_aarch64/san.o: zero_rt/core/san_report.c zero_rt/core/san_fmt.h $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --target aarch64 -c $< $(ZERO_RT_CFLAGS) -o $@
 
@@ -515,7 +515,7 @@ $(BUILD_DIR)/lib/zero_rt_riscv64.a: $(ZERO_RT_RISCV64_OBJS) $(BUILD_DIR)/bin/zer
 $(BUILD_DIR)/obj/zero_rt_riscv64/os.o: zero_rt/linux/os.c zero_rt/rt_os.h $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --target riscv64 -c $< $(ZERO_RT_CFLAGS) -o $@
-$(BUILD_DIR)/obj/zero_rt_riscv64/heap.o: zero_rt/core/heap.c $(BUILD_DIR)/bin/zerocc
+$(BUILD_DIR)/obj/zero_rt_riscv64/heap.o: zero_rt/core/heap.c zero_rt/rt_os.h zero_rt/core/san_fmt.h $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --target riscv64 -c $< $(ZERO_RT_CFLAGS) -o $@
 $(BUILD_DIR)/obj/zero_rt_riscv64/string.o: zero_rt/core/string.c $(BUILD_DIR)/bin/zerocc
@@ -545,7 +545,7 @@ $(BUILD_DIR)/obj/zero_rt_riscv64/errno.o: zero_rt/core/errno.c $(BUILD_DIR)/bin/
 $(BUILD_DIR)/obj/zero_rt_riscv64/thread.o: zero_rt/core/thread.c zero_rt/rt_os.h $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --target riscv64 -c $< $(ZERO_RT_CFLAGS) -o $@
-$(BUILD_DIR)/obj/zero_rt_riscv64/san.o: zero_rt/core/san_report.c $(BUILD_DIR)/bin/zerocc
+$(BUILD_DIR)/obj/zero_rt_riscv64/san.o: zero_rt/core/san_report.c zero_rt/core/san_fmt.h $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --target riscv64 -c $< $(ZERO_RT_CFLAGS) -o $@
 
@@ -563,7 +563,7 @@ $(BUILD_DIR)/lib/zero_rt_riscv32.a: $(ZERO_RT_RISCV32_OBJS) $(BUILD_DIR)/bin/zer
 $(BUILD_DIR)/obj/zero_rt_riscv32/os.o: zero_rt/linux/os.c zero_rt/rt_os.h $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --target riscv32 -c $< $(ZERO_RT_CFLAGS) -o $@
-$(BUILD_DIR)/obj/zero_rt_riscv32/heap.o: zero_rt/core/heap.c $(BUILD_DIR)/bin/zerocc
+$(BUILD_DIR)/obj/zero_rt_riscv32/heap.o: zero_rt/core/heap.c zero_rt/rt_os.h zero_rt/core/san_fmt.h $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --target riscv32 -c $< $(ZERO_RT_CFLAGS) -o $@
 $(BUILD_DIR)/obj/zero_rt_riscv32/string.o: zero_rt/core/string.c $(BUILD_DIR)/bin/zerocc
@@ -593,7 +593,7 @@ $(BUILD_DIR)/obj/zero_rt_riscv32/errno.o: zero_rt/core/errno.c $(BUILD_DIR)/bin/
 $(BUILD_DIR)/obj/zero_rt_riscv32/thread.o: zero_rt/core/thread.c zero_rt/rt_os.h $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --target riscv32 -c $< $(ZERO_RT_CFLAGS) -o $@
-$(BUILD_DIR)/obj/zero_rt_riscv32/san.o: zero_rt/core/san_report.c $(BUILD_DIR)/bin/zerocc
+$(BUILD_DIR)/obj/zero_rt_riscv32/san.o: zero_rt/core/san_report.c zero_rt/core/san_fmt.h $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --target riscv32 -c $< $(ZERO_RT_CFLAGS) -o $@
 

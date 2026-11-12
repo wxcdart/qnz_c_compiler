@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-12T14:52:16Z
+timestamp: 2026-11-12T17:46:29Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1380,3 +1380,12 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-12 — Updated `sanitizer-roadmap.md`
 - Sprint 168: OVF-check live-operand clobber fixed (f64loop -O2/-O3 cross-ISA miscompile) - check temporaries moved to LRA-unallocated scratch (x16/x17, t3/t4), shift-count bound t0->t4, cross sweep now -O0..-O3
+
+## 2026-11-12 — Updated `sanitizer-roadmap.md`
+- Sprint 169: -fsanitize=leak freestanding atexit leak report shipped (no-codegen heap walk, exit 23, zeroc_rt_leak_ignore, link-time entry-wrapper enablement) + latent own-linker multi-object BSS-overlap fix; new section 4h
+
+## 2026-11-12 — Updated `own-linker.md`
+- Sprint 169: BSS merge invariant (NOBITS cursor advance) documented; entry_wrapper routing for the -fsanitize=leak leak wrapper
+
+## 2026-11-12 — Updated `zero-rt.md`
+- Sprint 169: heap.c atexit leak report + zeroc_leak_main_wrapper entry documented

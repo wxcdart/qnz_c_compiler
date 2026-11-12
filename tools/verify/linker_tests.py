@@ -519,6 +519,75 @@ def case_ar_tests():
             check("ar_writer_own_link", False, err.strip())
 
 
+def leak_link_run(work, source, isa, flag=True):
+    """Compile `source` for `isa` (None = x86-64 native), own-link it with
+    -fsanitize=leak when flag=True, and run it (qemu when cross).
+    Returns (rc, stdout, stderr)."""
+    target = ["--target", isa] if isa else []
+    stem = source[:-2]
+    o = os.path.join(work, stem + ".o")
+    rc, out, err = zc(target + ["-c", src(source), "-o", o])
+    if rc != 0:
+        raise RuntimeError(f"compile {source} failed: {err}")
+    exe = os.path.join(work, stem + ("_leak" if flag else "_plain"))
+    args = target + [o]
+    if flag:
+        args.append("-fsanitize=leak")
+    rc, out, err = zc(args + ["--zerocc-link", "-o", exe])
+    if rc != 0:
+        raise RuntimeError(f"link {source} failed: {err}")
+    qemu = {"aarch64": "qemu-aarch64-static",
+            "riscv64": "qemu-riscv64-static",
+            "riscv32": "qemu-riscv32-static"}.get(isa)
+    p = subprocess.run([qemu, exe] if qemu else [exe],
+                       capture_output=True, text=True, timeout=30)
+    return p.returncode, p.stdout, p.stderr
+
+
+def case_leak_report():
+    """-fsanitize=leak (Sprint 169): freestanding atexit leak report on the
+    zero_rt heap, all 4 ISAs. Run-only (no musl differential - a
+    system-linked program's allocator cannot be inspected): the report
+    fires with exit 23 on a leak, stays silent on clean programs, respects
+    zeroc_rt_leak_ignore, and never masks a non-zero program exit status.
+    The no-flag control proves the report is gated, not unconditional."""
+    for label, isa in (("x64", None), ("a64", "aarch64"),
+                       ("rv64", "riscv64"), ("rv32", "riscv32")):
+        qemu = {"aarch64": "qemu-aarch64-static",
+                "riscv64": "qemu-riscv64-static",
+                "riscv32": "qemu-riscv32-static"}.get(isa)
+        if qemu and not shutil.which(qemu):
+            check(f"leak_{label}", True, f"skipped: {qemu} absent")
+            continue
+        ok, detail = True, ""
+        with tempfile.TemporaryDirectory(prefix="zerocc_t2_leak_") as work:
+            try:
+                # 1. leak -> exit 23 + report naming the block
+                rc, out, err = leak_link_run(work, "leak_leaks.c", isa, True)
+                if rc != 23 or "zerocc: leak:" not in err \
+                        or "1 block(s), 64 byte(s)" not in err:
+                    ok, detail = False, f"leaks: rc={rc} err={err!r}"
+                # 2. all freed -> exit 0, silent
+                rc, out, err = leak_link_run(work, "leak_clean.c", isa, True)
+                if rc != 0 or "zerocc: leak:" in err:
+                    ok, detail = False, f"clean: rc={rc} err={err!r}"
+                # 3. intentionally-resident block ignored -> exit 0, silent
+                rc, out, err = leak_link_run(work, "leak_ignore.c", isa, True)
+                if rc != 0 or "zerocc: leak:" in err:
+                    ok, detail = False, f"ignore: rc={rc} err={err!r}"
+                # 4. leak + return 7 -> exit 7 kept, report still fires
+                rc, out, err = leak_link_run(work, "leak_status.c", isa, True)
+                if rc != 7 or "zerocc: leak:" not in err:
+                    ok, detail = False, f"status: rc={rc} err={err!r}"
+                # 5. control: same leak without the flag -> exit 0, silent
+                rc, out, err = leak_link_run(work, "leak_leaks.c", isa, False)
+                if rc != 0 or "zerocc: leak:" in err:
+                    ok, detail = False, f"noflag: rc={rc} err={err!r}"
+            except RuntimeError as e:
+                ok, detail = False, str(e)
+        check(f"leak_{label}", ok, detail)
+
+
 def main():
     if not os.path.exists(BIN):
         print("build/bin/zerocc missing - run `make build/bin/zerocc` first")
@@ -548,6 +617,9 @@ def main():
     print("-- multithreading (C11 threads + pthread cross-ISA) --")
     case_thread_run("c11_threads", "test/jit/thread_test.c")
     case_thread_run("posix_pthreads", "test/jit/pthread_test.c")
+
+    print("-- -fsanitize=leak (freestanding atexit leak report) --")
+    case_leak_report()
 
     print("-- stack protector (-fstack-protector cross-ISA) --")
     case_stack_protect_run()

@@ -13,10 +13,16 @@
  * Guarantees: 16-byte payload alignment, first-fit allocation, full
  * forward + backward coalescing on free. No threads, no mprotect, no
  * mmap - Phase 0 scope.
+ *
+ * -fsanitize=leak (Sprint 169): the header bookkeeping IS the leak
+ * detector - at exit, every block whose header still lacks the FREE bit
+ * was still allocated. No per-malloc instrumentation (LSan-grade
+ * reachability is ASan-class and out of scope, OKF §4.3).
  */
 #include <stdint.h>
 #include <stdlib.h>
 #include "rt_os.h"
+#include "san_fmt.h"
 
 #define RT_ALIGN        16
 #define RT_FREE_BIT     ((uintptr_t)1 << (sizeof(uintptr_t) * 8 - 1))
@@ -212,4 +218,84 @@ void *realloc(void *ptr, size_t n) {
     rt_free_unlocked(ptr);
     heap_unlock();
     return np;
+}
+
+/* ------------------------------------------------------------------ */
+/* -fsanitize=leak (Sprint 169): atexit "still allocated" report.      */
+/* Freestanding-only - the report is only compiled into / reachable    */
+/* when this heap is the program's allocator (zero_rt link).          */
+/* ------------------------------------------------------------------ */
+
+#define RT_LEAK_MAX_IGNORE 64
+static int  g_leak_on = 0;
+static int  g_leak_registered = 0;
+static void *g_leak_ignore[RT_LEAK_MAX_IGNORE];
+static int   g_leak_ignore_count = 0;
+
+void zeroc_rt_leak_ignore(void *ptr) {
+    int i;
+    if (!ptr || g_leak_ignore_count >= RT_LEAK_MAX_IGNORE) return;
+    for (i = 0; i < g_leak_ignore_count; i++)
+        if (g_leak_ignore[i] == ptr) return;
+    g_leak_ignore[g_leak_ignore_count++] = ptr;
+}
+
+static int rt_leak_ignored(const void *ptr) {
+    int i;
+    for (i = 0; i < g_leak_ignore_count; i++)
+        if (g_leak_ignore[i] == (const void *)ptr) return 1;
+    return 0;
+}
+
+/* One arena walk: count (or print) the live, non-ignored blocks. */
+static void rt_leak_walk(int count_only, size_t *total, size_t *blocks) {
+    uint8_t *p;
+    if (!g_ready) return;
+    for (p = g_lo; ; ) {
+        RtHdr *h = (RtHdr *)p;
+        uint8_t *end = (uint8_t *)(h + 1) + rt_size(h);
+        if (!rt_free_flag(h) && !rt_leak_ignored(h + 1)) {
+            if (count_only) {
+                *total += rt_size(h);
+                (*blocks)++;
+            } else {
+                char line[96];
+                char *q = san_fmt_str(line, "zerocc: leak:   at 0x");
+                q = san_fmt_hex(q, (uintptr_t)(h + 1));
+                q = san_fmt_str(q, " (");
+                q = san_fmt_uint(q, (unsigned)rt_size(h));
+                q = san_fmt_str(q, " bytes)\n");
+                zeroc_rt_write(2, line, (uint64_t)(q - line));
+            }
+        }
+        if (end >= (uint8_t *)g_hi) break;
+        p = end;
+    }
+}
+
+static void rt_leak_report_atexit(void) {
+    size_t total = 0, blocks = 0;
+    char buf[96];
+    char *e;
+    if (!g_leak_on) return;
+    rt_leak_walk(1, &total, &blocks);
+    if (blocks == 0) return;
+    e = san_fmt_str(buf, "zerocc: leak: ");
+    e = san_fmt_uint(e, (unsigned)blocks);
+    e = san_fmt_str(e, " block(s), ");
+    e = san_fmt_uint(e, (unsigned)total);
+    e = san_fmt_str(e, " byte(s) still allocated at exit\n");
+    zeroc_rt_write(2, buf, (uint64_t)(e - buf));
+    rt_leak_walk(0, &total, &blocks);
+    /* LSan's exit code for "leaks detected". exit() applies it only when
+     * the program itself would exit 0 (a real failure status is kept). */
+    zeroc_rt_set_exit_override(23);
+}
+
+void zeroc_rt_leak_report_set(int on) {
+    g_leak_on = on ? 1 : 0;
+    if (g_leak_on && !g_leak_registered) {
+        atexit(rt_leak_report_atexit);
+        g_leak_registered = 1;
+    }
 }

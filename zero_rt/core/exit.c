@@ -15,6 +15,15 @@ typedef void (*RtAtexitFn)(void);
 static RtAtexitFn g_atexit_fns[RT_MAX_ATEXIT];
 static int g_atexit_count = 0;
 
+/* Exit-code override (Sprint 169): an atexit handler (the -fsanitize=leak
+ * report) may request a different status; applied only when the program
+ * itself would exit 0, so a real failure status is never masked. */
+static int g_exit_override = -1;
+
+void zeroc_rt_set_exit_override(int code) {
+    g_exit_override = code;
+}
+
 int atexit(RtAtexitFn fn) {
     if (g_atexit_count >= RT_MAX_ATEXIT) return 1;
     g_atexit_fns[g_atexit_count++] = fn;
@@ -25,6 +34,7 @@ void exit(int code) {
     while (g_atexit_count > 0) {
         g_atexit_fns[--g_atexit_count]();
     }
+    if (g_exit_override >= 0 && code == 0) code = g_exit_override;
     zeroc_rt_exit_group(code);
     for (;;) { } /* unreachable */
 }
@@ -47,8 +57,8 @@ void __stack_chk_fail(void) {
 static uintptr_t g_x86_tls_block[8];
 #endif
 
-void zeroc_main_wrapper(void) {
-    extern int main(void);
+/* Shared entry prologue: the x86-64 stack-protector TLS setup. */
+static void rt_entry_setup(void) {
 #if !RT_TARGET_AARCH64 && !RT_TARGET_RISCV
     /* On x86-64, stack protector checks load canary from %fs:40.
      * Set up FS segment base to point to g_x86_tls_block so %fs:40 (index 5)
@@ -56,5 +66,21 @@ void zeroc_main_wrapper(void) {
     g_x86_tls_block[5] = __stack_chk_guard;
     zeroc_rt_arch_prctl(RT_ARCH_SET_FS, (unsigned long)g_x86_tls_block);
 #endif
+}
+
+void zeroc_main_wrapper(void) {
+    extern int main(void);
+    rt_entry_setup();
+    exit(main());
+}
+
+/* --zerocc-link stub target when -fsanitize=leak (Sprint 169): enable the
+ * freestanding atexit leak report, then take the normal entry path. The
+ * own linker selects it over zeroc_main_wrapper when the driver passes it
+ * as the requested entry wrapper. */
+void zeroc_leak_main_wrapper(void) {
+    extern int main(void);
+    zeroc_rt_leak_report_set(1);
+    rt_entry_setup();
     exit(main());
 }

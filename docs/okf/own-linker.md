@@ -4,7 +4,7 @@ title: ZeroCC Own Linker (T2) - ELF Reader, ar Reader, Static ET_EXEC/PIE Output
 description: ZeroCC's own static linker - the ELF64-LE object reader, the classic ar archive reader with greedy member extraction, symbol resolution, section layout at conventional x86-64/AArch64/RISC-V64 bases, the x86-64 far-rel32 detour-thunk pool, the static-PIE (ET_DYN) self-relocating link, supported relocation sets, and per-ISA generated _start stubs. Gate: make test-linker (21/21) + test/linker/far_thunk.c + test/linker/pie_test.c.
 resource: linker
 tags: [linker, elf, ar, aot, x86-64, aarch64, riscv64, relocations, zero-rt, static-pie, thunks]
-timestamp: 2026-11-09T21:42:57Z
+timestamp: 2026-11-12T17:46:29Z
 generated: pi-agent
 verified: engineering-lead
 status: active
@@ -64,7 +64,15 @@ through), or `.a` (archive extraction).
    `.data` (page-aligned when `.data` is empty). Input sections are
    merged **by name family** (`.text*`/`.rodata*`/`.data*`/`.bss*` —
    gcc-style `.data.rel.ro`, `.rodata.str1.1` fold in; `.eh_frame` is
-   dropped for a static exec).
+   dropped for a static exec). **BSS merge invariant (Sprint 169):** the
+   output cursor must advance for `SHT_NOBITS` input sections as well as
+   `SHT_PROGBITS` (address space without file content) — otherwise every
+   object's `.bss` lands at the same output offset and their symbols
+   silently alias. It was latent for a year (only `stdio.o` ever had
+   `.bss` in a zero_rt link) until `heap.o` gained `g_leak_ignore[64]`
+   and `g_leak_ignore` overwrote `g_atexit_fns[0]` (a malloc'd pointer
+   that `exit()` then called). The output `.bss` keeps `size = 0`, with
+   `memsz` as its virtual size.
 6. **Apply relocations** (per `e_machine`; all inputs must agree):
    - **x86-64**: `R_X86_64_{64, PC32, PLT32, 32, 32S, RELATIVE}`;
      `PLT32` resolves as `PC32` (a fully static link has no PLT stubs).
@@ -141,7 +149,14 @@ no-argument `main`.) **Target routing:** the call goes to `main`, *except*
 when the linked set defines zero_rt's `zeroc_main_wrapper` (its archive
 member is force-extracted) — then the stub calls the wrapper, which runs
 `main` and then `exit()`, so the atexit list fires on a plain `return`.
-See [Zero_RT](./zero-rt.md).
+A driver-requested wrapper overrides the auto-detection: `zero_cc_link_exec[_pie]`
+takes an `entry_wrapper` parameter (Sprint 169) that both steers the
+force-extraction probe and wins as the stub target when present in the
+image (falling back to the normal auto-detect when absent) — e.g.
+`-fsanitize=leak` requests zero_rt's `zeroc_leak_main_wrapper`, the
+`zeroc_main_wrapper` variant that enables the freestanding atexit leak
+report first. See [Zero_RT](./zero-rt.md) and
+[sanitizer-roadmap](./sanitizer-roadmap.md) §4h.
 
 ## Static PIE (x86-64, `--zerocc-link-pie`)
 

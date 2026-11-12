@@ -35,16 +35,22 @@ extern "C" {
 #endif
 
 /* objects/archives: input file paths (.o / .a). Either list may be empty,
- * not both. Returns 0 on success, -1 with a message in err. */
+ * not both. entry_wrapper: optional _start stub target symbol (e.g. zero_rt's
+ * "zeroc_leak_main_wrapper" for -fsanitize=leak); NULL = auto - call
+ * "zeroc_main_wrapper" when zero_rt is linked (runs atexit on a plain
+ * `return` from main), else "main". Returns 0 on success, -1 with a message
+ * in err. */
 int zero_cc_link_exec(const char *out_path,
                       const char *const *objects, int object_count,
                       const char *const *archives, int archive_count,
+                      const char *entry_wrapper,
                       char *err, size_t errsz);
 
 /* Static-PIE (ET_DYN, self-relocating _start) link; x86-64 only. */
 int zero_cc_link_exec_pie(const char *out_path,
                           const char *const *objects, int object_count,
                           const char *const *archives, int archive_count,
+                          const char *entry_wrapper,
                           char *err, size_t errsz);
 
 #ifdef __cplusplus

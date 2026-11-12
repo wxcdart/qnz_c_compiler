@@ -125,8 +125,11 @@ typedef struct {
     bool have_bss;
     bool stub_at_front; /* linker-generated _start stub in .text[0..16) */
     /* The stub's call target: "zeroc_main_wrapper" when zero_rt was linked
-     * (runs atexit on a plain `return` from main), else "main". */
+     * (runs atexit on a plain `return` from main), else "main". A driver
+     * request (entry_wrapper, e.g. zero_rt's "zeroc_leak_main_wrapper" for
+     * -fsanitize=leak) wins when that symbol is in the image. */
     const char *stub_target;
+    const char *entry_wrapper; /* driver-requested stub target (or NULL) */
     /* x86-64 far-rel32 thunk pool (detour-style): reserved at the end of
      * .text during layout, 14 bytes per slot -
      *   ff 25 00 00 00 00   jmp [rip+0]
@@ -287,7 +290,9 @@ static int resolve_symbols(ZcLink *L, char *err, size_t errsz);
 
 /* zero_rt's entry wrapper: force-extracted so the generated _start stub can
  * route main through exit() (atexit support) whenever zero_rt is linked.
- * NULL when no archive provides it (plain programs keep the direct call). */
+ * NULL when no archive provides it (plain programs keep the direct call).
+ * A driver-requested entry wrapper (e.g. the -fsanitize=leak variant) takes
+ * its place as the force-extract probe when given. */
 #define RT_ENTRY_WRAPPER "zeroc_main_wrapper"
 
 static int extract_archives(ZcLink *L, const char *const *archives,
@@ -324,8 +329,15 @@ static int extract_archives(ZcLink *L, const char *const *archives,
                                         &probe, err, errsz) != 0) {
                     continue; /* not an ELF (index etc.) - skip */
                 }
+                /* Force-extract the member defining the (requested or
+                 * default) entry wrapper so the stub can route main through
+                 * it. The requested name is preferred; the default stays in
+                 * the probe so the requested member (same archive member in
+                 * practice) also covers the fallback symbol. */
                 bool take = member_resolves_need(L, &probe) ||
-                            member_defines(&probe, RT_ENTRY_WRAPPER);
+                            member_defines(&probe, RT_ENTRY_WRAPPER) ||
+                            (L->entry_wrapper &&
+                             member_defines(&probe, L->entry_wrapper));
                 zc_elf_obj_free(&probe);
                 if (take && !in) {
                     char mpath[600];
@@ -550,7 +562,13 @@ static int layout_sections(ZcLink *L, char *err, size_t errsz) {
                     return -1;
                 }
             } else {
+                /* NOBITS (.bss): no file content, but the address space is
+                 * consumed - advance the cursor so successive objects' BSS
+                 * sections are laid out back-to-back, not on top of each
+                 * other (which silently aliased their symbols). The output
+                 * .bss section's file size stays 0; memsz is its vsize. */
                 os->memsz += ins->size;
+                os->cursor += ins->size;
             }
             if (out == 3) L->have_bss = true;
         }
@@ -1885,7 +1903,8 @@ oom:
 static int zero_cc_link_exec_impl(const char *out_path,
                                   const char *const *objects, int object_count,
                                   const char *const *archives,
-                                  int archive_count, bool pie,
+                                  int archive_count,
+                                  const char *entry_wrapper, bool pie,
                                   char *err, size_t errsz) {
     if (object_count == 0 && archive_count == 0) {
         snprintf(err, errsz, "no input files to link");
@@ -1897,6 +1916,7 @@ static int zero_cc_link_exec_impl(const char *out_path,
         return -1;
     }
     L->pie = pie;
+    L->entry_wrapper = entry_wrapper;
 
     int rc = -1;
     for (int i = 0; i < object_count; i++) {
@@ -1948,12 +1968,23 @@ static int zero_cc_link_exec_impl(const char *out_path,
         }
         /* zero_rt linked (its entry wrapper was force-extracted from the
          * archive) → the stub calls the wrapper, which runs main and then
-         * exit(), so the atexit list runs on a plain `return`. */
+         * exit(), so the atexit list runs on a plain `return`. A driver-
+         * requested wrapper (-fsanitize=leak's zeroc_leak_main_wrapper)
+         * wins when present; otherwise fall back to the default wrapper. */
         const ZcLinkSym *wrapper = NULL;
         for (size_t i = 0; i < L->sym_count; i++) {
-            if (L->syms[i].obj >= 0 &&
-                strcmp(L->syms[i].name, RT_ENTRY_WRAPPER) == 0) {
+            if (L->syms[i].obj >= 0 && L->entry_wrapper &&
+                strcmp(L->syms[i].name, L->entry_wrapper) == 0) {
                 wrapper = &L->syms[i];
+                break;
+            }
+        }
+        if (!wrapper) {
+            for (size_t i = 0; i < L->sym_count; i++) {
+                if (L->syms[i].obj >= 0 &&
+                    strcmp(L->syms[i].name, RT_ENTRY_WRAPPER) == 0) {
+                    wrapper = &L->syms[i];
+                }
             }
         }
         main_vma = wrapper ? wrapper->vma : main->vma;
@@ -1986,15 +2017,19 @@ done:
 int zero_cc_link_exec(const char *out_path,
                       const char *const *objects, int object_count,
                       const char *const *archives, int archive_count,
+                      const char *entry_wrapper,
                       char *err, size_t errsz) {
     return zero_cc_link_exec_impl(out_path, objects, object_count, archives,
-                                  archive_count, false, err, errsz);
+                                  archive_count, entry_wrapper, false, err,
+                                  errsz);
 }
 
 int zero_cc_link_exec_pie(const char *out_path,
                           const char *const *objects, int object_count,
                           const char *const *archives, int archive_count,
+                          const char *entry_wrapper,
                           char *err, size_t errsz) {
     return zero_cc_link_exec_impl(out_path, objects, object_count, archives,
-                                  archive_count, true, err, errsz);
+                                  archive_count, entry_wrapper, true, err,
+                                  errsz);
 }

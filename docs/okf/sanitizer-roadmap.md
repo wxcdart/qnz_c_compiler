@@ -4,7 +4,7 @@ title: Target-Side Sanitizer (zero_san) Design & Roadmap
 description: Analysis and phased roadmap for an optional, parked target-side safety-check feature (zero_san) — a codegen-first UBSan-lite signed-overflow check, with bounds, leaks, and ASan/LSan scoped out and justified.
 resource: sanitizer/roadmap
 tags: [sanitizer, zero_san, codegen, ubsan, overflow, bounds, asan, lsan, leak, roadmap, design, safety]
-timestamp: 2026-11-12T14:52:16Z
+timestamp: 2026-11-12T17:46:29Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -12,10 +12,10 @@ status: active
 
 # Target-Side Sanitizer (`zero_san`) — Design & Roadmap
 
-> **Status: Phase 1 IMPLEMENTED (Sprint 116, x86-64, both emitters, `-fsanitize=undefined`); cross-ISA extension (aarch64 / riscv64 / riscv32 width-4) SHIPPED in Sprint 163, §4c; div-by-zero / rem-by-zero / shift-count checks (all 4 ISAs) SHIPPED in Sprint 166 follow-on, §4e; `-fsanitize-trap` runtime diagnostics SHIPPED in Sprint 167, §4f; OVF-check live-operand clobber (the `f64loop` -O2/-O3 cross-ISA miscompile) FIXED in Sprint 168, §4g.**
+> **Status: Phase 1 IMPLEMENTED (Sprint 116, x86-64, both emitters, `-fsanitize=undefined`); cross-ISA extension (aarch64 / riscv64 / riscv32 width-4) SHIPPED in Sprint 163, §4c; div-by-zero / rem-by-zero / shift-count checks (all 4 ISAs) SHIPPED in Sprint 166 follow-on, §4e; `-fsanitize-trap` runtime diagnostics SHIPPED in Sprint 167, §4f; OVF-check live-operand clobber (the `f64loop` -O2/-O3 cross-ISA miscompile) FIXED in Sprint 168, §4g; `-fsanitize=leak` freestanding atexit leak report SHIPPED in Sprint 169, §4h (also fixed a latent own-linker BSS-overlap bug it exposed, OKF `own-linker.md`).**
 > Sections below preserve the traced invariants and cost analysis; **§4-as-built** records the
-> shipped mechanism and the traps found while landing it. Phases 2–3 (bounds, leaks) remain
-> parked; ASan/LSan remain out of scope per §8.
+> shipped mechanism and the traps found while landing it. Phase 2 (bounds) remains parked;
+> ASan/LSan remain out of scope per §8.
 
 ## 4-as-built. Phase 1 as shipped (Sprint 116)
 
@@ -385,6 +385,53 @@ at **-O0..-O3** (not -O1 only, which had hidden this). `make test-san`: 644 ok /
 
 ---
 
+### 4h. Sprint 169 — `-fsanitize=leak`: freestanding atexit leak report (no codegen)
+
+The §4.3 workstream, shipped as designed: **no codegen at all** — the zero_rt heap's own
+header bookkeeping is the detector. At exit, every block whose header still lacks the free
+bit was still allocated; no per-`malloc` instrumentation, no reachability analysis (LSan-grade
+stays out of scope).
+
+**Mechanism (all in `zero_rt/`, compiled per-ISA by zerocc into the `zero_rt_<isa>.a`
+fallback archives like every other runtime member):**
+
+- `heap.c` gains the report: `zeroc_rt_leak_report_set(1)` registers an `atexit` handler
+  that walks the arena (the same first-fit header walk the allocator uses), counts/prints
+  live non-ignored blocks to fd 2 (stdio-free, `san_fmt_*` + `zeroc_rt_write(2, ...)` — same
+  discipline as the Sprint 167 OVF report), and requests **exit code 23** (LSan's convention)
+  via `zeroc_rt_set_exit_override(23)`. `exit()` (in `exit.c`) applies the override **only
+  when the program itself would exit 0** — a real failure status is never masked.
+- Intentional resident buffers: `zeroc_rt_leak_ignore(ptr)` (declared in zerocc's virtual
+  `<stdlib.h>`, analogue of `__lsan_ignore_object`; up to 64 roots).
+- **Enablement is link-time, not runtime**: the flag cannot be read inside the freestanding
+  image, so the driver passes the requested entry wrapper to the own linker (`entry_wrapper`
+  parameter of `zero_cc_link_exec[_pie]`). With `-fsanitize=leak`, the linker force-extracts
+  the `zero_rt` member defining `zeroc_leak_main_wrapper` (a variant of
+  `zeroc_main_wrapper` that calls `zeroc_rt_leak_report_set(1)` before `exit(main())`) and
+  patches the `_start` stub to call it instead of `zeroc_main_wrapper`/`main`. No wrapper in
+  the image → falls back to the normal auto-detection (flag silently a no-op).
+- **Freestanding-only by construction**: host-linked and `--run` builds never link the
+  zero_rt heap, so the flag is a no-op there (the driver prints a `note:` — use host
+  LSan/Valgrind); `--zerocc-link --no-zerocc-rt` likewise notes and proceeds.
+
+**Trap found while landing it — latent own-linker BSS overlap:** the first ignore test
+segfaulted at exit: `exit()` jumped through a corrupted atexit pointer. The own linker's
+section-merge loop advanced the output cursor for `SHT_PROGBITS` input sections but **not
+for `SHT_NOBITS`** — every object's `.bss` got the same output offset, so objects with BSS
+silently aliased each other's symbols. It was invisible for a year because only one
+zero_rt object (`stdio.o`, 4 KB) ever had `.bss`; adding `g_leak_ignore[64]` to `heap.o`
+made two BSS-bearing objects coexist (`g_leak_ignore` overwrote `g_atexit_fns[0]` with the
+malloc'd pointer, which `exit()` then called). Fixed by advancing the cursor for NOBITS
+merges too (address space without file content; the output `.bss` keeps `size = 0`,
+`memsz` as its vsize). See `own-linker.md`.
+
+**Gate:** `tools/verify/linker_tests.py` `case_leak_report()` — 4 ISAs (native + 3 qemu)
+× 5 checks: leak → rc 23 + `zerocc: leak: 1 block(s), 64 byte(s)` line; all-freed → rc 0
+silent; ignored block → rc 0 silent; leak + `return 7` → rc 7 (status kept) with report;
+no-flag control → rc 0 silent. `make test-linker`: 49/49.
+
+---
+
 ## 1. What `zero_san` is (and isn't)
 
 - **It is codegen-first, not a runtime.** The trap/handler runtime is trivial; the value and
@@ -483,6 +530,10 @@ report them at exit, with a root/ignore set for intentional resident buffers. It
 **freestanding-only** (the host path uses host libc → use host LSan/Valgrind; short-lived
 `--run` tests don't care about leaks) and needs **no codegen**. LSan-grade (reachability) is
 ASan-class and stays out of scope.
+
+**SHIPPED in Sprint 169** — see §4h. As designed: no codegen, the allocator's own header
+bookkeeping is the detector, freestanding-only, with the ignore set (`zeroc_rt_leak_ignore`,
+analogue of `__lsan_ignore_object`).
 
 ## 5. Phased roadmap
 
