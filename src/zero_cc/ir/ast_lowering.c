@@ -11,13 +11,13 @@
  *   - ast_lowering_mc.c:   IR to machine code emission (emit_ir_to_machine_code)
  */
 
+#include <stdio.h>
+#include <string.h>
 #include "zero_cc/ir/ast_lowering_internal.h"
 #include "zero_cc/parser/vla_struct.h"
 #include "zero_cc/ir/asm_emitter.h"
 #include "zero_cc/opt/opt_pass.h"
 #include "zero_cc/opt/opt_temp_renumber.h"
-#include <stdio.h>
-#include <string.h>
 
 /* =========================================================================
  * Main Entry Point

@@ -1,6 +1,6 @@
 #include "zero_cc/semantic/type.h"
-#include "zero_cc/jit/type_info.h"
 #include <string.h>
+#include "zero_cc/jit/type_info.h"
 
 /* Allocate and initialize a basic type */
 static TypeInfo *make_basic(Arena *perm, TypeKind kind, uint32_t modifiers) {

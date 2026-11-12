@@ -1,9 +1,9 @@
 #include "zero_cc/opt/opt_constant_fold.h"
-#include "zero_cc/ir/ir.h"
-#include "zero_cc/ir/ir_emitter.h"
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include "zero_cc/ir/ir.h"
+#include "zero_cc/ir/ir_emitter.h"
 
 /**
  * Constant value storage (64-bit: C long / long long constants must fold

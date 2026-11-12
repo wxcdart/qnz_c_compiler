@@ -1,10 +1,10 @@
 #include "zero_cc/opt/opt_mem2reg.h"
+#include <stdlib.h>
+#include <string.h>
 #include "zero_cc/opt/cfg.h"
 #include "zero_cc/ir/ir.h"
 #include "zero_cc/ir/ir_arena.h"
 #include "zero_cc/types/symbols.h"
-#include <stdlib.h>
-#include <string.h>
 
 /**
  * Local Memory-to-Register Promotion Pass (Safe Version)

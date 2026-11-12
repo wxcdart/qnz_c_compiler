@@ -1,10 +1,10 @@
+#include <stdint.h>
+#include <stdlib.h>
 #include "zero_cc/isa/isa_backend.h"
 #include "zero_cc/isa/tramp_stub.h"
 #include "zero_cc/ir/machine_emitter.h"
 #include "zero_cc/ir/asm_emitter.h"
-#include "zero_cc/isa/aarch64_asm.c"  /* Include assembly emission functions */
-#include <stdint.h>
-#include <stdlib.h>
+#include "zero_cc/isa/aarch64_asm.c"
 
 /* ARM64 register info */
 static const ISARegInfo aarch64_regs = {

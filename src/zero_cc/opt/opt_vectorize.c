@@ -1,4 +1,6 @@
 #include "zero_cc/opt/opt_vectorize.h"
+#include <stdlib.h>
+#include <string.h>
 #include "zero_cc/opt/opt_loop.h"
 #include "zero_cc/opt/opt_constant_fold.h"
 #include "zero_cc/opt/cfg.h"
@@ -8,8 +10,6 @@
 #include "zero_cc/ir/regalloc.h"
 #include "zero_cc/types/symbols.h"
 #include "zero_cc/isa/isa_backend.h"
-#include <stdlib.h>
-#include <string.h>
 
 /**
  * Auto-vectorization pass implementation

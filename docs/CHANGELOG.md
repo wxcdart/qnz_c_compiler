@@ -1,3 +1,16 @@
+## [Sprint 162] - 2026-11-11 - Style-Warning Burn-Down: 85 → 0 (Tooling / Hygiene)
+
+ZeroCC's `tools/style_check.py` now reports **0 errors, 0 warnings** (was 0 errors, 85 warnings). The tree is clean: a new warning now *regresses* the tree instead of being an accepted legacy instance. Two warning families were burned down.
+
+- **STR010 (10) — unbounded string calls.** Fixed the real ones at the call site and taught the checker to stop flagging the false positives:
+  - `jit/execution.h`: `strcpy(var_name[128], symbol+7)` → `snprintf` (a genuine potential overflow — a long `__data_*` relocation symbol would overrun the 128-byte buffer).
+  - `semantic/diagnostics.c`: `strcpy(msg_copy, e->msg)` → `memcpy(…, strlen+1)` (the bound is the exact allocation; now explicit).
+  - `main.c`: `strcpy(buf+len, ext)` → `snprintf(buf+len, cap-len, …)` (bound made explicit).
+  - `core/preprocessor.c`: the variadic-arg join (two `strcat` in a loop) → a bounded cursor + `memcpy` sized by the precomputed `total_va_len`.
+  - Checker: STR010 no longer flags **function declarations** (`char* strcpy(…)`, `int sprintf(…)` — the virtual system headers declare the libc API, they don't call it) or the **`posix_libc.h`** libc pass-through wrappers (whose whole job is to forward to the libc function on the host path).
+- **INC010 (75) — system include after project includes.** Reordered the flat top include block of 30 files into the prescribed **sibling, system, project** order via a stable partition (only `#include` lines permuted; every guard/comment/blank line kept in place). Also removed a stray dead `#define ZERO_CC_PARSER_AST_LOWERING_STMT_H` guard macro sitting mid-includes in `ast_lowering_stmt.c` (defined once, referenced by no `#ifdef`/`#ifndef`/`#undef`). The checker's INC010 rule is now **scoped to the flat top include region** — a conditional include below it (e.g. the freestanding `#if __has_include(<elf.h>) #include <elf.h> #else #include "zero_elf.h"` fallback in `elf_emitter.h`) is intentional and exempt.
+- **Verification**: `style_check` 0/0 · `make test` 227/227 · `make asan` 224/224 (the string-handling edits are memory-clean) · `make test-opt` 126 ok / 0 failed · preprocessor variadic-join spot-checked (JIT + AOT) · the checker still catches real violations (a synthetic project-then-system include + a bare `strcpy` both flag).
+
 ## [Sprint 161] - 2026-11-11 - zero_san Phase 1 Polish: Signed-Overflow Checks for `++`/`--` and Compound Assignment (Sanitizer)
 
 ZeroCC's `zero_san` `-fsanitize=undefined` signed-integer-overflow check now covers the two other forms C spells for the same arithmetic — `x++`/`x--` and `x += y`/`x -= y`/`x *= y` — so a real signed overflow traps no matter which spelling the source uses. Sprint 116 shipped the check for the binary `+ - *` only; these forms silently under-instrumented (a `return x++;` or `a += b;` overflow passed unflagged). The fix is purely additive and fully gated behind `-fsanitize=undefined`, so every flag-OFF gate (c-torture, `make test`, `test-opt`, …) produces byte-identical output to pre-161.

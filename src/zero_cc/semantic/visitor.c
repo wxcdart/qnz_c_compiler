@@ -1,12 +1,12 @@
 #include "zero_cc/semantic/visitor.h"
+#include <stdio.h>
+#include <stdarg.h>
+#include <string.h>
 #include "zero_cc/semantic/stmt.h"
 #include "zero_cc/semantic/decl.h"
 #include "zero_cc/semantic/expr.h"
 #include "zero_cc/types/types.h"
 #include "zero_cc/jit/type_info.h"
-#include <stdio.h>
-#include <stdarg.h>
-#include <string.h>
 
 bool sem_context_init(SemContext *ctx, Arena *perm, Arena *tmp, DiagBuf *diags, ZeroCCASTArena *ast_arena, struct ZeroCCCompiler *compiler) {
     if (!ctx || !perm || !tmp || !diags) return false;

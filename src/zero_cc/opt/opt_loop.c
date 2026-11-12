@@ -1,10 +1,10 @@
 #include "zero_cc/opt/opt_loop.h"
+#include <stdlib.h>
+#include <string.h>
 #include "zero_cc/opt/opt_profile.h"
 #include "zero_cc/opt/cfg.h"
 #include "zero_cc/ir/ir.h"
 #include "zero_cc/ir/ir_emitter.h"
-#include <stdlib.h>
-#include <string.h>
 
 /**
  * Loop analysis and optimization implementation

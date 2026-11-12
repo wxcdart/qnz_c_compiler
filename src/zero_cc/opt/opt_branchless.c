@@ -1,9 +1,9 @@
 #include "zero_cc/opt/opt_branchless.h"
+#include <stdlib.h>
+#include <string.h>
 #include "zero_cc/opt/opt_profile.h"
 #include "zero_cc/opt/cfg.h"
 #include "zero_cc/ir/ir.h"
-#include <stdlib.h>
-#include <string.h>
 
 /* =========================================================================
  * Branchless conditional select (Sprint 39) - see opt_branchless.h for the

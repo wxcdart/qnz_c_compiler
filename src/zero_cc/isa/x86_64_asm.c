@@ -3,12 +3,12 @@
  * ISA-specific assembly emission for GNU Assembler (GAS) syntax
  */
 
-#include "zero_cc/isa/isa_backend.h"
-#include "zero_cc/ir/ir.h"
-#include "zero_cc/ir/regalloc.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "zero_cc/isa/isa_backend.h"
+#include "zero_cc/ir/ir.h"
+#include "zero_cc/ir/regalloc.h"
 
 /* Hardware register names for x86-64 (indexed by hardware number) */
 static const char *x86_hw_reg_names[] = {

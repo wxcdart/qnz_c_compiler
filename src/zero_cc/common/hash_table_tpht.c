@@ -8,10 +8,10 @@
  * two‑phase hash table (`zero_tpht.h`).
  * ----------------------------------------------------------------------- */
 
-#include "zero_cc/common/hash_table.h"          /* public API declarations */
-#include "zero_cc/common/zero_tpht.h"  /* runtime TPHT implementation */
 #include <stdlib.h>
 #include <stdio.h>
+#include "zero_cc/common/hash_table.h"
+#include "zero_cc/common/zero_tpht.h"
 
 typedef struct {
     ZeroFlattenTpht tpht;   /* actual TPHT storage */

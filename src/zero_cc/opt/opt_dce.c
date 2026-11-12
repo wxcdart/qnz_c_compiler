@@ -1,10 +1,10 @@
 #include "zero_cc/opt/opt_dce.h"
+#include <stdlib.h>
+#include <string.h>
 #include "zero_cc/ir/ir.h"
 #include "zero_cc/ir/ir_arena.h"
 #include "zero_cc/ir/regalloc.h"
 #include "zero_cc/types/symbols.h"
-#include <stdlib.h>
-#include <string.h>
 
 /**
  * Flag DCE: Remove CMP instructions whose flags are never used

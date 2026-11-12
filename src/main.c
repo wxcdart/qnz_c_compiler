@@ -467,7 +467,7 @@ static const char *derive_default_output(const char *input, const char *output,
     size_t len = dot ? (size_t)(dot - base) : strlen(base);
     if (len > cap - 4) len = cap - 4;
     memcpy(buf, base, len);
-    strcpy(buf + len, ext);
+    snprintf(buf + len, cap - len, "%s", ext);
     return buf;
 }
 

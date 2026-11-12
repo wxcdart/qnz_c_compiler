@@ -5,6 +5,8 @@
  */
 
 #include "zero_cc/opt/opt_loop_unroll.h"
+#include <stdlib.h>
+#include <string.h>
 #include "zero_cc/opt/opt_loop.h"
 #include "zero_cc/opt/opt_constant_fold.h"
 #include "zero_cc/opt/opt_profile.h"
@@ -12,8 +14,6 @@
 #include "zero_cc/ir/ir_arena.h"
 #include "zero_cc/ir/ir_emitter.h"
 #include "zero_cc/types/symbols.h"
-#include <stdlib.h>
-#include <string.h>
 
 #define LU_MAX_TRIP  8    /* trip-count cap for full unroll (plan item 3) */
 #define LU_MAX_BODY  64   /* max loop span for FULL unroll (x8 worst case) */

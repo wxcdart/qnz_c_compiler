@@ -34,7 +34,9 @@ Rules
                   <threads.h> emulation (mirroring the system API).
   STR010 [warn]   unbounded string call (strcpy/strcat/sprintf/gets);
                   house rule prefers the _n/snprintf forms when the
-                  bound is not locally obvious
+                  bound is not locally obvious. Function declarations and
+                  the posix_libc.h libc pass-through wrappers are exempt
+                  (not real calls). The tree is clean (0) as of Sprint 162.
 
 Dormant-include allowlist (headers not yet created; see
 docs/coding_style.md §2.1): zero_elf.h, zero_posix_baremetal.h
@@ -77,6 +79,40 @@ FUNC_RET_KEYWORDS = {
 
 UNSAFE_STR_RE = re.compile(r'\b(strcpy|strcat|sprintf|gets)\s*\(')
 
+# STR010 false-positive handling. Two shapes are not real unbounded *calls*:
+#  (a) a function *declaration* (a return type sits before the name — e.g.
+#      `char* strcpy(`, `int sprintf(`); the virtual system headers declare the
+#      libc API surface, they don't call it;
+#  (b) the portability wrapper layer (posix_libc.h), where zero_posix_strcpy /
+#      zero_posix_strcat deliberately forward to the libc unbounded functions on
+#      the host path (they are the bounded path on freestanding) — flagging the
+#      forwarding `return` is a false positive.
+STR010_EXEMPT_BASENAMES = {"posix_libc.h"}
+STR010_RETURN_TYPES = {
+    "char", "int", "void", "size_t", "long", "unsigned", "signed", "short",
+    "float", "double", "FILE", "const", "uint8_t", "int64_t",
+}
+STR010_STATEMENT_STARTERS = {
+    "return", "if", "else", "while", "switch", "sizeof", "do", "case",
+}
+
+
+def _str010_false_positive(raw, match, path):
+    """True when a STR010 match is a declaration or an intentional wrapper,
+    not a real unbounded call (see the note above UNSAFE_STR_RE)."""
+    if os.path.basename(path) in STR010_EXEMPT_BASENAMES:
+        return True
+    prefix = raw[:match.start()].rstrip()
+    if not prefix:
+        return False
+    if prefix.endswith("*"):            # pointer return type: `char* strcpy(`
+        return True
+    m = re.search(r'([A-Za-z_]\w*)\s*$', prefix)
+    if m and m.group(1) in STR010_RETURN_TYPES \
+            and m.group(1) not in STR010_STATEMENT_STARTERS:
+        return True                      # `int sprintf(`, `size_t strcpy(`, ...
+    return False
+
 
 # --------------------------------------------------------------------------
 # Per-file checks
@@ -85,6 +121,32 @@ UNSAFE_STR_RE = re.compile(r'\b(strcpy|strcat|sprintf|gets)\s*\(')
 def is_project_name(name):
     """Heuristic: does this include name refer to a project header?"""
     return bool(PROJECT_ANGLED.match(name))
+
+
+def top_block_end(lines):
+    """Index (0-based) of the first line outside the flat top include region.
+    The region is: an optional leading include guard (pragma once, or an
+    #ifndef/#define pair) followed by a run of #include / blank / comment
+    lines. It stops at the first code line or non-include preprocessor
+    directive (e.g. a conditional #if/#else/#endif or a stray #define) —
+    includes after that point are conditional/intentional and out of scope
+    for the INC010 ordering rule."""
+    i, n = 0, len(lines)
+    s0 = lines[0].strip() if n else ""
+    if s0.startswith("#pragma once"):
+        i = 1
+    elif (s0.startswith("#ifndef") and i + 1 < n
+          and lines[i + 1].strip().startswith("#define")):
+        i = 2
+    while i < n:
+        s = lines[i].strip()
+        if (s.startswith("#include") or s == ""
+                or s.startswith("//") or s.startswith("/*")
+                or s.startswith("*") or s.startswith("*/")):
+            i += 1
+        else:
+            break
+    return i
 
 
 def check_file(path, fix=False):
@@ -110,6 +172,7 @@ def check_file(path, fix=False):
 
     # --- line-based rules -------------------------------------------------
     saw_project = False
+    inc_top_end = top_block_end(lines)   # INC010 scope: flat top region only
     file_stem = os.path.splitext(os.path.basename(path))[0]
     for i, raw in enumerate(lines, 1):
         if raw.startswith("\t"):
@@ -148,9 +211,12 @@ def check_file(path, fix=False):
                            f"project header with angle brackets: <{a.group(1)}>"))
             continue
         if a:
-            # INC010: a system include after the first project include
-            # (exempt: files that only use system headers).
-            if saw_project:
+            # INC010: a system include after the first project include,
+            # within the flat top include region (exempt: files that only
+            # use system headers; conditional includes below the top region
+            # are intentional, e.g. the freestanding #if __has_include
+            # fallback in elf_emitter.h).
+            if saw_project and i <= inc_top_end:
                 warnings.append((i, "INC010",
                                  "system include after project includes "
                                  "(prescribed order: sibling, system, project)"))
@@ -173,7 +239,8 @@ def check_file(path, fix=False):
                                    "module prefix (<module>_<action>)"))
 
         sm = UNSAFE_STR_RE.search(raw)
-        if sm and not raw.lstrip().startswith(("//", "*", "/*")):
+        if sm and not raw.lstrip().startswith(("//", "*", "/*")) \
+                and not _str010_false_positive(raw, sm, path):
             warnings.append((i, "STR010",
                              f"unbounded string call '{sm.group(1)}' "
                              f"(prefer the _n/snprintf form when the bound is not obvious)"))

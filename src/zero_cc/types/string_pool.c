@@ -1,6 +1,6 @@
-#include "zero_cc/types/symbols.h"
 #include <stdlib.h>
 #include <string.h>
+#include "zero_cc/types/symbols.h"
 
 const char *zero_cc_intern_string_len(ZeroCCCompiler *c, const char *s, size_t len) {
     if (!c || !s) return s;

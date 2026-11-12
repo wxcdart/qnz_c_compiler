@@ -8,11 +8,11 @@
  */
 
 #include "zero_cc/ir/asm_emitter.h"
+#include <stdio.h>
+#include <string.h>
 #include "zero_cc/ir/ir.h"
 #include "zero_cc/ir/regalloc.h"
 #include "zero_cc/isa/isa_backend.h"
-#include <stdio.h>
-#include <string.h>
 
 /* Get physical register for a temporary */
 static inline int asm_get_phys_reg(RegAllocator *ra, int temp) {

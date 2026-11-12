@@ -1,9 +1,9 @@
 #pragma once
 
-#include "zero_cc/semantic/type.h"
-#include "zero_cc/semantic/diagnostics.h"
 #include <stdbool.h>
 #include <stdint.h>
+#include "zero_cc/semantic/type.h"
+#include "zero_cc/semantic/diagnostics.h"
 
 #ifdef __cplusplus
 extern "C" {

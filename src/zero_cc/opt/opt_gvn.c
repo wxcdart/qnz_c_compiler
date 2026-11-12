@@ -1,9 +1,9 @@
 #include "zero_cc/opt/opt_gvn.h"
+#include <stdlib.h>
+#include <string.h>
 #include "zero_cc/opt/opt_profile.h"
 #include "zero_cc/ir/ir.h"
 #include "zero_cc/common/hash_table.h"
-#include <stdlib.h>
-#include <string.h>
 
 /**
  * Global Value Numbering (GVN) - Conservative Implementation

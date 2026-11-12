@@ -1,11 +1,11 @@
 #ifndef ZERO_CC_TYPES_SYMBOLS_H
 #define ZERO_CC_TYPES_SYMBOLS_H
 
-#include "zero_cc/isa/isa_backend.h"
-
 #include <stddef.h>
+
 #include <stdint.h>
 #include <stdio.h>
+#include "zero_cc/isa/isa_backend.h"
 #include "zero_cc/core/compiler_state.h"
 #include "zero_cc/core/buffers.h"
 #include "zero_cc/types/token.h"

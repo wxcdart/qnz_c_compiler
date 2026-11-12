@@ -1,9 +1,5 @@
 /* AST Lowering - Statement Handlers and Dispatcher */
 
-#include "zero_cc/ir/ast_lowering_internal.h"
-
-#define ZERO_CC_PARSER_AST_LOWERING_STMT_H
-
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -11,6 +7,7 @@
 #include <string.h>
 #include <stdio.h>
 
+#include "zero_cc/ir/ast_lowering_internal.h"
 #include "zero_cc/types/types.h"
 #include "zero_cc/parser/parser.h"
 #include "zero_cc/parser/vla_struct.h"

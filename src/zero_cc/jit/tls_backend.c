@@ -21,10 +21,10 @@
  * (char/short) and float members work without TLS-specific codegen.
  */
 
+#include <string.h>
 #include "zero_cc/jit/backends.h"
 #include "zero_cc/types/types.h"
 #include "zero_cc/types/global_vars.h"
-#include <string.h>
 
 /* Forward declaration */
 extern const ZeroCCTLSBackend zero_cc_default_tls_backend;

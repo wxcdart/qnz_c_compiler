@@ -1,6 +1,6 @@
 #include "zero_cc/semantic/semantic.h"
-#include "zero_cc/semantic/visitor.h"
 #include <stdio.h>
+#include "zero_cc/semantic/visitor.h"
 
 bool semantic_analyze(ZeroCCASTArena *ast_arena,
                       ASTRef root,

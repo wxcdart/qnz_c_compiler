@@ -1,11 +1,11 @@
-#include "zero_cc/types/types.h"
-#include "zero_cc/types/global_vars.h"
 #include "zero_cc/ir/ir.h"
-#include "zero_cc/ir/ir_arena.h"
-#include "zero_cc/types/symbols.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "zero_cc/types/types.h"
+#include "zero_cc/types/global_vars.h"
+#include "zero_cc/ir/ir_arena.h"
+#include "zero_cc/types/symbols.h"
 
 /* Thread-reentrant compiler state: no g_compiler */
 

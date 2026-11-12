@@ -1802,12 +1802,18 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                             }
                             char *va_str = (char *)malloc(total_va_len + 1);
                             if (va_str) {
-                                va_str[0] = '\0';
+                                size_t off = 0;
                                 for (int k = m->param_count - 1; k < arg_count; k++) {
-                                    if (k > m->param_count - 1) strcat(va_str, ", ");
-                                    strcat(va_str, args[k]);
+                                    if (k > m->param_count - 1) {
+                                        va_str[off++] = ',';
+                                        va_str[off++] = ' ';
+                                    }
+                                    size_t al = strlen(args[k]);
+                                    memcpy(va_str + off, args[k], al);
+                                    off += al;
                                     free(args[k]);
                                 }
+                                va_str[off] = '\0';
                                 args[m->param_count - 1] = va_str;
                                 arg_count = m->param_count;
                             }

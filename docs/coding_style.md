@@ -63,9 +63,11 @@ Rules:
 2. System/external headers (`<...>`).
 3. Project headers (`"zero_cc/..."`), umbrella/dependency-first.
 
-The existing tree is mixed on order (≈half the files lead with project
-headers); do not reflow untouched files, but new files and files you are
-already editing should follow the order above.
+The tree is fully ordered this way as of the Sprint 162 style burn-down
+(`tools/style_check.py` reports 0 warnings); new files and edits should keep
+it that way (the INC010 rule is scoped to the flat top include region —
+conditional includes below it, e.g. a freestanding `#if __has_include`
+fallback, are exempt).
 
 ### 2.3 Why `include/` is flat (design decision, Sprint 42)
 
@@ -148,8 +150,9 @@ angled project headers, order as warning), tab-free indentation,
 trailing whitespace, EOF newline, header-guard presence, the
 `<module>_<action>` public-function prefix (NAM001), and unbounded
 string calls (STR010, warning). Exit code reflects errors only; the
-warning set (include order, `strcpy`/`strcat`/`sprintf`) tracks accepted
-legacy instances so the tree is not churned.
+warning set (include order INC010, unbounded `strcpy`/`strcat`/`sprintf`
+STR010) is driven to **0** as of the Sprint 162 style burn-down — a new
+warning regresses the tree and should be fixed, not accepted.
 
 ## 6. IR / optimization / codegen invariants
 

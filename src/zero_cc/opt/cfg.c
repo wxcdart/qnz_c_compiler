@@ -4,12 +4,12 @@
  * IRArena, never writes to it.
  */
 #include "zero_cc/opt/cfg.h"
+#include <stdlib.h>
+#include <string.h>
 #include "zero_cc/types/types.h"
 #include "zero_cc/ir/ir.h"
 #include "zero_cc/ir/ir_arena.h"
 #include "zero_cc/types/symbols.h"
-#include <stdlib.h>
-#include <string.h>
 
 /* Terminal instructions end a basic block. */
 static bool cfg_is_terminal(int op) {

@@ -1,13 +1,13 @@
 /* ar_writer.c - Classic Unix/GNU static archive writer for ZeroCC. */
 #include "zero_cc/linker/ar_writer.h"
-#include "zero_cc/linker/ar_reader.h"
-#include "zero_cc/linker/elf_reader.h"
-
 #include <stdio.h>
 #include <stdlib.h>
+
 #include <string.h>
 #include <ctype.h>
 #include <sys/stat.h>
+#include "zero_cc/linker/ar_reader.h"
+#include "zero_cc/linker/elf_reader.h"
 
 #define AR_MAGIC "!<arch>\n"
 #define AR_MAGIC_LEN 8

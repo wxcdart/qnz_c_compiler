@@ -169,7 +169,8 @@ static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
         } else if (strncmp(c->relocs[i].target_symbol, "__data_", 7) == 0) {
             /* Data reference (global variable) - calculate RIP-relative offset to data_offset */
             char var_name[128];
-            strcpy(var_name, c->relocs[i].target_symbol + 7);
+            snprintf(var_name, sizeof var_name, "%s",
+                     c->relocs[i].target_symbol + 7);
             ZeroCCGlobalVar *gv = find_global_var(c, var_name);
             if (gv) {
                 size_t target_addr = gv->is_bss ? (bss_offset + gv->data_offset)

@@ -1,7 +1,7 @@
+#include <string.h>
 #include "zero_cc/isa/isa_backend.h"
 #include "zero_cc/ir/machine_emitter.h"
-#include "zero_cc/isa/x86_64_asm.c"  /* Include assembly emission functions */
-#include <string.h>
+#include "zero_cc/isa/x86_64_asm.c"
 
 /* x86-64 register info */
 static const ISARegInfo x86_64_regs = {

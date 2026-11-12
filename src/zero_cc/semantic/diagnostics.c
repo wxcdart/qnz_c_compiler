@@ -290,7 +290,7 @@ void diag_merge(DiagBuf *dest, const DiagBuf *src) {
         if (!e->msg) continue;  /* Skip entries with NULL message */
         char *msg_copy = (char *)arena_alloc(dest->tmp_arena, strlen(e->msg) + 1);
         if (!msg_copy) continue;
-        strcpy(msg_copy, e->msg);
+        memcpy(msg_copy, e->msg, strlen(e->msg) + 1);
         diag_ensure_capacity(dest);
         DiagEntry *d = &dest->entries[dest->count];
         d->file = e->file;

@@ -1,11 +1,11 @@
 #pragma once
 
-#include "zero_cc/common/arena.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 #include <stdio.h>
+#include "zero_cc/common/arena.h"
 
 #ifdef __cplusplus
 extern "C" {

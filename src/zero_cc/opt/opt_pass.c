@@ -1,4 +1,5 @@
 #include "zero_cc/opt/opt_pass.h"
+#include <time.h>
 #include "zero_cc/opt/opt_constant_fold.h"
 #include "zero_cc/opt/opt_dce.h"
 #include "zero_cc/opt/opt_cse.h"
@@ -11,7 +12,6 @@
 #include "zero_cc/opt/opt_copy_prop.h"
 #include "zero_cc/opt/opt_profile.h"
 #include "zero_cc/opt/cfg.h"
-#include <time.h>
 #include "zero_cc/ir/ir.h"
 #include "zero_cc/types/symbols.h"
 
