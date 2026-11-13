@@ -9,15 +9,14 @@ ZeroCC is a lightweight, embeddable C99/C11/C23 compiler (with GNU extensions) w
 - **Multi-project validation**: sqlite3.c amalgamation (255k lines), 15-TU zlib, and cJSON compiled under zerocc at `-O0` and `-O2` (`make test-project-diff`)
 - **`__zerocc_syscall(number, a, b, c, d, e, f)`** and **`__zerocc_clone(...)`** — direct OS-syscall and thread-clone builtins (`OP_SYSCALL`, `OP_CLONE`) across all 4 ISAs (the `zero_rt` OS boundary)
 - **Multi-ISA**: x86-64, AArch64, RISC-V 64, RISC-V 32 (`--target`); every ISA has a raw binary emitter *and* an assembly-text path, both differential-tested under QEMU
+- **RISC-V 32-bit 64-bit Integer (`long long`) Architecture (All 4 Phases Complete, Sprints 170–174)**:
+  - **Phase 1 (Core Arithmetic & Ops)**: 64-bit integer expressions (`long long`, `uint64_t`) lowered into `(lo, hi)` 32-bit GPR pairs (`REG_CLASS_GPR64`) with dedicated IR opcodes (`OP_*64`: ADD, SUB, MUL, AND, OR, XOR, NOT, NEG, SHL, SHR, SAR, CMP, MOV, LOAD, STORE, ZEXT, SEXT, TRUNC, MOV_IMM) across raw binary and `-S` assembly emitters.
+  - **Phase 2 (RISC-V ILP32 psABI Calling Conventions)**: Aligned even-odd register pair argument passing (`a0:a1`..`a6:a7`), 8-byte stack alignment, `(a0, a1)` function return values (`OP_MK64`/`OP_HI64`), callee parameter reception, variadic `printf("%lld", ...)`, and strict ILP32 `long` (32-bit) vs `long long` (64-bit) scoping.
+  - **Phase 3 (64-bit Division & Modulo via libgcc)**: `OP_DIV64`, `OP_MOD64`, `OP_UDIV64`, `OP_UMOD64` lowered to `__divdi3`, `__moddi3`, `__udivdi3`, `__umoddi3` in libgcc with alias-safe argument staging, own-linker libgcc shim, regalloc thief handover, and stack spill slot displacement correction.
+  - **Phase 4 (Target Sanitizer Width-8 Checks)**: Full `-fsanitize=undefined` integration: signed-overflow traps (`ADD64`, `SUB64`, `MUL64`), division and remainder by zero, and shift-count bounds checks on RV32 with spill reloading and live range preservation.
 - **Floating-point conformance**: `__builtin_issignaling`, `__builtin_{inf,nan,nans}*`, C23 `_FloatN` types and width-suffixed literals, sNaN-preserving 4-byte FP load/store (Sprint 160)
 - **Inline assembly (Phases 1–3 complete)**: GNU extended asm (`__asm__ [volatile] [goto] ("..." : outs : ins : clobbers [: labels])`) with `r`/`m`/`=r`/`+r`/fixed-register (`a`/`b`/`d`/`S`/`D`) operands, matching-digit constraints, symbolic `%[name]` / `%l[name]` operands, AT&T/Intel `{att | intel}` dialect alternatives, and `memory`/`cc`/GPR clobbers — lowered to `OP_ASM`, register-allocated (operands `no_spill`, clobbered registers forbidden for operands, live values across clobbers spilled), and supported across AOT `.s` text emission, in-memory JIT, and raw binary emission via the integrated assembler (`make test-asm` 72/72 runs vs gcc; [`docs/okf/inline-assembly-roadmap.md`](docs/okf/inline-assembly-roadmap.md))
-- **`-fsanitize=undefined`** — target-side signed-integer-overflow trap on all
-  four ISAs (x86-64 `ud2` via the OF flag; AArch64 `brk #0` and RISC-V `unimp`
-  via compare-based lowering); both emitters; check width follows the usual
-  arithmetic conversions; covers signed `+ - *`, `++`/`--`, and `+= -= *=` —
-  Sprints 116–117, 161 & 163; `make test-san` flag-ON gate incl. cross-ISA qemu
-  trap-firing. Known safe-direction gap: RISC-V 32 width-8 (blocked on rv32 64-bit integer
-  lowering; see [`docs/okf/sanitizer-roadmap.md`](docs/okf/sanitizer-roadmap.md) §4c)
+- **`-fsanitize=undefined`** — target-side signed-integer-overflow traps, division/remainder by zero, and shift-count bounds checks on all four ISAs (x86-64 `ud2` via OF flag / compare; AArch64 `brk #0` and RISC-V `unimp` via compare-based lowering); both emitters; check width follows usual arithmetic conversions; covers signed `+ - *`, `++`/`--`, `+= -= *=`, `/=`, `%=`, `<<=`, `>>=`, at both width 4 and width 8 (including RV32 64-bit pairs, Sprints 116–117, 161, 163, 166, 174; `make test-san` flag-ON gate incl. cross-ISA qemu trap-firing across all 4 target ISAs; [`docs/okf/sanitizer-roadmap.md`](docs/okf/sanitizer-roadmap.md))
 - **`-fstack-protector` / `-fstack-protector-strong` / `-fstack-protector-all`** — GCC/Clang-compatible stack canary guards across all 4 ISAs (`%fs:40` on x86-64, `__stack_chk_guard` on AArch64/RISC-V; Sprint 147)
 - **Multi-translation-unit driver**: multiple `.c` inputs per invocation
   (JIT image merge + per-input `-c`/`-S`)
@@ -99,9 +98,9 @@ zerocc [options] <source.c> [more.c ...]
   -include <file>          Force-include a file before the main source
   -run, --run     Run in JIT mode (default)
   --target <arch> Target architecture (x86-64, aarch64, riscv64, riscv32)
-  -fsanitize=undefined  Target-side signed-integer-overflow trap after signed
-                       +,-,*, ++/--, and +=,-=,*= (all 4 ISAs, both
-                       emitters; Sprints 116-117, 161, 163)
+  -fsanitize=undefined  Target-side UB traps (signed overflow for +,-,*, ++/--,
+                       compound assign; div/rem by zero; shift bounds) across
+                       all 4 ISAs at width 4 and 8 (both emitters; Sprints 116–174)
   --zerocc-link  With -o: link with ZeroCC's own linker (x86-64, aarch64,
                 riscv64, riscv32); auto-links zero_rt (opt out: --no-zerocc-rt)
   --ar <cmd> <lib.a> [objs...]  Built-in GNU ar archiver (rcs, t, x)
@@ -286,30 +285,30 @@ against a static-musl reference). See
 
 ## Test Results
 
-Current status (last full verification 2026-11-11, Sprints 129–162; counts drift as tests are added — `docs/CHANGELOG.md` has the per-sprint figures):
+Current status (last full verification 2026-11-13, Sprints 170–174; counts drift as tests are added — `docs/CHANGELOG.md` has the per-sprint figures):
 
 | Suite | Status | Count |
 |-------|--------|-------|
-| **Main regression suite** (`make test`: unit, semantic, ABI, JIT, AOT, asm reference) | ✅ Pass | 227/227 |
+| **Main regression suite** (`make test`: unit, semantic, ABI, JIT, AOT, asm reference) | ✅ Pass | 229/229 |
 | **External ABI interop gate** (`make test-abi-interop`: bidirectional `zerocc.o ↔ gcc.o` — zerocc main + gcc main, 15 calling-convention scenarios at `-O0`/`-O1`/`-O2`, incl. MEMORY struct args, SSE/SSEup 16B structs, `sret`, variadic struct args) | ✅ Pass | 15/15 |
-| **Optimizer sweep** (`make test-opt`, `-O0..-O3` × JIT + AOT via zerocc) | ✅ Pass | 126 ok, 0 failed (embedding tests skipped by design — covered by `make test`) |
+| **Optimizer sweep** (`make test-opt`, `-O0..-O3` × JIT + AOT via zerocc) | ✅ Pass | 128 ok, 0 failed (embedding tests skipped by design — covered by `make test`) |
 | **C23 differential gate** (`make test-c23`: 24 cases across gnu23/c11/c99 vs gcc-15) | ✅ Pass | 24/24 |
 | **Inline-asm Phases 1–3 gate** (`make test-asm`: `test/asm/*.c` across `-S` text, JIT, and raw AOT at `-O0..-O3` vs host-gcc reference) | ✅ Pass | 72/72 |
 | **Project-differential gate** (`make test-project-diff`: cJSON, zlib, sqlite3.c at -O0/-O2) | ✅ Pass | 36/36 TUs |
-| **`zero_san` flag-ON sweep** (`make test-san`: `san_ok_*` clean + `san_trap_*` SIGILL at `-O0..-O3`, JIT + AOT, cross-ISA qemu smoke on **both** raw-AOT and `-S`+cross-assembler paths) | ✅ Pass | 256 ok / 0 FAIL (50 cross-ISA runs, both paths × all 4 ISAs) |
-| **Multi-file driver** (`make test-driver`, multi-TU JIT/AOT + per-input `-c`/`-S`) | ✅ Pass | 37/37 |
-| **Own linker & archiver** (`make test-linker`, `--zerocc-link` + `--ar` across all 4 ISAs + gcc differential) | ✅ Pass | 45/45 |
-| **Cross-ISA raw-emitter QEMU gate** (`make test-isa-qemu`, vs static-musl reference) | ✅ Pass | 59/59 (all 4 ISAs) |
+| **`zero_san` flag-ON sweep** (`make test-san`: `san_ok_*` clean + `san_trap_*` SIGILL at `-O0..-O3`, JIT + AOT, cross-ISA qemu smoke on **both** raw-AOT and `-S`+cross-assembler paths) | ✅ Pass | 720 ok / 0 FAIL (174 cross-ISA runs, both paths × all 4 ISAs) |
+| **Multi-file driver** (`make test-driver`, multi-TU JIT/AOT + per-input `-c`/`-S`) | ✅ Pass | 40/40 |
+| **Own linker & archiver** (`make test-linker`, `--zerocc-link` + `--ar` across all 4 ISAs + gcc differential) | ✅ Pass | 49/49 |
+| **Cross-ISA raw-emitter QEMU gate** (`make test-isa-qemu`, vs static-musl reference) | ✅ Pass | 63/63 (all 4 ISAs) |
 | **Cross-ISA `__int128` raw-emitter QEMU gate** (`make test-isa128`, vs static-musl reference) | ✅ Pass | 144/144 (all 3 ISAs × 6 tests × 4 levels × 2 paths) |
 | **GCC c-torture conformance gate** (`make test-torture`, ratcheted baseline, gcc-15 reference) | ✅ Pass | 3,781 PASS / 3,940 corpus (0 MISCOMPILE / 0 REJECT; SKIP-SUPPORT 87, SKIP-C89 33, SKIP-REFSEM 7, SKIP-TARGET: arm 2, ia64 1, mips 4, powerpc 2, s390x 1, windows 1, float16/bfloat16/float128x runtime 3, SKIP-UB/PTR/BOGUS 3, EXPECTED-REJECT 4, NO-REF 1, REF-BUG 11) |
-| **Type-tag verifier** (`tools/verify/type_tag_verifier.py --verify-all`, invariants I1–I10 at `-O0/2/3`) | ✅ Pass | 160 files, RESULT OK |
+| **Type-tag verifier** (`tools/verify/type_tag_verifier.py --verify-all`, invariants I1–I10 at `-O0/2/3`) | ✅ Pass | 219 files, RESULT OK |
 | **Loop unroll verifier** (`tools/verify/loop_unroll_verifier.py`, `-O3` constant-trip full unrolling + runtime-bound partial unrolling w/ remainder peel, `expect-unroll`/`expect-partial` markers) | ✅ Pass | 25/25 |
 | **ASan/UBSan rebuild** (`make asan`) | ✅ Pass | 224/224 |
 | **`sret` ABI verifier** (`tools/verify/sret_verifier.py --verify-all`) | ✅ Pass | 6/6 |
 | **C11 verification suite** (`tools/c11/test_c11.py`) | ✅ Pass | 11/11 |
 | **VLA verification suite** (`tools/vla/test_vla.py`) | ✅ Pass | 11/11 (incl. VLA-in-loop / VLA-in-block runtime tests — C99 6.7.5.2 legal, gcc-differentially verified) |
 | **Diagnostics battery** (`tools/verify/diag_battery.py`, vs gcc) | ✅ Pass | 16 cases, 8/8 error categories |
-| **C style checker** (`tools/verify/style_check.py`) | ✅ Pass | 0 errors, 0 warnings (Sprint 162) |
+| **C style checker** (`tools/verify/style_check.py`) | ✅ Pass | 179 files, 0 errors, 0 warnings (Sprint 174) |
 
 ## C23 Support
 
