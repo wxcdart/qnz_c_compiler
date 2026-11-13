@@ -159,6 +159,32 @@ int main(void) {
 }
 """, dialects=["gnu23"]),
     # -------------------------------------------------------------
+    # auto type deduction (C23 6.7.2.4, Sprint 179+)
+    # Note: `auto *p = &x;` (pointer declarator directly after `auto`)
+    # is a ZeroCC extension rejected by gcc, so it is NOT in this gate.
+    # -------------------------------------------------------------
+    C23Case("auto_local_basic", "auto", """
+int main(void) {
+    auto x = 42;
+    auto d = 3.14;
+    auto sum = x + (int)d;
+    const auto cx = 100;
+    if (x != 42) return 1;
+    if ((int)d != 3) return 2;
+    if (sum != 45) return 3;
+    if (cx != 100) return 4;
+    return 0;
+}
+""", dialects=["gnu23"]),
+    C23Case("auto_noinit_rejected", "auto", """
+int main(void) {
+    auto x;
+    return 0;
+}
+""", dialects=["gnu23"], expect_compile=False,
+            expect_error_substr="cannot deduce type for 'auto' variable 'x' without initializer"),
+
+    # -------------------------------------------------------------
     # nullptr (C23 6.4.4.3)
     # -------------------------------------------------------------
     C23Case("nullptr_semantics", "nullptr", """

@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-13T18:19:40Z
+timestamp: 2026-11-13T18:29:44Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1431,3 +1431,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-13 — Updated `frontend-and-types.md`
 - Implemented C23 auto type deduction and constexpr functions (CTFE) with semantic-analysis integration
+
+## 2026-11-13 — Updated `frontend-and-types.md`
+- Added auto type deduction cases to C23 differential gate (tools/c23/test_c23.py)
