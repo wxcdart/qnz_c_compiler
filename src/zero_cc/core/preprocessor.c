@@ -234,6 +234,9 @@ void zero_cc_cpp_define_builtin_macros(ZeroCCPreprocessor *cpp, const char *std_
      * The dialect only *enables* keywords and version macros; it never
      * *rejects* syntax (gnu89/C89 leniency wins for gate stability). */
     zero_cc_cpp_define_obj(cpp, "__STDC_VERSION__", std_version);
+    zero_cc_cpp_define_obj(cpp, "__STDC_EMBED_NOT_FOUND__", "0");
+    zero_cc_cpp_define_obj(cpp, "__STDC_EMBED_FOUND__", "1");
+    zero_cc_cpp_define_obj(cpp, "__STDC_EMBED_EMPTY__", "2");
     /* __STDC_NO_COMPLEX__ must NOT be defined: _Complex float/double and
      * GNU integer _Complex are implemented (Sprint 85) - defining it made
      * `#ifdef __STDC_NO_COMPLEX__` take the wrong branch. Per C11/C23 it
@@ -676,6 +679,138 @@ void zero_cc_cpp_add_dependency(ZeroCCPreprocessor *cpp, const char *path) {
     cpp->dep_file_count++;
 }
 
+static char *capture_paren_tokens(const char **pp) {
+    const char *p = *pp;
+    while (*p && isspace((unsigned char)*p)) p++;
+    if (*p != '(') { *pp = p; return NULL; }
+    p++;
+    const char *start = p;
+    int depth = 1;
+    while (*p && depth > 0) {
+        if (*p == '(') depth++;
+        else if (*p == ')') {
+            depth--;
+            if (depth == 0) break;
+        }
+        p++;
+    }
+    size_t len = (size_t)(p - start);
+    char *res = (char *)malloc(len + 1);
+    if (res) {
+        memcpy(res, start, len);
+        res[len] = '\0';
+    }
+    if (*p == ')') p++;
+    *pp = p;
+    return res;
+}
+
+static int64_t zero_cc_cpp_eval_c_attribute(const char *name) {
+    if (!name || !name[0]) return 0;
+    if (strcmp(name, "nodiscard") == 0 || strcmp(name, "__nodiscard__") == 0 ||
+        strcmp(name, "maybe_unused") == 0 || strcmp(name, "__maybe_unused__") == 0 ||
+        strcmp(name, "deprecated") == 0 || strcmp(name, "__deprecated__") == 0 ||
+        strcmp(name, "fallthrough") == 0 || strcmp(name, "__fallthrough__") == 0 ||
+        strcmp(name, "reproducible") == 0 || strcmp(name, "__reproducible__") == 0 ||
+        strcmp(name, "unsequenced") == 0 || strcmp(name, "__unsequenced__") == 0) {
+        return 202311L;
+    }
+    return 0;
+}
+
+static bool zero_cc_cpp_is_macro_defined(ZeroCCPreprocessor *cpp, const char *name) {
+    if (!name || !name[0]) return false;
+    if (strcmp(name, "__has_include") == 0 ||
+        strcmp(name, "__has_c_attribute") == 0 ||
+        strcmp(name, "__has_embed") == 0) {
+        return true;
+    }
+    return zero_cc_cpp_find_macro(cpp, name) != NULL;
+}
+
+static unsigned char *zero_cc_cpp_read_binary_resource(ZeroCCPreprocessor *cpp,
+                                                       const char *asset_path,
+                                                       bool is_sys,
+                                                       size_t *out_sz,
+                                                       char *resolved_out,
+                                                       size_t resolved_cap) {
+    if (!asset_path || !asset_path[0]) return NULL;
+    char path[PATH_MAX + 64];
+    if (resolved_out && resolved_cap) resolved_out[0] = '\0';
+
+    if (cpp) {
+        char *vhdr = zero_cc_cpp_get_virtual_header(asset_path, cpp->std_dialect);
+        if (vhdr) {
+            *out_sz = strlen(vhdr);
+            return (unsigned char *)vhdr;
+        }
+    }
+
+    #define ZC_TRY_READ(fpath) do { \
+        FILE *f = fopen((fpath), "rb"); \
+        if (f) { \
+            fseek(f, 0, SEEK_END); \
+            long sz = ftell(f); \
+            fseek(f, 0, SEEK_SET); \
+            if (sz >= 0) { \
+                unsigned char *data = (unsigned char *)malloc((size_t)sz + 1); \
+                if (data) { \
+                    size_t r = fread(data, 1, (size_t)sz, f); \
+                    data[r] = '\0'; \
+                    fclose(f); \
+                    *out_sz = r; \
+                    if (resolved_out && resolved_cap) { \
+                        snprintf(resolved_out, resolved_cap, "%s", (fpath)); \
+                    } \
+                    return data; \
+                } \
+            } \
+            fclose(f); \
+        } \
+    } while (0)
+
+    if (!is_sys && cpp) {
+        for (int d = cpp->include_dir_depth - 1; d >= 0; d--) {
+            snprintf(path, sizeof(path), "%s/%s", cpp->include_file_dirs[d], asset_path);
+            if (access(path, R_OK) == 0) {
+                ZC_TRY_READ(path);
+            }
+        }
+    }
+
+    if (!is_sys || asset_path[0] == '/') {
+        if (access(asset_path, R_OK) == 0) {
+            ZC_TRY_READ(asset_path);
+        }
+    }
+
+    if (cpp) {
+        for (size_t i = 0; i < cpp->include_dirs.count; i++) {
+            snprintf(path, sizeof(path), "%s/%s", cpp->include_dirs.paths[i], asset_path);
+            if (access(path, R_OK) == 0) {
+                ZC_TRY_READ(path);
+            }
+        }
+    }
+
+    static const char *sys_paths[] = {
+        "/usr/include",
+        "/usr/local/include",
+        "/usr/include/x86_64-linux-gnu",
+        "/usr/include/aarch64-linux-gnu",
+        NULL
+    };
+    for (int i = 0; sys_paths[i]; i++) {
+        snprintf(path, sizeof(path), "%s/%s", sys_paths[i], asset_path);
+        if (access(path, R_OK) == 0) {
+            ZC_TRY_READ(path);
+        }
+    }
+
+    #undef ZC_TRY_READ
+    return NULL;
+}
+
 /* Write Makefile-style dependency rule (-MMD/-MF/-MT) */
 bool zero_cc_cpp_write_dep_file(ZeroCCPreprocessor *cpp, const char *dep_file) {
     if (!cpp || !dep_file || !dep_file[0]) return false;
@@ -934,32 +1069,145 @@ int64_t zero_cc_cpp_eval_expr(ZeroCCPreprocessor *cpp, const char *expr) {
                     while (*lp && isspace((unsigned char)*lp)) lp++;
                     if (*lp == ')') lp++;
                 }
-                bool is_def = (strcmp(macro_name, "__has_include") == 0) ||
-                              (zero_cc_cpp_find_macro(cpp, macro_name) != NULL);
+                bool is_def = zero_cc_cpp_is_macro_defined(cpp, macro_name);
                 zero_cc_buf_putc(&def_buf, is_def ? '1' : '0');
                 zero_cc_buf_putc(&def_buf, ' ');
             } else if (strcmp(id, "__has_include") == 0) {
+                char *inner = capture_paren_tokens(&lp);
+                bool has_inc = false;
+                if (inner) {
+                    const char *ip = inner;
+                    while (*ip && isspace((unsigned char)*ip)) ip++;
+                    char *expanded_inner = NULL;
+                    if (*ip != '<' && *ip != '"') {
+                        ZeroCCBuffer eb;
+                        zero_cc_buf_init(&eb, strlen(ip) * 2 + 32);
+                        size_t sl = cpp->line_num;
+                        int sd = cpp->cond_depth;
+                        cpp->cond_depth = 0;
+                        zero_cc_cpp_process_text(cpp, ip, &eb);
+                        cpp->cond_depth = sd;
+                        cpp->line_num = sl;
+                        zero_cc_buf_putc(&eb, '\0');
+                        expanded_inner = eb.data;
+                        ip = expanded_inner;
+                        while (*ip && isspace((unsigned char)*ip)) ip++;
+                    }
+                    bool is_sys = (*ip == '<');
+                    char delim = is_sys ? '>' : '"';
+                    if (*ip == '<' || *ip == '"') {
+                        ip++;
+                        char inc_name[256];
+                        size_t inl = 0;
+                        while (*ip && *ip != delim && *ip != '\n' && inl + 1 < sizeof(inc_name)) {
+                            inc_name[inl++] = *ip++;
+                        }
+                        inc_name[inl] = '\0';
+                        char res_path[PATH_MAX];
+                        char *content = zero_cc_cpp_resolve_include(cpp, inc_name, is_sys, res_path, sizeof(res_path));
+                        has_inc = (content != NULL);
+                        if (content) free(content);
+                    }
+                    if (expanded_inner) free(expanded_inner);
+                    free(inner);
+                }
+                zero_cc_buf_putc(&def_buf, has_inc ? '1' : '0');
+                zero_cc_buf_putc(&def_buf, ' ');
+            } else if (strcmp(id, "__has_c_attribute") == 0) {
                 while (*lp && isspace((unsigned char)*lp)) lp++;
                 if (*lp == '(') lp++;
                 while (*lp && isspace((unsigned char)*lp)) lp++;
-                bool is_sys = (*lp == '<');
-                char delim = is_sys ? '>' : '"';
-                if (*lp == '<' || *lp == '"') lp++;
-                char inc_name[256];
-                size_t inl = 0;
-                while (*lp && *lp != delim && *lp != '\n' && inl + 1 < sizeof(inc_name)) {
-                    inc_name[inl++] = *lp++;
+                char attr_name[128];
+                size_t anl = 0;
+                while (*lp && (isalnum((unsigned char)*lp) || *lp == '_' || *lp == ':') && anl + 1 < sizeof(attr_name)) {
+                    attr_name[anl++] = *lp++;
                 }
-                inc_name[inl] = '\0';
-                if (*lp == delim) lp++;
+                attr_name[anl] = '\0';
+                while (*lp && isspace((unsigned char)*lp)) lp++;
+                if (*lp == '(') {
+                    int pdepth = 1; lp++;
+                    while (*lp && pdepth > 0) {
+                        if (*lp == '(') pdepth++;
+                        else if (*lp == ')') pdepth--;
+                        lp++;
+                    }
+                }
                 while (*lp && isspace((unsigned char)*lp)) lp++;
                 if (*lp == ')') lp++;
-                char res_path[PATH_MAX];
-                char *content = zero_cc_cpp_resolve_include(cpp, inc_name, is_sys, res_path, sizeof(res_path));
-                bool has_inc = (content != NULL);
-                if (content) free(content);
-                zero_cc_buf_putc(&def_buf, has_inc ? '1' : '0');
-                zero_cc_buf_putc(&def_buf, ' ');
+                int64_t attr_val = zero_cc_cpp_eval_c_attribute(attr_name);
+                char attr_str[32];
+                snprintf(attr_str, sizeof(attr_str), "%ld ", (long)attr_val);
+                zero_cc_buf_puts(&def_buf, attr_str);
+            } else if (strcmp(id, "__has_embed") == 0) {
+                char *inner = capture_paren_tokens(&lp);
+                int res_code = 0; /* __STDC_EMBED_NOT_FOUND__ */
+                if (inner) {
+                    const char *ip = inner;
+                    while (*ip && isspace((unsigned char)*ip)) ip++;
+                    char *expanded_inner = NULL;
+                    if (*ip != '<' && *ip != '"') {
+                        ZeroCCBuffer eb;
+                        zero_cc_buf_init(&eb, strlen(ip) * 2 + 32);
+                        size_t sl = cpp->line_num;
+                        int sd = cpp->cond_depth;
+                        cpp->cond_depth = 0;
+                        zero_cc_cpp_process_text(cpp, ip, &eb);
+                        cpp->cond_depth = sd;
+                        cpp->line_num = sl;
+                        zero_cc_buf_putc(&eb, '\0');
+                        expanded_inner = eb.data;
+                        ip = expanded_inner;
+                        while (*ip && isspace((unsigned char)*ip)) ip++;
+                    }
+                    bool is_sys = (*ip == '<');
+                    char delim = is_sys ? '>' : '"';
+                    if (*ip == '<' || *ip == '"') {
+                        ip++;
+                        char asset_name[256];
+                        size_t anl = 0;
+                        while (*ip && *ip != delim && *ip != '\n' && anl + 1 < sizeof(asset_name)) {
+                            asset_name[anl++] = *ip++;
+                        }
+                        asset_name[anl] = '\0';
+                        if (*ip == delim) ip++;
+
+                        int64_t embed_limit = -1;
+                        while (*ip && *ip != '\0') {
+                            while (*ip && isspace((unsigned char)*ip)) ip++;
+                            if (*ip == '\0') break;
+                            char pname[64];
+                            size_t pnl = 0;
+                            while (*ip && (isalnum((unsigned char)*ip) || *ip == '_' || *ip == ':') && pnl + 1 < sizeof(pname)) {
+                                pname[pnl++] = *ip++;
+                            }
+                            pname[pnl] = '\0';
+                            while (*ip && isspace((unsigned char)*ip)) ip++;
+                            if (*ip == '(') {
+                                char *parg = capture_paren_tokens(&ip);
+                                if (strcmp(pname, "limit") == 0 && parg) {
+                                    int64_t lim = zero_cc_cpp_eval_expr(cpp, parg);
+                                    embed_limit = (lim >= 0) ? lim : 0;
+                                }
+                                if (parg) free(parg);
+                            } else {
+                                if (*ip) ip++;
+                            }
+                        }
+
+                        size_t rsz = 0;
+                        unsigned char *rdata = zero_cc_cpp_read_binary_resource(cpp, asset_name, is_sys, &rsz, NULL, 0);
+                        if (rdata) {
+                            if (rsz == 0 || embed_limit == 0) res_code = 2; /* __STDC_EMBED_EMPTY__ */
+                            else res_code = 1; /* __STDC_EMBED_FOUND__ */
+                            free(rdata);
+                        }
+                    }
+                    if (expanded_inner) free(expanded_inner);
+                    free(inner);
+                }
+                char code_str[16];
+                snprintf(code_str, sizeof(code_str), "%d ", res_code);
+                zero_cc_buf_puts(&def_buf, code_str);
             } else {
                 zero_cc_buf_puts(&def_buf, id);
             }
@@ -1206,7 +1454,7 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                     while (*p && (isalnum((unsigned char)*p) || *p == '_') && ml < 127) macro_name[ml++] = *p++;
                     macro_name[ml] = '\0';
                     cpp->cond_depth++;
-                    bool val = active && (zero_cc_cpp_find_macro(cpp, macro_name) != NULL);
+                    bool val = active && zero_cc_cpp_is_macro_defined(cpp, macro_name);
                     cpp->cond_true[cpp->cond_depth] = val;
                     cpp->cond_seen_true[cpp->cond_depth] = val;
                 } else if (strcmp(directive, "ifndef") == 0) {
@@ -1214,7 +1462,7 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                     while (*p && (isalnum((unsigned char)*p) || *p == '_') && ml < 127) macro_name[ml++] = *p++;
                     macro_name[ml] = '\0';
                     cpp->cond_depth++;
-                    bool val = active && (zero_cc_cpp_find_macro(cpp, macro_name) == NULL);
+                    bool val = active && !zero_cc_cpp_is_macro_defined(cpp, macro_name);
                     cpp->cond_true[cpp->cond_depth] = val;
                     cpp->cond_seen_true[cpp->cond_depth] = val;
                 } else if (strcmp(directive, "if") == 0) {
@@ -1226,6 +1474,32 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                     if (cpp->cond_depth > 0) {
                         bool prev_depth_active = (cpp->cond_depth == 1 || cpp->cond_true[cpp->cond_depth - 1]);
                         if (!cpp->cond_seen_true[cpp->cond_depth] && prev_depth_active && zero_cc_cpp_eval_expr(cpp, p) != 0) {
+                            cpp->cond_true[cpp->cond_depth] = true;
+                            cpp->cond_seen_true[cpp->cond_depth] = true;
+                        } else {
+                            cpp->cond_true[cpp->cond_depth] = false;
+                        }
+                    }
+                } else if (strcmp(directive, "elifdef") == 0) {
+                    char macro_name[128]; size_t ml = 0;
+                    while (*p && (isalnum((unsigned char)*p) || *p == '_') && ml < 127) macro_name[ml++] = *p++;
+                    macro_name[ml] = '\0';
+                    if (cpp->cond_depth > 0) {
+                        bool prev_depth_active = (cpp->cond_depth == 1 || cpp->cond_true[cpp->cond_depth - 1]);
+                        if (!cpp->cond_seen_true[cpp->cond_depth] && prev_depth_active && zero_cc_cpp_is_macro_defined(cpp, macro_name)) {
+                            cpp->cond_true[cpp->cond_depth] = true;
+                            cpp->cond_seen_true[cpp->cond_depth] = true;
+                        } else {
+                            cpp->cond_true[cpp->cond_depth] = false;
+                        }
+                    }
+                } else if (strcmp(directive, "elifndef") == 0) {
+                    char macro_name[128]; size_t ml = 0;
+                    while (*p && (isalnum((unsigned char)*p) || *p == '_') && ml < 127) macro_name[ml++] = *p++;
+                    macro_name[ml] = '\0';
+                    if (cpp->cond_depth > 0) {
+                        bool prev_depth_active = (cpp->cond_depth == 1 || cpp->cond_true[cpp->cond_depth - 1]);
+                        if (!cpp->cond_seen_true[cpp->cond_depth] && prev_depth_active && !zero_cc_cpp_is_macro_defined(cpp, macro_name)) {
                             cpp->cond_true[cpp->cond_depth] = true;
                             cpp->cond_seen_true[cpp->cond_depth] = true;
                         } else {
@@ -1434,49 +1708,124 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                     continue;
                 } else if (active && strcmp(directive, "embed") == 0) {
                     while (*p && isspace((unsigned char)*p) && *p != '\n') p++;
-                    bool is_sys = (*p == '<');
+                    const char *dp = p;
+                    char *expanded_line = NULL;
+                    if (*dp != '"' && *dp != '<') {
+                        const char *line_end = dp;
+                        while (*line_end && *line_end != '\n') {
+                            if (*line_end == '\\' && line_end[1] == '\n') line_end += 2;
+                            else line_end++;
+                        }
+                        size_t raw_len = (size_t)(line_end - dp);
+                        char *raw = (char *)malloc(raw_len + 1);
+                        if (raw) {
+                            memcpy(raw, dp, raw_len);
+                            raw[raw_len] = '\0';
+                            ZeroCCBuffer eb;
+                            zero_cc_buf_init(&eb, raw_len * 2 + 32);
+                            size_t sl = cpp->line_num;
+                            int sd = cpp->cond_depth;
+                            cpp->cond_depth = 0;
+                            zero_cc_cpp_process_text(cpp, raw, &eb);
+                            cpp->cond_depth = sd;
+                            cpp->line_num = sl;
+                            zero_cc_buf_putc(&eb, '\0');
+                            free(raw);
+                            expanded_line = eb.data;
+                            dp = expanded_line;
+                            while (*dp && isspace((unsigned char)*dp)) dp++;
+                        }
+                    }
+                    bool is_sys = (*dp == '<');
                     char delim_end = is_sys ? '>' : '"';
-                    if (*p == '"' || *p == '<') p++;
+                    if (*dp == '"' || *dp == '<') dp++;
                     char asset_path[256]; size_t apl = 0;
-                    while (*p && *p != delim_end && *p != '\n' && apl < 255) asset_path[apl++] = *p++;
+                    while (*dp && *dp != delim_end && *dp != '\n' && apl < 255) asset_path[apl++] = *dp++;
                     asset_path[apl] = '\0';
-                    if (*p == delim_end) p++;
+                    if (*dp == delim_end) dp++;
 
-                    FILE *f = fopen(asset_path, "rb");
-                    if (!f && cpp) {
-                        /* Try resolve via include search paths */
-                        char resolved_path2[PATH_MAX];
-                        char *resolved = zero_cc_cpp_resolve_include(cpp, asset_path, is_sys, resolved_path2, sizeof(resolved_path2));
-                        if (resolved) {
-                            /* read from resolved string as raw bytes */
-                            size_t rlen = strlen(resolved);
-                            for (size_t i = 0; i < rlen; i++) {
+                    int64_t limit_val = -1;
+                    char *prefix_tokens = NULL;
+                    char *suffix_tokens = NULL;
+                    char *if_empty_tokens = NULL;
+
+                    while (*dp && *dp != '\n') {
+                        while (*dp && isspace((unsigned char)*dp) && *dp != '\n') dp++;
+                        if (*dp == '\n' || *dp == '\0') break;
+                        if (*dp == '\\' && dp[1] == '\n') { dp += 2; continue; }
+                        char pname[64]; size_t pnl = 0;
+                        while (*dp && (isalnum((unsigned char)*dp) || *dp == '_' || *dp == ':') && pnl + 1 < sizeof(pname)) {
+                            pname[pnl++] = *dp++;
+                        }
+                        pname[pnl] = '\0';
+                        while (*dp && isspace((unsigned char)*dp) && *dp != '\n') dp++;
+                        if (*dp == '(') {
+                            char *inner = capture_paren_tokens(&dp);
+                            if (strcmp(pname, "limit") == 0) {
+                                if (inner) {
+                                    int64_t lim = zero_cc_cpp_eval_expr(cpp, inner);
+                                    limit_val = (lim >= 0) ? lim : 0;
+                                }
+                            } else if (strcmp(pname, "prefix") == 0) {
+                                if (prefix_tokens) free(prefix_tokens);
+                                prefix_tokens = inner;
+                                inner = NULL;
+                            } else if (strcmp(pname, "suffix") == 0) {
+                                if (suffix_tokens) free(suffix_tokens);
+                                suffix_tokens = inner;
+                                inner = NULL;
+                            } else if (strcmp(pname, "if_empty") == 0) {
+                                if (if_empty_tokens) free(if_empty_tokens);
+                                if_empty_tokens = inner;
+                                inner = NULL;
+                            }
+                            if (inner) free(inner);
+                        } else {
+                            if (*dp && *dp != '\n') dp++;
+                        }
+                    }
+
+                    size_t rsz = 0;
+                    char resolved_file[PATH_MAX];
+                    unsigned char *rdata = zero_cc_cpp_read_binary_resource(cpp, asset_path, is_sys, &rsz, resolved_file, sizeof(resolved_file));
+                    if (!rdata) {
+                        if (cpp->include_error[0] == '\0') {
+                            snprintf(cpp->include_error, sizeof(cpp->include_error),
+                                     "%s:%zu: fatal error: %s: No such file or directory",
+                                     cpp->filename ? cpp->filename : "<stdin>",
+                                     cpp->line_num, asset_path);
+                        }
+                    } else {
+                        if (resolved_file[0]) {
+                            zero_cc_cpp_add_dependency(cpp, resolved_file);
+                        }
+                        size_t emit_len = rsz;
+                        if (limit_val >= 0 && (size_t)limit_val < emit_len) {
+                            emit_len = (size_t)limit_val;
+                        }
+                        if (emit_len == 0) {
+                            if (if_empty_tokens) {
+                                zero_cc_buf_puts(out, if_empty_tokens);
+                            }
+                        } else {
+                            if (prefix_tokens) {
+                                zero_cc_buf_puts(out, prefix_tokens);
+                            }
+                            for (size_t i = 0; i < emit_len; i++) {
                                 char buf[16];
-                                snprintf(buf, sizeof(buf), "%u%s", (unsigned char)resolved[i], (i + 1 < rlen) ? ", " : "");
+                                snprintf(buf, sizeof(buf), "%u%s", rdata[i], (i + 1 < emit_len) ? ", " : "");
                                 zero_cc_buf_puts(out, buf);
                             }
-                            free(resolved);
-                            f = NULL;
-                        }
-                    }
-                    if (f) {
-                        fseek(f, 0, SEEK_END);
-                        long fsz = ftell(f);
-                        fseek(f, 0, SEEK_SET);
-                        if (fsz > 0) {
-                            unsigned char *data = (unsigned char *)malloc((size_t)fsz);
-                            if (data) {
-                                size_t r = fread(data, 1, (size_t)fsz, f);
-                                for (size_t i = 0; i < r; i++) {
-                                    char buf[16];
-                                    snprintf(buf, sizeof(buf), "%u%s", data[i], (i + 1 < r) ? ", " : "");
-                                    zero_cc_buf_puts(out, buf);
-                                }
-                                free(data);
+                            if (suffix_tokens) {
+                                zero_cc_buf_puts(out, suffix_tokens);
                             }
                         }
-                        fclose(f);
+                        free(rdata);
                     }
+                    if (prefix_tokens) free(prefix_tokens);
+                    if (suffix_tokens) free(suffix_tokens);
+                    if (if_empty_tokens) free(if_empty_tokens);
+                    if (expanded_line) free(expanded_line);
                 } else if (active && strcmp(directive, "warning") == 0) {
                     /* C23 6.9.1 #warning (GCC extension pre-C23): emit a
                      * warning whose message is the directive's own text

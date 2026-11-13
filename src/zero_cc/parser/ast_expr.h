@@ -37,6 +37,7 @@ ASTRef parse_ternary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena);
 ASTRef parse_assignment_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena);
 ASTRef parse_expr_ast_internal(ZeroCCCompiler *c, ZeroCCASTArena *arena);
 void skip_c23_attributes(ZeroCCCompiler *c);
+void skip_c23_attributes_at(ZeroCCCompiler *c, size_t *pos);
 bool is_type_specifier_at(ZeroCCCompiler *c, size_t pos, ZeroCCTokType t);
 bool is_type_specifier(ZeroCCCompiler *c, ZeroCCTokType t);
 

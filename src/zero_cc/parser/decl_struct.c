@@ -262,6 +262,7 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
     }
 
     while (c->tokens[c->token_pos].type != TK_RBRACE && c->tokens[c->token_pos].type != TK_EOF) {
+        skip_c23_attributes(c);
         size_t iter_start = c->token_pos;
         size_t member_align = 0;
         if (c->tokens[c->token_pos].type == TK_ALIGNAS) {
@@ -481,6 +482,7 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
             } else if (c->tokens[c->token_pos].type == TK_IDENT) {
                 snprintf(mname, sizeof(mname), "%s", c->tokens[c->token_pos].str_val);
                 c->token_pos++;
+                skip_c23_attributes(c);
             }
             size_t elem_count = 1;
             size_t dims[8] = {0};
@@ -1209,6 +1211,7 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
             } else if (c->tokens[c->token_pos].type == TK_IDENT) {
                 snprintf(mname, sizeof(mname), "%s", c->tokens[c->token_pos].str_val);
                 c->token_pos++;
+                skip_c23_attributes(c);
             }
 
             size_t elem_count = 1;

@@ -194,6 +194,7 @@ static inline void zero_cc_parse_param_list(
     ASTRef param_tail = AST_NULL;
     bool first_param = true;
     while (c->token_pos < c->token_count) {
+        skip_c23_attributes(c);
         if (c->tokens[c->token_pos].type == TK_RPAREN) {
             break;
         }
@@ -659,10 +660,12 @@ static inline void zero_cc_parse_param_list(
                 is_param_func_ptr = true;
                 param_ptr_depth++; /* the fn pointer is a pointer level */
             }
+            skip_c23_attributes(c);
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
                 pname = c->tokens[c->token_pos].str_val;
                 c->token_pos++;
             }
+            skip_c23_attributes(c);
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACKET) {
                 /* Array parameter: `int f(int a[n])` decays to `int *a`,
                  * but the dimension expression is evaluated at call entry
@@ -806,10 +809,10 @@ static inline void zero_cc_parse_param_list(
             if (decl->param_zt_cap <= fn_chunk->param_count) {
                 size_t newcap = fn_chunk->param_count < 32 ? 32 : fn_chunk->param_count * 2;
                 ZeroCCType *nz = (ZeroCCType *)realloc(decl->param_zt, newcap * sizeof(ZeroCCType));
-                if (!nz) return false;
+                if (!nz) return;
                 decl->param_zt = nz;
                 char **nn = (char **)realloc(decl->param_zt_names, newcap * sizeof(char *));
-                if (!nn) return false;
+                if (!nn) return;
                 decl->param_zt_names = nn;
                 decl->param_zt_cap = newcap;
             }

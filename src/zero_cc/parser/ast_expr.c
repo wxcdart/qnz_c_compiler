@@ -1418,25 +1418,31 @@ ASTRef zero_cc_parse_expr_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena);
  *  Statement AST Builder
  * ========================================================================= */
 
-void skip_c23_attributes(ZeroCCCompiler *c) {
+void skip_c23_attributes_at(ZeroCCCompiler *c, size_t *pos) {
+    if (!c || !pos) return;
     /* C23 [[attr]] is lexed as two single '[' / two single ']' tokens (the
      * lexer no longer maximally-munches '[['/']]', which would corrupt nested
-     * array subscripts like a[b[i]]).  A statement/declaration that begins with
+     * array subscripts like a[b[i]]). A statement/declaration that begins with
      * two consecutive '[' tokens is a C23 attribute; skip it to the matching
      * ']]' (two consecutive ']'). */
-    while (c->token_pos + 1 < c->token_count &&
-           c->tokens[c->token_pos].type == TK_LBRACKET &&
-           c->tokens[c->token_pos + 1].type == TK_LBRACKET) {
-        c->token_pos += 2;
+    while (*pos + 1 < c->token_count &&
+           c->tokens[*pos].type == TK_LBRACKET &&
+           c->tokens[*pos + 1].type == TK_LBRACKET) {
+        *pos += 2;
         int depth = 1;
-        while (c->token_pos + 1 < c->token_count && depth > 0) {
-            if (c->tokens[c->token_pos].type == TK_LBRACKET &&
-                c->tokens[c->token_pos + 1].type == TK_LBRACKET) { depth++; c->token_pos += 2; }
-            else if (c->tokens[c->token_pos].type == TK_RBRACKET &&
-                     c->tokens[c->token_pos + 1].type == TK_RBRACKET) { depth--; c->token_pos += 2; }
-            else { c->token_pos++; }
+        while (*pos + 1 < c->token_count && depth > 0) {
+            if (c->tokens[*pos].type == TK_LBRACKET &&
+                c->tokens[*pos + 1].type == TK_LBRACKET) { depth++; *pos += 2; }
+            else if (c->tokens[*pos].type == TK_RBRACKET &&
+                     c->tokens[*pos + 1].type == TK_RBRACKET) { depth--; *pos += 2; }
+            else { (*pos)++; }
         }
     }
+}
+
+void skip_c23_attributes(ZeroCCCompiler *c) {
+    if (!c) return;
+    skip_c23_attributes_at(c, &c->token_pos);
 }
 
 bool is_type_specifier_at(ZeroCCCompiler *c, size_t pos, ZeroCCTokType t) {

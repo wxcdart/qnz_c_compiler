@@ -25,7 +25,9 @@
 static bool zero_cc_struct_def_is_fn(ZeroCCCompiler *c) {
     if (c->tokens[c->token_pos].type != TK_STRUCT && c->tokens[c->token_pos].type != TK_UNION) return false;
     size_t q = c->token_pos + 1;
+    skip_c23_attributes_at(c, &q);
     if (q < c->token_count && c->tokens[q].type == TK_IDENT) q++; /* tag */
+    skip_c23_attributes_at(c, &q);
     if (q >= c->token_count || c->tokens[q].type != TK_LBRACE) return false;
     int depth = 0;
     while (q < c->token_count) {
@@ -167,11 +169,33 @@ static bool zc_filescope_struct_def_at(ZeroCCCompiler *c, size_t pos) {
     }
     if (sp >= c->token_count) return false;
     if (c->tokens[sp].type != TK_STRUCT && c->tokens[sp].type != TK_UNION) return false;
-    if (sp + 1 >= c->token_count) return false;
-    if (c->tokens[sp + 1].type == TK_LBRACE) return true;
-    if (c->tokens[sp + 1].type == TK_IDENT &&
-        sp + 2 < c->token_count && c->tokens[sp + 2].type == TK_LBRACE) return true;
-    return zero_cc_tk_def_via_aligned_marker(c, sp);
+    sp++;
+    skip_c23_attributes_at(c, &sp);
+    if (sp >= c->token_count) return false;
+    if (c->tokens[sp].type == TK_LBRACE) return true;
+    if (c->tokens[sp].type == TK_IDENT) {
+        sp++;
+        skip_c23_attributes_at(c, &sp);
+        if (sp < c->token_count && c->tokens[sp].type == TK_LBRACE) return true;
+    }
+    return zero_cc_tk_def_via_aligned_marker(c, pos);
+}
+
+static bool zc_filescope_enum_def_at(ZeroCCCompiler *c, size_t pos) {
+    if (pos >= c->token_count || c->tokens[pos].type != TK_ENUM) return false;
+    size_t eq = pos + 1;
+    skip_c23_attributes_at(c, &eq);
+    if (eq >= c->token_count) return false;
+    if (c->tokens[eq].type == TK_LBRACE || c->tokens[eq].type == TK_COLON) return true;
+    if (c->tokens[eq].type == TK_IDENT) {
+        eq++;
+        skip_c23_attributes_at(c, &eq);
+        if (eq < c->token_count &&
+            (c->tokens[eq].type == TK_LBRACE ||
+             c->tokens[eq].type == TK_COLON ||
+             c->tokens[eq].type == TK_SEMI)) return true;
+    }
+    return false;
 }
 
 static bool zero_cc_compile_top_level_decl(ZeroCCCompiler *c) {
@@ -223,48 +247,39 @@ static bool zero_cc_compile_top_level_decl(ZeroCCCompiler *c) {
     }
 
     /* Standalone Enum Declaration / Definition */
-    if (t == TK_ENUM) {
-        if (c->token_pos + 1 < c->token_count &&
-            (c->tokens[c->token_pos + 1].type == TK_LBRACE ||
-             /* C23 anonymous fixed-enum: `enum : int { ... }` */
-             c->tokens[c->token_pos + 1].type == TK_COLON ||
-             (c->tokens[c->token_pos + 1].type == TK_IDENT &&
-              c->token_pos + 2 < c->token_count &&
-              (c->tokens[c->token_pos + 2].type == TK_LBRACE ||
-               /* C23 fixed underlying type: `enum e : int { ... }` */
-               c->tokens[c->token_pos + 2].type == TK_COLON ||
-               c->tokens[c->token_pos + 2].type == TK_SEMI)))) {
-            zero_cc_stmt_enum(c);
-            return true;
-        }
-        return false;
+    if (t == TK_ENUM && zc_filescope_enum_def_at(c, c->token_pos)) {
+        zero_cc_stmt_enum(c);
+        return true;
     }
 
     /* Struct/Union definition */
     if (t == TK_STRUCT || t == TK_UNION) {
+        size_t p = c->token_pos + 1;
+        skip_c23_attributes_at(c, &p);
         /* Allow a GNU aligned(N) marker between the tag keyword and the
          * name/body: struct __attribute__((aligned(4))) S { ... }; */
-        size_t tag_off = 1;
-        if (c->token_pos + 1 < c->token_count &&
-            c->tokens[c->token_pos + 1].type == TK_IDENT &&
-            c->tokens[c->token_pos + 1].str_val &&
-            strcmp(c->tokens[c->token_pos + 1].str_val, "__zc_aligned__") == 0) {
-            size_t p = c->token_pos + 2;
-            if (p < c->token_count && c->tokens[p].type == TK_LPAREN) {
+        if (p < c->token_count &&
+            c->tokens[p].type == TK_IDENT &&
+            c->tokens[p].str_val &&
+            strcmp(c->tokens[p].str_val, "__zc_aligned__") == 0) {
+            size_t p2 = p + 1;
+            if (p2 < c->token_count && c->tokens[p2].type == TK_LPAREN) {
                 int d = 1;
-                p++;
-                while (p < c->token_count && d > 0) {
-                    if (c->tokens[p].type == TK_LPAREN) d++;
-                    else if (c->tokens[p].type == TK_RPAREN) d--;
-                    p++;
+                p2++;
+                while (p2 < c->token_count && d > 0) {
+                    if (c->tokens[p2].type == TK_LPAREN) d++;
+                    else if (c->tokens[p2].type == TK_RPAREN) d--;
+                    p2++;
                 }
             }
-            tag_off = (size_t)(p - c->token_pos);
+            p = p2;
         }
-        if (c->token_pos + tag_off < c->token_count &&
-            (c->tokens[c->token_pos + tag_off].type == TK_LBRACE ||
-             (c->tokens[c->token_pos + tag_off].type == TK_IDENT &&
-              c->token_pos + tag_off + 1 < c->token_count && c->tokens[c->token_pos + tag_off + 1].type == TK_LBRACE))) {
+        skip_c23_attributes_at(c, &p);
+        if (p < c->token_count &&
+            (c->tokens[p].type == TK_LBRACE ||
+             (c->tokens[p].type == TK_IDENT &&
+              (skip_c23_attributes_at(c, &(size_t){p + 1}),
+               p + 1 < c->token_count && c->tokens[p + 1].type == TK_LBRACE)))) {
             zero_cc_stmt_typedef_struct(c);
             return true;
         }
@@ -684,6 +699,7 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                 ZeroCCTokType pt = c->tokens[probe].type;
                 if (pt == TK_STRUCT || pt == TK_UNION || pt == TK_ENUM) {
                     probe++;
+                    skip_c23_attributes_at(c, &probe);
                     if (probe < c->token_count && c->tokens[probe].type == TK_LBRACE) {
                         int depth = 0;
                         while (probe < c->token_count) {
@@ -697,6 +713,19 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                         probe++;
                     } else if (probe < c->token_count && c->tokens[probe].type == TK_IDENT) {
                         probe++;
+                        skip_c23_attributes_at(c, &probe);
+                        if (probe < c->token_count && c->tokens[probe].type == TK_LBRACE) {
+                            int depth = 0;
+                            while (probe < c->token_count) {
+                                if (c->tokens[probe].type == TK_LBRACE) depth++;
+                                else if (c->tokens[probe].type == TK_RBRACE) {
+                                    if (depth == 0) break;
+                                    depth--;
+                                }
+                                probe++;
+                            }
+                            probe++;
+                        }
                     }
                     continue;
                 }
@@ -755,17 +784,7 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
             continue;
         }
         if (c->tokens[c->token_pos].type == TK_TYPEDEF ||
-            (c->tokens[c->token_pos].type == TK_ENUM &&
-             (c->token_pos + 1 < c->token_count &&
-              (c->tokens[c->token_pos + 1].type == TK_LBRACE ||
-               /* C23 anonymous fixed-enum: `enum : int { ... }` */
-               c->tokens[c->token_pos + 1].type == TK_COLON ||
-               (c->tokens[c->token_pos + 1].type == TK_IDENT &&
-                c->token_pos + 2 < c->token_count &&
-                (c->tokens[c->token_pos + 2].type == TK_LBRACE ||
-                 /* C23 fixed underlying type: `enum e : int { ... }` */
-                 c->tokens[c->token_pos + 2].type == TK_COLON ||
-                 c->tokens[c->token_pos + 2].type == TK_SEMI))))) ||
+            zc_filescope_enum_def_at(c, c->token_pos) ||
             zc_filescope_struct_def_at(c, c->token_pos)) {
             /* Sprint 65: `struct S { ... } name (params)` - a function
              * returning the struct (the `;` after the body is omitted when

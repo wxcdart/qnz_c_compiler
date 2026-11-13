@@ -312,6 +312,129 @@ int main(void) {
     return 0;
 }
 """, dialects=["gnu23"]),
+
+    # -------------------------------------------------------------
+    # #embed directive (C23 6.10.4) & __has_embed (C23 6.10.1)
+    # -------------------------------------------------------------
+    C23Case("embed_params", "embed", """
+#include <stddef.h>
+int main(void) {
+    unsigned char self_bytes[] = {
+#embed __FILE__ limit(4) prefix(0xAA,) suffix(,0xBB)
+    };
+    if (self_bytes[0] != 0xAA) return 1;
+    if (self_bytes[5] != 0xBB) return 2;
+    unsigned char empty_bytes[] = {
+#embed __FILE__ limit(0) if_empty(42, 43)
+    };
+    if (empty_bytes[0] != 42 || empty_bytes[1] != 43) return 3;
+    return 0;
+}
+""", dialects=["gnu23"]),
+    C23Case("has_embed_semantics", "embed", """
+int main(void) {
+    int v_found = 0, v_notfound = 0, v_empty = 0;
+#if __has_embed(__FILE__) == __STDC_EMBED_FOUND__
+    v_found = 1;
+#endif
+#if __has_embed("/nonexistent_c23_file.bin") == __STDC_EMBED_NOT_FOUND__
+    v_notfound = 1;
+#endif
+#if __has_embed(__FILE__ limit(0)) == __STDC_EMBED_EMPTY__
+    v_empty = 1;
+#endif
+    if (!v_found || !v_notfound || !v_empty) return 1;
+    return 0;
+}
+""", dialects=["gnu23"]),
+
+    # -------------------------------------------------------------
+    # __has_c_attribute (C23 6.10.1) & attributes grammar
+    # -------------------------------------------------------------
+    C23Case("has_c_attribute_semantics", "attributes", """
+int main(void) {
+    int ok = 1;
+#if __has_c_attribute(nodiscard) != 202311L
+    ok = 0;
+#endif
+#if __has_c_attribute(maybe_unused) != 202311L
+    ok = 0;
+#endif
+#if __has_c_attribute(deprecated) != 202311L
+    ok = 0;
+#endif
+#if __has_c_attribute(fallthrough) != 202311L
+    ok = 0;
+#endif
+#if __has_c_attribute(nonexistent_vendor_attr) != 0
+    ok = 0;
+#endif
+    return ok ? 0 : 1;
+}
+""", dialects=["gnu23"]),
+    C23Case("c23_attributes_grammar", "attributes", """
+struct [[maybe_unused]] S {
+    [[maybe_unused]] int x;
+    int y [[maybe_unused]];
+};
+enum [[deprecated]] E {
+    A [[deprecated]] = 10,
+    B [[maybe_unused]] = 20
+};
+[[nodiscard]] int add([[maybe_unused]] int a, int b [[maybe_unused]]) {
+    [[maybe_unused]] int sum = a + b;
+    return sum;
+}
+int main(void) {
+    struct S s = { 1, 2 };
+    enum E e = A;
+    if (s.x + s.y != 3) return 1;
+    if (e != 10) return 2;
+    if (add(5, 7) != 12) return 3;
+    return 0;
+}
+""", dialects=["gnu23"]),
+
+    # -------------------------------------------------------------
+    # #elifdef and #elifndef (C23 6.10.1)
+    # -------------------------------------------------------------
+    C23Case("elifdef_elifndef", "preproc_c23", """
+int main(void) {
+    int a = 0, b = 0;
+#ifdef NOT_DEFINED_MACRO_XYZ
+    a = 1;
+#elifdef __has_c_attribute
+    a = 42;
+#else
+    a = 3;
+#endif
+
+#ifdef NOT_DEFINED_MACRO_XYZ
+    b = 1;
+#elifndef ALSO_NOT_DEFINED_XYZ
+    b = 84;
+#else
+    b = 3;
+#endif
+    if (a != 42 || b != 84) return 1;
+    return 0;
+}
+""", dialects=["gnu23"]),
+
+    # -------------------------------------------------------------
+    # <stddef.h> nullptr_t, unreachable(), max_align_t (C23 7.21)
+    # -------------------------------------------------------------
+    C23Case("stddef_c23_features", "stddef_c23", """
+#include <stddef.h>
+int main(void) {
+    nullptr_t np = nullptr;
+    if (np != (void *)0) return 1;
+    if (sizeof(nullptr_t) != sizeof(void *)) return 2;
+    if (sizeof(max_align_t) < sizeof(long double)) return 3;
+    if (0) unreachable();
+    return 0;
+}
+""", dialects=["gnu23"]),
 ]
 
 # The suppressed-warning case needs a NEGATIVE stderr check (the message

@@ -854,6 +854,7 @@ bool zero_cc_parse_local_decl(ZeroCCCompiler *c,  /* Sprint 114: defined in decl
         return true;
     }
     /* Variable Declaration or Typedef Declaration */
+    skip_c23_attributes(c);
     /* Parse alignment, storage specifiers & type qualifiers */
     bool is_const = false;
     bool is_volatile = false;
@@ -1372,9 +1373,11 @@ bool zero_cc_parse_local_decl(ZeroCCCompiler *c,  /* Sprint 114: defined in decl
             size_t probe = 0;
             if (zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) align_attr_val = probe;
         }
+        skip_c23_attributes(c);
         if (!zero_cc_parse_declarator(c, arena, ctx, &decl, false)) {
             *out_ref = AST_NULL; return true;
         }
+        skip_c23_attributes(c);
         /* GNU aligned(N) trailing the declarator:
          * `short a[4] __attribute__((aligned(16)));` - the marker follows
          * the full declarator; pick it up here so the application below

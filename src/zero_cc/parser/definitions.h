@@ -38,6 +38,7 @@ static inline void zero_cc_stmt_typedef_struct(ZeroCCCompiler *c) {
     bool is_union = (c->tokens[c->token_pos].type == TK_UNION);
     if (c->tokens[c->token_pos].type == TK_STRUCT || is_union) {
         c->token_pos++;
+        skip_c23_attributes(c);
         /* GNU aligned(N) between the tag keyword and the tag name:
          * `struct __attribute__((aligned(4))) S { ... };` (the alignment
          * usually matches the natural alignment; consume the marker). */
@@ -45,11 +46,13 @@ static inline void zero_cc_stmt_typedef_struct(ZeroCCCompiler *c) {
             size_t probe = 0;
             while (zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) { /* skip */ }
         }
+        skip_c23_attributes(c);
         char st_name[128] = "";
         if (c->tokens[c->token_pos].type == TK_IDENT) {
             snprintf(st_name, sizeof(st_name), "%s", c->tokens[c->token_pos].str_val);
             c->token_pos++;
         }
+        skip_c23_attributes(c);
         if (c->tokens[c->token_pos].type == TK_LBRACE) {
             ZeroCCType st = zero_cc_parse_struct_body(c, is_union);
             /* GNU aligned(N) trailing the struct body:

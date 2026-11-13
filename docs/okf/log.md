@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-13T20:42:40Z
+timestamp: 2026-11-13T22:05:34Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1440,3 +1440,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-13 — Updated `frontend-and-types.md`
 - Support floating-point evaluation and local variables in CTFE bodies
+
+## 2026-11-13 — Updated `frontend-and-types.md`
+- C23 #embed parameters, __has_embed, __has_c_attribute, #elifdef/#elifndef, attribute grammar, and stddef.h additions

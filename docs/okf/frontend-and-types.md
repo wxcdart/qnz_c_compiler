@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-11-13T20:42:40Z
+timestamp: 2026-11-13T22:05:34Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -581,6 +581,25 @@ C23 only permits `constexpr` on data declarations. ZeroCC additionally accepts `
   - Nested constexpr function calls
   - Initializers in file-scope data declarations (both integer and scalar float/double contexts)
 - **Limitation**: Complex control flow beyond if/else/while/for is not yet supported. Pointers in CTFE bodies are limited to addresses and integer conversions (no pointer dereferencing in CTFE bodies yet).
+
+## Modern C23 Standard Features (Sprint 179)
+
+ZeroCC supports key C23 language and preprocessor features verified by the differential `make test-c23` gate against `gcc-15`:
+- **Binary Resource Inclusion (`#embed`, C23 6.10.4)**: `#embed <path>` or `#embed "path"` emits a comma-separated list of byte integer constants. Supports standard parameters:
+  - `limit(N)`: restricts the number of embedded bytes to at most `N`.
+  - `prefix(...)`: prepends balanced tokens before the byte stream if non-empty.
+  - `suffix(...)`: appends balanced tokens after the byte stream if non-empty.
+  - `if_empty(...)`: emitted if the resource is empty or restricted to 0 bytes.
+  - Macro-expanded arguments when target is neither `<` nor `"`.
+  - Dependency tracking registered via `zero_cc_cpp_add_dependency`.
+- **Preprocessor Query Builtins (C23 6.10.1)**:
+  - `__has_embed(...)`: returns `__STDC_EMBED_FOUND__` (1), `__STDC_EMBED_EMPTY__` (2), or `__STDC_EMBED_NOT_FOUND__` (0). Supports macro expansion of arguments and parameter checks (e.g. `limit(0)`).
+  - `__has_c_attribute(attr)`: evaluates standard attributes (`nodiscard`, `maybe_unused`, `deprecated`, `fallthrough`, `reproducible`, `unsequenced`, and `__...__` variants) to `202311L`, and unknown attributes to `0`.
+  - `#elifdef` and `#elifndef` directives: supported in conditional compilation, with `defined()`, `#ifdef`, and `#ifndef` recognizing built-in operators.
+- **C23 Attributes Grammar (`[[...]]`)**:
+  - Standard double-bracket attribute syntax accepted on function parameters, struct/union members, enum specifiers, and enumerators (following the identifier, e.g. `NAME [[deprecated]] = val`).
+- **Standard Library Headers (`<stddef.h>`)**:
+  - `nullptr_t` (typedef of `typeof(nullptr)`), `unreachable()` (`__builtin_unreachable()`), and `max_align_t`.
 
 ## Related Concepts
 - Return to [Root Index](./index.md)

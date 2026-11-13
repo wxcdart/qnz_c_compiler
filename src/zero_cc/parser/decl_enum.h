@@ -9,6 +9,9 @@
 #include "zero_cc/types/global_vars.h"
 #include "zero_cc/parser/const_eval.h"
 
+void skip_c23_attributes(ZeroCCCompiler *c);
+void skip_c23_attributes_at(ZeroCCCompiler *c, size_t *pos);
+
 /* Parse one enum body `c->token_pos` at the first member (LBRACE consumed);
  * consumes through RBRACE. M1: two fixes vs the old per-site loops —
  *   (1) `false`/`true` are accepted as member names: in C they are plain
@@ -26,6 +29,7 @@ static inline void zero_cc_parse_enum_members(ZeroCCCompiler *c,
     while (c->token_pos < c->token_count &&
            c->tokens[c->token_pos].type != TK_RBRACE &&
            c->tokens[c->token_pos].type != TK_EOF) {
+        skip_c23_attributes(c);
         size_t saved = c->token_pos;
         if (c->tokens[c->token_pos].type == TK_IDENT ||
             (c->tokens[c->token_pos].type == TK_FALSE &&
@@ -35,10 +39,12 @@ static inline void zero_cc_parse_enum_members(ZeroCCCompiler *c,
             char ename[128];
             snprintf(ename, sizeof(ename), "%s", c->tokens[c->token_pos].str_val);
             c->token_pos++;
+            skip_c23_attributes(c);
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_ASSIGN) {
                 c->token_pos++;
                 enum_val = zero_cc_eval_const_expr(c);
             }
+            skip_c23_attributes(c);
             enum_val = zc_enum_wrap_value(enum_val, und);
             zero_cc_register_enum_const(c, ename, enum_val);
             if (enum_val == INT64_MAX) {
@@ -126,11 +132,13 @@ static inline void zero_cc_stmt_typedef_enum(ZeroCCCompiler *c) {
 /* Standalone Enum Declaration */
 static inline void zero_cc_stmt_enum(ZeroCCCompiler *c) {
     c->token_pos++; /* consume TK_ENUM */
+    skip_c23_attributes(c);
     char en_name[128] = "";
     if (c->tokens[c->token_pos].type == TK_IDENT) {
         snprintf(en_name, sizeof(en_name), "%s", c->tokens[c->token_pos].str_val);
         c->token_pos++;
     }
+    skip_c23_attributes(c);
     /* C23: `enum e : <type> { ... }` / `enum e : <type> x;` */
     ZCEnumUnderlying und = zero_cc_parse_enum_underlying(c);
     if (c->tokens[c->token_pos].type == TK_LBRACE) {

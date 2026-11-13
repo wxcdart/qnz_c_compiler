@@ -54,11 +54,26 @@ static inline const char *zc_builtin_math_h(void) {
 static inline char* zero_cc_cpp_get_virtual_header(const char *name, ZeroCCStdDialect dialect) {
     if (!name) return NULL;
     if (strcmp(name, "stddef.h") == 0) {
+        if (dialect == ZC_STD_C23 || dialect == ZC_STD_GNU23) {
+            return strdup(
+                "#ifndef _STDDEF_H\n#define _STDDEF_H 1\n"
+                "typedef unsigned long size_t;\n"
+                "typedef long ptrdiff_t;\n"
+                "typedef __WCHAR_TYPE__ wchar_t;\n"
+                "typedef struct { long long __ll; long double __ld; } max_align_t;\n"
+                "#define NULL ((void*)0)\n"
+                "#define offsetof(type, member) __builtin_offsetof(type, member)\n"
+                "typedef typeof(nullptr) nullptr_t;\n"
+                "#define unreachable() __builtin_unreachable()\n"
+                "#endif\n"
+            );
+        }
         return strdup(
             "#ifndef _STDDEF_H\n#define _STDDEF_H 1\n"
             "typedef unsigned long size_t;\n"
             "typedef long ptrdiff_t;\n"
             "typedef __WCHAR_TYPE__ wchar_t;\n"
+            "typedef struct { long long __ll; long double __ld; } max_align_t;\n"
             "#define NULL ((void*)0)\n"
             "#define offsetof(type, member) __builtin_offsetof(type, member)\n"
             "#endif\n"
