@@ -704,6 +704,13 @@ int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                     c->last_expr_is_128 = 1;
                     return result_temp;
                 }
+                else if (!is_struct && c->isa == ISA_RISCV32 &&
+                         (p_size == 8 || (ti && ti->kind == TYPE_KIND_LONG))) {
+                    ir_emit_load64(c, result_temp, operand_temp, 0);
+                    c->last_expr_is_float = 0;
+                    c->last_expr_is_64 = 1;
+                    return result_temp;
+                }
                 else ir_emit_deref(c, result_temp, operand_temp);
                 lower_extend_narrow(c, result_temp, ti);
                 break;
@@ -738,6 +745,12 @@ int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                         c->last_expr_is_128 = 1;
                         break;
                     }
+                }
+                if (c->isa == ISA_RISCV32 && (c->last_expr_is_64 || zc_node_is_int64(c, node))) {
+                    int src = zc_operand_to64(c, arena, node->left);
+                    ir_emit_neg64(c, result_temp, src);
+                    c->last_expr_is_64 = 1;
+                    break;
                 }
                 ir_emit_neg(c, result_temp, operand_temp);
                 /* C99 6.5.3.3: the result type is the promoted operand
@@ -810,6 +823,13 @@ int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                     ir_emit_cmp(c, operand_temp, zero_f);
                     ir_emit_cond_set(c, result_temp, CC_EQ);
                     c->last_expr_is_float = 0;
+                } else if (c->isa == ISA_RISCV32 && (c->last_expr_is_64 || zc_node_is_int64(c, zero_cc_ast_get(arena, node->left)))) {
+                    int src = zc_operand_to64(c, arena, node->left);
+                    int zero64 = zc_alloc_temp(c);
+                    ir_emit_mov64_imm(c, zero64, 0);
+                    ir_emit_cmp64(c, src, zero64);
+                    ir_emit_cond_set(c, result_temp, CC_EQ);
+                    c->last_expr_is_64 = 0;
                 } else {
                     ir_emit_cmp_zero(c, operand_temp);
                     ir_emit_cond_set(c, result_temp, CC_EQ);
@@ -894,6 +914,12 @@ int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                         c->last_expr_is_128 = 1;
                         break;
                     }
+                }
+                if (c->isa == ISA_RISCV32 && (c->last_expr_is_64 || zc_node_is_int64(c, node))) {
+                    int src = zc_operand_to64(c, arena, node->left);
+                    ir_emit_not64(c, result_temp, src);
+                    c->last_expr_is_64 = 1;
+                    break;
                 }
                 ir_emit_not(c, result_temp, operand_temp);
                 break;

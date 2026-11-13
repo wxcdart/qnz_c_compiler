@@ -160,7 +160,7 @@ int zero_cc_expr_int_info(ZeroCCCompiler *c, ZeroCCASTArena *arena,
     if (ti) {
         if (type_is_pointer(ti) || ti->kind == TYPE_KIND_ARRAY) {
             *is_unsigned = 1;
-            return 8;
+            return (c->isa == ISA_RISCV32) ? 4 : 8;
         }
         if (type_is_integer(ti)) {
             size_t sz = type_size(ti);
@@ -634,12 +634,19 @@ bool zc_node_is_int128(ZeroCCCompiler *c, const ZeroCCASTNode *node) {  /* Sprin
 bool zc_node_is_int64(ZeroCCCompiler *c, const ZeroCCASTNode *node) {
     if (!node) return false;
     const TypeInfo *ti = ast_node_get_typeinfo(c, node);
-    if (ti && ti->kind == TYPE_KIND_LONG && type_size(ti) == 8) return true;
+    if (ti && (ti->kind == TYPE_KIND_LONG || type_is_integer(ti)) && type_size(ti) == 8) return true;
     if (node->tag == NODE_IDENT && node->s.str) {
         ZeroCCSym *s = zero_cc_find_local(c, node->s.str);
         if (s && (s->type.tag == TYPE_INT64 || s->type.tag == TYPE_UINT64)) return true;
         ZeroCCGlobalVar *gv = find_global_var(c, node->s.str);
         if (gv && (gv->type.tag == TYPE_INT64 || gv->type.tag == TYPE_UINT64)) return true;
+    }
+    if (node->tag == NODE_INT) {
+        int64_t v = node->int_val;
+        uint8_t suf = (uint8_t)(node->flags & 7u);
+        if (suf & 6u) return true;
+        if ((suf & 1u) && (v > INT64_C(0xFFFFFFFF) || v < 0)) return true;
+        if (v < INT32_MIN || v > INT32_MAX) return true;
     }
     return false;
 }
@@ -1786,6 +1793,14 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                 ir_emit_cond_set(c, cmp_i, CC_NE);
                 lc = cmp_i;
                 c->last_expr_is_float = 0;
+            } else if (c->isa == ISA_RISCV32 && c->last_expr_is_64) {
+                int zero64 = zc_alloc_temp(c);
+                ir_emit_mov64_imm(c, zero64, 0);
+                ir_emit_cmp64(c, lc, zero64);
+                int cmp_i = zc_alloc_temp(c);
+                ir_emit_cond_set(c, cmp_i, CC_NE);
+                lc = cmp_i;
+                c->last_expr_is_64 = 0;
             }
             if (node->aux.op == TK_LOGAND) {
                 ir_emit_mov_imm(c, result_temp, 0);
@@ -1803,6 +1818,12 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                 ir_emit_cmp(c, rc, zero_f);
                 ir_emit_cond_set(c, rt, CC_NE);
                 c->last_expr_is_float = 0;
+            } else if (c->isa == ISA_RISCV32 && c->last_expr_is_64) {
+                int zero64 = zc_alloc_temp(c);
+                ir_emit_mov64_imm(c, zero64, 0);
+                ir_emit_cmp64(c, rc, zero64);
+                ir_emit_cond_set(c, rt, CC_NE);
+                c->last_expr_is_64 = 0;
             } else {
                 ir_emit_cmp_zero(c, rc);
                 ir_emit_cond_set(c, rt, CC_NE);
@@ -1810,6 +1831,7 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
             ir_emit_mov_reg(c, result_temp, rt);
             ir_emit_label(c, end_label);
             c->last_expr_is_float = 0;
+            c->last_expr_is_64 = 0;
             return result_temp;
         }
 

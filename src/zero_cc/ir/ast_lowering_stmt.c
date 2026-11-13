@@ -1945,6 +1945,13 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
         ZeroCCType fn_ret_type = zero_cc_get_current_fn_ret_type(c);
         int final_float_temp = result_temp;
         if (!c->last_expr_is_float) {
+            if (c->isa == ISA_RISCV32 && c->last_expr_is_64 &&
+                fn_ret_type.tag != TYPE_INT64 && fn_ret_type.tag != TYPE_UINT64) {
+                int trunc_t = zc_alloc_temp(c);
+                ir_emit_trunc64_32(c, trunc_t, result_temp);
+                result_temp = trunc_t;
+                c->last_expr_is_64 = 0;
+            }
             /* C99 width semantics: truncate/extend the result to the declared
              * return width (e.g. `return a + a;` from an `int` function must
              * wrap to 32 bits, not return the 64-bit residue). */
@@ -2051,6 +2058,14 @@ static int lower_condition_as_int(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTR
         ir_emit_cond_set(c, cmp_i, CC_NE);
         cond_temp = cmp_i;
         c->last_expr_is_float = 0;
+    } else if (c->isa == ISA_RISCV32 && c->last_expr_is_64) {
+        int zero64 = zc_alloc_temp(c);
+        ir_emit_mov64_imm(c, zero64, 0);
+        ir_emit_cmp64(c, cond_temp, zero64);
+        int cmp_i = zc_alloc_temp(c);
+        ir_emit_cond_set(c, cmp_i, CC_NE);
+        cond_temp = cmp_i;
+        c->last_expr_is_64 = 0;
     }
     return cond_temp;
 }

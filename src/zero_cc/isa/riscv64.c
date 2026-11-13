@@ -2001,8 +2001,8 @@ void riscv64_emit_add64(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, i
 }
 
 void riscv64_emit_sub64(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi) {
-    /* borrow = (blo > alo): sltu BEFORE the sub so dlo==alo is safe */
-    riscv_emit_u32(c, rv64_R(RV_REG(RV64_T0), RV_REG(blo), RV_REG(alo), 3, 0)); /* sltu t0, blo, alo */
+    /* borrow = (alo <u blo): sltu BEFORE the sub so dlo==alo is safe */
+    riscv_emit_u32(c, rv64_R(RV_REG(RV64_T0), RV_REG(alo), RV_REG(blo), 3, 0)); /* sltu t0, alo, blo */
     riscv64_emit_sub(c, dlo, alo, blo);
     riscv64_emit_sub(c, dhi, ahi, bhi);
     riscv64_emit_sub(c, dhi, dhi, RV64_T0);

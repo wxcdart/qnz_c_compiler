@@ -1,5 +1,28 @@
 # CHANGELOG
 
+## [Sprint 171] - 2026-11-12 - Phase 1 RV32 i64 Complete (Unary Ops, 32↔64 Casts, Conditionals, Sub64 Borrow Fix, Full Test Battery) (RISC-V / Frontend / Codegen)
+
+Completed Phase 1 of the RV32 64-bit integer roadmap ([rv32-i64-roadmap.md](okf/rv32-i64-roadmap.md)). 64-bit `long long` / `unsigned long long` values now fully support arithmetic, bitwise logic, shifts, unary operations (`~`, `-`, `!`), widening/narrowing casts (32↔64), comparisons, conditional control flow (`if`, `while`, `for`, `?:`, `&&`, `||`), and memory dereferences (pointers `*p`, arrays `arr[i]`, structs `s.m` / `sp->m`) on `--target riscv32` across both raw binary and `-S` assembly paths under QEMU.
+
+- **Frontend Lowering (`ast_lowering_*.c`):**
+  - `ast_lowering_unop.c`: Added rv32 64-bit unop handling for `TK_TILDE` (`ir_emit_not64`), `TK_MINUS` (`ir_emit_neg64`), and `TK_BANG` (normalized via `ir_emit_cmp64` == 0). Added 64-bit pointer dereference (`*p` with pointee size 8) lowered to `ir_emit_load64`.
+  - `ast_lowering_cast.c`: Added narrowing casts from 64-bit to 32/16/8-bit via `ir_emit_trunc64_32`. Added widening casts from 32-bit (signed and unsigned) to 64-bit via `ir_emit_sext32_64` and `ir_emit_zext32_64`.
+  - `ast_lowering_stmt.c`: Updated `lower_condition_as_int` to normalize 64-bit conditions via `ir_emit_cmp64(cond, 0)` + `cond_set(CC_NE)` into 32-bit booleans, preventing high-word misbranching. Updated `lower_stmt_return` to truncate 64-bit expressions when returning from 32-bit scalar functions.
+  - `ast_lowering_expr.c`: Handled 64-bit ternary operators (`?:`), 64-bit array indexing (`NODE_INDEX` with element size 8 lowered via `ir_emit_load64`), and 64-bit struct member accesses (`NODE_MEMBER` with member size 8 lowered via `ir_emit_load64` across locals, globals, and pointer dereferences).
+  - `ast_lowering_binop.c`: Corrected pointer width to 4 on rv32 (`c->isa == ISA_RISCV32 ? 4 : 8`). Enhanced `zc_node_is_int64` to recognize `NODE_INT` with `LL`/`ULL` suffixes and constants exceeding 32 bits. Added 64-bit normalization before short-circuit branches in `TK_LOGAND` and `TK_LOGOR`.
+- **Emitters & Codegen Bugfix (`riscv64.c`, `riscv_asm.c`):**
+  - Fixed `SUB64` borrow calculation in both raw and text assembly emitters: corrected inverted operand order from `sltu t0, blo, alo` (which asserted borrow when $alo > blo$) to `sltu t0, alo, blo` ($alo <u blo$), eliminating underflow loops during decrement operations.
+- **Verification:**
+  - Added comprehensive Phase 1 test suite `test/jit/rv32_i64.c` covering 10 functional categories (globals, locals, arithmetic, bitwise logic, unary ops, shifts, signed/unsigned comparisons, 32↔64 casts, loop/branch/ternary conditions, pointers/arrays/structs, logical short-circuiting).
+  - Verified under `qemu-riscv32-static` in both raw binary (`ZC_RAW_AOT=1`) and text assembly (`ZC_TEXT_AOT=1`) modes: clean exit code 0.
+  - `python3 tools/verify/isa_qemu_diff.py --isa riscv32`: 15/15 passed.
+  - `python3 tools/verify/isa_qemu_diff.py` (all 4 ISAs): 63/63 passed.
+  - `make test`: 228/228 passed.
+  - `python3 tools/verify/style_check.py`: 179 files, 0 errors, 0 warnings.
+  - OKF graph verified: `okf.py lint` + `index` 21/21 reachable.
+
+---
+
 ## [Sprint 170] - 2026-11-12 - Phase 1 RV32 i64 (64-Bit Pair Arithmetic, Core Ops, Dispatch & Frontend Lowering) (RISC-V / Frontend / Codegen)
 
 Shipped Phase 1 64-bit integer arithmetic on `--target riscv32` (ILP32 ABI, `lo/hi` 32-bit GPR pairs) across both raw binary and `-S` assembly emitters, unblocking 64-bit computation and variable assignment under QEMU.

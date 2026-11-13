@@ -4,7 +4,7 @@ title: RV32 64-bit Integer (long long) Support Roadmap
 description: Four-phase architectural roadmap for 64-bit integer arithmetic, ABI calling conventions, libgcc div/rem, and sanitizer integration on 32-bit RISC-V (rv32).
 resource: backend/rv32-i64-roadmap
 tags: [riscv32, rv32, i64, long-long, gpr-pair, abi, roadmap, sanitizer]
-timestamp: 2026-11-12T21:42:38Z
+timestamp: 2026-11-13T02:48:26Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -12,9 +12,9 @@ status: active
 
 # RV32 64-bit Integer (`long long`) Support Roadmap
 
-> **Status (Sprint 170):** **Phase 1 is in active progress (core arithmetic, assignment, constants, shifts landed)**.
-> - **Phase 1 (Core 64-bit Arithmetic)**: In progress. Core `OP_*64` opcodes, frontend expression/decl/assign lowering, raw binary and `-S` assembly emitters, and boundary shift matrix verified under QEMU.
-> - **Phase 2 (64-bit ABI & I/O)**: Planned. RISC-V psABI even-odd pair passing (`a0:a1`..`a6:a7`), 64-bit return values, and variadic `printf %lld`.
+> **Status (Sprint 170 / 171):** **Phase 1 is COMPLETE (core arithmetic, bitwise logic, unary ops, shifts, compares, 32↔64 casts, conditionals, globals/locals/pointers/arrays/structs landed and verified under QEMU)**.
+> - **Phase 1 (Core 64-bit Arithmetic)**: **COMPLETE**. Core `OP_*64` opcodes, frontend expression/decl/assign/unop/cast lowering, raw binary and `-S` assembly emitters, borrow condition fix in SUB64, and comprehensive test suite (`test/jit/rv32_i64.c`) verified in both raw and text paths under `qemu-riscv32-static`.
+> - **Phase 2 (64-bit ABI & I/O)**: Planned / Next. RISC-V psABI even-odd pair passing (`a0:a1`..`a6:a7`), 64-bit return values, and variadic `printf %lld`.
 > - **Phase 3 (64-bit Div/Rem via libgcc)**: Planned. Dispatching `DIV64`/`MOD64`/`UDIV64`/`UMOD64` to `__*di3` helper calls in the rv32 static-musl libgcc shim.
 > - **Phase 4 (Sanitizer Width-8 Checks)**: Planned. Lifting the rv32 width-8 `OP_OVF_TRAP` skip in `zero_san`, enabling signed integer overflow and shift bounds checks on 64-bit integers.
 
@@ -36,7 +36,7 @@ Historically, ZeroCC lacked 64-bit integer lowering on RV32: 64-bit operations w
 
 ---
 
-## 2. Phase 1 — Core 64-bit Arithmetic (In Progress)
+## 2. Phase 1 — Core 64-bit Arithmetic (Complete)
 
 Phase 1 establishes the virtual register representation, frontend lowering, and machine code emitters for 64-bit integer operations on local and global variables.
 
@@ -135,7 +135,7 @@ Phase 4 folds RV32 64-bit integer operations into the compiler's target-side und
 
 | Phase | Features | Verification Harness & Test Files | Target Linkage |
 | :--- | :--- | :--- | :--- |
-| **Phase 1** | Pair arithmetic, shifts, logic, loads/stores, constants | `test/isa_qemu/` battery + custom shift/arithmetic matrices | Standalone ELF, QEMU RV32 static |
+| **Phase 1** | Pair arithmetic, shifts, logic, unops, casts, loads/stores, constants, condition codes | `test/jit/rv32_i64.c` (10 test categories: arith, logic, unops, shifts, signed/unsigned cmp, casts, branches/loops, pointers/arrays/structs) | Standalone ELF & `-S` text link, QEMU RV32 static |
 | **Phase 2** | Even-odd psABI pairs, function calls, `printf %lld` | Multi-function call tests, `test/jit/int128_args.c` adaptation | Static musl cross link, QEMU |
 | **Phase 3** | `__divdi3`, `__moddi3`, `__udivdi3`, `__umoddi3` | 64-bit division battery (corner cases: `LLONG_MIN / -1`, div-by-zero) | Static musl cross link with libgcc shim |
 | **Phase 4** | Width-8 signed overflow & shift traps | `test/san/san_trap_*.c` enabled at width 8 on RV32 | `make test-san` under QEMU |

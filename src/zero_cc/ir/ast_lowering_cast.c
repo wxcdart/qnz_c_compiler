@@ -518,6 +518,12 @@ int lower_expr_cast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                 result = trunc_t;
                 c->last_expr_is_128 = 0;
             }
+            if (c->isa == ISA_RISCV32 && c->last_expr_is_64 && ctsz <= 4) {
+                int trunc_t = zc_alloc_temp(c);
+                ir_emit_trunc64_32(c, trunc_t, result);
+                result = trunc_t;
+                c->last_expr_is_64 = 0;
+            }
             if (ctsz == 1 || ctsz == 2 || ctsz == 4) {
                 bool ctsu = (cast_ti->modifiers & TYPE_MOD_UNSIGNED) != 0;
                 int cast_t = zc_alloc_temp(c);
@@ -525,6 +531,14 @@ int lower_expr_cast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                 if (ctsu) ir_emit_zext(c, cast_t, (int)ctsz);
                 else ir_emit_sext(c, cast_t, (int)ctsz);
                 result = cast_t;
+            } else if (c->isa == ISA_RISCV32 && ctsz == 8 && !c->last_expr_is_64 && !c->last_expr_is_float) {
+                int src_u = 0;
+                zero_cc_expr_int_info(c, arena, node->left, &src_u);
+                int cast_t = zc_alloc_temp(c);
+                if (src_u) ir_emit_zext32_64(c, cast_t, result);
+                else       ir_emit_sext32_64(c, cast_t, result);
+                result = cast_t;
+                c->last_expr_is_64 = 1;
             } else if (ctsz == 16 && cast_ti->kind == TYPE_KIND_INT128 &&
                        !c->last_expr_is_128) {
                 /* Sprint 113: int -> __int128 cast: widen the 64-bit value

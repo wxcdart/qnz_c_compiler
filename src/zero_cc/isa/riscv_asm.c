@@ -1640,7 +1640,7 @@ static void riscv_emit_sub64_asm(ZeroCCCompiler *c, int dlo, int dhi, int alo, i
     const char *alo_n = BE(c)->get_hw_reg_name(alo), *ahi_n = BE(c)->get_hw_reg_name(ahi);
     const char *blo_n = BE(c)->get_hw_reg_name(blo), *bhi_n = BE(c)->get_hw_reg_name(bhi);
     const char *t0_n = BE(c)->get_hw_reg_name(5);
-    fprintf(out, "\tsltu\t%s, %s, %s\n", t0_n, blo_n, alo_n); /* borrow BEFORE the sub */
+    fprintf(out, "\tsltu\t%s, %s, %s\n", t0_n, alo_n, blo_n); /* borrow (alo <u blo) BEFORE the sub */
     fprintf(out, "\tsub\t%s, %s, %s\n", dlo_n, alo_n, blo_n);
     fprintf(out, "\tsub\t%s, %s, %s\n", dhi_n, ahi_n, bhi_n);
     fprintf(out, "\tsub\t%s, %s, %s\n", dhi_n, dhi_n, t0_n);

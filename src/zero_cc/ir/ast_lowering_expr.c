@@ -846,6 +846,15 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
 
     switch (node->tag) {
         case NODE_INT: {
+            int us = 0;
+            int w = zero_cc_expr_int_info(c, arena, ref, &us);
+            if (c->isa == ISA_RISCV32 && w == 8) {
+                int temp = zc_alloc_temp(c);
+                ir_emit_mov64_imm(c, temp, node->int_val);
+                c->last_expr_is_float = 0;
+                c->last_expr_is_64 = 1;
+                return temp;
+            }
             int temp = zc_alloc_temp(c);
             ir_emit_mov_imm(c, temp, node->int_val);
             c->last_expr_is_float = 0;
@@ -1334,6 +1343,14 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                 ir_emit_cond_set(c, cmp_i, CC_NE);
                 cond_temp = cmp_i;
                 c->last_expr_is_float = 0;
+            } else if (c->isa == ISA_RISCV32 && c->last_expr_is_64) {
+                int zero64 = zc_alloc_temp(c);
+                ir_emit_mov64_imm(c, zero64, 0);
+                ir_emit_cmp64(c, cond_temp, zero64);
+                int cmp_i = zc_alloc_temp(c);
+                ir_emit_cond_set(c, cmp_i, CC_NE);
+                cond_temp = cmp_i;
+                c->last_expr_is_64 = 0;
             }
             int res_temp = zc_alloc_temp(c);
             uint16_t else_label = c->ir_next_label++;
@@ -1354,6 +1371,7 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
             int then_temp = is_struct_tern ? zero_cc_lower_lvalue_addr(c, arena, node->right) : TEMP_NONE;
             if (then_temp == TEMP_NONE) then_temp = lower_expr(c, arena, node->right);
             int then_fp = is_struct_tern ? 0 : c->last_expr_is_float;
+            int then_64 = (c->isa == ISA_RISCV32 && c->last_expr_is_64);
 
             if (then_fp || else_may_be_fp) {
                 if (then_fp) {
@@ -1363,6 +1381,8 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                     ir_emit_cvtsi2sd(c, (uint32_t)conv, (uint32_t)then_temp);
                     ir_emit_fmov(c, (uint32_t)res_temp, (uint32_t)conv);
                 }
+            } else if (then_64) {
+                ir_emit_mov64(c, res_temp, then_temp);
             } else {
                 ir_emit_mov_reg(c, res_temp, then_temp);
             }
@@ -1372,7 +1392,9 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
             int else_temp = is_struct_tern ? zero_cc_lower_lvalue_addr(c, arena, node->aux.alt) : TEMP_NONE;
             if (else_temp == TEMP_NONE) else_temp = lower_expr(c, arena, node->aux.alt);
             int else_fp = is_struct_tern ? 0 : c->last_expr_is_float;
+            int else_64 = (c->isa == ISA_RISCV32 && c->last_expr_is_64);
             int fp_result = is_struct_tern ? 0 : (then_fp || else_fp || else_may_be_fp);
+            int is_64_result = (then_64 || else_64);
 
             if (fp_result) {
                 if (else_fp) {
@@ -1382,12 +1404,20 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                     ir_emit_cvtsi2sd(c, (uint32_t)conv, (uint32_t)else_temp);
                     ir_emit_fmov(c, (uint32_t)res_temp, (uint32_t)conv);
                 }
+            } else if (is_64_result) {
+                if (!else_64) {
+                    int c64 = zc_alloc_temp(c);
+                    ir_emit_sext32_64(c, c64, else_temp);
+                    else_temp = c64;
+                }
+                ir_emit_mov64(c, res_temp, else_temp);
             } else {
                 ir_emit_mov_reg(c, res_temp, else_temp);
             }
 
             ir_emit_label(c, end_label);
             c->last_expr_is_float = fp_result;
+            c->last_expr_is_64 = is_64_result;
             return res_temp;
         }
 
@@ -2053,6 +2083,11 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                 ir_emit_load128(c, result_temp, addr_temp);
                 c->last_expr_is_float = 0;
                 c->last_expr_is_128 = 1;
+            } else if (c->isa == ISA_RISCV32 &&
+                       (elem_size == 8 || (elem_ti && elem_ti->kind == TYPE_KIND_LONG))) {
+                ir_emit_load64(c, result_temp, addr_temp, 0);
+                c->last_expr_is_float = 0;
+                c->last_expr_is_64 = 1;
             } else {
                 if (elem_size == 1) {
                     ir_emit_load_byte(c, result_temp, addr_temp);
@@ -2190,6 +2225,9 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                     }
                     if (member_is_wide_bf) {
                         ir_emit_load128(c, val_temp, multi_addr);
+                    } else if (c->isa == ISA_RISCV32 && member_sz == 8) {
+                        ir_emit_load64(c, val_temp, multi_addr, 0);
+                        c->last_expr_is_64 = 1;
                     } else {
                         /* 64-bit load; the shared width-narrowing tail below
                          * fixes up sub-8-byte members. */
@@ -2234,7 +2272,10 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                          * the upper bytes of the load are not zero and an
                          * early return would leak them into the value). */
                         if (member_is_wide_bf) ir_emit_load128(c, val_temp, gaddr2);
-                        else ir_emit_deref(c, val_temp, gaddr2);
+                        else if (c->isa == ISA_RISCV32 && member_sz == 8) {
+                            ir_emit_load64(c, val_temp, gaddr2, 0);
+                            c->last_expr_is_64 = 1;
+                        } else ir_emit_deref(c, val_temp, gaddr2);
                 } else if (sym && base_is_ptr) {
                     /* Unknown identifier falls through to the local-style
                      * load below with base_stack_offset 0. */
@@ -2261,7 +2302,10 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                         return val_temp;
                     } else {
                         if (member_is_wide_bf) ir_emit_load128(c, val_temp, addr_temp);
-                        else ir_emit_deref(c, val_temp, addr_temp);
+                        else if (c->isa == ISA_RISCV32 && member_sz == 8) {
+                            ir_emit_load64(c, val_temp, addr_temp, 0);
+                            c->last_expr_is_64 = 1;
+                        } else ir_emit_deref(c, val_temp, addr_temp);
                     }
                 } else if (sym && sym->is_vla_struct) {
                     /* GNU VLA struct local/param: the frame slot holds the
@@ -2289,7 +2333,10 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                         return val_temp;
                     } else {
                         if (member_is_wide_bf) ir_emit_load128(c, val_temp, addr_temp);
-                        else ir_emit_deref(c, val_temp, addr_temp);
+                        else if (c->isa == ISA_RISCV32 && member_sz == 8) {
+                            ir_emit_load64(c, val_temp, addr_temp, 0);
+                            c->last_expr_is_64 = 1;
+                        } else ir_emit_deref(c, val_temp, addr_temp);
                     }
                 } else if (sym) {
                     /* Local struct/union base accessed via `.`: frame-
@@ -2319,6 +2366,11 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                         int waddr = zc_alloc_temp(c);
                         ir_emit_lea(c, waddr, TEMP_NONE, total_offset);
                         ir_emit_load128(c, val_temp, waddr);
+                    } else if (c->isa == ISA_RISCV32 && member_sz == 8) {
+                        int waddr = zc_alloc_temp(c);
+                        ir_emit_lea(c, waddr, BE(c)->fp_reg, total_offset);
+                        ir_emit_load64(c, val_temp, waddr, 0);
+                        c->last_expr_is_64 = 1;
                     } else {
                         ir_emit_load(c, val_temp, BE(c)->fp_reg, total_offset);
                     }
@@ -2354,7 +2406,10 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                         return val_temp;
                     } else {
                         if (member_is_wide_bf) ir_emit_load128(c, val_temp, addr_temp);
-                        else ir_emit_deref(c, val_temp, addr_temp);
+                        else if (c->isa == ISA_RISCV32 && member_sz == 8) {
+                            ir_emit_load64(c, val_temp, addr_temp, 0);
+                            c->last_expr_is_64 = 1;
+                        } else ir_emit_deref(c, val_temp, addr_temp);
                     }
                 }
             } else if (multi_addr == TEMP_NONE && base_node && base_node->tag == NODE_COMPOUND_LIT) {
@@ -2383,6 +2438,11 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                     int waddr = zc_alloc_temp(c);
                     ir_emit_lea(c, waddr, TEMP_NONE, total_offset);
                     ir_emit_load128(c, val_temp, waddr);
+                } else if (c->isa == ISA_RISCV32 && member_sz == 8) {
+                    int waddr = zc_alloc_temp(c);
+                    ir_emit_lea(c, waddr, BE(c)->fp_reg, total_offset);
+                    ir_emit_load64(c, val_temp, waddr, 0);
+                    c->last_expr_is_64 = 1;
                 } else {
                     ir_emit_load(c, val_temp, BE(c)->fp_reg, total_offset);
                 }
@@ -2558,6 +2618,8 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                 if (sz == 1 || sz == 2 || sz == 4) {
                     if (is_u) ir_emit_zext(c, val_temp, (int)sz);
                     else ir_emit_sext(c, val_temp, (int)sz);
+                } else if (c->isa == ISA_RISCV32 && sz == 8) {
+                    c->last_expr_is_64 = 1;
                 }
             }
 
