@@ -370,10 +370,26 @@ typedef struct ZeroCCCompiler {
 
     /* C23 constexpr: compile-time function evaluation parameter bindings.
      * Used during CTFE to substitute parameter references with argument
-     * values. Reset between evaluations. */
+     * values. Reset between evaluations.
+     *
+     * ctfe_param_values is a fixed-size inline array (16 entries) so that
+     * it remains valid across parse_primary() returns - a stack array in
+     * the caller would dangle once that function returns.
+     */
     const char **ctfe_param_names;
-    int64_t *ctfe_param_values;
+    int64_t ctfe_param_values[16];
     size_t ctfe_param_count;
+
+    /* C23 constexpr: local variable environment during CTFE evaluation.
+     * Parallel arrays of name -> value.  Supports block scope via
+     * ctfe_scope_stack (each entry records the local count at scope entry). */
+    char **ctfe_local_names;
+    int64_t *ctfe_local_values;
+    size_t ctfe_local_count;
+    size_t ctfe_local_cap;
+    size_t *ctfe_scope_stack;
+    size_t ctfe_scope_count;
+    size_t ctfe_scope_cap;
 } ZeroCCCompiler;
 
 /* Report (at most once per compilation) that the TU's text-relocation

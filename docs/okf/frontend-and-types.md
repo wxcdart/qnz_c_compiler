@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-11-13T18:29:44Z
+timestamp: 2026-11-13T19:29:16Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -568,8 +568,18 @@ Two ZeroCC extensions go beyond C23 6.7.2.4 and require **semantic-analysis inte
 C23 only permits `constexpr` on data declarations. ZeroCC additionally accepts `constexpr` on functions and performs **compile-time function evaluation (CTFE)**:
 - **Parser** (`jit/compile_unit.c`): `constexpr` on a function (not typedef) is accepted instead of rejected. `c->pending_constexpr_fn` is set and the token is rewritten to `TK_CONST` so the normal declaration path runs. `constexpr` on `typedef` is still rejected (gcc parity).
 - **Compiler state** (`types/symbols.h`): `ZeroCCFunction.is_constexpr` records the flag; `constexpr_body_start`/`constexpr_body_end` capture the body's token range at parse time (in `jit/compile.c`).
-- **Constant evaluator** (`parser/const_eval.c`): `parse_primary` detects `TK_IDENT` followed by `TK_LPAREN` where the identifier is a `constexpr` function. Arguments are evaluated as constant expressions, bound to `ctfe_param_names`/`ctfe_param_values`, and the function body is evaluated (scanning for `return <expr>;`). Parameter references inside the body resolve to the bound argument values via `ctfe_param_*` lookups.
-- **Limitation**: CTFE handles single-expression return bodies (`return expr;`). Nested constexpr calls are supported. Complex control flow (if/while/blocks) is not yet supported in CTFE bodies.
+- **Constant evaluator** (`parser/const_eval.c`): `parse_primary` detects `TK_IDENT` followed by `TK_LPAREN` where the identifier is a `constexpr` function. Arguments are evaluated as constant expressions, bound to `ctfe_param_values` (inline array), and the function body is evaluated by `ctfe_eval_body`. The body evaluator supports:
+  - Blocks (`{ stmt* }`) with block-scoped local variables (shadowing parameters and outer locals)
+  - Integer local variable declarations (`int x = init;`, `auto x = init;`)
+  - Assignments to parameters and locals (`x = expr;`)
+  - `if`/`else` statements with compile-time condition evaluation
+  - `while` loops with iteration cap (100000) to prevent infinite CTFE loops
+  - `for` loops (`for (init; cond; incr) body`) with the same iteration cap
+  - `return <expr>;` statements
+  - `break`/`continue` within loops
+  - Parameter and local variable references in expressions
+  - Nested constexpr function calls
+- **Limitation**: CTFE operates on integer values only (no floating-point or pointer arithmetic in CTFE bodies). Complex control flow beyond if/else/while/for is not yet supported.
 
 ## Related Concepts
 - Return to [Root Index](./index.md)

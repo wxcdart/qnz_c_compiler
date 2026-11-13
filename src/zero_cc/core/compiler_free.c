@@ -161,6 +161,22 @@ void zero_cc_compiler_free(ZeroCCCompiler *c) {
         c->enum_const_count = 0;
     }
 
+    /* C23 constexpr: local variable environment (strdup'd names). */
+    for (size_t i = 0; i < c->ctfe_local_count; i++) {
+        free((void *)c->ctfe_local_names[i]);
+    }
+    free(c->ctfe_local_names);
+    free(c->ctfe_local_values);
+    free(c->ctfe_scope_stack);
+    c->ctfe_local_names = NULL;
+    c->ctfe_local_values = NULL;
+    c->ctfe_scope_stack = NULL;
+    c->ctfe_local_count = 0;
+    c->ctfe_local_cap = 0;
+    c->ctfe_scope_count = 0;
+    c->ctfe_scope_cap = 0;
+    /* ctfe_param_values is an inline array — nothing to free. */
+
     /* diag_buf.entries pointed at the per-compile tmp arena, destroyed
      * inside zero_cc_compile_c99 — clear, never free. */
     c->diag_buf.entries = NULL;
