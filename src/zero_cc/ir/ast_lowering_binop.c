@@ -690,10 +690,10 @@ int zc_operand_to64(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef oref) {
 }
 
 /* Sprint 170 (rv32 i64): lower a 64-bit integer binop (add/sub/mul, bitwise
- * and/or/xor, shifts, ordered/equality compares) on the (lo,hi) GPR64 pair.
- * Returns the result GPR64 temp, or TEMP_NONE when the op is not a Phase-1
- * 64-bit integer op (div/rem are Phase 3; pointer/float/logical fall through
- * to the 32-bit path). The result is a GPR64 temp and sets last_expr_is_64. */
+ * and/or/xor, shifts, ordered/equality compares, div/rem) on the (lo,hi)
+ * GPR64 pair. Returns the result GPR64 temp, or TEMP_NONE when the op is not
+ * a supported 64-bit integer op (pointer/float/logical fall through to the
+ * 32-bit path). The result is a GPR64 temp and sets last_expr_is_64. */
 int zc_lower_binop64(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
     uint32_t op = node->aux.op;
     bool is_arith = (op == TK_PLUS || op == TK_MINUS || op == TK_STAR);
@@ -701,7 +701,8 @@ int zc_lower_binop64(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
     bool is_shift = (op == TK_SHL || op == TK_SHR);
     bool is_cmp   = (op == TK_EQ || op == TK_NE || op == TK_LT ||
                      op == TK_LE || op == TK_GT || op == TK_GE);
-    if (!is_arith && !is_logic && !is_shift && !is_cmp) return TEMP_NONE;
+    bool is_divrem = (op == TK_SLASH || op == TK_PERCENT);
+    if (!is_arith && !is_logic && !is_shift && !is_cmp && !is_divrem) return TEMP_NONE;
 
     /* A float operand is not a 64-bit integer op. */
     ZeroCCASTNode *ln = zero_cc_ast_get(arena, node->left);
@@ -741,6 +742,20 @@ int zc_lower_binop64(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
             zero_cc_expr_int_info(c, arena, node->left, &lu);
             if (lu) ir_emit_shr64(c, result_temp, l, r);  /* unsigned: logical */
             else    ir_emit_sar64(c, result_temp, l, r);  /* signed: arithmetic */
+        }
+    } else if (is_divrem) {
+        /* Sprint 173 (rv32 i64 Phase 3): 64-bit / and % call libgcc's
+         * __{u,}divdi3/__{u,}moddi3 (the backend emits the call; the op
+         * clobbers caller-saved registers - see live_range.h). The usual
+         * arithmetic conversions decide signed/unsigned (same rule as the
+         * compare path). */
+        bool u64 = zero_cc_binop_is_unsigned(c, arena, node->left, node->right);
+        if (op == TK_SLASH) {
+            if (u64) ir_emit_udiv64(c, result_temp, l, r);
+            else     ir_emit_div64(c, result_temp, l, r);
+        } else {
+            if (u64) ir_emit_umod64(c, result_temp, l, r);
+            else     ir_emit_mod64(c, result_temp, l, r);
         }
     } else { /* is_cmp */
         int cond;

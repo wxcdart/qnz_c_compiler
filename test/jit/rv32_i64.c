@@ -131,5 +131,49 @@ int main(void) {
     if (!(zero_ll || x)) return 37;
     if (zero_ll || 0LL) return 38;
 
+    /* 11. 64-bit Division and Modulo (Sprint 173 / Phase 3) */
+    long long da = 1000000000000LL;
+    long long db = 3000LL;
+    if (da / db != 333333333LL) return 39;
+    if (da % db != 1000LL) return 40;
+
+    long long sda = -1000000000000LL;
+    long long sdb = 7LL;
+    if (sda / sdb != -142857142857LL) return 41;
+    if (sda % sdb != -1LL) return 42;
+    if (sda / -sdb != 142857142857LL) return 43;
+    if (da / -sdb != -142857142857LL) return 44;
+
+    unsigned long long uda = 18446744073709551615ULL;
+    unsigned long long udb = 1000ULL;
+    unsigned long long ud_q = uda / udb;
+    unsigned long long ud_r = uda % udb;
+    if (ud_q != 18446744073709551ULL) return 45;
+    if (ud_r != 615ULL) return 46;
+    if (ud_q != 18446744073709551615ULL / 1000ULL) return 47;
+
+    /* Div/rem edge cases: / 1, % 1, x / x, x % x */
+    if (da / 1LL != da) return 48;
+    if (da % 1LL != 0LL) return 49;
+    if (da / da != 1LL) return 50;
+    if (da % da != 0LL) return 51;
+    if (uda / 1ULL != uda) return 52;
+    if (uda % 1ULL != 0ULL) return 53;
+    if (uda / uda != 1ULL) return 54;
+    if (uda % uda != 0ULL) return 55;
+
+    /* Compound assignments: /= and %= */
+    long long ca = 1000000000000LL;
+    ca /= 3000LL;
+    if (ca != 333333333LL) return 56;
+    ca %= 1000LL;
+    if (ca != 333LL) return 57;
+
+    unsigned long long uca = 18446744073709551615ULL;
+    uca /= 1000ULL;
+    if (uca != 18446744073709551ULL) return 58;
+    uca %= 1000ULL;
+    if (uca != 551ULL) return 59;
+
     return 0; /* All passed */
 }

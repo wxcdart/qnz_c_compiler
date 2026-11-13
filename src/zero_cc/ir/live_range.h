@@ -614,6 +614,15 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
             live_range_record_call(lra, i);
         }
 
+        if (instr->op == OP_DIV64 || instr->op == OP_MOD64 ||
+            instr->op == OP_UDIV64 || instr->op == OP_UMOD64) {
+            /* Sprint 173: the rv32 backend lowers these to a libgcc __*di3
+             * call, which clobbers every caller-saved register - treat the
+             * op as a call for interval/spill purposes (the GPR64 operand
+             * pairs themselves sit in the callee-saved pool and survive). */
+            live_range_record_call(lra, i);
+        }
+
         if (instr->op == OP_CALL || instr->op == OP_SYSCALL || instr->op == OP_CLONE) {
             live_range_record_call(lra, i);
             int arg_count = (int)instr->temp_dest;

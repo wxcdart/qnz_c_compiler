@@ -1601,6 +1601,22 @@ static int compile_and_link(CompileOptions *opts) {
             if (opts->verbose) printf("Linking zero_rt: %s\n", rt_path);
         }
 
+        /* Sprint 173 (rv32 i64 Phase 3): 64-bit div/rem lowers to a libgcc
+         * __*di3 call. On rv32 the committed musl-cross prefix's libgcc.a
+         * (the shim - single provider, Sprint 167) supplies them for the
+         * own-link path, mirroring the system link line. */
+        if (target_isa == ISA_RISCV32 && arch_count < 32) {
+            char musl_prefix[512];
+            char gcc_path[600];
+            if (find_rv32_musl_prefix(musl_prefix, sizeof musl_prefix)) {
+                snprintf(gcc_path, sizeof gcc_path, "%s/lib/libgcc.a", musl_prefix);
+                if (access(gcc_path, R_OK) == 0) {
+                    arch_paths[arch_count++] = gcc_path;
+                    if (opts->verbose) printf("Linking rv32 libgcc shim: %s\n", gcc_path);
+                }
+            }
+        }
+
         int lr = opts->zerocc_link_pie
                      ? zero_cc_link_exec_pie(output, objs_ref, obj_count,
                                              arch_paths, arch_count,

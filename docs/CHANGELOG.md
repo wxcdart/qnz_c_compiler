@@ -1,6 +1,26 @@
 # CHANGELOG
 
-## [Sprint 172] - 2026-11-13 - Phase 2 RV32 i64 Complete (Calling Convention psABI Pairs, (a0, a1) Returns, Variadic I/O, ILP32 Long Distinction) (RISC-V / Frontend / Codegen / ABI)
+## [Sprint 173] - 2026-11-13 - Phase 3 RV32 i64 Complete (64-Bit Div/Rem via libgcc __*di3, GPR64 Spill Displacement Fix, Regalloc Thief Handover) (RISC-V / Frontend / Codegen / Linker)
+
+Completed Phase 3 of the RV32 64-bit integer roadmap ([rv32-i64-roadmap.md](okf/rv32-i64-roadmap.md)). 64-bit signed and unsigned integer division and remainder (`/`, `%`, compound `/=`, `%=`) now lower via runtime helper calls to `__divdi3`, `__moddi3`, `__udivdi3`, `__umoddi3` in libgcc, fully linked and verified under QEMU across both raw binary and `-S` assembly paths.
+
+- **64-bit Div/Rem Emitters & Dispatch (`riscv32.c`, `riscv_asm.c`, `ast_lowering_*.c`):**
+  - `riscv32.c`: Added `riscv32_emit_64div_call` (raw MC) with alias-safe argument staging into `(a0..a3)` via reserved scratch registers `(t0, t2, t5)`, `jal` + `R_RISCV_CALL_PLT` relocation, and result move-back from `(a0, a1)` into destination pair `(dlo, dhi)`.
+  - `riscv_asm.c`: Added `riscv32_emit_64div_asm` for the text assembly path, registered under `isa == ISA_RISCV32`.
+  - `ast_lowering_binop.c`, `ast_lowering_assign.c`: Lowered 64-bit binary `/` and `%` and compound `/=` and `%=` to `OP_DIV64`, `OP_MOD64`, `OP_UDIV64`, `OP_UMOD64` respecting signedness.
+  - `live_range.h`: Recorded 64-bit div/mod ops as calls to spill live caller-saved registers across division sites.
+  - `opt_gvn.c`: Marked div64 ops as memory barriers in `opt_restrict_memory_forward`.
+  - `main.c`: Configured own-linker to pull the rv32 libgcc shim (`libgcc.a`) from the musl cross-toolchain prefix on `--target riscv32`.
+- **Regalloc & Spill Frame Addressing Bugfixes (Critical):**
+  - `regalloc.h`: Fixed linear-scan register steal handover. Previously, `assigned_reg_hi` was only transferred when both intervals were `REG_CLASS_GPR128`; a `GPR64` thief left `assigned_reg_hi = -1`, corrupting the high register in the assembly path.
+  - `ast_lowering_mc.c`, `asm_emitter.c`: Fixed GPR64 frame spill slot addressing. In frame coordinates, an 8-byte slot with base offset `off = spill_base_offset + (slot + 1) * 8` has its bottom at `-off`. The high half was previously addressed at `zero_cc_frame_disp(c, -off - 4)`, which subtracted 4 below the bottom of the slot (`-4(sp)` when at the frame boundary), placing it in unallocated stack memory. Any subsequent helper call (`__udivdi3`) allocated its frame below `sp` and clobbered the high half. Corrected to `-off + 4` (within the allocated 8-byte slot `[-off, -off + 8)`).
+  - `ast_lowering_mc.c`, `asm_emitter.c`: Fixed scalar shift count spill handling for 64-bit shifts (`OP_SHL64`, `OP_SHR64`, `OP_SAR64`). Prevented `phys_src2 = g64_s2lo` from overwriting reloaded scalar shift counts with uninitialized register indices.
+- **Verification:**
+  - Expanded `test/jit/rv32_i64.c` with Section 11 exercising signed/unsigned `/` and `%`, negative divisors/dividends, edge cases (`/ 1`, `% 1`, `x / x`, `x % x`), maximum 64-bit values (`0xFFFFFFFFFFFFFFFFULL / 1000ULL`), and compound assignments (`/=`, `%=`).
+  - Verified across all optimization levels (`-O0..-O3`) in both raw binary and `-S` assembly modes under `qemu-riscv32-static`.
+  - Verified regression gates: `isa_qemu_diff.py` (63/63 PASS across all 4 target ISAs), `make test` (229/229 PASS), `tools/verify/style_check.py` (0 errors), `okf.py lint && index` (21/21 PASS).
+
+---
 
 Completed Phase 2 of the RV32 64-bit integer roadmap ([rv32-i64-roadmap.md](okf/rv32-i64-roadmap.md)). 64-bit `long long` / `unsigned long long` values now cross function boundaries conforming to the RISC-V ILP32 psABI (aligned even-odd register pairs `a0:a1`..`a6:a7`, 8-byte stack alignment, and `(a0, a1)` function return values) and format correctly through variadic `printf("%lld", ...)` under QEMU across both raw binary and `-S` assembly paths.
 

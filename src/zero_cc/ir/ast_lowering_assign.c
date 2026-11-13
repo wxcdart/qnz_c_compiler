@@ -304,6 +304,8 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                     cop = node->aux.op == TK_ADD_ASSIGN ? TK_PLUS :
                           node->aux.op == TK_SUB_ASSIGN ? TK_MINUS :
                           node->aux.op == TK_MUL_ASSIGN ? TK_STAR :
+                          node->aux.op == TK_DIV_ASSIGN ? TK_SLASH :
+                          node->aux.op == TK_MOD_ASSIGN ? TK_PERCENT :
                           node->aux.op == TK_AND_ASSIGN ? TK_AMP :
                           node->aux.op == TK_OR_ASSIGN ? TK_PIPE :
                           node->aux.op == TK_XOR_ASSIGN ? TK_CARET :
@@ -311,9 +313,10 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                           node->aux.op == TK_SHR_ASSIGN ? TK_SHR : 0;
                 }
                 bool shift64 = (cop == TK_SHL || cop == TK_SHR);
+                bool divrem64 = (cop == TK_SLASH || cop == TK_PERCENT);
                 bool supported64 = !is_compound || (cop == TK_PLUS || cop == TK_MINUS ||
                                      cop == TK_STAR || cop == TK_AMP || cop == TK_PIPE ||
-                                     cop == TK_CARET || shift64);
+                                     cop == TK_CARET || shift64 || divrem64);
                 if (supported64) {
                     int target = zero_cc_lower_lvalue_addr(c, arena, node->left);
                     if (target != TEMP_NONE) {
@@ -339,6 +342,15 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                                 case TK_PLUS:  ir_emit_add64(c, val, lv, rv); break;
                                 case TK_MINUS: ir_emit_sub64(c, val, lv, rv); break;
                                 case TK_STAR:  ir_emit_mul64(c, val, lv, rv); break;
+                                case TK_SLASH: /* Sprint 173: signedness of the
+                                                * compound op = LHS signedness */
+                                    if (unsigned_64) ir_emit_udiv64(c, val, lv, rv);
+                                    else              ir_emit_div64(c, val, lv, rv);
+                                    break;
+                                case TK_PERCENT:
+                                    if (unsigned_64) ir_emit_umod64(c, val, lv, rv);
+                                    else              ir_emit_mod64(c, val, lv, rv);
+                                    break;
                                 case TK_AMP:   ir_emit_and64(c, val, lv, rv); break;
                                 case TK_PIPE:  ir_emit_or64(c, val, lv, rv); break;
                                 case TK_CARET: ir_emit_xor64(c, val, lv, rv); break;

@@ -486,13 +486,13 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
             BE(c)->emit_load(c, base_r, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_b));
             if (g64_np > 0) {
                 BE(c)->emit_load(c, BE(c)->g128_scratch_lo[0], zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_v));
-                BE(c)->emit_load(c, BE(c)->g128_scratch_hi[0], zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_v - 4));
+                BE(c)->emit_load(c, BE(c)->g128_scratch_hi[0], zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_v + 4));
                 BE(c)->emit_store(c, BE(c)->g128_scratch_lo[0], base_r, 0);
                 BE(c)->emit_store(c, BE(c)->g128_scratch_hi[0], base_r, 4);
             } else {
                 BE(c)->emit_load(c, tmp_r, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_v));
                 BE(c)->emit_store(c, tmp_r, base_r, 0);
-                BE(c)->emit_load(c, tmp_r, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_v - 4));
+                BE(c)->emit_load(c, tmp_r, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_v + 4));
                 BE(c)->emit_store(c, tmp_r, base_r, 4);
             }
             continue;  /* result is in memory; nothing to store back */
@@ -509,14 +509,14 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 int32_t off_s2 = spill_base_offset + (spill_src2 + 1) * 8;
                 BE(c)->emit_load(c, tmp, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_s2));
             }
-            BE(c)->emit_store(c, spill_src2 >= 0 ? tmp : phys_src2, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_d - 4));
+            BE(c)->emit_store(c, spill_src2 >= 0 ? tmp : phys_src2, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_d + 4));
             continue;
         }
         if (s164_sp && p64_s1 >= 0) {
             int32_t off = spill_base_offset + (spill_src1 + 1) * 8;
             if (BE(c)->emit_load) {
                 BE(c)->emit_load(c, BE(c)->g128_scratch_lo[p64_s1], zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off));
-                BE(c)->emit_load(c, BE(c)->g128_scratch_hi[p64_s1], zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off - 4));
+                BE(c)->emit_load(c, BE(c)->g128_scratch_hi[p64_s1], zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off + 4));
             }
             g64_s1lo = BE(c)->g128_scratch_lo[p64_s1];
             g64_s1hi = BE(c)->g128_scratch_hi[p64_s1];
@@ -525,7 +525,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
             int32_t off = spill_base_offset + (spill_src2 + 1) * 8;
             if (BE(c)->emit_load) {
                 BE(c)->emit_load(c, BE(c)->g128_scratch_lo[p64_s2], zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off));
-                BE(c)->emit_load(c, BE(c)->g128_scratch_hi[p64_s2], zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off - 4));
+                BE(c)->emit_load(c, BE(c)->g128_scratch_hi[p64_s2], zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off + 4));
             }
             g64_s2lo = BE(c)->g128_scratch_lo[p64_s2];
             g64_s2hi = BE(c)->g128_scratch_hi[p64_s2];
@@ -554,7 +554,8 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
             phys_src2 = BE(c)->scratch_reg1;
         }
         if (op64) {
-            phys_dst = g64_dlo; phys_src1 = g64_s1lo; phys_src2 = g64_s2lo;
+            phys_dst = g64_dlo; phys_src1 = g64_s1lo;
+            if (s2_64) phys_src2 = g64_s2lo;
         }
 
         /* Reload spilled sources into scratch registers (64-bit / FP). FP-class values
@@ -2462,7 +2463,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                  * hi at slot*8+4. */
                 if (BE(c)->emit_store) {
                     BE(c)->emit_store(c, g64_dlo, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off));
-                    BE(c)->emit_store(c, g64_dhi, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off - 4));
+                    BE(c)->emit_store(c, g64_dhi, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off + 4));
                 }
             } else if (regalloc_get_class_for_temp(&c->regalloc, instr->temp_dest) == REG_CLASS_XMM) {
                 if (BE(c)->emit_store_fp) {

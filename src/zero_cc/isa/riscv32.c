@@ -133,6 +133,83 @@ static void riscv32_emit_pop_reg(ZeroCCCompiler *c, int reg) {
     riscv_emit_u32(c, rv64_I(RV64_SP, RV64_SP, 0, 4, 0x13));      /* addi sp, sp, 4 */
 }
 
+/* =========================================================================
+ * Sprint 173 (rv32 i64 Phase 3): 64-bit div/rem via libgcc.
+ *
+ * RV32 has no native 64-bit div/rem instruction, so the OP_DIV64/MOD64/
+ * UDIV64/UMOD64 pair ops lower to a call to libgcc's __divdi3/__moddi3/
+ * __udivdi3/__umoddi3. On rv32 a 64-bit value occupies two GPRs, so the
+ * signature is effectively:
+ *
+ *     long long f(long long a, long long b);
+ *     args:  a0 = a.lo, a1 = a.hi, a2 = b.lo, a3 = b.hi
+ *     result: a0 = r.lo, a1 = r.hi
+ *
+ * The provider is the committed rv32 libgcc shim (third_party/vendor/
+ * musl-cross/riscv32/lib/libgcc.a, built by tools/setup_musl_cross.sh):
+ * the raw own-link path adds it to the link (main.c), and the -S text
+ * path resolves it from the same archive through the musl wrapper.
+ * zero_rt must NOT define these on rv32 (single-provider rule, Sprint 167).
+ * ========================================================================= */
+
+/* External call emitter shared with the RV64 table (jal ra + R_RISCV_CALL_PLT
+ * reloc for undefined symbols). */
+extern void riscv64_emit_call(ZeroCCCompiler *c, const char *func_name);
+
+#define RV32_A0 10
+#define RV32_A1 11
+#define RV32_A2 12
+#define RV32_A3 13
+
+static void riscv32_emit_64div_call(ZeroCCCompiler *c, const char *fn,
+                                    int dlo, int dhi,
+                                    int a_lo, int a_hi, int b_lo, int b_hi) {
+    /* Copy (a_lo, a_hi, b_lo, b_hi) -> (a0..a3) alias-safely. Writing
+     * T[i] clobbers a source a later step still reads (S[j] == T[i],
+     * j > i); stash such a source in a reserved scratch first. The S
+     * registers are distinct (disjoint live GPR64 pairs; spilled operands
+     * reload into the (t1,t3)/(t4,t6) scratch pairs, also disjoint), so at
+     * most one j conflicts per step and at most three stash events across
+     * the four steps. Stash slots t0/t2/t5 are reserved and unallocatable
+     * on rv32 (regalloc.h): no live allocatable value sits in one, and none
+     * collides with a0-a3 or the GPR64 callee-saved pool. */
+    int T[4] = {RV32_A0, RV32_A1, RV32_A2, RV32_A3};
+    int S[4] = {a_lo, a_hi, b_lo, b_hi};
+    int stash[4] = {-1, -1, -1, -1};
+    static const int stash_pool[] = {RV64_T0, 7 /* t2 */, RV64_T5};
+    int stash_n = 0;
+    for (int i = 0; i < 4; i++) {
+        if (S[i] == T[i]) continue;
+        for (int j = i + 1; j < 4; j++) {
+            if (S[j] == T[i] && stash[j] < 0) {
+                stash[j] = stash_pool[stash_n++];
+                riscv_emit_u32(c, rv64_I(RV_REG(stash[j]), RV_REG(S[j]), 0, 0, 0x13)); /* mv */
+            }
+        }
+        int src = (stash[i] >= 0) ? stash[i] : S[i];
+        riscv_emit_u32(c, rv64_I(RV_REG(T[i]), RV_REG(src), 0, 0, 0x13));            /* mv */
+    }
+    riscv64_emit_call(c, fn);  /* jal ra, 0 + R_RISCV_CALL_PLT reloc */
+    /* Result (a0, a1) -> (dlo, dhi). GPR64 pairs allocate only from the
+     * callee-saved pool (s1, s2-s11) or the (t1,t3)/(t4,t6) spill-scratch
+     * pairs, so dlo/dhi can never be a0/a1 - plain moves are alias-safe. */
+    riscv_emit_u32(c, rv64_I(RV_REG(dlo), RV32_A0, 0, 0, 0x13));  /* mv dlo, a0 */
+    riscv_emit_u32(c, rv64_I(RV_REG(dhi), RV32_A1, 0, 0, 0x13));  /* mv dhi, a1 */
+}
+
+void riscv32_emit_div64(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi) {
+    riscv32_emit_64div_call(c, "__divdi3", dlo, dhi, a_lo, a_hi, b_lo, b_hi);
+}
+void riscv32_emit_mod64(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi) {
+    riscv32_emit_64div_call(c, "__moddi3", dlo, dhi, a_lo, a_hi, b_lo, b_hi);
+}
+void riscv32_emit_udiv64(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi) {
+    riscv32_emit_64div_call(c, "__udivdi3", dlo, dhi, a_lo, a_hi, b_lo, b_hi);
+}
+void riscv32_emit_umod64(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi) {
+    riscv32_emit_64div_call(c, "__umoddi3", dlo, dhi, a_lo, a_hi, b_lo, b_hi);
+}
+
 /* RISC-V 32-bit backend instance.
  *
  * Zero-initialized here; riscv32_init_backend() populates it from the
@@ -199,5 +276,9 @@ void riscv32_init_backend(void) {
     riscv32_backend.emit_sext32_64 = riscv64_emit_sext32_64;
     riscv32_backend.emit_trunc64_32 = riscv64_emit_trunc64_32;
     riscv32_backend.emit_mov64_imm = riscv64_emit_mov64_imm;
-    /* DIV64/MOD64/UDIV64/UMOD64: NULL until Phase 3 (libgcc __divdi3 & co). */
+    /* Sprint 173 (rv32 i64 Phase 3): 64-bit div/rem via libgcc __*di3. */
+    riscv32_backend.emit_div64 = riscv32_emit_div64;
+    riscv32_backend.emit_mod64 = riscv32_emit_mod64;
+    riscv32_backend.emit_udiv64 = riscv32_emit_udiv64;
+    riscv32_backend.emit_umod64 = riscv32_emit_umod64;
 }

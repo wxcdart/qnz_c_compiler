@@ -891,16 +891,23 @@ static void regalloc_allocate(RegAllocator *ra) {
                 opt_profile_count_regalloc_spill(ra->use_cost_based);
                 spill_interval(ra, spill);
                 current->assigned_reg = spill->assigned_reg;
-                if (current->reg_class == REG_CLASS_GPR128 &&
-                    spill->reg_class == REG_CLASS_GPR128) {
-                    /* Hand over the FULL (lo,hi) pair: the 128-bit value model
-                     * needs both halves, and the spilled interval must release
-                     * its claim on the hi register so its expiry (which only
-                     * releases when assigned_reg >= 0) and any later lookup
-                     * cannot treat it as still owned. (Sprint 109 GPR128
-                     * steal fix: a stolen-lo-only interval left hi = -1, and
-                     * the MC emitter then received register -1 for the high
-                     * half, miscompiling under register pressure.) */
+                if ((current->reg_class == REG_CLASS_GPR128 &&
+                     spill->reg_class == REG_CLASS_GPR128) ||
+                    (current->reg_class == REG_CLASS_GPR64 &&
+                     spill->reg_class == REG_CLASS_GPR64)) {
+                    /* Hand over the FULL (lo,hi) pair: the 128-bit / 64-bit
+                     * value model needs both halves, and the spilled interval
+                     * must release its claim on the hi register so its expiry
+                     * (which only releases when assigned_reg >= 0) and any
+                     * later lookup cannot treat it as still owned. (Sprint 109
+                     * GPR128 steal fix: a stolen-lo-only interval left hi = -1,
+                     * and the MC emitter then received register -1 for the
+                     * high half, miscompiling under register pressure. The
+                     * GPR64 (rv32 i64) case is the same bug class: a stolen-lo
+                     * 64-bit pair left hi = -1, so the dispatch passed -1 as
+                     * the high-half register - masked to t6 (31) in raw MC and
+                     * named "a0" in the text path - silently clobbering the
+                     * result/call-arg register.) */
                     current->assigned_reg_hi = spill->assigned_reg_hi;
                     spill->assigned_reg_hi = -1;
                 }

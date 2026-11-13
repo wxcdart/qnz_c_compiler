@@ -1844,6 +1844,51 @@ static void riscv_emit_mov64_imm_asm(ZeroCCCompiler *c, int dlo, int dhi, int64_
     fprintf(out, "\tli\t%s, %lld\n", BE(c)->get_hw_reg_name(dhi), (long long)hi);
 }
 
+/* Sprint 173 (rv32 i64 Phase 3): 64-bit div/rem via libgcc (text path).
+ * Same alias-safe (a_lo,a_hi,b_lo,b_hi) -> (a0..a3) staging as the raw MC
+ * emitter in riscv32.c, emitted as text. The call resolves __*di3 from the
+ * rv32 libgcc shim on the system link line (musl wrapper). */
+static void riscv32_emit_64div_asm(ZeroCCCompiler *c, const char *fn,
+                                   int dlo, int dhi,
+                                   int a_lo, int a_hi, int b_lo, int b_hi, FILE *out) {
+    const char *T[4] = {"a0", "a1", "a2", "a3"};
+    const char *S[4] = {BE(c)->get_hw_reg_name(a_lo), BE(c)->get_hw_reg_name(a_hi),
+                        BE(c)->get_hw_reg_name(b_lo), BE(c)->get_hw_reg_name(b_hi)};
+    /* Stash slots t0/t2/t5 (reserved, unallocatable on rv32) hold sources
+     * that a later staging step would otherwise clobber. At most one j
+     * conflicts per step and at most three stash events total. */
+    int stash[4] = {-1, -1, -1, -1};
+    static const char *stash_pool[] = {"t0", "t2", "t5"};
+    int stash_n = 0;
+    int sphys[4] = {a_lo, a_hi, b_lo, b_hi};
+    for (int i = 0; i < 4; i++) {
+        if (sphys[i] == 10 + i) continue;
+        for (int j = i + 1; j < 4; j++) {
+            if (sphys[j] == 10 + i && stash[j] < 0) {
+                stash[j] = stash_n++;
+                fprintf(out, "\tmv\t%s, %s\n", stash_pool[stash[j]], S[j]);
+            }
+        }
+        fprintf(out, "\tmv\t%s, %s\n", T[i], (stash[i] >= 0) ? stash_pool[stash[i]] : S[i]);
+    }
+    fprintf(out, "\tcall\t%s\n", fn);
+    fprintf(out, "\tmv\t%s, a0\n", BE(c)->get_hw_reg_name(dlo));
+    fprintf(out, "\tmv\t%s, a1\n", BE(c)->get_hw_reg_name(dhi));
+}
+
+static void riscv32_emit_div64_asm(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi, FILE *out) {
+    riscv32_emit_64div_asm(c, "__divdi3", dlo, dhi, a_lo, a_hi, b_lo, b_hi, out);
+}
+static void riscv32_emit_mod64_asm(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi, FILE *out) {
+    riscv32_emit_64div_asm(c, "__moddi3", dlo, dhi, a_lo, a_hi, b_lo, b_hi, out);
+}
+static void riscv32_emit_udiv64_asm(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi, FILE *out) {
+    riscv32_emit_64div_asm(c, "__udivdi3", dlo, dhi, a_lo, a_hi, b_lo, b_hi, out);
+}
+static void riscv32_emit_umod64_asm(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi, FILE *out) {
+    riscv32_emit_64div_asm(c, "__umoddi3", dlo, dhi, a_lo, a_hi, b_lo, b_hi, out);
+}
+
 static void riscv_emit_inline_asm_asm(ZeroCCCompiler *c, size_t idx, FILE *out) {
     const Instr *instr = ir_get(c, idx);
     if (!instr) return;
@@ -2126,6 +2171,14 @@ void riscv64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_sext32_64_asm = riscv_emit_sext32_64_asm;
     be->emit_trunc64_32_asm = riscv_emit_trunc64_32_asm;
     be->emit_mov64_imm_asm = riscv_emit_mov64_imm_asm;
+    /* Sprint 173 (rv32 i64 Phase 3): 64-bit div/rem via libgcc __*di3 -
+     * rv32 only (rv64 divides natively and never emits the *64 div ops). */
+    if (be->isa == ISA_RISCV32) {
+        be->emit_div64_asm = riscv32_emit_div64_asm;
+        be->emit_mod64_asm = riscv32_emit_mod64_asm;
+        be->emit_udiv64_asm = riscv32_emit_udiv64_asm;
+        be->emit_umod64_asm = riscv32_emit_umod64_asm;
+    }
     be->emit_lea_asm = riscv_emit_lea_asm;
     be->emit_deref_asm = riscv_emit_deref_asm;
     be->emit_call_asm = riscv_emit_call_asm;

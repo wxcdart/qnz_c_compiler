@@ -458,7 +458,7 @@ static size_t riscv64_emit_jge(ZeroCCCompiler *c, const char *label) {
     return patch_pos;
 }
 
-static void riscv64_emit_call(ZeroCCCompiler *c, const char *func_name) {
+void riscv64_emit_call(ZeroCCCompiler *c, const char *func_name) {
     /* jal ra, offset.
      * For internal (defined) functions: patch the jal directly at codegen time.
      * For external/prototype functions: emit R_RISCV_CALL_PLT relocation for linker.

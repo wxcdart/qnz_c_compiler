@@ -4,7 +4,7 @@ title: RV32 64-bit Integer (long long) Support Roadmap
 description: Four-phase architectural roadmap for 64-bit integer arithmetic, ABI calling conventions, libgcc div/rem, and sanitizer integration on 32-bit RISC-V (rv32).
 resource: backend/rv32-i64-roadmap
 tags: [riscv32, rv32, i64, long-long, gpr-pair, abi, roadmap, sanitizer]
-timestamp: 2026-11-13T03:55:39Z
+timestamp: 2026-11-13T04:55:56Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -12,11 +12,11 @@ status: active
 
 # RV32 64-bit Integer (`long long`) Support Roadmap
 
-> **Status (Sprint 170 - 172):** **Phase 1 and Phase 2 are COMPLETE**.
+> **Status (Sprint 170 - 173):** **Phases 1, 2, and 3 are COMPLETE**.
 > - **Phase 1 (Core 64-bit Arithmetic)**: **COMPLETE** (Sprint 170/171). Core `OP_*64` opcodes, frontend expression/decl/assign/unop/cast lowering, raw binary and `-S` assembly emitters, borrow condition fix in SUB64, and comprehensive test suite (`test/jit/rv32_i64.c`) verified in both raw and text paths under `qemu-riscv32-static`.
 > - **Phase 2 (64-bit ABI & I/O Calling Conventions)**: **COMPLETE** (Sprint 172). RISC-V ILP32 psABI even-odd pair passing (`a0:a1`..`a6:a7`), 8-byte stack alignment, `(a0, a1)` returns via `OP_MK64`/`OP_HI64`, callee scalar reception, variadic `printf %lld`, and strict ILP32 `long` (32-bit) vs `long long` (64-bit) scoping. Verified via `test/jit/rv32_abi.c` across all `-O0..-O3` levels in raw and `-S` paths under `qemu-riscv32-static`.
-> - **Phase 3 (64-bit Div/Rem via libgcc)**: Planned / Next. Dispatching `DIV64`/`MOD64`/`UDIV64`/`UMOD64` to `__*di3` helper calls in the rv32 static-musl libgcc shim.
-> - **Phase 4 (Sanitizer Width-8 Checks)**: Planned. Lifting the rv32 width-8 `OP_OVF_TRAP` skip in `zero_san`, enabling signed integer overflow and shift bounds checks on 64-bit integers.
+> - **Phase 3 (64-bit Div/Rem via libgcc)**: **COMPLETE** (Sprint 173). 64-bit division/remainder (`/`, `%`, `/=`, `%=`) dispatching `OP_DIV64`, `OP_MOD64`, `OP_UDIV64`, `OP_UMOD64` to `__divdi3`, `__moddi3`, `__udivdi3`, `__umoddi3` runtime helpers in libgcc. Root-caused and resolved GPR64 stack spill slot positive/negative displacement offset bug in `ast_lowering_mc.c` and `asm_emitter.c` (`-off + 4` vs `-off - 4`) and GPR64 thief handover in `regalloc.h`. Verified in both raw and asm paths under `qemu-riscv32-static`.
+> - **Phase 4 (Sanitizer Width-8 Checks)**: Planned / Next. Lifting the rv32 width-8 `OP_OVF_TRAP` skip in `zero_san`, enabling signed integer overflow and shift bounds checks on 64-bit integers.
 
 ---
 
@@ -112,9 +112,9 @@ According to the RISC-V ILP32 psABI:
 
 ---
 
-## 4. Phase 3 — 64-bit Division & Modulo via libgcc
+## 4. Phase 3 — 64-bit Division & Modulo via libgcc (Complete)
 
-Because RV32 has no native 64-bit hardware divide instructions (the `M` extension provides only 32-bit `div`/`rem`), 64-bit division and modulo must be lowered as runtime helper calls.
+Because RV32 has no native 64-bit hardware divide instructions (the `M` extension provides only 32-bit `div`/`rem`), 64-bit division and modulo are lowered as runtime helper calls.
 
 ### Integration with libgcc Helpers
 - **Opcodes**: `OP_DIV64`, `OP_MOD64`, `OP_UDIV64`, `OP_UMOD64`.
@@ -123,9 +123,25 @@ Because RV32 has no native 64-bit hardware divide instructions (the `M` extensio
   - Signed remainder: `__moddi3(int64_t a, int64_t b)`
   - Unsigned division: `__udivdi3(uint64_t a, uint64_t b)`
   - Unsigned remainder: `__umoddi3(uint64_t a, uint64_t b)`
-- **Toolchain Shim**:
-  - The static-musl cross toolchain wrapper (`tools/toolchain/setup_musl_cross.sh`) provides `libgcc.a` defining `__*di3`.
-  - ZeroCC's own `zero_rt/core/int128.c` avoids redefining these symbols on RV32 to maintain a single provider on the system link line (see OKF [zero-rt.md](./zero-rt.md) and [sanitizer-roadmap.md](./sanitizer-roadmap.md)).
+- **Calling Convention & Argument Staging**:
+  - `riscv32_emit_64div_call` (raw) and `riscv32_emit_64div_asm` (assembly): stages arguments `(a_lo, a_hi, b_lo, b_hi)` into `(a0..a3)` using reserved scratch registers `t0, t2, t5` to prevent clobbering when arguments overlap with `a0..a3`. Emits `jal` with `R_RISCV_CALL_PLT` relocation (or `call` in text assembly) and moves `(a0, a1)` to destination pair `(dlo, dhi)`.
+- **Compiler Pipeline Integration**:
+  - `live_range.h`: records `OP_DIV64`, `OP_MOD64`, `OP_UDIV64`, `OP_UMOD64` as function calls to spill live caller-saved registers across division sites.
+  - `opt_gvn.c`: treats division operations as memory barriers in `opt_restrict_memory_forward`.
+  - `main.c`: own-linker driver automatically extracts the RV32 libgcc shim (`libgcc.a`) from the musl cross-toolchain prefix on `--target riscv32`.
+- **Regalloc & Spill Slot Displacement Bugfixes (Crucial)**:
+  1. **Linear Scan Steal Handover (`regalloc.h`)**: Fixed register steal handover for `REG_CLASS_GPR64` intervals: previously only `REG_CLASS_GPR128` transferred `assigned_reg_hi`, leaving a spilled `GPR64` thief with `assigned_reg_hi = -1`.
+  2. **GPR64 Frame Spill Slot Addressing (`ast_lowering_mc.c`, `asm_emitter.c`)**:
+     - `off = spill_base_offset + (spill_slot + 1) * 8` defines the bottom of the slot in frame space (`-off`).
+     - Previously, the high half was addressed at `zero_cc_frame_disp(c, -off - 4)`, which subtracted 4 from the bottom of the slot, placing the high half 4 bytes below the allocated stack frame (`-4(sp)`).
+     - When `__udivdi3` was called, its own prologue clobbered `-4(sp)`, corrupting any spilled 64-bit value's high half across the division call.
+     - Corrected to `zero_cc_frame_disp(c, -off + 4)` across all reload and store paths.
+  3. **64-bit Shift Count Spill (`ast_lowering_mc.c`, `asm_emitter.c`)**:
+     - For 64-bit shifts (`OP_SHL64`, `OP_SHR64`, `OP_SAR64`), `src2` is a 32-bit shift count. Prevented `phys_src2 = g64_s2lo` from overwriting the reloaded scalar shift count.
+
+### Phase 3 Verification
+- Tested comprehensive division and remainder suite in `test/jit/rv32_i64.c` (Section 11) covering signed/unsigned `/` and `%`, negative divisors/dividends, edge cases (`/ 1`, `% 1`, `x / x`, `x % x`), maximum 64-bit integers (`0xFFFFFFFFFFFFFFFFULL / 1000ULL`), and compound assignments (`/=`, `%=`).
+- Swept across all optimization levels (`-O0..-O3`) in both raw binary and `-S` assembly modes under `qemu-riscv32-static`: **100% PASS**.
 
 ---
 

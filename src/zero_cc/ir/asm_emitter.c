@@ -1880,13 +1880,13 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
         BE(c)->emit_load_asm(c, base_r, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_b), out);
         if (g64_np > 0) {
             BE(c)->emit_load_asm(c, BE(c)->g128_scratch_lo[0], zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_v), out);
-            BE(c)->emit_load_asm(c, BE(c)->g128_scratch_hi[0], zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_v - 4), out);
+            BE(c)->emit_load_asm(c, BE(c)->g128_scratch_hi[0], zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_v + 4), out);
             BE(c)->emit_store_asm(c, BE(c)->g128_scratch_lo[0], base_r, 0, out);
             BE(c)->emit_store_asm(c, BE(c)->g128_scratch_hi[0], base_r, 4, out);
         } else {
             BE(c)->emit_load_asm(c, tmp_r, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_v), out);
             BE(c)->emit_store_asm(c, tmp_r, base_r, 0, out);
-            BE(c)->emit_load_asm(c, tmp_r, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_v - 4), out);
+            BE(c)->emit_load_asm(c, tmp_r, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_v + 4), out);
             BE(c)->emit_store_asm(c, tmp_r, base_r, 4, out);
         }
         return;  /* result is in memory; nothing to store back */
@@ -1903,14 +1903,14 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
             int32_t off_s2 = spill_base_offset + (spill_src2 + 1) * 8;
             BE(c)->emit_load_asm(c, tmp, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_s2), out);
         }
-        BE(c)->emit_store_asm(c, spill_src2 >= 0 ? tmp : phys_src2, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_d - 4), out);
+        BE(c)->emit_store_asm(c, spill_src2 >= 0 ? tmp : phys_src2, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_d + 4), out);
         return;
     }
     if (s164_sp && p64_s1 >= 0) {
         int32_t off = spill_base_offset + (spill_src1 + 1) * 8;
         if (BE(c)->emit_load_asm) {
             BE(c)->emit_load_asm(c, BE(c)->g128_scratch_lo[p64_s1], zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off), out);
-            BE(c)->emit_load_asm(c, BE(c)->g128_scratch_hi[p64_s1], zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off - 4), out);
+            BE(c)->emit_load_asm(c, BE(c)->g128_scratch_hi[p64_s1], zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off + 4), out);
         }
         g64_s1lo = BE(c)->g128_scratch_lo[p64_s1];
         g64_s1hi = BE(c)->g128_scratch_hi[p64_s1];
@@ -1919,7 +1919,7 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
         int32_t off = spill_base_offset + (spill_src2 + 1) * 8;
         if (BE(c)->emit_load_asm) {
             BE(c)->emit_load_asm(c, BE(c)->g128_scratch_lo[p64_s2], zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off), out);
-            BE(c)->emit_load_asm(c, BE(c)->g128_scratch_hi[p64_s2], zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off - 4), out);
+            BE(c)->emit_load_asm(c, BE(c)->g128_scratch_hi[p64_s2], zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off + 4), out);
         }
         g64_s2lo = BE(c)->g128_scratch_lo[p64_s2];
         g64_s2hi = BE(c)->g128_scratch_hi[p64_s2];
@@ -1943,7 +1943,8 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
         phys_src2 = BE(c)->scratch_reg1;
     }
     if (op64) {
-        phys_dst = g64_dlo; phys_src1 = g64_s1lo; phys_src2 = g64_s2lo;
+        phys_dst = g64_dlo; phys_src1 = g64_s1lo;
+        if (s2_64) phys_src2 = g64_s2lo;
     }
 
     /* Reload spilled sources into scratch registers. FP-class values use
@@ -2048,7 +2049,7 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
              * slot*8+4. */
             if (BE(c)->emit_store_asm) {
                 BE(c)->emit_store_asm(c, g64_dlo, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off), out);
-                BE(c)->emit_store_asm(c, g64_dhi, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off - 4), out);
+                BE(c)->emit_store_asm(c, g64_dhi, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off + 4), out);
             }
         } else if (regalloc_get_class_for_temp(&c->regalloc, instr->temp_dest) == REG_CLASS_XMM) {
             if (BE(c)->emit_store_fp_asm) {

@@ -252,6 +252,7 @@ static void opt_restrict_memory_forward(ZeroCCCompiler *c) {
             case OP_LABEL: case OP_JMP: case OP_JMP_LABEL: case OP_JMP_INDIRECT: case OP_JE: case OP_JNE:
             case OP_JL: case OP_JLE: case OP_JG: case OP_JCOND:
             case OP_CALL: case OP_CALL_INDIRECT: case OP_SYSCALL: case OP_CLONE:
+            case OP_DIV64: case OP_MOD64: case OP_UDIV64: case OP_UMOD64: /* Sprint 173: libgcc call */
             case OP_SETJMP: case OP_LONGJMP:
             case OP_RET: case OP_EPILOGUE:
             case OP_VLA_ALLOC: case OP_PUSH: case OP_POP:
