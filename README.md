@@ -5,6 +5,7 @@ ZeroCC is a lightweight, embeddable C99/C11/C23 compiler (with GNU extensions) w
 ## Features
 
 - **C99/C11/C23** compiler, freestanding, with optional `zero_rt` standard library
+- **Preprocessor**: full `#define`/`#if`/`#include`/`#pragma` with `-E` preprocess-only mode, gcc-differential conformance (`make test-preproc` gate: `zerocc -E` vs `gcc -E` over `test/preproc/` — C11 6.10.3.1p2 stringify/paste order, `##` token fusion, GNU `x, ##__VA_ARGS__` comma drop, phase-2 splices)
 - **C23 Conformance**: `constexpr` data declarations, `nullptr`, `true`/`false` keywords, `typeof`/`typeof_unqual`, `#warning` (C23 6.9.1), empty `{}` initializers, `[[attr]]` attributes, designator-based unsized array sizing (`make test-c23` gate vs gcc-15)
 - **Multi-project validation**: sqlite3.c amalgamation (255k lines), 15-TU zlib, and cJSON compiled under zerocc at `-O0` and `-O2` (`make test-project-diff`)
 - **`__zerocc_syscall(number, a, b, c, d, e, f)`** and **`__zerocc_clone(...)`** — direct OS-syscall and thread-clone builtins (`OP_SYSCALL`, `OP_CLONE`) across all 4 ISAs (the `zero_rt` OS boundary)

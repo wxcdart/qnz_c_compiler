@@ -33,7 +33,7 @@ TEST_BIN_DIR ?= $(BUILD_DIR)/test
 # corpus: san_trap_* tests DIE with SIGILL by design, so they cannot run
 # through the host-gcc suite; tools/verify/san_sweep.py (make test-san) drives them
 # with zerocc directly at -O0..-O3 in JIT + AOT.
-TEST_SRCS = $(filter-out test/diag/% test/driver/% test/linker/% test/san/% test/abi_interop/% test/jit/builtin_apply.c test/jit/unroll_nonlocal_goto.c,$(wildcard test/*/*.c))
+TEST_SRCS = $(filter-out test/diag/% test/driver/% test/linker/% test/san/% test/abi_interop/% test/preproc/% test/jit/builtin_apply.c test/jit/unroll_nonlocal_goto.c,$(wildcard test/*/*.c))
 TESTS = $(patsubst test/%.c,$(TEST_BIN_DIR)/%,$(TEST_SRCS))
 
 # Category-scoped test lists (Fix stale-build Root Cause 3: avoid relinking
@@ -116,7 +116,7 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	test-asan test-asan-unit test-asan-semantic test-asan-abi test-asan-jit \
 	test-project-diff test-project-runs \
 	test-isa-qemu test-driver test-linker \
-	test-c23 test-asm test-opt test-san \
+	test-c23 test-asm test-opt test-san test-preproc \
 	valgrind test-valgrind
 
 all: $(TESTS) $(ZC_BIN) $(BUILD_DIR)/lib/zero_rt.a $(BUILD_DIR)/lib/zero_rt_aarch64.a $(BUILD_DIR)/lib/zero_rt_riscv64.a $(BUILD_DIR)/lib/zero_rt_riscv32.a
@@ -363,6 +363,16 @@ test-torture: $(ZC_BIN)
 # matching -std flag; negative cases check accept/reject agreement.
 test-c23: $(ZC_BIN)
 	@python3 tools/c23/test_c23.py --all
+
+# Preprocessor (-E) conformance gate (Sprint 176): test/preproc/*.c corpus
+# (stringify/paste order, ## token fusion, ##__VA_ARGS__ comma drop, phase-2
+# splices, conditional groups, predefined macros, ASMNAME, pp-numbers)
+# preprocessed by zerocc -E and by the reference gcc -E (PREPROC_GCC
+# override, else gcc-15/14/gcc, pinned -std=gnu11), with output normalized
+# (line markers, blank lines, inter-token whitespace, __FILE__ paths) and
+# diffed line-by-line, ratcheted against test/preproc/baseline.json.
+test-preproc: $(ZC_BIN)
+	@python3 tools/verify/preproc_diff.py
 
 # Loop-unrolling differential gate (Sprint 150): test/jit/unroll_*.c at
 # -O0 (baseline) vs -O3 JIT + AOT, diffed against host gcc (or the -O0

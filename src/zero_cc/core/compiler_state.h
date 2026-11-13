@@ -131,6 +131,12 @@ typedef struct {
 
     /* Standard dialect (from -std=): drives __STDC_VERSION__ value */
     ZeroCCStdDialect std_dialect;
+
+    /* Set for -E (preprocess-only) runs: known pragmas the compiler consumes
+     * at compile time (e.g. #pragma pack, forwarded to the lexer as a
+     * TK_HASH event) must be stripped from the -E output for gcc parity -
+     * gcc -E never emits them. */
+    bool preproc_only;
 } ZeroCCPreprocessor;
 
 #endif /* ZERO_CC_CORE_COMPILER_STATE_H */

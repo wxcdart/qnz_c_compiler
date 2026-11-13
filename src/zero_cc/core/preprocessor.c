@@ -1038,6 +1038,110 @@ static char *zero_cc_cpp_capture_define_value(ZeroCCPreprocessor *cpp, const cha
     return val;
 }
 
+/* C11 6.10.3.1p2: each argument, *except for arguments used with the # or ##
+ * preprocessing operators in the replacement list*, is fully macro-expanded
+ * before substitution. An argument whose parameter is used with # or ## must
+ * be substituted RAW - the classic double-indirection idiom (STRING(X) ->
+ * "X", TOSTRING(X) -> "42") and every __ASMNAME-style symbol-name macro
+ * depend on it. Pre-expanding such arguments (the pre-Sprint-176 behavior)
+ * made STRING(X) yield "42" instead of "X".
+ *
+ * Scans the function-like macro's replacement text and marks, per parameter
+ * index, whether that parameter occurs adjacent to a # or ## operator:
+ *   #param  (stringification), param ## , ## param (token pasting), with
+ *   whitespace allowed around ## and between # and the identifier. String
+ * and char literals in the body are skipped (a # or ## inside them is not an
+ *   operator). __VA_ARGS__ maps to the variadic slot (param_count - 1). */
+static void cpp_scan_hash_params(const ZeroCCMacro *m, bool *used, int max_param) {
+    for (int k = 0; k < max_param && k < 32; k++) used[k] = false;
+    if (!m || !m->replacement || m->param_count < 0 || max_param <= 0) return;
+
+    const char *b = m->replacement;
+    char last_id[128];
+    size_t last_id_len = 0;
+    while (*b) {
+        if (*b == '"' || *b == '\'') {
+            char q = *b++;
+            last_id_len = 0;
+            while (*b) {
+                if (*b == '\\' && b[1]) { b += 2; continue; }
+                if (*b == q) { b++; break; }
+                b++;
+            }
+            continue;
+        }
+        if (*b == '#' && b[1] == '#') {
+            /* Parameter immediately BEFORE the ## (whitespace between the
+             * identifier and ## does not separate the tokens). */
+            if (last_id_len > 0) {
+                for (int k = 0; k < m->param_count && k < max_param; k++) {
+                    if (strlen(m->params[k]) == last_id_len &&
+                        strncmp(m->params[k], last_id, last_id_len) == 0)
+                        used[k] = true;
+                }
+                if (m->is_variadic && m->param_count > 0 &&
+                    m->param_count - 1 < max_param &&
+                    last_id_len == 11 && strncmp(last_id, "__VA_ARGS__", 11) == 0)
+                    used[m->param_count - 1] = true;
+            }
+            b += 2;
+            last_id_len = 0;
+            while (*b == ' ' || *b == '\t') b++;
+            /* Parameter immediately AFTER the ## */
+            if (isalpha((unsigned char)*b) || *b == '_') {
+                char id[128];
+                size_t l = 0;
+                while ((*b && (isalnum((unsigned char)*b) || *b == '_')) && l < 127) id[l++] = *b++;
+                id[l] = '\0';
+                for (int k = 0; k < m->param_count && k < max_param; k++)
+                    if (strcmp(m->params[k], id) == 0) used[k] = true;
+                if (m->is_variadic && m->param_count > 0 &&
+                    m->param_count - 1 < max_param && strcmp(id, "__VA_ARGS__") == 0)
+                    used[m->param_count - 1] = true;
+            }
+            continue;
+        }
+        if (*b == '#') {
+            /* #param stringification (a single # is not an operator here,
+             * it is only significant when it directly precedes a parameter) */
+            b++;
+            last_id_len = 0;
+            while (*b == ' ' || *b == '\t') b++;
+            if (isalpha((unsigned char)*b) || *b == '_') {
+                char id[128];
+                size_t l = 0;
+                while ((*b && (isalnum((unsigned char)*b) || *b == '_')) && l < 127) id[l++] = *b++;
+                id[l] = '\0';
+                for (int k = 0; k < m->param_count && k < max_param; k++)
+                    if (strcmp(m->params[k], id) == 0) used[k] = true;
+                if (m->is_variadic && m->param_count > 0 &&
+                    m->param_count - 1 < max_param && strcmp(id, "__VA_ARGS__") == 0)
+                    used[m->param_count - 1] = true;
+            }
+            continue;
+        }
+        if (isalpha((unsigned char)*b) || *b == '_') {
+            size_t l = 0;
+            while ((*b && (isalnum((unsigned char)*b) || *b == '_')) && l < 127) last_id[l++] = *b++;
+            last_id[l] = '\0';
+            last_id_len = l;
+            continue;
+        }
+        if (isspace((unsigned char)*b)) { b++; continue; }  /* whitespace keeps last_id */
+        last_id_len = 0;
+        b++;
+    }
+}
+
+/* A char that can JOIN with an adjacent char into one token: identifier
+ * chars, pp-number chars (digit . e E p P x X suffixes), plus '/' to
+ * block accidental // and /* comment starts. Used to keep substitution
+ * boundaries from fusing two body tokens into one (see below). */
+static bool cpp_fusion_char(char ch) {
+    return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+           (ch >= '0' && ch <= '9') || ch == '_' || ch == '.' || ch == '/';
+}
+
 void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBuffer *out) {
     if (!src) return;
     const char *p = src;
@@ -1147,6 +1251,20 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                         bool is_var = false;
                         while (*p && *p != ')') {
                             while (*p && (isspace((unsigned char)*p) || *p == ',')) p++;
+                            /* Phase-2 splice (C99 5.1.1.2): a backslash+
+                             * newline inside the parameter list is deleted
+                             * before the list is parsed (`#define CHAIN(a, \\
+ b)`
+                             * is the two-parameter macro CHAIN(a, b)). The
+                             * old scan stalled on the backslash (infinite
+                             * loop). A backslash not followed by a newline
+                             * is a constraint violation - skip it so the
+                             * scan cannot stall either way. */
+                            if (*p == '\\') {
+                                if (p[1] == '\n') { p += 2; cpp->line_num++; }
+                                else if (p[1] == '\r' && p[2] == '\n') { p += 3; cpp->line_num++; }
+                                else p++;
+                            }
                             if (*p == '.' && p[1] == '.' && p[2] == '.') {
                                 is_var = true;
                                 if (pcount < 32) params[pcount++] = strdup("__VA_ARGS__");
@@ -1166,6 +1284,11 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                             }
                             if (pl > 0 && pcount < 32) {
                                 params[pcount++] = strdup(pname);
+                            } else if (pl == 0) {
+                                /* Defensive: a non-parameter token in the
+                                 * list (constraint violation) - consume it
+                                 * so the scan always makes progress. */
+                                if (*p) p++;
                             }
                         }
                         if (*p == ')') p++;
@@ -1290,11 +1413,16 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                         if (*p == '\n') { zero_cc_buf_putc(out, *p++); at_line_start = true; cpp->line_num++; }
                         continue;
                     }
-                    /* message / GCC diagnostic are handled here; others (pack, ...) go to the tokenizer */
+                    /* gcc -E keeps the pragma line in the output (side
+                     * effects still run: message note, macro stack, diag
+                     * state). Compile mode consumes handled pragmas and
+                     * forwards the rest (pack, unknown) to the lexer, which
+                     * records pack events and drops the remainder. */
                     {
                         const char *eol = p;
                         while (*eol && *eol != '\n') eol++;
-                        if (zero_cc_cpp_handle_pragma(cpp, p, (size_t)(eol - p))) {
+                        bool handled = zero_cc_cpp_handle_pragma(cpp, p, (size_t)(eol - p));
+                        if (handled && !cpp->preproc_only) {
                             p = eol;
                             if (*p == '\n') { zero_cc_buf_putc(out, *p++); at_line_start = true; cpp->line_num++; }
                             continue;
@@ -1682,6 +1810,11 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                         const char *arglist_start = p;
                         char *args[64];
                         int arg_count = 0;
+                        /* C11 6.10.3.1p2: which arguments must stay RAW
+                         * (their parameter is used with # or ## in the
+                         * body) instead of being pre-expanded. */
+                        bool hash_used[32];
+                        cpp_scan_hash_params(m, hash_used, 32);
                         while (*p) {
                             while (*p && isspace((unsigned char)*p)) p++;
                             /* Sprint 72: a `)` reached after skipping whitespace
@@ -1735,10 +1868,21 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                                  * an argument are completely expanded before
                                  * the argument is substituted (c-torture
                                  * compile/20050423-1: TEN(TEN(a += b; ...))).
+                                 * C11 6.10.3.1p2: EXCEPT when the argument's
+                                 * parameter is used with # or ## in the body -
+                                 * that argument must be substituted raw
+                                 * (STRING(X) -> "X", not "42"; the body walk
+                                 * stringifies/pastes the raw text at the #/##
+                                 * site, and any normal-position occurrence is
+                                 * still expanded by the rescan below).
                                  * The outer macro stays blue (expanding_macro
                                  * index unchanged) so self-reference cannot
                                  * loop; the depth guard bounds mutual cycles. */
-                                if (arg_l > 0) {
+                                int hash_pi = arg_count;
+                                if (m->is_variadic && m->param_count > 0 &&
+                                    hash_pi >= m->param_count - 1)
+                                    hash_pi = m->param_count - 1;
+                                if (arg_l > 0 && hash_pi < 32 && !hash_used[hash_pi]) {
                                     ZeroCCBuffer arg_src, arg_out;
                                     zero_cc_buf_init(&arg_src, arg_l + 2);
                                     zero_cc_buf_init(&arg_out, arg_l + 16);
@@ -1865,6 +2009,7 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                     char paste_buf[512];
                     size_t paste_len = 0;
                     bool pending_paste = false;
+                    bool left_comma = false;
                     paste_buf[0] = '\0';
 
                     /* GNU vector attribute: `__attribute__((__vector_size__(N)))`
@@ -2045,6 +2190,12 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                                 temp_buf.length--;
                                 temp_buf.data[temp_buf.length] = '\0';
                             }
+                            /* Did the left side end in a comma? The GNU
+                             * `x, ## __VA_ARGS__` idiom needs it: empty
+                             * variadic -> drop the comma; non-empty ->
+                             * keep the comma and do NOT paste. */
+                            left_comma = (temp_buf.length > 0 &&
+                                          temp_buf.data[temp_buf.length - 1] == ',');
                             b += 2;
                             while (*b == ' ' || *b == '\t') b++;
                             paste_len = 0;
@@ -2209,15 +2360,60 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                             }
                             if (match >= 0 && match < arg_count) {
                                 if (pending_paste) {
-                                    paste_len += snprintf(paste_buf + paste_len, sizeof(paste_buf) - paste_len, "%s", args[match]);
-                                    /* Flush immediately: a second `##` in the
-                                     * same body must start a fresh paste. */
-                                    zero_cc_buf_puts(&temp_buf, paste_buf);
-                                    paste_len = 0;
-                                    paste_buf[0] = '\0';
-                                    pending_paste = false;
+                                    const char *av = args[match];
+                                    bool is_va = (strcmp(param_id, "__VA_ARGS__") == 0);
+                                    if (is_va && left_comma && av[0] != '\0') {
+                                        /* GNU `x, ## __VA_ARGS__` with a
+                                         * NON-EMPTY variadic part: keep the
+                                         * comma, no token paste (gcc:
+                                         * VW(a,b,c) -> a, b, c, not ab, c). */
+                                        zero_cc_buf_putc(&temp_buf, ' ');
+                                        zero_cc_buf_puts(&temp_buf, av);
+                                        pending_paste = false;
+                                    } else {
+                                        paste_len += snprintf(paste_buf + paste_len, sizeof(paste_buf) - paste_len, "%s", av);
+                                        /* Empty right operand after a comma
+                                         * (`x, ## y` with y empty): the GNU
+                                         * comma drop swallows the preceding
+                                         * comma. */
+                                        if (paste_len == 0 && left_comma &&
+                                            temp_buf.length > 0 &&
+                                            temp_buf.data[temp_buf.length - 1] == ',') {
+                                            temp_buf.length--;
+                                            temp_buf.data[temp_buf.length] = '\0';
+                                        }
+                                        /* Flush immediately: a second `##`
+                                         * in the same body must start a
+                                         * fresh paste. */
+                                        zero_cc_buf_puts(&temp_buf, paste_buf);
+                                        paste_len = 0;
+                                        paste_buf[0] = '\0';
+                                        pending_paste = false;
+                                    }
                                 } else {
-                                    zero_cc_buf_puts(&temp_buf, args[match]);
+                                    /* Tokens must not fuse across the
+                                     * substitution boundary: body `a.b` with
+                                     * args 1,5 must stay the tokens 1 . 5,
+                                     * not the pp-number 1.5 (gcc re-emits the
+                                     * substitution token-by-token; the
+                                     * character stream approximates that by
+                                     * inserting a space at any boundary where
+                                     * both sides could join into one token).
+                                     * A space never MERGES tokens, so this is
+                                     * tokenization-safe even when no fusion
+                                     * would occur (v.size -> v .size, same
+                                     * tokens). */
+                                    const char *sub = args[match];
+                                    if (temp_buf.length > 0 && sub[0] &&
+                                        cpp_fusion_char(temp_buf.data[temp_buf.length - 1]) &&
+                                        cpp_fusion_char(sub[0]))
+                                        zero_cc_buf_putc(&temp_buf, ' ');
+                                    zero_cc_buf_puts(&temp_buf, sub);
+                                    size_t sub_len = strlen(sub);
+                                    if (sub_len > 0 && *b &&
+                                        cpp_fusion_char(sub[sub_len - 1]) &&
+                                        cpp_fusion_char(*b))
+                                        zero_cc_buf_putc(&temp_buf, ' ');
                                 }
                             } else {
                                 if (pending_paste) {
@@ -2276,11 +2472,21 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
             continue;
         }
 
-        /* Phase-2 splice: backslash+newline is deleted everywhere before
-         * tokenization (C99 5.1.1.2). A stray `\` in code - sqlite3.c has
-         * one in an inlined UTF8 writer - must not reach the lexer; the
-         * logical line continues without a newline (no line_num bump). */
-        if (*p == '\\' && p[1] == '\n') { p += 2; continue; }
+        /* Phase-2 splice: backslash+newline is deleted before tokenization
+         * (C99 5.1.1.2). A stray `\` in code - sqlite3.c has one in an
+         * inlined UTF8 writer - must not reach the lexer. The newline
+         * itself IS preserved (gcc -E emits the continuation on its own
+         * physical line) and advances the line count (gcc counts the
+         * spliced newline in __LINE__) - pre-Sprint-176 the splice
+         * swallowed both, undercounting every __LINE__ after a spliced
+         * line. String/char literals handle their own splices above. */
+        if (*p == '\\' && p[1] == '\n') {
+            zero_cc_buf_putc(out, '\n');
+            at_line_start = true;
+            cpp->line_num++;
+            p += 2;
+            continue;
+        }
 
         zero_cc_buf_putc(out, *p++);
     }
@@ -2295,10 +2501,12 @@ char* zero_cc_preprocess_ext3(const char *source, ZeroCCIncludeDirs *inc_dirs,
                                             int gen_deps,
                                             const char **force_includes,
                                             int force_include_count,
-                                            const char *std_version) {
+                                            const char *std_version,
+                                            bool preproc_only) {
     ZeroCCPreprocessor *cpp = (ZeroCCPreprocessor *)calloc(1, sizeof(ZeroCCPreprocessor));
     if (!cpp) return strdup(source ? source : "");
     zero_cc_cpp_init(cpp);
+    cpp->preproc_only = preproc_only;
     /* The dialect drives dialect-dependent virtual header content (the C23
      * stdbool.h omits the true/false definitions - they are keywords).
      * std_version is the driver-resolved __STDC_VERSION__ string, so the
@@ -2397,7 +2605,7 @@ char* zero_cc_preprocess_ext2(const char *source, ZeroCCIncludeDirs *inc_dirs,
                                             char *err_out, size_t err_cap,
                                             const char *std_version) {
     return zero_cc_preprocess_ext3(source, inc_dirs, defines, main_file, err_out, err_cap,
-                                   NULL, NULL, 0, NULL, 0, std_version);
+                                   NULL, NULL, 0, NULL, 0, std_version, false);
 }
 
 char* zero_cc_preprocess_ext(const char *source, ZeroCCIncludeDirs *inc_dirs, ZeroCCDefines *defines,

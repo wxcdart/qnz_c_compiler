@@ -217,7 +217,8 @@ static char *preprocess_with_options(const char *source, const CompileOptions *o
                                         final_dep_target, final_dep_file, opts->gen_deps,
                                         opts->force_include_count > 0 ? (const char **)opts->force_includes : NULL,
                                         opts->force_include_count,
-                                        std_version);
+                                        std_version,
+                                        opts->emit_preproc);
     if (!out && include_err[0]) {
         fprintf(stderr, "%s\n", include_err);
     }

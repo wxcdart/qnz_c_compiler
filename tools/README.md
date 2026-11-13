@@ -90,6 +90,7 @@ All tools are **stdlib-only** (see [`tools/requirements.txt`](./requirements.txt
 | :--- | :--- | :--- |
 | [`c11/test_c11.py`](./c11/test_c11.py) | C11 feature & concurrency verification suite | `python3 tools/c11/test_c11.py --verbose` |
 | [`c23/test_c23.py`](./c23/test_c23.py) | C23 differential conformance gate | `python3 tools/c23/test_c23.py --all` |
+| [`verify/preproc_diff.py`](./verify/preproc_diff.py) | Preprocessor (`-E`) differential conformance gate (Sprint 176): `zerocc -E` vs `gcc -E` over `test/preproc/*.c` with normalized output + ratcheted baseline | `python3 tools/verify/preproc_diff.py` / `make test-preproc` |
 | [`vla/test_vla.py`](./vla/test_vla.py) | C99 Variable-Length Array verification suite | `python3 tools/vla/test_vla.py` |
 
 ## Path Resolution (`find_repo_root`)

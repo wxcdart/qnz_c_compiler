@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-13T06:12:42Z
+timestamp: 2026-11-13T07:18:33Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1413,3 +1413,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-13 — Updated `ir-and-regalloc.md`
 - Sprint 175: churn-proof test (131,093 churned ids -> peak-live 34) for the liveness renumber pass + ZC_RENUMBER_DEBUG probe; retired the stale 'caps at 65,534 total-allocated' cap claim and dangling Calibration&scale reference
+
+## 2026-11-13 — Updated `build-and-verification.md`
+- Sprint 176: -E preprocessor differential gate (tools/verify/preproc_diff.py, make test-preproc) — gcc-15 differential over test/preproc/ (18 cases), ratcheted baseline; fixed C11 6.10.3.1p2 hash-before-expansion, ## token fusion, GNU comma-drop no-paste, splice newline/__LINE__ parity, param-list splice infinite loop, -E pragma retention

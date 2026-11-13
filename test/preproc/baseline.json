@@ -1,0 +1,61 @@
+{
+  "generated_by": "tools/verify/preproc_diff.py --update-baseline",
+  "note": "ratchet baseline: normalized `zerocc -E` vs `gcc -E` output (line markers / blank lines / trailing ws stripped, __FILE__ path canonicalized). A 'diff' entry records a known divergence by signature; the gate fails on a new or changed divergence. Re-record after an intentional improvement.",
+  "reference": "gcc-15",
+  "cases": {
+    "01_stringify": {
+      "status": "pass"
+    },
+    "02_paste": {
+      "status": "pass"
+    },
+    "03_recursion": {
+      "status": "pass"
+    },
+    "04_variadic": {
+      "status": "pass"
+    },
+    "05_pp_numbers": {
+      "status": "pass"
+    },
+    "06_ifdef": {
+      "status": "pass"
+    },
+    "07_pragma": {
+      "status": "pass"
+    },
+    "08_multiline": {
+      "status": "pass"
+    },
+    "09_predefined": {
+      "status": "pass"
+    },
+    "10_asmname": {
+      "status": "pass"
+    },
+    "11_object_macros": {
+      "status": "pass"
+    },
+    "12_empty_args": {
+      "status": "pass"
+    },
+    "13_string_literals": {
+      "status": "pass"
+    },
+    "14_expand_semantics": {
+      "status": "pass"
+    },
+    "15_hash_as_arg": {
+      "status": "pass"
+    },
+    "16_define_undef": {
+      "status": "pass"
+    },
+    "17_cond_directives": {
+      "status": "pass"
+    },
+    "18_include": {
+      "status": "pass"
+    }
+  }
+}

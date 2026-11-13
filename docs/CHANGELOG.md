@@ -1,5 +1,22 @@
 # CHANGELOG
 
+## [Sprint 176] - 2026-11-13 - `-E` Preprocessor Differential Gate (Preprocessor / Verification)
+
+Implements dev-plan item #4: `make test-preproc` (`tools/verify/preproc_diff.py` + `test/preproc/`), which differential-tests `zerocc -E` against `gcc -E -std=gnu11` (PREPROC_GCC override, else gcc-15/14/gcc) over an 18-case macro-heavy corpus, normalizing both outputs (line markers, blank lines, inter-token whitespace outside string/char literals, `__FILE__` path) and ratcheting against `test/preproc/baseline.json`. The gate's first run exposed five preprocessor conformance bugs, all fixed and driven to 18/18:
+
+- **Stringification used the expanded argument (C11 6.10.3.1p2 violation)**: `#define X 42` + `STR(X)` gave `"42"` instead of `"X"`. The body walk pre-expanded every argument *before* substituting it into `#`-positions. Fix: `cpp_scan_hash_params()` marks, per parameter, whether the body uses it under `#` (looking through `##` chains and nested calls); hash-used parameters are substituted **without** pre-expansion (recursion-safe). Non-hash-used parameters keep the expand-first rule (`P(1+1)` → `2`).
+- **`##` token fusion**: pasting `1` `5` produced the pp-number `15` (and `DOT(1,5)` → `1.5`). A space is now inserted on the left-paste flush only when the operand would fuse (digit/alnum/underscore boundaries), which the gate's whitespace normalization treats as cosmetic.
+- **GNU `x, ##__VA_ARGS__` with a non-empty variadic part**: zerocc pasted the left token into the first variadic token (`VW(a,b,c)` → `a,b, c`); gcc keeps the comma and does **not** paste (`a, b, c`). The `##` handler now records whether the left side ended in a comma; the variadic-slot paste branch honors the gcc rule (empty part → comma drop, non-empty → comma kept, no paste).
+- **Phase-2 splice swallowed the newline (C99 5.1.1.2 / gcc `__LINE__` parity)**: a spliced code line emitted as one line and did not advance the line count, so every `__LINE__` after a splice undercounted. The splice now emits the newline and bumps `line_num` (gcc `-E` layout and `__LINE__` both match); in-literal splices keep their delete-and-count behavior.
+- **`#define` parameter-list splices (infinite loop)**: `#define CHAIN(a, \
+ b) ...` hung — the param-list scanner stalled on the backslash. It now performs the phase-2 splice inside the list (plus a defensive no-stall guard on malformed lists).
+- **`-E` pragma-line retention**: handled `#pragma` lines (e.g. `#pragma GCC assembly "name"`) were consumed in *all* modes; gcc keeps them in `-E` output and consumes them only in compile mode. New `ZeroCCPreprocessor.preproc_only` (threaded `zero_cc_preprocess_ext2/3` → `main.c` from `opts->emit_preproc`) splits the behavior.
+- **Gate + corpus + Makefile**: `tools/verify/preproc_diff.py` (baseline-ratcheted; gcc-fail/zerocc-succeed cases FAIL the gate so the corpus stays clean under gcc — e.g. `#if sizeof(int)`, a C99 conformance gcc does not implement, is kept out of the corpus), 18-case `test/preproc/` corpus (stringify/paste order, `##` fusion, `##__VA_ARGS__`, recursion, variadic, pp-numbers, conditional groups, pragmas, multiline splices, predefined macros, ASMNAME, object-macro edges, string literals, expansion semantics, `#` as an argument, includes, `#define`/`#undef`, `inc_local.h`/`inc_nested.h`), `make test-preproc` target, and `test/preproc/%` excluded from the `make test` compile glob (the corpus is `-E`-only, not complete programs).
+- **Docs**: `AGENTS.md` gate list, `README.md` feature bullet, `tools/README.md` inventory, `docs/okf/build-and-verification.md` gate section + workflow, dev-plan item 4 marked shipped.
+- **Verification:** `make test-preproc` 18/18; `make test` 230/230; `make test-opt` 129 ok / 0 failed; `make test-torture` 0 bad vs baseline (background); `make test-project-diff` 36/36; `style_check.py` 0 errors; `okf.py lint && index` clean.
+
+---
+
 ## [Sprint 175] - 2026-11-13 - Temp-ID Recyclization Churn-Proof + Stale Cap Doc Fix (IR / Documentation)
 
 Proves the liveness-based temp-ID renumbering pass (`opt_temp_renumber.c`, Sprint 151b, dev-plan item 9) handles real churn well past the old 16-bit budget, and retires the stale "caps at 65,534 total-allocated" claim that survived in the OKF.

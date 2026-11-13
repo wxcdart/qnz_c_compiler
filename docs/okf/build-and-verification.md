@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 165-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-11-12T04:03:59Z
+timestamp: 2026-11-13T07:18:33Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -141,6 +141,19 @@ python3 tools/verify/san_sweep.py --no-cross --json > /tmp/san.json
 
 Any change to `OP_OVF_TRAP` lowering/emission, the width-extension post-passes, or the extend emitters **must** pass `make test-san` in addition to the usual gates (the c-torture gate and `make test-opt` run without the flag, so a flag-only miscompile is invisible to them).
 
+### Preprocessor differential gate (`make test-preproc`, Sprint 176)
+
+`tools/verify/preproc_diff.py` differential-tests zerocc's preprocessor against the reference `gcc -E` (pinned `-std=gnu11`) over `test/preproc/*.c` (18 cases: stringify/paste order per C11 6.10.3.1p2, `##` token fusion, the GNU `x, ##__VA_ARGS__` comma drop, phase-2 splices in bodies/param-lists/code, conditional groups, predefined macros, `#pragma GCC assembly`, object-macro edges, string literals in expansions). Output is normalized on **both** sides (gcc line markers dropped, blank lines dropped, inter-token whitespace collapsed outside string/char literals, `__FILE__` path canonicalized) and diffed line-by-line, ratcheted against `test/preproc/baseline.json`.
+
+Gate semantics: gcc-fail / zerocc-succeed cases FAIL (the corpus must stay clean under gcc — e.g. `#if sizeof(int)` is a C99 conformance *gcc does not implement*, kept out of the corpus); zerocc-fail / gcc-succeed cases are `known-diff` ratchet (the gap list must not grow, and ratcheted cases must eventually flip to match). **Any preprocessor change must pass this gate** plus the c-torture gate (whose `#ifdef`-heavy and macro-heavy execute tests catch `-E`-independent fallout).
+
+```bash
+make test-preproc
+python3 tools/verify/preproc_diff.py --update-baseline   # after an intentional improvement
+```
+
+Sprint 176 also fixed the preprocessor bugs the gate first exposed: hash-used parameters are now substituted **without** pre-expansion (C11 6.10.3.1p2: `STR(42)` → `"42"`, was `"42"`-from-`"42"`/`"1+1"` for `STR(1+1)`); a space is inserted before pasted operands that would fuse into a pp-number (C11 6.4.2); the spliced code newline is preserved and counted (gcc parity in `__LINE__` and `-E` layout); `#define` parameter lists accept splices; and `-E` (`preproc_only`) keeps handled-pragma lines like gcc while compile mode consumes them.
+
 ## 3. Verifying Individual C Files with ZeroCC Directly
 
 Note that `build/test/abi/*` binaries built by `make all` are compiled by the host `$(CC)` (`gcc`), whereas `test/jit/*` and `tools/verify/sret_verifier.py` invoke `./build/bin/zerocc`. **Always test new ABI features directly with `./build/bin/zerocc` in both AOT and JIT modes**:
@@ -196,6 +209,16 @@ python3 tools/c11/test_c11.py --verbose
 # matching -std flag; negative cases check accept/reject agreement.
 # Wired as `make test-c23`.
 python3 tools/c23/test_c23.py --all
+
+# Run the preprocessor (-E) conformance gate (Sprint 176): test/preproc/*.c
+# corpus (stringify/paste order, ## token fusion, ##__VA_ARGS__ comma drop,
+# phase-2 splices, conditional groups, predefined macros, ASMNAME,
+# pp-numbers) preprocessed by zerocc -E and by gcc -E (PREPROC_GCC override,
+# else gcc-15/14/gcc, pinned -std=gnu11), output normalized (line markers,
+# blank lines, inter-token whitespace, __FILE__ paths) and diffed
+# line-by-line, ratcheted against test/preproc/baseline.json.
+# Wired as `make test-preproc`.
+python3 tools/verify/preproc_diff.py
 
 # Run the inline-assembly Phase 1 differential gate (Sprint 135): every
 # test/asm/*.c compiled under zerocc at -O0..-O3 on the AOT TEXT path (-S),

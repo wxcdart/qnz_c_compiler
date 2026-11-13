@@ -87,7 +87,8 @@ char* zero_cc_preprocess_ext3(const char *source, ZeroCCIncludeDirs *inc_dirs,
                               int gen_deps,
                               const char **force_includes,
                               int force_include_count,
-                              const char *std_version);
+                              const char *std_version,
+                              bool preproc_only);
 char* zero_cc_preprocess_ext2(const char *source, ZeroCCIncludeDirs *inc_dirs,
                               ZeroCCDefines *defines, const char *main_file,
                               char *err_out, size_t err_cap,
