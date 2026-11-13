@@ -116,7 +116,7 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	test-asan test-asan-unit test-asan-semantic test-asan-abi test-asan-jit \
 	test-project-diff test-project-runs \
 	test-isa-qemu test-driver test-linker \
-	test-c23 test-asm test-opt test-san test-preproc test-fuzz \
+	test-c23 test-asm test-opt test-san test-preproc test-fuzz test-perf \
 	valgrind test-valgrind
 
 all: $(TESTS) $(ZC_BIN) $(BUILD_DIR)/lib/zero_rt.a $(BUILD_DIR)/lib/zero_rt_aarch64.a $(BUILD_DIR)/lib/zero_rt_riscv64.a $(BUILD_DIR)/lib/zero_rt_riscv32.a
@@ -386,6 +386,18 @@ test-preproc: $(ZC_BIN)
 # test/fuzz/seed_<seed>.c.
 test-fuzz: $(ZC_BIN)
 	@python3 tools/fuzz/fuzz_diff.py
+
+# Compile-performance budget gate (Sprint 178): ratcheted compile-time
+# budgets over a fixed increasing-size corpus (bench workloads, the
+# temp-id churn stress, cJSON, zlib deflate.c, the 255k-line sqlite3.c,
+# and a pinned 20-file c-torture sample that guards the c-torture
+# sweep's wall time). Wall time per -O level (50% tolerance, host load
+# swings +-50%) + per-pass optimizer time via --profile-opts for -O>=1
+# (max(40%, 3ms) tolerance - in-process but jittery on the big single-
+# function workloads). Median of 5-7 runs per case. Re-record with
+# --update-baseline after an intentional performance change.
+test-perf: $(ZC_BIN)
+	@python3 tools/verify/perf_budget.py
 
 # Loop-unrolling differential gate (Sprint 150): test/jit/unroll_*.c at
 # -O0 (baseline) vs -O3 JIT + AOT, diffed against host gcc (or the -O0

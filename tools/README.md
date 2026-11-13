@@ -26,6 +26,7 @@ All tools are **stdlib-only** (see [`tools/requirements.txt`](./requirements.txt
 | [`test_runner.py`](./verify/test_runner.py) | Main test suite runner invoked by `make test` | `python3 tools/verify/test_runner.py` |
 | [`test_wrapper.py`](./verify/test_wrapper.py) | Single-test execution wrapper used by `make test-single` | `python3 tools/verify/test_wrapper.py jit/basic` |
 | [`opt_sweep.py`](./verify/opt_sweep.py) | Optimizer regression sweep: `-O0..-O3` x JIT + AOT via zerocc itself | `python3 tools/verify/opt_sweep.py` |
+| [`perf_budget.py`](./verify/perf_budget.py) | Compile-performance budget gate (Sprint 178): ratcheted compile-time budgets over an increasing-size corpus (bench, churn, cJSON, deflate.c, sqlite3.c, c-torture sample) — wall per `-O` level + per-pass via `--profile-opts` | `python3 tools/verify/perf_budget.py` / `make test-perf` |
 | [`san_sweep.py`](./verify/san_sweep.py) | `zero_san` (-fsanitize=undefined) flag-ON soundness sweep | `python3 tools/verify/san_sweep.py` |
 | [`torture_run.py`](./verify/torture_run.py) | GCC `gcc.c-torture` differential conformance gate | `python3 tools/verify/torture_run.py --quick` |
 | [`diag_battery.py`](./verify/diag_battery.py) | Differential diagnostics vs gcc on `test/diag/*.c` | `python3 tools/verify/diag_battery.py` |

@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-13T12:48:15Z
+timestamp: 2026-11-13T13:13:49Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1422,3 +1422,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-13 — Updated `frontend-and-types.md`
 - Sprint 177: 64->128 widening follows the SOURCE expression's signedness (C 6.3.1.3) - all four GPR128 widen sites (128-bit local store, non-inlined + inlined return, explicit cast) now use zero_cc_expr_int_info on the source; regression test/jit/int128_unsigned_widen.c (fuzz seed 20261137)
+
+## 2026-11-13 — Updated `perf-measurements.md`
+- Sprint 178: compile-performance budget gate (make test-perf, tools/verify/perf_budget.py) - ratcheted wall-time + per-pass budgets over an increasing-size corpus (bench, churn, cJSON, deflate, sqlite3, pinned 20-file c-torture sample); tolerance design: wall 50% (host load), per-pass max(40%, 3ms) after measuring +-20% in-process jitter on the big single-function workloads (GVN on churn: 6.5-10.6ms over 12 runs); first ratchet 20/20 within budget
+
+## 2026-11-13 — Updated `build-and-verification.md`
+- Sprint 178: make test-perf compile-performance budget gate section (tools/verify/perf_budget.py + test/perf/baseline.json) - corpus, two-metric design (wall 50% / per-pass max(40%,3ms)), median-of-5-7 methodology, ratchet semantics, run-after guidance

@@ -4,7 +4,7 @@ title: Performance Measurements & the JIT-vs-GCC Claim
 description: Measured per-pass optimizer costs (--profile-opts) before/after the Sprint 35 CFG migration, the re-measured JIT-vs-GCC compile-time comparison (the old "~78x faster than GCC" figure is retracted), the dominant mem2reg cost analysis, and the 16-bit temp-id OOB bugs the measurement exposed.
 resource: concepts/perf-measurements
 tags: [performance, profiling, jit, gcc, benchmark, opt-profile, mem2reg, temp-id]
-timestamp: 2026-11-05T02:21:07Z
+timestamp: 2026-11-13T13:13:49Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -150,7 +150,11 @@ Burning down `TIMEOUT`s and `REJECT`s across the 3,940-test GCC `c-torture` corp
      - Statement-local expression temporaries in `collect_switch_cases` and `lower_stmt_if` (outside loops once `next_temp_id > 1024`) are dead at the statement boundary and now recycle `next_temp_id`, keeping peak temp IDs around `~1,050`.
      - `regalloc_get_reg_for_temp`, `regalloc_get_spill_slot_for_temp`, `regalloc_get_class_for_temp`, and `regalloc_reg_conflicts_fixed` previously scanned `ra->intervals[0..interval_count]` linearly on every instruction operand ($1.8 \times 10^5 \text{ instrs} \times 3 \times 3.2 \times 10^4 \approx 1.7 \times 10^{10}$ iterations, causing a >10 s `TIMEOUT` in `emit_ir_to_machine_code`). Adding `temp_to_interval[65536]` and `fixed_interval_indices[256]` to `RegAllocator` made all temp-to-interval lookups **$O(1)$**, reducing `compile/20001226-1.c` compile time from **>10 s (`TIMEOUT`) to <0.4 s**.
 
-## 5. Reproducing
+## 5. Compile-Performance Budget Gate (`make test-perf`, Sprint 178)
+
+The ratcheted compile-time budget (`tools/verify/perf_budget.py`, `test/perf/baseline.json`) is the standing guard against compile-speed regressions, built on the methodology of this page. Corpus (increasing size): the four `test/bench/` workloads + `synth_large.c`, the 131k-temp-id churn stress (`test/jit/temp_renumber_churn.c`), `cJSON.c`, `deflate.c`, the 255k-line `sqlite3.c`, and a pinned 20-file c-torture sample (guards the c-torture sweep's wall time — the largest gate consumer). Per case and `-O` level (default `-O0`/`-O2`): **wall time** (50% tolerance — the ±50% host-load swing documented in §2's methodology) and **per-pass time** via `--profile-opts` for `-O>=1` (max(40%, 3 ms) tolerance — per-pass times on the large single-function workloads jitter ±20% in-process; measured GVN on churn spans 6.5–10.6 ms across 12 runs). Median of 5 runs (7 for churn/sqlite3) after a warm run; a new case/level or a new pass not in the baseline FAILs; `--update-baseline` re-records. First ratchet (Sprint 178, 20/20 within budget): `synth_large -O2` 71 ms wall / 41 ms passes-only (LICM dominant, ~30 ms, consistent with §2's "LICM is the next target"), `churn` 1.7 s, `cJSON -O2` 124 ms / 28 ms, `deflate -O2` 111 ms / 36 ms, `sqlite3` 4.5 s (`-O0`) / 5.8 s (`-O2`, 1.26 s passes-only).
+
+## 6. Reproducing
 
 ```bash
 # per-pass profile (AOT; the JIT path also honors --profile-opts)
@@ -164,4 +168,4 @@ for i in 1 2 3 4 5; do t0=$(date +%s%N); ./build/bin/zerocc --run -O0 test/bench
 
 - [Optimization Passes](./optimization-passes.md) — pass pipeline & safety invariants.
 - [IR & Register Allocation](./ir-and-regalloc.md) — temp-id space (`VREG_USER_START`).
-- [Build & Verification](./build-and-verification.md) — `make test-opt` sweep.
+- [Build & Verification](./build-and-verification.md) — `make test-opt` sweep & the `make test-perf` budget gate.

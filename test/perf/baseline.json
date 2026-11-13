@@ -1,0 +1,266 @@
+{
+  "generated_by": "tools/verify/perf_budget.py --update-baseline",
+  "note": "ratchet: per-case compile budget (wall_s, host wall +-50%% tolerance; passes_ms, in-process 25%% tolerance). Median of N runs. Re-record after an intentional performance change.",
+  "tolerance_wall": 0.5,
+  "tolerance_pass": 0.4,
+  "levels": [
+    0,
+    2
+  ],
+  "cases": {
+    "bench_arith@O0": {
+      "file": "test/bench/arith_heavy.c",
+      "runs": 5,
+      "wall_s": 0.0096
+    },
+    "bench_arith@O2": {
+      "file": "test/bench/arith_heavy.c",
+      "runs": 5,
+      "wall_s": 0.0112,
+      "passes_ms": {
+        "TOTAL (passes only)": 1.775,
+        "constant_fold": 0.08,
+        "copy_prop": 0.192,
+        "cse": 0.037,
+        "dce": 0.429,
+        "flag_dce": 0.004,
+        "gvn": 0.135,
+        "licm": 0.396,
+        "mem2reg": 0.299
+      }
+    },
+    "bench_call@O0": {
+      "file": "test/bench/call_heavy.c",
+      "runs": 5,
+      "wall_s": 0.0115
+    },
+    "bench_call@O2": {
+      "file": "test/bench/call_heavy.c",
+      "runs": 5,
+      "wall_s": 0.0134,
+      "passes_ms": {
+        "TOTAL (passes only)": 1.828,
+        "constant_fold": 0.061,
+        "copy_prop": 0.131,
+        "cse": 0.041,
+        "dce": 0.622,
+        "flag_dce": 0.004,
+        "gvn": 0.128,
+        "licm": 0.456,
+        "mem2reg": 0.244
+      }
+    },
+    "bench_loop@O0": {
+      "file": "test/bench/loop_heavy.c",
+      "runs": 5,
+      "wall_s": 0.0104
+    },
+    "bench_loop@O2": {
+      "file": "test/bench/loop_heavy.c",
+      "runs": 5,
+      "wall_s": 0.0135,
+      "passes_ms": {
+        "TOTAL (passes only)": 2.313,
+        "constant_fold": 0.07,
+        "copy_prop": 0.18,
+        "cse": 0.064,
+        "dce": 0.596,
+        "flag_dce": 0.006,
+        "gvn": 0.162,
+        "licm": 0.761,
+        "mem2reg": 0.502
+      }
+    },
+    "bench_memory@O0": {
+      "file": "test/bench/memory_heavy.c",
+      "runs": 5,
+      "wall_s": 0.0054
+    },
+    "bench_memory@O2": {
+      "file": "test/bench/memory_heavy.c",
+      "runs": 5,
+      "wall_s": 0.0062,
+      "passes_ms": {
+        "TOTAL (passes only)": 0.79,
+        "constant_fold": 0.045,
+        "copy_prop": 0.059,
+        "cse": 0.02,
+        "dce": 0.158,
+        "flag_dce": 0.002,
+        "gvn": 0.093,
+        "licm": 0.299,
+        "mem2reg": 0.077
+      }
+    },
+    "bench_synth@O0": {
+      "file": "test/bench/synth_large.c",
+      "runs": 5,
+      "wall_s": 0.0334
+    },
+    "bench_synth@O2": {
+      "file": "test/bench/synth_large.c",
+      "runs": 5,
+      "wall_s": 0.0837,
+      "passes_ms": {
+        "TOTAL (passes only)": 47.38,
+        "constant_fold": 0.174,
+        "copy_prop": 2.09,
+        "cse": 0.424,
+        "dce": 0.673,
+        "flag_dce": 0.04,
+        "gvn": 0.974,
+        "licm": 36.48,
+        "mem2reg": 7.365
+      }
+    },
+    "churn@O0": {
+      "file": "test/jit/temp_renumber_churn.c",
+      "runs": 7,
+      "wall_s": 1.7035
+    },
+    "churn@O2": {
+      "file": "test/jit/temp_renumber_churn.c",
+      "runs": 7,
+      "wall_s": 1.8488,
+      "passes_ms": {
+        "TOTAL (passes only)": 198.774,
+        "constant_fold": 3.558,
+        "copy_prop": 68.894,
+        "cse": 7.24,
+        "dce": 14.298,
+        "flag_dce": 0.967,
+        "gvn": 6.962,
+        "licm": 3.556,
+        "mem2reg": 89.727
+      }
+    },
+    "cjson@O0": {
+      "file": "test/projects/cjson/cJSON.c",
+      "runs": 5,
+      "wall_s": 0.1026
+    },
+    "cjson@O2": {
+      "file": "test/projects/cjson/cJSON.c",
+      "runs": 5,
+      "wall_s": 0.1369,
+      "passes_ms": {
+        "TOTAL (passes only)": 29.83,
+        "constant_fold": 0.511,
+        "copy_prop": 3.453,
+        "cse": 5.254,
+        "dce": 5.584,
+        "flag_dce": 0.095,
+        "gvn": 1.879,
+        "licm": 7.102,
+        "mem2reg": 6.244
+      }
+    },
+    "deflate@O0": {
+      "file": "test/projects/zlib/deflate.c",
+      "runs": 5,
+      "wall_s": 0.0786
+    },
+    "deflate@O2": {
+      "file": "test/projects/zlib/deflate.c",
+      "runs": 5,
+      "wall_s": 0.1165,
+      "passes_ms": {
+        "TOTAL (passes only)": 35.227,
+        "constant_fold": 0.553,
+        "copy_prop": 5.593,
+        "cse": 5.971,
+        "dce": 2.893,
+        "flag_dce": 0.12,
+        "gvn": 2.339,
+        "licm": 8.437,
+        "mem2reg": 9.301
+      }
+    },
+    "sqlite3@O0": {
+      "file": "test/projects/sqlite/sqlite3.c",
+      "runs": 7,
+      "wall_s": 4.7004
+    },
+    "sqlite3@O2": {
+      "file": "test/projects/sqlite/sqlite3.c",
+      "runs": 7,
+      "wall_s": 6.1479,
+      "passes_ms": {
+        "TOTAL (passes only)": 1281.98,
+        "constant_fold": 23.124,
+        "copy_prop": 205.89,
+        "cse": 107.293,
+        "dce": 173.493,
+        "flag_dce": 4.793,
+        "gvn": 94.129,
+        "licm": 328.389,
+        "mem2reg": 348.822
+      }
+    },
+    "torture_sample@O0": {
+      "file": null,
+      "runs": 3,
+      "torture_sample": [
+        "execute/20000112-1.c",
+        "execute/20000113-1.c",
+        "execute/20000121-1.c",
+        "execute/20000205-1.c",
+        "execute/20000217-1.c",
+        "execute/20000223-1.c",
+        "execute/20000224-1.c",
+        "execute/20000225-1.c",
+        "execute/20000227-1.c",
+        "execute/20000313-1.c",
+        "execute/20000314-1.c",
+        "execute/20000314-2.c",
+        "execute/20000314-3.c",
+        "execute/20000402-1.c",
+        "execute/20000403-1.c",
+        "execute/20000412-1.c",
+        "execute/20000412-2.c",
+        "execute/20000412-3.c",
+        "execute/20000412-4.c",
+        "execute/20000412-5.c"
+      ],
+      "wall_s": 0.0864
+    },
+    "torture_sample@O2": {
+      "file": null,
+      "runs": 3,
+      "torture_sample": [
+        "execute/20000112-1.c",
+        "execute/20000113-1.c",
+        "execute/20000121-1.c",
+        "execute/20000205-1.c",
+        "execute/20000217-1.c",
+        "execute/20000223-1.c",
+        "execute/20000224-1.c",
+        "execute/20000225-1.c",
+        "execute/20000227-1.c",
+        "execute/20000313-1.c",
+        "execute/20000314-1.c",
+        "execute/20000314-2.c",
+        "execute/20000314-3.c",
+        "execute/20000402-1.c",
+        "execute/20000403-1.c",
+        "execute/20000412-1.c",
+        "execute/20000412-2.c",
+        "execute/20000412-3.c",
+        "execute/20000412-4.c",
+        "execute/20000412-5.c"
+      ],
+      "wall_s": 0.1009,
+      "passes_ms": {
+        "TOTAL (passes only)": 10.463,
+        "constant_fold": 0.724,
+        "copy_prop": 0.596,
+        "cse": 1.041,
+        "dce": 3.415,
+        "flag_dce": 0.024,
+        "gvn": 1.273,
+        "licm": 1.914,
+        "mem2reg": 1.217
+      }
+    }
+  }
+}

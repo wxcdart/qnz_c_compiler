@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## [Sprint 178] - 2026-11-13 - Compile-Performance Budget Gate (Verification / Scale)
+
+Implements dev-plan item #3, closing the **entire Verification & Scale track** (all 5 items shipped). `make test-perf` (`tools/verify/perf_budget.py` + `test/perf/baseline.json`): ratcheted compile-time budgets over a fixed corpus of increasing size, so a compile-speed regression is a gate failure instead of a silent slowdown.
+
+**The gate**
+- **Corpus** (all in-repo, increasing size): the four `test/bench/` workloads + `synth_large.c` (the per-pass baseline workload), the 131k-temp-id churn stress (`test/jit/temp_renumber_churn.c` — the parser/lowering pathological case), `cJSON.c`, `deflate.c`, the 255k-line `sqlite3.c`, and a **pinned 20-file c-torture sample** that directly guards the c-torture sweep's per-test fixed cost (the largest gate consumer).
+- **Two metrics per case and `-O` level** (default `-O0`/`-O2`, `--levels` to widen): **wall time** (whole `-S` compile; 50% tolerance — the documented ±50% host-load swing) and **per-pass optimizer time** via the existing `--profile-opts` in-process `CLOCK_MONOTONIC` profiler for `-O>=1` (max(40%, 3 ms) tolerance). **Methodology finding while calibrating**: per-pass times on the large single-function workloads jitter ±20% run-to-run *even in-process* (measured: GVN on churn spans 6.5–10.6 ms across 12 runs), so a naive relative floor flaps — the 3 ms absolute floor absorbs median-of-N sampling noise while still catching 2× pass regressions. A *new* pass not in the baseline FAILs (must be ratcheted); a removed pass counts as 0.
+- **Measurement discipline**: median of 5 runs (7 for churn/sqlite3, the noisiest) after one discarded warm run; `--update-baseline` re-records after an intentional perf change; a case/level missing from the baseline FAILs. **20/20 case-levels within budget at HEAD**: `sqlite3` 4.5 s (`-O0`) / 5.8 s (`-O2`, 1.26 s passes-only), `churn` 1.7 s, `deflate -O2` 111 ms / 36 ms passes, `cJSON -O2` 124 ms / 28 ms, `synth_large -O2` 71 ms wall / 41 ms passes-only (LICM dominant ~30 ms — consistent with the OKF "LICM is the next target" note).
+- **Wiring**: `make test-perf` + `.PHONY`; `AGENTS.md` gate list + tools table; `README.md` feature bullet + status row; `tools/README.md` inventory; `docs/okf/perf-measurements.md` new §5 (the gate + first-ratchet numbers, continuing the per-pass cost baseline); `docs/okf/build-and-verification.md` gate section + workflow; dev-plan item #3 marked shipped (track complete).
+
+**Verification:** `make test-perf` 20/20 within budget (verified stable across repeated runs; negative-tested with zero tolerance to prove the failure path fires); docs/OKF lint+index clean.
+
+---
+
 ## [Sprint 177] - 2026-11-13 - Differential Fuzzing Gate (Verification / IR / 128-bit)
 
 Implements dev-plan item #1: `make test-fuzz` (`tools/fuzz/fuzz_diff.py` + `test/fuzz/`), a seeded random-C generator scoped to ZeroCC's supported feature set, differential-compiled and differential-executed against a reference gcc. **106/106 green** (120 seeds, 14 UB discards); the first sweep found and drove to zero two real compiler bugs.

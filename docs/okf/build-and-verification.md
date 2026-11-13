@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 165-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-11-13T12:48:15Z
+timestamp: 2026-11-13T13:13:49Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -159,6 +159,23 @@ Sprint 176 also fixed the preprocessor bugs the gate first exposed: hash-used pa
 `tools/fuzz/fuzz_diff.py` generates random **self-checking** C programs from a seeded AST scoped to ZeroCC's supported feature set (integers incl. `__int128`, structs with by-value/pointer use, VLAs, pointers, if/for/switch, recursion, K&R definitions, `sizeof`, designated initializers, struct compound literals) and differential-executes them against the reference gcc (`FUZZ_GCC` override, else gcc-15/14/gcc, `-std=gnu11 -O2`) while zerocc runs at `-O0` AOT + `-O0` JIT (default 120 seeds; `--seeds`/`--levels`/`--base-seed` to widen). C text and the Python model are **two projections of the same AST** (arbitrary-precision ints + explicit width masking per C usual-arithmetic-conversions, LP64), so each program embeds compile-time self-checks (`if (v != EXPT) { printf(...); return 1; }`) computed by the model — a pass is exact `(rc, stdout)` equality, not approximate.
 
 The model doubles as a defined-behavior validator: div-by-zero, out-of-range shifts, signed overflow, and out-of-bounds index all raise and the case is *discarded* (deterministic per seed; >30% discards = generator bounds bug, exit 2). Generated C that gcc rejects is a **generator defect** (exit 2), never a green. Gate semantics ratchet like the other gates: `test/fuzz/baseline.json` records pass/diff per case (case = base_seed + index); a new failure or a changed ratcheted failure FAILs the gate, a ratcheted failure that now passes is an improvement; failing seeds' sources persist as `test/fuzz/seed_<seed>.c`. **Run after lowering/ABI/128-bit codegen changes** (the gate found two bugs in its first sweep, both fixed in Sprint 177): (1) a segfault in `lower_stmt_decl` — `strcmp` on `s.str` pointers borrowed from the realloc-able `c->locals` table (compound-literal decls with a parenthesized initializer, `test/jit/int128_unsigned_widen.c` sibling `test/fuzz/seed_20261121.c`); (2) 64-bit **unsigned** values sign-extended into **signed** `__int128` stores/returns/casts (the extension kind followed the *target's* signedness, not the source's, C 6.3.1.3 — `test/jit/int128_unsigned_widen.c`).
+
+### Compile-performance budget gate (`make test-perf`, Sprint 178)
+
+`tools/verify/perf_budget.py` ratchets **compile-time budgets** over a fixed corpus of increasing size so a compile-speed regression is a gate failure, not a silent slowdown. The corpus (all in-repo, no new vendored code): the four `test/bench/` workloads (`arith_heavy`, `call_heavy`, `loop_heavy`, `memory_heavy`), `synth_large.c` (the per-pass baseline workload from `docs/okf/perf-measurements.md`), `test/jit/temp_renumber_churn.c` (131k temp-ids — the parser/lowering stress), `test/projects/cjson/cJSON.c`, `test/projects/zlib/deflate.c`, the 255k-line `test/projects/sqlite/sqlite3.c`, and a pinned 20-file c-torture sample (`execute/*.c`, first 20 sorted) that directly guards the c-torture sweep's per-test fixed cost.
+
+Per case and `-O` level (default `-O0` + `-O2`; `--levels` to widen) it measures:
+- **Wall time** (whole `-S` compile: parse → lower → optimize → asm emit, no assembler/linker). Tolerance **50%** — the `perf-measurements.md` methodology notes host wall times swing ±50% under variable load, so a tighter floor would flap.
+- **Per-pass optimizer time** via the existing `--profile-opts` flag (in-process `CLOCK_MONOTONIC`, unaffected by page-cache/linker variance) for `-O>=1`. Tolerance **max(40% relative, 3 ms absolute)**: per-pass times on the large single-function workloads (churn, sqlite3) jitter ±20% run-to-run even in-process (measured: GVN on churn spans 6.5–10.6 ms across 12 runs), so the floor must absorb median-of-N sampling noise while still catching a 2× pass regression. A *new* pass not in the baseline FAILs (must be ratcheted); a baseline pass absent from the run is treated as 0 (removed pass = improvement).
+
+Each value is the **median of 5 runs** (7 for churn/sqlite3, the noisiest; `--runs` to override), after one discarded warm run. Ratcheted against `test/perf/baseline.json`: a case/level missing from the baseline FAILs; a measured value above budget × (1+tolerance) FAILs; improvements are reported informationally (re-record with `--update-baseline` to pull the budget down). This is the continuation of the `perf-measurements.md` per-pass cost baseline (mem2reg/GVN fixed in Sprints 36/38; LICM is the current dominant pass) and protects both user compile times and gate wall time (the c-torture sweep is the largest consumer). **Run after any change to parser, lowering, an optimization pass, or the backend emitters.**
+
+```
+make test-perf                      # CI sweep (median of 5-7 runs per case)
+python3 tools/verify/perf_budget.py --only sqlite3 --runs 7
+python3 tools/verify/perf_budget.py --levels 0 2 3 --verbose
+python3 tools/verify/perf_budget.py --update-baseline   # re-record after an intentional perf change
+```
 
 ## 3. Verifying Individual C Files with ZeroCC Directly
 
