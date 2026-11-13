@@ -45,6 +45,7 @@
  */
 
 #include "zero_cc/opt/opt_temp_renumber.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "zero_cc/ir/ir.h"
@@ -189,6 +190,13 @@ int opt_temp_renumber(ZeroCCCompiler *c, const char *fn_name) {
             pool_head[pool] = (int32_t)ni;
         }
     }
+    /* ZC_RENUMBER_DEBUG=1: report the churn -> peak-live compaction so
+     * churn-stress tests can assert they actually exceed the 65,534
+     * 16-bit-era budget (test/jit/temp_renumber_churn.c). */
+    if (getenv("ZC_RENUMBER_DEBUG"))
+        fprintf(stderr, "[renumber] %s: %zu instrs, churn %u -> peak %u\n",
+                fn, n, max_id - VREG_USER_START, next_fresh - VREG_USER_START);
+
     if (next_fresh >= TR_ID_LIMIT) {
         /* Peak-live temps exceeded the 16-bit-era budget - the same
          * resource limit the C2b guard enforced, now on PEAK live

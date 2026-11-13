@@ -1,5 +1,17 @@
 # CHANGELOG
 
+## [Sprint 175] - 2026-11-13 - Temp-ID Recyclization Churn-Proof + Stale Cap Doc Fix (IR / Documentation)
+
+Proves the liveness-based temp-ID renumbering pass (`opt_temp_renumber.c`, Sprint 151b, dev-plan item 9) handles real churn well past the old 16-bit budget, and retires the stale "caps at 65,534 total-allocated" claim that survived in the OKF.
+
+- **Churn-stress regression test (`test/jit/temp_renumber_churn.c`)**: a 266-byte macro-doubling expression (`D^16(x)` → 65,536 `x` leaves + 65,535 `+` nodes) churns **131,093** temp IDs in one function — double the pre-151b 65,534 cap that would have refused to compile it — and compiles cleanly at `-O0..-O3` in JIT + AOT after compaction to **peak-live 34**. Expected output `churn ok: 196608` (3×65536). Auto-discovered by `make test` (host gcc) and swept by `make test-opt` (zerocc, all levels, JIT + AOT).
+- **`ZC_RENUMBER_DEBUG` probe (`opt_temp_renumber.c`)**: opt-in `stderr` line per function (`[renumber] <fn>: <n> instrs, churn <churned> -> peak <peak-live>`) so churn-stress tests can assert they actually exceed the old budget. The test header pins the observed `churn 131093 -> peak 34`.
+- **Stale-doc fix (`docs/okf/ir-and-regalloc.md`)**: the "IR shape" summary still said the 32-bit temp-id space "caps each function at 65,534 *total-allocated* temps (≈22,000 simple statements — see *Calibration & scale*") and dangled a reference to a *Calibration & scale* subsection that no longer exists. Rewrote it to state the truth (churn is unbounded; the renumber pass compacts to the **peak-live** set, and `peak_live >= 65535` is the real refusal bound), and added the churn-proof bullet to the *Temp-Id Space* section.
+- **Dev-plan item 9** marked **Done (Sprint 151b; churn proof Sprint 175)** with the test + debug probe cited.
+- **Verification:** `make test` 230/230; `make test-opt` 129 ok / 0 failed; `style_check.py` 0 errors; `okf.py lint && index` 21/21 reachable.
+
+---
+
 ## [Sprint 174] - 2026-11-13 - Phase 4 RV32 i64 Complete (Width-8 Sanitizer Checks, ADD64/SUB64/MUL64 Signed-Overflow, Div/Rem-by-Zero, Shift Bounds, OP_OVF_TRAP Liveness) (RISC-V / Sanitizer / IR / Codegen)
 
 Completed Phase 4 of the RV32 64-bit integer roadmap ([rv32-i64-roadmap.md](okf/rv32-i64-roadmap.md)), completing the 4-phase RV32 64-bit integer implementation. Width-8 signed-overflow checks (`ADD64`, `SUB64`, `MUL64`), division and remainder by zero, and shift-count bounds checks are now enabled for `--target riscv32` under `-fsanitize=undefined` and verified across both raw binary and `-S` assembly paths under QEMU.
