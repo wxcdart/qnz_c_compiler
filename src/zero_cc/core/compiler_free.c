@@ -166,16 +166,20 @@ void zero_cc_compiler_free(ZeroCCCompiler *c) {
         free((void *)c->ctfe_local_names[i]);
     }
     free(c->ctfe_local_names);
-    free(c->ctfe_local_values);
+    free(c->ctfe_local_values_i);
+    free(c->ctfe_local_values_r);
+    free(c->ctfe_local_kinds);
     free(c->ctfe_scope_stack);
     c->ctfe_local_names = NULL;
-    c->ctfe_local_values = NULL;
+    c->ctfe_local_values_i = NULL;
+    c->ctfe_local_values_r = NULL;
+    c->ctfe_local_kinds = NULL;
     c->ctfe_scope_stack = NULL;
     c->ctfe_local_count = 0;
     c->ctfe_local_cap = 0;
     c->ctfe_scope_count = 0;
     c->ctfe_scope_cap = 0;
-    /* ctfe_param_values is an inline array — nothing to free. */
+    /* ctfe_param_values_i/r/kind are inline arrays — nothing to free. */
 
     /* diag_buf.entries pointed at the per-compile tmp arena, destroyed
      * inside zero_cc_compile_c99 — clear, never free. */

@@ -1417,7 +1417,15 @@ ZCConstVal parse_primary(ZeroCCCompiler *c, size_t *pos)
         for (size_t pi = 0; pi < c->ctfe_param_count; pi++) {
             if (strcmp(c->ctfe_param_names[pi], c->tokens[*pos].str_val) == 0) {
                 (*pos)++;
-                return zc_cv_int(c->ctfe_param_values[pi]);
+                ZCConstVal v;
+                v.kind = (ZCConstValKind)c->ctfe_param_kinds[pi];
+                v.i = c->ctfe_param_values_i[pi];
+                v.r = c->ctfe_param_values_r[pi];
+                v.im = 0.0;
+                v.hi = 0;
+                v.w128 = false;
+                v.signed_ = false;
+                return v;
             }
         }
         /* C23 constexpr: local variable reference during CTFE.  Locals
@@ -1425,7 +1433,15 @@ ZCConstVal parse_primary(ZeroCCCompiler *c, size_t *pos)
         for (size_t li = c->ctfe_local_count; li > 0; li--) {
             if (strcmp(c->ctfe_local_names[li - 1], c->tokens[*pos].str_val) == 0) {
                 (*pos)++;
-                return zc_cv_int(c->ctfe_local_values[li - 1]);
+                ZCConstVal v;
+                v.kind = (ZCConstValKind)c->ctfe_local_kinds[li - 1];
+                v.i = c->ctfe_local_values_i[li - 1];
+                v.r = c->ctfe_local_values_r[li - 1];
+                v.im = 0.0;
+                v.hi = 0;
+                v.w128 = false;
+                v.signed_ = false;
+                return v;
             }
         }
 
@@ -1442,7 +1458,7 @@ ZCConstVal parse_primary(ZeroCCCompiler *c, size_t *pos)
                 call_pos++; /* '(' */
 
                 /* Evaluate comma-separated arguments as constant expressions. */
-                int64_t arg_values[16];
+                ZCConstVal arg_values[16];
                 size_t arg_count = 0;
                 while (call_pos < c->token_count &&
                        c->tokens[call_pos].type != TK_RPAREN &&
@@ -1452,7 +1468,7 @@ ZCConstVal parse_primary(ZeroCCCompiler *c, size_t *pos)
                     ZCConstVal arg_val = parse_conditional(c, &c->token_pos);
                     call_pos = c->token_pos;
                     c->token_pos = saved_pos;
-                    arg_values[arg_count++] = arg_val.i;
+                    arg_values[arg_count++] = arg_val;
                     if (call_pos < c->token_count &&
                         c->tokens[call_pos].type == TK_COMMA) {
                         call_pos++; /* consume ',' */
@@ -1465,19 +1481,31 @@ ZCConstVal parse_primary(ZeroCCCompiler *c, size_t *pos)
                 }
 
                 /* Set up CTFE parameter bindings from fn->param_names.
-                 * Copy argument values into the inline array so they remain
+                 * Copy argument values into the inline arrays so they remain
                  * valid after parse_primary() returns (arg_values is a stack
                  * array that would dangle otherwise). */
                 const char **saved_param_names = c->ctfe_param_names;
-                int64_t saved_param_values[16];
+                int64_t saved_param_values_i[16];
+                double saved_param_values_r[16];
+                uint8_t saved_param_kinds[16];
                 size_t saved_param_count = c->ctfe_param_count;
 
-                for (size_t ai = 0; ai < c->ctfe_param_count; ai++)
-                    saved_param_values[ai] = c->ctfe_param_values[ai];
+                for (size_t ai = 0; ai < c->ctfe_param_count; ai++) {
+                    saved_param_values_i[ai] = c->ctfe_param_values_i[ai];
+                    saved_param_values_r[ai] = c->ctfe_param_values_r[ai];
+                    saved_param_kinds[ai] = c->ctfe_param_kinds[ai];
+                }
 
                 c->ctfe_param_names = (const char **)fn->param_names;
-                for (size_t ai = 0; ai < arg_count; ai++)
-                    c->ctfe_param_values[ai] = arg_values[ai];
+                for (size_t ai = 0; ai < arg_count; ai++) {
+                    ZCConstVal av = arg_values[ai];
+                    if (fn->param_types && ai < fn->param_count) {
+                        av = zc_cv_cast(av, fn->param_types[ai]);
+                    }
+                    c->ctfe_param_values_i[ai] = av.i;
+                    c->ctfe_param_values_r[ai] = av.r;
+                    c->ctfe_param_kinds[ai] = (uint8_t)av.kind;
+                }
                 c->ctfe_param_count = (fn->param_count < 16) ? fn->param_count : 16;
 
                 /* Save token position, evaluate the body, then restore. */
@@ -1488,11 +1516,15 @@ ZCConstVal parse_primary(ZeroCCCompiler *c, size_t *pos)
                  * blocks, declarations, etc.). */
                 ZCConstVal result = ctfe_eval_body(c, fn->constexpr_body_start,
                                                    fn->constexpr_body_end);
+                result = zc_cv_cast(result, fn->return_type);
 
                 /* Restore CTFE state and token position. */
                 c->ctfe_param_names = saved_param_names;
-                for (size_t ai = 0; ai < saved_param_count; ai++)
-                    c->ctfe_param_values[ai] = saved_param_values[ai];
+                for (size_t ai = 0; ai < saved_param_count; ai++) {
+                    c->ctfe_param_values_i[ai] = saved_param_values_i[ai];
+                    c->ctfe_param_values_r[ai] = saved_param_values_r[ai];
+                    c->ctfe_param_kinds[ai] = saved_param_kinds[ai];
+                }
                 c->ctfe_param_count = saved_param_count;
                 c->token_pos = saved_token_pos;
 
@@ -1558,12 +1590,15 @@ static void ctfe_pop_scope(ZeroCCCompiler *c) {
 }
 
 /* Declare a local variable (or reassign an existing one in the current scope). */
-static void ctfe_declare_local(ZeroCCCompiler *c, const char *name, int64_t val) {
+static void ctfe_declare_local(ZeroCCCompiler *c, const char *name,
+                               int64_t val_i, double val_r, uint8_t kind) {
     /* Check for existing declaration in the current (innermost) scope. */
     size_t mark = (c->ctfe_scope_count > 0) ? c->ctfe_scope_stack[c->ctfe_scope_count - 1] : 0;
-    for (size_t i = mark; i < c->ctfe_local_count; i++) {
-        if (strcmp(c->ctfe_local_names[i], name) == 0) {
-            c->ctfe_local_values[i] = val;
+    for (size_t idx = mark; idx < c->ctfe_local_count; idx++) {
+        if (strcmp(c->ctfe_local_names[idx], name) == 0) {
+            c->ctfe_local_values_i[idx] = val_i;
+            c->ctfe_local_values_r[idx] = val_r;
+            c->ctfe_local_kinds[idx] = kind;
             return;
         }
     }
@@ -1571,18 +1606,25 @@ static void ctfe_declare_local(ZeroCCCompiler *c, const char *name, int64_t val)
     if (c->ctfe_local_count >= c->ctfe_local_cap) {
         size_t newcap = c->ctfe_local_cap ? c->ctfe_local_cap * 2 : 16;
         char **nn = (char **)realloc(c->ctfe_local_names, newcap * sizeof(char *));
-        int64_t *nv = (int64_t *)realloc(c->ctfe_local_values, newcap * sizeof(int64_t));
-        if (!nn || !nv) {
-            if (!nn) free(nv);
-            if (!nv) free(nn);
+        int64_t *nvi = (int64_t *)realloc(c->ctfe_local_values_i, newcap * sizeof(int64_t));
+        double *nvr = (double *)realloc(c->ctfe_local_values_r, newcap * sizeof(double));
+        uint8_t *nvk = (uint8_t *)realloc(c->ctfe_local_kinds, newcap * sizeof(uint8_t));
+        if (!nn || !nvi || !nvr || !nvk) {
+            if (!nn) { free(nvi); free(nvr); free(nvk); }
+            if (!nvi) free(nvr);
+            if (!nvr) free(nvk);
             return;
         }
         c->ctfe_local_names = nn;
-        c->ctfe_local_values = nv;
+        c->ctfe_local_values_i = nvi;
+        c->ctfe_local_values_r = nvr;
+        c->ctfe_local_kinds = nvk;
         c->ctfe_local_cap = newcap;
     }
     c->ctfe_local_names[c->ctfe_local_count] = strdup(name);
-    c->ctfe_local_values[c->ctfe_local_count] = val;
+    c->ctfe_local_values_i[c->ctfe_local_count] = val_i;
+    c->ctfe_local_values_r[c->ctfe_local_count] = val_r;
+    c->ctfe_local_kinds[c->ctfe_local_count] = kind;
     c->ctfe_local_count++;
 }
 
@@ -1616,7 +1658,9 @@ static CtfResult ctfe_eval_decl(ZeroCCCompiler *c, size_t *pos, size_t end) {
         (*pos)++;
     }
 
-    int64_t init = 0;
+    int64_t init_i = 0;
+    double init_r = 0.0;
+    uint8_t init_kind = (uint8_t)ZC_CV_INT;
     if (*pos < end && c->tokens[*pos].type == TK_ASSIGN) {
         (*pos)++; /* consume '=' */
         size_t saved = c->token_pos;
@@ -1624,10 +1668,12 @@ static CtfResult ctfe_eval_decl(ZeroCCCompiler *c, size_t *pos, size_t end) {
         ZCConstVal init_val = parse_conditional(c, &c->token_pos);
         *pos = c->token_pos;
         c->token_pos = saved;
-        init = init_val.i;
+        init_i = init_val.i;
+        init_r = init_val.r;
+        init_kind = (uint8_t)init_val.kind;
     }
 
-    ctfe_declare_local(c, name, init);
+    ctfe_declare_local(c, name, init_i, init_r, init_kind);
 
     /* Consume trailing comma (more declarators) or semicolon. */
     if (*pos < end && c->tokens[*pos].type == TK_COMMA) {
@@ -1831,7 +1877,11 @@ static CtfResult ctfe_eval_for(ZeroCCCompiler *c, size_t *pos, size_t end) {
     /* Init (a declaration or expression). */
     if (*pos < end && c->tokens[*pos].type != TK_SEMI) {
         if (c->tokens[*pos].type == TK_INT || c->tokens[*pos].type == TK_AUTO ||
-            c->tokens[*pos].type == TK_CONST || c->tokens[*pos].type == TK_CONSTEXPR) {
+            c->tokens[*pos].type == TK_CONST || c->tokens[*pos].type == TK_CONSTEXPR ||
+            c->tokens[*pos].type == TK_FLOAT_KW || c->tokens[*pos].type == TK_DOUBLE_KW ||
+            c->tokens[*pos].type == TK_SHORT || c->tokens[*pos].type == TK_LONG ||
+            c->tokens[*pos].type == TK_CHAR || c->tokens[*pos].type == TK_BOOL_KW ||
+            c->tokens[*pos].type == TK_SIGNED || c->tokens[*pos].type == TK_UNSIGNED) {
             r = ctfe_eval_decl(c, pos, end);
         } else {
             r = ctfe_eval_expr_stmt(c, pos, end);
@@ -1962,7 +2012,9 @@ static CtfResult ctfe_eval_for(ZeroCCCompiler *c, size_t *pos, size_t end) {
                 bool found = false;
                 for (size_t pi = 0; pi < c->ctfe_param_count; pi++) {
                     if (strcmp(c->ctfe_param_names[pi], name) == 0) {
-                        c->ctfe_param_values[pi] = val.i;
+                        c->ctfe_param_values_i[pi] = val.i;
+                        c->ctfe_param_values_r[pi] = val.r;
+                        c->ctfe_param_kinds[pi] = (uint8_t)val.kind;
                         found = true;
                         break;
                     }
@@ -1970,7 +2022,9 @@ static CtfResult ctfe_eval_for(ZeroCCCompiler *c, size_t *pos, size_t end) {
                 if (!found) {
                     for (size_t li = c->ctfe_local_count; li > 0; li--) {
                         if (strcmp(c->ctfe_local_names[li - 1], name) == 0) {
-                            c->ctfe_local_values[li - 1] = val.i;
+                            c->ctfe_local_values_i[li - 1] = val.i;
+                            c->ctfe_local_values_r[li - 1] = val.r;
+                            c->ctfe_local_kinds[li - 1] = (uint8_t)val.kind;
                             found = true;
                             break;
                         }
@@ -2062,7 +2116,9 @@ static CtfResult ctfe_eval_stmt(ZeroCCCompiler *c, size_t *pos, size_t end) {
                 ZCConstVal val = parse_conditional(c, &c->token_pos);
                 *pos = c->token_pos;
                 c->token_pos = saved;
-                c->ctfe_param_values[pi] = val.i;
+                c->ctfe_param_values_i[pi] = val.i;
+                c->ctfe_param_values_r[pi] = val.r;
+                c->ctfe_param_kinds[pi] = (uint8_t)val.kind;
                 if (*pos < end && c->tokens[*pos].type == TK_SEMI) (*pos)++;
                 r.kind = CTF_NORMAL;
                 return r;
@@ -2076,7 +2132,9 @@ static CtfResult ctfe_eval_stmt(ZeroCCCompiler *c, size_t *pos, size_t end) {
                 ZCConstVal val = parse_conditional(c, &c->token_pos);
                 *pos = c->token_pos;
                 c->token_pos = saved;
-                c->ctfe_local_values[li - 1] = val.i;
+                c->ctfe_local_values_i[li - 1] = val.i;
+                c->ctfe_local_values_r[li - 1] = val.r;
+                c->ctfe_local_kinds[li - 1] = (uint8_t)val.kind;
                 if (*pos < end && c->tokens[*pos].type == TK_SEMI) (*pos)++;
                 r.kind = CTF_NORMAL;
                 return r;
@@ -2095,6 +2153,7 @@ ZCConstVal ctfe_eval_body(ZeroCCCompiler *c, size_t start, size_t end) {
     /* Skip opening '{' if present. */
     if (pos < end && c->tokens[pos].type == TK_LBRACE) pos++;
 
+    ctfe_push_scope(c);
     ZCConstVal result = zc_cv_int(0);
     while (pos < end) {
         CtfResult r = ctfe_eval_stmt(c, &pos, end);
@@ -2103,6 +2162,7 @@ ZCConstVal ctfe_eval_body(ZeroCCCompiler *c, size_t start, size_t end) {
             break;
         }
     }
+    ctfe_pop_scope(c);
     return result;
 }
 

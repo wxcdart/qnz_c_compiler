@@ -656,7 +656,7 @@ double zc_fp_negate(double v) {
     memcpy(&v, &b, sizeof(v));
     return v;
 }
-double zc_eval_const_fp_multiplicative(ZeroCCCompiler *c) {
+double zc_eval_const_fp_primary(ZeroCCCompiler *c) {
     double v = 0.0;
     double sign = 1.0;
     while (c->token_pos < c->token_count &&
@@ -716,42 +716,35 @@ double zc_eval_const_fp_multiplicative(ZeroCCCompiler *c) {
             }
             uint64_t fpbits = is_nan ? 0x7FF8000000000000ULL : 0x7FF0000000000000ULL;
             memcpy(&v, &fpbits, sizeof(v));
+        } else if (c->token_pos + 1 < c->token_count && c->tokens[c->token_pos + 1].type == TK_LPAREN) {
+            ZeroCCFunction *fn = zero_cc_find_function(c, nm);
+            if (fn && fn->is_constexpr) {
+                ZCConstVal cv = zero_cc_eval_const_expr_val(c);
+                v = (cv.kind == ZC_CV_INT) ? (double)cv.i : cv.r;
+            }
         } else {
-        /* Earlier global's value: `double d = (double) a;` where
-         * `const char a = 0x42;` (Sprint 68). */
-        bool g_is_f = false;
-        int64_t g_i = 0;
-        double g_d = 0.0;
-        if (zc_const_global_scalar(c, c->tokens[c->token_pos].str_val, &g_is_f, &g_i, &g_d)) {
-            v = g_is_f ? g_d : (double)g_i;
-            c->token_pos++;
-        }
+            /* Earlier global's value: `double d = (double) a;` where
+             * `const char a = 0x42;` (Sprint 68). */
+            bool g_is_f = false;
+            int64_t g_i = 0;
+            double g_d = 0.0;
+            if (zc_const_global_scalar(c, c->tokens[c->token_pos].str_val, &g_is_f, &g_i, &g_d)) {
+                v = g_is_f ? g_d : (double)g_i;
+                c->token_pos++;
+            }
         }
     }
     if (sign < 0.0) v = zc_fp_negate(v);
+    return v;
+}
+
+double zc_eval_const_fp_multiplicative(ZeroCCCompiler *c) {
+    double v = zc_eval_const_fp_primary(c);
     while (c->token_pos < c->token_count &&
            (c->tokens[c->token_pos].type == TK_STAR || c->tokens[c->token_pos].type == TK_SLASH)) {
         bool div = (c->tokens[c->token_pos].type == TK_SLASH);
         c->token_pos++;
-        double sign2 = 1.0;
-        while (c->token_pos < c->token_count &&
-               (c->tokens[c->token_pos].type == TK_PLUS || c->tokens[c->token_pos].type == TK_MINUS)) {
-            if (c->tokens[c->token_pos].type == TK_MINUS) sign2 = -sign2;
-            c->token_pos++;
-        }
-        double r = 0.0;
-        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_FLOAT) {
-            r = c->tokens[c->token_pos].float_val;
-            c->token_pos++;
-        } else if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_NUM) {
-            r = (double)c->tokens[c->token_pos].num_val;
-            c->token_pos++;
-        } else if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
-            c->token_pos++;
-            r = zc_eval_const_fp_additive(c);
-            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
-        }
-        if (sign2 < 0.0) r = zc_fp_negate(r);
+        double r = zc_eval_const_fp_primary(c);
         if (div) v = v / r; else v = v * r;
     }
     return v;

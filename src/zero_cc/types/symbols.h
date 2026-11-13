@@ -372,19 +372,30 @@ typedef struct ZeroCCCompiler {
      * Used during CTFE to substitute parameter references with argument
      * values. Reset between evaluations.
      *
-     * ctfe_param_values is a fixed-size inline array (16 entries) so that
-     * it remains valid across parse_primary() returns - a stack array in
-     * the caller would dangle once that function returns.
-     */
+     * Values are stored as parallel arrays (int64_t + double + kind) so
+     * both integer and floating-point (and pointer, encoded as an integer
+     * address) parameters are supported in constexpr function bodies.
+     * ctfe_param_values_i/r/kind are fixed-size inline arrays (16 entries)
+     * so they remain valid across parse_primary() returns - a stack array
+     * in the caller would dangle once that function returns.
+     *
+     * Kind encoding: 0 = integer, 1 = float, 2 = complex, 3 = pointer. */
     const char **ctfe_param_names;
-    int64_t ctfe_param_values[16];
+    int64_t ctfe_param_values_i[16];
+    double ctfe_param_values_r[16];
+    uint8_t ctfe_param_kinds[16];
     size_t ctfe_param_count;
 
     /* C23 constexpr: local variable environment during CTFE evaluation.
      * Parallel arrays of name -> value.  Supports block scope via
-     * ctfe_scope_stack (each entry records the local count at scope entry). */
+     * ctfe_scope_stack (each entry records the local count at scope entry).
+     * Locals shadow parameters (searched last).
+     *
+     * Kind encoding: 0 = integer, 1 = float, 2 = complex, 3 = pointer. */
     char **ctfe_local_names;
-    int64_t *ctfe_local_values;
+    int64_t *ctfe_local_values_i;
+    double *ctfe_local_values_r;
+    uint8_t *ctfe_local_kinds;
     size_t ctfe_local_count;
     size_t ctfe_local_cap;
     size_t *ctfe_scope_stack;

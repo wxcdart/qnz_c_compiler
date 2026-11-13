@@ -65,6 +65,28 @@ constexpr int r9 = clamp(5, 10, 20);   /* 10 */
 constexpr int r10 = clamp(15, 10, 20); /* 15 */
 constexpr int r11 = clamp(25, 10, 20); /* 20 */
 
+/* Floating-point CTFE */
+constexpr float f_abs(float x) {
+    if (x < 0.0f) return -x;
+    return x;
+}
+constexpr float rf1 = f_abs(-3.5f);     /* 3.5f */
+constexpr float rf2 = f_abs(2.25f);     /* 2.25f */
+
+constexpr double d_mul_add(double a, double b, double c) {
+    return a * b + c;
+}
+constexpr double rd1 = d_mul_add(2.5, 4.0, 1.5); /* 10.0 + 1.5 = 11.5 */
+
+constexpr float f_sum_loop(int n) {
+    float s = 0.0f;
+    for (int i = 1; i <= n; i = i + 1) {
+        s = s + 0.5f;
+    }
+    return s;
+}
+constexpr float rf3 = f_sum_loop(4);    /* 2.0f */
+
 /* Runtime call (not constant context) */
 int g(void) { return f_int(100); }     /* 101 */
 
@@ -81,6 +103,10 @@ int main(void) {
     if (r10 != 15) return 10;
     if (r11 != 20) return 11;
     if (g() != 101) return 12;
+    if (rf1 != 3.5f) return 13;
+    if (rf2 != 2.25f) return 14;
+    if (rd1 != 11.5) return 15;
+    if (rf3 != 2.0f) return 16;
     return 0;
 }
 #endif

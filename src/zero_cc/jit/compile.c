@@ -835,7 +835,28 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
                 for (size_t i = 0; i < vpad; i++) zero_cc_emit_u8(&c->data_section, 0);
                 size_t voff = c->data_section.length;
                 for (size_t i = 0; i < vsize; i++) zero_cc_emit_u8(&c->data_section, 0);
-                if (add_global_var(c, vname, vt, voff, vsize, false, true) < 0) {
+                bool has_init = false;
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_ASSIGN) {
+                    c->token_pos++;
+                    has_init = true;
+                    if (vt.tag == TYPE_FLOAT || vt.tag == TYPE_DOUBLE) {
+                        double dv = zero_cc_eval_const_expr_float(c);
+                        uint64_t bits = 0;
+                        if (vsize <= 4) {
+                            float fv = (float)dv;
+                            memcpy(&bits, &fv, sizeof(fv));
+                        } else {
+                            memcpy(&bits, &dv, sizeof(bits));
+                        }
+                        memcpy((uint8_t *)c->data_section.data + voff, &bits, vsize > 8 ? 8 : vsize);
+                    } else {
+                        ZCConstVal cv = zero_cc_eval_const_expr_val(c);
+                        int64_t iv = cv.i;
+                        size_t copy_sz = vsize > 8 ? 8 : vsize;
+                        memcpy((uint8_t *)c->data_section.data + voff, &iv, copy_sz);
+                    }
+                }
+                if (add_global_var(c, vname, vt, voff, vsize, false, has_init) < 0) {
                     diag_report_error_at_token(c, "out of memory registering global variable");
                 }
                 (void)pd;
