@@ -1,0 +1,326 @@
+{
+  "generated_by": "tools/fuzz/fuzz_diff.py --update-baseline",
+  "note": "ratchet: case = base_seed + index; a diff entry records a known divergence (source persisted as seed_<seed>.c). The gate fails on a new or changed divergence. Re-record after an intentional fix.",
+  "reference": "gcc-15",
+  "base_seed": 20261114,
+  "cases": {
+    "case_0000": {
+      "status": "pass"
+    },
+    "case_0001": {
+      "status": "pass"
+    },
+    "case_0003": {
+      "status": "pass"
+    },
+    "case_0004": {
+      "status": "pass"
+    },
+    "case_0005": {
+      "status": "pass"
+    },
+    "case_0006": {
+      "status": "pass"
+    },
+    "case_0007": {
+      "status": "pass"
+    },
+    "case_0008": {
+      "status": "pass"
+    },
+    "case_0009": {
+      "status": "pass"
+    },
+    "case_0010": {
+      "status": "pass"
+    },
+    "case_0011": {
+      "status": "pass"
+    },
+    "case_0012": {
+      "status": "pass"
+    },
+    "case_0013": {
+      "status": "pass"
+    },
+    "case_0014": {
+      "status": "pass"
+    },
+    "case_0015": {
+      "status": "pass"
+    },
+    "case_0016": {
+      "status": "pass"
+    },
+    "case_0017": {
+      "status": "pass"
+    },
+    "case_0018": {
+      "status": "pass"
+    },
+    "case_0019": {
+      "status": "pass"
+    },
+    "case_0020": {
+      "status": "pass"
+    },
+    "case_0021": {
+      "status": "pass"
+    },
+    "case_0022": {
+      "status": "pass"
+    },
+    "case_0023": {
+      "status": "pass"
+    },
+    "case_0024": {
+      "status": "pass"
+    },
+    "case_0025": {
+      "status": "pass"
+    },
+    "case_0026": {
+      "status": "pass"
+    },
+    "case_0028": {
+      "status": "pass"
+    },
+    "case_0029": {
+      "status": "pass"
+    },
+    "case_0030": {
+      "status": "pass"
+    },
+    "case_0031": {
+      "status": "pass"
+    },
+    "case_0032": {
+      "status": "pass"
+    },
+    "case_0033": {
+      "status": "pass"
+    },
+    "case_0034": {
+      "status": "pass"
+    },
+    "case_0035": {
+      "status": "pass"
+    },
+    "case_0036": {
+      "status": "pass"
+    },
+    "case_0038": {
+      "status": "pass"
+    },
+    "case_0039": {
+      "status": "pass"
+    },
+    "case_0041": {
+      "status": "pass"
+    },
+    "case_0043": {
+      "status": "pass"
+    },
+    "case_0044": {
+      "status": "pass"
+    },
+    "case_0045": {
+      "status": "pass"
+    },
+    "case_0048": {
+      "status": "pass"
+    },
+    "case_0049": {
+      "status": "pass"
+    },
+    "case_0050": {
+      "status": "pass"
+    },
+    "case_0051": {
+      "status": "pass"
+    },
+    "case_0052": {
+      "status": "pass"
+    },
+    "case_0053": {
+      "status": "pass"
+    },
+    "case_0054": {
+      "status": "pass"
+    },
+    "case_0055": {
+      "status": "pass"
+    },
+    "case_0056": {
+      "status": "pass"
+    },
+    "case_0057": {
+      "status": "pass"
+    },
+    "case_0058": {
+      "status": "pass"
+    },
+    "case_0059": {
+      "status": "pass"
+    },
+    "case_0060": {
+      "status": "pass"
+    },
+    "case_0062": {
+      "status": "pass"
+    },
+    "case_0063": {
+      "status": "pass"
+    },
+    "case_0064": {
+      "status": "pass"
+    },
+    "case_0065": {
+      "status": "pass"
+    },
+    "case_0067": {
+      "status": "pass"
+    },
+    "case_0068": {
+      "status": "pass"
+    },
+    "case_0069": {
+      "status": "pass"
+    },
+    "case_0070": {
+      "status": "pass"
+    },
+    "case_0071": {
+      "status": "pass"
+    },
+    "case_0072": {
+      "status": "pass"
+    },
+    "case_0073": {
+      "status": "pass"
+    },
+    "case_0074": {
+      "status": "pass"
+    },
+    "case_0075": {
+      "status": "pass"
+    },
+    "case_0076": {
+      "status": "pass"
+    },
+    "case_0077": {
+      "status": "pass"
+    },
+    "case_0078": {
+      "status": "pass"
+    },
+    "case_0079": {
+      "status": "pass"
+    },
+    "case_0080": {
+      "status": "pass"
+    },
+    "case_0082": {
+      "status": "pass"
+    },
+    "case_0083": {
+      "status": "pass"
+    },
+    "case_0084": {
+      "status": "pass"
+    },
+    "case_0085": {
+      "status": "pass"
+    },
+    "case_0086": {
+      "status": "pass"
+    },
+    "case_0087": {
+      "status": "pass"
+    },
+    "case_0088": {
+      "status": "pass"
+    },
+    "case_0089": {
+      "status": "pass"
+    },
+    "case_0090": {
+      "status": "pass"
+    },
+    "case_0091": {
+      "status": "pass"
+    },
+    "case_0092": {
+      "status": "pass"
+    },
+    "case_0093": {
+      "status": "pass"
+    },
+    "case_0094": {
+      "status": "pass"
+    },
+    "case_0095": {
+      "status": "pass"
+    },
+    "case_0096": {
+      "status": "pass"
+    },
+    "case_0097": {
+      "status": "pass"
+    },
+    "case_0098": {
+      "status": "pass"
+    },
+    "case_0099": {
+      "status": "pass"
+    },
+    "case_0100": {
+      "status": "pass"
+    },
+    "case_0102": {
+      "status": "pass"
+    },
+    "case_0104": {
+      "status": "pass"
+    },
+    "case_0106": {
+      "status": "pass"
+    },
+    "case_0107": {
+      "status": "pass"
+    },
+    "case_0108": {
+      "status": "pass"
+    },
+    "case_0109": {
+      "status": "pass"
+    },
+    "case_0110": {
+      "status": "pass"
+    },
+    "case_0111": {
+      "status": "pass"
+    },
+    "case_0112": {
+      "status": "pass"
+    },
+    "case_0113": {
+      "status": "pass"
+    },
+    "case_0115": {
+      "status": "pass"
+    },
+    "case_0116": {
+      "status": "pass"
+    },
+    "case_0117": {
+      "status": "pass"
+    },
+    "case_0118": {
+      "status": "pass"
+    },
+    "case_0119": {
+      "status": "pass"
+    }
+  }
+}

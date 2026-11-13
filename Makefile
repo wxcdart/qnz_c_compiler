@@ -116,7 +116,7 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	test-asan test-asan-unit test-asan-semantic test-asan-abi test-asan-jit \
 	test-project-diff test-project-runs \
 	test-isa-qemu test-driver test-linker \
-	test-c23 test-asm test-opt test-san test-preproc \
+	test-c23 test-asm test-opt test-san test-preproc test-fuzz \
 	valgrind test-valgrind
 
 all: $(TESTS) $(ZC_BIN) $(BUILD_DIR)/lib/zero_rt.a $(BUILD_DIR)/lib/zero_rt_aarch64.a $(BUILD_DIR)/lib/zero_rt_riscv64.a $(BUILD_DIR)/lib/zero_rt_riscv32.a
@@ -373,6 +373,19 @@ test-c23: $(ZC_BIN)
 # diffed line-by-line, ratcheted against test/preproc/baseline.json.
 test-preproc: $(ZC_BIN)
 	@python3 tools/verify/preproc_diff.py
+
+# Differential fuzzing gate (Sprint 177, dev-plan item 1): seeded random-C
+# generator (tools/fuzz/fuzz_diff.py) scoped to ZeroCC's supported feature
+# set (integers incl. __int128, structs, VLAs, pointers, control flow,
+# recursion, K&R, sizeof, designated init, compound literals); each
+# generated program self-checks against a Python model of the SAME AST
+# (arbitrary-precision, UB-free by construction). Differential-compiled and
+# differential-executed against the reference gcc (FUZZ_GCC override, else
+# gcc-15/14/gcc, -std=gnu11 -O2) at -O0 AOT + -O0 JIT; failing seeds
+# ratchet into test/fuzz/baseline.json with the source persisted as
+# test/fuzz/seed_<seed>.c.
+test-fuzz: $(ZC_BIN)
+	@python3 tools/fuzz/fuzz_diff.py
 
 # Loop-unrolling differential gate (Sprint 150): test/jit/unroll_*.c at
 # -O0 (baseline) vs -O3 JIT + AOT, diffed against host gcc (or the -O0

@@ -1049,8 +1049,16 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                 } else {
                     /* If initializer was a brace initializer storing directly to sym in-place, don't overwrite */
                     ZeroCCASTNode *init_node = zero_cc_ast_get(arena, node->left);
+                    /* The compound literal's owning local is identified by
+                     * aux.step (an index into c->locals), NOT by s.str: s.str
+                     * borrows a pointer into the realloc-able c->locals table,
+                     * which dangles once the table grows (fuzz seed 20261121:
+                     * segfault in this strcmp - local_count reset per function
+                     * makes the index the only stable identity). */
                     bool is_inplace_brace_init = (init_node && init_node->tag == NODE_COMPOUND_LIT &&
-                                                  init_node->s.str && strcmp(init_node->s.str, sym->name) == 0);
+                                                  init_node->aux.step != 0 &&
+                                                  (size_t)(init_node->aux.step - 1) < c->local_count &&
+                                                  &c->locals[init_node->aux.step - 1] == sym);
                     if (!zero_cc_type_is_array(&sym->type) || !init_node || init_node->tag != NODE_COMPOUND_LIT) {
                         ZeroCCSym *src_sym = (init_node && init_node->tag == NODE_IDENT) ? zero_cc_find_local(c, init_node->s.str) : NULL;
                         if (zero_cc_type_is_struct_or_union(&sym->type) && sym->type.size > 16) {
@@ -1252,11 +1260,19 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                                 ZeroCCSym *src_sym = (lnode && lnode->tag == NODE_IDENT) ? zero_cc_find_local(c, lnode->s.str) : NULL;
                                 if (sym->type.tag == TYPE_INT128 || sym->type.tag == TYPE_UINT128) {
                                     /* GNU __int128 (Sprint 109): store the full 16 bytes.
-                                     * Widen a non-128-bit initializer (e.g. a literal) first. */
-                                    bool unsigned_128 = zero_cc_type_is_unsigned(&sym->type);
+                                     * Widen a non-128-bit initializer (e.g. a literal)
+                                     * first. The extension kind follows the SOURCE
+                                     * expression's signedness (C 6.3.1.3): an unsigned
+                                     * 64-bit source zero-extends into a SIGNED __int128
+                                     * target - keying off the target's signedness
+                                     * sign-extended `__int128 x = <unsigned long with
+                                     * top bit set>` with a garbage all-ones high half
+                                     * (fuzz seed 20261137). */
+                                    int src_u = 0;
+                                    zero_cc_expr_int_info(c, arena, node->left, &src_u);
                                     if (!result_is128) {
                                         int d = zc_alloc_temp(c);
-                                        if (unsigned_128) ir_emit_zext64_128(c, d, result_temp);
+                                        if (src_u) ir_emit_zext64_128(c, d, result_temp);
                                         else ir_emit_sext64_128(c, d, result_temp);
                                         result_temp = d;
                                     }
@@ -1326,8 +1342,14 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                 if (!c->last_expr_is_float) {
                     if (ret128) {
                         if (!c->last_expr_is_128) {
+                            /* Extension kind follows the RETURNED expression's
+                             * signedness, not the return type's (C 6.3.1.3 -
+                             * `__int128 f(void){ unsigned long u = -1; return u; }`
+                             * must zero-extend). */
+                            int src_u = 0;
+                            zero_cc_expr_int_info(c, arena, node->left, &src_u);
                             int d = zc_alloc_temp(c);
-                            if (zero_cc_type_is_unsigned(&c->lowering.inlining.return_type))
+                            if (src_u)
                                 ir_emit_zext64_128(c, d, res);
                             else
                                 ir_emit_sext64_128(c, d, res);
@@ -1388,8 +1410,14 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                         cur_fn2->return_type.tag == TYPE_UINT128)) {
             int res = lower_expr(c, arena, node->left);
             if (!c->last_expr_is_128) {
+                /* Extension kind follows the RETURNED expression's signedness,
+                 * not the return type's (C 6.3.1.3 - an unsigned 64-bit return
+                 * into a signed __int128 zero-extends; keying off the target
+                 * sign-extended it with an all-ones high half). */
+                int src_u = 0;
+                zero_cc_expr_int_info(c, arena, node->left, &src_u);
                 int d = zc_alloc_temp(c);
-                if (zero_cc_type_is_unsigned(&cur_fn2->return_type)) ir_emit_zext64_128(c, d, res);
+                if (src_u) ir_emit_zext64_128(c, d, res);
                 else ir_emit_sext64_128(c, d, res);
                 res = d;
             }

@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-11-11T20:31:16Z
+timestamp: 2026-11-13T12:48:15Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -515,6 +515,7 @@ In `src/zero_cc/types/type_system.h`, `ZeroCCFunction` stores parameter metadata
 - **Every type-resolution path** recognizes the three base-type names: `zc_parse_basic_type_spec` (the `unsigned __int128` window), the bare-identifier branch of `zero_cc_parse_type_name_at_pos`, the main declaration parser (`parser/definitions.h`), and `zero_cc_tok_is_type_start` (`parser/const_eval.h`, so `sizeof(__int128)`/`_Alignof` treat it as a type). `__uint128_t` is always unsigned; `__int128`/`__int128_t` follow the `unsigned`/`signed` specifier.
 - **`__SIZEOF_INT128__` is deliberately NOT defined**, so the 12 c-torture tests that guard `__int128` behind `#ifdef __SIZEOF_INT128__` keep their `long long` fallback (unaffected); only the 7 direct-use `SKIP-TARGET:int128` tests see the new type.
 - **Status (Sprints 110–113): all former remaining phases are implemented** — 128-bit arithmetic + codegen (110), the two-unit argument ABI (110), function-pointer signatures + O2-inliner 128-bit fixes (111), the `__float128` object model (112), wide `__int128` bitfields (124-bit) + 128-bit vector lanes `v2ti` + struct members (113). The `SKIP-TARGET:int128` c-torture bucket is eliminated (all 7 tests PASS; cross-ISA `make test-isa128` 144/144). `__builtin_mul_overflow` is implemented (`add`/`sub`/`mul` + `overflow_p`).
+- **64→128 widening follows the SOURCE signedness (C 6.3.1.3, Sprint 177)**: when a 64-bit value is widened to a GPR128 pair for an `__int128`/`__uint128_t` store, return, or explicit cast, the `ZEXT64_128` vs `SEXT64_128` choice keys off the **source expression's** unsignedness (`zero_cc_expr_int_info`), never the target's. An unsigned 64-bit source with the top bit set into a *signed* `__int128` target zero-extends (value preserved); keying off the target sign-extended it with an all-ones high half (fuzz seed 20261137; four sites: the 128-bit local store in `lower_stmt_decl`, the non-inlined + inlined `return` paths, and the 64→128 cast in `ast_lowering_cast.c`). Regression: `test/jit/int128_unsigned_widen.c` (swept by `make test-isa128` + `make test-fuzz`).
 
 ## Flexible-Array-Member Initializers (C99 6.7.2.1, Sprint 64)
 

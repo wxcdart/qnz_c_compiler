@@ -544,10 +544,15 @@ int lower_expr_cast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                 /* Sprint 113: int -> __int128 cast: widen the 64-bit value
                  * to a real GPR128 (lo,hi). Without this the 64-bit temp is
                  * consumed as a 128-bit pair whose hi register holds garbage
-                 * (`(~((__uint128_t)0))` read random hi bits). */
-                bool ctsu = (cast_ti->modifiers & TYPE_MOD_UNSIGNED) != 0;
+                 * (`(~((__uint128_t)0))` read random hi bits). The extension
+                 * kind follows the SOURCE's signedness (C 6.3.1.3), not the
+                 * cast target's: `(__int128)<unsigned long with top bit set>`
+                 * zero-extends (fuzz seed 20261137, test/jit/
+                 * int128_unsigned_widen.c). */
+                int src_u = 0;
+                zero_cc_expr_int_info(c, arena, node->left, &src_u);
                 int cast_t = zc_alloc_temp(c);
-                if (ctsu) ir_emit_zext64_128(c, cast_t, result);
+                if (src_u) ir_emit_zext64_128(c, cast_t, result);
                 else ir_emit_sext64_128(c, cast_t, result);
                 result = cast_t;
                 c->last_expr_is_128 = 1;

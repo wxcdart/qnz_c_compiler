@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-13T07:18:33Z
+timestamp: 2026-11-13T12:48:15Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1416,3 +1416,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-13 — Updated `build-and-verification.md`
 - Sprint 176: -E preprocessor differential gate (tools/verify/preproc_diff.py, make test-preproc) — gcc-15 differential over test/preproc/ (18 cases), ratcheted baseline; fixed C11 6.10.3.1p2 hash-before-expansion, ## token fusion, GNU comma-drop no-paste, splice newline/__LINE__ parity, param-list splice infinite loop, -E pragma retention
+
+## 2026-11-13 — Updated `build-and-verification.md`
+- Sprint 177: differential fuzzing gate (tools/fuzz/fuzz_diff.py, make test-fuzz) — seeded random-C self-checking programs (Python model of the same AST, UB-free) differential-executed vs gcc-15 at -O0 AOT+JIT, ratcheted test/fuzz/ baseline; 106/106; fixed lower_stmt_decl dangling s.str segfault (aux.step identity) and unsigned-64 -> signed-__int128 sign-extension (4 sites, C 6.3.1.3 source-signedness rule)
+
+## 2026-11-13 — Updated `frontend-and-types.md`
+- Sprint 177: 64->128 widening follows the SOURCE expression's signedness (C 6.3.1.3) - all four GPR128 widen sites (128-bit local store, non-inlined + inlined return, explicit cast) now use zero_cc_expr_int_info on the source; regression test/jit/int128_unsigned_widen.c (fuzz seed 20261137)

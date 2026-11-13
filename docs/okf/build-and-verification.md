@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 165-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-11-13T07:18:33Z
+timestamp: 2026-11-13T12:48:15Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -152,7 +152,13 @@ make test-preproc
 python3 tools/verify/preproc_diff.py --update-baseline   # after an intentional improvement
 ```
 
-Sprint 176 also fixed the preprocessor bugs the gate first exposed: hash-used parameters are now substituted **without** pre-expansion (C11 6.10.3.1p2: `STR(42)` → `"42"`, was `"42"`-from-`"42"`/`"1+1"` for `STR(1+1)`); a space is inserted before pasted operands that would fuse into a pp-number (C11 6.4.2); the spliced code newline is preserved and counted (gcc parity in `__LINE__` and `-E` layout); `#define` parameter lists accept splices; and `-E` (`preproc_only`) keeps handled-pragma lines like gcc while compile mode consumes them.
+Sprint 176 also fixed the preprocessor bugs the gate first exposed: hash-used parameters are now substituted **without** pre-expansion (C11 6.10.3.1p2: `#define X 42` + `STR(X)` gave `"42"`, now `"X"` like gcc); a space is inserted before pasted operands that would fuse into a pp-number (C11 6.4.2); the spliced code newline is preserved and counted (gcc parity in `__LINE__` and `-E` layout); `#define` parameter lists accept splices; and `-E` (`preproc_only`) keeps handled-pragma lines like gcc while compile mode consumes them.
+
+### Differential fuzzing gate (`make test-fuzz`, Sprint 177)
+
+`tools/fuzz/fuzz_diff.py` generates random **self-checking** C programs from a seeded AST scoped to ZeroCC's supported feature set (integers incl. `__int128`, structs with by-value/pointer use, VLAs, pointers, if/for/switch, recursion, K&R definitions, `sizeof`, designated initializers, struct compound literals) and differential-executes them against the reference gcc (`FUZZ_GCC` override, else gcc-15/14/gcc, `-std=gnu11 -O2`) while zerocc runs at `-O0` AOT + `-O0` JIT (default 120 seeds; `--seeds`/`--levels`/`--base-seed` to widen). C text and the Python model are **two projections of the same AST** (arbitrary-precision ints + explicit width masking per C usual-arithmetic-conversions, LP64), so each program embeds compile-time self-checks (`if (v != EXPT) { printf(...); return 1; }`) computed by the model — a pass is exact `(rc, stdout)` equality, not approximate.
+
+The model doubles as a defined-behavior validator: div-by-zero, out-of-range shifts, signed overflow, and out-of-bounds index all raise and the case is *discarded* (deterministic per seed; >30% discards = generator bounds bug, exit 2). Generated C that gcc rejects is a **generator defect** (exit 2), never a green. Gate semantics ratchet like the other gates: `test/fuzz/baseline.json` records pass/diff per case (case = base_seed + index); a new failure or a changed ratcheted failure FAILs the gate, a ratcheted failure that now passes is an improvement; failing seeds' sources persist as `test/fuzz/seed_<seed>.c`. **Run after lowering/ABI/128-bit codegen changes** (the gate found two bugs in its first sweep, both fixed in Sprint 177): (1) a segfault in `lower_stmt_decl` — `strcmp` on `s.str` pointers borrowed from the realloc-able `c->locals` table (compound-literal decls with a parenthesized initializer, `test/jit/int128_unsigned_widen.c` sibling `test/fuzz/seed_20261121.c`); (2) 64-bit **unsigned** values sign-extended into **signed** `__int128` stores/returns/casts (the extension kind followed the *target's* signedness, not the source's, C 6.3.1.3 — `test/jit/int128_unsigned_widen.c`).
 
 ## 3. Verifying Individual C Files with ZeroCC Directly
 
@@ -219,6 +225,15 @@ python3 tools/c23/test_c23.py --all
 # line-by-line, ratcheted against test/preproc/baseline.json.
 # Wired as `make test-preproc`.
 python3 tools/verify/preproc_diff.py
+
+# Run the differential fuzzing gate (Sprint 177): seeded random-C generator
+# scoped to the supported feature set; self-checking programs (Python model
+# of the same AST, UB-free by construction) differential-executed against
+# the reference gcc (FUZZ_GCC override, else gcc-15/14/gcc, -std=gnu11 -O2)
+# at -O0 AOT + -O0 JIT; failing seeds ratchet into test/fuzz/baseline.json
+# (source persisted as test/fuzz/seed_<seed>.c).
+# Wired as `make test-fuzz`.
+python3 tools/fuzz/fuzz_diff.py
 
 # Run the inline-assembly Phase 1 differential gate (Sprint 135): every
 # test/asm/*.c compiled under zerocc at -O0..-O3 on the AOT TEXT path (-S),

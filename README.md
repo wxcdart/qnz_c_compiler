@@ -6,6 +6,7 @@ ZeroCC is a lightweight, embeddable C99/C11/C23 compiler (with GNU extensions) w
 
 - **C99/C11/C23** compiler, freestanding, with optional `zero_rt` standard library
 - **Preprocessor**: full `#define`/`#if`/`#include`/`#pragma` with `-E` preprocess-only mode, gcc-differential conformance (`make test-preproc` gate: `zerocc -E` vs `gcc -E` over `test/preproc/` — C11 6.10.3.1p2 stringify/paste order, `##` token fusion, GNU `x, ##__VA_ARGS__` comma drop, phase-2 splices)
+- **Differential fuzzing** (`make test-fuzz` gate): seeded random-C generator scoped to the supported feature set (integers incl. `__int128`, structs, VLAs, pointers, control flow, recursion, K&R, `sizeof`, designated init, compound literals); each generated program self-checks against a Python model of the same AST and is differential-executed vs a reference gcc at `-O0` AOT + `-O0` JIT; failing seeds ratchet into `test/fuzz/baseline.json`
 - **C23 Conformance**: `constexpr` data declarations, `nullptr`, `true`/`false` keywords, `typeof`/`typeof_unqual`, `#warning` (C23 6.9.1), empty `{}` initializers, `[[attr]]` attributes, designator-based unsized array sizing (`make test-c23` gate vs gcc-15)
 - **Multi-project validation**: sqlite3.c amalgamation (255k lines), 15-TU zlib, and cJSON compiled under zerocc at `-O0` and `-O2` (`make test-project-diff`)
 - **`__zerocc_syscall(number, a, b, c, d, e, f)`** and **`__zerocc_clone(...)`** — direct OS-syscall and thread-clone builtins (`OP_SYSCALL`, `OP_CLONE`) across all 4 ISAs (the `zero_rt` OS boundary)
@@ -290,10 +291,11 @@ Current status (last full verification 2026-11-13, Sprints 170–174; counts dri
 
 | Suite | Status | Count |
 |-------|--------|-------|
-| **Main regression suite** (`make test`: unit, semantic, ABI, JIT, AOT, asm reference) | ✅ Pass | 229/229 |
+| **Main regression suite** (`make test`: unit, semantic, ABI, JIT, AOT, asm reference) | ✅ Pass | 231/231 |
 | **External ABI interop gate** (`make test-abi-interop`: bidirectional `zerocc.o ↔ gcc.o` — zerocc main + gcc main, 15 calling-convention scenarios at `-O0`/`-O1`/`-O2`, incl. MEMORY struct args, SSE/SSEup 16B structs, `sret`, variadic struct args) | ✅ Pass | 15/15 |
-| **Optimizer sweep** (`make test-opt`, `-O0..-O3` × JIT + AOT via zerocc) | ✅ Pass | 128 ok, 0 failed (embedding tests skipped by design — covered by `make test`) |
+| **Optimizer sweep** (`make test-opt`, `-O0..-O3` × JIT + AOT via zerocc) | ✅ Pass | 130 ok, 0 failed (embedding tests skipped by design — covered by `make test`) |
 | **C23 differential gate** (`make test-c23`: 24 cases across gnu23/c11/c99 vs gcc-15) | ✅ Pass | 24/24 |
+| **Differential fuzzing gate** (`make test-fuzz`: seeded random-C self-checking programs vs gcc-15 at `-O0` AOT + `-O0` JIT, ratcheted `test/fuzz/` baseline) | ✅ Pass | 106/106 (14 UB discards) |
 | **Inline-asm Phases 1–3 gate** (`make test-asm`: `test/asm/*.c` across `-S` text, JIT, and raw AOT at `-O0..-O3` vs host-gcc reference) | ✅ Pass | 72/72 |
 | **Project-differential gate** (`make test-project-diff`: cJSON, zlib, sqlite3.c at -O0/-O2) | ✅ Pass | 36/36 TUs |
 | **`zero_san` flag-ON sweep** (`make test-san`: `san_ok_*` clean + `san_trap_*` SIGILL at `-O0..-O3`, JIT + AOT, cross-ISA qemu smoke on **both** raw-AOT and `-S`+cross-assembler paths) | ✅ Pass | 720 ok / 0 FAIL (174 cross-ISA runs, both paths × all 4 ISAs) |
