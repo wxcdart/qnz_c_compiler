@@ -4,7 +4,7 @@ title: Target-Side Sanitizer (zero_san) Design & Roadmap
 description: Analysis and phased roadmap for an optional, parked target-side safety-check feature (zero_san) — a codegen-first UBSan-lite signed-overflow check, with bounds, leaks, and ASan/LSan scoped out and justified.
 resource: sanitizer/roadmap
 tags: [sanitizer, zero_san, codegen, ubsan, overflow, bounds, asan, lsan, leak, roadmap, design, safety]
-timestamp: 2026-11-12T17:46:29Z
+timestamp: 2026-11-13T05:32:40Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -12,7 +12,7 @@ status: active
 
 # Target-Side Sanitizer (`zero_san`) — Design & Roadmap
 
-> **Status: Phase 1 IMPLEMENTED (Sprint 116, x86-64, both emitters, `-fsanitize=undefined`); cross-ISA extension (aarch64 / riscv64 / riscv32 width-4) SHIPPED in Sprint 163, §4c; div-by-zero / rem-by-zero / shift-count checks (all 4 ISAs) SHIPPED in Sprint 166 follow-on, §4e; `-fsanitize-trap` runtime diagnostics SHIPPED in Sprint 167, §4f; OVF-check live-operand clobber (the `f64loop` -O2/-O3 cross-ISA miscompile) FIXED in Sprint 168, §4g; `-fsanitize=leak` freestanding atexit leak report SHIPPED in Sprint 169, §4h (also fixed a latent own-linker BSS-overlap bug it exposed, OKF `own-linker.md`).**
+> **Status: Phase 1 IMPLEMENTED (Sprint 116, x86-64, both emitters, `-fsanitize=undefined`); cross-ISA extension (aarch64 / riscv64 / riscv32 width-4) SHIPPED in Sprint 163, §4c; div-by-zero / rem-by-zero / shift-count checks (all 4 ISAs) SHIPPED in Sprint 166 follow-on, §4e; `-fsanitize-trap` runtime diagnostics SHIPPED in Sprint 167, §4f; OVF-check live-operand clobber (the `f64loop` -O2/-O3 cross-ISA miscompile) FIXED in Sprint 168, §4g; `-fsanitize=leak` freestanding atexit leak report SHIPPED in Sprint 169, §4h; RV32 width-8 64-bit signed-overflow & UB checks SHIPPED in Sprint 174, §4i (Phase 4 of RV32 64-bit integer roadmap).**
 > Sections below preserve the traced invariants and cost analysis; **§4-as-built** records the
 > shipped mechanism and the traps found while landing it. Phase 2 (bounds) remains parked;
 > ASan/LSan remain out of scope per §8.
@@ -427,6 +427,28 @@ merges too (address space without file content; the output `.bss` keeps `size = 
 × 5 checks: leak → rc 23 + `zerocc: leak: 1 block(s), 64 byte(s)` line; all-freed → rc 0
 silent; ignored block → rc 0 silent; leak + `return 7` → rc 7 (status kept) with report;
 no-flag control → rc 0 silent. `make test-linker`: 49/49.
+
+### 4i. Sprint 174 — Phase 4: RV32 64-bit integer sanitizer width-8 checks
+
+With Phase 1 (pair arithmetic), Phase 2 (ABI calling conventions), and Phase 3 (libgcc div/rem) complete,
+Sprint 174 implements Phase 4 of [rv32-i64-roadmap.md](./rv32-i64-roadmap.md): enabling width-8
+`-fsanitize=undefined` / `OP_OVF_TRAP` on `--target riscv32`.
+
+- **Bypass removed:** `c->isa == ISA_RISCV32 && w == 8` in `ast_lowering_binop.c` is removed.
+  Width-8 signed operations (`+`, `-`, `*`), compound assignments (`+=`, `-=`, `*=`, `/=`, `%=`, `<<=`, `>>=`),
+  64-bit division/modulo by zero, and 64-bit shift bounds are now instrumented.
+- **Backend interface:** `ZeroCCISABackend` extended with `emit_ovf_trap64` and `emit_ovf_trap64_asm` taking
+  `(c, rlo, rhi, alo, ahi, blo, bhi, width, op)`. Implemented in `riscv64.c` (raw MC) and `riscv_asm.c` (text assembly).
+- **Check algorithms:**
+  - ADD64: $(A_{hi} \oplus Res_{hi}) \land (B_{hi} \oplus Res_{hi}) < 0$.
+  - SUB64: $(Res_{hi} \oplus A_{hi}) \land (A_{hi} \oplus B_{hi}) < 0$.
+  - MUL64: 32-bit fast-path if operands fit in signed 32-bit (`ahi == alo >> 31` and `bhi == blo >> 31`), else computes upper 64 bits $P_2, P_3$ via `mulhu`/`mulhsu`/`mulh`/`mul`/`sltu` using reserved scratch `t0, t2, t5`.
+  - DIV/REM zero: `(rlo | rhi) == 0`.
+  - Shift count: $0 \le count < 64$ using `li t5, 64; bge ...; blt ...`.
+- **Liveness preservation:** `live_range.h` records `OP_OVF_TRAP`'s operands as uses (`is_def = false`), preserving
+  all register allocations across the check. Spill reloads properly restore high halves into `t0`/`t1`/`t3`.
+- **Gate:** `CROSS_WIDE_ISAS` in `tools/verify/san_sweep.py` extended with `"riscv32"`. `san_trap_cross_wide.c`
+  traps with SIGILL (rc 132 / -4) across all optimization levels (`-O0..-O3`) in both raw and text paths under QEMU.
 
 ---
 

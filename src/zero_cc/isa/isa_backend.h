@@ -472,6 +472,9 @@ typedef struct ZeroCCISABackend {
      * emitted before the guarded DIV/MOD/SHL/SHR/SAR. */
     void (*emit_ovf_trap)(ZeroCCCompiler *c, int res, int a, int b, int width, int op);
     void (*emit_ovf_trap_asm)(ZeroCCCompiler *c, int res, int a, int b, int width, int op, FILE *out);
+    /* Sprint 174 (rv32 i64 Phase 4): 64-bit pair signed overflow checks on rv32. */
+    void (*emit_ovf_trap64)(ZeroCCCompiler *c, int rlo, int rhi, int alo, int ahi, int blo, int bhi, int width, int op);
+    void (*emit_ovf_trap64_asm)(ZeroCCCompiler *c, int rlo, int rhi, int alo, int ahi, int blo, int bhi, int width, int op, FILE *out);
     /* OS syscall (OP_SYSCALL / __zerocc_syscall): arg_count temps (syscall
      * number first, then up to 6 operands) are resolved and moved into the
      * target's syscall argument registers one at a time, then the syscall

@@ -339,23 +339,38 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                             }
                             val = zc_alloc_temp(c);
                             switch (cop) {
-                                case TK_PLUS:  ir_emit_add64(c, val, lv, rv); break;
-                                case TK_MINUS: ir_emit_sub64(c, val, lv, rv); break;
-                                case TK_STAR:  ir_emit_mul64(c, val, lv, rv); break;
+                                case TK_PLUS:
+                                    ir_emit_add64(c, val, lv, rv);
+                                    zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)val, lv, rv, ZC_OVF_OP_ADD);
+                                    break;
+                                case TK_MINUS:
+                                    ir_emit_sub64(c, val, lv, rv);
+                                    zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)val, lv, rv, ZC_OVF_OP_SUB);
+                                    break;
+                                case TK_STAR:
+                                    ir_emit_mul64(c, val, lv, rv);
+                                    zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)val, lv, rv, ZC_OVF_OP_MUL);
+                                    break;
                                 case TK_SLASH: /* Sprint 173: signedness of the
                                                 * compound op = LHS signedness */
+                                    zc_maybe_emit_div_zero_trap(c, arena, node, (uint32_t)rv);
                                     if (unsigned_64) ir_emit_udiv64(c, val, lv, rv);
                                     else              ir_emit_div64(c, val, lv, rv);
                                     break;
                                 case TK_PERCENT:
+                                    zc_maybe_emit_rem_zero_trap(c, arena, node, (uint32_t)rv);
                                     if (unsigned_64) ir_emit_umod64(c, val, lv, rv);
                                     else              ir_emit_mod64(c, val, lv, rv);
                                     break;
                                 case TK_AMP:   ir_emit_and64(c, val, lv, rv); break;
                                 case TK_PIPE:  ir_emit_or64(c, val, lv, rv); break;
                                 case TK_CARET: ir_emit_xor64(c, val, lv, rv); break;
-                                case TK_SHL:   ir_emit_shl64(c, val, lv, rv); break;
+                                case TK_SHL:
+                                    zc_maybe_emit_shift_count_trap(c, arena, node, (uint32_t)rv);
+                                    ir_emit_shl64(c, val, lv, rv);
+                                    break;
                                 default:       /* TK_SHR */
+                                    zc_maybe_emit_shift_count_trap(c, arena, node, (uint32_t)rv);
                                     if (unsigned_64) ir_emit_shr64(c, val, lv, rv);
                                     else              ir_emit_sar64(c, val, lv, rv);
                                     break;

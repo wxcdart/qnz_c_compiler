@@ -40,6 +40,9 @@ extern void riscv64_emit_zext32_64(ZeroCCCompiler *c, int dlo, int dhi, int src)
 extern void riscv64_emit_sext32_64(ZeroCCCompiler *c, int dlo, int dhi, int src);
 extern void riscv64_emit_trunc64_32(ZeroCCCompiler *c, int dst, int s_lo, int s_hi);
 extern void riscv64_emit_mov64_imm(ZeroCCCompiler *c, int dlo, int dhi, int64_t imm);
+extern void riscv32_emit_ovf_trap64(ZeroCCCompiler *c, int rlo, int rhi,
+                                    int alo, int ahi, int blo, int bhi,
+                                    int width, int op);
 
 /* RISC-V 32-bit calling convention (similar but different register sizes) */
 static const int riscv32_int_arg_regs[] = {10, 11, 12, 13, 14, 15, 16, 17};  /* a0-a7 */
@@ -281,4 +284,6 @@ void riscv32_init_backend(void) {
     riscv32_backend.emit_mod64 = riscv32_emit_mod64;
     riscv32_backend.emit_udiv64 = riscv32_emit_udiv64;
     riscv32_backend.emit_umod64 = riscv32_emit_umod64;
+    /* Sprint 174 (rv32 i64 Phase 4): 64-bit overflow check. */
+    riscv32_backend.emit_ovf_trap64 = riscv32_emit_ovf_trap64;
 }

@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-13T04:55:56Z
+timestamp: 2026-11-13T05:32:40Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1404,3 +1404,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-13 — Updated `rv32-i64-roadmap.md`
 - Sprint 173: Phase 3 RV32 i64 64-bit div/rem via libgcc and GPR64 spill displacement fix
+
+## 2026-11-13 — Updated `rv32-i64-roadmap.md`
+- Phase 4: rv32 64-bit sanitizer width-8 checks
+
+## 2026-11-13 — Updated `sanitizer-roadmap.md`
+- Phase 4: rv32 64-bit sanitizer width-8 checks

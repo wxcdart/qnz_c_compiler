@@ -437,12 +437,14 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                      instr->op == OP_TRUNC64_32 ||
                      instr->op == OP_HI64 || instr->op == OP_MK64 ||
                      instr->op == OP_DIV64 || instr->op == OP_MOD64 ||
-                     instr->op == OP_UDIV64 || instr->op == OP_UMOD64);
+                     instr->op == OP_UDIV64 || instr->op == OP_UMOD64 ||
+                     (c->isa == ISA_RISCV32 && instr->op == OP_OVF_TRAP && instr->width == 8));
         /* Operand widths are per-op semantics (mirrors live_range.h): the
          * shift COUNT and the load/store base are 32-bit; TRUNC64_32's dst,
          * CMP64's absence of a dst, and STORE64's absence of a dst. */
         bool d64_is = op64 && !(instr->op == OP_CMP64 || instr->op == OP_STORE64 ||
-                                instr->op == OP_TRUNC64_32 || instr->op == OP_HI64);
+                                instr->op == OP_TRUNC64_32 || instr->op == OP_HI64 ||
+                                instr->op == OP_OVF_TRAP);
         bool s1_64 = instr->op == OP_ADD64 || instr->op == OP_SUB64 ||
             instr->op == OP_MUL64 || instr->op == OP_AND64 ||
             instr->op == OP_OR64  || instr->op == OP_XOR64 ||
@@ -452,13 +454,17 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
             instr->op == OP_MOV64 || instr->op == OP_STORE64 ||
             instr->op == OP_TRUNC64_32 || instr->op == OP_HI64 ||
             instr->op == OP_DIV64 || instr->op == OP_MOD64 ||
-            instr->op == OP_UDIV64 || instr->op == OP_UMOD64;
+            instr->op == OP_UDIV64 || instr->op == OP_UMOD64 ||
+            (c->isa == ISA_RISCV32 && instr->op == OP_OVF_TRAP && instr->width == 8 &&
+             instr->temp_src1 != TEMP_NONE);
         bool s2_64 = instr->op == OP_ADD64 || instr->op == OP_SUB64 ||
             instr->op == OP_MUL64 || instr->op == OP_AND64 ||
             instr->op == OP_OR64  || instr->op == OP_XOR64 ||
             instr->op == OP_CMP64 ||
             instr->op == OP_DIV64 || instr->op == OP_MOD64 ||
-            instr->op == OP_UDIV64 || instr->op == OP_UMOD64;
+            instr->op == OP_UDIV64 || instr->op == OP_UMOD64 ||
+            (c->isa == ISA_RISCV32 && instr->op == OP_OVF_TRAP && instr->width == 8 &&
+             instr->temp_src2 != TEMP_NONE);
         bool d64_sp = d64_is && spill_dst >= 0;
         bool s164_sp = op64 && s1_64 && spill_src1 >= 0;
         bool s264_sp = op64 && s2_64 && spill_src2 >= 0;
@@ -556,6 +562,29 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
         if (op64) {
             phys_dst = g64_dlo; phys_src1 = g64_s1lo;
             if (s2_64) phys_src2 = g64_s2lo;
+        }
+        if (instr->op == OP_OVF_TRAP && instr->width == 8 && c->isa == ISA_RISCV32 && spill_dst >= 0) {
+            int32_t off_dst = spill_base_offset + (spill_dst + 1) * 8;
+            if (instr->imm == ZC_OVF_OP_SHIFT_COUNT) {
+                if (BE(c)->emit_load) {
+                    BE(c)->emit_load(c, BE(c)->scratch_reg1, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_dst));
+                }
+                g64_dlo = BE(c)->scratch_reg1;
+                phys_dst = g64_dlo;
+            } else if (instr->imm == ZC_OVF_OP_DIV_ZERO || instr->imm == ZC_OVF_OP_REM_ZERO) {
+                g64_dlo = BE(c)->g128_scratch_lo[0];
+                g64_dhi = BE(c)->g128_scratch_hi[0];
+                if (BE(c)->emit_load) {
+                    BE(c)->emit_load(c, g64_dlo, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_dst));
+                    BE(c)->emit_load(c, g64_dhi, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_dst + 4));
+                }
+                phys_dst = g64_dlo;
+            } else {
+                if (BE(c)->emit_load) {
+                    BE(c)->emit_load(c, BE(c)->scratch_reg1, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_dst + 4));
+                }
+                g64_dhi = BE(c)->scratch_reg1;
+            }
         }
 
         /* Reload spilled sources into scratch registers (64-bit / FP). FP-class values
@@ -679,9 +708,16 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                      * temp_src2 + imm; the shared loop has already resolved
                      * them to phys_src1/phys_src2 (with spill reloads), so
                      * they are valid here. */
-                    if (BE(c)->emit_ovf_trap) {
-                        int width = zc_ovf_trap_width(c, instr);
-                        int op = (int)instr->imm;
+                    int width = zc_ovf_trap_width(c, instr);
+                    int op = (int)instr->imm;
+                    if (c->isa == ISA_RISCV32 && width == 8) {
+                        if (BE(c)->emit_ovf_trap64) {
+                            BE(c)->emit_ovf_trap64(c, phys_dst, g64_dhi,
+                                                  phys_src1, g64_s1hi,
+                                                  phys_src2, g64_s2hi,
+                                                  width, op);
+                        }
+                    } else if (BE(c)->emit_ovf_trap) {
                         BE(c)->emit_ovf_trap(c, phys_dst, phys_src1, phys_src2, width, op);
                     }
                     break;

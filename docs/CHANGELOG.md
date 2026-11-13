@@ -1,5 +1,40 @@
 # CHANGELOG
 
+## [Sprint 174] - 2026-11-13 - Phase 4 RV32 i64 Complete (Width-8 Sanitizer Checks, ADD64/SUB64/MUL64 Signed-Overflow, Div/Rem-by-Zero, Shift Bounds, OP_OVF_TRAP Liveness) (RISC-V / Sanitizer / IR / Codegen)
+
+Completed Phase 4 of the RV32 64-bit integer roadmap ([rv32-i64-roadmap.md](okf/rv32-i64-roadmap.md)), completing the 4-phase RV32 64-bit integer implementation. Width-8 signed-overflow checks (`ADD64`, `SUB64`, `MUL64`), division and remainder by zero, and shift-count bounds checks are now enabled for `--target riscv32` under `-fsanitize=undefined` and verified across both raw binary and `-S` assembly paths under QEMU.
+
+- **Frontend Instrumentation (`ast_lowering_binop.c`, `ast_lowering_assign.c`):**
+  - Removed the `c->isa == ISA_RISCV32 && w == 8` bypass from `zc_emit_ovf_trap`.
+  - Wired 64-bit binary operations in `zc_lower_binop64` to emit `OP_OVF_TRAP`: `TK_PLUS`, `TK_MINUS`, `TK_STAR` for signed overflow; `is_divrem` for division/remainder by zero; `is_shift` for shift-count bounds.
+  - Wired 64-bit compound assignments in `ast_lowering_assign.c`: `+=`, `-=`, `*=` for signed overflow; `/=` and `%=` for div/rem-zero; `<<=` and `>>=` for shift bounds.
+- **Backend Architecture & Emitters (`isa_backend.h`, `riscv32.c`, `riscv64.c`, `riscv_asm.c`):**
+  - `isa_backend.h`: Added `emit_ovf_trap64` and `emit_ovf_trap64_asm` to `ZeroCCISABackend` (`(c, rlo, rhi, alo, ahi, blo, bhi, width, op)`).
+  - `riscv64.c`: Implemented `riscv32_emit_ovf_trap64` (raw MC):
+    - `ZC_OVF_OP_ADD`: detects signed overflow when both operands have matching signs and the result sign differs: $(A_{hi} \oplus Res_{hi}) \land (B_{hi} \oplus Res_{hi}) < 0$.
+    - `ZC_OVF_OP_SUB`: detects signed overflow when operand signs differ and result sign differs: $(Res_{hi} \oplus A_{hi}) \land (A_{hi} \oplus B_{hi}) < 0$.
+    - `ZC_OVF_OP_MUL`: fast path when both operands fit in signed 32-bit (`ahi == alo >> 31 && bhi == blo >> 31`); full path computes upper product words $P_2, P_3$ via `mulhu`, `mulhsu`, `mulh`, `mul`, `sltu` into reserved scratch registers `t0, t2, t5`, trapping if $P_2 \ne (Res_{hi} \gg 31)$ or $P_3 \ne (Res_{hi} \gg 31)$.
+    - `ZC_OVF_OP_DIV_ZERO` / `ZC_OVF_OP_REM_ZERO`: traps if $(rlo \lor rhi) == 0$.
+    - `ZC_OVF_OP_SHIFT_COUNT`: traps if $count < 0$ or $count \ge 64$.
+  - `riscv_asm.c`: Implemented `riscv32_emit_ovf_trap64_asm` mirroring the exact same check logic in text assembly.
+- **IR Liveness & Emitter Spill Reloads (`live_range.h`, `ast_lowering_mc.c`, `asm_emitter.c`):**
+  - `live_range.h`: Updated `build_live_intervals` so `OP_OVF_TRAP` records its operands (`temp_dest`, `temp_src1`, `temp_src2`) as USES (`is_def = false`), ensuring registers assigned to checked expressions remain live and un-clobbered across the trap site.
+  - `ast_lowering_mc.c`, `asm_emitter.c`: Added width-8 RV32 dispatch to `BE(c)->emit_ovf_trap64`. Handled spill reload cases: loads `g64_dhi` into `t0` for arithmetic; loads `(g64_dlo, g64_dhi)` into `(t1, t3)` for div/rem zero; loads `g64_dlo` into `t0` for shift bounds.
+- **Gate Integration & Hardening (`san_sweep.py`, `san_trap_cross_wide.c`):**
+  - `san_sweep.py`: Added `"riscv32"` to `CROSS_WIDE_ISAS`. Fixed runner loop to exercise both `raw` and `asm` paths under `qemu-riscv32-static`.
+  - Updated `test/san/san_trap_cross_wide.c` header noting RV32 trap support.
+- **Verification:**
+  - `tools/verify/san_sweep.py`: 720 ok, 0 FAIL (174 cross-ISA runs, 534 flagged runs).
+  - Custom test matrix covering `sub_ovf`, `mul_ovf1`, `mul_ovf2`, `mul_ok`, `div_zero64`, `rem_zero64`, `shift_count64_ge`, `shift_count64_neg`, `cassign_add_ovf`, `cassign_mul_ovf`, `cassign_div_zero`, `cassign_shl_count`: 100% PASS across `-O0` and `-O2` in both raw and asm under QEMU.
+  - `tools/verify/type_tag_verifier.py --verify-all`: OK (0 untagged marks, 0 invariant regressions).
+  - `python3 tools/verify/isa_qemu_diff.py`: 63/63 ok across all 4 target ISAs.
+  - `make test`: 229/229 passed.
+  - `make test-opt`: 128 passed, 0 failed.
+  - `python3 tools/verify/style_check.py`: 179 files, 0 errors, 0 warnings.
+  - `python3 tools/okf/okf.py lint && index`: 21/21 reachable, verified.
+
+---
+
 ## [Sprint 173] - 2026-11-13 - Phase 3 RV32 i64 Complete (64-Bit Div/Rem via libgcc __*di3, GPR64 Spill Displacement Fix, Regalloc Thief Handover) (RISC-V / Frontend / Codegen / Linker)
 
 Completed Phase 3 of the RV32 64-bit integer roadmap ([rv32-i64-roadmap.md](okf/rv32-i64-roadmap.md)). 64-bit signed and unsigned integer division and remainder (`/`, `%`, compound `/=`, `%=`) now lower via runtime helper calls to `__divdi3`, `__moddi3`, `__udivdi3`, `__umoddi3` in libgcc, fully linked and verified under QEMU across both raw binary and `-S` assembly paths.

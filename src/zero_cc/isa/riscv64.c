@@ -2191,6 +2191,77 @@ void riscv64_emit_mov64_imm(ZeroCCCompiler *c, int dlo, int dhi, int64_t imm) {
     riscv64_emit_mov_imm(c, dhi, (int32_t)((uint64_t)imm >> 32));
 }
 
+void riscv32_emit_ovf_trap64(ZeroCCCompiler *c, int rlo, int rhi,
+                             int alo, int ahi, int blo, int bhi,
+                             int width, int op) {
+    int skip = c->sanitize_report ? 24 : 8;  /* -fsanitize-trap block + unimp */
+
+    if (op == ZC_OVF_OP_DIV_ZERO || op == ZC_OVF_OP_REM_ZERO) {
+        riscv64_emit_or(c, RV64_T0, rlo, rhi);
+        riscv_emit_u32(c, rv64_B(RV64_T0, 0, 1, skip));
+        if (c->sanitize_report) riscv64_emit_san_report_block(c, rlo, width, op);
+        riscv_emit_u32(c, 0xC0001073u);
+        return;
+    }
+    if (op == ZC_OVF_OP_SHIFT_COUNT) {
+        riscv_emit_u32(c, rv64_I(RV_REG(RV64_T5), 0, 0, width * 8, 0x13));
+        riscv_emit_u32(c, rv64_B(RV_REG(rlo), 0, 5, skip));
+        if (c->sanitize_report) riscv64_emit_san_report_block(c, rlo, width, op);
+        riscv_emit_u32(c, 0xC0001073u);
+        riscv_emit_u32(c, rv64_B(RV_REG(rlo), RV64_T5, 4, skip));
+        if (c->sanitize_report) riscv64_emit_san_report_block(c, rlo, width, op);
+        riscv_emit_u32(c, 0xC0001073u);
+        return;
+    }
+    if (op == ZC_OVF_OP_ADD) {
+        riscv64_emit_xor(c, RV64_T0, ahi, rhi);
+        riscv64_emit_xor(c, RV64_T2, bhi, rhi);
+        riscv64_emit_and(c, RV64_T0, RV64_T0, RV64_T2);
+        riscv_emit_u32(c, rv64_B(RV64_T0, 0, 5, skip));
+        if (c->sanitize_report) riscv64_emit_san_report_block(c, rlo, width, op);
+        riscv_emit_u32(c, 0xC0001073u);
+        return;
+    }
+    if (op == ZC_OVF_OP_SUB) {
+        riscv64_emit_xor(c, RV64_T0, rhi, ahi);
+        riscv64_emit_xor(c, RV64_T2, ahi, bhi);
+        riscv64_emit_and(c, RV64_T0, RV64_T0, RV64_T2);
+        riscv_emit_u32(c, rv64_B(RV64_T0, 0, 5, skip));
+        if (c->sanitize_report) riscv64_emit_san_report_block(c, rlo, width, op);
+        riscv_emit_u32(c, 0xC0001073u);
+        return;
+    }
+    if (op == ZC_OVF_OP_MUL) {
+        int trap_size = c->sanitize_report ? 20 : 4;
+        riscv_emit_u32(c, rv64_I(RV_REG(RV64_T0), RV_REG(alo), 5, 31, 0x13) | (1u << 30));
+        riscv_emit_u32(c, rv64_B(RV_REG(ahi), RV64_T0, 1, 12));
+        riscv_emit_u32(c, rv64_I(RV_REG(RV64_T0), RV_REG(blo), 5, 31, 0x13) | (1u << 30));
+        riscv_emit_u32(c, rv64_B(RV_REG(bhi), RV64_T0, 0, 68 + trap_size));
+
+        riscv_emit_u32(c, rv64_R(RV_REG(RV64_T0), RV_REG(alo), RV_REG(blo), 3, 1));
+        riscv_emit_u32(c, rv64_R(RV_REG(RV64_T2), RV_REG(ahi), RV_REG(blo), 0, 1));
+        riscv64_emit_add(c, RV64_T0, RV64_T0, RV64_T2);
+        riscv_emit_u32(c, rv64_R(RV_REG(RV64_T5), RV_REG(RV64_T0), RV_REG(RV64_T2), 3, 0));
+        riscv_emit_u32(c, rv64_R(RV_REG(RV64_T2), RV_REG(alo), RV_REG(bhi), 0, 1));
+        riscv64_emit_add(c, RV64_T0, RV64_T0, RV64_T2);
+        riscv_emit_u32(c, rv64_R(RV_REG(RV64_T2), RV_REG(RV64_T0), RV_REG(RV64_T2), 3, 0));
+        riscv64_emit_add(c, RV64_T5, RV64_T5, RV64_T2);
+        riscv_emit_u32(c, rv64_R(RV_REG(RV64_T0), RV_REG(ahi), RV_REG(blo), 2, 1));
+        riscv_emit_u32(c, rv64_R(RV_REG(RV64_T2), RV_REG(bhi), RV_REG(alo), 2, 1));
+        riscv64_emit_add(c, RV64_T0, RV64_T0, RV64_T2);
+        riscv_emit_u32(c, rv64_R(RV_REG(RV64_T2), RV_REG(ahi), RV_REG(bhi), 0, 1));
+        riscv64_emit_add(c, RV64_T0, RV64_T0, RV64_T2);
+        riscv64_emit_add(c, RV64_T0, RV64_T0, RV64_T5);
+
+        riscv_emit_u32(c, rv64_I(RV_REG(RV64_T2), RV_REG(rhi), 5, 31, 0x13) | (1u << 30));
+        riscv_emit_u32(c, rv64_B(RV64_T0, RV64_T2, 0, 4 + trap_size));
+
+        if (c->sanitize_report) riscv64_emit_san_report_block(c, rlo, width, op);
+        riscv_emit_u32(c, 0xC0001073u);
+        return;
+    }
+}
+
 #undef RV64_T2
 
 /* RISC-V 64-bit backend instance */

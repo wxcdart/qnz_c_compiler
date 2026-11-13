@@ -61,9 +61,8 @@ CROSS_QEMU = {"aarch64": "qemu-aarch64-static",
 # Expected trap exit status (128+signal) per ISA when a signed overflow fires:
 # aarch64 emits brk #0 -> SIGTRAP(5); riscv64/riscv32 emit unimp -> SIGILL(4).
 CROSS_TRAP_RC = {"aarch64": 133, "riscv64": 132, "riscv32": 132}
-# ISAs whose 64-bit (width-8) check is implemented (riscv32 64-bit is a
-# (lo,hi) GPR pair -> documented false-negative, so the wide test is skipped).
-CROSS_WIDE_ISAS = ["aarch64", "riscv64"]
+# ISAs whose 64-bit (width-8) check is implemented (Sprint 174: all 3 cross ISAs).
+CROSS_WIDE_ISAS = ["aarch64", "riscv64", "riscv32"]
 # -fsanitize-trap (Sprint 167): the report the trap path prints before the
 # bare trap. Absent from the no-report (-fsanitize=undefined) runs.
 REPORT_PREFIX = "zerocc: runtime error:"
@@ -304,21 +303,21 @@ def main():
                     for path in PATHS:
                         out = os.path.join(tmpdir, f"xtrap_{isa}_{level}_{path}")
                         rc, err = build_cross(args.zerocc, isa, level, tsrc, out, path)
-                    if rc != 0:
-                        fails += 1
+                        if rc != 0:
+                            fails += 1
+                            results.append({"test": tname, "isa": isa, "level": level,
+                                            "path": path, "status": "FAIL",
+                                            "detail": f"compile rc={rc}: {err.strip()[:200]}"})
+                            continue
+                        rc, _, err = run([qemu, out])
+                        ok = rc in (CROSS_TRAP_RC[isa], 128 - CROSS_TRAP_RC[isa])  # shell 128+sig or Popen -sig
+                        if not ok:
+                            fails += 1
                         results.append({"test": tname, "isa": isa, "level": level,
-                                        "path": path, "status": "FAIL",
-                                        "detail": f"compile rc={rc}: {err.strip()[:200]}"})
-                        continue
-                    rc, _, err = run([qemu, out])
-                    ok = rc in (CROSS_TRAP_RC[isa], 128 - CROSS_TRAP_RC[isa])  # shell 128+sig or Popen -sig
-                    if not ok:
-                        fails += 1
-                    results.append({"test": tname, "isa": isa, "level": level,
-                                    "path": path, "rc": rc,
-                                    "expect": CROSS_TRAP_RC[isa],
-                                    "status": "ok" if ok else "FAIL",
-                                    "detail": err.strip()[:200]})
+                                        "path": path, "rc": rc,
+                                        "expect": CROSS_TRAP_RC[isa],
+                                        "status": "ok" if ok else "FAIL",
+                                        "detail": err.strip()[:200]})
 
     # Cross-ISA -fsanitize-trap report (Sprint 167): the diagnostic must
     # reach stderr under qemu on every ISA (raw-AOT path, -O1) before the

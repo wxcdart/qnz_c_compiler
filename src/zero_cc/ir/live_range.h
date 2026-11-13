@@ -672,6 +672,21 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
             continue;
         }
 
+        /* OP_OVF_TRAP only READS its operands (temp_dest is the result/divisor/count,
+         * not a definition). Carry all present temps as uses. */
+        if (instr->op == OP_OVF_TRAP) {
+            if (instr->temp_dest != TEMP_NONE) {
+                live_range_add_use(lra, i, instr->temp_dest, false);
+            }
+            if (instr->temp_src1 != TEMP_NONE) {
+                live_range_add_use(lra, i, instr->temp_src1, false);
+            }
+            if (instr->temp_src2 != TEMP_NONE) {
+                live_range_add_use(lra, i, instr->temp_src2, false);
+            }
+            continue;
+        }
+
         /* Record destination temp (definition) */
         if (instr->temp_dest != TEMP_NONE) {
             live_range_add_use(lra, i, instr->temp_dest, true);

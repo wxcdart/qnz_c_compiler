@@ -727,14 +727,22 @@ int zc_lower_binop64(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
 
     int result_temp = zc_alloc_temp(c);
     if (is_arith) {
-        if (op == TK_PLUS)      ir_emit_add64(c, result_temp, l, r);
-        else if (op == TK_MINUS) ir_emit_sub64(c, result_temp, l, r);
-        else                     ir_emit_mul64(c, result_temp, l, r);
+        if (op == TK_PLUS) {
+            ir_emit_add64(c, result_temp, l, r);
+            zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)result_temp, l, r, ZC_OVF_OP_ADD);
+        } else if (op == TK_MINUS) {
+            ir_emit_sub64(c, result_temp, l, r);
+            zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)result_temp, l, r, ZC_OVF_OP_SUB);
+        } else {
+            ir_emit_mul64(c, result_temp, l, r);
+            zc_maybe_emit_ovf_trap(c, arena, node, (uint32_t)result_temp, l, r, ZC_OVF_OP_MUL);
+        }
     } else if (is_logic) {
         if (op == TK_AMP)      ir_emit_and64(c, result_temp, l, r);
         else if (op == TK_PIPE) ir_emit_or64(c, result_temp, l, r);
         else                    ir_emit_xor64(c, result_temp, l, r);
     } else if (is_shift) {
+        zc_maybe_emit_shift_count_trap(c, arena, node, (uint32_t)r);
         if (op == TK_SHL) ir_emit_shl64(c, result_temp, l, r);
         else {
             /* Signed >> is an arithmetic shift (C: gcc defines it so). */
@@ -751,9 +759,11 @@ int zc_lower_binop64(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
          * compare path). */
         bool u64 = zero_cc_binop_is_unsigned(c, arena, node->left, node->right);
         if (op == TK_SLASH) {
+            zc_maybe_emit_div_zero_trap(c, arena, node, (uint32_t)r);
             if (u64) ir_emit_udiv64(c, result_temp, l, r);
             else     ir_emit_div64(c, result_temp, l, r);
         } else {
+            zc_maybe_emit_rem_zero_trap(c, arena, node, (uint32_t)r);
             if (u64) ir_emit_umod64(c, result_temp, l, r);
             else     ir_emit_mod64(c, result_temp, l, r);
         }
@@ -825,7 +835,6 @@ static void zc_emit_ovf_trap(ZeroCCCompiler *c, uint32_t result_temp,
          * operands (clean sign-extended, dead after this check) + the op.
          * Carrying them as source operands makes liveness keep a/b live to
          * here, so the emitter can read them. */
-        if (c->isa == ISA_RISCV32 && w == 8) return;  /* rv32 64-bit: follow-up */
         ir_emit(c, (Instr){.op = OP_OVF_TRAP, .temp_dest = result_temp,
             .temp_src1 = a_temp, .temp_src2 = b_temp, .imm = (int16_t)op,
             .label_idx = 0, .width = (uint8_t)w});

@@ -2098,6 +2098,111 @@ static void riscv64_emit_ovf_trap_asm(ZeroCCCompiler *c, int res, int a, int b,
     BE(c)->emit_label_asm(c, L, out);                   /* L: */
 }
 
+static void riscv32_emit_ovf_trap64_asm(ZeroCCCompiler *c, int rlo, int rhi,
+                                        int alo, int ahi, int blo, int bhi,
+                                        int width, int op, FILE *out) {
+    uint16_t lbl = c->ir_ovf_label++;
+    char Lskip[32];
+    snprintf(Lskip, sizeof Lskip, ".Lovf_%u", (unsigned)lbl);
+
+    if (op == ZC_OVF_OP_DIV_ZERO || op == ZC_OVF_OP_REM_ZERO) {
+        const char *rn_lo = BE(c)->get_hw_reg_name(rlo);
+        const char *rn_hi = BE(c)->get_hw_reg_name(rhi);
+        fprintf(out, "\tor\tt0, %s, %s\n", rn_lo, rn_hi);
+        fprintf(out, "\tbne\tt0, zero, %s\n", Lskip);
+        if (c->sanitize_report)
+            riscvasm_emit_san_report_block(c, rlo, width, op, out);
+        BE(c)->emit_trap_asm(c, out);
+        BE(c)->emit_label_asm(c, Lskip, out);
+        return;
+    }
+    if (op == ZC_OVF_OP_SHIFT_COUNT) {
+        const char *rn_lo = BE(c)->get_hw_reg_name(rlo);
+        uint16_t lbl2 = c->ir_ovf_label++;
+        char L2[32];
+        snprintf(L2, sizeof L2, ".Lovf_%u", (unsigned)lbl2);
+        fprintf(out, "\tli\tt5, %d\n", width * 8);
+        fprintf(out, "\tbge\t%s, zero, %s\n", rn_lo, Lskip);
+        if (c->sanitize_report)
+            riscvasm_emit_san_report_block(c, rlo, width, op, out);
+        BE(c)->emit_trap_asm(c, out);
+        BE(c)->emit_label_asm(c, Lskip, out);
+        fprintf(out, "\tblt\t%s, t5, %s\n", rn_lo, L2);
+        if (c->sanitize_report)
+            riscvasm_emit_san_report_block(c, rlo, width, op, out);
+        BE(c)->emit_trap_asm(c, out);
+        BE(c)->emit_label_asm(c, L2, out);
+        return;
+    }
+    if (op == ZC_OVF_OP_ADD) {
+        const char *an_hi = BE(c)->get_hw_reg_name(ahi);
+        const char *bn_hi = BE(c)->get_hw_reg_name(bhi);
+        const char *rn_hi = BE(c)->get_hw_reg_name(rhi);
+        fprintf(out, "\txor\tt0, %s, %s\n", an_hi, rn_hi);
+        fprintf(out, "\txor\tt2, %s, %s\n", bn_hi, rn_hi);
+        fprintf(out, "\tand\tt0, t0, t2\n");
+        fprintf(out, "\tbge\tt0, zero, %s\n", Lskip);
+        if (c->sanitize_report)
+            riscvasm_emit_san_report_block(c, rlo, width, op, out);
+        BE(c)->emit_trap_asm(c, out);
+        BE(c)->emit_label_asm(c, Lskip, out);
+        return;
+    }
+    if (op == ZC_OVF_OP_SUB) {
+        const char *an_hi = BE(c)->get_hw_reg_name(ahi);
+        const char *bn_hi = BE(c)->get_hw_reg_name(bhi);
+        const char *rn_hi = BE(c)->get_hw_reg_name(rhi);
+        fprintf(out, "\txor\tt0, %s, %s\n", rn_hi, an_hi);
+        fprintf(out, "\txor\tt2, %s, %s\n", an_hi, bn_hi);
+        fprintf(out, "\tand\tt0, t0, t2\n");
+        fprintf(out, "\tbge\tt0, zero, %s\n", Lskip);
+        if (c->sanitize_report)
+            riscvasm_emit_san_report_block(c, rlo, width, op, out);
+        BE(c)->emit_trap_asm(c, out);
+        BE(c)->emit_label_asm(c, Lskip, out);
+        return;
+    }
+    if (op == ZC_OVF_OP_MUL) {
+        const char *an_lo = BE(c)->get_hw_reg_name(alo);
+        const char *an_hi = BE(c)->get_hw_reg_name(ahi);
+        const char *bn_lo = BE(c)->get_hw_reg_name(blo);
+        const char *bn_hi = BE(c)->get_hw_reg_name(bhi);
+        const char *rn_hi = BE(c)->get_hw_reg_name(rhi);
+        uint16_t lbl_slow = c->ir_ovf_label++;
+        char Lslow[32];
+        snprintf(Lslow, sizeof Lslow, ".Lovf_%u", (unsigned)lbl_slow);
+
+        fprintf(out, "\tsrai\tt0, %s, 31\n", an_lo);
+        fprintf(out, "\tbne\t%s, t0, %s\n", an_hi, Lslow);
+        fprintf(out, "\tsrai\tt0, %s, 31\n", bn_lo);
+        fprintf(out, "\tbeq\t%s, t0, %s\n", bn_hi, Lskip);
+
+        BE(c)->emit_label_asm(c, Lslow, out);
+        fprintf(out, "\tmulhu\tt0, %s, %s\n", an_lo, bn_lo);
+        fprintf(out, "\tmul\tt2, %s, %s\n", an_hi, bn_lo);
+        fprintf(out, "\tadd\tt0, t0, t2\n");
+        fprintf(out, "\tsltu\tt5, t0, t2\n");
+        fprintf(out, "\tmul\tt2, %s, %s\n", an_lo, bn_hi);
+        fprintf(out, "\tadd\tt0, t0, t2\n");
+        fprintf(out, "\tsltu\tt2, t0, t2\n");
+        fprintf(out, "\tadd\tt5, t5, t2\n");
+        fprintf(out, "\tmulhsu\tt0, %s, %s\n", an_hi, bn_lo);
+        fprintf(out, "\tmulhsu\tt2, %s, %s\n", bn_hi, an_lo);
+        fprintf(out, "\tadd\tt0, t0, t2\n");
+        fprintf(out, "\tmul\tt2, %s, %s\n", an_hi, bn_hi);
+        fprintf(out, "\tadd\tt0, t0, t2\n");
+        fprintf(out, "\tadd\tt0, t0, t5\n");
+        fprintf(out, "\tsrai\tt2, %s, 31\n", rn_hi);
+        fprintf(out, "\tbeq\tt0, t2, %s\n", Lskip);
+
+        if (c->sanitize_report)
+            riscvasm_emit_san_report_block(c, rlo, width, op, out);
+        BE(c)->emit_trap_asm(c, out);
+        BE(c)->emit_label_asm(c, Lskip, out);
+        return;
+    }
+}
+
 /* Initialize RISC-V assembly emission functions in backend */
 void riscv64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_inline_asm_asm = riscv_emit_inline_asm_asm;
@@ -2178,6 +2283,7 @@ void riscv64_init_asm_emission(ZeroCCISABackend *be) {
         be->emit_mod64_asm = riscv32_emit_mod64_asm;
         be->emit_udiv64_asm = riscv32_emit_udiv64_asm;
         be->emit_umod64_asm = riscv32_emit_umod64_asm;
+        be->emit_ovf_trap64_asm = riscv32_emit_ovf_trap64_asm;
     }
     be->emit_lea_asm = riscv_emit_lea_asm;
     be->emit_deref_asm = riscv_emit_deref_asm;
