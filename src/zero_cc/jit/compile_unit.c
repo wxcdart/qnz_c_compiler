@@ -575,6 +575,7 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
          * output.  Both object and function section routing are supported. */
         c->pending_section[0] = '\0';
         c->pending_weak = 0;
+        c->pending_constexpr_fn = 0;
         {
             size_t dstart = c->token_pos;
             int paren = 0, brace = 0;
@@ -647,18 +648,71 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                 }
             }
         }
-        /* C23 6.7.2.4: `constexpr` - valid only on initialized data
-         * declarations (gcc parity: a constexpr function/typedef is
-         * rejected with "'constexpr' requires an initialized data
-         * declaration").  For data declarations it behaves as the `const`
-         * qualifier: rewrite the token and fall through to the normal
-         * dispatch (TK_CONST is a full citizen of every path below). */
+        /* C23 6.7.2.4: `constexpr`.  Three cases:
+         *   - data declaration (initialized variable): behaves as `const`;
+         *   - function definition/declaration: accepted, the function is
+         *     marked constexpr for compile-time evaluation (CTFE);
+         *   - typedef: rejected ("'constexpr' requires an initialized data
+         *     declaration", gcc parity). */
         if (c->tokens[c->token_pos].type == TK_CONSTEXPR) {
-            if (zc_constexpr_not_data(c)) {
+            bool is_fn = (c->tokens[c->token_pos].type == TK_IDENT &&
+                          c->token_pos + 1 < c->token_count &&
+                          c->tokens[c->token_pos + 1].type == TK_LPAREN);
+            /* Probe past specifiers to find the declarator kind. */
+            size_t probe = c->token_pos;
+            while (probe < c->token_count &&
+                   (c->tokens[probe].type == TK_CONSTEXPR ||
+                    c->tokens[probe].type == TK_STATIC ||
+                    c->tokens[probe].type == TK_INLINE ||
+                    c->tokens[probe].type == TK_REGISTER ||
+                    c->tokens[probe].type == TK_CONST ||
+                    c->tokens[probe].type == TK_VOLATILE ||
+                    c->tokens[probe].type == TK_EXTERN ||
+                    c->tokens[probe].type == TK_THREAD_LOCAL)) probe++;
+            while (probe < c->token_count && c->tokens[probe].type == TK_ALIGNAS) {
+                probe++;
+                if (probe < c->token_count && c->tokens[probe].type == TK_LPAREN) {
+                    int depth = 1; probe++;
+                    while (probe < c->token_count && depth > 0) {
+                        if (c->tokens[probe].type == TK_LPAREN) depth++;
+                        else if (c->tokens[probe].type == TK_RPAREN) depth--;
+                        probe++;
+                    }
+                } else { probe++; }
+            }
+            while (probe < c->token_count) {
+                ZeroCCTokType pt = c->tokens[probe].type;
+                if (pt == TK_STRUCT || pt == TK_UNION || pt == TK_ENUM) {
+                    probe++;
+                    if (probe < c->token_count && c->tokens[probe].type == TK_LBRACE) {
+                        int depth = 0;
+                        while (probe < c->token_count) {
+                            if (c->tokens[probe].type == TK_LBRACE) depth++;
+                            else if (c->tokens[probe].type == TK_RBRACE) {
+                                if (depth == 0) break;
+                                depth--;
+                            }
+                            probe++;
+                        }
+                        probe++;
+                    } else if (probe < c->token_count && c->tokens[probe].type == TK_IDENT) {
+                        probe++;
+                    }
+                    continue;
+                }
+                if (is_type_specifier_at(c, probe, pt)) { probe++; continue; }
+                break;
+            }
+            bool is_typedef = (probe < c->token_count &&
+                               c->tokens[probe].type == TK_TYPEDEF);
+            is_fn = (probe < c->token_count &&
+                     c->tokens[probe].type == TK_IDENT &&
+                     probe + 1 < c->token_count &&
+                     c->tokens[probe + 1].type == TK_LPAREN);
+
+            if (is_typedef) {
                 diag_report_error_at_token(c, "'constexpr' requires an initialized data declaration");
                 c->had_error = 1;
-                /* Skip the whole declaration: balanced body `}` (definition)
-                 * or `;` (prototype/typedef). */
                 size_t p = c->token_pos;
                 int paren = 0, brace = 0;
                 bool done = false;
@@ -677,8 +731,20 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                 c->token_pos = p;
                 continue;
             }
-            c->tokens[c->token_pos].type = TK_CONST;
-            /* fall through to the normal dispatch */
+            if (is_fn) {
+                /* constexpr function: record the marker on the compiler so
+                 * the function parser (zero_cc_compile_function) can pick it
+                 * up and set ZeroCCFunction.is_constexpr.  Rewrite to TK_CONST
+                 * so the rest of the declaration path treats it as a const
+                 * qualifier (harmless for functions). */
+                c->pending_constexpr_fn = 1;
+                c->tokens[c->token_pos].type = TK_CONST;
+                /* fall through to the normal function dispatch */
+            } else {
+                /* constexpr data declaration: behaves as const. */
+                c->tokens[c->token_pos].type = TK_CONST;
+                /* fall through to the normal dispatch */
+            }
         }
         /* Empty declaration at file scope (`;`) - legal C (C99 6.7) and a
          * common byproduct of attribute macros that carry their own `;`

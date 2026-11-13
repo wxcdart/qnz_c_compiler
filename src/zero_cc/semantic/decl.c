@@ -75,6 +75,10 @@ TypeInfo *decl_handle_var(SemContext *ctx, ZeroCCASTNode *node) {
     /* Retrieve declared type (if annotated on node) */
     TypeInfo *var_t = decl_node_type(ctx, node);
 
+    /* C23 `auto` type deduction: the declared type is a void placeholder.
+     * The real type is inferred from the initializer expression below. */
+    bool is_auto_deduce = node && (node->flags & NODE_DECL_AUTO_DEDUCE);
+
     /* C99 6.7.9p11: the identifier is in scope within its own
      * initializer (`double b = b;` compiles; reading b is UB but the
      * name must resolve to the new object). Register the symbol before
@@ -82,6 +86,17 @@ TypeInfo *decl_handle_var(SemContext *ctx, ZeroCCASTNode *node) {
      * remove it again if the declaration is then rejected. */
     Symbol *sym = NULL;
     if (var_t && !type_is_void(var_t)) {
+        sym = scope_put_symbol(ctx->current_scope, name, SYMBOL_VAR, var_t);
+        if (!sym) {
+            decl_error(ctx, node, "failed to insert symbol '%s' into scope", name);
+            return NULL;
+        }
+        sym->node = node;
+    }
+    /* For auto-deduction, register the symbol with the placeholder type so
+     * the name is visible within its own initializer (C99 6.7.9p11). The
+     * real type is filled in after deduction below. */
+    if (is_auto_deduce && !sym) {
         sym = scope_put_symbol(ctx->current_scope, name, SYMBOL_VAR, var_t);
         if (!sym) {
             decl_error(ctx, node, "failed to insert symbol '%s' into scope", name);
@@ -108,13 +123,45 @@ TypeInfo *decl_handle_var(SemContext *ctx, ZeroCCASTNode *node) {
         }
     }
 
+    /* C23 `auto` type deduction: infer the declared type from the
+     * initializer expression.  Array and function types decay to pointers;
+     * top-level const/volatile are stripped from the deduced type (the
+     * variable's own qualifiers, e.g. `const auto x`, are kept by merging
+     * var_t's modifiers onto the deduced type below). */
+    if (is_auto_deduce) {
+        if (!init_t) {
+            decl_error(ctx, node, "cannot deduce type for 'auto' variable '%s' without initializer", name);
+            scope_remove_symbol(ctx->current_scope, name);
+            return NULL;
+        }
+        /* Deduce: strip top-level cv-qualifiers, decay array/function. */
+        TypeInfo *deduced = init_t;
+        if (deduced->kind == TYPE_KIND_ARRAY) {
+            deduced = type_pointer_to(ctx->perm_arena, deduced->details.array.base);
+        } else if (deduced->kind == TYPE_KIND_FUNCTION) {
+            deduced = type_pointer_to(ctx->perm_arena, deduced);
+        } else {
+            /* Strip top-level const/volatile from the deduced type. */
+            deduced->modifiers &= ~(uint32_t)(TYPE_MOD_CONST | TYPE_MOD_VOLATILE);
+        }
+        /* Merge the variable's own qualifiers (const/volatile/restrict/atomic)
+         * from the placeholder var_t onto the deduced type, so `const auto x`
+         * yields `const int`. */
+        deduced->modifiers |= (var_t->modifiers & (uint32_t)(TYPE_MOD_CONST | TYPE_MOD_VOLATILE |
+                                                           TYPE_MOD_RESTRICT | TYPE_MOD_ATOMIC));
+        var_t = deduced;
+        /* Update the symbol's type and the node's type annotation. */
+        sym->type = var_t;
+        decl_node_set_type(ctx, node, var_t);
+    }
+
     /* If no explicit type was specified, infer from initializer or default to int */
     if (!var_t) {
         var_t = init_t ? init_t : type_int(ctx->perm_arena);
     }
 
-    /* Disallow void variables */
-    if (type_is_void(var_t)) {
+    /* Disallow void variables (auto-deduced types are resolved above) */
+    if (!is_auto_deduce && type_is_void(var_t)) {
         if (sym) scope_remove_symbol(ctx->current_scope, name);
         decl_error(ctx, node, "variable '%s' declared with void type", name);
         return NULL;

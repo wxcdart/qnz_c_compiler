@@ -73,6 +73,12 @@ typedef struct ZeroCCCompiler {
      * at link time (Unity test-framework setup stubs). */
     int pending_weak;
 
+    /* C23 constexpr: set by the file-scope loop when a `constexpr` keyword
+     * is found on a function declaration.  Consumed by zero_cc_compile_function
+     * to set ZeroCCFunction.is_constexpr, enabling compile-time evaluation
+     * of calls to this function in constant-expression contexts. */
+    int pending_constexpr_fn;
+
     ZeroCCSym *locals;
     size_t local_count;
     size_t local_capacity;
@@ -361,6 +367,13 @@ typedef struct ZeroCCCompiler {
      * never realloc'd, so interned pointers stay valid across token-buffer
      * growth (which moves the ZeroCCToken.str_val buffers they copied from). */
     struct ZeroCCStrChunk *str_chunks;
+
+    /* C23 constexpr: compile-time function evaluation parameter bindings.
+     * Used during CTFE to substitute parameter references with argument
+     * values. Reset between evaluations. */
+    const char **ctfe_param_names;
+    int64_t *ctfe_param_values;
+    size_t ctfe_param_count;
 } ZeroCCCompiler;
 
 /* Report (at most once per compilation) that the TU's text-relocation

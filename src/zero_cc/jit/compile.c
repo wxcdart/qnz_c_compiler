@@ -915,6 +915,7 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
             fn->has_prototype = has_prototype;
             fn->is_inline = fn_inline;
             fn->is_static = fn_static;
+            fn->is_constexpr = c->pending_constexpr_fn;
             fn->align = fn_align;
             if (first_param_count > 0) {
                 Arena *farena = zero_cc_get_fn_arena(c);
@@ -968,6 +969,7 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
         fn->has_prototype = has_prototype;
         fn->is_inline = fn_inline;
         fn->is_static = fn_static;
+        fn->is_constexpr = c->pending_constexpr_fn;
         fn->align = fn_align;
         if (param_count > 0) {
             Arena *farena = zero_cc_get_fn_arena(c);
@@ -1043,7 +1045,17 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
         // Parse function body into AST and lower to machine code
         ZeroCCASTArena arena;
         zero_cc_ast_arena_init(&arena, 1024);
+        /* C23 constexpr: save the body token range for compile-time
+         * function evaluation. c->token_pos currently points at the opening
+         * brace; zero_cc_parse_stmt_ast will consume { ... } and leave
+         * token_pos past the closing brace. */
+        if (fn->is_constexpr) {
+            fn->constexpr_body_start = c->token_pos;
+        }
         ASTRef body = zero_cc_parse_stmt_ast(c, &arena, ctx);
+        if (fn->is_constexpr) {
+            fn->constexpr_body_end = c->token_pos;
+        }
         // Register previously compiled functions in the GLOBAL scope
         // Find the global scope (root of scope chain)
         Scope *global_scope_root = ctx->current_scope;

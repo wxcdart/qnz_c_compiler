@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-11-13T12:48:15Z
+timestamp: 2026-11-13T18:19:40Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -544,6 +544,32 @@ ZeroCC supports GNU C computed gotos and first-class label addresses:
   - Declarations such as `static void *dispatch_table[] = { &&op1, &&op2 };` are parsed before the function IR is generated. Initializers record `ZeroCCDataReloc` entries with `target_kind = 5`.
   - After function AST lowering completes, post-lowering resolves `target_kind 5` entries against `c->user_label_offsets` to record the exact byte offset in `.text` and the assembly label name `.L<fn>_<ir_lbl>`.
   - AOT emission (`driver_asm.h` and `main.c`) generates `.quad .L<fn>_<ir_lbl>` and ELF `R_X86_64_64` relocations targeting the local `.text` symbol. JIT mode (`execution.h`) patches the in-memory function text offset.
+
+## C23 `auto` Type Deduction & `constexpr` Functions (ZeroCC Extension)
+
+C23 `constexpr` on data declarations is fully supported (Sprint 131): `constexpr int n = 42;` behaves as `const` with a compile-time-initialized value.
+
+Two ZeroCC extensions go beyond C23 6.7.2.4 and require **semantic-analysis integration** (deeper than parser-only changes):
+
+### `auto` Type Deduction (C23 6.7.2.4, ZeroCC extension)
+
+`auto x = initializer;` deduces `x`'s type from the initializer expression:
+- **Parser** (`parser/decl_local.c`): `TK_AUTO` is recorded as `is_auto`. When no explicit type specifier follows, implicit-int is suppressed; instead `t = TK_VOID` is forced (to enter the normal declaration path) and `auto_deduce` is set. The declarator is parsed normally (`auto *p = &x;` works). The declaration node is stamped with `NODE_DECL_AUTO_DEDUCE`.
+- **Semantic analysis** (`semantic/decl.c` `decl_handle_var`): when `NODE_DECL_AUTO_DEDUCE` is set, the initializer expression is evaluated first. The deduced type is:
+  - Array type → pointer to element type (decay)
+  - Function type → pointer to function type (decay)
+  - Otherwise: the initializer's type with top-level const/volatile stripped.
+  The variable's own qualifiers (const/volatile/restrict/atomic from `var_t->modifiers`) are merged onto the deduced type, so `const auto x = 42;` yields `const int`.
+  `auto x;` without an initializer is an error ("cannot deduce type for 'auto' variable ... without initializer").
+- **Type representation**: The placeholder type is `TYPE_VOID` (or `void *` etc. with declarators); semantic analysis replaces it with the deduced type and updates both the symbol table and the AST node annotation.
+
+### `constexpr` Functions (ZeroCC extension beyond C23)
+
+C23 only permits `constexpr` on data declarations. ZeroCC additionally accepts `constexpr` on functions and performs **compile-time function evaluation (CTFE)**:
+- **Parser** (`jit/compile_unit.c`): `constexpr` on a function (not typedef) is accepted instead of rejected. `c->pending_constexpr_fn` is set and the token is rewritten to `TK_CONST` so the normal declaration path runs. `constexpr` on `typedef` is still rejected (gcc parity).
+- **Compiler state** (`types/symbols.h`): `ZeroCCFunction.is_constexpr` records the flag; `constexpr_body_start`/`constexpr_body_end` capture the body's token range at parse time (in `jit/compile.c`).
+- **Constant evaluator** (`parser/const_eval.c`): `parse_primary` detects `TK_IDENT` followed by `TK_LPAREN` where the identifier is a `constexpr` function. Arguments are evaluated as constant expressions, bound to `ctfe_param_names`/`ctfe_param_values`, and the function body is evaluated (scanning for `return <expr>;`). Parameter references inside the body resolve to the bound argument values via `ctfe_param_*` lookups.
+- **Limitation**: CTFE handles single-expression return bodies (`return expr;`). Nested constexpr calls are supported. Complex control flow (if/while/blocks) is not yet supported in CTFE bodies.
 
 ## Related Concepts
 - Return to [Root Index](./index.md)

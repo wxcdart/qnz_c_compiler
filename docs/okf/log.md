@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-13T13:13:49Z
+timestamp: 2026-11-13T18:19:40Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1428,3 +1428,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-13 — Updated `build-and-verification.md`
 - Sprint 178: make test-perf compile-performance budget gate section (tools/verify/perf_budget.py + test/perf/baseline.json) - corpus, two-metric design (wall 50% / per-pass max(40%,3ms)), median-of-5-7 methodology, ratchet semantics, run-after guidance
+
+## 2026-11-13 — Updated `frontend-and-types.md`
+- Implemented C23 auto type deduction and constexpr functions (CTFE) with semantic-analysis integration

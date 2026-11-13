@@ -857,6 +857,7 @@ bool zero_cc_parse_local_decl(ZeroCCCompiler *c,  /* Sprint 114: defined in decl
     /* Parse alignment, storage specifiers & type qualifiers */
     bool is_const = false;
     bool is_volatile = false;
+    bool is_auto = false;           /* C23 `auto`: type deduced from initializer */
     bool is_atomic = false;
     bool is_static_local = false;   /* Sprint 37: block-scope `static` */
     bool is_extern = false;
@@ -917,6 +918,13 @@ bool zero_cc_parse_local_decl(ZeroCCCompiler *c,  /* Sprint 114: defined in decl
              * execute/20010605-1, compile/20010903-2): the nested-function
              * trampoline model has no inline expansion, so the specifier
              * is accepted and otherwise ignored (like C's `auto`). */
+            c->token_pos++;
+        } else if (c->tokens[c->token_pos].type == TK_AUTO) {
+            /* C23 `auto` type deduction: the type is inferred from the
+             * initializer expression during semantic analysis. Record it
+             * here; the implicit-int path below is skipped when `auto` is
+             * present without an explicit type specifier. */
+            is_auto = true;
             c->token_pos++;
         } else {
             c->token_pos++;
@@ -994,6 +1002,7 @@ bool zero_cc_parse_local_decl(ZeroCCCompiler *c,  /* Sprint 114: defined in decl
      * base defaults to int.  Force the base to int and skip consuming
      * the name token (the declarator parser owns it). */
     bool implicit_int_local = false;
+    bool auto_deduce = false;         /* C23 `auto` type deduction pending */
     /* A name already declared (global, extern object, or function) makes
      * `name = expr;` an ASSIGNMENT, not an implicit-int declaration -
      * extern variables live in the function table as is_object entries,
@@ -1019,9 +1028,33 @@ bool zero_cc_parse_local_decl(ZeroCCCompiler *c,  /* Sprint 114: defined in decl
         if (ln < c->token_count &&
             (c->tokens[ln].type == TK_SEMI || c->tokens[ln].type == TK_COMMA ||
              c->tokens[ln].type == TK_ASSIGN || c->tokens[ln].type == TK_LBRACKET)) {
-            t = TK_INT;
-            implicit_int_local = true;
+            if (!is_auto) {
+                /* C89 implicit-int: default to int only when `auto` is NOT
+                 * present. With C23 `auto`, the type is deduced from the
+                 * initializer during semantic analysis. */
+                t = TK_INT;
+                implicit_int_local = true;
+            } else {
+                /* C23 `auto` without an explicit type specifier: force a
+                 * type-specifier token so the normal declaration path runs,
+                 * but mark for auto type deduction. The base type will be
+                 * overridden to void (placeholder) below. `implicit_int_local`
+                 * must be set so the identifier token is NOT consumed as a
+                 * type token - the declarator parser owns it. */
+                t = TK_VOID;
+                implicit_int_local = true;
+                auto_deduce = true;
+            }
         }
+    }
+    /* C23 `auto` with a non-identifier declarator (`auto *p = &x;`): after
+     * consuming `auto`, the next token may be `*` (pointer), `(`
+     * (function pointer), etc. Force a type-specifier token so the normal
+     * declaration path runs and the declarator parser owns the `*`/etc. */
+    if (is_auto && !auto_deduce && !is_type_specifier(c, t)) {
+        t = TK_VOID;
+        implicit_int_local = true;
+        auto_deduce = true;
     }
     if (is_type_specifier(c, t)) {
         size_t type_start_pos = c->token_pos;
@@ -2204,6 +2237,9 @@ bool zero_cc_parse_local_decl(ZeroCCCompiler *c,  /* Sprint 114: defined in decl
 
                 /* Attach type to AST node for semantic analysis */
                 decl_node_set_type(ctx, dn, decl_ti);
+                if (auto_deduce) {
+                    dn->flags |= NODE_DECL_AUTO_DEDUCE;
+                }
 
                 /* C99 §6.7.8 p3: VLA shall not have an initializer */
                 if ((dn->flags & NODE_DECL_IS_VLA) != 0) {

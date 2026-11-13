@@ -1390,6 +1390,91 @@ ZCConstVal parse_primary(ZeroCCCompiler *c, size_t *pos)
                 return g_is_f ? zc_cv_float(g_d) : zc_cv_int(g_i);
             }
         }
+        /* C23 constexpr: parameter reference during CTFE.  If we are
+         * evaluating a constexpr function body, a parameter name resolves
+         * to the bound argument value. */
+        for (size_t pi = 0; pi < c->ctfe_param_count; pi++) {
+            if (strcmp(c->ctfe_param_names[pi], c->tokens[*pos].str_val) == 0) {
+                (*pos)++;
+                return zc_cv_int(c->ctfe_param_values[pi]);
+            }
+        }
+
+        /* C23 constexpr function call: f(args) where f is a constexpr
+         * function.  Evaluate arguments as constant expressions, bind them
+         * to the function's parameters, and evaluate the function body. */
+        if (*pos + 1 < c->token_count && c->tokens[*pos + 1].type == TK_LPAREN) {
+            ZeroCCFunction *fn = zero_cc_find_function(c, c->tokens[*pos].str_val);
+            if (fn && fn->is_constexpr &&
+                fn->constexpr_body_start > 0 && fn->constexpr_body_end > fn->constexpr_body_start) {
+                /* Consume the function name and opening paren. */
+                size_t call_pos = *pos;
+                call_pos++; /* identifier */
+                call_pos++; /* '(' */
+
+                /* Evaluate comma-separated arguments as constant expressions. */
+                int64_t arg_values[16];
+                size_t arg_count = 0;
+                while (call_pos < c->token_count &&
+                       c->tokens[call_pos].type != TK_RPAREN &&
+                       arg_count < 16) {
+                    size_t saved_pos = c->token_pos;
+                    c->token_pos = call_pos;
+                    ZCConstVal arg_val = parse_conditional(c, &c->token_pos);
+                    call_pos = c->token_pos;
+                    c->token_pos = saved_pos;
+                    arg_values[arg_count++] = arg_val.i;
+                    if (call_pos < c->token_count &&
+                        c->tokens[call_pos].type == TK_COMMA) {
+                        call_pos++; /* consume ',' */
+                    }
+                }
+                /* Consume closing ')'. */
+                if (call_pos < c->token_count &&
+                    c->tokens[call_pos].type == TK_RPAREN) {
+                    call_pos++;
+                }
+
+                /* Set up CTFE parameter bindings from fn->param_names. */
+                const char **saved_param_names = c->ctfe_param_names;
+                int64_t *saved_param_values = c->ctfe_param_values;
+                size_t saved_param_count = c->ctfe_param_count;
+
+                c->ctfe_param_names = (const char **)fn->param_names;
+                c->ctfe_param_values = arg_values;
+                c->ctfe_param_count = (fn->param_count < 16) ? fn->param_count : 16;
+
+                /* Save token position, evaluate the body, then restore. */
+                size_t saved_token_pos = c->token_pos;
+                c->token_pos = fn->constexpr_body_start;
+
+                ZCConstVal result = zc_cv_int(0);
+                /* Skip '{' and look for 'return <expr>;'. */
+                if (c->token_pos < c->token_count &&
+                    c->tokens[c->token_pos].type == TK_LBRACE) {
+                    c->token_pos++;
+                }
+                while (c->token_pos < fn->constexpr_body_end) {
+                    if (c->tokens[c->token_pos].type == TK_RETURN) {
+                        c->token_pos++; /* consume 'return' */
+                        result = parse_conditional(c, &c->token_pos);
+                        break;
+                    }
+                    c->token_pos++;
+                }
+
+                /* Restore CTFE state and token position. */
+                c->ctfe_param_names = saved_param_names;
+                c->ctfe_param_values = saved_param_values;
+                c->ctfe_param_count = saved_param_count;
+                c->token_pos = saved_token_pos;
+
+                /* Consume the full call (identifier through ')') for the caller. */
+                *pos = call_pos;
+                return result;
+            }
+        }
+
         /* Unknown identifier (e.g. an extern with no initializer value):
          * consume it and yield 0 so the caller's stream stays in sync
          * (c-torture compile/limits-externdecl: `(char *) X00000` inside a

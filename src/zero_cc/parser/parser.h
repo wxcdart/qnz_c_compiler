@@ -81,6 +81,11 @@ typedef enum {
                                              * struct/union with VLA members - the
                                              * lowering captures the member dimensions
                                              * at definition time (GCC semantics) */
+#define NODE_DECL_AUTO_DEDUCE (1u << 3)  /* C23 `auto` type deduction: the
+                                             * declared type is void/unset and
+                                             * must be inferred from the
+                                             * initializer expression during
+                                             * semantic analysis */
     NODE_TYPEDEF_DECL,/* struct/enum/scalar typedef */
     NODE_STATIC_ASSERT/* left = cond */,
     NODE_COMMA,       /* left = lhs, right = rhs (comma operator) */

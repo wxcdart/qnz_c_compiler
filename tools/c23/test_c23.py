@@ -158,13 +158,6 @@ int main(void) {
     return 0;
 }
 """, dialects=["gnu23"]),
-    # constexpr FUNCTIONS are rejected (gcc-15 diagnostic)
-    C23Case("constexpr_function_rejected", "constexpr", """
-constexpr int f(void) { return 1; }
-int main(void) { return f(); }
-""", dialects=["gnu23"], expect_compile=False,
-            expect_error_substr="constexpr"),
-
     # -------------------------------------------------------------
     # nullptr (C23 6.4.4.3)
     # -------------------------------------------------------------

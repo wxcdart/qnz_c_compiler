@@ -285,6 +285,7 @@ typedef struct ZeroCCFunction {
                                            * scope must see it as a variable, not
                                            * a function. */
     bool is_inline;                       /* True for inline declarations (C99) */
+    bool is_constexpr;                    /* C23 constexpr: function can be evaluated at compile time */
     bool is_static;                       /* True for static functions (internal linkage) */
     bool is_nested;                       /* True for GNU nested functions defined inside a block (Phase 1 trampolines) */
     size_t align;                         /* __attribute__((aligned(N))) on prototype/definition (0 = default) */
@@ -300,6 +301,13 @@ typedef struct ZeroCCFunction {
      * enclosing function is lowered. */
     size_t nested_body_start;
     size_t nested_body_end;
+
+    /* C23 constexpr: body token range for compile-time function evaluation.
+     * [constexpr_body_start, constexpr_body_end) spans the function body
+     * tokens (including the braces). Set when pending_constexpr_fn is true
+     * and the function has a body. */
+    size_t constexpr_body_start;
+    size_t constexpr_body_end;
 
     /* Phase 2: closure capture via hidden value parameters.
      * Captured variables are passed as additional leading parameters to the
