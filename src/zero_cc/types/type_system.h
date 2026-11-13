@@ -175,11 +175,34 @@ typedef struct {
     int64_t value;
 } ZeroCCEnumConst;
 
+/* Snapshot of parameter or local variable for DWARF debug info */
+typedef struct ZeroCCDwarfVar {
+    char name[128];
+    ZeroCCType type;
+    int32_t stack_offset;
+    bool is_param;
+    bool is_static_local;
+    size_t static_data_offset;
+    uint32_t line;
+    uint16_t col;
+} ZeroCCDwarfVar;
+
+/* Line number entry for DWARF .debug_line */
+typedef struct ZeroCCDwarfLineEntry {
+    size_t text_offset;
+    uint32_t line;
+    uint16_t col;
+    bool is_stmt;
+    bool is_prologue_end;
+} ZeroCCDwarfLineEntry;
+
 /* Local Symbol Representation */
 typedef struct {
     char name[128];
     ZeroCCType type;
     int32_t stack_offset;                 /* Offset from RBP */
+    uint32_t line;                        /* Source line */
+    uint16_t col;                         /* Source column */
     /* Runtime VLA dimension/object-size slot (C99 6.7.6.2): 8-byte frame
      * slot holding the VLA's runtime size, reserved for VLA params
      * (dim value evaluated at entry) and VLA locals (allocation size
@@ -369,6 +392,13 @@ typedef struct ZeroCCFunction {
     /* GNU __attribute__((weak)): emit the symbol with STB_WEAK binding so a
      * strong definition in another TU wins at link time (Unity setup stubs). */
     int is_weak;
+
+    /* DWARF debug information */
+    uint32_t line;                           /* Declaration line */
+    uint16_t col;                            /* Declaration column */
+    size_t text_size;                        /* Machine code size in bytes */
+    ZeroCCDwarfVar *dwarf_vars;              /* Parameter and local variable snapshot */
+    size_t dwarf_var_count;                  /* Count of dwarf_vars */
 } ZeroCCFunction;
 
 /* Relocation Record */

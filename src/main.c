@@ -32,6 +32,7 @@
 
 #include "zero_cc/driver/driver_opts.h"
 #include "zero_cc/driver/driver_asm.h"
+#include "zero_cc/dwarf/dwarf.h"
 
 static ZeroCCISA parse_target_arch(const char *target);
 static void zero_cc_init_compiler_with_target(ZeroCCCompiler *comp, ZeroCCISA target_isa);
@@ -274,6 +275,12 @@ static ZeroCCCompiler *jit_compile_tu(CompileOptions *opts, const char *input, i
     comp->sanitize_report = opts->sanitize_report != 0;
     comp->stack_protector = opts->stack_protector;
     comp->std_dialect = opts->std_dialect;
+    comp->debug_info = opts->debug_info;
+    comp->source_filename = input;
+    static char cwd_buf[1024];
+    if (getcwd(cwd_buf, sizeof(cwd_buf))) {
+        comp->comp_dir = cwd_buf;
+    }
 
     char *prep = preprocess_with_options(source, opts, input, opts->dep_target);
     free(source);
@@ -529,6 +536,12 @@ static int compile_object_single(CompileOptions *opts, const char *input,
     comp->sanitize_report = opts->sanitize_report != 0;
     comp->stack_protector = opts->stack_protector;
     comp->std_dialect = opts->std_dialect;
+    comp->debug_info = opts->debug_info;
+    comp->source_filename = input;
+    static char cwd_buf[1024];
+    if (getcwd(cwd_buf, sizeof(cwd_buf))) {
+        comp->comp_dir = cwd_buf;
+    }
 
     /* Preprocess (with -I include dirs, -D defines, and -MMD/-MF/-MT) */
     char *prep = preprocess_with_options(source, opts, input, dep_target);
@@ -1346,6 +1359,11 @@ static int compile_object_single(CompileOptions *opts, const char *input,
                                           (int64_t)dr->target_data_offset);
             }
         }
+    }
+
+    /* Emit DWARF debug info (.debug_line, .debug_info, .debug_abbrev, .debug_str) */
+    if (comp->debug_info && !opts->emit_asm) {
+        zero_cc_dwarf_emit(comp, &elf_ctx);
     }
 
     /* Write ELF file or emit assembly */

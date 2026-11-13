@@ -162,6 +162,11 @@ void ir_emit(ZeroCCCompiler *c, Instr instr) {
         exit(1);
     }
 
+    if (instr.line == 0) {
+        instr.line = c->current_line;
+        instr.col = c->current_col;
+    }
+
     /* restrict alias-group tagging: loads/stores inherit the group of their
      * address temp; pointer arithmetic propagates the group to its result. */
     uint8_t *tg = c->lowering.temp_alias_group;

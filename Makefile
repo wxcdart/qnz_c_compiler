@@ -82,6 +82,7 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	src/zero_cc/ir/ast_lowering_cast.o \
 	src/zero_cc/ir/ast_lowering_mc.o \
 	src/zero_cc/ir/asm_emitter.o \
+	src/zero_cc/dwarf/dwarf.o \
 	src/zero_cc/opt/opt_pass.o \
 	src/zero_cc/opt/opt_constant_fold.o \
 	src/zero_cc/opt/opt_dce.o \

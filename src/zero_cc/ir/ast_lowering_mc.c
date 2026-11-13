@@ -2,6 +2,7 @@
 
 #include "zero_cc/ir/ast_lowering_internal.h"
 #include "zero_cc/ir/machine_emitter.h"
+#include "zero_cc/dwarf/dwarf.h"
 
 /* Emit function prologue directly (without IR instruction) */
 void emit_prologue_mc(ZeroCCCompiler *c, size_t frame_size) {
@@ -150,6 +151,10 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
             instr->op == OP_CALL_ARG || instr->op == OP_ASM_ARG ||
             instr->op == OP_ASM_LABEL) {
             continue;
+        }
+
+        if (c->debug_info && instr->line > 0) {
+            zero_cc_dwarf_add_line(c, me_get_offset(c), instr->line, instr->col, true);
         }
 
         /* Sprint 136, Phase 2: integrated inline assembler for machine code */

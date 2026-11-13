@@ -18,6 +18,7 @@
 #include "zero_cc/ir/asm_emitter.h"
 #include "zero_cc/opt/opt_pass.h"
 #include "zero_cc/opt/opt_temp_renumber.h"
+#include "zero_cc/dwarf/dwarf.h"
 
 /* =========================================================================
  * Main Entry Point
@@ -420,7 +421,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
 
     /* Determine if incoming parameters can be kept directly in virtual registers (frameless leaf) */
     bool can_promote_params = false;
-    if (!needs_protect && lowering_fn) {
+    if (!needs_protect && lowering_fn && !c->debug_info) {
         ZeroCCFunction *fn = lowering_fn;
         int max_int_params = (c->isa == ISA_X86_64) ? 3 : 8;
         if (!fn->is_variadic && fn->ret_struct_sz <= 16 &&
@@ -1293,6 +1294,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
 
     /* Option 1: Leaf functions with no stack needs are frameless */
     c->lowering.is_frameless = (!c->lowering.has_stack_protector &&
+                                !c->debug_info &&
                                 is_leaf && total_frame_size == 0 &&
                                 c->regalloc.used_callee_saved_gpr_mask == 0 &&
                                 c->lowering.static_local_rt_off == 0 &&
@@ -1302,7 +1304,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
      * Leaf functions with <= 128 bytes can use the 128-byte Red Zone below %rsp directly
      * without adjusting %rsp. */
     size_t alloc_frame_size = total_frame_size;
-    if (c->isa == ISA_X86_64 && !c->lowering.has_stack_protector && is_leaf && total_frame_size <= 128 && !c->lowering.has_frame_address &&
+    if (c->isa == ISA_X86_64 && !c->lowering.has_stack_protector && !c->debug_info && is_leaf && total_frame_size <= 128 && !c->lowering.has_frame_address &&
         !align_realign) {
         alloc_frame_size = 0;
     }
@@ -1331,7 +1333,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     c->lowering.frame_delta = 0;
     {
         bool omit_wanted = c->omit_frame_pointer == 1 ||
-                           (c->omit_frame_pointer < 0 && c->opt_level >= OPT_LEVEL_O1);
+                           (c->omit_frame_pointer < 0 && c->opt_level >= OPT_LEVEL_O1 && !c->debug_info);
         /* Disable frame pointer omission for variadic functions:
          * va_start offset computation assumes a stable frame pointer. */
         bool is_variadic_fn = (lowering_fn != NULL) && lowering_fn->is_variadic;
@@ -1394,7 +1396,13 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         emit_ir_to_asm(c, spill_base_offset);
     } else {
         /* For machine code: emit prologue first, then IR (param saves in IR) */
+        if (c->debug_info && lowering_fn && lowering_fn->line > 0) {
+            zero_cc_dwarf_add_line(c, c->text_section.length, lowering_fn->line, lowering_fn->col, true);
+        }
         emit_prologue_mc(c, alloc_frame_size);
+        if (c->debug_info) {
+            zero_cc_dwarf_mark_prologue_end(c);
+        }
         emit_ir_to_machine_code(c, spill_base_offset);
     }
 

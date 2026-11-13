@@ -49,6 +49,14 @@ void emit_function_label_asm(ZeroCCCompiler *c) {
 
     /* Emit .globl and label (skip .globl for static functions) */
     if (func_idx < c->function_count && c->functions[func_idx].name[0]) {
+        if (c->debug_info) {
+            if (func_idx == 0 && c->source_filename) {
+                fprintf(out, "\t.file 1 \"%s\"\n", c->source_filename);
+            }
+            if (c->functions[func_idx].line > 0) {
+                fprintf(out, "\t.loc 1 %u %u\n", (unsigned)c->functions[func_idx].line, (unsigned)c->functions[func_idx].col);
+            }
+        }
         if (!c->functions[func_idx].is_static) {
             fprintf(out, "\t.globl %s\n", c->functions[func_idx].name);
         }
@@ -2109,6 +2117,10 @@ void emit_ir_to_asm(ZeroCCCompiler *c, int32_t spill_base_offset) {
 
     /* Emit all IR instructions */
     for (size_t i = 0; i < count; i++) {
+        if (c->debug_info && instrs[i].line > 0) {
+            FILE *out = c->asm_out ? c->asm_out : stdout;
+            fprintf(out, "\t.loc 1 %u %u\n", (unsigned)instrs[i].line, (unsigned)instrs[i].col);
+        }
         asm_emit_instruction(c, &instrs[i], i, func_idx);
     }
 

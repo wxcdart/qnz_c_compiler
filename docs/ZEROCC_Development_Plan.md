@@ -201,7 +201,11 @@ For detailed architectural invariants, consult the OKF Knowledge Graph in [`docs
 
 6. **zero_rt Linker Phases 2–3: Windows PE/COFF + Win64 ABI (`T3-Win`) and macOS Mach-O (`T4-Mac`)** — PE/COFF object/executable writer, Win64 ABI vtable (shadow space, arg regs rcx/rdx/r8/r9, no red zone), kernel32 OS boundary wrappers; Mach-O object/executable writer, Mach syscall numbers.
 
-7. **DWARF debug information (`-g`)** — debug line tables (`.debug_line`) and basic symbol info (`.debug_str`, `.debug_info`).
+7. **DWARF debug information (`-g`) — Done (Sprint 179).** DWARF 4 standard source-level debugging for gdb and lldb across all 4 target ISAs (x86-64, AArch64, RISC-V64/32).
+   - **Line Number Program (`.debug_line`)**: Version 4 line header, directory and file table splitting, machine code address mapping with special opcodes, `DW_LNS_advance_pc`, `DW_LNS_advance_line`, `DW_LNS_set_column`, `DW_LNS_set_prologue_end`, and `DW_LNE_end_sequence`.
+   - **Debug Info & Abbrev (`.debug_info`, `.debug_abbrev`, `.debug_str`)**: Compilation unit (`DW_TAG_compile_unit`), primitive base types (`DW_TAG_base_type`), pointers, global and static variables (`DW_TAG_variable` with `DW_OP_addr`), subprograms (`DW_TAG_subprogram` with architecture-specific `DW_AT_frame_base`), formal parameters (`DW_TAG_formal_parameter`), and local variables (`DW_TAG_variable` with `DW_OP_fbreg`).
+   - **ELF Writer Integration**: Sections `.debug_line`, `.debug_info`, `.debug_abbrev`, `.debug_str` emitted with relocations (`R_X86_64_32/64`, `R_AARCH64_ABS32/64`, `R_RISCV_32/64`). Frame-pointer preservation enabled under `-g` so stack-frame evaluation and backtraces work out-of-the-box in interactive GDB sessions.
+   - **Gate**: Verified with `readelf -wl/-wi` and interactive GDB sessions (breakpoints, line stepping, variable inspection, backtraces) via `tools/verify/driver_tests.py` (45/45).
 
 8. **Loop analysis: dominators now, full SSA parked (re-evaluated).**
    - **8a — Dominator/post-dominator dataflow (Done, Sprint 149).** Dominator and post-dominator dataflow over the CFG (`cfg_idom()`, `cfg_post_idom()`, `cfg_block_dominates()`, `cfg_block_post_dominates()`) using meet-over-predecessors bitsets to fixpoint with worklist and RPO seeding; populated into `ZeroCCLoopState` in `opt_loop.c`. Verified by `tools/cfg_verifier.py` (checks 6/7) cross-checking against an independent Python round-robin set dataflow.

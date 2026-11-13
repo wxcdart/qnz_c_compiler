@@ -342,6 +342,86 @@ def main():
             ok = p.returncode == 0 and "dlopen-embedded ok" in p.stdout
             check(f"dlopen-embedded-{label}", ok,
                   f"rc={p.returncode} out={p.stdout!r} err={p.stderr!r}")
+
+        # DWARF debug information (-g) tests
+        dwarf_src = os.path.join(tmp, "dwarf_test.c")
+        with open(dwarf_src, "w") as f:
+            f.write(
+                "int global_val = 42;\n"
+                "int square(int a) {\n"
+                "    int b = a * a;\n"
+                "    return b;\n"
+                "}\n"
+                "int main(void) {\n"
+                "    int x = 5;\n"
+                "    int y = square(x);\n"
+                "    return y;\n"
+                "}\n"
+            )
+
+        # 1. -g -c produces .debug_* sections
+        dwarf_obj = os.path.join(tmp, "dwarf_test.o")
+        rc, out, err = run_zerocc(["-g", "-c", dwarf_src, "-o", dwarf_obj])
+        readelf = shutil.which("readelf")
+        if rc == 0 and readelf:
+            p = subprocess.run([readelf, "-S", dwarf_obj], capture_output=True, text=True)
+            has_sections = (".debug_info" in p.stdout and ".debug_line" in p.stdout and
+                            ".debug_abbrev" in p.stdout and ".debug_str" in p.stdout)
+            check("dwarf-sections-present", has_sections, p.stdout)
+        else:
+            check("dwarf-sections-present", rc == 0, err)
+
+        # 2. -g0 produces no debug sections
+        nog_obj = os.path.join(tmp, "dwarf_nog.o")
+        rc, out, err = run_zerocc(["-g0", "-c", dwarf_src, "-o", nog_obj])
+        if rc == 0 and readelf:
+            p = subprocess.run([readelf, "-S", nog_obj], capture_output=True, text=True)
+            no_sections = (".debug_info" not in p.stdout and ".debug_line" not in p.stdout)
+            check("dwarf-g0-sections-absent", no_sections, p.stdout)
+        else:
+            check("dwarf-g0-sections-absent", rc == 0, err)
+
+        # 3. Interactive GDB source-level debugging test
+        gdb = shutil.which("gdb")
+        if gdb:
+            dwarf_exe = os.path.join(tmp, "dwarf_test_exe")
+            rc, out, err = run_zerocc(["-g", dwarf_src, "-o", dwarf_exe])
+            if rc == 0:
+                gdb_cmd = [
+                    gdb, "--batch",
+                    "-ex", "b main",
+                    "-ex", "r",
+                    "-ex", "n",
+                    "-ex", "print x",
+                    "-ex", "b square",
+                    "-ex", "c",
+                    "-ex", "print a",
+                    "-ex", "bt",
+                    "-ex", "print global_val",
+                    "-ex", "c",
+                    dwarf_exe
+                ]
+                gp = subprocess.run(gdb_cmd, capture_output=True, text=True, timeout=30)
+                gdb_ok = (gp.returncode == 0 and
+                          "$1 = 5" in gp.stdout and
+                          "$2 = 5" in gp.stdout and
+                          "$3 = 42" in gp.stdout and
+                          "#0  square" in gp.stdout and
+                          "in main ()" in gp.stdout)
+                check("dwarf-gdb-session", gdb_ok, f"gdb out={gp.stdout!r}")
+            else:
+                check("dwarf-gdb-session", False, f"compile failed: {err}")
+
+        # 4. Cross-target DWARF emission
+        for tgt in ("aarch64", "riscv64"):
+            tgt_obj = os.path.join(tmp, f"dwarf_{tgt}.o")
+            rc, out, err = run_zerocc(["--target", tgt, "-g", "-c", dwarf_src, "-o", tgt_obj])
+            if rc == 0 and readelf:
+                p = subprocess.run([readelf, "-S", tgt_obj], capture_output=True, text=True)
+                has_secs = (".debug_info" in p.stdout and ".debug_line" in p.stdout)
+                check(f"dwarf-cross-{tgt}", has_secs, p.stdout)
+            else:
+                check(f"dwarf-cross-{tgt}", rc == 0, err)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

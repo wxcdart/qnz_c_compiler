@@ -841,6 +841,10 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
     if (ref == AST_NULL) return TEMP_NONE;
     ZeroCCASTNode *node = zero_cc_ast_get(arena, ref);
     if (!node) return TEMP_NONE;
+    if (node->line > 0) {
+        c->current_line = node->line;
+        c->current_col = (uint16_t)node->col;
+    }
     c->last_expr_is_128 = 0;  /* GNU __int128 (Sprint 109): 128-bit cases set it */
     c->last_expr_is_64 = 0;   /* Sprint 170 (rv32 i64): 64-bit cases set it */
 

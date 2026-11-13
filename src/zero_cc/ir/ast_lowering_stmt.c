@@ -2456,6 +2456,10 @@ void lower_node(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
     if (ref == AST_NULL) return;
     ZeroCCASTNode *node = zero_cc_ast_get(arena, ref);
     if (!node) return;
+    if (node->line > 0) {
+        c->current_line = node->line;
+        c->current_col = (uint16_t)node->col;
+    }
     switch (node->tag) {
         case NODE_BLOCK: {
             if (c->lowering.inlining.active_depth > 0) {

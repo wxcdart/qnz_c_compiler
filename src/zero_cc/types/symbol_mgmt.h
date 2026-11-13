@@ -106,6 +106,10 @@ static inline ZeroCCSym* zero_cc_add_local(ZeroCCCompiler *c, const char *name, 
     memset(sym, 0, sizeof(*sym));
     snprintf(sym->name, sizeof(sym->name), "%s", name);
     sym->type = type;
+    if (c->tokens && c->token_pos < c->token_count) {
+        sym->line = (uint32_t)c->tokens[c->token_pos].line;
+        sym->col = (uint16_t)c->tokens[c->token_pos].col;
+    }
 
     /* Link into hash table bucket */
     if (c->local_hash_buckets && c->local_hash_next) {

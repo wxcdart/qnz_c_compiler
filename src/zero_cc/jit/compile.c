@@ -542,6 +542,8 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
      *                                 returning a (function) pointer) */
     char fn_name[128];
     char fn_asm[64] = {0}; /* GNU `__asm("sym")` label on the declarator */
+    uint32_t fn_line = 0;
+    uint16_t fn_col = 0;
     bool multi_decl = false; /* comma-separated declarator list */
     /* Parse Parameters in signature */
     size_t param_cap = 16;
@@ -564,6 +566,8 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
 
     if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN &&
         c->token_pos + 1 < c->token_count && c->tokens[c->token_pos + 1].type == TK_STAR) {
+        fn_line = (uint32_t)c->tokens[c->token_pos].line;
+        fn_col = (uint16_t)c->tokens[c->token_pos].col;
         /* Parenthesized declarator: parse the full declarator and extract
          * the name, its parameter list, and the (pointer) return type. */
         ZeroCCASTArena darena;
@@ -647,6 +651,8 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
                 (c->tokens[c->token_pos].type == TK_FALSE &&
                  c->std_dialect != ZC_STD_C23 && c->std_dialect != ZC_STD_GNU23))) {
         size_t name_pos = c->token_pos;  /* declarator start (Stage 2 rewind) */
+        fn_line = (uint32_t)c->tokens[name_pos].line;
+        fn_col = (uint16_t)c->tokens[name_pos].col;
         snprintf(fn_name, sizeof(fn_name), "%s", c->tokens[c->token_pos].str_val);
         c->token_pos++;
 
@@ -967,6 +973,8 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
         }
         /* Record text_offset BEFORE emitting any prologue bytes for this function */
         fn->text_offset = c->text_section.length;
+        fn->line = fn_line;
+        fn->col = fn_col;
         /* Sprint 108: GNU __attribute__((section("name"))) on a function.  The
          * file-scope loop already stripped the __zc_section__("name") marker and
          * recorded the name in c->pending_section.  Record it here so the AOT -c
@@ -1204,6 +1212,25 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
             c->has_pending_lowering_fn = true;
             c->pending_lowering_fn_idx = (size_t)(fn - c->functions);
             zero_cc_lower_ast(c, &arena, body);
+
+            fn->text_size = c->text_section.length - fn->text_offset;
+            if (c->local_count > 0) {
+                Arena *farena = zero_cc_get_fn_arena(c);
+                fn->dwarf_vars = (ZeroCCDwarfVar *)arena_alloc(farena, c->local_count * sizeof(ZeroCCDwarfVar));
+                fn->dwarf_var_count = c->local_count;
+                for (size_t li = 0; li < c->local_count; li++) {
+                    ZeroCCSym *sym = &c->locals[li];
+                    ZeroCCDwarfVar *dv = &fn->dwarf_vars[li];
+                    snprintf(dv->name, sizeof(dv->name), "%s", sym->name);
+                    dv->type = sym->type;
+                    dv->stack_offset = sym->stack_offset;
+                    dv->is_param = sym->is_param;
+                    dv->is_static_local = sym->is_static_local;
+                    dv->static_data_offset = sym->static_data_offset;
+                    dv->line = sym->line ? sym->line : fn->line;
+                    dv->col = sym->col;
+                }
+            }
 
             /* Pass 1 (Lower AST -> IR), Register Allocation, and Pass 2 (IR -> Machine Code)
              * are executed inside zero_cc_lower_ast(). The VLA parameter
@@ -1464,6 +1491,25 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
                 c->has_pending_lowering_fn = true;
                 c->pending_lowering_fn_idx = ni;
                 zero_cc_lower_ast(c, &n_arena, n_body);
+
+                nf->text_size = c->text_section.length - nf->text_offset;
+                if (c->local_count > 0) {
+                    Arena *farena = zero_cc_get_fn_arena(c);
+                    nf->dwarf_vars = (ZeroCCDwarfVar *)arena_alloc(farena, c->local_count * sizeof(ZeroCCDwarfVar));
+                    nf->dwarf_var_count = c->local_count;
+                    for (size_t li = 0; li < c->local_count; li++) {
+                        ZeroCCSym *sym = &c->locals[li];
+                        ZeroCCDwarfVar *dv = &nf->dwarf_vars[li];
+                        snprintf(dv->name, sizeof(dv->name), "%s", sym->name);
+                        dv->type = sym->type;
+                        dv->stack_offset = sym->stack_offset;
+                        dv->is_param = sym->is_param;
+                        dv->is_static_local = sym->is_static_local;
+                        dv->static_data_offset = sym->static_data_offset;
+                        dv->line = sym->line ? sym->line : (nf->line ? nf->line : 1);
+                        dv->col = sym->col;
+                    }
+                }
 
                 scope_leave(&ctx->current_scope);
                 ctx->current_fn_ret_type = save_fn_ret_ti;

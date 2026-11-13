@@ -194,5 +194,13 @@ void zero_cc_compiler_free(ZeroCCCompiler *c) {
     }
     c->diag_pragma_state.disabled_warning_count = 0;
 
+    /* DWARF line entries */
+    if (c->dwarf_lines) {
+        free(c->dwarf_lines);
+        c->dwarf_lines = NULL;
+        c->dwarf_line_count = 0;
+        c->dwarf_line_capacity = 0;
+    }
+
     free(c);
 }

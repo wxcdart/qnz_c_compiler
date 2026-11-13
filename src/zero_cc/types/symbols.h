@@ -291,6 +291,15 @@ typedef struct ZeroCCCompiler {
     bool dump_cfg; /* Dump CFG after lowering (-dump-cfg) */
     bool emit_asm; /* Emit assembly (-S flag) */
     FILE *asm_out; /* Assembly output file (NULL = stdout) */
+    int debug_info;                        /* 1 = emit DWARF debug info (-g) */
+    const char *source_filename;           /* Source filename */
+    const char *comp_dir;                  /* Current compilation directory */
+    uint32_t current_line;                 /* Current source line during lowering */
+    uint16_t current_col;                  /* Current source column during lowering */
+    ZeroCCDwarfLineEntry *dwarf_lines;     /* Line number entries for .debug_line */
+    size_t dwarf_line_count;
+    size_t dwarf_line_capacity;
+    bool dwarf_pending_prologue_end;
     /* AOT text path: OP_CALL sequence counter for the current function's
      * emit pass - indexes the lowering ir_ctx per-call tables
      * (call_fp_spills / call_range_*) that the call emitters read. */

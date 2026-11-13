@@ -708,6 +708,8 @@ typedef struct __attribute__((packed)) {
     int16_t  imm;         /* Immediate value (-32768 to 32767) */
     int64_t  imm64;       /* 64-bit immediate value */
     uint16_t label_idx;   /* Label index for jumps (0-65535) */
+    uint32_t line;        /* 1-based source line */
+    uint16_t col;         /* 1-based source column */
 } Instr;
 
 /* IR Access Functions - Arena-based (per-compiler-instance) */

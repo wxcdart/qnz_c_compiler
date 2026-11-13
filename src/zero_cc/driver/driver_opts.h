@@ -20,6 +20,7 @@ typedef struct {
     int emit_preproc;     /* -E */
     int run_mode;         /* --run */
     int verbose;          /* -v */
+    int debug_info;       /* -g */
     int opt_level;        /* 0-3 for -O0 to -O3 */
     int omit_frame_pointer; /* -1 = default (omit at -O1+), 0 = keep, 1 = omit */
     char *include_dirs[32]; /* -I directories (Sprint 41: real search paths) */
@@ -329,7 +330,11 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
          * by arg[0] == '-' - otherwise an input file whose second letter
          * is g/W/f/m (e.g. "hm.c") would be swallowed as a flag. */
         else if (arg[0] == '-' && arg[1] == 'g') {
-            if (opts->verbose) fprintf(stderr, "zerocc: note: ignoring '%s' (DWARF debug info not implemented yet)\n", arg);
+            if (strcmp(arg, "-g0") == 0) {
+                opts->debug_info = 0;
+            } else {
+                opts->debug_info = 1;
+            }
         }
         else if (arg[0] == '-' && arg[1] == 'W' && arg[2]) {
             if (opts->verbose) fprintf(stderr, "zerocc: note: ignoring '%s' (warning controls not implemented yet)\n", arg);
