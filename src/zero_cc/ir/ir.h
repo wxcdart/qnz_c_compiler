@@ -383,6 +383,8 @@ typedef enum {
     OP_ZEXT32_64,      /* dest (64) = (u64)src1 (32-bit, zero-extended; hi=0) */
     OP_SEXT32_64,      /* dest (64) = (s64)src1 (32-bit, sign-extended) */
     OP_TRUNC64_32,     /* dest (32) = low 32 bits of src1 (64) */
+    OP_HI64,           /* dest (32) = high 32 bits of src1 (64) */
+    OP_MK64,           /* dest (64) = {hi32 = src2, lo32 = src1} */
     OP_MOV64_IMM,      /* dest (64) = imm64 */
     OP_DIV64,          /* dest = src1 / src2 (signed 64-bit, trunc toward 0) */
     OP_MOD64,          /* dest = src1 % src2 (signed 64-bit remainder) */
@@ -622,6 +624,8 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_ZEXT32_64: return "ZEXT32_64";
         case OP_SEXT32_64: return "SEXT32_64";
         case OP_TRUNC64_32: return "TRUNC64_32";
+        case OP_HI64: return "HI64";
+        case OP_MK64: return "MK64";
         case OP_MOV64_IMM: return "MOV64_IMM";
         case OP_DIV64: return "DIV64";
         case OP_MOD64: return "MOD64";

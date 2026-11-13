@@ -330,6 +330,7 @@ static inline void zero_cc_parse_param_list(
         }
         bool param_is_unsigned = false;
         bool param_is_long_double = false;
+        bool param_is_long_long = false;
         if (param_type_tok == TK_UNSIGNED || param_type_tok == TK_SIGNED) {
             param_is_unsigned = (param_type_tok == TK_UNSIGNED);
             if (c->token_pos < c->token_count &&
@@ -343,14 +344,20 @@ static inline void zero_cc_parse_param_list(
                 if (param_type_tok == TK_SHORT && c->token_pos < c->token_count &&
                     c->tokens[c->token_pos].type == TK_INT) c->token_pos++;
                 if (param_type_tok == TK_LONG) {
-                    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LONG) c->token_pos++;
+                    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LONG) {
+                        c->token_pos++;
+                        param_is_long_long = true;
+                    }
                     if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_INT) c->token_pos++;
                 }
             } else {
                 param_type_tok = TK_INT;
             }
         } else if (param_type_tok == TK_LONG) {
-            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LONG) c->token_pos++;
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LONG) {
+                c->token_pos++;
+                param_is_long_long = true;
+            }
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_DOUBLE_KW) {
                 /* C99 6.7.2.1: long double / long long double - the double
                  * keyword follows the long run and becomes the base (modeled
@@ -410,6 +417,9 @@ static inline void zero_cc_parse_param_list(
         }
         const char *ptname = param_tag_name ? param_tag_name : c->tokens[ptype_pos].str_val;
         ZeroCCType param_base = param_has_typeof ? param_typeof_type : zero_cc_resolve_base_type(c, param_type_tok, ptname);
+        if (param_is_long_long) {
+            param_base = zero_cc_type_int64();
+        }
         if (p_prefix_complex) {
             param_base = zero_cc_type_complex(&param_base);
         }
@@ -1432,7 +1442,11 @@ static int zero_cc_parse_kr_decl(ZeroCCCompiler *c, const char **out_names, Zero
         } else if (p_has_short) {
             pt = zero_cc_type_int16();
         } else if (p_longs > 0) {
-            pt = zero_cc_type_int64();
+            if (p_longs >= 2 || c->isa != ISA_RISCV32) {
+                pt = zero_cc_type_int64();
+            } else {
+                pt = zero_cc_type_int();
+            }
         } else {
             pt = zero_cc_type_int();
         }

@@ -276,15 +276,23 @@ static inline void zero_cc_init_standard_types(ZeroCCCompiler *c) {
     zero_cc_register_typedef(c, "uint32_t", zero_cc_type_uint32());
     zero_cc_register_typedef(c, "unsigned", zero_cc_type_uint32());
     zero_cc_register_typedef(c, "unsigned int", zero_cc_type_uint32());
-    zero_cc_register_typedef(c, "long", zero_cc_type_int64());
+    if (c->isa == ISA_RISCV32) {
+        zero_cc_register_typedef(c, "long", zero_cc_type_int());
+        zero_cc_register_typedef(c, "unsigned long", zero_cc_type_uint32());
+        zero_cc_register_typedef(c, "size_t", zero_cc_type_uint32());
+        zero_cc_register_typedef(c, "uintptr_t", zero_cc_type_uint32());
+        zero_cc_register_typedef(c, "intptr_t", zero_cc_type_int());
+    } else {
+        zero_cc_register_typedef(c, "long", zero_cc_type_int64());
+        zero_cc_register_typedef(c, "unsigned long", zero_cc_type_uint64());
+        zero_cc_register_typedef(c, "size_t", zero_cc_type_uint64());
+        zero_cc_register_typedef(c, "uintptr_t", zero_cc_type_uint64());
+        zero_cc_register_typedef(c, "intptr_t", zero_cc_type_int64());
+    }
     zero_cc_register_typedef(c, "int64_t", zero_cc_type_int64());
     zero_cc_register_typedef(c, "long long", zero_cc_type_int64());
     zero_cc_register_typedef(c, "uint64_t", zero_cc_type_uint64());
-    zero_cc_register_typedef(c, "unsigned long", zero_cc_type_uint64());
     zero_cc_register_typedef(c, "unsigned long long", zero_cc_type_uint64());
-    zero_cc_register_typedef(c, "size_t", zero_cc_type_uint64());
-    zero_cc_register_typedef(c, "uintptr_t", zero_cc_type_uint64());
-    zero_cc_register_typedef(c, "intptr_t", zero_cc_type_int64());
     zero_cc_register_typedef(c, "float", zero_cc_type_float());
     zero_cc_register_typedef(c, "double", zero_cc_type_double());
 }

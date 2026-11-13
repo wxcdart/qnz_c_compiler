@@ -1527,6 +1527,13 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
         case OP_TRUNC64_32:
             if (BE(c)->emit_trunc64_32_asm) BE(c)->emit_trunc64_32_asm(c, phys_dst, phys_src1, g64_s1hi, out);
             return;
+        case OP_HI64:
+            BE(c)->emit_mov_reg_asm(c, phys_dst, g64_s1hi, out);
+            return;
+        case OP_MK64:
+            BE(c)->emit_mov_reg_asm(c, phys_dst, phys_src1, out);
+            BE(c)->emit_mov_reg_asm(c, g64_dhi, phys_src2, out);
+            return;
         case OP_MOV64_IMM:
             if (BE(c)->emit_mov64_imm_asm) BE(c)->emit_mov64_imm_asm(c, phys_dst, g64_dhi, instr->imm64, out);
             return;
@@ -1827,10 +1834,11 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
                  instr->op == OP_STORE64 || instr->op == OP_MOV64_IMM ||
                  instr->op == OP_ZEXT32_64 || instr->op == OP_SEXT32_64 ||
                  instr->op == OP_TRUNC64_32 ||
+                 instr->op == OP_HI64 || instr->op == OP_MK64 ||
                  instr->op == OP_DIV64 || instr->op == OP_MOD64 ||
                  instr->op == OP_UDIV64 || instr->op == OP_UMOD64);
     bool d64_is = op64 && !(instr->op == OP_CMP64 || instr->op == OP_STORE64 ||
-                            instr->op == OP_TRUNC64_32);
+                            instr->op == OP_TRUNC64_32 || instr->op == OP_HI64);
     bool s1_64 = instr->op == OP_ADD64 || instr->op == OP_SUB64 ||
         instr->op == OP_MUL64 || instr->op == OP_AND64 ||
         instr->op == OP_OR64  || instr->op == OP_XOR64 ||
@@ -1838,7 +1846,7 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
         instr->op == OP_SHL64 || instr->op == OP_SHR64 ||
         instr->op == OP_SAR64 || instr->op == OP_CMP64 ||
         instr->op == OP_MOV64 || instr->op == OP_STORE64 ||
-        instr->op == OP_TRUNC64_32 ||
+        instr->op == OP_TRUNC64_32 || instr->op == OP_HI64 ||
         instr->op == OP_DIV64 || instr->op == OP_MOD64 ||
         instr->op == OP_UDIV64 || instr->op == OP_UMOD64;
     bool s2_64 = instr->op == OP_ADD64 || instr->op == OP_SUB64 ||
@@ -1882,6 +1890,21 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
             BE(c)->emit_store_asm(c, tmp_r, base_r, 4, out);
         }
         return;  /* result is in memory; nothing to store back */
+    }
+    if (instr->op == OP_MK64 && d64_sp) {
+        int32_t off_d = spill_base_offset + (spill_dst + 1) * 8;
+        int tmp = BE(c)->scratch_reg1;
+        if (spill_src1 >= 0) {
+            int32_t off_s1 = spill_base_offset + (spill_src1 + 1) * 8;
+            BE(c)->emit_load_asm(c, tmp, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_s1), out);
+        }
+        BE(c)->emit_store_asm(c, spill_src1 >= 0 ? tmp : phys_src1, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_d), out);
+        if (spill_src2 >= 0) {
+            int32_t off_s2 = spill_base_offset + (spill_src2 + 1) * 8;
+            BE(c)->emit_load_asm(c, tmp, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_s2), out);
+        }
+        BE(c)->emit_store_asm(c, spill_src2 >= 0 ? tmp : phys_src2, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_d - 4), out);
+        return;
     }
     if (s164_sp && p64_s1 >= 0) {
         int32_t off = spill_base_offset + (spill_src1 + 1) * 8;

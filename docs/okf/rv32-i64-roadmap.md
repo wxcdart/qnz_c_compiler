@@ -4,7 +4,7 @@ title: RV32 64-bit Integer (long long) Support Roadmap
 description: Four-phase architectural roadmap for 64-bit integer arithmetic, ABI calling conventions, libgcc div/rem, and sanitizer integration on 32-bit RISC-V (rv32).
 resource: backend/rv32-i64-roadmap
 tags: [riscv32, rv32, i64, long-long, gpr-pair, abi, roadmap, sanitizer]
-timestamp: 2026-11-13T02:48:26Z
+timestamp: 2026-11-13T03:55:39Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -12,10 +12,10 @@ status: active
 
 # RV32 64-bit Integer (`long long`) Support Roadmap
 
-> **Status (Sprint 170 / 171):** **Phase 1 is COMPLETE (core arithmetic, bitwise logic, unary ops, shifts, compares, 32↔64 casts, conditionals, globals/locals/pointers/arrays/structs landed and verified under QEMU)**.
-> - **Phase 1 (Core 64-bit Arithmetic)**: **COMPLETE**. Core `OP_*64` opcodes, frontend expression/decl/assign/unop/cast lowering, raw binary and `-S` assembly emitters, borrow condition fix in SUB64, and comprehensive test suite (`test/jit/rv32_i64.c`) verified in both raw and text paths under `qemu-riscv32-static`.
-> - **Phase 2 (64-bit ABI & I/O)**: Planned / Next. RISC-V psABI even-odd pair passing (`a0:a1`..`a6:a7`), 64-bit return values, and variadic `printf %lld`.
-> - **Phase 3 (64-bit Div/Rem via libgcc)**: Planned. Dispatching `DIV64`/`MOD64`/`UDIV64`/`UMOD64` to `__*di3` helper calls in the rv32 static-musl libgcc shim.
+> **Status (Sprint 170 - 172):** **Phase 1 and Phase 2 are COMPLETE**.
+> - **Phase 1 (Core 64-bit Arithmetic)**: **COMPLETE** (Sprint 170/171). Core `OP_*64` opcodes, frontend expression/decl/assign/unop/cast lowering, raw binary and `-S` assembly emitters, borrow condition fix in SUB64, and comprehensive test suite (`test/jit/rv32_i64.c`) verified in both raw and text paths under `qemu-riscv32-static`.
+> - **Phase 2 (64-bit ABI & I/O Calling Conventions)**: **COMPLETE** (Sprint 172). RISC-V ILP32 psABI even-odd pair passing (`a0:a1`..`a6:a7`), 8-byte stack alignment, `(a0, a1)` returns via `OP_MK64`/`OP_HI64`, callee scalar reception, variadic `printf %lld`, and strict ILP32 `long` (32-bit) vs `long long` (64-bit) scoping. Verified via `test/jit/rv32_abi.c` across all `-O0..-O3` levels in raw and `-S` paths under `qemu-riscv32-static`.
+> - **Phase 3 (64-bit Div/Rem via libgcc)**: Planned / Next. Dispatching `DIV64`/`MOD64`/`UDIV64`/`UMOD64` to `__*di3` helper calls in the rv32 static-musl libgcc shim.
 > - **Phase 4 (Sanitizer Width-8 Checks)**: Planned. Lifting the rv32 width-8 `OP_OVF_TRAP` skip in `zero_san`, enabling signed integer overflow and shift bounds checks on 64-bit integers.
 
 ---
@@ -77,21 +77,38 @@ ZeroCC introduces dedicated 64-bit IR opcodes targeting `REG_CLASS_GPR64`:
 
 ---
 
-## 3. Phase 2 — 64-bit ABI & I/O Calling Conventions
+## 3. Phase 2 — 64-bit ABI & I/O Calling Conventions (Complete)
 
-Phase 2 enables 64-bit values to cross function boundaries and interact with C library I/O.
+Phase 2 enables 64-bit values to cross function boundaries and interact with C library I/O, conforming to the standard RISC-V ILP32 psABI.
 
-### RISC-V psABI Calling Convention
+### RISC-V ILP32 psABI Calling Convention
 According to the RISC-V ILP32 psABI:
 1. **Argument Passing**:
    - 64-bit integer arguments (`long long`, `uint64_t`) are passed in **aligned even-odd register pairs** (`a0:a1`, `a2:a3`, `a4:a5`, `a6:a7`).
    - If an argument begins at an odd register (e.g. `a1` after an `int` in `a0`), that odd register is skipped, and the 64-bit value aligns to the next even register (`a2:a3`).
-   - If register pairs are exhausted, arguments spill to the stack aligned to 8 bytes.
+   - If fewer than 2 argument registers remain, the 64-bit argument does not split between registers and stack; it spills entirely to the stack aligned to 8 bytes (`stack_idx = (stack_idx + 1) & ~1`).
 2. **Return Values**:
    - 64-bit integer return values are returned in `(a0, a1)`, where `a0` holds the low 32 bits and `a1` holds the high 32 bits.
-3. **Variadic Arguments & `printf %lld`**:
-   - Variadic functions (such as `printf`) format 64-bit values by unpacking 8-byte aligned pairs from the varargs buffer.
-   - Variadic argument lowering on RV32 must align 64-bit arguments to 8-byte boundaries on the argument save area.
+   - In ZeroCC, `a0` maps to `VREG_0` and `a1` maps to `VREG_2` (pre-colored to physical register 11 on RISC-V).
+   - A dedicated IR opcode `OP_MK64` (`ir_emit_mk64(c, dst, lo, hi)`) pairs `(VREG_0, VREG_2)` into a `REG_CLASS_GPR64` virtual register in caller scope.
+   - For 64-bit returns in callee functions, `ir_emit_mov_reg(c, VREG_0, lo)` and `ir_emit_mov_reg(c, VREG_2, hi)` place the respective words into the return registers.
+3. **Callee Parameter Reception**:
+   - Parameter promotion (`can_promote_params`) is disabled for scalar 64-bit arguments on RV32 (`sym->type.tag == TYPE_INT64 || sym->type.tag == TYPE_UINT64`).
+   - Even-odd register pairs are saved to the frame stack: `sym->stack_offset` holds `lo` and `sym->stack_offset - 4` holds `hi`.
+   - Spilled arguments are loaded from caller stack offsets `16 + 4 * stack_idx` with 8-byte alignment preserved.
+4. **Variadic Arguments & `printf %lld`**:
+   - Variadic functions unpack 64-bit values aligned to 8 bytes from the argument buffer.
+   - Lowering preserves 64-bit argument tags so callers forward both halves into aligned register pairs or 8-byte stack slots.
+5. **ILP32 Data Model Alignment (`long` vs `long long`)**:
+   - On 32-bit RISC-V (ILP32), `long` and `unsigned long` are 32 bits (4 bytes), while `long long` and `unsigned long long` are 64 bits (8 bytes).
+   - Scoped type resolution in `registry.h`, `type_info.h`, `type_parser.h`, `definitions.h`, `decl_local.c`, `decl_struct.c`, `zero_cc_declarator_stack.h`, and `ast_lowering_binop.c` to ensure single `long` maps to `TYPE_INT32`/`TYPE_UINT32` on RV32, preventing ABI parameter misalignment with libc `printf("%ld", ...)` or `long` parameters.
+6. **ASM Emitter Multiplier Fix**:
+   - `riscv_emit_mul64_asm` in `src/zero_cc/isa/riscv_asm.c` was corrected to emit `mulhu` (unsigned high multiply) rather than `mulh` for `P0.hi = alo * blo`, matching the raw emitter in `riscv64.c`.
+
+### Phase 2 Verification
+- Verified with `test/jit/rv32_abi.c` across 5 test suites (direct 64-bit params/returns, even-odd register alignment, stack spilling, variadic `printf %lld`, and intermixed 32/64-bit arguments).
+- Tested across all four optimization levels (`-O0..-O3`) in both raw binary and `-S` assembly paths under `qemu-riscv32-static`.
+- Verified cross-ISA gates: `isa_qemu_diff.py` (63/63 PASS across all 4 target ISAs), `san_sweep.py` (644/644 PASS), `make test` (229/229 PASS), `make test-opt` (128/128 PASS).
 
 ---
 

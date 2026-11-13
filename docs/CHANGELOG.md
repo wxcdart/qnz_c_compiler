@@ -1,6 +1,32 @@
 # CHANGELOG
 
-## [Sprint 171] - 2026-11-12 - Phase 1 RV32 i64 Complete (Unary Ops, 32↔64 Casts, Conditionals, Sub64 Borrow Fix, Full Test Battery) (RISC-V / Frontend / Codegen)
+## [Sprint 172] - 2026-11-13 - Phase 2 RV32 i64 Complete (Calling Convention psABI Pairs, (a0, a1) Returns, Variadic I/O, ILP32 Long Distinction) (RISC-V / Frontend / Codegen / ABI)
+
+Completed Phase 2 of the RV32 64-bit integer roadmap ([rv32-i64-roadmap.md](okf/rv32-i64-roadmap.md)). 64-bit `long long` / `unsigned long long` values now cross function boundaries conforming to the RISC-V ILP32 psABI (aligned even-odd register pairs `a0:a1`..`a6:a7`, 8-byte stack alignment, and `(a0, a1)` function return values) and format correctly through variadic `printf("%lld", ...)` under QEMU across both raw binary and `-S` assembly paths.
+
+- **RISC-V psABI Calling Convention & Returns (`ast_lowering_*.c`, `ir.h`):**
+  - `ir.h`, `ir.c`, `ir_emit_ops.h`, `live_range.h`: Added `OP_HI64` (extract high 32 bits from GPR64) and `OP_MK64` (pair two 32-bit registers into a GPR64 temp).
+  - `ast_lowering_call.c`: Implemented caller-side 64-bit argument lowering on RV32. Aligns 64-bit arguments to even argument registers (skipping odd registers when needed). When fewer than 2 argument registers remain, spills arguments entirely to the stack aligned to 8-byte boundaries. Handled 64-bit function return values via `(VREG_0, VREG_2)` (`a0:a1` on RISC-V) combined into a GPR64 virtual register using `OP_MK64`.
+  - `ast_lowering.c`: Callee parameter lowering. Disabled `can_promote_params` for 64-bit scalars on RV32 (`TYPE_INT64`/`TYPE_UINT64`). Saved even-odd register pairs to frame stack (`sym->stack_offset` for low word, `sym->stack_offset - 4` for high word). Loaded spilled arguments from caller stack at `16 + 4 * stack_idx` with 8-byte alignment.
+  - `ast_lowering_stmt.c`: Lowered 64-bit function return expressions to `ir_emit_mov_reg(c, VREG_0, lo)` and `ir_emit_mov_reg(c, VREG_2, hi)` (`a0:a1`).
+  - `ast_lowering_mc.c`, `asm_emitter.c`: Added raw and text assembly emission for `OP_MK64` and `OP_HI64`. Fixed stack argument allocation/adjustment in `OP_CALL` to use 4-byte slots on RV32 and adjust SP for skipped alignment slots.
+  - `riscv_asm.c`: Fixed `stack_alloc` pointer slot size to 4 bytes on RV32 (`ptr_slot = (c->isa == ISA_RISCV32) ? 4 : 8`). Corrected `riscv_emit_mul64_asm` to emit `mulhu` (unsigned high multiply) instead of `mulh` for `P0.hi = alo * blo`.
+- **ILP32 Data Model Alignment (`long` vs `long long`):**
+  - Resolved architectural bug where ZeroCC assumed LP64 on all targets, defining `long` as 64-bit (`TYPE_INT64`), which caused libc calls (`printf("%ld", ...)`) to treat `long` as 64-bit and misalign argument registers on RV32.
+  - Updated `registry.h`, `type_info.h`, `type_parser.h`, `definitions.h`, `decl_local.c`, `decl_struct.c`, `zero_cc_declarator_stack.h`, and `ast_lowering_binop.c` so that `long`, `unsigned long`, `size_t`, `uintptr_t`, and single `l`/`L` literals map to 32 bits on RV32, while `long long`, `unsigned long long`, `int64_t`, `uint64_t`, and `ll`/`LL` literals map to 64 bits.
+  - Updated `test/san/san_ok_cross_smoke.c` to use `long long` and `LL`/`ULL` for 64-bit test functions and literals, preventing signed 32-bit overflow traps under `zero_san`.
+- **Toolchain Fix (`tools/toolchain/musl_host_toolchain.sh`):**
+  - Fixed repo root resolution path (`cd "$(dirname "$0")/../.."`) after file relocation into `tools/toolchain/`.
+- **Verification:**
+  - Added test suite `test/jit/rv32_abi.c` exercising 5 categories: direct 64-bit parameters and returns, even-odd register alignment, stack spilling, variadic `printf %lld`, and intermixed 32/64-bit arguments. Verified under QEMU across `-O0..-O3` in both raw and text asm paths.
+  - `python3 tools/verify/isa_qemu_diff.py`: 63/63 passed across all 4 target ISAs (x86_64 16/16, aarch64 16/16, riscv64 16/16, riscv32 15/15).
+  - `python3 tools/verify/san_sweep.py`: 644/644 passed (98 cross), 0 failures.
+  - `make test`: 229/229 passed.
+  - `make test-opt`: 128 passed, 0 failed, 58 skipped, 1 nondeterministic.
+  - `python3 tools/verify/style_check.py`: 179 files, 0 errors, 0 warnings.
+  - `python3 tools/okf/okf.py lint && index`: 21/21 reachable, verified.
+
+---
 
 Completed Phase 1 of the RV32 64-bit integer roadmap ([rv32-i64-roadmap.md](okf/rv32-i64-roadmap.md)). 64-bit `long long` / `unsigned long long` values now fully support arithmetic, bitwise logic, shifts, unary operations (`~`, `-`, `!`), widening/narrowing casts (32↔64), comparisons, conditional control flow (`if`, `while`, `for`, `?:`, `&&`, `||`), and memory dereferences (pointers `*p`, arrays `arr[i]`, structs `s.m` / `sp->m`) on `--target riscv32` across both raw binary and `-S` assembly paths under QEMU.
 

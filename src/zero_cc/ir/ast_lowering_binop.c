@@ -79,8 +79,13 @@ int zero_cc_operand_int_width(ZeroCCCompiler *c, ZeroCCASTArena *arena,
              * when the value fits in a narrower type: 1ULL is long long
              * (64-bit), 0xFFFFFFFF is unsigned int (not signed int). */
             uint8_t suf = (uint8_t)(n->flags & 7u);
-            if (suf & 6u) {              /* l / ll: 64-bit on LP64 */
+            if (suf & 4u) {              /* ll: 64-bit */
                 *sign = !(suf & 1u);
+                return 0;                /* no narrowing */
+            }
+            if (suf & 2u) {              /* l: 32-bit on RV32, 64-bit on LP64 */
+                *sign = !(suf & 1u);
+                if (c->isa == ISA_RISCV32) return 4;
                 return 0;                /* no narrowing */
             }
             if (suf & 1u) {              /* u: unsigned int, or unsigned
@@ -176,9 +181,13 @@ int zero_cc_expr_int_info(ZeroCCCompiler *c, ZeroCCASTArena *arena,
         case NODE_INT: {
             int64_t v = n->int_val;
             uint8_t suf = (uint8_t)(n->flags & 7u);
-            if (suf & 6u) {
+            if (suf & 4u) {
                 *is_unsigned = (suf & 1u) ? 1 : 0;
                 return 8;
+            }
+            if (suf & 2u) {
+                *is_unsigned = (suf & 1u) ? 1 : 0;
+                return (c->isa == ISA_RISCV32) ? 4 : 8;
             }
             if (suf & 1u) {
                 *is_unsigned = 1;

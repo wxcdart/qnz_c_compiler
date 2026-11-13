@@ -435,13 +435,14 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                      instr->op == OP_STORE64 || instr->op == OP_MOV64_IMM ||
                      instr->op == OP_ZEXT32_64 || instr->op == OP_SEXT32_64 ||
                      instr->op == OP_TRUNC64_32 ||
+                     instr->op == OP_HI64 || instr->op == OP_MK64 ||
                      instr->op == OP_DIV64 || instr->op == OP_MOD64 ||
                      instr->op == OP_UDIV64 || instr->op == OP_UMOD64);
         /* Operand widths are per-op semantics (mirrors live_range.h): the
          * shift COUNT and the load/store base are 32-bit; TRUNC64_32's dst,
          * CMP64's absence of a dst, and STORE64's absence of a dst. */
         bool d64_is = op64 && !(instr->op == OP_CMP64 || instr->op == OP_STORE64 ||
-                                instr->op == OP_TRUNC64_32);
+                                instr->op == OP_TRUNC64_32 || instr->op == OP_HI64);
         bool s1_64 = instr->op == OP_ADD64 || instr->op == OP_SUB64 ||
             instr->op == OP_MUL64 || instr->op == OP_AND64 ||
             instr->op == OP_OR64  || instr->op == OP_XOR64 ||
@@ -449,7 +450,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
             instr->op == OP_SHL64 || instr->op == OP_SHR64 ||
             instr->op == OP_SAR64 || instr->op == OP_CMP64 ||
             instr->op == OP_MOV64 || instr->op == OP_STORE64 ||
-            instr->op == OP_TRUNC64_32 ||
+            instr->op == OP_TRUNC64_32 || instr->op == OP_HI64 ||
             instr->op == OP_DIV64 || instr->op == OP_MOD64 ||
             instr->op == OP_UDIV64 || instr->op == OP_UMOD64;
         bool s2_64 = instr->op == OP_ADD64 || instr->op == OP_SUB64 ||
@@ -495,6 +496,21 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 BE(c)->emit_store(c, tmp_r, base_r, 4);
             }
             continue;  /* result is in memory; nothing to store back */
+        }
+        if (instr->op == OP_MK64 && d64_sp) {
+            int32_t off_d = spill_base_offset + (spill_dst + 1) * 8;
+            int tmp = BE(c)->scratch_reg1;
+            if (spill_src1 >= 0) {
+                int32_t off_s1 = spill_base_offset + (spill_src1 + 1) * 8;
+                BE(c)->emit_load(c, tmp, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_s1));
+            }
+            BE(c)->emit_store(c, spill_src1 >= 0 ? tmp : phys_src1, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_d));
+            if (spill_src2 >= 0) {
+                int32_t off_s2 = spill_base_offset + (spill_src2 + 1) * 8;
+                BE(c)->emit_load(c, tmp, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_s2));
+            }
+            BE(c)->emit_store(c, spill_src2 >= 0 ? tmp : phys_src2, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_d - 4));
+            continue;
         }
         if (s164_sp && p64_s1 >= 0) {
             int32_t off = spill_base_offset + (spill_src1 + 1) * 8;
@@ -954,6 +970,13 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
             case OP_TRUNC64_32:
                 if (BE(c)->emit_trunc64_32)
                     BE(c)->emit_trunc64_32(c, phys_dst, phys_src1, g64_s1hi);
+                break;
+            case OP_HI64:
+                BE(c)->emit_mov_reg(c, phys_dst, g64_s1hi);
+                break;
+            case OP_MK64:
+                BE(c)->emit_mov_reg(c, phys_dst, phys_src1);
+                BE(c)->emit_mov_reg(c, g64_dhi, phys_src2);
                 break;
             case OP_MOV64_IMM:
                 if (BE(c)->emit_mov64_imm)
@@ -1930,7 +1953,9 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 } else {
                     n_stack = (arg_count > int_arg_count) ? arg_count - int_arg_count : 0;
                 }
-                int stack_pad = (n_stack & 1) ? 8 : 0;
+                int slot_sz = (c->isa == ISA_RISCV32) ? 4 : 8;
+                int stack_bytes = n_stack * slot_sz;
+                int stack_pad = ((stack_bytes + 15) & ~15) - stack_bytes;
                 int32_t extra_sp = 0;
                 if (n_stack > 0) {
                     if (stack_pad) {
@@ -1954,11 +1979,16 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                                                  zero_cc_frame_base_reg(c),
                                                  zero_cc_frame_disp_at(c, -range_off + 8 * ch, extra_sp));
                             BE(c)->emit_push_reg(c, BE(c)->scratch_reg1);
-                            extra_sp += 8;
+                            extra_sp += slot_sz;
                             continue;
                         }
                         if (pos >= IR_CALL_MAX_ARGS) continue; /* range-only span slot */
-                        if (!stack_meta_set[pos]) continue;    /* unassigned slot (defensive) */
+                        if (!stack_meta_set[pos]) {
+                            /* Unassigned/padding slot: adjust stack to keep slot indexing aligned */
+                            BE(c)->emit_stack_adjust(c, -slot_sz);
+                            extra_sp += slot_sz;
+                            continue;
+                        }
                         if (stack_meta_fp[pos] >= 0) {
                             /* FP stack arg: bits live in the lowering's spill
                              * slot (or, past the 64-call table cap, in the
@@ -1989,9 +2019,9 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                                          * the -S emitter's FP stack args). */
                                         int phys = regalloc_get_reg_for_temp(&c->regalloc, t);
                                         if (phys >= 0 && BE(c)->emit_store_fp) {
-                                            BE(c)->emit_store_fp(c, phys, BE(c)->sp_reg, -8);
-                                            BE(c)->emit_stack_adjust(c, -8);
-                                            extra_sp += 8;
+                                            BE(c)->emit_store_fp(c, phys, BE(c)->sp_reg, -slot_sz);
+                                            BE(c)->emit_stack_adjust(c, -slot_sz);
+                                            extra_sp += slot_sz;
                                             fp_stack_done = true;
                                         }
                                     }
@@ -2009,7 +2039,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                         }
                         if (fp_stack_done) continue; /* slot already claimed via [rsp-8] store */
                         BE(c)->emit_push_reg(c, r);
-                        extra_sp += 8;
+                        extra_sp += slot_sz;
                     }
                 }
 
@@ -2026,7 +2056,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                     }
                     src_regs[a] = r;
                     BE(c)->emit_push_reg(c, src_regs[a]);
-                    extra_sp += 8;
+                    extra_sp += slot_sz;
                 }
                 for (int a = n_args - 1; a >= 0; a--) {
                     int dst_reg = backend_get_int_arg_reg(BE(c), a);
@@ -2035,7 +2065,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                         continue;
                     }
                     BE(c)->emit_pop_reg(c, dst_reg);
-                    extra_sp -= 8;
+                    extra_sp -= slot_sz;
                 }
 
                 /* System V AMD64 ABI: For variadic functions, %al must hold number of SSE registers used */
@@ -2084,7 +2114,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
 
                 /* Caller cleans up stack-passed arguments (and alignment pad) */
                 if (n_stack > 0) {
-                    BE(c)->emit_stack_adjust(c, n_stack * 8 + stack_pad);
+                    BE(c)->emit_stack_adjust(c, stack_bytes + stack_pad);
                 }
 
                 /* Handle struct return (9-16 bytes) unpacking */

@@ -636,6 +636,7 @@ static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c, ZeroCCASTArena
      * identifier. Record the leading qualifiers and re-read the base
      * token; trailing qualifiers are handled after the base type. */
     bool td_const = false, td_volatile = false;
+    bool is_long_long = false;
     while (t == TK_CONST || t == TK_VOLATILE) {
         if (t == TK_CONST) td_const = true;
         if (t == TK_VOLATILE) td_volatile = true;
@@ -714,7 +715,10 @@ static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c, ZeroCCASTArena
     }
     else if (t == TK_LONG) {
         c->token_pos++;
-        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LONG) c->token_pos++;
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LONG) {
+            c->token_pos++;
+            is_long_long = true;
+        }
         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_INT) c->token_pos++;
     }
     else if (t == TK_IDENT) {
@@ -799,7 +803,11 @@ static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c, ZeroCCASTArena
     if (t == TK_SHORT) {
         ttype = is_unsigned ? zero_cc_type_uint16() : zero_cc_type_int16();
     } else if (t == TK_LONG) {
-        ttype = is_unsigned ? zero_cc_type_uint64() : zero_cc_type_int64();
+        if (is_long_long || c->isa != ISA_RISCV32) {
+            ttype = is_unsigned ? zero_cc_type_uint64() : zero_cc_type_int64();
+        } else {
+            ttype = is_unsigned ? zero_cc_type_uint32() : zero_cc_type_int();
+        }
     } else if (is_unsigned) {
         if (ttype.tag == TYPE_INT8) ttype.tag = TYPE_UINT8;
         else if (ttype.tag == TYPE_INT16) ttype.tag = TYPE_UINT16;

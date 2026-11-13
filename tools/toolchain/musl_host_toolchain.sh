@@ -28,7 +28,7 @@
 
 set -eu
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 MUSL_DIR=third_party/vendor/musl/musl-1.2.6
 BUILD_DIR="${BUILD_DIR:-build}"

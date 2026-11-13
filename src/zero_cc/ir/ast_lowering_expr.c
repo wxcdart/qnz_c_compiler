@@ -1031,6 +1031,7 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                          * value and silently drop the high half (O2
                          * inlining of `hi128(v)` became `hi128(zext64(v))`). */
                         c->last_expr_is_128 = c->lowering.inlining.param_is_128[p] ? 1 : 0;
+                        c->last_expr_is_64 = (c->isa == ISA_RISCV32 && c->lowering.inlining.param_is_64[p]) ? 1 : 0;
                         return p_temp;
                     }
                 }

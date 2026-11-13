@@ -1028,6 +1028,7 @@ bool zero_cc_parse_local_decl(ZeroCCCompiler *c,  /* Sprint 114: defined in decl
         ZeroCCTokType type_tok = t;
         bool decl_is_unsigned = false;
         bool decl_is_long_double = false;
+        bool decl_is_long_long = false;
         bool suffix_complex = false;
         ZeroCCType typeof_base_type_early;
         memset(&typeof_base_type_early, 0, sizeof(typeof_base_type_early));
@@ -1126,7 +1127,10 @@ bool zero_cc_parse_local_decl(ZeroCCCompiler *c,  /* Sprint 114: defined in decl
                 if (type_tok == TK_SHORT && c->token_pos < c->token_count &&
                     c->tokens[c->token_pos].type == TK_INT) c->token_pos++;
                 if (type_tok == TK_LONG) {
-                    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LONG) c->token_pos++; /* long long */
+                    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LONG) {
+                        c->token_pos++; /* long long */
+                        decl_is_long_long = true;
+                    }
                     if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_INT) c->token_pos++; /* long [long] int */
                 }
             } else if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT &&
@@ -1143,7 +1147,10 @@ bool zero_cc_parse_local_decl(ZeroCCCompiler *c,  /* Sprint 114: defined in decl
                 type_tok = TK_INT;  /* bare `unsigned` / `signed` */
             }
         } else if (type_tok == TK_LONG) {
-            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LONG) c->token_pos++;
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LONG) {
+                c->token_pos++;
+                decl_is_long_long = true;
+            }
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_DOUBLE_KW) {
                 /* `long double` (C99 6.2.5): model as the 16-byte
                  * is_long_double type, not a plain double (c-torture
@@ -1353,6 +1360,9 @@ bool zero_cc_parse_local_decl(ZeroCCCompiler *c,  /* Sprint 114: defined in decl
             if (is_function) {
                 /* Build canonical return type and function TypeInfo */
                 ZeroCCType base_ret = has_typeof_base ? typeof_base_type : zero_cc_resolve_base_type(c, type_tok, c->tokens[type_start_pos].str_val);
+                if (decl_is_long_long) {
+                    base_ret = zero_cc_type_int64();
+                }
                 if (decl_is_long_double && base_ret.tag == TYPE_DOUBLE) {
                     base_ret = zero_cc_type_long_double();
                 }
@@ -2030,6 +2040,9 @@ bool zero_cc_parse_local_decl(ZeroCCCompiler *c,  /* Sprint 114: defined in decl
 
                 ZeroCCType base_decl = has_anon_struct ? anon_struct_type :
                     (has_typeof_base ? typeof_base_type : zero_cc_resolve_base_type(c, type_tok, c->tokens[type_start_pos].str_val));
+                if (decl_is_long_long) {
+                    base_decl = zero_cc_type_int64();
+                }
                 if (decl_is_long_double && base_decl.tag == TYPE_DOUBLE) {
                     base_decl = zero_cc_type_long_double();
                 }
@@ -2318,6 +2331,9 @@ bool zero_cc_parse_local_decl(ZeroCCCompiler *c,  /* Sprint 114: defined in decl
                      * execute/bswap-1.c, cbrt.c segfaulted in AOT). */
                     ZeroCCType next_base = has_anon_struct ? anon_struct_type :
                         (has_typeof_base ? typeof_base_type : zero_cc_resolve_base_type(c, type_tok, c->tokens[type_start_pos].str_val));
+                    if (decl_is_long_long) {
+                        next_base = zero_cc_type_int64();
+                    }
                     /* C99 6.7.2.3 suffix complex applies to every
                      * comma declarator: `double _Complex a, b;`. */
                     if (suffix_complex && !zero_cc_type_is_complex(&next_base)) {

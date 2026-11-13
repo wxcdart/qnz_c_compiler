@@ -451,6 +451,12 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                     if (sym->type.tag == TYPE_INT128 || sym->type.tag == TYPE_UINT128) {
                         can_promote_params = false; break;
                     }
+                    /* Sprint 172 (rv32 i64 ABI): 64-bit parameters consume TWO
+                     * GP argument units on rv32 - use the frame path (is_64_scalar). */
+                    if (c->isa == ISA_RISCV32 &&
+                        (sym->type.tag == TYPE_INT64 || sym->type.tag == TYPE_UINT64)) {
+                        can_promote_params = false; break;
+                    }
                     /* C99 complex parameters consume TWO consecutive FP
                      * argument registers and need an addressable frame
                      * object (address-form value) - no promotion. */
@@ -609,8 +615,27 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
              * then hi), exactly the 16-byte struct chunk pattern. */
             bool is_128_scalar = (sym->type.tag == TYPE_INT128 || sym->type.tag == TYPE_UINT128);
             if (is_128_scalar) is_multi_chunk_struct = true;
+            bool is_64_scalar = (c->isa == ISA_RISCV32 &&
+                                 (sym->type.tag == TYPE_INT64 || sym->type.tag == TYPE_UINT64));
 
-            if (!cap_byref && (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) &&
+            if (is_64_scalar) {
+                if (int_idx & 1) int_idx++; /* 2*XLEN arg aligns to an even argument register */
+                if (int_idx + 1 < BE(c)->conv->int_arg_reg_count) {
+                    ir_emit_param_save_int(c, int_idx, sym->stack_offset);
+                    ir_emit_param_save_int(c, int_idx + 1, sym->stack_offset - 4);
+                    int_idx += 2;
+                } else {
+                    int_idx = BE(c)->conv->int_arg_reg_count;
+                    if (stack_idx & 1) stack_idx++; /* 8-byte aligned on stack */
+                    int32_t caller_off_lo = 16 + 4 * stack_idx;
+                    int32_t caller_off_hi = 16 + 4 * (stack_idx + 1);
+                    ir_emit_load(c, VREG_0, BE(c)->fp_reg, caller_off_lo);
+                    ir_emit_store(c, VREG_0, BE(c)->fp_reg, -sym->stack_offset);
+                    ir_emit_load(c, VREG_0, BE(c)->fp_reg, caller_off_hi);
+                    ir_emit_store(c, VREG_0, BE(c)->fp_reg, -(sym->stack_offset - 4));
+                    stack_idx += 2;
+                }
+            } else if (!cap_byref && (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) &&
                 zc_type_is_vla_struct_obj(&sym->type)) {
                 /* VLA struct parameter (GNU): two consecutive GPR units -
                  * the object pointer (stored in the sym slot; member
@@ -790,7 +815,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                 ir_emit_param_save_int(c, int_idx, sym->stack_offset);
                 int_idx++;
             } else if (!is_fp) {
-                int32_t caller_off = 16 + 8 * stack_idx;
+                int32_t caller_off = 16 + (c->isa == ISA_RISCV32 ? 4 : 8) * stack_idx;
                 ir_emit_load(c, VREG_0, BE(c)->fp_reg, caller_off);
                 ir_emit_store(c, VREG_0, BE(c)->fp_reg, -sym->stack_offset);
                 stack_idx++;

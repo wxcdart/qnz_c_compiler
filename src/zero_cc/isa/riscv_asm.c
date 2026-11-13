@@ -715,7 +715,7 @@ static void riscv_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int ar
     const char *st_ptr = (c->isa == ISA_RISCV32) ? "sw" : "sd";
     const char *ld_ptr = (c->isa == ISA_RISCV32) ? "lw" : "ld";
     if (stack_pos) {
-        stack_alloc = ((n_stack * 8) + 15) & ~15;
+        stack_alloc = ((n_stack * ptr_slot) + 15) & ~15;
         if (n_stack > 0) {
             fprintf(out, "\taddi\tsp, sp, -%d\n", stack_alloc);
             for (int pos = 0; pos < n_stack; pos++) {
@@ -1652,7 +1652,7 @@ static void riscv_emit_mul64_asm(ZeroCCCompiler *c, int dlo, int dhi, int alo, i
     const char *t0_n = BE(c)->get_hw_reg_name(5), *t2_n = BE(c)->get_hw_reg_name(7),
                *t5_n = BE(c)->get_hw_reg_name(30);
     fprintf(out, "\tmul\t%s, %s, %s\n", dlo_n, alo_n, blo_n);   /* P0.lo */
-    fprintf(out, "\tmulh\t%s, %s, %s\n", t0_n, alo_n, blo_n);   /* P0.hi */
+    fprintf(out, "\tmulhu\t%s, %s, %s\n", t0_n, alo_n, blo_n);  /* P0.hi */
     fprintf(out, "\tmul\t%s, %s, %s\n", t5_n, ahi_n, blo_n);   /* P1a.lo */
     fprintf(out, "\tmul\t%s, %s, %s\n", t2_n, alo_n, bhi_n);   /* P1b.lo */
     fprintf(out, "\tadd\t%s, %s, %s\n", t0_n, t0_n, t5_n);

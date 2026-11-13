@@ -583,6 +583,14 @@ static inline void ir_emit_sext32_64(ZeroCCCompiler *c, int d, int a) {
 static inline void ir_emit_trunc64_32(ZeroCCCompiler *c, int d, int a) {
     ir_emit(c, (Instr){.op = OP_TRUNC64_32, .temp_dest = d, .temp_src1 = a, .temp_src2 = TEMP_NONE, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
 }
+/* dest (32-bit temp) = high 32 bits of a GPR64 temp. */
+static inline void ir_emit_hi64(ZeroCCCompiler *c, int d, int a) {
+    ir_emit(c, (Instr){.op = OP_HI64, .temp_dest = d, .temp_src1 = a, .temp_src2 = TEMP_NONE, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
+/* dest (GPR64 temp) = {hi = src2, lo = src1} */
+static inline void ir_emit_mk64(ZeroCCCompiler *c, int d, int lo, int hi) {
+    ir_emit(c, (Instr){.op = OP_MK64, .temp_dest = d, .temp_src1 = lo, .temp_src2 = hi, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = 0});
+}
 static inline void ir_emit_mov64_imm(ZeroCCCompiler *c, int d, int64_t imm) {
     ir_emit(c, (Instr){.op = OP_MOV64_IMM, .temp_dest = d, .temp_src1 = TEMP_NONE, .temp_src2 = TEMP_NONE, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = imm, .label_idx = 0});
 }

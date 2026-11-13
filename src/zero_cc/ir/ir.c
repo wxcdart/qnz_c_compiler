@@ -320,6 +320,8 @@ void ir_dump(const ZeroCCCompiler *c, FILE *f) {
             case OP_ZEXT32_64: fprintf(f, "ZEXT32_64 r%u, r%u", instr->temp_dest, instr->temp_src1); break;
             case OP_SEXT32_64: fprintf(f, "SEXT32_64 r%u, r%u", instr->temp_dest, instr->temp_src1); break;
             case OP_TRUNC64_32: fprintf(f, "TRUNC64_32 r%u, r%u", instr->temp_dest, instr->temp_src1); break;
+            case OP_HI64: fprintf(f, "HI64 r%u, r%u", instr->temp_dest, instr->temp_src1); break;
+            case OP_MK64: fprintf(f, "MK64 r%u, r%u(lo), r%u(hi)", instr->temp_dest, instr->temp_src1, instr->temp_src2); break;
             case OP_MOV64_IMM: fprintf(f, "MOV64_IMM r%u, %lld", instr->temp_dest, (long long)instr->imm64); break;
             case OP_DIV64: fprintf(f, "DIV64 r%u, r%u, r%u", instr->temp_dest, instr->temp_src1, instr->temp_src2); break;
             case OP_MOD64: fprintf(f, "MOD64 r%u, r%u, r%u", instr->temp_dest, instr->temp_src1, instr->temp_src2); break;

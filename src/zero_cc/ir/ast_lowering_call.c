@@ -477,11 +477,13 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                         int prev_param_temps[8];
                         bool prev_param_is_func_ptr[8];
                         bool prev_param_is_128[8];
+                        bool prev_param_is_64[8];
                         for (int p = 0; p < 8; p++) {
                             prev_param_names[p] = c->lowering.inlining.param_names[p];
                             prev_param_temps[p] = c->lowering.inlining.param_temps[p];
                             prev_param_is_func_ptr[p] = c->lowering.inlining.param_is_func_ptr[p];
                             prev_param_is_128[p] = c->lowering.inlining.param_is_128[p];
+                            prev_param_is_64[p] = c->lowering.inlining.param_is_64[p];
                         }
 
                         /* Setup new inlining context */
@@ -501,6 +503,10 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                                 (callee_fn->param_types &&
                                  (callee_fn->param_types[p].tag == TYPE_INT128 ||
                                   callee_fn->param_types[p].tag == TYPE_UINT128));
+                            c->lowering.inlining.param_is_64[p] =
+                                (c->isa == ISA_RISCV32 && callee_fn->param_types &&
+                                 (callee_fn->param_types[p].tag == TYPE_INT64 ||
+                                  callee_fn->param_types[p].tag == TYPE_UINT64));
                         }
 
                         /* Lower inlined body statements into IR */
@@ -538,6 +544,7 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                             c->lowering.inlining.param_temps[p] = prev_param_temps[p];
                             c->lowering.inlining.param_is_func_ptr[p] = prev_param_is_func_ptr[p];
                             c->lowering.inlining.param_is_128[p] = prev_param_is_128[p];
+                            c->lowering.inlining.param_is_64[p] = prev_param_is_64[p];
                         }
 
                         c->last_expr_is_float = (callee_fn->return_type.tag == TYPE_FLOAT ||
@@ -548,6 +555,9 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                          * it correctly. */
                         c->last_expr_is_128 = (callee_fn->return_type.tag == TYPE_INT128 ||
                                                callee_fn->return_type.tag == TYPE_UINT128) ? 1 : 0;
+                        c->last_expr_is_64 = (c->isa == ISA_RISCV32 &&
+                                              (callee_fn->return_type.tag == TYPE_INT64 ||
+                                               callee_fn->return_type.tag == TYPE_UINT64)) ? 1 : 0;
                         return inline_res_temp;
                     }
                 }
@@ -1391,6 +1401,33 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                         t128 = false;
                     }
 
+                    bool p64 = (c->isa == ISA_RISCV32 && eff_param_count > 0 && (param_idx - 1) < eff_param_count &&
+                                (eff_params[param_idx - 1].tag == TYPE_INT64 ||
+                                 eff_params[param_idx - 1].tag == TYPE_UINT64));
+                    bool t64 = (c->isa == ISA_RISCV32 && c->last_expr_is_64);
+                    c->last_expr_is_64 = 0;
+                    if (p64 && !t64) {
+                        int t64_new = zc_alloc_temp(c);
+                        bool src_signed = false;
+                        TypeInfo *ati64 = arg_node ? ast_node_get_typeinfo(c, arg_node) : NULL;
+                        if (ati64) {
+                            int k = ati64->kind;
+                            src_signed = (k == TYPE_KIND_CHAR || k == TYPE_KIND_SHORT ||
+                                          k == TYPE_KIND_INT || k == TYPE_KIND_LONG) &&
+                                         !(ati64->modifiers & TYPE_MOD_UNSIGNED);
+                        }
+                        if (src_signed) ir_emit_sext32_64(c, t64_new, temp);
+                        else ir_emit_zext32_64(c, t64_new, temp);
+                        temp = t64_new;
+                        t64 = true;
+                    } else if (!p64 && t64 && eff_param_count > 0 && (param_idx - 1) < eff_param_count) {
+                        int t32 = zc_alloc_temp(c);
+                        ir_emit_trunc64_32(c, t32, temp);
+                        temp = t32;
+                        zero_cc_emit_int_extend(c, temp, &eff_params[param_idx - 1]);
+                        t64 = false;
+                    }
+
                     /* Integer or struct argument: spill to stack slot(s) */
                     if (mem_arg_range_done) {
                         /* Sprint 158 x86-64: a range entry (is_fp=4) covers
@@ -1415,6 +1452,68 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                             int_spill_offsets[int_arg_idx] = c->current_stack_frame;
                             ir_emit_store(c, hi_temp, BE(c)->fp_reg, -int_spill_offsets[int_arg_idx]);
                             int_arg_idx++;
+                        }
+                    } else if (t64) {
+                        int lo_temp = zc_alloc_temp(c);
+                        int hi_temp = zc_alloc_temp(c);
+                        ir_emit_trunc64_32(c, lo_temp, temp);
+                        ir_emit_hi64(c, hi_temp, temp);
+                        if (gp_stream + 1 < gp_regs_avail) {
+                            /* RISC-V psABI: 2*XLEN arg aligns to an even argument register. */
+                            if (gp_stream & 1) {
+                                int dummy = zc_alloc_temp(c);
+                                ir_emit_mov_imm(c, dummy, 0);
+                                int_spill_stack_pos[int_arg_idx] = 255;
+                                gp_stream++;
+                                if (int_arg_idx < IR_CALL_MAX_ARGS) {
+                                    c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                                    c->current_stack_frame += 8;
+                                    int_spill_offsets[int_arg_idx] = c->current_stack_frame;
+                                    ir_emit_store(c, dummy, BE(c)->fp_reg, -int_spill_offsets[int_arg_idx]);
+                                    int_arg_idx++;
+                                }
+                            }
+                        }
+                        if (gp_stream + 1 < gp_regs_avail) {
+                            /* Pass in register pair (gp_stream, gp_stream + 1) */
+                            int_spill_stack_pos[int_arg_idx] = 255;
+                            gp_stream++;
+                            if (int_arg_idx < IR_CALL_MAX_ARGS) {
+                                c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                                c->current_stack_frame += 8;
+                                int_spill_offsets[int_arg_idx] = c->current_stack_frame;
+                                ir_emit_store(c, lo_temp, BE(c)->fp_reg, -int_spill_offsets[int_arg_idx]);
+                                int_arg_idx++;
+                            }
+                            int_spill_stack_pos[int_arg_idx] = 255;
+                            gp_stream++;
+                            if (int_arg_idx < IR_CALL_MAX_ARGS) {
+                                c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                                c->current_stack_frame += 8;
+                                int_spill_offsets[int_arg_idx] = c->current_stack_frame;
+                                ir_emit_store(c, hi_temp, BE(c)->fp_reg, -int_spill_offsets[int_arg_idx]);
+                                int_arg_idx++;
+                            }
+                        } else {
+                            /* Fewer than 2 registers remain: pass entirely on stack. */
+                            gp_stream = gp_regs_avail;
+                            if (stack_arg_count & 1) stack_arg_count++; /* 8-byte align */
+                            int_spill_stack_pos[int_arg_idx] = (uint8_t)(stack_arg_count++);
+                            if (int_arg_idx < IR_CALL_MAX_ARGS) {
+                                c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                                c->current_stack_frame += 8;
+                                int_spill_offsets[int_arg_idx] = c->current_stack_frame;
+                                ir_emit_store(c, lo_temp, BE(c)->fp_reg, -int_spill_offsets[int_arg_idx]);
+                                int_arg_idx++;
+                            }
+                            int_spill_stack_pos[int_arg_idx] = (uint8_t)(stack_arg_count++);
+                            if (int_arg_idx < IR_CALL_MAX_ARGS) {
+                                c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                                c->current_stack_frame += 8;
+                                int_spill_offsets[int_arg_idx] = c->current_stack_frame;
+                                ir_emit_store(c, hi_temp, BE(c)->fp_reg, -int_spill_offsets[int_arg_idx]);
+                                int_arg_idx++;
+                            }
                         }
                     } else if (c->isa == ISA_X86_64 && arg_is_struct_u &&
                                arg_struct_sz > 8 && arg_struct_sz <= 16 &&
@@ -2037,6 +2136,21 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                 ir_emit_mk128(c, res, lo, hi);
                 c->last_expr_is_float = 0;
                 c->last_expr_is_128 = 1;
+                return res;
+            }
+
+            /* Sprint 172 (rv32 i64 ABI): 64-bit return on rv32 targets.
+             * RISC-V ILP32 psABI: (a0, a1) = (VREG_0, VREG_2) holds the (lo, hi) result. */
+            if (c->isa == ISA_RISCV32 &&
+                (call_ret_type.tag == TYPE_INT64 || call_ret_type.tag == TYPE_UINT64)) {
+                int lo = zc_alloc_temp(c);
+                ir_emit_mov_reg(c, lo, VREG_0);
+                int hi = zc_alloc_temp(c);
+                ir_emit_mov_reg(c, hi, VREG_2);
+                int res = zc_alloc_temp(c);
+                ir_emit_mk64(c, res, lo, hi);
+                c->last_expr_is_float = 0;
+                c->last_expr_is_64 = 1;
                 return res;
             }
 

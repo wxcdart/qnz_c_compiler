@@ -2016,7 +2016,7 @@ void riscv64_emit_mul64(ZeroCCCompiler *c, int dlo, int dhi, int alo, int a_hi, 
      * dhi never aliases a source read that follows a dhi write, and all
      * scratch (t0/t2/t5) is reserved. */
     riscv64_emit_mul(c, dlo, alo, blo);                          /* dlo = P0.lo */
-    riscv_emit_u32(c, rv64_R(RV_REG(RV64_T0), RV_REG(alo), RV_REG(blo), 3, 1)); /* mulh t0, alo, blo (P0.hi) */
+    riscv_emit_u32(c, rv64_R(RV_REG(RV64_T0), RV_REG(alo), RV_REG(blo), 3, 1)); /* mulhu t0, alo, blo (P0.hi) */
     riscv_emit_u32(c, rv64_R(RV_REG(RV64_T5), RV_REG(a_hi), RV_REG(blo), 0, 1)); /* mul t5, ahi, blo (P1a.lo) */
     riscv_emit_u32(c, rv64_R(RV_REG(RV64_T2), RV_REG(alo), RV_REG(bhi), 0, 1)); /* mul t2, alo, bhi (P1b.lo) */
     riscv64_emit_add(c, RV64_T0, RV64_T0, RV64_T5);             /* t0 = P0.hi + P1a.lo */

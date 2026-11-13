@@ -1320,6 +1320,9 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                  * misclassifies as GPR128 (garbage high half). */
                 bool ret128 = (c->lowering.inlining.return_type.tag == TYPE_INT128 ||
                                c->lowering.inlining.return_type.tag == TYPE_UINT128);
+                bool ret64 = (c->isa == ISA_RISCV32 &&
+                              (c->lowering.inlining.return_type.tag == TYPE_INT64 ||
+                               c->lowering.inlining.return_type.tag == TYPE_UINT64));
                 if (!c->last_expr_is_float) {
                     if (ret128) {
                         if (!c->last_expr_is_128) {
@@ -1330,12 +1333,22 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                                 ir_emit_sext64_128(c, d, res);
                             res = d;
                         }
+                    } else if (ret64) {
+                        if (!c->last_expr_is_64) {
+                            int d = zc_alloc_temp(c);
+                            if (zero_cc_type_is_unsigned(&c->lowering.inlining.return_type))
+                                ir_emit_zext32_64(c, d, res);
+                            else
+                                ir_emit_sext32_64(c, d, res);
+                            res = d;
+                        }
                     } else {
                         zero_cc_emit_int_extend(c, res, &c->lowering.inlining.return_type);
                     }
                 }
                 if (c->lowering.inlining.return_target_temp >= 0 && res >= 0 && res != c->lowering.inlining.return_target_temp) {
                     if (ret128) ir_emit_mov128(c, c->lowering.inlining.return_target_temp, res);
+                    else if (ret64) ir_emit_mov64(c, c->lowering.inlining.return_target_temp, res);
                     else ir_emit_mov_reg(c, c->lowering.inlining.return_target_temp, res);
                 }
             }
@@ -1384,6 +1397,29 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
             ir_emit_hi128(c, VREG_2, res);     /* hi -> rdx */
             c->last_expr_is_float = 0;
             c->last_expr_is_128 = 0;
+            ir_emit_jmp(c, c->lowering.epilogue_label);
+            return;
+        }
+        /* Sprint 172 (rv32 i64 ABI): 64-bit return on rv32 targets.
+         * RISC-V ILP32 psABI: 64-bit values return in (a0, a1) = (VREG_0, VREG_1). */
+        if (cur_fn2 && c->isa == ISA_RISCV32 &&
+            (cur_fn2->return_type.tag == TYPE_INT64 ||
+             cur_fn2->return_type.tag == TYPE_UINT64)) {
+            int res = lower_expr(c, arena, node->left);
+            if (!c->last_expr_is_64) {
+                int d = zc_alloc_temp(c);
+                if (zero_cc_type_is_unsigned(&cur_fn2->return_type)) ir_emit_zext32_64(c, d, res);
+                else ir_emit_sext32_64(c, d, res);
+                res = d;
+            }
+            int lo = zc_alloc_temp(c);
+            int hi = zc_alloc_temp(c);
+            ir_emit_trunc64_32(c, lo, res);
+            ir_emit_hi64(c, hi, res);
+            ir_emit_mov_reg(c, VREG_0, lo);   /* lo -> a0 (VREG_0) */
+            ir_emit_mov_reg(c, VREG_2, hi);   /* hi -> a1 (VREG_2 on riscv) */
+            c->last_expr_is_float = 0;
+            c->last_expr_is_64 = 0;
             ir_emit_jmp(c, c->lowering.epilogue_label);
             return;
         }
