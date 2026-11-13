@@ -1,5 +1,17 @@
 # CHANGELOG
 
+## [Sprint 179] - 2026-11-13 - mem2reg Sparse Valid-Slot List (Optimizer Performance)
+
+First performance win verified by the new `make test-perf` budget gate (Sprint 178). Profiled the 1.26 s passes-only budget on `sqlite3.c` (`--profile-opts`, median of 3): **mem2reg 344.8 ms (21.6%)** and licm 317.8 ms (16.6%) dominated. The local (non-loop) promotion phase of `opt_promote_mem2reg` maintained slot validity through a dense 256-slot array: **every value instruction** ran an O(256) scan ("invalidate any slot holding my `temp_dest`"), and every invalidation event (call, branch-target label, LEA, pointer store, VLA) did a 256-wide clear — ~300M wasted slot checks on a 1.2M-instruction TU.
+
+**Fix** (`src/zero_cc/opt/opt_mem2reg.c`): a packed list of currently-valid slots (`valid_slots[]`/`valid_count`; invariant: `slot_valid[s]` iff `s` appears in the list) with four tiny helpers (`m2r_invalidate_all` / `m2r_invalidate_slot` / `m2r_track_slot` / `m2r_invalidate_temp`, swap-remove keeping the list tight). Both hot loops become O(valid_slots) — typically <<16. The loop-carried phase (Sprint 36) was left untouched.
+
+**Result** (`--profile-opts`, median of 5): `sqlite3.c` -O2 mem2reg **344.8 → 106.8 ms (3.2×)**, passes-only total **1249 → 947 ms (-24%)**; `synth_large.c` mem2reg ~8 → 4 ms. **Correctness: byte-identical `-S` output at `-O1/-O2/-O3` for 30/30 reference files** (bench corpus, churn, cJSON, deflate, sqlite3) — promotion decisions unchanged, only the bookkeeping data structure differs.
+
+**Verification:** `make test` 231/231; `make test-opt` 130 ok / 0 failed; `make test-isa128` 168/168; `make test-fuzz` 106/106; `make test-project-diff` 36/36; `make test-torture` 0 bad vs baseline; `style_check.py` 0 errors; `test/perf/baseline.json` re-recorded with `--update-baseline` (the intended use of the budget gate). Next target identified by the same profile: **LICM 316 ms @sqlite3 -O2**.
+
+---
+
 ## [Sprint 178] - 2026-11-13 - Compile-Performance Budget Gate (Verification / Scale)
 
 Implements dev-plan item #3, closing the **entire Verification & Scale track** (all 5 items shipped). `make test-perf` (`tools/verify/perf_budget.py` + `test/perf/baseline.json`): ratcheted compile-time budgets over a fixed corpus of increasing size, so a compile-speed regression is a gate failure instead of a silent slowdown.

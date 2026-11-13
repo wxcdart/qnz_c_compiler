@@ -11,190 +11,190 @@
     "bench_arith@O0": {
       "file": "test/bench/arith_heavy.c",
       "runs": 5,
-      "wall_s": 0.0096
+      "wall_s": 0.0039
     },
     "bench_arith@O2": {
       "file": "test/bench/arith_heavy.c",
       "runs": 5,
-      "wall_s": 0.0112,
+      "wall_s": 0.0045,
       "passes_ms": {
-        "TOTAL (passes only)": 1.775,
-        "constant_fold": 0.08,
-        "copy_prop": 0.192,
-        "cse": 0.037,
-        "dce": 0.429,
-        "flag_dce": 0.004,
-        "gvn": 0.135,
-        "licm": 0.396,
-        "mem2reg": 0.299
+        "TOTAL (passes only)": 0.584,
+        "constant_fold": 0.027,
+        "copy_prop": 0.059,
+        "cse": 0.017,
+        "dce": 0.187,
+        "flag_dce": 0.002,
+        "gvn": 0.058,
+        "licm": 0.161,
+        "mem2reg": 0.041
       }
     },
     "bench_call@O0": {
       "file": "test/bench/call_heavy.c",
       "runs": 5,
-      "wall_s": 0.0115
+      "wall_s": 0.0049
     },
     "bench_call@O2": {
       "file": "test/bench/call_heavy.c",
       "runs": 5,
-      "wall_s": 0.0134,
+      "wall_s": 0.0059,
       "passes_ms": {
-        "TOTAL (passes only)": 1.828,
-        "constant_fold": 0.061,
-        "copy_prop": 0.131,
-        "cse": 0.041,
-        "dce": 0.622,
-        "flag_dce": 0.004,
-        "gvn": 0.128,
-        "licm": 0.456,
-        "mem2reg": 0.244
+        "TOTAL (passes only)": 0.701,
+        "constant_fold": 0.03,
+        "copy_prop": 0.06,
+        "cse": 0.017,
+        "dce": 0.298,
+        "flag_dce": 0.002,
+        "gvn": 0.059,
+        "licm": 0.189,
+        "mem2reg": 0.035
       }
     },
     "bench_loop@O0": {
       "file": "test/bench/loop_heavy.c",
       "runs": 5,
-      "wall_s": 0.0104
+      "wall_s": 0.0047
     },
     "bench_loop@O2": {
       "file": "test/bench/loop_heavy.c",
       "runs": 5,
-      "wall_s": 0.0135,
+      "wall_s": 0.0054,
       "passes_ms": {
-        "TOTAL (passes only)": 2.313,
-        "constant_fold": 0.07,
-        "copy_prop": 0.18,
-        "cse": 0.064,
-        "dce": 0.596,
-        "flag_dce": 0.006,
-        "gvn": 0.162,
-        "licm": 0.761,
-        "mem2reg": 0.502
+        "TOTAL (passes only)": 0.931,
+        "constant_fold": 0.032,
+        "copy_prop": 0.096,
+        "cse": 0.028,
+        "dce": 0.272,
+        "flag_dce": 0.003,
+        "gvn": 0.079,
+        "licm": 0.337,
+        "mem2reg": 0.09
       }
     },
     "bench_memory@O0": {
       "file": "test/bench/memory_heavy.c",
       "runs": 5,
-      "wall_s": 0.0054
+      "wall_s": 0.0028
     },
     "bench_memory@O2": {
       "file": "test/bench/memory_heavy.c",
       "runs": 5,
-      "wall_s": 0.0062,
+      "wall_s": 0.003,
       "passes_ms": {
-        "TOTAL (passes only)": 0.79,
-        "constant_fold": 0.045,
-        "copy_prop": 0.059,
-        "cse": 0.02,
-        "dce": 0.158,
-        "flag_dce": 0.002,
-        "gvn": 0.093,
-        "licm": 0.299,
-        "mem2reg": 0.077
+        "TOTAL (passes only)": 0.366,
+        "constant_fold": 0.025,
+        "copy_prop": 0.031,
+        "cse": 0.013,
+        "dce": 0.094,
+        "flag_dce": 0.001,
+        "gvn": 0.053,
+        "licm": 0.134,
+        "mem2reg": 0.008
       }
     },
     "bench_synth@O0": {
       "file": "test/bench/synth_large.c",
       "runs": 5,
-      "wall_s": 0.0334
+      "wall_s": 0.0153
     },
     "bench_synth@O2": {
       "file": "test/bench/synth_large.c",
       "runs": 5,
-      "wall_s": 0.0837,
+      "wall_s": 0.035,
       "passes_ms": {
-        "TOTAL (passes only)": 47.38,
-        "constant_fold": 0.174,
-        "copy_prop": 2.09,
-        "cse": 0.424,
-        "dce": 0.673,
-        "flag_dce": 0.04,
-        "gvn": 0.974,
-        "licm": 36.48,
-        "mem2reg": 7.365
+        "TOTAL (passes only)": 19.43,
+        "constant_fold": 0.091,
+        "copy_prop": 1.091,
+        "cse": 0.218,
+        "dce": 0.342,
+        "flag_dce": 0.022,
+        "gvn": 0.452,
+        "licm": 15.075,
+        "mem2reg": 2.094
       }
     },
     "churn@O0": {
       "file": "test/jit/temp_renumber_churn.c",
       "runs": 7,
-      "wall_s": 1.7035
+      "wall_s": 1.1331
     },
     "churn@O2": {
       "file": "test/jit/temp_renumber_churn.c",
       "runs": 7,
-      "wall_s": 1.8488,
+      "wall_s": 1.21,
       "passes_ms": {
-        "TOTAL (passes only)": 198.774,
-        "constant_fold": 3.558,
-        "copy_prop": 68.894,
-        "cse": 7.24,
-        "dce": 14.298,
-        "flag_dce": 0.967,
-        "gvn": 6.962,
-        "licm": 3.556,
-        "mem2reg": 89.727
+        "TOTAL (passes only)": 78.717,
+        "constant_fold": 2.379,
+        "copy_prop": 44.343,
+        "cse": 4.927,
+        "dce": 9.822,
+        "flag_dce": 0.664,
+        "gvn": 4.858,
+        "licm": 2.922,
+        "mem2reg": 8.871
       }
     },
     "cjson@O0": {
       "file": "test/projects/cjson/cJSON.c",
       "runs": 5,
-      "wall_s": 0.1026
+      "wall_s": 0.064
     },
     "cjson@O2": {
       "file": "test/projects/cjson/cJSON.c",
       "runs": 5,
-      "wall_s": 0.1369,
+      "wall_s": 0.0825,
       "passes_ms": {
-        "TOTAL (passes only)": 29.83,
-        "constant_fold": 0.511,
-        "copy_prop": 3.453,
-        "cse": 5.254,
-        "dce": 5.584,
-        "flag_dce": 0.095,
-        "gvn": 1.879,
-        "licm": 7.102,
-        "mem2reg": 6.244
+        "TOTAL (passes only)": 16.933,
+        "constant_fold": 0.336,
+        "copy_prop": 2.093,
+        "cse": 3.327,
+        "dce": 3.741,
+        "flag_dce": 0.063,
+        "gvn": 1.239,
+        "licm": 4.65,
+        "mem2reg": 1.599
       }
     },
     "deflate@O0": {
       "file": "test/projects/zlib/deflate.c",
       "runs": 5,
-      "wall_s": 0.0786
+      "wall_s": 0.0529
     },
     "deflate@O2": {
       "file": "test/projects/zlib/deflate.c",
       "runs": 5,
-      "wall_s": 0.1165,
+      "wall_s": 0.066,
       "passes_ms": {
-        "TOTAL (passes only)": 35.227,
-        "constant_fold": 0.553,
-        "copy_prop": 5.593,
-        "cse": 5.971,
-        "dce": 2.893,
-        "flag_dce": 0.12,
-        "gvn": 2.339,
-        "licm": 8.437,
-        "mem2reg": 9.301
+        "TOTAL (passes only)": 18.222,
+        "constant_fold": 0.364,
+        "copy_prop": 3.584,
+        "cse": 3.732,
+        "dce": 1.942,
+        "flag_dce": 0.077,
+        "gvn": 1.591,
+        "licm": 5.351,
+        "mem2reg": 1.668
       }
     },
     "sqlite3@O0": {
       "file": "test/projects/sqlite/sqlite3.c",
       "runs": 7,
-      "wall_s": 4.7004
+      "wall_s": 2.9637
     },
     "sqlite3@O2": {
       "file": "test/projects/sqlite/sqlite3.c",
       "runs": 7,
-      "wall_s": 6.1479,
+      "wall_s": 4.0013,
       "passes_ms": {
-        "TOTAL (passes only)": 1281.98,
-        "constant_fold": 23.124,
-        "copy_prop": 205.89,
-        "cse": 107.293,
-        "dce": 173.493,
-        "flag_dce": 4.793,
-        "gvn": 94.129,
-        "licm": 328.389,
-        "mem2reg": 348.822
+        "TOTAL (passes only)": 738.354,
+        "constant_fold": 16.373,
+        "copy_prop": 140.019,
+        "cse": 75.899,
+        "dce": 120.734,
+        "flag_dce": 3.391,
+        "gvn": 67.018,
+        "licm": 226.921,
+        "mem2reg": 83.767
       }
     },
     "torture_sample@O0": {
@@ -222,7 +222,7 @@
         "execute/20000412-4.c",
         "execute/20000412-5.c"
       ],
-      "wall_s": 0.0864
+      "wall_s": 0.0629
     },
     "torture_sample@O2": {
       "file": null,
@@ -249,17 +249,17 @@
         "execute/20000412-4.c",
         "execute/20000412-5.c"
       ],
-      "wall_s": 0.1009,
+      "wall_s": 0.0734,
       "passes_ms": {
-        "TOTAL (passes only)": 10.463,
-        "constant_fold": 0.724,
-        "copy_prop": 0.596,
-        "cse": 1.041,
-        "dce": 3.415,
-        "flag_dce": 0.024,
-        "gvn": 1.273,
-        "licm": 1.914,
-        "mem2reg": 1.217
+        "TOTAL (passes only)": 7.27,
+        "constant_fold": 0.526,
+        "copy_prop": 0.411,
+        "cse": 0.745,
+        "dce": 2.634,
+        "flag_dce": 0.017,
+        "gvn": 1.066,
+        "licm": 1.389,
+        "mem2reg": 0.42
       }
     }
   }

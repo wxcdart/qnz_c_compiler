@@ -34,10 +34,59 @@
 typedef struct {
     int slot_to_temp[MAX_STACK_SLOTS];    /* stack offset -> temp holding value */
     bool slot_valid[MAX_STACK_SLOTS];     /* is mapping valid (not invalidated) */
+    /* Sparse mirror of slot_valid: the packed list of slots currently
+     * valid, so invalidation scans walk live slots (typically <<256)
+     * instead of the full MAX_STACK_SLOTS array (Sprint 179: on a
+     * 1.2M-instruction TU like sqlite3.c the dense per-instruction scans
+     * were ~300M wasted slot checks). Invariant: slot_valid[s] == true
+     * iff s appears in valid_slots[0..valid_count). */
+    int valid_slots[MAX_STACK_SLOTS];
+    int valid_count;
     bool has_vla;                         /* has VLA been seen? */
     bool invalidation_pending;            /* need to invalidate all mappings */
     size_t instruction_count;             /* total instructions for bounds */
 } Mem2RegState;
+
+/* Invariant-preserving slot-list helpers (see Mem2RegState above). */
+static void m2r_invalidate_all(Mem2RegState *st) {
+    for (int i = 0; i < st->valid_count; i++)
+        st->slot_valid[st->valid_slots[i]] = false;
+    st->valid_count = 0;
+}
+
+/* Clear one specific slot's validity and remove it from the list. */
+static void m2r_invalidate_slot(Mem2RegState *st, int s) {
+    if (!st->slot_valid[s]) return;
+    st->slot_valid[s] = false;
+    for (int i = 0; i < st->valid_count; i++) {
+        if (st->valid_slots[i] == s) {
+            st->valid_slots[i] = st->valid_slots[--st->valid_count];
+            break;
+        }
+    }
+}
+
+/* Track slot s as holding temp (appending to the list only on transition). */
+static void m2r_track_slot(Mem2RegState *st, int s, int temp) {
+    if (!st->slot_valid[s]) {
+        st->slot_valid[s] = true;
+        st->valid_slots[st->valid_count++] = s;
+    }
+    st->slot_to_temp[s] = temp;
+}
+
+/* Invalidate every slot currently holding temp t (t is being redefined). */
+static void m2r_invalidate_temp(Mem2RegState *st, int t) {
+    for (int i = 0; i < st->valid_count; ) {
+        int s = st->valid_slots[i];
+        if (st->slot_valid[s] && st->slot_to_temp[s] == t) {
+            st->slot_valid[s] = false;
+            st->valid_slots[i] = st->valid_slots[--st->valid_count];
+            continue;  /* re-examine the swapped-in occupant */
+        }
+        i++;
+    }
+}
 
 /**
  * Get stack slot index from frame offset
@@ -551,9 +600,7 @@ void opt_promote_mem2reg(ZeroCCCompiler *c) {
         /* Check for VLA allocation - disable all promotion after this */
         if (instr->op == OP_VLA_ALLOC) {
             state.has_vla = true;
-            for (int s = 0; s < MAX_STACK_SLOTS; s++) {
-                state.slot_valid[s] = false;
-            }
+            m2r_invalidate_all(&state);
             continue;
         }
 
@@ -564,19 +611,13 @@ void opt_promote_mem2reg(ZeroCCCompiler *c) {
 
         /* Check for invalidation points (control flow, calls, stores through pointers, etc.) */
         if (instr_invalidates_slots(instr, label_targeted, max_label)) {
-            for (int s = 0; s < MAX_STACK_SLOTS; s++) {
-                state.slot_valid[s] = false;
-            }
+            m2r_invalidate_all(&state);
             continue;
         }
 
         /* Invalidate any slot holding a temp that is redefined as a destination */
         if (instr->temp_dest != TEMP_NONE) {
-            for (int s = 0; s < MAX_STACK_SLOTS; s++) {
-                if (state.slot_valid[s] && state.slot_to_temp[s] == instr->temp_dest) {
-                    state.slot_valid[s] = false;
-                }
-            }
+            m2r_invalidate_temp(&state, (int)instr->temp_dest);
         }
 
         /* Handle stack stores: OP_MOV_MEM [fp+offset], reg */
@@ -587,18 +628,17 @@ void opt_promote_mem2reg(ZeroCCCompiler *c) {
             if (slot >= 0 && slot < MAX_STACK_SLOTS) {
                 if (zc_temp_is_user(instr->temp_src1)) {
                     /* Track that this slot now holds the virtual source temp */
-                    state.slot_to_temp[slot] = instr->temp_src1;
-                    state.slot_valid[slot] = true;
+                    m2r_track_slot(&state, slot, (int)instr->temp_src1);
                 } else {
-                    state.slot_valid[slot] = false;
+                    m2r_invalidate_slot(&state, slot);
                 }
             } else if (offset < 0) {
                 /* Non-8-byte store to stack (e.g. struct member at unaligned offset):
                  * Invalidate any overlapping 8-byte slots so stale 64-bit values aren't forwarded! */
                 int s1 = (-offset) / 8;
                 int s2 = (-offset + 7) / 8;
-                if (s1 >= 0 && s1 < MAX_STACK_SLOTS) state.slot_valid[s1] = false;
-                if (s2 >= 0 && s2 < MAX_STACK_SLOTS) state.slot_valid[s2] = false;
+                if (s1 >= 0 && s1 < MAX_STACK_SLOTS) m2r_invalidate_slot(&state, s1);
+                if (s2 >= 0 && s2 < MAX_STACK_SLOTS) m2r_invalidate_slot(&state, s2);
             }
         }
 
@@ -626,8 +666,7 @@ void opt_promote_mem2reg(ZeroCCCompiler *c) {
                 } else if (zc_temp_is_user(instr->temp_dest)) {
                     /* Slot wasn't tracked, but this load puts its value into temp_dest.
                      * Any subsequent load from this slot can reuse temp_dest! */
-                    state.slot_to_temp[slot] = instr->temp_dest;
-                    state.slot_valid[slot] = true;
+                    m2r_track_slot(&state, slot, (int)instr->temp_dest);
                 }
             }
         }
