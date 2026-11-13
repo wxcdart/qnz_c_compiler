@@ -25,3 +25,4 @@ perf.data.old
 # are local build artifacts of tools/setup_musl_cross.sh.
 third_party/vendor/musl-cross/*
 !third_party/vendor/musl-cross/riscv32/
+.vscode/
