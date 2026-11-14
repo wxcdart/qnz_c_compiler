@@ -4,7 +4,7 @@ title: Host Runtime, In-Process Dynamic Loading & Portability Architecture
 description: Architecture of ZeroCC's static-musl host toolchain, self-hosting dlfcn, the in-process dynamic loader (musl dynlink.c adaptation), freestanding/baremetal runtime model, and cross-platform portability across Linux, macOS, Windows, and BSDs.
 resource: host-runtime-and-portability
 tags: [host-runtime, dlfcn, musl, static-linking, freestanding, baremetal, portability, macos, windows, bsd]
-timestamp: 2026-11-14T13:03:16Z
+timestamp: 2026-11-14T13:04:16Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -108,7 +108,7 @@ The compiler binary (`build/bin/zerocc`) is a 100% static musl executable (`ldd`
      2. **Environment**: Set `LD_LIBRARY_PATH` (`export LD_LIBRARY_PATH=/opt/vendor_sdk/lib64:$LD_LIBRARY_PATH`), or
      3. **Explicit Path**: Pass the relative or absolute path directly to `dlopen()` (e.g. `dlopen("/opt/vendor_sdk/lib64/libdriver.so", RTLD_NOW)`).
 
-### 2.2. Loading Shared Libraries & Proprietary Drivers (Pattern & Example)
+### 2.2. Loading Shared Libraries & Proprietary Drivers (Patterns & Guide)
 
 ZeroCC supports loading both explicit shared library paths and bare names with recursive dependency chains and symbol versioning:
 
@@ -122,9 +122,119 @@ ZeroCC supports loading both explicit shared library paths and bare names with r
 | **Transitive Symbol Resolution** | Symbols defined in dependencies are accessible via the parent handle. | `dlsym(h_driver, "vendor_core_read")` resolves through the dependency chain. |
 | **GNU Symbol Versioning** | Handles `.gnu.version`, filtering hidden versions for `dlsym()`, and exact versioning with `dlvsym()`. | `dlvsym(h, "driver_init", "DRIVER_2.0")` |
 
-#### Verified Example: Proprietary Multi-Library Driver Loading via X-Macros
+#### Pattern 1: The Gold Standard — Self-Contained App Layout via `$ORIGIN`
 
-This architecture demonstrates a multi-library vendor SDK where `libvendor_driver.so` depends on `libvendor_core.so` located in the same directory (`$ORIGIN`):
+When distributing vendor `.so` files alongside an application or plugin bundle:
+
+```text
+my_app/
+├── bin/
+│   └── my_app                  <-- your executable
+└── lib/
+    ├── libvendor_driver.so     <-- vendor driver
+    └── libvendor_core.so       <-- secondary dependency
+```
+
+Compile the binary (or main DSO) with `RPATH` set to `$ORIGIN/../lib`:
+```bash
+./build/bin/zerocc main.c -Wl,-rpath,'$ORIGIN/../lib' -o bin/my_app
+```
+
+Inside your C code:
+```c
+void *h = dlopen("libvendor_driver.so", RTLD_NOW);
+```
+
+- **Intuitive & Portable**: Pass just the bare name (`"libvendor_driver.so"`).
+- **Automatic `$ORIGIN` Replacement**: The loader automatically replaces `$ORIGIN` with the directory where `my_app` lives on disk, searches `../lib/`, and finds `libvendor_driver.so`.
+- **Transitive `DT_NEEDED` Resolution**: If `libvendor_driver.so` depends on `libvendor_core.so`, ZeroCC automatically resolves and loads that dependency from the same directory without manual pre-loading.
+
+#### Pattern 2: The Plugin / Optional Driver Pattern via X-Macros
+
+When proprietary drivers might not be present on every machine (or you want to avoid hard dependencies at startup), loading dynamically via `dlopen()` + an X-Macro table is standard practice (used by SDL, GLFW, Vulkan loaders, and FFmpeg):
+
+```c
+#include <stdio.h>
+#include <dlfcn.h>
+
+/* Define the vendor API once in an X-Macro list */
+#define VENDOR_API(X) \
+    X(int, vendor_init, (int device_id)) \
+    X(int, vendor_send_frame, (const void *buf, size_t len)) \
+    X(void, vendor_close, (void))
+
+/* Declare function pointers */
+#define DECLARE_FN(ret, name, args) static ret (*name) args;
+VENDOR_API(DECLARE_FN)
+#undef DECLARE_FN
+
+int load_vendor_driver(const char *custom_path) {
+    /* 1. Try custom path if specified (config/env), else bare name */
+    void *h = NULL;
+    if (custom_path && custom_path[0]) {
+        h = dlopen(custom_path, RTLD_NOW);
+    }
+    if (!h) {
+        h = dlopen("libvendor_driver.so", RTLD_NOW);
+    }
+    if (!h) {
+        fprintf(stderr, "Vendor driver not available: %s\n", dlerror());
+        return -1;
+    }
+
+    /* Load all entry points cleanly in one pass */
+    #define LOAD_FN(ret, name, args) \
+        name = (ret (*) args)dlsym(h, #name); \
+        if (!name) { \
+            fprintf(stderr, "Driver missing symbol: %s\n", #name); \
+            dlclose(h); \
+            return -2; \
+        }
+    VENDOR_API(LOAD_FN)
+    #undef LOAD_FN
+
+    printf("Vendor driver initialized successfully.\n");
+    return 0;
+}
+```
+
+- **Zero Compile-Time Linking**: No vendor `.a` or import stubs needed at build time.
+- **Graceful Degradation**: If `load_vendor_driver()` returns `-1`, the application falls back cleanly rather than failing at startup.
+- **No Boilerplate**: Adding a new function requires only one line in `VENDOR_API(X)`.
+
+#### Pattern 3: Hierarchical Search via Environment Fallback
+
+For proprietary drivers installed by vendor installers into `/opt/vendor/lib` or `/usr/local/vendor/lib`:
+
+```c
+const char *path = getenv("VENDOR_DRIVER_PATH");
+if (!path) path = "libvendor_driver.so";
+
+void *h = dlopen(path, RTLD_NOW);
+```
+
+- Operators can override the location at runtime without rebuilding:
+  ```bash
+  export VENDOR_DRIVER_PATH=/opt/vendor_sdk/lib/libvendor.so
+  ./my_app
+  ```
+- If unset, it falls back to `"libvendor_driver.so"`, which searches `RPATH`, `LD_LIBRARY_PATH`, and default system directories.
+
+#### Pattern 4: Build-Time Dynamic Link (`-lvendor`)
+
+If the vendor library is always present and manual `dlsym` is not desired:
+
+```bash
+./build/bin/zerocc main.c -L/path/to/vendor/lib -lvendor_driver -Wl,-rpath,'$ORIGIN/../lib' -o bin/my_app
+```
+
+- Calls to `vendor_init()` in C code look like normal function calls.
+- The ELF binary records `DT_NEEDED: libvendor_driver.so` and `DT_RPATH: $ORIGIN/../lib`.
+- ZeroCC (or the system loader) resolves and loads it automatically at startup.
+
+#### Verified Live Example (Tested under ZeroCC JIT)
+
+A multi-library test where `libvendor_driver.so` depends on `libvendor_core.so` in the same directory (`$ORIGIN`):
 
 ```c
 #include <stdio.h>
