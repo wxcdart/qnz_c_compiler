@@ -893,6 +893,8 @@ ASTRef parse_postfix_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
             if (c->tokens[c->token_pos].type == TK_IDENT) {
                 ASTRef mem_ref = zero_cc_ast_alloc_node(arena, NODE_MEMBER);
                 ZeroCCASTNode *mn = zero_cc_ast_get(arena, mem_ref);
+                mn->line = (uint32_t)c->tokens[c->token_pos].line;
+                mn->col = (uint32_t)c->tokens[c->token_pos].col;
                 mn->left = expr;
                 mn->flags = is_arrow ? 1 : 0;
                 mn->s.str = zero_cc_intern_string(c, c->tokens[c->token_pos].str_val);

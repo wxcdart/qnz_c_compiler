@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-14T16:15:59Z
+timestamp: 2026-11-14T16:41:41Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1506,3 +1506,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-14 — Updated `isa-backends.md`
 - Document GPU Compute Accelerator Targets (NVIDIA PTX and Khronos SPIR-V)
+
+## 2026-11-14 — Updated `build-and-verification.md`
+- Sprint 184: Stage 1 Self-Hosting Audit (100% 76/76 clean compilation under zerocc -c)

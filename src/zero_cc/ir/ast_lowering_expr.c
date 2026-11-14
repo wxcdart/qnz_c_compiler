@@ -612,12 +612,13 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                             c->last_expr_is_float = 1;
                             return ftemp;
                         }
-                        if (fn->return_type.tag == TYPE_ARRAY) {
-                            /* Extern array (`extern unsigned long aa[];`): the
-                             * identifier decays to the array's address - no
-                             * value load (a load + later deref would
-                             * double-indirect through the first element;
-                             * c-torture execute/20000403-1). */
+                        if (fn->return_type.tag == TYPE_ARRAY ||
+                            fn->return_type.tag == TYPE_STRUCT ||
+                            fn->return_type.tag == TYPE_UNION) {
+                            /* Extern array or struct (`extern S s;`, `extern unsigned long aa[];`):
+                             * the identifier decays to the object's address - no
+                             * value load (multi-chunk copies and member accesses
+                             * index from this address). */
                             c->last_expr_is_float = 0;
                             return temp;
                         }

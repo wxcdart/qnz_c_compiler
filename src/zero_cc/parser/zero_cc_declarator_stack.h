@@ -103,7 +103,7 @@ typedef struct ZeroCCDeclarator {
      * typeof operand is a plain identifier, params 0..N-1 are already
      * recorded and can be resolved (the semantic scope does not see them
      * until after the whole param list is parsed). */
-    char **param_zt_names;
+    const char **param_zt_names;
 } ZeroCCDeclarator;
 
 /* Forward declarations */
@@ -811,7 +811,7 @@ static inline void zero_cc_parse_param_list(
                 ZeroCCType *nz = (ZeroCCType *)realloc(decl->param_zt, newcap * sizeof(ZeroCCType));
                 if (!nz) return;
                 decl->param_zt = nz;
-                char **nn = (char **)realloc(decl->param_zt_names, newcap * sizeof(char *));
+                const char **nn = (const char **)realloc((void *)decl->param_zt_names, newcap * sizeof(const char *));
                 if (!nn) return;
                 decl->param_zt_names = nn;
                 decl->param_zt_cap = newcap;

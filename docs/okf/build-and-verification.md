@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 165-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-11-14T14:53:01Z
+timestamp: 2026-11-14T16:41:41Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -312,6 +312,10 @@ make test-isa-qemu
 # -O0..-O3 x {raw AOT, -S + cross-as} under QEMU, diffed vs gcc-15 -static -O2.
 make test-isa128
 
+# Self-hosting compilation audit (Sprint 184): compiles all 76 translation units in src/ with zerocc -c
+make audit-self-host
+python3 tools/verify/self_host_audit.py
+
 ### Cross-ISA Raw-Binary-Emitter Differential Test (`make test-isa-qemu`)
 
 `tools/verify/isa_qemu_diff.py` is the differential harness that was missing for the
@@ -455,7 +459,7 @@ Run with `make test-dlfcn-isa` or `python3 tools/verify/dlfcn_isa_diff.py [--isa
 
 | Subpackage | Purpose |
 | :--- | :--- |
-| `tools/verify/` | Regression gates (san_sweep, opt_sweep, torture_run, diag_battery, test_runner, driver_tests, linker_tests, project_diff/runs, abi_interop, asm_diff, cfg_verifier, loop_unroll_verifier, style_check, sret_verifier, type_tag_verifier, isa_qemu_diff, isa128_diff, dlfcn_isa_diff, regress_exec_diff, extension_verifier) |
+| `tools/verify/` | Regression gates (san_sweep, opt_sweep, torture_run, diag_battery, test_runner, driver_tests, linker_tests, project_diff/runs, abi_interop, asm_diff, cfg_verifier, loop_unroll_verifier, style_check, sret_verifier, type_tag_verifier, isa_qemu_diff, isa128_diff, dlfcn_isa_diff, regress_exec_diff, extension_verifier, self_host_audit) |
 | `tools/analysis/` | Codegen inspection (elf_verify, elf_min, riscv_enc_check, reloc_pair_check, vtable_check, cross_isa_comparator, struct_abi_verifier, struct_return_verifier, struct_asm_analyzer, prologue_epilogue_verifier, simd_regression_suite, literal_verifier, qemu_test_runner) |
 | `tools/okf/` | Knowledge graph tooling (okf.py) |
 | `tools/toolchain/` | Toolchain setup (setup_musl_cross.sh, musl_host_toolchain.sh, embed_symtab.py, setup_dev_env.sh) |

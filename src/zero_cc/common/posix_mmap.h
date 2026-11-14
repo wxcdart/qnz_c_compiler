@@ -126,7 +126,7 @@ static inline void zero_posix_usleep(uint64_t usec) {
      * _POSIX_C_SOURCE by default; musl's default mode exposes it via
      * _XOPEN_SOURCE/_DEFAULT_SOURCE instead, so accept those too. */
 #if !defined(_POSIX_C_SOURCE) && !defined(_XOPEN_SOURCE) \
-    && !defined(_GNU_SOURCE) && !defined(_DEFAULT_SOURCE)
+    && !defined(_GNU_SOURCE) && !defined(_DEFAULT_SOURCE) && !defined(__linux__)
     #error "no POSIX feature mode defined (nanosleep unavailable)"
 #endif
     struct timespec req;

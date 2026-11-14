@@ -39,6 +39,7 @@ All tools are **stdlib-only** (see [`tools/requirements.txt`](./requirements.txt
 | [`mem2reg_verifier.py`](./verify/mem2reg_verifier.py) | mem2reg pass verifier | `python3 tools/verify/mem2reg_verifier.py` |
 | [`extension_verifier.py`](./verify/extension_verifier.py) | GNU extensions verifier (statement expressions, case ranges, ...) | `python3 tools/verify/extension_verifier.py` |
 | [`regress_exec_diff.py`](./verify/regress_exec_diff.py) | Execution regression differential | `python3 tools/verify/regress_exec_diff.py <listfile>` |
+| [`self_host_audit.py`](./verify/self_host_audit.py) | Self-hosting compilation audit: compiles all `src/` files with `zerocc -c` | `python3 tools/verify/self_host_audit.py` |
 | [`style_check.py`](./verify/style_check.py) | C style/convention checker | `python3 tools/verify/style_check.py` |
 | [`sret_verifier.py`](./verify/sret_verifier.py) | System V AMD64 `>16B` struct return (`sret`) verifier | `python3 tools/verify/sret_verifier.py --verify-all` |
 | [`type_tag_verifier.py`](./verify/type_tag_verifier.py) | Frontend type-tag vs backend IR width-mark cross-check | `python3 tools/verify/type_tag_verifier.py --verify-all` |

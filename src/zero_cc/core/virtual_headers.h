@@ -92,8 +92,13 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name, ZeroCCStdDi
             "typedef unsigned long uint64_t;\n"
             "typedef long intptr_t;\n"
             "typedef unsigned long uintptr_t;\n"
-            "#define INT8_MAX 127\n#define INT16_MAX 32767\n#define INT32_MAX 2147483647\n#define INT64_MAX 9223372036854775807LL\n"
+            "#define INT8_MIN (-128)\n#define INT8_MAX 127\n"
+            "#define INT16_MIN (-32768)\n#define INT16_MAX 32767\n"
+            "#define INT32_MIN (-2147483647-1)\n#define INT32_MAX 2147483647\n"
+            "#define INT64_MIN (-9223372036854775807LL-1)\n#define INT64_MAX 9223372036854775807LL\n"
             "#define UINT8_MAX 255\n#define UINT16_MAX 65535\n#define UINT32_MAX 4294967295U\n#define UINT64_MAX 18446744073709551615ULL\n"
+            "#define INTPTR_MIN (-9223372036854775807L-1)\n#define INTPTR_MAX 9223372036854775807L\n#define UINTPTR_MAX 18446744073709551615UL\n"
+            "#define PTRDIFF_MIN (-9223372036854775807L-1)\n#define PTRDIFF_MAX 9223372036854775807L\n#define SIZE_MAX 18446744073709551615UL\n"
             "#endif\n"
         );
     }
@@ -311,6 +316,8 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name, ZeroCCStdDi
             "struct tm *localtime(const time_t *t);\n"
             "char *ctime(const time_t *t);\n"
             "struct timespec { long tv_sec; long tv_nsec; };\n"
+            "#define CLOCK_REALTIME 0\n#define CLOCK_MONOTONIC 1\n"
+            "int clock_gettime(int clk_id, struct timespec *tp);\n"
             "int nanosleep(const struct timespec *rq, struct timespec *rm);\n"
             "struct tm *gmtime_r(const time_t *t, struct tm *buf);\n"
             "struct tm *localtime_r(const time_t *t, struct tm *buf);\n"
@@ -679,17 +686,6 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name, ZeroCCStdDi
             "int pthread_condattr_init(pthread_condattr_t *attr);\n"
             "int pthread_condattr_destroy(pthread_condattr_t *attr);\n"
             "#define PTHREAD_COND_INITIALIZER { { 0 } }\n"
-            "#endif\n"
-        );
-    }
-    if (strcmp(name, "time.h") == 0) {
-        return strdup(
-            "#ifndef _TIME_H\n#define _TIME_H 1\n"
-            "typedef long time_t;\n"
-            "struct timespec { time_t tv_sec; long tv_nsec; };\n"
-            "#define CLOCK_REALTIME 0\n#define CLOCK_MONOTONIC 1\n"
-            "int clock_gettime(int clk_id, struct timespec *tp);\n"
-            "time_t time(time_t *tloc);\n"
             "#endif\n"
         );
     }

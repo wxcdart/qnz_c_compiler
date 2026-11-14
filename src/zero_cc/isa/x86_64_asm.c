@@ -9,6 +9,7 @@
 #include "zero_cc/isa/isa_backend.h"
 #include "zero_cc/ir/ir.h"
 #include "zero_cc/ir/regalloc.h"
+#include "zero_cc/ir/asm_emitter.h"
 
 /* Hardware register names for x86-64 (indexed by hardware number) */
 static const char *x86_hw_reg_names[] = {

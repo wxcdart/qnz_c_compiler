@@ -372,6 +372,8 @@ static inline bool ast_expr_is_struct_addr(ZeroCCCompiler *c, ZeroCCASTArena *ar
         if (!zero_cc_find_local(c, node->s.str)) {
             ZeroCCGlobalVar *gv = find_global_var(c, node->s.str);
             if (gv && zero_cc_type_is_struct_or_union(&gv->type)) return true;
+            ZeroCCFunction *xfn = zero_cc_find_function(c, node->s.str);
+            if (xfn && xfn->is_external && zero_cc_type_is_struct_or_union(&xfn->return_type)) return true;
         }
     } else if (node->tag == NODE_MEMBER) {
         TypeInfo *ti = ast_node_get_typeinfo(c, node);

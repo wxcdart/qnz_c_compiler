@@ -124,6 +124,7 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	test-project-diff test-project-runs \
 	test-isa-qemu test-isa128 test-dlfcn-isa test-driver test-linker \
 	test-c23 test-asm test-opt test-san test-preproc test-fuzz test-perf \
+	audit-self-host \
 	valgrind test-valgrind
 
 all: $(TESTS) $(ZC_BIN) $(BUILD_DIR)/lib/zero_rt.a $(BUILD_DIR)/lib/zero_rt_aarch64.a $(BUILD_DIR)/lib/zero_rt_riscv64.a $(BUILD_DIR)/lib/zero_rt_riscv32.a
@@ -450,6 +451,10 @@ test-project-diff: $(ZC_BIN)
 # supported cases through the in-process `zerocc --run` merge path.
 test-project-runs: $(ZC_BIN)
 	@python3 tools/verify/project_runs.py
+
+# Self-hosting compilation audit (Sprint 184): compiles all src/ files with zerocc -c
+audit-self-host: $(ZC_BIN)
+	@python3 tools/verify/self_host_audit.py
 
 # zero_rt: the ZeroCC-owned runtime (heap, minimal stdio, strings, exit).
 # Compiled by zerocc itself; the objects are archived with the system `ar`

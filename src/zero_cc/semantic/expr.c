@@ -661,7 +661,7 @@ TypeInfo *expr_handle_member(SemContext *ctx, ZeroCCASTNode *node) {
         return NULL;
     }
 
-    bool is_arrow = (node->flags != 0);
+    bool is_arrow = (node->flags & NODE_MEMBER_IS_ARROW) != 0;
 
     /* If arrow -> target must be pointer to struct/union */
     TypeInfo *struct_t = NULL;
