@@ -51,7 +51,12 @@ ZeroCC is a lightweight, embeddable C99/C11/C23 compiler (with GNU extensions) w
 - `__builtin_return_address` / `__builtin_frame_address` (Sprint 86)
 - Computed goto (`goto *ptr`) and labels as values (`&&label`) (Sprint 84)
 - Inline `OP_SETJMP` / `OP_LONGJMP` (Sprint 88)
-- **Self-contained static-musl host binary & JIT runtime**: `build/bin/zerocc` is fully statically linked against in-tree vendored musl (`--whole-archive`) with zero host glibc dependency (`ldd`: `"not a dynamic executable"`), executing JIT code via `mmap`, a far-call detour trampoline pool, and self-hosting `dlfcn` (`zero_rt/dlfcn/dlfcn.c` resolving against `/proc/self/exe` `.symtab`; see [`docs/okf/host-runtime-and-portability.md`](docs/okf/host-runtime-and-portability.md))
+- **Hermetic static-musl host & in-process dynamic loader (ZeroCC Differentiator)**: `build/bin/zerocc` is 100% statically linked against in-tree vendored musl (`--whole-archive`) with zero host glibc dependency (`ldd`: `"not a dynamic executable"`). Unlike Clang/GCC which lose `dlopen()` when statically linked (static musl stubs fail with `ENOSYS`), ZeroCC embeds its own **in-process ELF64 dynamic linker** (`zero_rt/dlfcn/dynlink.c`):
+  - JIT code (`--run`) can `dlopen()` real `.so` libraries (e.g. vendor hardware drivers, proprietary SDKs, graphics/audio plugins) with zero host `ld.so`.
+  - **Recursive `DT_NEEDED`**: automatically walks and loads dependency trees with cycle safety and dependency-ordered constructor execution.
+  - **`$ORIGIN` RPATH / RUNPATH**: enables self-contained relocatable application and driver bundles.
+  - **GNU Symbol Versioning**: parses `.gnu.version`, filters hidden versions for default `dlsym()`, and supports explicit version selection via `dlvsym()`.
+  - **Host Symbol Bridging**: loaded `.so` files can call back into static musl symbols via ZeroCC's pre-baked `.rodata` embedded symbol table (`tools/embed_symtab.py`). See [`docs/okf/host-runtime-and-portability.md`](docs/okf/host-runtime-and-portability.md).
 - **Two-pass code generation**: IR → optimization → linear-scan register
   allocation → machine code
 - **Optimization levels** `-O0`…`-O3` (constant folding, DCE, copy

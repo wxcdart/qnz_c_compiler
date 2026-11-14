@@ -4,7 +4,7 @@ title: Host Runtime, In-Process Dynamic Loading & Portability Architecture
 description: Architecture of ZeroCC's static-musl host toolchain, self-hosting dlfcn, the in-process dynamic loader (musl dynlink.c adaptation), freestanding/baremetal runtime model, and cross-platform portability across Linux, macOS, Windows, and BSDs.
 resource: host-runtime-and-portability
 tags: [host-runtime, dlfcn, musl, static-linking, freestanding, baremetal, portability, macos, windows, bsd]
-timestamp: 2026-11-14T05:19:24Z
+timestamp: 2026-11-14T12:48:51Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -75,6 +75,20 @@ flowchart TD
      - *GNU Symbol Versioning*: Parses `DT_VERSYM` (`.gnu.version`), `DT_VERDEF` (`.gnu.version_d`), and `DT_VERNEED` (`.gnu.version_r`). Default `dlsym` filters out hidden versions (`versym[i] & 0x8000`); `dlvsym(handle, name, version)` resolves exact versions matching `verdef`/`verneed` records.
    - Verified by `test/unit/dlfcn_dynlink.c` in both host binary (`musl-gcc`) and JIT (`./build/bin/zerocc --run`) modes.
 5. **Why `--whole-archive` Remains Mandatory**: User JIT code does not explicitly `dlopen("libc.so")` to call `printf` or `sin`. The entire C runtime must remain present in the host binary image.
+
+### 2.1. ZeroCC Architectural Differentiator: In-Process Dynamic Loading in a Static Host
+
+Standard C toolchains face an inherent trade-off between **static hermeticity** and **dynamic extensibility**:
+- **glibc**’s dynamic loader (`ld-linux.so`) requires an installed glibc host environment. In a static glibc executable (`gcc -static`), calling `dlopen()` issues link warnings and frequently crashes on host version skew (NSS, pthreads).
+- **musl** provides a clean static archive (`libc.a`), but upstream musl disables dynamic loading entirely in static binaries (`dlopen()` returns `ENOSYS`: *"Dynamic loading not supported"*). Furthermore, musl intentionally lacks `dlvsym()`.
+- **Clang / LLVM JIT** delegates external `.so` resolution directly to the host OS `dlopen()`. In a static musl binary, Clang's JIT loses the ability to load external shared objects.
+
+**ZeroCC eliminates this trade-off**:
+The compiler binary (`build/bin/zerocc`) is a 100% static musl executable (`ldd`: `"not a dynamic executable"`), yet it embeds a complete in-process ELF64 dynamic linker (`zero_rt/dlfcn/dynlink.c`):
+1. **Zero Host glibc Dependency**: ZeroCC runs in minimal `scratch`, distroless, or Alpine environments without glibc or system `ld.so`, yet JIT code can dynamically load real `.so` shared objects (vendor hardware drivers, proprietary SDKs, graphics/audio plugins).
+2. **Full GNU Symbol Versioning**: Unlike musl, ZeroCC parses `.gnu.version` tables, filters hidden versions for standard `dlsym()`, and implements `dlvsym(handle, name, version)`.
+3. **Host Symbol Bridging**: Loaded `.so` libraries call back into static musl symbols in the host binary (e.g., `malloc`, `printf`, `sin`) via the pre-baked `.rodata` embedded symbol table (`tools/embed_symtab.py`).
+4. **Self-Contained Relocatable Layouts**: Native support for `$ORIGIN` / `${ORIGIN}` expansion in `DT_RPATH` / `DT_RUNPATH` and recursive `DT_NEEDED` allows vendor libraries to ship in self-contained folders without root installation.
 
 ---
 

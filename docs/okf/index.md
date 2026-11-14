@@ -32,7 +32,7 @@ Welcome to the **ZeroCC Knowledge Graph**. Start here to navigate architectural 
 - **[Zero_RT — ZeroCC's Own Freestanding Runtime (Linux x86-64 + AArch64/RISC-V64 cross archives)](./zero-rt.md)**
   - The `zero_rt/` runtime (brk heap, strings, atexit/exit, unbuffered stdio with vendored Ryū float formatting) compiled by zerocc itself, auto-linked by `--zerocc-link` (`--no-zerocc-rt` to opt out), and the `zeroc_main_wrapper` `_start` routing that runs atexit on a plain `return` from `main`.
 - **[Host Runtime, In-Process Dynamic Loading & Portability Architecture](./host-runtime-and-portability.md)**
-  - Architecture of ZeroCC's static-musl host toolchain, self-hosting `dlfcn`, the in-process dynamic loader (musl `dynlink.c` adaptation), freestanding/baremetal runtime model, and cross-platform portability across Linux, macOS, Windows, and BSDs.
+  - Architecture of ZeroCC's hermetic static-musl host toolchain, self-hosting `dlfcn`, and the in-process ELF64 dynamic loader (`dynlink.c` — a core differentiator enabling static JIT executables to `dlopen()` external/vendor DSOs with recursive `DT_NEEDED`, `$ORIGIN` expansion, and GNU `dlvsym()`), plus freestanding/baremetal execution and cross-platform portability.
 - **[DWARF 4 Debug Information Architecture (-g)](./dwarf-debug-info.md)**
   - Source-level debugging in GDB and LLDB across x86-64, AArch64, and RISC-V: `.debug_line` line number program with prologue end markers, `.debug_info`/`.debug_abbrev` DIE hierarchies for functions, variables, and types, and frame-pointer preservation under `-g`.
 
