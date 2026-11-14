@@ -138,3 +138,57 @@ char *strstr(const char *haystack, const char *needle) {
 }
 
 int abs(int j) { return j < 0 ? -j : j; }
+
+char *strtok_r(char *str, const char *delim, char **saveptr) {
+    if (!str) str = *saveptr;
+    if (!str) return NULL;
+    while (*str && strchr(delim, *str)) str++;
+    if (!*str) {
+        *saveptr = NULL;
+        return NULL;
+    }
+    char *token = str;
+    while (*str && !strchr(delim, *str)) str++;
+    if (*str) {
+        *str = '\0';
+        *saveptr = str + 1;
+    } else {
+        *saveptr = NULL;
+    }
+    return token;
+}
+
+char *strtok(char *str, const char *delim) {
+    static char *static_save = NULL;
+    return strtok_r(str, delim, &static_save);
+}
+
+char *realpath(const char *path, char *resolved_path) {
+    if (!path) return NULL;
+    char *out = resolved_path;
+    if (!out) {
+        out = (char *)malloc(1024);
+        if (!out) return NULL;
+    }
+    size_t len = strlen(path);
+    if (len >= 1024) len = 1023;
+    memcpy(out, path, len);
+    out[len] = '\0';
+    return out;
+}
+
+static void zc_swap_bytes(char *a, char *b, size_t size) {
+    for (size_t i = 0; i < size; i++) {
+        char t = a[i]; a[i] = b[i]; b[i] = t;
+    }
+}
+
+void qsort(void *base, size_t nmemb, size_t size, int (*compar)(const void *, const void *)) {
+    if (!base || nmemb < 2 || size == 0) return;
+    char *arr = (char *)base;
+    for (size_t i = 1; i < nmemb; i++) {
+        for (size_t j = i; j > 0 && compar(arr + (j - 1) * size, arr + j * size) > 0; j--) {
+            zc_swap_bytes(arr + (j - 1) * size, arr + j * size, size);
+        }
+    }
+}

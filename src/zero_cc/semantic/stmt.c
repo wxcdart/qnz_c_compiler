@@ -2,7 +2,8 @@
 #include "zero_cc/semantic/promote.h"
 
 static bool is_scalar_type(const TypeInfo *t) {
-    return type_is_scalar(t);
+    if (!t) return false;
+    return type_is_scalar(t) || t->kind == TYPE_KIND_FUNCTION;
 }
 
 bool stmt_handle_block(SemContext *ctx, ZeroCCASTNode *node) {

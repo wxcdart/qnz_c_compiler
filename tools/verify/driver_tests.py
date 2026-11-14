@@ -343,6 +343,22 @@ def main():
             check(f"dlopen-embedded-{label}", ok,
                   f"rc={p.returncode} out={p.stdout!r} err={p.stderr!r}")
 
+        # Sprint 183 (Phase 6): Standalone AOT packaging with --zerocc-link
+        plugin_c = os.path.join(tmp, "libplugin.c")
+        plugin_so = "/tmp/libplugin_test.so"
+        with open(plugin_c, "w") as f:
+            f.write("int plugin_calc(int a, int b) { return a * 10 + b; }\n")
+        subprocess.run(["gcc", "-shared", "-fPIC", plugin_c, "-o", plugin_so], check=True)
+
+        aot_bin = os.path.join(tmp, "dlopen_aot_standalone")
+        rc, out, err = run_zerocc(["--zerocc-link", src("dlopen_aot_standalone.c"), "-o", aot_bin])
+        if rc == 0:
+            pr = subprocess.run([aot_bin], capture_output=True, text=True, timeout=30)
+            aot_ok = pr.returncode == 0 and "dlopen-aot-standalone ok" in pr.stdout
+            check("dlopen-aot-standalone", aot_ok, f"rc={pr.returncode} out={pr.stdout!r} err={pr.stderr!r}")
+        else:
+            check("dlopen-aot-standalone", False, f"build failed: rc={rc} err={err!r}")
+
         # DWARF debug information (-g) tests
         dwarf_src = os.path.join(tmp, "dwarf_test.c")
         with open(dwarf_src, "w") as f:

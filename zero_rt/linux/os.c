@@ -153,3 +153,79 @@ void zeroc_rt_exit(int status) {
 int zeroc_rt_nanosleep(const void *req, void *rem) {
     return (int)__zerocc_syscall(RT_SYS_NANOSLEEP, (long)req, (long)rem, 0, 0, 0, 0);
 }
+
+/* POSIX standard syscall wrappers for standalone AOT executables */
+int read(int fd, void *buf, uint64_t count) {
+    return zeroc_rt_read(fd, buf, count);
+}
+
+int write(int fd, const void *buf, uint64_t count) {
+    return zeroc_rt_write(fd, buf, count);
+}
+
+int close(int fd) {
+    return (int)__zerocc_syscall(RT_SYS_CLOSE, (long)fd, 0, 0, 0, 0, 0);
+}
+
+long lseek(int fd, long offset, int whence) {
+    return __zerocc_syscall(RT_SYS_LSEEK, (long)fd, offset, (long)whence, 0, 0, 0);
+}
+
+int open(const char *pathname, int flags, ...) {
+    long mode = 0;
+#if RT_TARGET_AARCH64 || RT_TARGET_RISCV
+    return (int)__zerocc_syscall(RT_SYS_OPENAT, (long)-100 /* AT_FDCWD */, (long)pathname, (long)flags, mode, 0, 0);
+#else
+    return (int)__zerocc_syscall(RT_SYS_OPEN, (long)pathname, (long)flags, mode, 0, 0, 0);
+#endif
+}
+
+int access(const char *pathname, int mode) {
+#if RT_TARGET_AARCH64 || RT_TARGET_RISCV
+    return (int)__zerocc_syscall(RT_SYS_FACCESSAT, (long)-100 /* AT_FDCWD */, (long)pathname, (long)mode, 0, 0, 0);
+#else
+    return (int)__zerocc_syscall(RT_SYS_ACCESS, (long)pathname, (long)mode, 0, 0, 0, 0);
+#endif
+}
+
+int fstat(int fd, void *buf) {
+#if RT_TARGET_AARCH64 || RT_TARGET_RISCV
+    return (int)__zerocc_syscall(RT_SYS_NEWFSTATAT, (long)fd, (long)"", (long)buf, 0x1000 /* AT_EMPTY_PATH */, 0, 0);
+#else
+    return (int)__zerocc_syscall(RT_SYS_FSTAT, (long)fd, (long)buf, 0, 0, 0, 0);
+#endif
+}
+
+int stat(const char *pathname, void *buf) {
+#if RT_TARGET_AARCH64 || RT_TARGET_RISCV
+    return (int)__zerocc_syscall(RT_SYS_NEWFSTATAT, (long)-100 /* AT_FDCWD */, (long)pathname, (long)buf, 0, 0, 0);
+#else
+    return (int)__zerocc_syscall(RT_SYS_STAT, (long)pathname, (long)buf, 0, 0, 0, 0);
+#endif
+}
+
+void *mmap(void *addr, uint64_t length, int prot, int flags, int fd, int64_t offset) {
+    return zeroc_rt_mmap(addr, length, prot, flags, fd, offset);
+}
+
+int munmap(void *addr, uint64_t length) {
+    return zeroc_rt_munmap(addr, length);
+}
+
+int mprotect(void *addr, uint64_t length, int prot) {
+    return zeroc_rt_mprotect(addr, length, prot);
+}
+
+long readlink(const char *path, char *buf, size_t bufsiz) {
+#if RT_TARGET_AARCH64 || RT_TARGET_RISCV
+    return __zerocc_syscall(RT_SYS_READLINKAT, (long)-100 /* AT_FDCWD */, (long)path, (long)buf, (long)bufsiz, 0, 0);
+#else
+    return __zerocc_syscall(RT_SYS_READLINK, (long)path, (long)buf, (long)bufsiz, 0, 0, 0);
+#endif
+}
+
+long sysconf(int name) {
+    (void)name;
+    return 4096;
+}
+

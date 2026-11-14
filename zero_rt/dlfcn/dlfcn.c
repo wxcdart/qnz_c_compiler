@@ -179,6 +179,19 @@ static int zs_sym_cmp(const void *pa, const void *pb) {
     return strcmp(a->name, b->name);
 }
 
+static unsigned long long zs_parse_hex(const char *s, const char **end) {
+    unsigned long long v = 0;
+    while (*s) {
+        if (*s >= '0' && *s <= '9') v = (v << 4) | (unsigned long long)(*s - '0');
+        else if (*s >= 'a' && *s <= 'f') v = (v << 4) | (unsigned long long)(*s - 'a' + 10);
+        else if (*s >= 'A' && *s <= 'F') v = (v << 4) | (unsigned long long)(*s - 'A' + 10);
+        else break;
+        s++;
+    }
+    if (end) *end = s;
+    return v;
+}
+
 /* ET_DYN (PIE) images: st_value is relative to the load base.  Find the
  * executable's first mapping in /proc/self/maps and subtract the first
  * PT_LOAD's vaddr.  Returns 0 when the base cannot be determined. */
@@ -188,8 +201,12 @@ static uintptr_t zs_dyn_base(const char *path, uint64_t first_load_vaddr) {
     char line[512];
     uintptr_t base = 0;
     while (fgets(line, sizeof(line), f)) {
-        unsigned long long start = 0, end = 0;
-        if (sscanf(line, "%llx-%llx", &start, &end) != 2) continue;
+        const char *p = line;
+        unsigned long long start = zs_parse_hex(p, &p);
+        if (*p != '-') continue;
+        p++;
+        unsigned long long end = zs_parse_hex(p, &p);
+        (void)end;
         /* Fields 1-5 are space-separated; the first '/' starts the path. */
         char *slash = strchr(line, '/');
         if (!slash) continue;
@@ -562,9 +579,38 @@ ZC_DLFCN_HIDDEN int dladdr(const void *addr, Dl_info *info) {
     return 0;
 }
 
-#else /* !__linux__ */
+#elif defined(_WIN32) || defined(_WIN64)
 
-/* Non-Linux hosts keep the system libc's dlfcn (the static-musl build is
- * Linux-only). */
+#include "dlfcn_win32.h"
 
-#endif /* __linux__ */
+void *dlopen(const char *filename, int flags) {
+    return zc_win32_dlopen(filename, flags);
+}
+
+void *dlsym(void *handle, const char *name) {
+    return zc_win32_dlsym(handle, name);
+}
+
+void *dlvsym(void *handle, const char *name, const char *version) {
+    return zc_win32_dlvsym(handle, name, version);
+}
+
+int dlclose(void *handle) {
+    return zc_win32_dlclose(handle);
+}
+
+char *dlerror(void) {
+    return zc_win32_dlerror();
+}
+
+int dladdr(const void *addr, Dl_info *info) {
+    return zc_win32_dladdr(addr, info);
+}
+
+#elif defined(__APPLE__)
+
+#include "dlfcn_darwin.h"
+
+/* On macOS Darwin, standard dlfcn entry points are linked from libSystem */
+
+#endif /* !__linux__ */

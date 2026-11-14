@@ -383,6 +383,13 @@ static int rt_stream_printf(FILE *stream, const char *format, va_list ap) {
     return n;
 }
 
+int vsnprintf(char *str, size_t size, const char *format, va_list ap) {
+    if (!str || size == 0) {
+        return vsnprintf_core(str, 0, format, ap);
+    }
+    return vsnprintf_core(str, size, format, ap);
+}
+
 int snprintf(char *str, size_t size, const char *format, ...) {
     va_list ap;
     int n;
@@ -455,6 +462,22 @@ int fgetc(FILE *stream) {
     char c;
     if (zeroc_rt_read(stream->fd, &c, 1) != 1) return -1;
     return (unsigned char)c;
+}
+
+char *fgets(char *s, int size, FILE *stream) {
+    if (!s || size <= 0 || !stream) return 0;
+    int i = 0;
+    while (i < size - 1) {
+        int ch = fgetc(stream);
+        if (ch == -1) {
+            if (i == 0) return 0;
+            break;
+        }
+        s[i++] = (char)ch;
+        if (ch == '\n') break;
+    }
+    s[i] = '\0';
+    return s;
 }
 
 /* File I/O: Phase 0 does not open files. */

@@ -84,3 +84,19 @@ void zeroc_leak_main_wrapper(void) {
     rt_entry_setup();
     exit(main());
 }
+
+__attribute__((weak)) char **environ = 0;
+
+char *getenv(const char *name) {
+    if (!name || !environ) return 0;
+    size_t len = 0;
+    while (name[len]) len++;
+    for (char **ep = environ; *ep; ep++) {
+        size_t i = 0;
+        while (i < len && (*ep)[i] == name[i]) i++;
+        if (i == len && (*ep)[len] == '=') {
+            return *ep + len + 1;
+        }
+    }
+    return 0;
+}

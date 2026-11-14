@@ -30,8 +30,14 @@
 
 #if RT_TARGET_AARCH64
 /* Linux aarch64 syscall numbers. */
+#define RT_SYS_FACCESSAT   48
+#define RT_SYS_OPENAT      56
+#define RT_SYS_CLOSE       57
+#define RT_SYS_LSEEK       62
 #define RT_SYS_READ        63
 #define RT_SYS_WRITE       64
+#define RT_SYS_READLINKAT  78
+#define RT_SYS_NEWFSTATAT  79
 #define RT_SYS_EXIT        93
 #define RT_SYS_EXIT_GROUP  94
 #define RT_SYS_FUTEX       98
@@ -47,8 +53,14 @@
 #define RT_HAS_BRK         1
 #elif RT_TARGET_RISCV
 /* Linux RISC-V (rv32 and rv64 share the syscall table). */
+#define RT_SYS_FACCESSAT   48
+#define RT_SYS_OPENAT      56
+#define RT_SYS_CLOSE       57
+#define RT_SYS_LSEEK       62
 #define RT_SYS_READ        63
 #define RT_SYS_WRITE       64
+#define RT_SYS_READLINKAT  78
+#define RT_SYS_NEWFSTATAT  79
 #define RT_SYS_EXIT        93
 #define RT_SYS_EXIT_GROUP  94
 #define RT_SYS_FUTEX       98
@@ -67,15 +79,22 @@
 /* Linux x86-64 syscall numbers. */
 #define RT_SYS_READ        0
 #define RT_SYS_WRITE       1
+#define RT_SYS_OPEN        2
+#define RT_SYS_CLOSE       3
+#define RT_SYS_STAT        4
+#define RT_SYS_FSTAT       5
+#define RT_SYS_LSEEK       8
 #define RT_SYS_MMAP        9
 #define RT_SYS_MPROTECT    10
 #define RT_SYS_MUNMAP      11
 #define RT_SYS_BRK         12
+#define RT_SYS_ACCESS      21
 #define RT_SYS_SCHED_YIELD 24
 #define RT_SYS_NANOSLEEP   35
 #define RT_SYS_GETPID      39
 #define RT_SYS_CLONE       56
 #define RT_SYS_EXIT        60
+#define RT_SYS_READLINK    89
 #define RT_SYS_ARCH_PRCTL  158
 #define RT_ARCH_SET_FS     0x1002
 #define RT_SYS_GETTID      186

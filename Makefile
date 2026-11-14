@@ -253,14 +253,14 @@ $(JIT_INT128_OBJ): zero_rt/core/int128.c $(ZC_CC)
 # static-build stubs that the toolchain strips from libc.a, so this object
 # provides them (self-ELF .symtab resolution) and must be linked ahead of
 # the whole-archived libc.
-ZC_DLCFN_OBJ := $(BUILD_DIR)/obj/zero_rt/dlfcn.o
+ZC_DLCFN_OBJ := $(BUILD_DIR)/obj/zero_rt/jit_dlfcn.o
 $(ZC_DLCFN_OBJ): zero_rt/dlfcn/dlfcn.c $(ZC_CC)
 	@mkdir -p $(dir $@)
 	$(ZC_CC) $(CFLAGS) -c $< -o $@
 
 # zero_rt's own in-process dynamic linker (Phase 2): loads real .so files
 # into the static-musl host process.  x86-64 ELF64 only in the initial MVP.
-ZC_DYNLINK_OBJ := $(BUILD_DIR)/obj/zero_rt/dlfcn/dynlink.o
+ZC_DYNLINK_OBJ := $(BUILD_DIR)/obj/zero_rt/jit_dynlink.o
 $(ZC_DYNLINK_OBJ): zero_rt/dlfcn/dynlink.c zero_rt/dlfcn/dynlink.h $(ZC_CC)
 	@mkdir -p $(dir $@)
 	$(ZC_CC) $(CFLAGS) -c $< -o $@
@@ -461,7 +461,8 @@ ZERO_RT_OBJS = $(BUILD_DIR)/obj/zero_rt/os.o \
                $(BUILD_DIR)/obj/zero_rt/d2s.o $(BUILD_DIR)/obj/zero_rt/d2fixed.o \
                $(BUILD_DIR)/obj/zero_rt/int128.o $(BUILD_DIR)/obj/zero_rt/errno.o \
                $(BUILD_DIR)/obj/zero_rt/complex.o $(BUILD_DIR)/obj/zero_rt/thread.o \
-               $(BUILD_DIR)/obj/zero_rt/san.o
+               $(BUILD_DIR)/obj/zero_rt/san.o $(BUILD_DIR)/obj/zero_rt/dynlink.o \
+               $(BUILD_DIR)/obj/zero_rt/dlfcn.o
 $(BUILD_DIR)/lib/zero_rt.a: $(ZERO_RT_OBJS) $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --ar rcs $@ $(ZERO_RT_OBJS)
@@ -501,6 +502,12 @@ $(BUILD_DIR)/obj/zero_rt/thread.o: zero_rt/core/thread.c zero_rt/rt_os.h $(BUILD
 $(BUILD_DIR)/obj/zero_rt/san.o: zero_rt/core/san_report.c zero_rt/core/san_fmt.h $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc -c $< $(ZERO_RT_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt/dynlink.o: zero_rt/dlfcn/dynlink.c zero_rt/dlfcn/dynlink.h $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc -c $< $(ZERO_RT_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt/dlfcn.o: zero_rt/dlfcn/dlfcn.c zero_rt/dlfcn/dynlink.h $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc -c $< $(ZERO_RT_CFLAGS) -o $@
 
 # zero_rt for AArch64
 ZERO_RT_AARCH64_OBJS = $(BUILD_DIR)/obj/zero_rt_aarch64/os.o \
@@ -509,7 +516,8 @@ ZERO_RT_AARCH64_OBJS = $(BUILD_DIR)/obj/zero_rt_aarch64/os.o \
                        $(BUILD_DIR)/obj/zero_rt_aarch64/d2s.o $(BUILD_DIR)/obj/zero_rt_aarch64/d2fixed.o \
                        $(BUILD_DIR)/obj/zero_rt_aarch64/int128.o $(BUILD_DIR)/obj/zero_rt_aarch64/errno.o \
                        $(BUILD_DIR)/obj/zero_rt_aarch64/complex.o $(BUILD_DIR)/obj/zero_rt_aarch64/thread.o \
-                       $(BUILD_DIR)/obj/zero_rt_aarch64/san.o
+                       $(BUILD_DIR)/obj/zero_rt_aarch64/san.o $(BUILD_DIR)/obj/zero_rt_aarch64/dynlink.o \
+                       $(BUILD_DIR)/obj/zero_rt_aarch64/dlfcn.o
 $(BUILD_DIR)/lib/zero_rt_aarch64.a: $(ZERO_RT_AARCH64_OBJS) $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --ar rcs $@ $(ZERO_RT_AARCH64_OBJS)
@@ -549,6 +557,12 @@ $(BUILD_DIR)/obj/zero_rt_aarch64/thread.o: zero_rt/core/thread.c zero_rt/rt_os.h
 $(BUILD_DIR)/obj/zero_rt_aarch64/san.o: zero_rt/core/san_report.c zero_rt/core/san_fmt.h $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --target aarch64 -c $< $(ZERO_RT_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_aarch64/dynlink.o: zero_rt/dlfcn/dynlink.c zero_rt/dlfcn/dynlink.h $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target aarch64 -c $< $(ZERO_RT_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_aarch64/dlfcn.o: zero_rt/dlfcn/dlfcn.c zero_rt/dlfcn/dynlink.h $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target aarch64 -c $< $(ZERO_RT_CFLAGS) -o $@
 
 # zero_rt for RISC-V 64-bit
 ZERO_RT_RISCV64_OBJS = $(BUILD_DIR)/obj/zero_rt_riscv64/os.o \
@@ -557,7 +571,8 @@ ZERO_RT_RISCV64_OBJS = $(BUILD_DIR)/obj/zero_rt_riscv64/os.o \
                        $(BUILD_DIR)/obj/zero_rt_riscv64/d2s.o $(BUILD_DIR)/obj/zero_rt_riscv64/d2fixed.o \
                        $(BUILD_DIR)/obj/zero_rt_riscv64/int128.o $(BUILD_DIR)/obj/zero_rt_riscv64/errno.o \
                        $(BUILD_DIR)/obj/zero_rt_riscv64/complex.o $(BUILD_DIR)/obj/zero_rt_riscv64/thread.o \
-                       $(BUILD_DIR)/obj/zero_rt_riscv64/san.o
+                       $(BUILD_DIR)/obj/zero_rt_riscv64/san.o $(BUILD_DIR)/obj/zero_rt_riscv64/dynlink.o \
+                       $(BUILD_DIR)/obj/zero_rt_riscv64/dlfcn.o
 $(BUILD_DIR)/lib/zero_rt_riscv64.a: $(ZERO_RT_RISCV64_OBJS) $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --ar rcs $@ $(ZERO_RT_RISCV64_OBJS)
@@ -597,6 +612,12 @@ $(BUILD_DIR)/obj/zero_rt_riscv64/thread.o: zero_rt/core/thread.c zero_rt/rt_os.h
 $(BUILD_DIR)/obj/zero_rt_riscv64/san.o: zero_rt/core/san_report.c zero_rt/core/san_fmt.h $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --target riscv64 -c $< $(ZERO_RT_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_riscv64/dynlink.o: zero_rt/dlfcn/dynlink.c zero_rt/dlfcn/dynlink.h $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target riscv64 -c $< $(ZERO_RT_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_riscv64/dlfcn.o: zero_rt/dlfcn/dlfcn.c zero_rt/dlfcn/dynlink.h $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target riscv64 -c $< $(ZERO_RT_CFLAGS) -o $@
 
 # zero_rt for RISC-V 32-bit
 ZERO_RT_RISCV32_OBJS = $(BUILD_DIR)/obj/zero_rt_riscv32/os.o \
@@ -605,7 +626,8 @@ ZERO_RT_RISCV32_OBJS = $(BUILD_DIR)/obj/zero_rt_riscv32/os.o \
                        $(BUILD_DIR)/obj/zero_rt_riscv32/d2s.o $(BUILD_DIR)/obj/zero_rt_riscv32/d2fixed.o \
                        $(BUILD_DIR)/obj/zero_rt_riscv32/int128.o $(BUILD_DIR)/obj/zero_rt_riscv32/errno.o \
                        $(BUILD_DIR)/obj/zero_rt_riscv32/complex.o $(BUILD_DIR)/obj/zero_rt_riscv32/thread.o \
-                       $(BUILD_DIR)/obj/zero_rt_riscv32/san.o
+                       $(BUILD_DIR)/obj/zero_rt_riscv32/san.o $(BUILD_DIR)/obj/zero_rt_riscv32/dynlink.o \
+                       $(BUILD_DIR)/obj/zero_rt_riscv32/dlfcn.o
 $(BUILD_DIR)/lib/zero_rt_riscv32.a: $(ZERO_RT_RISCV32_OBJS) $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --ar rcs $@ $(ZERO_RT_RISCV32_OBJS)
@@ -643,6 +665,12 @@ $(BUILD_DIR)/obj/zero_rt_riscv32/thread.o: zero_rt/core/thread.c zero_rt/rt_os.h
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --target riscv32 -c $< $(ZERO_RT_CFLAGS) -o $@
 $(BUILD_DIR)/obj/zero_rt_riscv32/san.o: zero_rt/core/san_report.c zero_rt/core/san_fmt.h $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target riscv32 -c $< $(ZERO_RT_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_riscv32/dynlink.o: zero_rt/dlfcn/dynlink.c zero_rt/dlfcn/dynlink.h $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target riscv32 -c $< $(ZERO_RT_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_riscv32/dlfcn.o: zero_rt/dlfcn/dlfcn.c zero_rt/dlfcn/dynlink.h $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --target riscv32 -c $< $(ZERO_RT_CFLAGS) -o $@
 
