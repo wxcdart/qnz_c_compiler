@@ -4,7 +4,7 @@ title: Host Runtime, In-Process Dynamic Loading & Portability Architecture
 description: Architecture of ZeroCC's static-musl host toolchain, self-hosting dlfcn, the in-process dynamic loader (musl dynlink.c adaptation), freestanding/baremetal runtime model, and cross-platform portability across Linux, macOS, Windows, and BSDs.
 resource: host-runtime-and-portability
 tags: [host-runtime, dlfcn, musl, static-linking, freestanding, baremetal, portability, macos, windows, bsd]
-timestamp: 2026-11-14T15:33:40Z
+timestamp: 2026-11-14T15:42:35Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -427,3 +427,97 @@ Because musl is Linux-specific (issuing Linux `syscall` instructions directly), 
 - **macOS W^X Security**: Darwin strictly forbids pages that are simultaneously W and X. On Apple Silicon, code emission must be wrapped in `pthread_jit_write_protect_np(0)` (write mode) and `pthread_jit_write_protect_np(1)` (execute mode) with the `allow-jit` entitlement.
 - **Windows Memory**: Replaces POSIX `mmap` with `VirtualAlloc(PAGE_EXECUTE_READWRITE)` and explicitly calls `FlushInstructionCache()`.
 - **OpenBSD Security**: Requires linking with `-Wl,-z,wxneeded` and executing `pledge("prot_exec", ...)` to permit JIT execution.
+
+---
+
+## 5. Host vs. Target Architecture & Cross-Compilation Matrix
+
+In compiler architecture, **Host** and **Target** denote the two distinct sides of the compilation boundary:
+
+```mermaid
+flowchart LR
+    subgraph Host ["HOST ENVIRONMENT"]
+        H1["Workstation CPU (e.g. x86-64)"]
+        H2["OS: Linux (or WSL2 / macOS)"]
+        H3["Compiler Binary: ./build/bin/zerocc"]
+        H4["Host Runtime: Static Musl libc.a"]
+    end
+
+    subgraph Compile ["COMPILATION STAGE"]
+        direction TB
+        C1["zerocc source.c"]
+        C2["Target Switch: --target aarch64 / riscv64 / riscv32"]
+        C3["Own Linker: --zerocc-link"]
+    end
+
+    subgraph Target ["TARGET ENVIRONMENT"]
+        T1["Target CPU: AArch64 / RISC-V / x86-64"]
+        T2["Target OS: Linux / Android / Baremetal"]
+        T3["Produced Binary: Standalone Static Executable"]
+        T4["Target Runtime: zero_rt_<isa>.a (ZeroCC-owned)"]
+    end
+
+    Host --> Compile --> Target
+```
+
+### 5.1. Concept Definitions
+
+| Concept | Definition | In ZeroCC |
+| :--- | :--- | :--- |
+| **Host** | The system where the **compiler itself runs**. | The machine compiling your code (typically x86-64 Linux workstation running `./build/bin/zerocc`). |
+| **Target** | The system where the **compiled machine code executes**. | The destination architecture specified via `--target` (`x86_64`, `aarch64`, `riscv64`, `riscv32`). |
+
+### 5.2. Why ZeroCC Cross-Compiles Without External Toolchains
+
+Unlike GCC or Clang (which typically require separate cross-compilers like `riscv64-linux-gnu-gcc`, cross-binutils, and sysroots), ZeroCC is fully self-contained:
+1. **Multi-ISA Code Generators**: Native raw machine-code and GAS assembly emitters for x86-64, AArch64, RISC-V 64, and RISC-V 32 are built into every `zerocc` binary.
+2. **Built-in Static Linker (`--zerocc-link`)**: Resolves ISA-specific ELF relocations (`R_X86_64_*`, `R_AARCH64_*`, `R_RISCV_*`) and writes standalone static `ET_EXEC` ELF binaries directly without GNU `ld` or `lld`.
+3. **Target Runtime Archives (`zero_rt_<isa>.a`)**: ZeroCC compiles its own runtime (`zero_rt.a`, `zero_rt_aarch64.a`, `zero_rt_riscv64.a`, `zero_rt_riscv32.a`) providing `printf`, `malloc`/`free`, threads, math, and dynamic loading (`dynlink.c`) with zero dependencies on target platform libc.
+
+---
+
+## 6. Target Operating System Support Matrix (Android, iOS, Windows)
+
+| Target OS | Kernel / Foundation | Executable Format | ZeroCC Support Status | Deployment & Execution |
+| :--- | :--- | :--- | :--- | :--- |
+| **Linux (Server/Desktop)** | Linux Kernel | ELF (`ET_EXEC`) | **Full (Native & Cross)** | Default target across all 4 ISAs. |
+| **Android** | Linux Kernel | ELF (`ET_EXEC`) | **Supported Today (Out of the box)** | Self-contained static AArch64/RISC-V binary via ADB (`/data/local/tmp`) or Termux. |
+| **iOS / iPadOS** | Apple XNU (Darwin) | Mach-O | **Roadmap: `T4-Mac`** | Requires Mach-O writer, dynamic `libSystem.B.dylib` bridge, and code signing. |
+| **Windows** | Windows NT | PE/COFF (`.exe`) | **WSL2 Today / Roadmap: `T3-Win`** | WSL2 supported today; native `.exe` requires PE/COFF writer and Win64 ABI. |
+
+### 6.1. Deploying to Android Phones (ARM64 & RISC-V)
+
+Android uses the Linux kernel under the hood. Because ZeroCC binaries built with `--zerocc-link` are 100% self-contained static executables that communicate directly with the Linux kernel via raw syscalls:
+- **Zero Bionic Dependency**: Does not link against Android's `libc.so` or require the Android NDK.
+- **Zero Dynamic Linker Dependency**: Runs without `ld-android.so` or `/system/bin/linker64`.
+
+#### Deployment Steps:
+1. **Cross-compile on x86-64 host**:
+   ```bash
+   ./build/bin/zerocc --target aarch64 --zerocc-link main.c -o app_android
+   ```
+2. **Push to Android device via ADB**:
+   Because Android mounts `/sdcard` with `noexec`, push to `/data/local/tmp`:
+   ```bash
+   adb push app_android /data/local/tmp/
+   adb shell chmod +x /data/local/tmp/app_android
+   adb shell /data/local/tmp/app_android
+   ```
+3. **Termux app**: You can also run the compiled binary directly inside the Termux shell environment.
+
+### 6.2. Porting to iOS / macOS Darwin (`T4-Mac`)
+
+iOS devices run Apple's XNU kernel and enforce strict platform constraints that differ from Linux/Android:
+1. **Binary Format**: iOS requires Mach-O (`MH_EXECUTE`), whereas ZeroCC currently emits ELF. The roadmap item **`T4-Mac`** adds a native Mach-O writer to ZeroCC's own linker.
+2. **OS Syscall Boundary**: Apple strictly discourages raw syscalls; all system operations must route through dynamic `libSystem.B.dylib`.
+3. **Mandatory Code Signing**: iOS enforces mandatory code signatures (`codesign -s -` with valid provisioning profiles or ad-hoc signatures). Unsigned binaries are immediately killed with `SIGKILL`.
+4. **W^X Memory Restrictions**: JIT memory cannot be simultaneously writable and executable. Phase 6 shipped the Darwin abstraction in `zero_rt/dlfcn/dlfcn_darwin.h` utilizing `pthread_jit_write_protect_np()` to toggle page permissions.
+
+### 6.3. Porting to Native Windows (`T3-Win`)
+
+1. **Current State (WSL2)**: ZeroCC runs 100% natively under WSL2 with identical performance to native Linux.
+2. **Roadmap to Native `.exe` Cross-Compilation (`T3-Win`)**:
+   - **PE/COFF Executable Writer**: Emit DOS stub, PE header, section headers (`.text`, `.rdata`, `.data`), and import table for `kernel32.dll`.
+   - **Win64 Calling Convention**: Pass first 4 integer arguments in `rcx, rdx, r8, r9`, allocate the 32-byte shadow store on the stack, and disable the System V 128-byte red zone.
+   - **Win32 OS Boundary**: Route `zero_rt` operations to `WriteFile`, `ReadFile`, `VirtualAlloc`, and `ExitProcess`.
+   - **Win32 Dynamic Loading**: Completed in Phase 6 (`zero_rt/dlfcn/dlfcn_win32.h`) translating `dlopen()` to `LoadLibraryA()` and `dlsym()` to `GetProcAddress()`.

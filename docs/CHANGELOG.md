@@ -36,6 +36,7 @@ Implements Phase 6 of the in-process dynamic loading roadmap (`zero_rt/dlfcn/`, 
 
 ---
 
+## [Sprint 182] - 2026-11-14 - Multi-ISA Dynamic Loading (Phase 5)
 
 Implements Phase 5 of the in-process dynamic loading roadmap across all supported backends (`zero_rt/dlfcn/dynlink.c`, `dynlink.h`, `dlfcn.c`):
 - **ELF Machine & Width Architecture Dispatch**:
