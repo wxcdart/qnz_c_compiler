@@ -20,16 +20,17 @@
  * without including it themselves - the original header provided this
  * transitively (it included type_parser.h at the end of the file). */
 #include "zero_cc/parser/type_parser.h"
-/* Value representation for constant expressions (supports int, float, and complex) */
+/* Value representation for constant expressions (supports int, float, complex, and pointer) */
 typedef enum {
-    ZC_CV_INT,
-    ZC_CV_FLOAT,
-    ZC_CV_COMPLEX,
+    ZC_CV_INT = 0,
+    ZC_CV_FLOAT = 1,
+    ZC_CV_COMPLEX = 2,
+    ZC_CV_PTR = 3,
 } ZCConstValKind;
 
 typedef struct {
     ZCConstValKind kind;
-    int64_t i;      /* low 64 bits for ZC_CV_INT (and for w128 values) */
+    int64_t i;      /* low 64 bits for ZC_CV_INT (and for w128 values); host address for ZC_CV_PTR */
     double r;
     double im;
     /* GNU __int128 constant support (Sprint 109): when w128 is set the value
@@ -38,12 +39,21 @@ typedef struct {
     uint64_t hi;
     bool w128;
     bool signed_;
+    /* CTFE pointer metadata (ZC_CV_PTR): ptr points to the element in host
+     * memory (string literal, global data section, or CTFE local buffer);
+     * ptr_elem_size is the pointee byte width; ptr_elem_tag is ZeroTypeTag. */
+    uint8_t *ptr;
+    uint32_t ptr_elem_size;
+    uint8_t ptr_elem_tag;
 } ZCConstVal;
 
 
 ZCConstVal zc_cv_int(int64_t i);
 ZCConstVal zc_cv_float(double r);
 ZCConstVal zc_cv_complex(double r, double im);
+ZCConstVal zc_cv_ptr(uint8_t *ptr, uint32_t elem_size, uint8_t elem_tag);
+ZCConstVal zc_cv_deref(ZCConstVal p, int64_t index);
+void zc_cv_store(ZCConstVal p, int64_t index, ZCConstVal val);
 ZCConstVal zc_cv_promote128(ZCConstVal v);
 bool zc_cv128_negative(ZCConstVal v);
 ZCConstVal zc_cv128_neg(ZCConstVal v);

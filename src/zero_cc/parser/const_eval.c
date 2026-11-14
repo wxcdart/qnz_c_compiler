@@ -25,6 +25,9 @@ ZCConstVal zc_cv_int(int64_t i) {
     v.hi = 0;
     v.w128 = false;
     v.signed_ = false;
+    v.ptr = NULL;
+    v.ptr_elem_size = 0;
+    v.ptr_elem_tag = 0;
     return v;
 }
 
@@ -37,6 +40,9 @@ ZCConstVal zc_cv_float(double r) {
     v.hi = 0;
     v.w128 = false;
     v.signed_ = false;
+    v.ptr = NULL;
+    v.ptr_elem_size = 0;
+    v.ptr_elem_tag = 0;
     return v;
 }
 
@@ -49,7 +55,138 @@ ZCConstVal zc_cv_complex(double r, double im) {
     v.hi = 0;
     v.w128 = false;
     v.signed_ = false;
+    v.ptr = NULL;
+    v.ptr_elem_size = 0;
+    v.ptr_elem_tag = 0;
     return v;
+}
+
+ZCConstVal zc_cv_ptr(uint8_t *ptr, uint32_t elem_size, uint8_t elem_tag) {
+    ZCConstVal v;
+    v.kind = ZC_CV_PTR;
+    v.i = (int64_t)(uintptr_t)ptr;
+    v.r = 0.0;
+    v.im = 0.0;
+    v.hi = 0;
+    v.w128 = false;
+    v.signed_ = false;
+    v.ptr = ptr;
+    v.ptr_elem_size = elem_size ? elem_size : 1;
+    v.ptr_elem_tag = elem_tag;
+    return v;
+}
+
+ZCConstVal zc_cv_deref(ZCConstVal p, int64_t index) {
+    if (p.kind != ZC_CV_PTR || !p.ptr) return zc_cv_int(0);
+    uint32_t esz = p.ptr_elem_size ? p.ptr_elem_size : 1;
+    const uint8_t *addr = p.ptr + index * (int64_t)esz;
+    switch ((ZeroTypeTag)p.ptr_elem_tag) {
+        case TYPE_FLOAT: {
+            float f = 0.0f;
+            memcpy(&f, addr, 4);
+            return zc_cv_float((double)f);
+        }
+        case TYPE_DOUBLE: {
+            double d = 0.0;
+            memcpy(&d, addr, 8);
+            return zc_cv_float(d);
+        }
+        case TYPE_BOOL:
+            return zc_cv_int(addr[0] ? 1 : 0);
+        case TYPE_INT8:
+            return zc_cv_int((int64_t)(int8_t)addr[0]);
+        case TYPE_UINT8:
+            return zc_cv_int((int64_t)(uint8_t)addr[0]);
+        case TYPE_INT16: {
+            int16_t v = 0;
+            memcpy(&v, addr, 2);
+            return zc_cv_int((int64_t)v);
+        }
+        case TYPE_UINT16: {
+            uint16_t v = 0;
+            memcpy(&v, addr, 2);
+            return zc_cv_int((int64_t)v);
+        }
+        case TYPE_INT32: {
+            int32_t v = 0;
+            memcpy(&v, addr, 4);
+            return zc_cv_int((int64_t)v);
+        }
+        case TYPE_UINT32: {
+            uint32_t v = 0;
+            memcpy(&v, addr, 4);
+            return zc_cv_int((int64_t)v);
+        }
+        case TYPE_INT64:
+        case TYPE_UINT64: {
+            int64_t v = 0;
+            memcpy(&v, addr, 8);
+            return zc_cv_int(v);
+        }
+        case TYPE_PTR: {
+            uintptr_t raw = 0;
+            memcpy(&raw, addr, sizeof(uintptr_t));
+            return zc_cv_ptr((uint8_t *)raw, 1, TYPE_INT8);
+        }
+        default: {
+            uint64_t bits = 0;
+            size_t sz = (esz > 0 && esz <= 8) ? esz : 4;
+            for (size_t b = 0; b < sz; b++) bits |= (uint64_t)addr[b] << (8 * b);
+            int64_t sv = (int64_t)bits;
+            if (sz < 8) sv = (sv << (64 - sz * 8)) >> (64 - sz * 8);
+            return zc_cv_int(sv);
+        }
+    }
+}
+
+void zc_cv_store(ZCConstVal p, int64_t index, ZCConstVal val) {
+    if (p.kind != ZC_CV_PTR || !p.ptr) return;
+    uint32_t esz = p.ptr_elem_size ? p.ptr_elem_size : 1;
+    uint8_t *addr = p.ptr + index * (int64_t)esz;
+    switch ((ZeroTypeTag)p.ptr_elem_tag) {
+        case TYPE_FLOAT: {
+            float f = (val.kind == ZC_CV_INT) ? (float)val.i : (float)val.r;
+            memcpy(addr, &f, 4);
+            break;
+        }
+        case TYPE_DOUBLE: {
+            double d = (val.kind == ZC_CV_INT) ? (double)val.i : val.r;
+            memcpy(addr, &d, 8);
+            break;
+        }
+        case TYPE_BOOL:
+            addr[0] = zc_cv_is_true(val) ? 1 : 0;
+            break;
+        case TYPE_INT8:
+        case TYPE_UINT8: {
+            int64_t iv = (val.kind == ZC_CV_FLOAT) ? (int64_t)val.r : val.i;
+            addr[0] = (uint8_t)iv;
+            break;
+        }
+        case TYPE_INT16:
+        case TYPE_UINT16: {
+            int64_t iv = (val.kind == ZC_CV_FLOAT) ? (int64_t)val.r : val.i;
+            uint16_t u = (uint16_t)iv;
+            memcpy(addr, &u, 2);
+            break;
+        }
+        case TYPE_INT32:
+        case TYPE_UINT32: {
+            int64_t iv = (val.kind == ZC_CV_FLOAT) ? (int64_t)val.r : val.i;
+            uint32_t u = (uint32_t)iv;
+            memcpy(addr, &u, 4);
+            break;
+        }
+        case TYPE_INT64:
+        case TYPE_UINT64:
+        case TYPE_PTR:
+        default: {
+            int64_t iv = (val.kind == ZC_CV_FLOAT) ? (int64_t)val.r : val.i;
+            size_t sz = (esz > 0 && esz <= 8) ? esz : 8;
+            memcpy(addr, &iv, sz);
+            break;
+        }
+    }
 }
 
 /* Promote a 64-bit int value to 128 bits (sign- or zero-extend). A no-op
@@ -89,13 +226,26 @@ bool zc_cv_is_true(ZCConstVal v) {
 }
 
 ZCConstVal zc_cv_cast(ZCConstVal v, ZeroCCType ty) {
+    if (ty.tag == TYPE_PTR || ty.tag == TYPE_ARRAY) {
+        uint32_t esz = (ty.base && ty.base->size > 0) ? (uint32_t)ty.base->size : 1;
+        uint8_t etag = (ty.base && ty.base->tag != TYPE_VOID) ? (uint8_t)ty.base->tag : TYPE_INT8;
+        if (v.kind == ZC_CV_PTR) {
+            if (ty.base && ty.base->tag != TYPE_VOID) {
+                v.ptr_elem_size = esz;
+                v.ptr_elem_tag = etag;
+            }
+            return v;
+        }
+        int64_t addr = (v.kind == ZC_CV_INT) ? v.i : (int64_t)v.r;
+        return zc_cv_ptr((uint8_t *)(uintptr_t)addr, esz, etag);
+    }
     if (ty.is_complex) {
-        double r = (v.kind == ZC_CV_INT) ? (double)v.i : v.r;
+        double r = (v.kind == ZC_CV_INT || v.kind == ZC_CV_PTR) ? (double)v.i : v.r;
         double im = (v.kind == ZC_CV_COMPLEX) ? v.im : 0.0;
         return zc_cv_complex(r, im);
     }
     if (ty.tag == TYPE_FLOAT || ty.tag == TYPE_DOUBLE) {
-        double r = (v.kind == ZC_CV_INT) ? (double)v.i : v.r;
+        double r = (v.kind == ZC_CV_INT || v.kind == ZC_CV_PTR) ? (double)v.i : v.r;
         return zc_cv_float(r);
     }
     /* GNU __int128 cast target: widen the 64-bit value into (hi, lo),
@@ -114,7 +264,7 @@ ZCConstVal zc_cv_cast(ZCConstVal v, ZeroCCType ty) {
         v.hi = 0;  /* truncate to the low 64 bits */
         v.w128 = false;
     }
-    int64_t val = (v.kind == ZC_CV_INT) ? v.i : (int64_t)v.r;
+    int64_t val = (v.kind == ZC_CV_INT || v.kind == ZC_CV_PTR) ? v.i : (int64_t)v.r;
     uint64_t u = (uint64_t)val;
     switch (ty.tag) {
         case TYPE_BOOL:   u = u ? 1 : 0; break;
@@ -133,6 +283,16 @@ ZCConstVal zc_cv_cast(ZCConstVal v, ZeroCCType ty) {
 }
 
 ZCConstVal zc_cv_add(ZCConstVal a, ZCConstVal b) {
+    if (a.kind == ZC_CV_PTR && b.kind == ZC_CV_INT) {
+        uint32_t esz = a.ptr_elem_size ? a.ptr_elem_size : 1;
+        uint8_t *np = a.ptr ? (a.ptr + b.i * (int64_t)esz) : (uint8_t *)(uintptr_t)(b.i * (int64_t)esz);
+        return zc_cv_ptr(np, esz, a.ptr_elem_tag);
+    }
+    if (a.kind == ZC_CV_INT && b.kind == ZC_CV_PTR) {
+        uint32_t esz = b.ptr_elem_size ? b.ptr_elem_size : 1;
+        uint8_t *np = b.ptr ? (b.ptr + a.i * (int64_t)esz) : (uint8_t *)(uintptr_t)(a.i * (int64_t)esz);
+        return zc_cv_ptr(np, esz, b.ptr_elem_tag);
+    }
     if (a.kind == ZC_CV_COMPLEX || b.kind == ZC_CV_COMPLEX) {
         double ar = (a.kind == ZC_CV_INT) ? (double)a.i : a.r;
         double ai = (a.kind == ZC_CV_COMPLEX) ? a.im : 0.0;
@@ -158,6 +318,16 @@ ZCConstVal zc_cv_add(ZCConstVal a, ZCConstVal b) {
 }
 
 ZCConstVal zc_cv_sub(ZCConstVal a, ZCConstVal b) {
+    if (a.kind == ZC_CV_PTR && b.kind == ZC_CV_INT) {
+        uint32_t esz = a.ptr_elem_size ? a.ptr_elem_size : 1;
+        uint8_t *np = a.ptr ? (a.ptr - b.i * (int64_t)esz) : (uint8_t *)(uintptr_t)(-b.i * (int64_t)esz);
+        return zc_cv_ptr(np, esz, a.ptr_elem_tag);
+    }
+    if (a.kind == ZC_CV_PTR && b.kind == ZC_CV_PTR) {
+        int64_t esz = (int64_t)(a.ptr_elem_size ? a.ptr_elem_size : (b.ptr_elem_size ? b.ptr_elem_size : 1));
+        ptrdiff_t diff = a.ptr - b.ptr;
+        return zc_cv_int((int64_t)(diff / esz));
+    }
     if (a.kind == ZC_CV_COMPLEX || b.kind == ZC_CV_COMPLEX) {
         double ar = (a.kind == ZC_CV_INT) ? (double)a.i : a.r;
         double ai = (a.kind == ZC_CV_COMPLEX) ? a.im : 0.0;
@@ -331,6 +501,16 @@ ZCConstVal zc_cv_ne(ZCConstVal a, ZCConstVal b) {
 }
 
 ZCConstVal zc_cv_cmp(ZeroCCTokType op, ZCConstVal a, ZCConstVal b) {
+    if (a.kind == ZC_CV_PTR || b.kind == ZC_CV_PTR) {
+        uintptr_t ua = (uintptr_t)a.i;
+        uintptr_t ub = (uintptr_t)b.i;
+        int res = 0;
+        if (op == TK_LT) res = (ua < ub);
+        else if (op == TK_GT) res = (ua > ub);
+        else if (op == TK_LE) res = (ua <= ub);
+        else if (op == TK_GE) res = (ua >= ub);
+        return zc_cv_int(res);
+    }
     if (a.kind == ZC_CV_FLOAT || b.kind == ZC_CV_FLOAT || a.kind == ZC_CV_COMPLEX || b.kind == ZC_CV_COMPLEX) {
         double ar = (a.kind == ZC_CV_INT) ? (double)a.i : a.r;
         double br = (b.kind == ZC_CV_INT) ? (double)b.i : b.r;
@@ -1057,6 +1237,149 @@ ZCConstVal parse_multiplicative(ZeroCCCompiler *c, size_t *pos)
     return left;
 }
 
+static bool ctfe_is_assign_op(ZeroCCTokType t) {
+    return t == TK_ASSIGN || t == TK_ADD_ASSIGN || t == TK_SUB_ASSIGN ||
+           t == TK_MUL_ASSIGN || t == TK_DIV_ASSIGN || t == TK_MOD_ASSIGN ||
+           t == TK_AND_ASSIGN || t == TK_OR_ASSIGN || t == TK_XOR_ASSIGN ||
+           t == TK_SHL_ASSIGN || t == TK_SHR_ASSIGN;
+}
+
+static ZCConstVal ctfe_apply_assign_op(ZeroCCTokType op, ZCConstVal old_v, ZCConstVal rhs) {
+    switch (op) {
+        case TK_ASSIGN:     return rhs;
+        case TK_ADD_ASSIGN: return zc_cv_add(old_v, rhs);
+        case TK_SUB_ASSIGN: return zc_cv_sub(old_v, rhs);
+        case TK_MUL_ASSIGN: return zc_cv_mul(old_v, rhs);
+        case TK_DIV_ASSIGN: return zc_cv_div(old_v, rhs);
+        case TK_MOD_ASSIGN: return zc_cv_mod(old_v, rhs);
+        case TK_AND_ASSIGN: return zc_cv_int(old_v.i & rhs.i);
+        case TK_OR_ASSIGN:  return zc_cv_int(old_v.i | rhs.i);
+        case TK_XOR_ASSIGN: return zc_cv_int(old_v.i ^ rhs.i);
+        case TK_SHL_ASSIGN: return zc_cv_int(old_v.i << rhs.i);
+        case TK_SHR_ASSIGN: return zc_cv_int(old_v.i >> rhs.i);
+        default:            return rhs;
+    }
+}
+
+static ssize_t ctfe_find_local_idx(ZeroCCCompiler *c, const char *name) {
+    for (size_t li = c->ctfe_local_count; li > c->ctfe_local_base; li--) {
+        if (c->ctfe_local_names[li - 1] &&
+            strcmp(c->ctfe_local_names[li - 1], name) == 0) {
+            return (ssize_t)(li - 1);
+        }
+    }
+    return -1;
+}
+
+static ssize_t ctfe_find_param_idx(ZeroCCCompiler *c, const char *name) {
+    for (size_t pi = 0; pi < c->ctfe_param_count; pi++) {
+        if (c->ctfe_param_names[pi] &&
+            strcmp(c->ctfe_param_names[pi], name) == 0) {
+            return (ssize_t)pi;
+        }
+    }
+    return -1;
+}
+
+static ZCConstVal ctfe_read_local(ZeroCCCompiler *c, size_t idx) {
+    if (c->ctfe_local_kinds[idx] == (uint8_t)ZC_CV_PTR) {
+        return zc_cv_ptr((uint8_t *)(uintptr_t)c->ctfe_local_values_i[idx],
+                         c->ctfe_local_elem_sizes ? c->ctfe_local_elem_sizes[idx] : 1,
+                         c->ctfe_local_elem_tags ? c->ctfe_local_elem_tags[idx] : TYPE_INT8);
+    }
+    if (c->ctfe_local_bufs && c->ctfe_local_bufs[idx]) {
+        uint32_t esz = (c->ctfe_local_elem_sizes && c->ctfe_local_elem_sizes[idx]) ? c->ctfe_local_elem_sizes[idx] : 4;
+        uint8_t etag = (c->ctfe_local_elem_tags && c->ctfe_local_elem_tags[idx]) ? c->ctfe_local_elem_tags[idx] : TYPE_INT32;
+        return zc_cv_deref(zc_cv_ptr(c->ctfe_local_bufs[idx], esz, etag), 0);
+    }
+    ZCConstVal v = zc_cv_int(0);
+    v.kind = (ZCConstValKind)c->ctfe_local_kinds[idx];
+    v.i = c->ctfe_local_values_i[idx];
+    v.r = c->ctfe_local_values_r[idx];
+    return v;
+}
+
+static void ctfe_write_local(ZeroCCCompiler *c, size_t idx, ZCConstVal val) {
+    if (c->ctfe_local_bufs && c->ctfe_local_bufs[idx] &&
+        c->ctfe_local_kinds[idx] != (uint8_t)ZC_CV_PTR) {
+        uint32_t esz = (c->ctfe_local_elem_sizes && c->ctfe_local_elem_sizes[idx]) ? c->ctfe_local_elem_sizes[idx] : 4;
+        uint8_t etag = (c->ctfe_local_elem_tags && c->ctfe_local_elem_tags[idx]) ? c->ctfe_local_elem_tags[idx] : TYPE_INT32;
+        ZCConstVal p = zc_cv_ptr(c->ctfe_local_bufs[idx], esz, etag);
+        zc_cv_store(p, 0, val);
+        ZCConstVal rv = zc_cv_deref(p, 0);
+        c->ctfe_local_values_i[idx] = rv.i;
+        c->ctfe_local_values_r[idx] = rv.r;
+        return;
+    }
+    c->ctfe_local_values_i[idx] = val.i;
+    c->ctfe_local_values_r[idx] = val.r;
+    c->ctfe_local_kinds[idx] = (uint8_t)val.kind;
+    if (val.kind == ZC_CV_PTR && c->ctfe_local_elem_sizes && c->ctfe_local_elem_tags) {
+        c->ctfe_local_elem_sizes[idx] = val.ptr_elem_size;
+        c->ctfe_local_elem_tags[idx] = val.ptr_elem_tag;
+    }
+}
+
+static ZCConstVal ctfe_read_param(ZeroCCCompiler *c, size_t pi) {
+    if (c->ctfe_param_kinds[pi] == (uint8_t)ZC_CV_PTR) {
+        return zc_cv_ptr((uint8_t *)(uintptr_t)c->ctfe_param_values_i[pi],
+                         c->ctfe_param_elem_sizes[pi] ? c->ctfe_param_elem_sizes[pi] : 1,
+                         c->ctfe_param_elem_tags[pi]);
+    }
+    ZCConstVal v = zc_cv_int(0);
+    v.kind = (ZCConstValKind)c->ctfe_param_kinds[pi];
+    v.i = c->ctfe_param_values_i[pi];
+    v.r = c->ctfe_param_values_r[pi];
+    return v;
+}
+
+static void ctfe_write_param(ZeroCCCompiler *c, size_t pi, ZCConstVal val) {
+    c->ctfe_param_values_i[pi] = val.i;
+    c->ctfe_param_values_r[pi] = val.r;
+    c->ctfe_param_kinds[pi] = (uint8_t)val.kind;
+    if (val.kind == ZC_CV_PTR) {
+        c->ctfe_param_elem_sizes[pi] = val.ptr_elem_size;
+        c->ctfe_param_elem_tags[pi] = val.ptr_elem_tag;
+    }
+}
+
+static ZCConstVal parse_postfix(ZeroCCCompiler *c, size_t *pos) {
+    ZCConstVal v = parse_primary(c, pos);
+    while (*pos < c->token_count) {
+        ZeroCCTokType pt = c->tokens[*pos].type;
+        if (pt == TK_LBRACKET) {
+            (*pos)++; /* consume '[' */
+            ZCConstVal idx = parse_conditional(c, pos);
+            if (*pos < c->token_count && c->tokens[*pos].type == TK_RBRACKET) (*pos)++;
+            ZCConstVal ptr_val = (v.kind == ZC_CV_PTR) ? v : idx;
+            int64_t index_val = (v.kind == ZC_CV_PTR) ? idx.i : v.i;
+            if (*pos < c->token_count && ctfe_is_assign_op(c->tokens[*pos].type)) {
+                ZeroCCTokType op = c->tokens[*pos].type;
+                (*pos)++;
+                ZCConstVal rhs = parse_conditional(c, pos);
+                ZCConstVal old_v = (op == TK_ASSIGN) ? zc_cv_int(0) : zc_cv_deref(ptr_val, index_val);
+                ZCConstVal new_v = ctfe_apply_assign_op(op, old_v, rhs);
+                zc_cv_store(ptr_val, index_val, new_v);
+                v = new_v;
+            } else if (*pos < c->token_count &&
+                       (c->tokens[*pos].type == TK_INC || c->tokens[*pos].type == TK_DEC)) {
+                bool is_inc = (c->tokens[*pos].type == TK_INC);
+                (*pos)++;
+                ZCConstVal old_v = zc_cv_deref(ptr_val, index_val);
+                ZCConstVal new_v = is_inc ? zc_cv_add(old_v, zc_cv_int(1))
+                                          : zc_cv_sub(old_v, zc_cv_int(1));
+                zc_cv_store(ptr_val, index_val, new_v);
+                v = old_v;
+            } else {
+                v = zc_cv_deref(ptr_val, index_val);
+            }
+        } else {
+            break;
+        }
+    }
+    return v;
+}
+
 ZCConstVal parse_unary(ZeroCCCompiler *c, size_t *pos)
 {
     ZeroCCTokType t = c->tokens[*pos].type;
@@ -1090,6 +1413,70 @@ ZCConstVal parse_unary(ZeroCCCompiler *c, size_t *pos)
     }
     if (t == TK_ALIGNOF) {
         return zc_cv_int(eval_alignof(c, pos));
+    }
+    if (t == TK_STAR) {
+        int star_depth = 0;
+        while (*pos < c->token_count && c->tokens[*pos].type == TK_STAR) {
+            star_depth++;
+            (*pos)++;
+        }
+        ZCConstVal ptr_val = (*pos < c->token_count &&
+                              (c->tokens[*pos].type == TK_INC || c->tokens[*pos].type == TK_DEC))
+                             ? parse_unary(c, pos)
+                             : parse_postfix(c, pos);
+        for (int s = 1; s < star_depth; s++) {
+            ptr_val = zc_cv_deref(ptr_val, 0);
+        }
+        if (*pos < c->token_count && ctfe_is_assign_op(c->tokens[*pos].type)) {
+            ZeroCCTokType op = c->tokens[*pos].type;
+            (*pos)++;
+            ZCConstVal rhs = parse_conditional(c, pos);
+            ZCConstVal old_v = (op == TK_ASSIGN) ? zc_cv_int(0) : zc_cv_deref(ptr_val, 0);
+            ZCConstVal new_v = ctfe_apply_assign_op(op, old_v, rhs);
+            zc_cv_store(ptr_val, 0, new_v);
+            return new_v;
+        }
+        return zc_cv_deref(ptr_val, 0);
+    }
+    if (t == TK_INC || t == TK_DEC) {
+        bool is_inc = (t == TK_INC);
+        (*pos)++; /* consume '++' or '--' */
+        if (*pos < c->token_count && c->tokens[*pos].type == TK_STAR) {
+            (*pos)++; /* consume '*' */
+            ZCConstVal ptr_val = parse_unary(c, pos);
+            ZCConstVal old_v = zc_cv_deref(ptr_val, 0);
+            ZCConstVal new_v = is_inc ? zc_cv_add(old_v, zc_cv_int(1))
+                                      : zc_cv_sub(old_v, zc_cv_int(1));
+            zc_cv_store(ptr_val, 0, new_v);
+            return new_v;
+        }
+        if (*pos < c->token_count && c->tokens[*pos].type == TK_IDENT) {
+            const char *name = c->tokens[*pos].str_val;
+            ssize_t li = ctfe_find_local_idx(c, name);
+            ssize_t pi = (li < 0) ? ctfe_find_param_idx(c, name) : -1;
+            if (li >= 0 || pi >= 0) {
+                (*pos)++; /* consume ident */
+                ZCConstVal cur = (li >= 0) ? ctfe_read_local(c, (size_t)li)
+                                           : ctfe_read_param(c, (size_t)pi);
+                if (*pos < c->token_count && c->tokens[*pos].type == TK_LBRACKET) {
+                    (*pos)++;
+                    ZCConstVal idx = parse_conditional(c, pos);
+                    if (*pos < c->token_count && c->tokens[*pos].type == TK_RBRACKET) (*pos)++;
+                    ZCConstVal old_v = zc_cv_deref(cur, idx.i);
+                    ZCConstVal new_v = is_inc ? zc_cv_add(old_v, zc_cv_int(1))
+                                              : zc_cv_sub(old_v, zc_cv_int(1));
+                    zc_cv_store(cur, idx.i, new_v);
+                    return new_v;
+                }
+                ZCConstVal new_v = is_inc ? zc_cv_add(cur, zc_cv_int(1))
+                                          : zc_cv_sub(cur, zc_cv_int(1));
+                if (li >= 0) ctfe_write_local(c, (size_t)li, new_v);
+                else ctfe_write_param(c, (size_t)pi, new_v);
+                return new_v;
+            }
+        }
+        ZCConstVal v = parse_unary(c, pos);
+        return is_inc ? zc_cv_add(v, zc_cv_int(1)) : zc_cv_sub(v, zc_cv_int(1));
     }
     if (t == TK_AMP) {
         size_t save = *pos;
@@ -1164,10 +1551,99 @@ ZCConstVal parse_unary(ZeroCCCompiler *c, size_t *pos)
             }
             return zc_cv_int(base_val + total_offset);
         }
-        /* Fallback if not an offsetof pattern: restore *pos */
+        /* Address-of in CTFE / constant expression: &*p, &ident, &arr[idx] */
+        *pos = save + 1;
+        if (*pos < c->token_count && c->tokens[*pos].type == TK_STAR) {
+            (*pos)++;
+            return parse_unary(c, pos);
+        }
+        if (*pos < c->token_count && c->tokens[*pos].type == TK_IDENT) {
+            const char *name = c->tokens[*pos].str_val;
+            ssize_t li = ctfe_find_local_idx(c, name);
+            if (li >= 0) {
+                (*pos)++;
+                size_t idx = (size_t)li;
+                uint32_t esz = (c->ctfe_local_elem_sizes && c->ctfe_local_elem_sizes[idx]) ? c->ctfe_local_elem_sizes[idx] : 4;
+                uint8_t etag = (c->ctfe_local_elem_tags && c->ctfe_local_elem_tags[idx]) ? c->ctfe_local_elem_tags[idx] : TYPE_INT32;
+                ZCConstVal base_ptr;
+                if (c->ctfe_local_kinds[idx] == (uint8_t)ZC_CV_PTR) {
+                    base_ptr = zc_cv_ptr((uint8_t *)(uintptr_t)c->ctfe_local_values_i[idx], esz, etag);
+                } else {
+                    if (!c->ctfe_local_bufs[idx]) {
+                        c->ctfe_local_bufs[idx] = (uint8_t *)calloc(1, 8);
+                        ZCConstVal cur = zc_cv_int(0);
+                        cur.kind = (ZCConstValKind)c->ctfe_local_kinds[idx];
+                        cur.i = c->ctfe_local_values_i[idx];
+                        cur.r = c->ctfe_local_values_r[idx];
+                        zc_cv_store(zc_cv_ptr(c->ctfe_local_bufs[idx], esz, etag), 0, cur);
+                    }
+                    base_ptr = zc_cv_ptr(c->ctfe_local_bufs[idx], esz, etag);
+                }
+                if (*pos < c->token_count && c->tokens[*pos].type == TK_LBRACKET) {
+                    (*pos)++;
+                    ZCConstVal sub = parse_conditional(c, pos);
+                    if (*pos < c->token_count && c->tokens[*pos].type == TK_RBRACKET) (*pos)++;
+                    return zc_cv_add(base_ptr, sub);
+                }
+                return base_ptr;
+            }
+            ssize_t pi = ctfe_find_param_idx(c, name);
+            if (pi >= 0) {
+                (*pos)++;
+                size_t pidx = (size_t)pi;
+                ZCConstVal base_ptr;
+                if (c->ctfe_param_kinds[pidx] == (uint8_t)ZC_CV_PTR) {
+                    base_ptr = ctfe_read_param(c, pidx);
+                } else if (c->ctfe_param_kinds[pidx] == (uint8_t)ZC_CV_FLOAT) {
+                    base_ptr = zc_cv_ptr((uint8_t *)&c->ctfe_param_values_r[pidx], 8, TYPE_DOUBLE);
+                } else {
+                    base_ptr = zc_cv_ptr((uint8_t *)&c->ctfe_param_values_i[pidx], 8, TYPE_INT64);
+                }
+                if (*pos < c->token_count && c->tokens[*pos].type == TK_LBRACKET) {
+                    (*pos)++;
+                    ZCConstVal sub = parse_conditional(c, pos);
+                    if (*pos < c->token_count && c->tokens[*pos].type == TK_RBRACKET) (*pos)++;
+                    return zc_cv_add(base_ptr, sub);
+                }
+                return base_ptr;
+            }
+            ZeroCCGlobalVar *gv = find_global_var(c, name);
+            if (gv && gv->size > 0 && gv->data_offset + gv->size <= c->data_section.length) {
+                (*pos)++;
+                ZeroCCType et = (gv->type.tag == TYPE_ARRAY && gv->type.base) ? *gv->type.base : gv->type;
+                uint32_t esz = (et.size > 0) ? (uint32_t)et.size : 4;
+                uint8_t etag = (uint8_t)et.tag;
+                ZCConstVal base_ptr = zc_cv_ptr((uint8_t *)c->data_section.data + gv->data_offset, esz, etag);
+                if (*pos < c->token_count && c->tokens[*pos].type == TK_LBRACKET) {
+                    (*pos)++;
+                    ZCConstVal sub = parse_conditional(c, pos);
+                    if (*pos < c->token_count && c->tokens[*pos].type == TK_RBRACKET) (*pos)++;
+                    return zc_cv_add(base_ptr, sub);
+                }
+                return base_ptr;
+            }
+        }
+        /* Fallback if not an address pattern: restore *pos */
         *pos = save;
     }
-    return parse_primary(c, pos);
+    if (t == TK_IDENT && *pos + 1 < c->token_count &&
+        ctfe_is_assign_op(c->tokens[*pos + 1].type)) {
+        const char *id_name = c->tokens[*pos].str_val;
+        ssize_t li = ctfe_find_local_idx(c, id_name);
+        ssize_t pi = (li < 0) ? ctfe_find_param_idx(c, id_name) : -1;
+        if (li >= 0 || pi >= 0) {
+            ZeroCCTokType op = c->tokens[*pos + 1].type;
+            (*pos) += 2;
+            ZCConstVal cur = (li >= 0) ? ctfe_read_local(c, (size_t)li)
+                                       : ctfe_read_param(c, (size_t)pi);
+            ZCConstVal rhs = parse_conditional(c, pos);
+            ZCConstVal new_v = ctfe_apply_assign_op(op, cur, rhs);
+            if (li >= 0) ctfe_write_local(c, (size_t)li, new_v);
+            else ctfe_write_param(c, (size_t)pi, new_v);
+            return new_v;
+        }
+    }
+    return parse_postfix(c, pos);
 }
 
 int64_t zero_cc_eval_builtin_offsetof(ZeroCCCompiler *c, size_t *pos)
@@ -1256,27 +1732,29 @@ bool zc_const_global_scalar(ZeroCCCompiler *c, const char *name,
     uint64_t bits = 0;
     size_t sz = (t.size > 0 && t.size <= 8) ? t.size : 8;
     for (size_t i = 0; i < sz; i++) bits |= (uint64_t)p[i] << (8 * i);
-    *out_is_float = (t.tag == TYPE_FLOAT || t.tag == TYPE_DOUBLE);
-    if (*out_is_float) {
+    bool is_fl = (t.tag == TYPE_FLOAT || t.tag == TYPE_DOUBLE);
+    if (out_is_float) *out_is_float = is_fl;
+    if (is_fl) {
+        double d_val;
         if (t.tag == TYPE_FLOAT) {
             float f;
             memcpy(&f, &bits, 4);
-            *out_d = f;
+            d_val = f;
         } else {
-            double d;
-            memcpy(&d, &bits, 8);
-            *out_d = d;
+            memcpy(&d_val, &bits, 8);
         }
-        *out_i = 0;
+        if (out_d) *out_d = d_val;
+        if (out_i) *out_i = 0;
     } else if (t.tag == TYPE_UINT8 || t.tag == TYPE_UINT16 ||
                t.tag == TYPE_UINT32 || t.tag == TYPE_UINT64) {
-        *out_i = (int64_t)bits;
-        *out_d = (double)(uint64_t)bits;
+        if (out_i) *out_i = (int64_t)bits;
+        if (out_d) *out_d = (double)(uint64_t)bits;
     } else {
         /* Sign-extend from the stored width. */
         int64_t sv = (int64_t)bits;
-        *out_i = (sv << (64 - sz * 8)) >> (64 - sz * 8);
-        *out_d = (double)*out_i;
+        int64_t ext = (sv << (64 - sz * 8)) >> (64 - sz * 8);
+        if (out_i) *out_i = ext;
+        if (out_d) *out_d = (double)ext;
     }
     return true;
 }
@@ -1307,9 +1785,40 @@ ZCConstVal parse_primary(ZeroCCCompiler *c, size_t *pos)
         (*pos)++;
         return zc_cv_int(1);
     }
-    if (t == TK_FALSE || t == TK_NULLPTR) {
+    if (t == TK_FALSE) {
         (*pos)++;
         return zc_cv_int(0);
+    }
+    if (t == TK_NULLPTR) {
+        (*pos)++;
+        return zc_cv_ptr(NULL, 1, TYPE_INT8);
+    }
+    if (t == TK_STRING) {
+        const char *first = c->tokens[*pos].str_val;
+        (*pos)++;
+        if (*pos < c->token_count && c->tokens[*pos].type == TK_STRING) {
+            size_t cap = strlen(first) + 64;
+            char *buf = (char *)malloc(cap);
+            size_t len = strlen(first);
+            memcpy(buf, first, len);
+            while (*pos < c->token_count && c->tokens[*pos].type == TK_STRING) {
+                const char *part = c->tokens[*pos].str_val;
+                size_t plen = strlen(part);
+                if (len + plen + 1 > cap) {
+                    cap = (len + plen + 1) * 2;
+                    buf = (char *)realloc(buf, cap);
+                }
+                memcpy(buf + len, part, plen);
+                len += plen;
+                (*pos)++;
+            }
+            buf[len] = '\0';
+            const char *interned = zero_cc_intern_string(c, buf);
+            free(buf);
+            return zc_cv_ptr((uint8_t *)(uintptr_t)interned, 1, TYPE_INT8);
+        }
+        const char *interned = zero_cc_intern_string(c, first);
+        return zc_cv_ptr((uint8_t *)(uintptr_t)interned, 1, TYPE_INT8);
     }
     if (t == TK_IDENT) {
         if (strcmp(c->tokens[*pos].str_val, "__builtin_offsetof") == 0) {
@@ -1394,12 +1903,80 @@ ZCConstVal parse_primary(ZeroCCCompiler *c, size_t *pos)
             if (*pos < c->token_count && c->tokens[*pos].type == TK_RPAREN) (*pos)++;
             return zc_cv_int((int64_t)(aty.align > 0 ? aty.align : 8));
         }
+        if (strcmp(c->tokens[*pos].str_val, "NULL") == 0) {
+            (*pos)++;
+            return zc_cv_ptr(NULL, 1, TYPE_INT8);
+        }
         /* Enum constants are valid in constant expressions (C99 6.6). */
         const ZeroCCEnumConst *ec = zero_cc_find_enum_const(c, c->tokens[*pos].str_val);
         if (ec) {
             (*pos)++;
             return zc_cv_int(ec->value);
         }
+
+        /* C23 constexpr: local variable or parameter reference during CTFE.
+         * Locals in the current function call frame shadow parameters, and
+         * both shadow file-scope globals. */
+        {
+            const char *id_name = c->tokens[*pos].str_val;
+            ssize_t li = ctfe_find_local_idx(c, id_name);
+            ssize_t pi = (li < 0) ? ctfe_find_param_idx(c, id_name) : -1;
+            if (li >= 0 || pi >= 0) {
+                (*pos)++;
+                ZCConstVal cur = (li >= 0) ? ctfe_read_local(c, (size_t)li)
+                                           : ctfe_read_param(c, (size_t)pi);
+                if (*pos < c->token_count &&
+                    (c->tokens[*pos].type == TK_INC || c->tokens[*pos].type == TK_DEC)) {
+                    bool is_inc = (c->tokens[*pos].type == TK_INC);
+                    (*pos)++;
+                    ZCConstVal new_v = is_inc ? zc_cv_add(cur, zc_cv_int(1))
+                                              : zc_cv_sub(cur, zc_cv_int(1));
+                    if (li >= 0) ctfe_write_local(c, (size_t)li, new_v);
+                    else ctfe_write_param(c, (size_t)pi, new_v);
+                    return cur;
+                }
+                return cur;
+            }
+        }
+
+        /* Global array or pointer variable in constant / CTFE expressions. */
+        {
+            ZeroCCGlobalVar *gv = find_global_var(c, c->tokens[*pos].str_val);
+            if (gv && gv->type.tag == TYPE_ARRAY && gv->size > 0 &&
+                gv->data_offset + gv->size <= c->data_section.length) {
+                (*pos)++;
+                ZeroCCType et = gv->type.base ? *gv->type.base : zero_cc_type_int();
+                uint32_t esz = (et.size > 0) ? (uint32_t)et.size : 4;
+                return zc_cv_ptr((uint8_t *)c->data_section.data + gv->data_offset,
+                                 esz, (uint8_t)et.tag);
+            }
+            if (gv && gv->type.tag == TYPE_PTR && gv->size == 8 &&
+                gv->data_offset + 8 <= c->data_section.length) {
+                ZeroCCType et = gv->type.base ? *gv->type.base : zero_cc_type_char();
+                uint32_t esz = (et.size > 0) ? (uint32_t)et.size : 1;
+                uint8_t *target = NULL;
+                for (size_t ri = 0; ri < c->data_reloc_count; ri++) {
+                    if (c->data_relocs[ri].data_patch_offset == gv->data_offset) {
+                        if (c->data_relocs[ri].target_kind == 0 &&
+                            c->data_relocs[ri].rodata_offset < c->rodata_section.length) {
+                            target = (uint8_t *)c->rodata_section.data +
+                                     c->data_relocs[ri].rodata_offset +
+                                     c->data_relocs[ri].target_data_offset;
+                        } else if (c->data_relocs[ri].target_kind == 1 &&
+                                   c->data_relocs[ri].target_data_offset <= c->data_section.length) {
+                            target = (uint8_t *)c->data_section.data +
+                                     c->data_relocs[ri].target_data_offset;
+                        }
+                        break;
+                    }
+                }
+                if (target) {
+                    (*pos)++;
+                    return zc_cv_ptr(target, esz, (uint8_t)et.tag);
+                }
+            }
+        }
+
         /* An earlier global's value (object constants in constant
          * expressions, e.g. `const char a = 0x42; ... (double) a`). */
         {
@@ -1409,39 +1986,6 @@ ZCConstVal parse_primary(ZeroCCCompiler *c, size_t *pos)
             if (zc_const_global_scalar(c, c->tokens[*pos].str_val, &g_is_f, &g_i, &g_d)) {
                 (*pos)++;
                 return g_is_f ? zc_cv_float(g_d) : zc_cv_int(g_i);
-            }
-        }
-        /* C23 constexpr: parameter reference during CTFE.  If we are
-         * evaluating a constexpr function body, a parameter name resolves
-         * to the bound argument value. */
-        for (size_t pi = 0; pi < c->ctfe_param_count; pi++) {
-            if (strcmp(c->ctfe_param_names[pi], c->tokens[*pos].str_val) == 0) {
-                (*pos)++;
-                ZCConstVal v;
-                v.kind = (ZCConstValKind)c->ctfe_param_kinds[pi];
-                v.i = c->ctfe_param_values_i[pi];
-                v.r = c->ctfe_param_values_r[pi];
-                v.im = 0.0;
-                v.hi = 0;
-                v.w128 = false;
-                v.signed_ = false;
-                return v;
-            }
-        }
-        /* C23 constexpr: local variable reference during CTFE.  Locals
-         * shadow parameters (searched last). */
-        for (size_t li = c->ctfe_local_count; li > 0; li--) {
-            if (strcmp(c->ctfe_local_names[li - 1], c->tokens[*pos].str_val) == 0) {
-                (*pos)++;
-                ZCConstVal v;
-                v.kind = (ZCConstValKind)c->ctfe_local_kinds[li - 1];
-                v.i = c->ctfe_local_values_i[li - 1];
-                v.r = c->ctfe_local_values_r[li - 1];
-                v.im = 0.0;
-                v.hi = 0;
-                v.w128 = false;
-                v.signed_ = false;
-                return v;
             }
         }
 
@@ -1488,12 +2032,17 @@ ZCConstVal parse_primary(ZeroCCCompiler *c, size_t *pos)
                 int64_t saved_param_values_i[16];
                 double saved_param_values_r[16];
                 uint8_t saved_param_kinds[16];
+                uint32_t saved_param_elem_sizes[16];
+                uint8_t saved_param_elem_tags[16];
                 size_t saved_param_count = c->ctfe_param_count;
+                size_t saved_local_base = c->ctfe_local_base;
 
                 for (size_t ai = 0; ai < c->ctfe_param_count; ai++) {
                     saved_param_values_i[ai] = c->ctfe_param_values_i[ai];
                     saved_param_values_r[ai] = c->ctfe_param_values_r[ai];
                     saved_param_kinds[ai] = c->ctfe_param_kinds[ai];
+                    saved_param_elem_sizes[ai] = c->ctfe_param_elem_sizes[ai];
+                    saved_param_elem_tags[ai] = c->ctfe_param_elem_tags[ai];
                 }
 
                 c->ctfe_param_names = (const char **)fn->param_names;
@@ -1505,8 +2054,11 @@ ZCConstVal parse_primary(ZeroCCCompiler *c, size_t *pos)
                     c->ctfe_param_values_i[ai] = av.i;
                     c->ctfe_param_values_r[ai] = av.r;
                     c->ctfe_param_kinds[ai] = (uint8_t)av.kind;
+                    c->ctfe_param_elem_sizes[ai] = av.ptr_elem_size;
+                    c->ctfe_param_elem_tags[ai] = av.ptr_elem_tag;
                 }
                 c->ctfe_param_count = (fn->param_count < 16) ? fn->param_count : 16;
+                c->ctfe_local_base = c->ctfe_local_count;
 
                 /* Save token position, evaluate the body, then restore. */
                 size_t saved_token_pos = c->token_pos;
@@ -1524,8 +2076,11 @@ ZCConstVal parse_primary(ZeroCCCompiler *c, size_t *pos)
                     c->ctfe_param_values_i[ai] = saved_param_values_i[ai];
                     c->ctfe_param_values_r[ai] = saved_param_values_r[ai];
                     c->ctfe_param_kinds[ai] = saved_param_kinds[ai];
+                    c->ctfe_param_elem_sizes[ai] = saved_param_elem_sizes[ai];
+                    c->ctfe_param_elem_tags[ai] = saved_param_elem_tags[ai];
                 }
                 c->ctfe_param_count = saved_param_count;
+                c->ctfe_local_base = saved_local_base;
                 c->token_pos = saved_token_pos;
 
                 /* Consume the full call (identifier through ')') for the caller. */
@@ -1553,7 +2108,45 @@ ZCConstVal parse_primary(ZeroCCCompiler *c, size_t *pos)
                 cast_ty = zero_cc_type_ptr(&cast_ty);
                 (*pos)++;
             }
+            bool is_arr_lit = (cast_ty.tag == TYPE_ARRAY);
+            int64_t arr_cnt = (is_arr_lit && cast_ty.base && cast_ty.base->size > 0)
+                              ? (int64_t)(cast_ty.size / cast_ty.base->size) : -1;
+            if (*pos < c->token_count && c->tokens[*pos].type == TK_LBRACKET) {
+                is_arr_lit = true;
+                (*pos)++;
+                if (*pos < c->token_count && c->tokens[*pos].type != TK_RBRACKET) {
+                    arr_cnt = parse_conditional(c, pos).i;
+                }
+                if (*pos < c->token_count && c->tokens[*pos].type == TK_RBRACKET) (*pos)++;
+            }
             if (*pos < c->token_count && c->tokens[*pos].type == TK_RPAREN) (*pos)++;
+            if (*pos < c->token_count && c->tokens[*pos].type == TK_LBRACE) {
+                /* Compound literal: `(const int[]){1, 2, 3}` or `(int[4]){1, 2}` */
+                (*pos)++; /* consume '{' */
+                ZeroCCType et = (cast_ty.tag == TYPE_ARRAY && cast_ty.base) ? *cast_ty.base : cast_ty;
+                uint32_t esz = (et.size > 0) ? (uint32_t)et.size : 4;
+                uint8_t etag = (uint8_t)et.tag;
+                ZCConstVal elems[256];
+                size_t ecnt = 0;
+                while (*pos < c->token_count && c->tokens[*pos].type != TK_RBRACE) {
+                    if (ecnt < 256) {
+                        elems[ecnt++] = parse_conditional(c, pos);
+                    } else {
+                        (void)parse_conditional(c, pos);
+                    }
+                    if (*pos < c->token_count && c->tokens[*pos].type == TK_COMMA) (*pos)++;
+                }
+                if (*pos < c->token_count && c->tokens[*pos].type == TK_RBRACE) (*pos)++;
+                size_t total_elems = (arr_cnt > 0 && (size_t)arr_cnt > ecnt) ? (size_t)arr_cnt : (ecnt > 0 ? ecnt : 1);
+                uint8_t *buf = (uint8_t *)arena_alloc(zero_cc_get_fn_arena(c), total_elems * esz);
+                memset(buf, 0, total_elems * esz);
+                ZCConstVal p = zc_cv_ptr(buf, esz, etag);
+                for (size_t ei = 0; ei < ecnt; ei++) {
+                    zc_cv_store(p, (int64_t)ei, elems[ei]);
+                }
+                if (is_arr_lit) return p;
+                return zc_cv_deref(p, 0);
+            }
             ZCConstVal val = parse_unary(c, pos);
             return zc_cv_cast(val, cast_ty);
         }
@@ -1586,19 +2179,31 @@ static void ctfe_pop_scope(ZeroCCCompiler *c) {
     while (c->ctfe_local_count > mark) {
         c->ctfe_local_count--;
         free((void *)c->ctfe_local_names[c->ctfe_local_count]);
+        if (c->ctfe_local_bufs && c->ctfe_local_bufs[c->ctfe_local_count]) {
+            free(c->ctfe_local_bufs[c->ctfe_local_count]);
+            c->ctfe_local_bufs[c->ctfe_local_count] = NULL;
+        }
     }
 }
 
 /* Declare a local variable (or reassign an existing one in the current scope). */
-static void ctfe_declare_local(ZeroCCCompiler *c, const char *name,
-                               int64_t val_i, double val_r, uint8_t kind) {
+static void ctfe_declare_local_full(ZeroCCCompiler *c, const char *name,
+                                    int64_t val_i, double val_r, uint8_t kind,
+                                    uint32_t elem_size, uint8_t elem_tag,
+                                    uint8_t *buf) {
     /* Check for existing declaration in the current (innermost) scope. */
-    size_t mark = (c->ctfe_scope_count > 0) ? c->ctfe_scope_stack[c->ctfe_scope_count - 1] : 0;
+    size_t mark = (c->ctfe_scope_count > 0) ? c->ctfe_scope_stack[c->ctfe_scope_count - 1] : c->ctfe_local_base;
     for (size_t idx = mark; idx < c->ctfe_local_count; idx++) {
         if (strcmp(c->ctfe_local_names[idx], name) == 0) {
             c->ctfe_local_values_i[idx] = val_i;
             c->ctfe_local_values_r[idx] = val_r;
             c->ctfe_local_kinds[idx] = kind;
+            if (c->ctfe_local_elem_sizes) c->ctfe_local_elem_sizes[idx] = elem_size;
+            if (c->ctfe_local_elem_tags) c->ctfe_local_elem_tags[idx] = elem_tag;
+            if (c->ctfe_local_bufs) {
+                if (c->ctfe_local_bufs[idx]) free(c->ctfe_local_bufs[idx]);
+                c->ctfe_local_bufs[idx] = buf;
+            }
             return;
         }
     }
@@ -1609,89 +2214,213 @@ static void ctfe_declare_local(ZeroCCCompiler *c, const char *name,
         int64_t *nvi = (int64_t *)realloc(c->ctfe_local_values_i, newcap * sizeof(int64_t));
         double *nvr = (double *)realloc(c->ctfe_local_values_r, newcap * sizeof(double));
         uint8_t *nvk = (uint8_t *)realloc(c->ctfe_local_kinds, newcap * sizeof(uint8_t));
-        if (!nn || !nvi || !nvr || !nvk) {
-            if (!nn) { free(nvi); free(nvr); free(nvk); }
-            if (!nvi) free(nvr);
-            if (!nvr) free(nvk);
+        uint32_t *nes = (uint32_t *)realloc(c->ctfe_local_elem_sizes, newcap * sizeof(uint32_t));
+        uint8_t *net = (uint8_t *)realloc(c->ctfe_local_elem_tags, newcap * sizeof(uint8_t));
+        uint8_t **nb = (uint8_t **)realloc(c->ctfe_local_bufs, newcap * sizeof(uint8_t *));
+        if (!nn || !nvi || !nvr || !nvk || !nes || !net || !nb) {
+            free(buf);
             return;
         }
         c->ctfe_local_names = nn;
         c->ctfe_local_values_i = nvi;
         c->ctfe_local_values_r = nvr;
         c->ctfe_local_kinds = nvk;
+        c->ctfe_local_elem_sizes = nes;
+        c->ctfe_local_elem_tags = net;
+        c->ctfe_local_bufs = nb;
         c->ctfe_local_cap = newcap;
     }
-    c->ctfe_local_names[c->ctfe_local_count] = strdup(name);
-    c->ctfe_local_values_i[c->ctfe_local_count] = val_i;
-    c->ctfe_local_values_r[c->ctfe_local_count] = val_r;
-    c->ctfe_local_kinds[c->ctfe_local_count] = kind;
-    c->ctfe_local_count++;
+    size_t idx = c->ctfe_local_count++;
+    c->ctfe_local_names[idx] = strdup(name);
+    c->ctfe_local_values_i[idx] = val_i;
+    c->ctfe_local_values_r[idx] = val_r;
+    c->ctfe_local_kinds[idx] = kind;
+    c->ctfe_local_elem_sizes[idx] = elem_size;
+    c->ctfe_local_elem_tags[idx] = elem_tag;
+    c->ctfe_local_bufs[idx] = buf;
 }
 
-/* Evaluate a declaration: `int x = init;` (or `auto x = init;`).  Only
- * integer types are supported in constexpr function bodies. */
+/* Evaluate a declaration inside a constexpr function body, supporting
+ * scalar variables, pointers, local arrays (`T arr[N] = { ... }`,
+ * `char s[] = "..."`), and comma-separated declarators. */
 static CtfResult ctfe_eval_decl(ZeroCCCompiler *c, size_t *pos, size_t end) {
     CtfResult r;
     r.kind = CTF_NORMAL;
     r.val = zc_cv_int(0);
 
-    /* Current token is the type specifier (int/auto/const/etc.).  Skip
-     * specifiers/qualifiers until we hit the declarator name. */
-    while (*pos < end && c->tokens[*pos].type != TK_IDENT &&
-           c->tokens[*pos].type != TK_SEMI &&
-           c->tokens[*pos].type != TK_COMMA) {
+    while (*pos < end && (c->tokens[*pos].type == TK_CONSTEXPR ||
+                          c->tokens[*pos].type == TK_CONST ||
+                          c->tokens[*pos].type == TK_VOLATILE ||
+                          c->tokens[*pos].type == TK_RESTRICT)) {
         (*pos)++;
     }
-    if (*pos >= end || c->tokens[*pos].type != TK_IDENT) {
-        return r; /* malformed; bail */
+    bool is_auto = false;
+    ZeroCCType base_ty = zero_cc_type_int();
+    if (*pos < end && c->tokens[*pos].type == TK_AUTO) {
+        is_auto = true;
+        (*pos)++;
+    } else if (*pos < end && zero_cc_tok_is_type_start(c, *pos)) {
+        base_ty = zero_cc_parse_type_name_at_pos(c, pos);
+        /* Walk back over any trailing '*' consumed by parse_type_name_at_pos
+         * so each comma-separated declarator parses its own pointer stars. */
+        while (base_ty.tag == TYPE_PTR && base_ty.base &&
+               *pos > 0 && c->tokens[*pos - 1].type == TK_STAR) {
+            base_ty = *base_ty.base;
+            (*pos)--;
+        }
+    } else {
+        while (*pos < end && c->tokens[*pos].type != TK_IDENT &&
+               c->tokens[*pos].type != TK_STAR &&
+               c->tokens[*pos].type != TK_SEMI) {
+            (*pos)++;
+        }
     }
-    const char *name = c->tokens[*pos].str_val;
-    (*pos)++;
 
-    /* Skip optional `[...]` (arrays not supported in CTFE yet). */
-    while (*pos < end && c->tokens[*pos].type != TK_SEMI &&
-           c->tokens[*pos].type != TK_COMMA &&
-           c->tokens[*pos].type != TK_ASSIGN) {
-        if (c->tokens[*pos].type == TK_LBRACE) { /* brace initializer */
+    while (*pos < end && c->tokens[*pos].type != TK_SEMI) {
+        ZeroCCType decl_ty = base_ty;
+        while (*pos < end && (c->tokens[*pos].type == TK_STAR ||
+                              c->tokens[*pos].type == TK_CONST ||
+                              c->tokens[*pos].type == TK_VOLATILE ||
+                              c->tokens[*pos].type == TK_RESTRICT)) {
+            if (c->tokens[*pos].type == TK_STAR) {
+                decl_ty = zero_cc_type_ptr(&decl_ty);
+            }
+            (*pos)++;
+        }
+        if (*pos >= end || c->tokens[*pos].type != TK_IDENT) {
+            while (*pos < end && c->tokens[*pos].type != TK_SEMI) (*pos)++;
             break;
         }
+        const char *name = c->tokens[*pos].str_val;
         (*pos)++;
+
+        bool is_array = false;
+        int64_t array_len = -1;
+        if (*pos < end && c->tokens[*pos].type == TK_LBRACKET) {
+            is_array = true;
+            (*pos)++; /* consume '[' */
+            if (*pos < end && c->tokens[*pos].type != TK_RBRACKET) {
+                size_t saved = c->token_pos;
+                c->token_pos = *pos;
+                ZCConstVal dim_v = parse_conditional(c, &c->token_pos);
+                *pos = c->token_pos;
+                c->token_pos = saved;
+                array_len = dim_v.i;
+            }
+            if (*pos < end && c->tokens[*pos].type == TK_RBRACKET) (*pos)++;
+        }
+
+        if (is_array) {
+            uint32_t esz = (decl_ty.size > 0) ? (uint32_t)decl_ty.size : 4;
+            uint8_t etag = (uint8_t)decl_ty.tag;
+            uint8_t *buf = NULL;
+            if (*pos < end && c->tokens[*pos].type == TK_ASSIGN) {
+                (*pos)++; /* consume '=' */
+                if (*pos < end && c->tokens[*pos].type == TK_STRING && esz == 1) {
+                    size_t saved = c->token_pos;
+                    c->token_pos = *pos;
+                    ZCConstVal sv = parse_primary(c, &c->token_pos);
+                    *pos = c->token_pos;
+                    c->token_pos = saved;
+                    const char *str = sv.ptr ? (const char *)sv.ptr : "";
+                    size_t slen = strlen(str) + 1;
+                    size_t total_elems = (array_len > 0) ? (size_t)array_len : slen;
+                    buf = (uint8_t *)calloc(total_elems > 0 ? total_elems : 1, 1);
+                    size_t copy_n = (slen < total_elems) ? slen : total_elems;
+                    memcpy(buf, str, copy_n);
+                } else if (*pos < end && c->tokens[*pos].type == TK_LBRACE) {
+                    (*pos)++; /* consume '{' */
+                    ZCConstVal elems[256];
+                    size_t ecnt = 0;
+                    while (*pos < end && c->tokens[*pos].type != TK_RBRACE) {
+                        size_t saved = c->token_pos;
+                        c->token_pos = *pos;
+                        ZCConstVal ev = parse_conditional(c, &c->token_pos);
+                        *pos = c->token_pos;
+                        c->token_pos = saved;
+                        if (ecnt < 256) elems[ecnt++] = ev;
+                        if (*pos < end && c->tokens[*pos].type == TK_COMMA) (*pos)++;
+                    }
+                    if (*pos < end && c->tokens[*pos].type == TK_RBRACE) (*pos)++;
+                    size_t total_elems = (array_len > 0 && (size_t)array_len > ecnt)
+                                         ? (size_t)array_len : (ecnt > 0 ? ecnt : 1);
+                    buf = (uint8_t *)calloc(total_elems, esz);
+                    ZCConstVal p = zc_cv_ptr(buf, esz, etag);
+                    for (size_t ei = 0; ei < ecnt; ei++) {
+                        zc_cv_store(p, (int64_t)ei, elems[ei]);
+                    }
+                }
+            }
+            if (!buf) {
+                size_t total_elems = (array_len > 0) ? (size_t)array_len : 1;
+                buf = (uint8_t *)calloc(total_elems, esz);
+            }
+            ctfe_declare_local_full(c, name, (int64_t)(uintptr_t)buf, 0.0,
+                                    (uint8_t)ZC_CV_PTR, esz, etag, buf);
+        } else {
+            ZCConstVal init_val = (decl_ty.tag == TYPE_PTR)
+                                  ? zc_cv_ptr(NULL,
+                                              (decl_ty.base && decl_ty.base->size > 0) ? (uint32_t)decl_ty.base->size : 1,
+                                              (decl_ty.base) ? (uint8_t)decl_ty.base->tag : TYPE_INT8)
+                                  : zc_cv_int(0);
+            if (*pos < end && c->tokens[*pos].type == TK_ASSIGN) {
+                (*pos)++; /* consume '=' */
+                bool braced = (*pos < end && c->tokens[*pos].type == TK_LBRACE);
+                if (braced) (*pos)++;
+                if (!braced || (*pos < end && c->tokens[*pos].type != TK_RBRACE)) {
+                    size_t saved = c->token_pos;
+                    c->token_pos = *pos;
+                    init_val = parse_conditional(c, &c->token_pos);
+                    *pos = c->token_pos;
+                    c->token_pos = saved;
+                }
+                if (braced) {
+                    if (*pos < end && c->tokens[*pos].type == TK_COMMA) (*pos)++;
+                    if (*pos < end && c->tokens[*pos].type == TK_RBRACE) (*pos)++;
+                }
+                if (!is_auto) {
+                    init_val = zc_cv_cast(init_val, decl_ty);
+                }
+            }
+            uint32_t esz = (init_val.kind == ZC_CV_PTR)
+                           ? init_val.ptr_elem_size
+                           : ((decl_ty.size > 0) ? (uint32_t)decl_ty.size : 4);
+            uint8_t etag = (init_val.kind == ZC_CV_PTR)
+                           ? init_val.ptr_elem_tag
+                           : (uint8_t)decl_ty.tag;
+            ctfe_declare_local_full(c, name, init_val.i, init_val.r,
+                                    (uint8_t)init_val.kind, esz, etag, NULL);
+        }
+
+        if (*pos < end && c->tokens[*pos].type == TK_COMMA) {
+            (*pos)++;
+            continue;
+        }
+        break;
     }
 
-    int64_t init_i = 0;
-    double init_r = 0.0;
-    uint8_t init_kind = (uint8_t)ZC_CV_INT;
-    if (*pos < end && c->tokens[*pos].type == TK_ASSIGN) {
-        (*pos)++; /* consume '=' */
-        size_t saved = c->token_pos;
-        c->token_pos = *pos;
-        ZCConstVal init_val = parse_conditional(c, &c->token_pos);
-        *pos = c->token_pos;
-        c->token_pos = saved;
-        init_i = init_val.i;
-        init_r = init_val.r;
-        init_kind = (uint8_t)init_val.kind;
-    }
-
-    ctfe_declare_local(c, name, init_i, init_r, init_kind);
-
-    /* Consume trailing comma (more declarators) or semicolon. */
-    if (*pos < end && c->tokens[*pos].type == TK_COMMA) {
-        (*pos)++;
-    } else if (*pos < end && c->tokens[*pos].type == TK_SEMI) {
+    if (*pos < end && c->tokens[*pos].type == TK_SEMI) {
         (*pos)++;
     }
     return r;
 }
 
-/* Evaluate an expression statement: `expr;`. */
+/* Evaluate an expression statement: `expr;`, supporting comma-separated expressions. */
 static CtfResult ctfe_eval_expr_stmt(ZeroCCCompiler *c, size_t *pos, size_t end) {
     CtfResult r;
     r.kind = CTF_NORMAL;
     r.val = zc_cv_int(0);
+    if (*pos < end && c->tokens[*pos].type == TK_SEMI) {
+        (*pos)++;
+        return r;
+    }
     size_t saved = c->token_pos;
     c->token_pos = *pos;
     (void)parse_conditional(c, &c->token_pos);
+    while (c->token_pos < end && c->tokens[c->token_pos].type == TK_COMMA) {
+        c->token_pos++;
+        (void)parse_conditional(c, &c->token_pos);
+    }
     *pos = c->token_pos;
     c->token_pos = saved;
     if (*pos < end && c->tokens[*pos].type == TK_SEMI) (*pos)++;
@@ -1708,8 +2437,23 @@ static CtfResult ctfe_eval_block(ZeroCCCompiler *c, size_t *pos, size_t end) {
     ctfe_push_scope(c);
 
     while (*pos < end && c->tokens[*pos].type != TK_RBRACE) {
+        size_t prev_pos = *pos;
         r = ctfe_eval_stmt(c, pos, end);
-        if (r.kind != CTF_NORMAL) break;
+        if (r.kind != CTF_NORMAL) {
+            /* Advance *pos to the matching '}' of this block so callers
+             * (e.g. ctfe_eval_while on break/continue) stay synchronized. */
+            int depth = 1;
+            while (*pos < end && depth > 0) {
+                if (c->tokens[*pos].type == TK_LBRACE) depth++;
+                else if (c->tokens[*pos].type == TK_RBRACE) {
+                    depth--;
+                    if (depth == 0) break;
+                }
+                (*pos)++;
+            }
+            break;
+        }
+        if (*pos == prev_pos) (*pos)++;
     }
 
     ctfe_pop_scope(c);
@@ -1739,6 +2483,39 @@ static CtfResult ctfe_eval_if(ZeroCCCompiler *c, size_t *pos, size_t end) {
             r = ctfe_eval_block(c, pos, end);
         } else {
             r = ctfe_eval_stmt(c, pos, end);
+        }
+        /* Skip else branch if present so outer block continues after if/else. */
+        if (r.kind == CTF_NORMAL && *pos < end && c->tokens[*pos].type == TK_ELSE) {
+            (*pos)++; /* consume 'else' */
+            if (*pos < end && c->tokens[*pos].type == TK_LBRACE) {
+                int depth = 1;
+                (*pos)++;
+                while (*pos < end && depth > 0) {
+                    if (c->tokens[*pos].type == TK_LBRACE) depth++;
+                    else if (c->tokens[*pos].type == TK_RBRACE) depth--;
+                    (*pos)++;
+                }
+            } else {
+                while (*pos < end &&
+                       c->tokens[*pos].type != TK_SEMI &&
+                       c->tokens[*pos].type != TK_RBRACE) {
+                    if (c->tokens[*pos].type == TK_LPAREN ||
+                        c->tokens[*pos].type == TK_LBRACE) {
+                        int depth = 1;
+                        (*pos)++;
+                        while (*pos < end && depth > 0) {
+                            if (c->tokens[*pos].type == TK_LPAREN ||
+                                c->tokens[*pos].type == TK_LBRACE) depth++;
+                            else if (c->tokens[*pos].type == TK_RPAREN ||
+                                     c->tokens[*pos].type == TK_RBRACE) depth--;
+                            (*pos)++;
+                        }
+                    } else {
+                        (*pos)++;
+                    }
+                }
+                if (*pos < end && c->tokens[*pos].type == TK_SEMI) (*pos)++;
+            }
         }
     } else {
         /* Condition false: skip the then-branch without evaluating it.
@@ -1774,6 +2551,7 @@ static CtfResult ctfe_eval_if(ZeroCCCompiler *c, size_t *pos, size_t end) {
                     (*pos)++;
                 }
             }
+            if (*pos < end && c->tokens[*pos].type == TK_SEMI) (*pos)++;
         }
         /* Then check for else. */
         if (*pos < end && c->tokens[*pos].type == TK_ELSE) {
@@ -1841,6 +2619,7 @@ static CtfResult ctfe_eval_while(ZeroCCCompiler *c, size_t *pos, size_t end) {
                         (*pos)++;
                     }
                 }
+                if (*pos < end && c->tokens[*pos].type == TK_SEMI) (*pos)++;
             }
             break;
         }
@@ -1853,9 +2632,10 @@ static CtfResult ctfe_eval_while(ZeroCCCompiler *c, size_t *pos, size_t end) {
         }
         if (r.kind == CTF_BREAK) { r.kind = CTF_NORMAL; break; }
         if (r.kind == CTF_RETURN) break;
+        if (r.kind == CTF_CONTINUE) r.kind = CTF_NORMAL;
 
         /* Loop back: re-evaluate condition from cond_start. */
-        *pos = cond_start; /* will re-read '(' */
+        *pos = cond_start;
         if (++iterations > max_iter) {
             /* Bail out to avoid infinite CTFE loop. */
             r.kind = CTF_NORMAL;
@@ -1863,6 +2643,40 @@ static CtfResult ctfe_eval_while(ZeroCCCompiler *c, size_t *pos, size_t end) {
         }
     }
     return r;
+}
+
+/* Helper to advance past a for-loop body starting at `bstart`. */
+static size_t ctfe_skip_for_body(ZeroCCCompiler *c, size_t bstart, size_t end) {
+    if (bstart < end && c->tokens[bstart].type == TK_LBRACE) {
+        int depth2 = 1;
+        bstart++;
+        while (bstart < end && depth2 > 0) {
+            if (c->tokens[bstart].type == TK_LBRACE) depth2++;
+            else if (c->tokens[bstart].type == TK_RBRACE) depth2--;
+            bstart++;
+        }
+    } else {
+        while (bstart < end &&
+               c->tokens[bstart].type != TK_SEMI &&
+               c->tokens[bstart].type != TK_RBRACE) {
+            if (c->tokens[bstart].type == TK_LPAREN ||
+                c->tokens[bstart].type == TK_LBRACE) {
+                int depth2 = 1;
+                bstart++;
+                while (bstart < end && depth2 > 0) {
+                    if (c->tokens[bstart].type == TK_LPAREN ||
+                        c->tokens[bstart].type == TK_LBRACE) depth2++;
+                    else if (c->tokens[bstart].type == TK_RPAREN ||
+                             c->tokens[bstart].type == TK_RBRACE) depth2--;
+                    bstart++;
+                }
+            } else {
+                bstart++;
+            }
+        }
+        if (bstart < end && c->tokens[bstart].type == TK_SEMI) bstart++;
+    }
+    return bstart;
 }
 
 /* Evaluate a for loop: `for (init; cond; incr) body`. */
@@ -1874,29 +2688,28 @@ static CtfResult ctfe_eval_for(ZeroCCCompiler *c, size_t *pos, size_t end) {
     (*pos)++; /* consume 'for' */
     if (*pos < end && c->tokens[*pos].type == TK_LPAREN) (*pos)++;
 
+    ctfe_push_scope(c);
+
     /* Init (a declaration or expression). */
     if (*pos < end && c->tokens[*pos].type != TK_SEMI) {
-        if (c->tokens[*pos].type == TK_INT || c->tokens[*pos].type == TK_AUTO ||
-            c->tokens[*pos].type == TK_CONST || c->tokens[*pos].type == TK_CONSTEXPR ||
-            c->tokens[*pos].type == TK_FLOAT_KW || c->tokens[*pos].type == TK_DOUBLE_KW ||
-            c->tokens[*pos].type == TK_SHORT || c->tokens[*pos].type == TK_LONG ||
-            c->tokens[*pos].type == TK_CHAR || c->tokens[*pos].type == TK_BOOL_KW ||
-            c->tokens[*pos].type == TK_SIGNED || c->tokens[*pos].type == TK_UNSIGNED) {
+        ZeroCCTokType it = c->tokens[*pos].type;
+        if (zero_cc_tok_is_type_start(c, *pos) || it == TK_AUTO || it == TK_CONSTEXPR) {
             r = ctfe_eval_decl(c, pos, end);
         } else {
             r = ctfe_eval_expr_stmt(c, pos, end);
         }
-        if (r.kind != CTF_NORMAL) return r;
+        if (r.kind != CTF_NORMAL) {
+            ctfe_pop_scope(c);
+            return r;
+        }
+    } else if (*pos < end && c->tokens[*pos].type == TK_SEMI) {
+        (*pos)++;
     }
-    if (*pos < end && c->tokens[*pos].type == TK_SEMI) (*pos)++;
 
     /* Condition start position. */
     size_t cond_start = *pos;
 
-    /* Find increment start: scan from cond_start to the ';' that ends the
-     * condition. incr_start points just past that ';' (at the increment).
-     * If there is no increment (e.g. `for (;;)`), incr_start will point at
-     * ')' and the increment evaluation is skipped. */
+    /* Find increment start and closing ')'. */
     size_t incr_start = cond_start;
     int depth = 0;
     for (size_t scan = cond_start; scan < end; scan++) {
@@ -1908,6 +2721,19 @@ static CtfResult ctfe_eval_for(ZeroCCCompiler *c, size_t *pos, size_t end) {
             break;
         }
     }
+
+    size_t body_pos = cond_start;
+    depth = 0;
+    while (body_pos < end) {
+        ZeroCCTokType tt = c->tokens[body_pos].type;
+        if (tt == TK_LPAREN) depth++;
+        else if (tt == TK_RPAREN) {
+            if (depth == 0) break;
+            depth--;
+        }
+        body_pos++;
+    }
+    size_t bstart = body_pos + 1;
 
     int iterations = 0;
     const int max_iter = 100000;
@@ -1922,128 +2748,48 @@ static CtfResult ctfe_eval_for(ZeroCCCompiler *c, size_t *pos, size_t end) {
             ZCConstVal cond = parse_conditional(c, &c->token_pos);
             c->token_pos = saved;
             if (!zc_cv_is_true(cond)) {
-                /* Condition false: skip body and increment to stay in sync. */
-                /* Find body start: skip to the ')' that closes for(…). */
-                size_t body_pos = cond_start;
-                depth = 0;
-                while (body_pos < end) {
-                    ZeroCCTokType tt = c->tokens[body_pos].type;
-                    if (tt == TK_LPAREN) depth++;
-                    else if (tt == TK_RPAREN) {
-                        if (depth == 0) break;
-                        depth--;
-                    }
-                    body_pos++;
-                }
-                /* Skip body (after ')') and increment (between second ';' and ')'). */
-                size_t bstart = body_pos + 1;
-                if (bstart < end && c->tokens[bstart].type == TK_LBRACE) {
-                    int depth2 = 1;
-                    bstart++;
-                    while (bstart < end && depth2 > 0) {
-                        if (c->tokens[bstart].type == TK_LBRACE) depth2++;
-                        else if (c->tokens[bstart].type == TK_RBRACE) depth2--;
-                        bstart++;
-                    }
-                } else {
-                    while (bstart < end &&
-                           c->tokens[bstart].type != TK_SEMI &&
-                           c->tokens[bstart].type != TK_RBRACE) {
-                        if (c->tokens[bstart].type == TK_LPAREN ||
-                            c->tokens[bstart].type == TK_LBRACE) {
-                            int depth2 = 1;
-                            bstart++;
-                            while (bstart < end && depth2 > 0) {
-                                if (c->tokens[bstart].type == TK_LPAREN ||
-                                    c->tokens[bstart].type == TK_LBRACE) depth2++;
-                                else if (c->tokens[bstart].type == TK_RPAREN ||
-                                         c->tokens[bstart].type == TK_RBRACE) depth2--;
-                                bstart++;
-                            }
-                        } else {
-                            bstart++;
-                        }
-                    }
-                }
-                *pos = bstart;
+                *pos = ctfe_skip_for_body(c, bstart, end);
                 break;
             }
         }
 
-        /* Find body start: skip to the ')' that closes the for(…). */
-        size_t body_pos = cond_start;
-        depth = 0;
-        while (body_pos < end) {
-            ZeroCCTokType tt = c->tokens[body_pos].type;
-            if (tt == TK_LPAREN) depth++;
-            else if (tt == TK_RPAREN) {
-                if (depth == 0) break;
-                depth--;
-            }
-            body_pos++;
-        }
-        /* body_pos now points at ')'.  Body starts after it. */
-        size_t bstart = body_pos + 1;
-
         /* Evaluate body. */
+        size_t bp = bstart;
         if (bstart < end && c->tokens[bstart].type == TK_LBRACE) {
-            size_t bp = bstart;
             r = ctfe_eval_block(c, &bp, end);
         } else {
-            size_t bp = bstart;
             r = ctfe_eval_stmt(c, &bp, end);
         }
-        if (r.kind == CTF_BREAK) { r.kind = CTF_NORMAL; break; }
+        if (r.kind == CTF_BREAK) {
+            r.kind = CTF_NORMAL;
+            *pos = ctfe_skip_for_body(c, bstart, end);
+            break;
+        }
         if (r.kind == CTF_RETURN) break;
+        if (r.kind == CTF_CONTINUE) r.kind = CTF_NORMAL;
 
-        /* Evaluate increment from incr_start.  Handle `ident = expr` form
-         * (e.g. `i = i + 1`) by updating the parameter or local variable. */
+        /* Evaluate increment from incr_start (handles `i++`, `i += 1`,
+         * `p++`, `i = i + 1`, and comma-separated increments `i++, j--`). */
         if (incr_start < end && incr_start < body_pos &&
             c->tokens[incr_start].type != TK_RPAREN) {
-            if (c->tokens[incr_start].type == TK_IDENT &&
-                incr_start + 1 < end &&
-                c->tokens[incr_start + 1].type == TK_ASSIGN) {
-                const char *name = c->tokens[incr_start].str_val;
-                size_t saved = c->token_pos;
-                c->token_pos = incr_start + 2; /* skip ident and '=' */
-                ZCConstVal val = parse_conditional(c, &c->token_pos);
-                c->token_pos = saved;
-                /* Update parameter first (shadows locals), then local. */
-                bool found = false;
-                for (size_t pi = 0; pi < c->ctfe_param_count; pi++) {
-                    if (strcmp(c->ctfe_param_names[pi], name) == 0) {
-                        c->ctfe_param_values_i[pi] = val.i;
-                        c->ctfe_param_values_r[pi] = val.r;
-                        c->ctfe_param_kinds[pi] = (uint8_t)val.kind;
-                        found = true;
-                        break;
-                    }
-                }
-                if (!found) {
-                    for (size_t li = c->ctfe_local_count; li > 0; li--) {
-                        if (strcmp(c->ctfe_local_names[li - 1], name) == 0) {
-                            c->ctfe_local_values_i[li - 1] = val.i;
-                            c->ctfe_local_values_r[li - 1] = val.r;
-                            c->ctfe_local_kinds[li - 1] = (uint8_t)val.kind;
-                            found = true;
-                            break;
-                        }
-                    }
-                }
-            } else {
-                size_t saved = c->token_pos;
-                c->token_pos = incr_start;
+            size_t saved = c->token_pos;
+            c->token_pos = incr_start;
+            (void)parse_conditional(c, &c->token_pos);
+            while (c->token_pos < body_pos && c->tokens[c->token_pos].type == TK_COMMA) {
+                c->token_pos++;
                 (void)parse_conditional(c, &c->token_pos);
-                c->token_pos = saved;
             }
+            c->token_pos = saved;
         }
 
         if (++iterations > max_iter) {
             r.kind = CTF_NORMAL;
+            *pos = ctfe_skip_for_body(c, bstart, end);
             break;
         }
     }
 
+    ctfe_pop_scope(c);
     return r;
 }
 
@@ -2071,6 +2817,11 @@ static CtfResult ctfe_eval_stmt(ZeroCCCompiler *c, size_t *pos, size_t end) {
     }
     if (t == TK_RETURN) {
         (*pos)++; /* consume 'return' */
+        if (*pos < end && c->tokens[*pos].type == TK_SEMI) {
+            (*pos)++;
+            r.kind = CTF_RETURN;
+            return r;
+        }
         size_t saved = c->token_pos;
         c->token_pos = *pos;
         r.val = parse_conditional(c, &c->token_pos);
@@ -2098,51 +2849,13 @@ static CtfResult ctfe_eval_stmt(ZeroCCCompiler *c, size_t *pos, size_t end) {
         r.kind = CTF_CONTINUE;
         return r;
     }
-    /* Declaration: int/auto/const/etc. followed by a name. */
-    if (t == TK_INT || t == TK_AUTO || t == TK_CONST || t == TK_CONSTEXPR ||
-        t == TK_SHORT || t == TK_LONG || t == TK_SIGNED || t == TK_UNSIGNED ||
-        t == TK_CHAR || t == TK_BOOL_KW || t == TK_FLOAT_KW || t == TK_DOUBLE_KW) {
+    /* Declaration: type specifier / qualifier / auto / constexpr. */
+    if (zero_cc_tok_is_type_start(c, *pos) || t == TK_AUTO || t == TK_CONSTEXPR) {
         return ctfe_eval_decl(c, pos, end);
     }
-    /* Assignment: `ident = expr;` where ident is a CTFE local or parameter. */
-    if (t == TK_IDENT && *pos + 1 < end && c->tokens[*pos + 1].type == TK_ASSIGN) {
-        const char *name = c->tokens[*pos].str_val;
-        /* Parameters take precedence over locals (searched first). */
-        for (size_t pi = 0; pi < c->ctfe_param_count; pi++) {
-            if (strcmp(c->ctfe_param_names[pi], name) == 0) {
-                (*pos) += 2; /* skip ident and '=' */
-                size_t saved = c->token_pos;
-                c->token_pos = *pos;
-                ZCConstVal val = parse_conditional(c, &c->token_pos);
-                *pos = c->token_pos;
-                c->token_pos = saved;
-                c->ctfe_param_values_i[pi] = val.i;
-                c->ctfe_param_values_r[pi] = val.r;
-                c->ctfe_param_kinds[pi] = (uint8_t)val.kind;
-                if (*pos < end && c->tokens[*pos].type == TK_SEMI) (*pos)++;
-                r.kind = CTF_NORMAL;
-                return r;
-            }
-        }
-        for (size_t li = c->ctfe_local_count; li > 0; li--) {
-            if (strcmp(c->ctfe_local_names[li - 1], name) == 0) {
-                (*pos) += 2; /* skip ident and '=' */
-                size_t saved = c->token_pos;
-                c->token_pos = *pos;
-                ZCConstVal val = parse_conditional(c, &c->token_pos);
-                *pos = c->token_pos;
-                c->token_pos = saved;
-                c->ctfe_local_values_i[li - 1] = val.i;
-                c->ctfe_local_values_r[li - 1] = val.r;
-                c->ctfe_local_kinds[li - 1] = (uint8_t)val.kind;
-                if (*pos < end && c->tokens[*pos].type == TK_SEMI) (*pos)++;
-                r.kind = CTF_NORMAL;
-                return r;
-            }
-        }
-    }
 
-    /* Expression statement. */
+    /* Expression statement (handles assignments, compound assignments,
+     * pre/post inc/dec, pointer stores `*p = ...`, `arr[i] = ...`, etc.). */
     return ctfe_eval_expr_stmt(c, pos, end);
 }
 
@@ -2156,11 +2869,17 @@ ZCConstVal ctfe_eval_body(ZeroCCCompiler *c, size_t start, size_t end) {
     ctfe_push_scope(c);
     ZCConstVal result = zc_cv_int(0);
     while (pos < end) {
+        if (c->tokens[pos].type == TK_RBRACE) {
+            pos++;
+            break;
+        }
+        size_t prev_pos = pos;
         CtfResult r = ctfe_eval_stmt(c, &pos, end);
         if (r.kind == CTF_RETURN) {
             result = r.val;
             break;
         }
+        if (pos == prev_pos) pos++;
     }
     ctfe_pop_scope(c);
     return result;
@@ -2244,14 +2963,24 @@ bool zc_typedef_dim_is_const(ZeroCCCompiler *c, size_t start) {
                 if (p < c->token_count && c->tokens[p].type == TK_IDENT) { p++; continue; }
                 continue;
             }
+            bool call_like = (p + 1 < c->token_count &&
+                              c->tokens[p + 1].type == TK_LPAREN);
+            if (call_like) {
+                ZeroCCFunction *fn = zero_cc_find_function(c, nm);
+                if (fn && fn->is_constexpr) {
+                    p++;
+                    continue;
+                }
+                return false;
+            }
+            ZeroCCGlobalVar *gv = find_global_var(c, nm);
             bool known = (strcmp(nm, "true") == 0 || strcmp(nm, "false") == 0 ||
                           strcmp(nm, "NULL") == 0 || strcmp(nm, "nullptr") == 0 ||
                           strcmp(nm, "__alignof__") == 0 ||
                           zero_cc_find_enum_const(c, nm) != NULL ||
-                          zc_const_global_scalar(c, nm, NULL, NULL, NULL));
-            bool call_like = (p + 1 < c->token_count &&
-                              c->tokens[p + 1].type == TK_LPAREN);
-            if (!known || call_like) return false;
+                          zc_const_global_scalar(c, nm, NULL, NULL, NULL) ||
+                          (gv && (gv->type.tag == TYPE_ARRAY || gv->type.tag == TYPE_PTR)));
+            if (!known) return false;
         }
         p++;
     }

@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-11-13T22:05:34Z
+timestamp: 2026-11-14T01:55:31Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -570,17 +570,19 @@ C23 only permits `constexpr` on data declarations. ZeroCC additionally accepts `
 - **Compiler state** (`types/symbols.h`): `ZeroCCFunction.is_constexpr` records the flag; `constexpr_body_start`/`constexpr_body_end` capture the body's token range at parse time (in `jit/compile.c`).
 - **Constant evaluator** (`parser/const_eval.c`, `parser/init_common.c`): `parse_primary` and `zc_eval_const_fp_primary` detect `TK_IDENT` followed by `TK_LPAREN` where the identifier is a `constexpr` function. Arguments are evaluated as constant expressions, bound to `ctfe_param_values_i/r/kind` (parallel inline arrays), and the function body is evaluated by `ctfe_eval_body`. The body evaluator supports:
   - Blocks (`{ stmt* }`) with block-scoped local variables (shadowing parameters and outer locals via `ctfe_push_scope`/`ctfe_pop_scope`)
-  - Integer and floating-point (`float`/`double`) local variable declarations (`int x = init;`, `float y = init;`, `auto x = init;`)
-  - Assignments to parameters and locals (`x = expr;`)
+  - Integer, floating-point (`float`/`double`), pointer (`const char *`, `int *`, etc.), and local array (`int arr[N] = { ... }`, `char s[] = "..."`) variable declarations (`int x = init;`, `float y = init;`, `auto x = init;`)
+  - Assignments (`=`), compound assignments (`+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`, `^=`, `<<=`, `>>=`), and pre/post increment/decrement (`++`, `--`) on parameters, locals, array subscripts (`arr[i] = ...`, `arr[i]++`), and dereferenced pointers (`*p = ...`, `*p += ...`, `++*p`, `*p++ = ...`)
+  - First-class CTFE pointer values (`ZC_CV_PTR` in `parser/const_eval.h`) carrying `(uint8_t *ptr, uint32_t ptr_elem_size, uint8_t ptr_elem_tag)` across string literals (including adjacent literal concatenation), file-scope global arrays/pointers (`c->data_section`), compound literals (`(const int[]){1, 2, 3}`), local arrays (`ctfe_local_bufs`), and address-taken scalar locals/parameters (`&x`, `&arr[i]`)
+  - Pointer arithmetic (`p + i`, `i + p`, `p - i`), pointer difference (`p - q` scaled by `ptr_elem_size`), pointer comparisons (`==`, `!=`, `<`, `<=`, `>`, `>=`, `!p`, `nullptr`/`NULL`), subscripting (`p[i]`, `i[p]`), dereferencing (`*p`), and `constexpr` functions returning pointers (including file-scope pointer relocation emission in `jit/compile_unit.c`)
   - `if`/`else` statements with compile-time condition evaluation
   - `while` loops with iteration cap (100000) to prevent infinite CTFE loops
   - `for` loops (`for (init; cond; incr) body`) with the same iteration cap
-  - `return <expr>;` statements (with cast to function return type)
+  - `return <expr>;` and `return;` (void) statements (with cast to function return type)
   - `break`/`continue` within loops
-  - Parameter and local variable references in expressions
-  - Nested constexpr function calls
-  - Initializers in file-scope data declarations (both integer and scalar float/double contexts)
-- **Limitation**: Complex control flow beyond if/else/while/for is not yet supported. Pointers in CTFE bodies are limited to addresses and integer conversions (no pointer dereferencing in CTFE bodies yet).
+  - Parameter and local variable references in expressions (scoped per call frame via `ctfe_local_base`)
+  - Nested constexpr function calls (including mutating caller locals via pointer out-parameters like `cx_swap(&v[0], &v[3])`)
+  - Initializers in file-scope data declarations and constant array dimension expressions (`int arr[cx_strlen("...")];`)
+- **Limitation**: Complex control flow beyond if/else/while/for (`switch`/`goto`) and struct/union member mutation inside CTFE bodies are not yet supported.
 
 ## Modern C23 Standard Features (Sprint 179)
 

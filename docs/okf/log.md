@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-13T22:46:58Z
+timestamp: 2026-11-14T01:55:31Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1446,3 +1446,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-13 — Updated `dwarf-debug-info.md`
 - Sprint 179: DWARF 4 debug information (-g) for GDB/LLDB
+
+## 2026-11-14 — Updated `frontend-and-types.md`
+- Add pointer, string literal, and array support in C23 constexpr CTFE (ZC_CV_PTR)

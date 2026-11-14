@@ -729,7 +729,12 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                     }
                     continue;
                 }
-                if (is_type_specifier_at(c, probe, pt)) { probe++; continue; }
+                if (is_type_specifier_at(c, probe, pt) ||
+                    pt == TK_STAR || pt == TK_CONST ||
+                    pt == TK_VOLATILE || pt == TK_RESTRICT) {
+                    probe++;
+                    continue;
+                }
                 break;
             }
             bool is_typedef = (probe < c->token_count &&
@@ -2459,7 +2464,9 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                 }
                             }
                             } else if (it == TK_IDENT && !has_array_suffix &&
-                                       (gtype.tag == TYPE_PTR || ptr_depth > 0)) {
+                                       (gtype.tag == TYPE_PTR || ptr_depth > 0) &&
+                                       !(c->token_pos + 1 < c->token_count &&
+                                         c->tokens[c->token_pos + 1].type == TK_LPAREN)) {
                                 /* Bare global reference as a pointer
                                  * initializer: `int *p = arr;` (an array
                                  * decays to its address) or `int **q = f;`
@@ -2603,13 +2610,51 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                     } else {
                                         c->token_pos = cpe_save;
                                         ZCConstVal cv = zero_cc_eval_const_expr_val(c);
-                                        init_val = cv.i;
-                                        /* 128-bit initializer: the constant
-                                         * evaluator tracks the high half (Sprint
-                                         * 109), so `X + (Y << 64)` keeps Y in
-                                         * the high 64 bits instead of folding
-                                         * the shift away. */
-                                        if (cv.w128) init_hi = cv.hi;
+                                        if (cv.kind == ZC_CV_PTR &&
+                                            (gtype.tag == TYPE_PTR || ptr_depth > 0)) {
+                                            zero_cc_emit_u64(&c->data_section, 0);
+                                            if (cv.ptr && c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
+                                                const uint8_t *dbase = (const uint8_t *)c->data_section.data;
+                                                const uint8_t *dend = dbase + c->data_section.length;
+                                                ZeroCCDataReloc *dr = &c->data_relocs[c->data_reloc_count++];
+                                                memset(dr, 0, sizeof(*dr));
+                                                dr->data_patch_offset = var_offset;
+                                                dr->target_global_idx = -1;
+                                                if (dbase && cv.ptr >= dbase && cv.ptr < dend) {
+                                                    size_t off = (size_t)(cv.ptr - dbase);
+                                                    int gidx = -1;
+                                                    for (size_t gi = 0; gi < c->global_var_count; gi++) {
+                                                        ZeroCCGlobalVar *gv = &c->global_vars[gi];
+                                                        if (off >= gv->data_offset &&
+                                                            off <= gv->data_offset + gv->size) {
+                                                            gidx = (int)gi;
+                                                            break;
+                                                        }
+                                                    }
+                                                    dr->target_kind = 1;
+                                                    dr->target_data_offset = off;
+                                                    dr->target_global_idx = gidx;
+                                                } else {
+                                                    size_t ro_off = c->rodata_section.length;
+                                                    size_t slen = strlen((const char *)cv.ptr);
+                                                    zero_cc_buf_put_bytes(&c->rodata_section, cv.ptr, slen + 1);
+                                                    dr->target_kind = 0;
+                                                    dr->rodata_offset = ro_off;
+                                                    dr->target_data_offset = 0;
+                                                }
+                                            }
+                                            size = 8;
+                                            ptr_reloc_emitted = true;
+                                            init_val = 0;
+                                        } else {
+                                            init_val = cv.i;
+                                            /* 128-bit initializer: the constant
+                                             * evaluator tracks the high half (Sprint
+                                             * 109), so `X + (Y << 64)` keeps Y in
+                                             * the high 64 bits instead of folding
+                                             * the shift away. */
+                                            if (cv.w128) init_hi = cv.hi;
+                                        }
                                     }
                                 }
                                 if (!ptr_reloc_emitted) {

@@ -161,22 +161,30 @@ void zero_cc_compiler_free(ZeroCCCompiler *c) {
         c->enum_const_count = 0;
     }
 
-    /* C23 constexpr: local variable environment (strdup'd names). */
+    /* C23 constexpr: local variable environment (strdup'd names + array buffers). */
     for (size_t i = 0; i < c->ctfe_local_count; i++) {
         free((void *)c->ctfe_local_names[i]);
+        if (c->ctfe_local_bufs) free(c->ctfe_local_bufs[i]);
     }
     free(c->ctfe_local_names);
     free(c->ctfe_local_values_i);
     free(c->ctfe_local_values_r);
     free(c->ctfe_local_kinds);
+    free(c->ctfe_local_elem_sizes);
+    free(c->ctfe_local_elem_tags);
+    free(c->ctfe_local_bufs);
     free(c->ctfe_scope_stack);
     c->ctfe_local_names = NULL;
     c->ctfe_local_values_i = NULL;
     c->ctfe_local_values_r = NULL;
     c->ctfe_local_kinds = NULL;
+    c->ctfe_local_elem_sizes = NULL;
+    c->ctfe_local_elem_tags = NULL;
+    c->ctfe_local_bufs = NULL;
     c->ctfe_scope_stack = NULL;
     c->ctfe_local_count = 0;
     c->ctfe_local_cap = 0;
+    c->ctfe_local_base = 0;
     c->ctfe_scope_count = 0;
     c->ctfe_scope_cap = 0;
     /* ctfe_param_values_i/r/kind are inline arrays — nothing to free. */

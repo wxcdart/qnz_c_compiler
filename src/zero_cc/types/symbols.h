@@ -393,6 +393,8 @@ typedef struct ZeroCCCompiler {
     int64_t ctfe_param_values_i[16];
     double ctfe_param_values_r[16];
     uint8_t ctfe_param_kinds[16];
+    uint32_t ctfe_param_elem_sizes[16];
+    uint8_t ctfe_param_elem_tags[16];
     size_t ctfe_param_count;
 
     /* C23 constexpr: local variable environment during CTFE evaluation.
@@ -405,8 +407,12 @@ typedef struct ZeroCCCompiler {
     int64_t *ctfe_local_values_i;
     double *ctfe_local_values_r;
     uint8_t *ctfe_local_kinds;
+    uint32_t *ctfe_local_elem_sizes;
+    uint8_t *ctfe_local_elem_tags;
+    uint8_t **ctfe_local_bufs;
     size_t ctfe_local_count;
     size_t ctfe_local_cap;
+    size_t ctfe_local_base;
     size_t *ctfe_scope_stack;
     size_t ctfe_scope_count;
     size_t ctfe_scope_cap;
