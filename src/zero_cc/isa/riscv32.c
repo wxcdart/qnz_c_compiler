@@ -19,30 +19,242 @@
  * large frames); defined in riscv64.c. */
 extern void riscv64_emit_mov_imm(ZeroCCCompiler *c, int dst_reg, int64_t imm);
 
-/* Sprint 170 (rv32 i64): the 64-bit (lo,hi) pair emitters, defined in
- * riscv64.c (shared MC code) and installed on the RV32 vtable below. */
-extern void riscv64_emit_add64(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi);
-extern void riscv64_emit_sub64(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi);
-extern void riscv64_emit_mul64(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi);
-extern void riscv64_emit_and64(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi);
-extern void riscv64_emit_or64(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi);
-extern void riscv64_emit_xor64(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi);
-extern void riscv64_emit_not64(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi);
-extern void riscv64_emit_neg64(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi);
-extern void riscv64_emit_shl64(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi, int cnt);
-extern void riscv64_emit_shr64(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi, int cnt);
-extern void riscv64_emit_sar64(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi, int cnt);
-extern void riscv64_emit_cmp64(ZeroCCCompiler *c, int a_lo, int a_hi, int b_lo, int b_hi);
-extern void riscv64_emit_mov64(ZeroCCCompiler *c, int dlo, int dhi, int s_lo, int s_hi);
-extern void riscv64_emit_load64(ZeroCCCompiler *c, int dlo, int dhi, int base, int32_t offset);
-extern void riscv64_emit_store64(ZeroCCCompiler *c, int s_lo, int s_hi, int base, int32_t offset);
-extern void riscv64_emit_zext32_64(ZeroCCCompiler *c, int dlo, int dhi, int src);
-extern void riscv64_emit_sext32_64(ZeroCCCompiler *c, int dlo, int dhi, int src);
-extern void riscv64_emit_trunc64_32(ZeroCCCompiler *c, int dst, int s_lo, int s_hi);
-extern void riscv64_emit_mov64_imm(ZeroCCCompiler *c, int dlo, int dhi, int64_t imm);
-extern void riscv32_emit_ovf_trap64(ZeroCCCompiler *c, int rlo, int rhi,
-                                    int alo, int ahi, int blo, int bhi,
-                                    int width, int op);
+/* Sprint 170 (rv32 i64): the 64-bit (lo,hi) pair emitters, installed on
+ * the RV32 vtable below. */
+#define RV64_T2 7   /* reserved 64-bit-op scratch (Sprint 170; unallocatable on rv32) */
+
+void riscv64_emit_add64(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi) {
+    riscv64_emit_add(c, RV64_T0, alo, blo);
+    riscv_emit_u32(c, rv64_R(RV_REG(RV64_T2), RV_REG(RV64_T0), RV_REG(alo), 3, 0)); /* sltu t2, t0, alo */
+    riscv64_emit_add(c, dhi, ahi, bhi);
+    riscv64_emit_add(c, dhi, dhi, RV64_T2);
+    riscv64_emit_mov_reg(c, dlo, RV64_T0);
+}
+
+void riscv64_emit_sub64(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi) {
+    riscv_emit_u32(c, rv64_R(RV_REG(RV64_T0), RV_REG(alo), RV_REG(blo), 3, 0)); /* sltu t0, alo, blo */
+    riscv64_emit_sub(c, dlo, alo, blo);
+    riscv64_emit_sub(c, dhi, ahi, bhi);
+    riscv64_emit_sub(c, dhi, dhi, RV64_T0);
+}
+
+void riscv64_emit_mul64(ZeroCCCompiler *c, int dlo, int dhi, int alo, int a_hi, int blo, int bhi) {
+    riscv64_emit_mul(c, dlo, alo, blo);
+    riscv_emit_u32(c, rv64_R(RV_REG(RV64_T0), RV_REG(alo), RV_REG(blo), 3, 1));
+    riscv_emit_u32(c, rv64_R(RV_REG(RV64_T5), RV_REG(a_hi), RV_REG(blo), 0, 1));
+    riscv_emit_u32(c, rv64_R(RV_REG(RV64_T2), RV_REG(alo), RV_REG(bhi), 0, 1));
+    riscv64_emit_add(c, RV64_T0, RV64_T0, RV64_T5);
+    riscv64_emit_add(c, RV64_T0, RV64_T0, RV64_T2);
+    riscv64_emit_mov_reg(c, dhi, RV64_T0);
+}
+
+void riscv64_emit_and64(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi) {
+    riscv64_emit_and(c, dlo, alo, blo); riscv64_emit_and(c, dhi, ahi, bhi);
+}
+void riscv64_emit_or64(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi) {
+    riscv64_emit_or(c, dlo, alo, blo); riscv64_emit_or(c, dhi, ahi, bhi);
+}
+void riscv64_emit_xor64(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi) {
+    riscv64_emit_xor(c, dlo, alo, blo); riscv64_emit_xor(c, dhi, ahi, bhi);
+}
+void riscv64_emit_not64(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi) {
+    riscv_emit_u32(c, rv64_I(RV_REG(dlo), RV_REG(slo), 4, -1, 0x13));
+    riscv_emit_u32(c, rv64_I(RV_REG(dhi), RV_REG(shi), 4, -1, 0x13));
+}
+void riscv64_emit_neg64(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi) {
+    riscv64_emit_sub(c, dlo, 0, slo);
+    riscv_emit_u32(c, rv64_I(RV_REG(RV64_T0), RV_REG(dlo), 3, 1, 0x13));
+    riscv_emit_u32(c, rv64_I(RV_REG(dhi), RV_REG(shi), 4, -1, 0x13));
+    riscv64_emit_add(c, dhi, dhi, RV64_T0);
+}
+
+void riscv64_emit_shl64(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi, int cnt) {
+    riscv_emit_u32(c, rv64_I(RV_REG(RV64_T5), 0, 0, 32, 0x13));
+    riscv_emit_u32(c, rv64_B(RV_REG(cnt), RV64_T5, 4, 40));
+    riscv_emit_u32(c, rv64_I(RV_REG(RV64_T5), 0, 0, 64, 0x13));
+    riscv_emit_u32(c, rv64_B(RV_REG(cnt), RV64_T5, 4, 16));
+    riscv_emit_u32(c, rv64_I(RV_REG(dlo), 0, 0, 0, 0x13));
+    riscv_emit_u32(c, rv64_I(RV_REG(dhi), 0, 0, 0, 0x13));
+    riscv_emit_u32(c, rv64_J(0, 56));
+    riscv_emit_u32(c, rv64_I(RV_REG(dlo), 0, 0, 0, 0x13));
+    riscv_emit_u32(c, rv64_R(RV_REG(RV64_T5), RV_REG(cnt), RV64_T5, 0, 0x20));
+    riscv_emit_u32(c, rv64_R(RV_REG(dhi), RV_REG(slo), RV_REG(RV64_T5), 1, 0));
+    riscv_emit_u32(c, rv64_J(0, 40));
+    riscv_emit_u32(c, rv64_R(RV_REG(RV64_T5), RV64_T5, RV_REG(cnt), 0, 0x20));
+    riscv_emit_u32(c, rv64_R(RV_REG(RV64_T2), RV_REG(slo), RV_REG(RV64_T5), 5, 0));
+    riscv_emit_u32(c, rv64_R(RV_REG(dlo), RV_REG(slo), RV_REG(cnt), 1, 0));
+    riscv_emit_u32(c, rv64_R(RV_REG(dhi), RV_REG(shi), RV_REG(cnt), 1, 0));
+    riscv_emit_u32(c, rv64_I(RV_REG(RV64_T0), RV_REG(cnt), 0, -1, 0x13));
+    riscv_emit_u32(c, rv64_I(RV_REG(RV64_T0), RV_REG(RV64_T0), 5, 31, 0x13) | (1u << 30));
+    riscv_emit_u32(c, rv64_I(RV_REG(RV64_T0), RV_REG(RV64_T0), 4, -1, 0x13));
+    riscv_emit_u32(c, rv64_R(RV_REG(RV64_T2), RV_REG(RV64_T2), RV_REG(RV64_T0), 7, 0));
+    riscv_emit_u32(c, rv64_R(RV_REG(dhi), RV_REG(dhi), RV_REG(RV64_T2), 6, 0));
+}
+
+void riscv64_emit_shr64(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi, int cnt) {
+    riscv_emit_u32(c, rv64_I(RV_REG(RV64_T5), 0, 0, 32, 0x13));
+    riscv_emit_u32(c, rv64_B(RV_REG(cnt), RV64_T5, 4, 40));
+    riscv_emit_u32(c, rv64_I(RV_REG(RV64_T5), 0, 0, 64, 0x13));
+    riscv_emit_u32(c, rv64_B(RV_REG(cnt), RV64_T5, 4, 16));
+    riscv_emit_u32(c, rv64_I(RV_REG(dlo), 0, 0, 0, 0x13));
+    riscv_emit_u32(c, rv64_I(RV_REG(dhi), 0, 0, 0, 0x13));
+    riscv_emit_u32(c, rv64_J(0, 56));
+    riscv_emit_u32(c, rv64_I(RV_REG(dhi), 0, 0, 0, 0x13));
+    riscv_emit_u32(c, rv64_R(RV_REG(RV64_T5), RV_REG(cnt), RV64_T5, 0, 0x20));
+    riscv_emit_u32(c, rv64_R(RV_REG(dlo), RV_REG(shi), RV_REG(RV64_T5), 5, 0));
+    riscv_emit_u32(c, rv64_J(0, 40));
+    riscv_emit_u32(c, rv64_R(RV_REG(RV64_T5), RV64_T5, RV_REG(cnt), 0, 0x20));
+    riscv_emit_u32(c, rv64_R(RV_REG(RV64_T2), RV_REG(shi), RV_REG(RV64_T5), 1, 0));
+    riscv_emit_u32(c, rv64_R(RV_REG(dlo), RV_REG(slo), RV_REG(cnt), 5, 0));
+    riscv_emit_u32(c, rv64_R(RV_REG(dhi), RV_REG(shi), RV_REG(cnt), 5, 0));
+    riscv_emit_u32(c, rv64_I(RV_REG(RV64_T5), RV_REG(cnt), 0, -1, 0x13));
+    riscv_emit_u32(c, rv64_I(RV_REG(RV64_T5), RV_REG(RV64_T5), 5, 31, 0x13) | (1u << 30));
+    riscv_emit_u32(c, rv64_I(RV_REG(RV64_T5), RV_REG(RV64_T5), 4, -1, 0x13));
+    riscv_emit_u32(c, rv64_R(RV_REG(RV64_T2), RV_REG(RV64_T2), RV_REG(RV64_T5), 7, 0));
+    riscv_emit_u32(c, rv64_R(RV_REG(dlo), RV_REG(dlo), RV_REG(RV64_T2), 6, 0));
+}
+
+void riscv64_emit_sar64(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi, int cnt) {
+    riscv_emit_u32(c, rv64_I(RV_REG(RV64_T5), 0, 0, 32, 0x13));
+    riscv_emit_u32(c, rv64_B(RV_REG(cnt), RV64_T5, 4, 40));
+    riscv_emit_u32(c, rv64_I(RV_REG(RV64_T5), 0, 0, 64, 0x13));
+    riscv_emit_u32(c, rv64_B(RV_REG(cnt), RV64_T5, 4, 16));
+    riscv_emit_u32(c, rv64_I(RV_REG(dlo), RV_REG(shi), 5, 31, 0x13) | (1u << 30));
+    riscv_emit_u32(c, rv64_I(RV_REG(dhi), RV_REG(shi), 5, 31, 0x13) | (1u << 30));
+    riscv_emit_u32(c, rv64_J(0, 56));
+    riscv_emit_u32(c, rv64_R(RV_REG(RV64_T5), RV_REG(cnt), RV64_T5, 0, 0x20));
+    riscv_emit_u32(c, rv64_R(RV_REG(dlo), RV_REG(shi), RV_REG(RV64_T5), 5, 0x20));
+    riscv_emit_u32(c, rv64_I(RV_REG(dhi), RV_REG(shi), 5, 31, 0x13) | (1u << 30));
+    riscv_emit_u32(c, rv64_J(0, 40));
+    riscv_emit_u32(c, rv64_R(RV_REG(RV64_T5), RV64_T5, RV_REG(cnt), 0, 0x20));
+    riscv_emit_u32(c, rv64_R(RV_REG(RV64_T2), RV_REG(shi), RV_REG(RV64_T5), 1, 0));
+    riscv_emit_u32(c, rv64_R(RV_REG(dhi), RV_REG(shi), RV_REG(cnt), 5, 0x20));
+    riscv_emit_u32(c, rv64_R(RV_REG(dlo), RV_REG(slo), RV_REG(cnt), 5, 0));
+    riscv_emit_u32(c, rv64_I(RV_REG(RV64_T5), RV_REG(cnt), 0, -1, 0x13));
+    riscv_emit_u32(c, rv64_I(RV_REG(RV64_T5), RV_REG(RV64_T5), 5, 31, 0x13) | (1u << 30));
+    riscv_emit_u32(c, rv64_I(RV_REG(RV64_T5), RV_REG(RV64_T5), 4, -1, 0x13));
+    riscv_emit_u32(c, rv64_R(RV_REG(RV64_T2), RV_REG(RV64_T2), RV_REG(RV64_T5), 7, 0));
+    riscv_emit_u32(c, rv64_R(RV_REG(dlo), RV_REG(dlo), RV_REG(RV64_T2), 6, 0));
+}
+
+void riscv64_emit_cmp64(ZeroCCCompiler *c, int a_lo, int a_hi, int b_lo, int b_hi) {
+    c->lowering.cmp_is_64 = 1;
+    c->lowering.cmp64_s1_lo = a_lo; c->lowering.cmp64_s1_hi = a_hi;
+    c->lowering.cmp64_s2_lo = b_lo; c->lowering.cmp64_s2_hi = b_hi;
+}
+
+void riscv64_emit_mov64(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi) {
+    riscv64_emit_mov_reg(c, dlo, slo); riscv64_emit_mov_reg(c, dhi, shi);
+}
+
+void riscv64_emit_load64(ZeroCCCompiler *c, int dlo, int dhi, int base, int32_t offset) {
+    if (dlo == base) {
+        riscv64_emit_load(c, dhi, base, offset + 4);
+        riscv64_emit_load(c, dlo, base, offset);
+    } else {
+        riscv64_emit_load(c, dlo, base, offset);
+        riscv64_emit_load(c, dhi, base, offset + 4);
+    }
+}
+
+void riscv64_emit_store64(ZeroCCCompiler *c, int slo, int shi, int base, int32_t offset) {
+    riscv64_emit_store(c, slo, base, offset);
+    riscv64_emit_store(c, shi, base, offset + 4);
+}
+
+void riscv64_emit_zext32_64(ZeroCCCompiler *c, int dlo, int dhi, int src) {
+    riscv64_emit_mov_reg(c, dlo, src);
+    riscv64_emit_mov_imm(c, dhi, 0);
+}
+
+void riscv64_emit_sext32_64(ZeroCCCompiler *c, int dlo, int dhi, int src) {
+    riscv64_emit_mov_reg(c, dlo, src);
+    riscv64_emit_mov_reg(c, dhi, src);
+    riscv_emit_u32(c, rv64_I(RV_REG(dhi), RV_REG(dhi), 5, 31, 0x13) | (1u << 30));
+}
+
+void riscv64_emit_trunc64_32(ZeroCCCompiler *c, int dst, int slo, int shi) {
+    (void)shi;
+    riscv64_emit_mov_reg(c, dst, slo);
+}
+
+void riscv64_emit_mov64_imm(ZeroCCCompiler *c, int dlo, int dhi, int64_t imm) {
+    riscv64_emit_mov_imm(c, dlo, (int32_t)(imm & 0xFFFFFFFFLL));
+    riscv64_emit_mov_imm(c, dhi, (int32_t)((uint64_t)imm >> 32));
+}
+
+void riscv32_emit_ovf_trap64(ZeroCCCompiler *c, int rlo, int rhi,
+                             int alo, int ahi, int blo, int bhi,
+                             int width, int op) {
+    int skip = c->sanitize_report ? 24 : 8;
+
+    if (op == ZC_OVF_OP_DIV_ZERO || op == ZC_OVF_OP_REM_ZERO) {
+        riscv64_emit_or(c, RV64_T0, rlo, rhi);
+        riscv_emit_u32(c, rv64_B(RV64_T0, 0, 1, skip));
+        if (c->sanitize_report) riscv64_emit_san_report_block(c, rlo, width, op);
+        riscv_emit_u32(c, 0xC0001073u);
+        return;
+    }
+    if (op == ZC_OVF_OP_SHIFT_COUNT) {
+        riscv_emit_u32(c, rv64_I(RV_REG(RV64_T5), 0, 0, width * 8, 0x13));
+        riscv_emit_u32(c, rv64_B(RV_REG(rlo), 0, 5, skip));
+        if (c->sanitize_report) riscv64_emit_san_report_block(c, rlo, width, op);
+        riscv_emit_u32(c, 0xC0001073u);
+        riscv_emit_u32(c, rv64_B(RV_REG(rlo), RV64_T5, 4, skip));
+        if (c->sanitize_report) riscv64_emit_san_report_block(c, rlo, width, op);
+        riscv_emit_u32(c, 0xC0001073u);
+        return;
+    }
+    if (op == ZC_OVF_OP_ADD) {
+        riscv64_emit_xor(c, RV64_T0, ahi, rhi);
+        riscv64_emit_xor(c, RV64_T2, bhi, rhi);
+        riscv64_emit_and(c, RV64_T0, RV64_T0, RV64_T2);
+        riscv_emit_u32(c, rv64_B(RV64_T0, 0, 5, skip));
+        if (c->sanitize_report) riscv64_emit_san_report_block(c, rlo, width, op);
+        riscv_emit_u32(c, 0xC0001073u);
+        return;
+    }
+    if (op == ZC_OVF_OP_SUB) {
+        riscv64_emit_xor(c, RV64_T0, rhi, ahi);
+        riscv64_emit_xor(c, RV64_T2, ahi, bhi);
+        riscv64_emit_and(c, RV64_T0, RV64_T0, RV64_T2);
+        riscv_emit_u32(c, rv64_B(RV64_T0, 0, 5, skip));
+        if (c->sanitize_report) riscv64_emit_san_report_block(c, rlo, width, op);
+        riscv_emit_u32(c, 0xC0001073u);
+        return;
+    }
+    if (op == ZC_OVF_OP_MUL) {
+        int trap_size = c->sanitize_report ? 20 : 4;
+        riscv_emit_u32(c, rv64_I(RV_REG(RV64_T0), RV_REG(alo), 5, 31, 0x13) | (1u << 30));
+        riscv_emit_u32(c, rv64_B(RV_REG(ahi), RV64_T0, 1, 12));
+        riscv_emit_u32(c, rv64_I(RV_REG(RV64_T0), RV_REG(blo), 5, 31, 0x13) | (1u << 30));
+        riscv_emit_u32(c, rv64_B(RV_REG(bhi), RV64_T0, 0, 68 + trap_size));
+
+        riscv_emit_u32(c, rv64_R(RV_REG(RV64_T0), RV_REG(alo), RV_REG(blo), 3, 1));
+        riscv_emit_u32(c, rv64_R(RV_REG(RV64_T2), RV_REG(ahi), RV_REG(blo), 0, 1));
+        riscv64_emit_add(c, RV64_T0, RV64_T0, RV64_T2);
+        riscv_emit_u32(c, rv64_R(RV_REG(RV64_T5), RV_REG(RV64_T0), RV_REG(RV64_T2), 3, 0));
+        riscv_emit_u32(c, rv64_R(RV_REG(RV64_T2), RV_REG(alo), RV_REG(bhi), 0, 1));
+        riscv64_emit_add(c, RV64_T0, RV64_T0, RV64_T2);
+        riscv_emit_u32(c, rv64_R(RV_REG(RV64_T2), RV_REG(RV64_T0), RV_REG(RV64_T2), 3, 0));
+        riscv64_emit_add(c, RV64_T5, RV64_T5, RV64_T2);
+        riscv_emit_u32(c, rv64_R(RV_REG(RV64_T0), RV_REG(ahi), RV_REG(blo), 2, 1));
+        riscv_emit_u32(c, rv64_R(RV_REG(RV64_T2), RV_REG(bhi), RV_REG(alo), 2, 1));
+        riscv64_emit_add(c, RV64_T0, RV64_T0, RV64_T2);
+        riscv_emit_u32(c, rv64_R(RV_REG(RV64_T2), RV_REG(ahi), RV_REG(bhi), 0, 1));
+        riscv64_emit_add(c, RV64_T0, RV64_T0, RV64_T2);
+        riscv64_emit_add(c, RV64_T0, RV64_T0, RV64_T5);
+
+        riscv_emit_u32(c, rv64_I(RV_REG(RV64_T2), RV_REG(rhi), 5, 31, 0x13) | (1u << 30));
+        riscv_emit_u32(c, rv64_B(RV64_T0, RV64_T2, 0, 4 + trap_size));
+
+        if (c->sanitize_report) riscv64_emit_san_report_block(c, rlo, width, op);
+        riscv_emit_u32(c, 0xC0001073u);
+        return;
+    }
+}
+
+#undef RV64_T2
 
 /* RISC-V 32-bit calling convention (similar but different register sizes) */
 static const int riscv32_int_arg_regs[] = {10, 11, 12, 13, 14, 15, 16, 17};  /* a0-a7 */

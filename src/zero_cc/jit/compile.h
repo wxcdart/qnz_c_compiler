@@ -36,4 +36,15 @@ bool zero_cc_parse_fn_declarator(ZeroCCCompiler *c, SemContext *ctx,
 /* Compile one function (params + body lowering + emission + nested fns). */
 void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm);
 
+/* File-scope declaration helpers (moved from compile_unit.c). */
+bool zero_cc_struct_def_is_fn(ZeroCCCompiler *c);
+bool zc_constexpr_not_data(ZeroCCCompiler *c);
+void zero_cc_emit_scalar_bytes(ZeroCCBuffer *b, size_t width, uint64_t bits);
+bool zero_cc_tk_def_via_aligned_marker(const ZeroCCCompiler *c, size_t idx);
+bool zc_filescope_struct_def_at(ZeroCCCompiler *c, size_t pos);
+bool zc_filescope_enum_def_at(ZeroCCCompiler *c, size_t pos);
+bool zero_cc_compile_top_level_decl(ZeroCCCompiler *c);
+bool zc_unparen_declarator(ZeroCCCompiler *c);
+void zero_cc_decl_thread_local(ZeroCCCompiler *c, SemContext *shared_ctx, Arena *perm, bool is_static_in);
+
 #endif /* ZERO_CC_JIT_COMPILE_H */

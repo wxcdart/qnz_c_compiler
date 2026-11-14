@@ -448,7 +448,7 @@ static inline void zc_store_low_bytes(ZeroCCCompiler *c, int val, int base_addr,
     }
 }
 
-static void zc_emit_mem_copy(ZeroCCCompiler *c, int src, int dst, size_t n) {
+static inline void zc_emit_mem_copy(ZeroCCCompiler *c, int src, int dst, size_t n) {
     if (n == 0) return;
     size_t full = n / 8;
     size_t tail = n % 8;
@@ -841,6 +841,40 @@ struct ZCAtomicBuiltinEntry {
     ZCAtomicKind  kind;
 };
 extern const struct ZCAtomicBuiltinEntry zc_atomic_builtin_table[37];  /* defined in ast_lowering_builtin_helpers.c; count must match */
+typedef struct {
+    int64_t cont_start;    /* enclosing-object start (outer-object frame)  */
+    int64_t cont_size;     /* enclosing-object size                        */
+    int64_t off;           /* pointer offset in the same frame             */
+    int64_t ptr_esz;       /* pointee size for further ptr-arith/index     */
+    const ZeroCCType *elem;      /* current array element type (NULL)      */
+    const ZeroCCType *cont_struct; /* enclosing struct/union type for a
+                                    * further member lookup (NULL)         */
+} ZcObjInfo;
+
+bool zc_node_is_const_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
+bool zc_objsize_walk(ZeroCCCompiler *c, ZeroCCASTArena *arena,
+                     ZeroCCASTNode *n, ZcObjInfo *o);
+int64_t zc_objsize_value(const ZcObjInfo *o);
+bool zc_objsize_fold(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *call, int64_t *out);
+int zc_cx_builtin_kind(const char *name);
+void zc_cx_elem_info(ZeroCCCompiler *c, const ZeroCCASTNode *cx_node,
+                     const char *name, size_t *out_esz,
+                     bool *out_fp, bool *out_u, bool *out_known);
+bool zc_fp_special_suffix(const char *sfx);
+
+void emit_mc_call(ZeroCCCompiler *c, size_t i, const Instr *instr,
+                  int32_t spill_base_offset, int *call_idx);
+
+void lower_stmt_if(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node);
+void lower_stmt_while(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node);
+void lower_stmt_do_while(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node);
+void lower_stmt_for(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node);
+void lower_stmt_switch(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node);
+void lower_stmt_break(ZeroCCCompiler *c, ZeroCCASTArena *arena);
+void lower_stmt_continue(ZeroCCCompiler *c, ZeroCCASTArena *arena);
+void lower_stmt_label(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node);
+void lower_stmt_goto(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node);
+
 uint16_t get_or_create_user_ir_label(ZeroCCCompiler *c, const char *name);
 void zc_mc_record_or_patch_label(ZeroCCCompiler *c, size_t patch_pos, uint16_t label_idx);
 

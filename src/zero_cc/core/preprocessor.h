@@ -77,6 +77,15 @@ bool zero_cc_cpp_write_dep_file(ZeroCCPreprocessor *cpp, const char *dep_file);
 bool zero_cc_cpp_handle_pragma(ZeroCCPreprocessor *cpp, const char *text, size_t len);
 void zero_cc_cpp_publish_diag_state(ZeroCCPreprocessor *cpp);
 int64_t zero_cc_cpp_eval_expr(ZeroCCPreprocessor *cpp, const char *expr);
+char *zero_cc_cpp_capture_paren_tokens(const char **pp);
+bool zero_cc_cpp_is_macro_defined(ZeroCCPreprocessor *cpp, const char *name);
+unsigned char *zero_cc_cpp_read_binary_resource(ZeroCCPreprocessor *cpp,
+                                                const char *asset_path,
+                                                bool is_sys,
+                                                size_t *out_sz,
+                                                char *resolved_out,
+                                                size_t resolved_cap);
+char *zero_cc_cpp_capture_define_value(ZeroCCPreprocessor *cpp, const char **pp);
 void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBuffer *out);
 
 /* Top-level preprocessing entry points */

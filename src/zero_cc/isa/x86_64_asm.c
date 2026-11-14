@@ -891,7 +891,14 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
         }
         fprintf(out, "\tcall\t*%%r11\n");
     } else {
-        if (fp_arg_idx > 0) {
+        bool need_variadic_al = true;
+        if (func_name) {
+            const ZeroCCFunction *callee_fn = zero_cc_find_function_by_symbol(c, func_name);
+            if (callee_fn && callee_fn->has_prototype && !callee_fn->is_variadic) {
+                need_variadic_al = false;
+            }
+        }
+        if (need_variadic_al && fp_arg_idx > 0) {
             fprintf(out, "\tmovb\t$%d, %%al\n", fp_arg_idx);
         }
         fprintf(out, "\tcall\t%s\n", func_name);

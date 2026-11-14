@@ -10,7 +10,7 @@
 
 /* RISC-V RV64 backend implementation */
 void riscv64_emit_mov_imm(ZeroCCCompiler *c, int dst_reg, int64_t imm);  /* fwd (big frames); extern: also used by riscv32.c prologue */
-static void riscv64_emit_mov_reg(ZeroCCCompiler *c, int dst, int src);           /* fwd */
+void riscv64_emit_mov_reg(ZeroCCCompiler *c, int dst, int src);          /* fwd */
 static void riscv64_emit_leave(ZeroCCCompiler *c);                               /* fwd */
 
 static void riscv64_emit_prologue(ZeroCCCompiler *c, size_t stack_size, uint32_t callee_save_mask) {
@@ -207,15 +207,15 @@ void riscv64_emit_mov_imm(ZeroCCCompiler *c, int dst_reg, int64_t imm) {
     }
 }
 
-static void riscv64_emit_add(ZeroCCCompiler *c, int dst, int src1, int src2) {
+void riscv64_emit_add(ZeroCCCompiler *c, int dst, int src1, int src2) {
     riscv_emit_u32(c, rv64_R(RV_REG(dst), RV_REG(src1), RV_REG(src2), 0, 0));
 }
 
-static void riscv64_emit_sub(ZeroCCCompiler *c, int dst, int src1, int src2) {
+void riscv64_emit_sub(ZeroCCCompiler *c, int dst, int src1, int src2) {
     riscv_emit_u32(c, rv64_R(RV_REG(dst), RV_REG(src1), RV_REG(src2), 0, 0x20));
 }
 
-static void riscv64_emit_mul(ZeroCCCompiler *c, int dst, int src1, int src2) {
+void riscv64_emit_mul(ZeroCCCompiler *c, int dst, int src1, int src2) {
     riscv_emit_u32(c, rv64_R(RV_REG(dst), RV_REG(src1), RV_REG(src2), 0, 1));
 }
 
@@ -225,15 +225,15 @@ static void riscv64_emit_div(ZeroCCCompiler *c, int dst, int src1, int src2) {
     riscv_emit_u32(c, rv64_R(RV_REG(dst), RV_REG(src1), RV_REG(src2), f3, 1));
 }
 
-static void riscv64_emit_and(ZeroCCCompiler *c, int dst, int src1, int src2) {
+void riscv64_emit_and(ZeroCCCompiler *c, int dst, int src1, int src2) {
     riscv_emit_u32(c, rv64_R(RV_REG(dst), RV_REG(src1), RV_REG(src2), 7, 0));
 }
 
-static void riscv64_emit_or(ZeroCCCompiler *c, int dst, int src1, int src2) {
+void riscv64_emit_or(ZeroCCCompiler *c, int dst, int src1, int src2) {
     riscv_emit_u32(c, rv64_R(RV_REG(dst), RV_REG(src1), RV_REG(src2), 6, 0));
 }
 
-static void riscv64_emit_xor(ZeroCCCompiler *c, int dst, int src1, int src2) {
+void riscv64_emit_xor(ZeroCCCompiler *c, int dst, int src1, int src2) {
     riscv_emit_u32(c, rv64_R(RV_REG(dst), RV_REG(src1), RV_REG(src2), 4, 0));
 }
 
@@ -363,7 +363,7 @@ static void riscv64_emit_extend(ZeroCCCompiler *c, int dst, int src, int width, 
     }
 }
 
-static void riscv64_emit_load(ZeroCCCompiler *c, int dst_reg, int base_reg, int32_t offset) {
+void riscv64_emit_load(ZeroCCCompiler *c, int dst_reg, int base_reg, int32_t offset) {
     /* ld dst, offset(base) for RV64 (f3=3), lw for RV32 (f3=2) */
     int f3 = (c->isa == ISA_RISCV32) ? 2 : 3;
     if (offset >= -2048 && offset <= 2047) {
@@ -377,7 +377,7 @@ static void riscv64_emit_load(ZeroCCCompiler *c, int dst_reg, int base_reg, int3
     }
 }
 
-static void riscv64_emit_store(ZeroCCCompiler *c, int src_reg, int base_reg, int32_t offset) {
+void riscv64_emit_store(ZeroCCCompiler *c, int src_reg, int base_reg, int32_t offset) {
     /* sd src, offset(base) for RV64 (f3=3), sw for RV32 (f3=2) */
     int f3 = (c->isa == ISA_RISCV32) ? 2 : 3;
     if (offset >= -2048 && offset <= 2047) {
@@ -998,7 +998,7 @@ static void riscv64_emit_mod(ZeroCCCompiler *c, int dst, int src1, int src2) {
 /* Core emission functions */
 
 /* mov_reg dst, src - register-to-register move */
-static void riscv64_emit_mov_reg(ZeroCCCompiler *c, int dst, int src) {
+void riscv64_emit_mov_reg(ZeroCCCompiler *c, int dst, int src) {
     if (dst == src) return;
     /* addi dst, src, 0 */
     riscv_emit_u32(c, rv64_I(RV_REG(dst), RV_REG(src), 0, 0, 0x13));
@@ -1433,8 +1433,8 @@ static void riscv64_emit_trap_asm(ZeroCCCompiler *c, FILE *out) {
  * scratch_reg1/2 (t0/t1) when a source/dest was spill-reloaded - which is
  * also why the shift-count bound is materialized in t4, not t0 (a spilled
  * count sits in t0). */
-static void riscv64_emit_san_report_block(ZeroCCCompiler *c, int res,
-                                          int width, int op) {
+void riscv64_emit_san_report_block(ZeroCCCompiler *c, int res,
+                                   int width, int op) {
     /* The value move comes first: `res` may be a0/a1, which the li's write.
      * mv a2, res = addi a2, res, 0; li a0, op = addi a0, zero, op. */
     riscv_emit_u32(c, rv64_I(RV_REG(12), RV_REG(res), 0, 0, 0x13));   /* mv a2, res */
@@ -1977,292 +1977,7 @@ static void riscv64_emit_mov128_imm(ZeroCCCompiler *c, int dlo, int dhi, int64_t
     riscv64_emit_mov_imm(c, dhi, 0);
 }
 
-/* ---- Sprint 170 (rv32 i64): 64-bit (lo,hi) pair emitters ----
- * A 64-bit value on a 32-bit target lives in ONE REG_CLASS_GPR64 temp = a
- * (lo,hi) pair of 32-bit GPRs. These decompositions are built from RV32I/M
- * primitives and are installed on the RV32 vtable only (the RV64 table
- * leaves them NULL - width-8 values stay single-register there).
- *
- * Alias safety: d may equal a or b (in-place compound ops). Every sequence
- * reads all sources before it writes a destination half, EXCEPT where noted,
- * and the carry/borrow/scratch work uses ONLY the reserved t0 (5), t2 (7)
- * and t5 (30) registers - t2 is unallocatable on rv32, so scratch can never
- * alias an operand (operand pairs live in value-pool registers or the
- * reserved spill-scratch pairs t1/t3, t4/t6). */
-#define RV64_T2 7   /* reserved 64-bit-op scratch (Sprint 170; unallocatable on rv32) */
-
-void riscv64_emit_add64(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi) {
-    /* carry = (alo + blo wraps): compute sum in t0 first, carry = (sum <u alo) in t2 */
-    riscv64_emit_add(c, RV64_T0, alo, blo);
-    riscv_emit_u32(c, rv64_R(RV_REG(RV64_T2), RV_REG(RV64_T0), RV_REG(alo), 3, 0)); /* sltu t2, t0, alo */
-    riscv64_emit_add(c, dhi, ahi, bhi);
-    riscv64_emit_add(c, dhi, dhi, RV64_T2);
-    riscv64_emit_mov_reg(c, dlo, RV64_T0);
-}
-
-void riscv64_emit_sub64(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi) {
-    /* borrow = (alo <u blo): sltu BEFORE the sub so dlo==alo is safe */
-    riscv_emit_u32(c, rv64_R(RV_REG(RV64_T0), RV_REG(alo), RV_REG(blo), 3, 0)); /* sltu t0, alo, blo */
-    riscv64_emit_sub(c, dlo, alo, blo);
-    riscv64_emit_sub(c, dhi, ahi, bhi);
-    riscv64_emit_sub(c, dhi, dhi, RV64_T0);
-}
-
-void riscv64_emit_mul64(ZeroCCCompiler *c, int dlo, int dhi, int alo, int a_hi, int blo, int bhi) {
-    /* low 64 bits of a 64x64 product (unsigned cross-terms; the sign is
-     * irrelevant - two's-complement multiply is the same bit pattern).
-     *   low64 = P0 + 2^32 * (P1a.lo + P1b.lo)   (mod 2^64)
-     *     P0 = alo*blo, P1a = ahi*blo, P1b = alo*bhi
-     * dhi never aliases a source read that follows a dhi write, and all
-     * scratch (t0/t2/t5) is reserved. */
-    riscv64_emit_mul(c, dlo, alo, blo);                          /* dlo = P0.lo */
-    riscv_emit_u32(c, rv64_R(RV_REG(RV64_T0), RV_REG(alo), RV_REG(blo), 3, 1)); /* mulhu t0, alo, blo (P0.hi) */
-    riscv_emit_u32(c, rv64_R(RV_REG(RV64_T5), RV_REG(a_hi), RV_REG(blo), 0, 1)); /* mul t5, ahi, blo (P1a.lo) */
-    riscv_emit_u32(c, rv64_R(RV_REG(RV64_T2), RV_REG(alo), RV_REG(bhi), 0, 1)); /* mul t2, alo, bhi (P1b.lo) */
-    riscv64_emit_add(c, RV64_T0, RV64_T0, RV64_T5);             /* t0 = P0.hi + P1a.lo */
-    riscv64_emit_add(c, RV64_T0, RV64_T0, RV64_T2);             /* t0 += P1b.lo */
-    riscv64_emit_mov_reg(c, dhi, RV64_T0);                      /* dhi = low 32 of the sum */
-}
-
-void riscv64_emit_and64(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi) {
-    riscv64_emit_and(c, dlo, alo, blo); riscv64_emit_and(c, dhi, ahi, bhi);
-}
-void riscv64_emit_or64(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi) {
-    riscv64_emit_or(c, dlo, alo, blo); riscv64_emit_or(c, dhi, ahi, bhi);
-}
-void riscv64_emit_xor64(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi) {
-    riscv64_emit_xor(c, dlo, alo, blo); riscv64_emit_xor(c, dhi, ahi, bhi);
-}
-void riscv64_emit_not64(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi) {
-    riscv_emit_u32(c, rv64_I(RV_REG(dlo), RV_REG(slo), 4, -1, 0x13));  /* xori dlo, slo, -1 */
-    riscv_emit_u32(c, rv64_I(RV_REG(dhi), RV_REG(shi), 4, -1, 0x13));  /* xori dhi, shi, -1 */
-}
-void riscv64_emit_neg64(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi) {
-    /* d = ~a + 1: borrow into hi is 1 iff dlo == 0 (i.e. a.lo == 0) */
-    riscv64_emit_sub(c, dlo, 0, slo);                 /* dlo = 0 - slo */
-    riscv_emit_u32(c, rv64_I(RV_REG(RV64_T0), RV_REG(dlo), 3, 1, 0x13)); /* sltiu t0, dlo, 1 */
-    riscv_emit_u32(c, rv64_I(RV_REG(dhi), RV_REG(shi), 4, -1, 0x13));   /* xori dhi, shi, -1 */
-    riscv64_emit_add(c, dhi, dhi, RV64_T0);           /* dhi += borrow */
-}
-
-/* 64-bit register-count shift (cnt in 0..63; C makes >=64 undefined - the
- * >=64 arm still yields 0, the defined behaviour of every real target).
- * Fixed-displacement branches: the sequence is contiguous and its size is
- * constant, so the B/J offsets are known at emit time. */
-void riscv64_emit_shl64(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi, int cnt) {
-    /* 64-bit logical left shift: (dlo,dhi) = (slo,shi) << cnt.
-     *   cnt<32:      dlo = slo<<cnt;  dhi = (shi<<cnt) | ((slo>>(32-cnt)) & (cnt!=0))
-     *   32<=cnt<64:  dlo = 0;         dhi = slo << (cnt-32)
-     *   cnt>=64:     dlo = 0;         dhi = 0
-     * Alias-safe for dlo==slo / dhi==shi: cross term (slo>>(32-cnt)) read into t2
-     * BEFORE dlo is overwritten. Scratch: t0, t2, t5 (reserved, unallocatable). */
-    riscv_emit_u32(c, rv64_I(RV_REG(RV64_T5), 0, 0, 32, 0x13));                   /* li t5, 32 */
-    riscv_emit_u32(c, rv64_B(RV_REG(cnt), RV64_T5, 4, 40));                       /* blt cnt, t5, L1 (+10) */
-    riscv_emit_u32(c, rv64_I(RV_REG(RV64_T5), 0, 0, 64, 0x13));                   /* li t5, 64 */
-    riscv_emit_u32(c, rv64_B(RV_REG(cnt), RV64_T5, 4, 16));                       /* blt cnt, t5, L2 (+4) */
-    riscv_emit_u32(c, rv64_I(RV_REG(dlo), 0, 0, 0, 0x13));                        /* li dlo, 0 (cnt>=64) */
-    riscv_emit_u32(c, rv64_I(RV_REG(dhi), 0, 0, 0, 0x13));                        /* li dhi, 0 (cnt>=64) */
-    riscv_emit_u32(c, rv64_J(0, 56));                                             /* jal zero, Lend (+14) */
-    /* L2: 32 <= cnt < 64: dlo = 0; dhi = slo << (cnt-32)  (t5=64 here; shamt wraps mod 32) */
-    riscv_emit_u32(c, rv64_I(RV_REG(dlo), 0, 0, 0, 0x13));                        /* li dlo, 0 */
-    riscv_emit_u32(c, rv64_R(RV_REG(RV64_T5), RV_REG(cnt), RV64_T5, 0, 0x20));    /* sub t5, cnt, t5 (=cnt-64) */
-    riscv_emit_u32(c, rv64_R(RV_REG(dhi), RV_REG(slo), RV_REG(RV64_T5), 1, 0));   /* sll dhi, slo, t5 */
-    riscv_emit_u32(c, rv64_J(0, 40));                                             /* jal zero, Lend (+10) */
-    /* L1: 0 <= cnt < 32: dlo = slo<<cnt; dhi = (shi<<cnt) | ((slo>>(32-cnt)) & (cnt!=0)) */
-    riscv_emit_u32(c, rv64_R(RV_REG(RV64_T5), RV64_T5, RV_REG(cnt), 0, 0x20));    /* sub t5, 32, cnt */
-    riscv_emit_u32(c, rv64_R(RV_REG(RV64_T2), RV_REG(slo), RV_REG(RV64_T5), 5, 0)); /* srl t2, slo, t5 (orig slo) */
-    riscv_emit_u32(c, rv64_R(RV_REG(dlo), RV_REG(slo), RV_REG(cnt), 1, 0));       /* sll dlo, slo, cnt */
-    riscv_emit_u32(c, rv64_R(RV_REG(dhi), RV_REG(shi), RV_REG(cnt), 1, 0));       /* sll dhi, shi, cnt */
-    riscv_emit_u32(c, rv64_I(RV_REG(RV64_T0), RV_REG(cnt), 0, -1, 0x13));         /* addi t0, cnt, -1 */
-    riscv_emit_u32(c, rv64_I(RV_REG(RV64_T0), RV_REG(RV64_T0), 5, 31, 0x13) | (1u << 30)); /* srai t0, t0, 31 */
-    riscv_emit_u32(c, rv64_I(RV_REG(RV64_T0), RV_REG(RV64_T0), 4, -1, 0x13));     /* xori t0, t0, -1: (cnt!=0)?-1:0 */
-    riscv_emit_u32(c, rv64_R(RV_REG(RV64_T2), RV_REG(RV64_T2), RV_REG(RV64_T0), 7, 0)); /* and t2, t2, t0 */
-    riscv_emit_u32(c, rv64_R(RV_REG(dhi), RV_REG(dhi), RV_REG(RV64_T2), 6, 0));   /* or dhi, dhi, t2 */
-}
-
-void riscv64_emit_shr64(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi, int cnt) {
-    /* 64-bit logical right shift: (dlo,dhi) = (slo,shi) >> cnt.
-     *   cnt<32:      dlo = (slo>>cnt) | ((shi<<(32-cnt)) & (cnt!=0))
-     *                dhi = shi >> cnt
-     *   32<=cnt<64:  dlo = shi >> (cnt-32);  dhi = 0
-     *   cnt>=64:     dlo = 0;  dhi = 0
-     * Alias-safe: cross term read into t2 before dlo/dhi are overwritten. */
-    riscv_emit_u32(c, rv64_I(RV_REG(RV64_T5), 0, 0, 32, 0x13));                   /* li t5, 32 */
-    riscv_emit_u32(c, rv64_B(RV_REG(cnt), RV64_T5, 4, 40));                       /* blt cnt, t5, L1 (+10) */
-    riscv_emit_u32(c, rv64_I(RV_REG(RV64_T5), 0, 0, 64, 0x13));                   /* li t5, 64 */
-    riscv_emit_u32(c, rv64_B(RV_REG(cnt), RV64_T5, 4, 16));                       /* blt cnt, t5, L2 (+4) */
-    riscv_emit_u32(c, rv64_I(RV_REG(dlo), 0, 0, 0, 0x13));                        /* li dlo, 0 (cnt>=64) */
-    riscv_emit_u32(c, rv64_I(RV_REG(dhi), 0, 0, 0, 0x13));                        /* li dhi, 0 (cnt>=64) */
-    riscv_emit_u32(c, rv64_J(0, 56));                                             /* jal zero, Lend (+14) */
-    /* L2: 32 <= cnt < 64: dhi = 0; dlo = shi >> (cnt-32)  (t5=64 here; shamt wraps mod 32) */
-    riscv_emit_u32(c, rv64_I(RV_REG(dhi), 0, 0, 0, 0x13));                        /* li dhi, 0 */
-    riscv_emit_u32(c, rv64_R(RV_REG(RV64_T5), RV_REG(cnt), RV64_T5, 0, 0x20));    /* sub t5, cnt, t5 (=cnt-64) */
-    riscv_emit_u32(c, rv64_R(RV_REG(dlo), RV_REG(shi), RV_REG(RV64_T5), 5, 0));   /* srl dlo, shi, t5 */
-    riscv_emit_u32(c, rv64_J(0, 40));                                             /* jal zero, Lend (+10) */
-    /* L1: 0 <= cnt < 32: dlo = (slo>>cnt) | ((shi<<(32-cnt)) & (cnt!=0)); dhi = shi>>cnt */
-    riscv_emit_u32(c, rv64_R(RV_REG(RV64_T5), RV64_T5, RV_REG(cnt), 0, 0x20));    /* sub t5, 32, cnt */
-    riscv_emit_u32(c, rv64_R(RV_REG(RV64_T2), RV_REG(shi), RV_REG(RV64_T5), 1, 0)); /* sll t2, shi, t5 (orig shi) */
-    riscv_emit_u32(c, rv64_R(RV_REG(dlo), RV_REG(slo), RV_REG(cnt), 5, 0));       /* srl dlo, slo, cnt */
-    riscv_emit_u32(c, rv64_R(RV_REG(dhi), RV_REG(shi), RV_REG(cnt), 5, 0));       /* srl dhi, shi, cnt */
-    riscv_emit_u32(c, rv64_I(RV_REG(RV64_T5), RV_REG(cnt), 0, -1, 0x13));         /* addi t5, cnt, -1 */
-    riscv_emit_u32(c, rv64_I(RV_REG(RV64_T5), RV_REG(RV64_T5), 5, 31, 0x13) | (1u << 30)); /* srai t5, t5, 31 */
-    riscv_emit_u32(c, rv64_I(RV_REG(RV64_T5), RV_REG(RV64_T5), 4, -1, 0x13));     /* xori t5, t5, -1: (cnt!=0)?-1:0 */
-    riscv_emit_u32(c, rv64_R(RV_REG(RV64_T2), RV_REG(RV64_T2), RV_REG(RV64_T5), 7, 0)); /* and t2, t2, t5 */
-    riscv_emit_u32(c, rv64_R(RV_REG(dlo), RV_REG(dlo), RV_REG(RV64_T2), 6, 0));   /* or dlo, dlo, t2 */
-}
-
-void riscv64_emit_sar64(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi, int cnt) {
-    /* 64-bit arithmetic right shift: (dlo,dhi) = (slo,shi) >> cnt.
-     *   cnt<32:      dlo = (slo>>cnt logical) | ((shi<<(32-cnt)) & (cnt!=0));  dhi = sra(shi, cnt)
-     *   32<=cnt<64:  dlo = sra(shi, cnt-32);  dhi = sra(shi, 31) (sign-fill)
-     *   cnt>=64:     dlo = sra(shi, 31);      dhi = sra(shi, 31) (sign-fill)
-     * Alias-safe: dlo reads shi before dhi overwrites it; cross term into t2 first. */
-    riscv_emit_u32(c, rv64_I(RV_REG(RV64_T5), 0, 0, 32, 0x13));                   /* li t5, 32 */
-    riscv_emit_u32(c, rv64_B(RV_REG(cnt), RV64_T5, 4, 40));                       /* blt cnt, t5, L1 (+10) */
-    riscv_emit_u32(c, rv64_I(RV_REG(RV64_T5), 0, 0, 64, 0x13));                   /* li t5, 64 */
-    riscv_emit_u32(c, rv64_B(RV_REG(cnt), RV64_T5, 4, 16));                       /* blt cnt, t5, L2 (+4) */
-    riscv_emit_u32(c, rv64_I(RV_REG(dlo), RV_REG(shi), 5, 31, 0x13) | (1u << 30)); /* srai dlo, shi, 31 (cnt>=64) */
-    riscv_emit_u32(c, rv64_I(RV_REG(dhi), RV_REG(shi), 5, 31, 0x13) | (1u << 30)); /* srai dhi, shi, 31 (cnt>=64) */
-    riscv_emit_u32(c, rv64_J(0, 56));                                             /* jal zero, Lend (+14) */
-    /* L2: 32 <= cnt < 64: dlo = sra(shi, cnt-32); dhi = sra(shi, 31) */
-    riscv_emit_u32(c, rv64_R(RV_REG(RV64_T5), RV_REG(cnt), RV64_T5, 0, 0x20));    /* sub t5, cnt, t5 (=cnt-64) */
-    riscv_emit_u32(c, rv64_R(RV_REG(dlo), RV_REG(shi), RV_REG(RV64_T5), 5, 0x20));/* sra dlo, shi, t5 (orig shi) */
-    riscv_emit_u32(c, rv64_I(RV_REG(dhi), RV_REG(shi), 5, 31, 0x13) | (1u << 30)); /* srai dhi, shi, 31 */
-    riscv_emit_u32(c, rv64_J(0, 40));                                             /* jal zero, Lend (+10) */
-    /* L1: 0 <= cnt < 32: dlo = (slo>>cnt) | ((shi<<(32-cnt)) & (cnt!=0)); dhi = sra(shi, cnt) */
-    riscv_emit_u32(c, rv64_R(RV_REG(RV64_T5), RV64_T5, RV_REG(cnt), 0, 0x20));    /* sub t5, 32, cnt */
-    riscv_emit_u32(c, rv64_R(RV_REG(RV64_T2), RV_REG(shi), RV_REG(RV64_T5), 1, 0)); /* sll t2, shi, t5 (orig shi) */
-    riscv_emit_u32(c, rv64_R(RV_REG(dhi), RV_REG(shi), RV_REG(cnt), 5, 0x20));    /* sra dhi, shi, cnt */
-    riscv_emit_u32(c, rv64_R(RV_REG(dlo), RV_REG(slo), RV_REG(cnt), 5, 0));       /* srl dlo, slo, cnt */
-    riscv_emit_u32(c, rv64_I(RV_REG(RV64_T5), RV_REG(cnt), 0, -1, 0x13));         /* addi t5, cnt, -1 */
-    riscv_emit_u32(c, rv64_I(RV_REG(RV64_T5), RV_REG(RV64_T5), 5, 31, 0x13) | (1u << 30)); /* srai t5, t5, 31 */
-    riscv_emit_u32(c, rv64_I(RV_REG(RV64_T5), RV_REG(RV64_T5), 4, -1, 0x13));     /* xori t5, t5, -1: (cnt!=0)?-1:0 */
-    riscv_emit_u32(c, rv64_R(RV_REG(RV64_T2), RV_REG(RV64_T2), RV_REG(RV64_T5), 7, 0)); /* and t2, t2, t5 */
-    riscv_emit_u32(c, rv64_R(RV_REG(dlo), RV_REG(dlo), RV_REG(RV64_T2), 6, 0));   /* or dlo, dlo, t2 */
-}
-
-/* CMP64: no flags on RISC-V - record the operand pairs for re-materialization
- * by emit_cond_set / the jcond family (mirrors riscv64_emit_cmp). */
-void riscv64_emit_cmp64(ZeroCCCompiler *c, int a_lo, int a_hi, int b_lo, int b_hi) {
-    c->lowering.cmp_is_64 = 1;
-    c->lowering.cmp64_s1_lo = a_lo; c->lowering.cmp64_s1_hi = a_hi;
-    c->lowering.cmp64_s2_lo = b_lo; c->lowering.cmp64_s2_hi = b_hi;
-}
-
-void riscv64_emit_mov64(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi) {
-    riscv64_emit_mov_reg(c, dlo, slo); riscv64_emit_mov_reg(c, dhi, shi);
-}
-
-void riscv64_emit_load64(ZeroCCCompiler *c, int dlo, int dhi, int base, int32_t offset) {
-    /* Aliasing: if dlo == base, load the hi half first. */
-    if (dlo == base) {
-        riscv64_emit_load(c, dhi, base, offset + 4);
-        riscv64_emit_load(c, dlo, base, offset);
-    } else {
-        riscv64_emit_load(c, dlo, base, offset);
-        riscv64_emit_load(c, dhi, base, offset + 4);
-    }
-}
-
-void riscv64_emit_store64(ZeroCCCompiler *c, int slo, int shi, int base, int32_t offset) {
-    riscv64_emit_store(c, slo, base, offset);
-    riscv64_emit_store(c, shi, base, offset + 4);
-}
-
-void riscv64_emit_zext32_64(ZeroCCCompiler *c, int dlo, int dhi, int src) {
-    riscv64_emit_mov_reg(c, dlo, src);
-    riscv64_emit_mov_imm(c, dhi, 0);
-}
-
-void riscv64_emit_sext32_64(ZeroCCCompiler *c, int dlo, int dhi, int src) {
-    /* dlo first: dhi may alias src, and the srai below would clobber it. */
-    riscv64_emit_mov_reg(c, dlo, src);
-    riscv64_emit_mov_reg(c, dhi, src);
-    riscv_emit_u32(c, rv64_I(RV_REG(dhi), RV_REG(dhi), 5, 31, 0x13) | (1u << 30)); /* srai dhi, dhi, 31 */
-}
-
-void riscv64_emit_trunc64_32(ZeroCCCompiler *c, int dst, int slo, int shi) {
-    (void)shi;
-    riscv64_emit_mov_reg(c, dst, slo);
-}
-
-void riscv64_emit_mov64_imm(ZeroCCCompiler *c, int dlo, int dhi, int64_t imm) {
-    riscv64_emit_mov_imm(c, dlo, (int32_t)(imm & 0xFFFFFFFFLL));
-    riscv64_emit_mov_imm(c, dhi, (int32_t)((uint64_t)imm >> 32));
-}
-
-void riscv32_emit_ovf_trap64(ZeroCCCompiler *c, int rlo, int rhi,
-                             int alo, int ahi, int blo, int bhi,
-                             int width, int op) {
-    int skip = c->sanitize_report ? 24 : 8;  /* -fsanitize-trap block + unimp */
-
-    if (op == ZC_OVF_OP_DIV_ZERO || op == ZC_OVF_OP_REM_ZERO) {
-        riscv64_emit_or(c, RV64_T0, rlo, rhi);
-        riscv_emit_u32(c, rv64_B(RV64_T0, 0, 1, skip));
-        if (c->sanitize_report) riscv64_emit_san_report_block(c, rlo, width, op);
-        riscv_emit_u32(c, 0xC0001073u);
-        return;
-    }
-    if (op == ZC_OVF_OP_SHIFT_COUNT) {
-        riscv_emit_u32(c, rv64_I(RV_REG(RV64_T5), 0, 0, width * 8, 0x13));
-        riscv_emit_u32(c, rv64_B(RV_REG(rlo), 0, 5, skip));
-        if (c->sanitize_report) riscv64_emit_san_report_block(c, rlo, width, op);
-        riscv_emit_u32(c, 0xC0001073u);
-        riscv_emit_u32(c, rv64_B(RV_REG(rlo), RV64_T5, 4, skip));
-        if (c->sanitize_report) riscv64_emit_san_report_block(c, rlo, width, op);
-        riscv_emit_u32(c, 0xC0001073u);
-        return;
-    }
-    if (op == ZC_OVF_OP_ADD) {
-        riscv64_emit_xor(c, RV64_T0, ahi, rhi);
-        riscv64_emit_xor(c, RV64_T2, bhi, rhi);
-        riscv64_emit_and(c, RV64_T0, RV64_T0, RV64_T2);
-        riscv_emit_u32(c, rv64_B(RV64_T0, 0, 5, skip));
-        if (c->sanitize_report) riscv64_emit_san_report_block(c, rlo, width, op);
-        riscv_emit_u32(c, 0xC0001073u);
-        return;
-    }
-    if (op == ZC_OVF_OP_SUB) {
-        riscv64_emit_xor(c, RV64_T0, rhi, ahi);
-        riscv64_emit_xor(c, RV64_T2, ahi, bhi);
-        riscv64_emit_and(c, RV64_T0, RV64_T0, RV64_T2);
-        riscv_emit_u32(c, rv64_B(RV64_T0, 0, 5, skip));
-        if (c->sanitize_report) riscv64_emit_san_report_block(c, rlo, width, op);
-        riscv_emit_u32(c, 0xC0001073u);
-        return;
-    }
-    if (op == ZC_OVF_OP_MUL) {
-        int trap_size = c->sanitize_report ? 20 : 4;
-        riscv_emit_u32(c, rv64_I(RV_REG(RV64_T0), RV_REG(alo), 5, 31, 0x13) | (1u << 30));
-        riscv_emit_u32(c, rv64_B(RV_REG(ahi), RV64_T0, 1, 12));
-        riscv_emit_u32(c, rv64_I(RV_REG(RV64_T0), RV_REG(blo), 5, 31, 0x13) | (1u << 30));
-        riscv_emit_u32(c, rv64_B(RV_REG(bhi), RV64_T0, 0, 68 + trap_size));
-
-        riscv_emit_u32(c, rv64_R(RV_REG(RV64_T0), RV_REG(alo), RV_REG(blo), 3, 1));
-        riscv_emit_u32(c, rv64_R(RV_REG(RV64_T2), RV_REG(ahi), RV_REG(blo), 0, 1));
-        riscv64_emit_add(c, RV64_T0, RV64_T0, RV64_T2);
-        riscv_emit_u32(c, rv64_R(RV_REG(RV64_T5), RV_REG(RV64_T0), RV_REG(RV64_T2), 3, 0));
-        riscv_emit_u32(c, rv64_R(RV_REG(RV64_T2), RV_REG(alo), RV_REG(bhi), 0, 1));
-        riscv64_emit_add(c, RV64_T0, RV64_T0, RV64_T2);
-        riscv_emit_u32(c, rv64_R(RV_REG(RV64_T2), RV_REG(RV64_T0), RV_REG(RV64_T2), 3, 0));
-        riscv64_emit_add(c, RV64_T5, RV64_T5, RV64_T2);
-        riscv_emit_u32(c, rv64_R(RV_REG(RV64_T0), RV_REG(ahi), RV_REG(blo), 2, 1));
-        riscv_emit_u32(c, rv64_R(RV_REG(RV64_T2), RV_REG(bhi), RV_REG(alo), 2, 1));
-        riscv64_emit_add(c, RV64_T0, RV64_T0, RV64_T2);
-        riscv_emit_u32(c, rv64_R(RV_REG(RV64_T2), RV_REG(ahi), RV_REG(bhi), 0, 1));
-        riscv64_emit_add(c, RV64_T0, RV64_T0, RV64_T2);
-        riscv64_emit_add(c, RV64_T0, RV64_T0, RV64_T5);
-
-        riscv_emit_u32(c, rv64_I(RV_REG(RV64_T2), RV_REG(rhi), 5, 31, 0x13) | (1u << 30));
-        riscv_emit_u32(c, rv64_B(RV64_T0, RV64_T2, 0, 4 + trap_size));
-
-        if (c->sanitize_report) riscv64_emit_san_report_block(c, rlo, width, op);
-        riscv_emit_u32(c, 0xC0001073u);
-        return;
-    }
-}
-
-#undef RV64_T2
+/* Sprint 170 (rv32 i64): 64-bit (lo,hi) pair emitters moved to riscv32.c */
 
 /* RISC-V 64-bit backend instance */
 

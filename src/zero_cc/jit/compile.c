@@ -1565,4 +1565,388 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
     }
 }
 
+bool zero_cc_struct_def_is_fn(ZeroCCCompiler *c) {
+    if (c->tokens[c->token_pos].type != TK_STRUCT && c->tokens[c->token_pos].type != TK_UNION) return false;
+    size_t q = c->token_pos + 1;
+    skip_c23_attributes_at(c, &q);
+    if (q < c->token_count && c->tokens[q].type == TK_IDENT) q++;
+    skip_c23_attributes_at(c, &q);
+    if (q >= c->token_count || c->tokens[q].type != TK_LBRACE) return false;
+    int depth = 0;
+    while (q < c->token_count) {
+        if (c->tokens[q].type == TK_LBRACE) depth++;
+        else if (c->tokens[q].type == TK_RBRACE) {
+            depth--;
+            if (depth == 0) { q++; break; }
+        }
+        q++;
+    }
+    if (q >= c->token_count) return false;
+    if (c->tokens[q].type == TK_IDENT && q + 1 < c->token_count &&
+            c->tokens[q + 1].type == TK_LPAREN) {
+        const char *idn = c->tokens[q].str_val;
+        if (idn && strcmp(idn, "__zc_aligned__") == 0 &&
+            q + 2 < c->token_count && c->tokens[q + 2].type == TK_NUM) {
+            return false;
+        }
+        return true;
+    }
+    return false;
+}
+
+bool zc_constexpr_not_data(ZeroCCCompiler *c) {
+    size_t pos = c->token_pos;
+    while (pos < c->token_count &&
+           (c->tokens[pos].type == TK_CONSTEXPR ||
+            c->tokens[pos].type == TK_STATIC ||
+            c->tokens[pos].type == TK_INLINE ||
+            c->tokens[pos].type == TK_REGISTER ||
+            c->tokens[pos].type == TK_CONST ||
+            c->tokens[pos].type == TK_VOLATILE ||
+            c->tokens[pos].type == TK_EXTERN ||
+            c->tokens[pos].type == TK_THREAD_LOCAL)) pos++;
+    while (pos < c->token_count && c->tokens[pos].type == TK_ALIGNAS) {
+        pos++;
+        if (pos < c->token_count && c->tokens[pos].type == TK_LPAREN) {
+            int depth = 1; pos++;
+            while (pos < c->token_count && depth > 0) {
+                if (c->tokens[pos].type == TK_LPAREN) depth++;
+                else if (c->tokens[pos].type == TK_RPAREN) depth--;
+                pos++;
+            }
+        } else {
+            pos++;
+        }
+    }
+    while (pos < c->token_count) {
+        ZeroCCTokType t = c->tokens[pos].type;
+        if (t == TK_STRUCT || t == TK_UNION || t == TK_ENUM) {
+            pos++;
+            if (pos < c->token_count && c->tokens[pos].type == TK_LBRACE) {
+                int depth = 0;
+                while (pos < c->token_count) {
+                    if (c->tokens[pos].type == TK_LBRACE) depth++;
+                    else if (c->tokens[pos].type == TK_RBRACE) {
+                        if (depth == 0) break;
+                        depth--;
+                    }
+                    pos++;
+                }
+                pos++;
+            } else if (pos < c->token_count && c->tokens[pos].type == TK_IDENT) {
+                pos++;
+            }
+            continue;
+        }
+        if (is_type_specifier_at(c, pos, t)) { pos++; continue; }
+        break;
+    }
+    if (pos >= c->token_count) return false;
+    if (c->tokens[pos].type == TK_TYPEDEF) return true;
+    return (c->tokens[pos].type == TK_IDENT &&
+            pos + 1 < c->token_count &&
+            c->tokens[pos + 1].type == TK_LPAREN);
+}
+
+void zero_cc_emit_scalar_bytes(ZeroCCBuffer *b, size_t width, uint64_t bits) {
+    for (size_t i = 0; i < width && i < 8; i++) {
+        zero_cc_emit_u8(b, (uint8_t)(bits >> (8 * i)));
+    }
+}
+
+bool zero_cc_tk_def_via_aligned_marker(const ZeroCCCompiler *c, size_t idx) {
+    if (idx + 3 >= c->token_count) return false;
+    if (c->tokens[idx + 1].type != TK_IDENT || !c->tokens[idx + 1].str_val ||
+        strcmp(c->tokens[idx + 1].str_val, "__zc_aligned__") != 0) return false;
+    if (c->tokens[idx + 2].type != TK_LPAREN) return false;
+    size_t p = idx + 3;
+    int depth = 1;
+    while (p < c->token_count && depth > 0) {
+        if (c->tokens[p].type == TK_LPAREN) depth++;
+        else if (c->tokens[p].type == TK_RPAREN) depth--;
+        p++;
+    }
+    if (depth != 0 || p >= c->token_count) return false;
+    if (c->tokens[p].type == TK_LBRACE) return true;
+    if (c->tokens[p].type == TK_IDENT && p + 1 < c->token_count &&
+        c->tokens[p + 1].type == TK_LBRACE) return true;
+    return false;
+}
+
+bool zc_filescope_struct_def_at(ZeroCCCompiler *c, size_t pos) {
+    if (pos >= c->token_count) return false;
+    size_t sp = pos;
+    for (int k = 0; k < 8 && sp < c->token_count; k++) {
+        ZeroCCTokType sk = c->tokens[sp].type;
+        if (sk == TK_STATIC || sk == TK_INLINE || sk == TK_CONST ||
+            sk == TK_VOLATILE || sk == TK_RESTRICT) sp++;
+        else break;
+    }
+    if (sp >= c->token_count) return false;
+    if (c->tokens[sp].type != TK_STRUCT && c->tokens[sp].type != TK_UNION) return false;
+    sp++;
+    skip_c23_attributes_at(c, &sp);
+    if (sp >= c->token_count) return false;
+    if (c->tokens[sp].type == TK_LBRACE) return true;
+    if (c->tokens[sp].type == TK_IDENT) {
+        sp++;
+        skip_c23_attributes_at(c, &sp);
+        if (sp < c->token_count && c->tokens[sp].type == TK_LBRACE) return true;
+    }
+    return zero_cc_tk_def_via_aligned_marker(c, pos);
+}
+
+bool zc_filescope_enum_def_at(ZeroCCCompiler *c, size_t pos) {
+    if (pos >= c->token_count || c->tokens[pos].type != TK_ENUM) return false;
+    size_t eq = pos + 1;
+    skip_c23_attributes_at(c, &eq);
+    if (eq >= c->token_count) return false;
+    if (c->tokens[eq].type == TK_LBRACE || c->tokens[eq].type == TK_COLON) return true;
+    if (c->tokens[eq].type == TK_IDENT) {
+        eq++;
+        skip_c23_attributes_at(c, &eq);
+        if (eq < c->token_count &&
+            (c->tokens[eq].type == TK_LBRACE ||
+             c->tokens[eq].type == TK_COLON ||
+             c->tokens[eq].type == TK_SEMI)) return true;
+    }
+    return false;
+}
+
+bool zero_cc_compile_top_level_decl(ZeroCCCompiler *c) {
+    if (c->token_pos >= c->token_count) return false;
+    {
+        size_t sp = c->token_pos;
+        for (int k = 0; k < 8 && sp < c->token_count; k++) {
+            ZeroCCTokType sk = c->tokens[sp].type;
+            if (sk == TK_STATIC || sk == TK_INLINE || sk == TK_CONST ||
+                sk == TK_VOLATILE || sk == TK_RESTRICT) sp++;
+            else break;
+        }
+        if (sp > c->token_pos && sp < c->token_count &&
+            (c->tokens[sp].type == TK_STRUCT || c->tokens[sp].type == TK_UNION) &&
+            zc_filescope_struct_def_at(c, sp)) {
+            zero_cc_stmt_typedef_struct(c);
+            return true;
+        }
+    }
+
+    ZeroCCTokType t = c->tokens[c->token_pos].type;
+
+    if (t == TK_TYPEDEF) {
+        size_t tp = c->token_pos + 1;
+        while (tp < c->token_count &&
+               (c->tokens[tp].type == TK_CONST ||
+                c->tokens[tp].type == TK_VOLATILE ||
+                c->tokens[tp].type == TK_RESTRICT)) {
+            tp++;
+        }
+        if (tp < c->token_count &&
+            (c->tokens[tp].type == TK_STRUCT ||
+             c->tokens[tp].type == TK_UNION)) {
+            zero_cc_stmt_typedef_struct(c);
+            return true;
+        } else if (tp < c->token_count && c->tokens[tp].type == TK_ENUM) {
+            zero_cc_stmt_typedef_enum(c);
+            return true;
+        } else {
+            zero_cc_stmt_typedef_scalar(c, c->tu_ast_arena);
+            return true;
+        }
+    }
+
+    if (t == TK_ENUM && zc_filescope_enum_def_at(c, c->token_pos)) {
+        zero_cc_stmt_enum(c);
+        return true;
+    }
+
+    if (t == TK_STRUCT || t == TK_UNION) {
+        size_t p = c->token_pos + 1;
+        skip_c23_attributes_at(c, &p);
+        if (p < c->token_count &&
+            c->tokens[p].type == TK_IDENT &&
+            c->tokens[p].str_val &&
+            strcmp(c->tokens[p].str_val, "__zc_aligned__") == 0) {
+            size_t p2 = p + 1;
+            if (p2 < c->token_count && c->tokens[p2].type == TK_LPAREN) {
+                int d = 1;
+                p2++;
+                while (p2 < c->token_count && d > 0) {
+                    if (c->tokens[p2].type == TK_LPAREN) d++;
+                    else if (c->tokens[p2].type == TK_RPAREN) d--;
+                    p2++;
+                }
+            }
+            p = p2;
+        }
+        skip_c23_attributes_at(c, &p);
+        if (p < c->token_count &&
+            (c->tokens[p].type == TK_LBRACE ||
+             (c->tokens[p].type == TK_IDENT &&
+              (skip_c23_attributes_at(c, &(size_t){p + 1}),
+               p + 1 < c->token_count && c->tokens[p + 1].type == TK_LBRACE)))) {
+            zero_cc_stmt_typedef_struct(c);
+            return true;
+        }
+        return false;
+    }
+
+    return false;
+}
+
+bool zc_unparen_declarator(ZeroCCCompiler *c) {
+    if (c->token_pos + 2 >= c->token_count) return false;
+    if (c->tokens[c->token_pos].type != TK_LPAREN) return false;
+    if (c->tokens[c->token_pos + 1].type != TK_IDENT) return false;
+    if (c->token_pos == 0) return false;
+    ZeroCCTokType prev = c->tokens[c->token_pos - 1].type;
+    switch (prev) {
+        case TK_STAR: case TK_CONST: case TK_VOLATILE: case TK_RESTRICT:
+        case TK_ATOMIC:
+        case TK_INT: case TK_CHAR: case TK_SHORT: case TK_LONG:
+        case TK_SIGNED: case TK_UNSIGNED: case TK_FLOAT_KW: case TK_DOUBLE_KW:
+        case TK_VOID: case TK_BOOL_KW: case TK_STRUCT: case TK_UNION:
+        case TK_ENUM: case TK_STATIC: case TK_EXTERN: case TK_INLINE:
+        case TK_AUTO: case TK_REGISTER: case TK_TYPEDEF: case TK_NORETURN:
+        case TK_THREAD_LOCAL: case TK_IDENT:
+            break;
+        default:
+            return false;
+    }
+    size_t a = c->token_pos;
+    size_t close = 0;
+    if (c->tokens[a + 2].type == TK_RPAREN) {
+        close = a + 2;
+    } else {
+        int depth = 1;
+        int dim_depth = 0;
+        bool shape_ok = true;
+        size_t p = a + 2;
+        while (p < c->token_count) {
+            ZeroCCTokType tt = c->tokens[p].type;
+            if (dim_depth > 0) {
+                if (tt == TK_LBRACKET) dim_depth++;
+                else if (tt == TK_RBRACKET) dim_depth--;
+                p++;
+                continue;
+            }
+            if (tt == TK_LBRACKET) { dim_depth = 1; p++; continue; }
+            if (tt == TK_RPAREN) {
+                if (depth == 1) {
+                    ZeroCCTokType after = (p + 1 < c->token_count) ?
+                        c->tokens[p + 1].type : TK_EOF;
+                    if (after != TK_SEMI && after != TK_COMMA &&
+                        after != TK_ASSIGN && after != TK_EOF) shape_ok = false;
+                    close = p;
+                    break;
+                }
+                depth--;
+                p++;
+                continue;
+            }
+            if (tt == TK_LPAREN) { depth++; p++; continue; }
+            shape_ok = false;
+            break;
+        }
+        if (!shape_ok) return false;
+    }
+    memmove(&c->tokens[close], &c->tokens[close + 1],
+            (c->token_count - close - 1) * sizeof(c->tokens[0]));
+    c->token_count--;
+    memmove(&c->tokens[a], &c->tokens[a + 1],
+            (c->token_count - a - 1) * sizeof(c->tokens[0]));
+    c->token_count--;
+    return true;
+}
+
+void zero_cc_decl_thread_local(ZeroCCCompiler *c, SemContext *shared_ctx, Arena *perm, bool is_static_in) {
+    bool is_static = is_static_in;
+    while (c->token_pos < c->token_count &&
+           (c->tokens[c->token_pos].type == TK_STATIC ||
+            c->tokens[c->token_pos].type == TK_EXTERN ||
+            c->tokens[c->token_pos].type == TK_THREAD_LOCAL)) {
+        if (c->tokens[c->token_pos].type == TK_STATIC) is_static = true;
+        c->token_pos++;
+    }
+    ZeroCCType vtype = zero_cc_parse_type_name(c);
+    int ptr_depth = 0;
+    while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STAR) {
+        c->token_pos++;
+        ptr_depth++;
+        while (c->token_pos < c->token_count &&
+               (c->tokens[c->token_pos].type == TK_CONST || c->tokens[c->token_pos].type == TK_VOLATILE)) {
+            c->token_pos++;
+        }
+    }
+    for (int pd = 0; pd < ptr_depth; pd++) {
+        vtype = zero_cc_type_ptr(&vtype);
+    }
+    if (c->token_pos >= c->token_count || c->tokens[c->token_pos].type != TK_IDENT) {
+        diag_report_error_at_token(c, "expected identifier in _Thread_local declaration");
+        while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_SEMI &&
+               c->tokens[c->token_pos].type != TK_EOF) c->token_pos++;
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+        return;
+    }
+    char var_name[128];
+    snprintf(var_name, sizeof(var_name), "%s", c->tokens[c->token_pos].str_val);
+    c->token_pos++;
+    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACKET) {
+        diag_report_error_at_token(c, "arrays of _Thread_local are not supported");
+        while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_SEMI &&
+               c->tokens[c->token_pos].type != TK_EOF) c->token_pos++;
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+        return;
+    }
+    int64_t init_val = 0;
+    bool has_init = false;
+    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_ASSIGN) {
+        c->token_pos++;
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_AMP) {
+            diag_report_error_at_token(c,
+                "_Thread_local initializers must be constants (address expressions are not supported)");
+            while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_SEMI &&
+                   c->tokens[c->token_pos].type != TK_EOF) c->token_pos++;
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+            return;
+        }
+        bool is_flt = (vtype.tag == TYPE_FLOAT || vtype.tag == TYPE_DOUBLE) ||
+                      (vtype.base && (vtype.base->tag == TYPE_FLOAT || vtype.base->tag == TYPE_DOUBLE));
+        if (is_flt) {
+            double dv = zero_cc_eval_const_expr_float(c);
+            memcpy(&init_val, &dv, sizeof(init_val));
+        } else {
+            init_val = zero_cc_eval_const_expr(c);
+        }
+        has_init = true;
+    }
+    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
+
+    size_t vsz = vtype.size;
+    if (vsz == 0 || vsz > 8) {
+        diag_report_error_at_token(c,
+            "unsupported _Thread_local type (integral or pointer scalars up to 8 bytes only)");
+        return;
+    }
+    int off = c->tls_backend ? c->tls_backend->declare(c, var_name, &vtype, init_val, has_init) : -1;
+    if (off < 0) {
+        c->had_error = 1;
+        return;
+    }
+    if (add_global_var(c, var_name, vtype, (size_t)off, vsz, is_static, has_init) < 0) {
+        diag_report_error_at_token(c, "out of memory registering global variable");
+        return;
+    }
+    ZeroCCGlobalVar *gv = find_global_var(c, var_name);
+    if (gv) gv->is_tls = true;
+    TypeInfo *ti = zero_cc_type_to_typeinfo(perm, vtype);
+    if (ti && shared_ctx->current_scope) {
+        Symbol *sym = scope_put_symbol(shared_ctx->current_scope, var_name, SYMBOL_VAR, ti);
+        if (sym) {
+            sym->flags |= (1 << 0);
+        }
+    }
+}
+
+
 

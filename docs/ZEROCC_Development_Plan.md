@@ -319,29 +319,25 @@ These items from earlier roadmap sections are all complete:
 - **K&R (old-style) function definitions (Sprint 98) ✅**: Declarator parser recognizes `int f(a) int a; { ... }` as a K&R definition at both file scope and block scope; K&R aux locals declared in the parameter block are added before body lowering (`zero_cc_add_local` + `is_param=true`); body lowering resolves K&R param names via `zero_cc_find_local` (by parameter index).
 - **Nonlocal goto (Sprint 99) ✅**: `goto` to a label in an enclosing scope via hidden `(rbp, rsp)` pair parameters per ancestor scope (`__nlgbp_*`/`__nlbsp_*` in the ctx), `__label__` support, multi-level nesting (pair words travel through intermediate nested functions' ctx); trampoline stubs forward the pair words; computed goto to an ancestor frame reverts to match GCC. See OKF `frontend-and-types.md`.
 
-### 🔧 Codebase Modularity & File Splitting
+### 🔧 Codebase Modularity & File Splitting (Complete ✅)
 
-**Current priority (new):** Split source files exceeding ~2500 lines into focused translation units, mirroring the earlier Sprint-17/35 work that converted unity-included `.c` files into standalone `.o` units and split `parser/` into `parser/`/`ir/`/`opt/`. The 9 files over 2500 lines are:
+**Completed:** Split all source files exceeding ~2,500 lines into focused translation units (every `.c` file in `src/` is now < 2,500 lines) and resolved the two `OP_CALL` codegen TODOs:
 
-| Lines | File | Suggested split |
-|-------|------|-----------------|
-| 2971 | `src/zero_cc/core/preprocessor.c` | directive handling vs macro expansion vs file include/search |
-| 2907 | `src/zero_cc/isa/x86_64.c` | instruction selection vs register-class emitters vs prologue/epilogue |
-| 2837 | `src/zero_cc/jit/compile_unit.c` | file-scope declarations vs function definitions vs external linkage |
-| 2642 | `src/zero_cc/ir/ast_lowering_expr.c` | expressions vs assignments vs compound literals/statement-exprs |
-| 2636 | `src/zero_cc/ir/ast_lowering_builtins.c` | builtin classification vs lowering vs type resolution |
-| 2582 | `src/zero_cc/parser/decl_local.c` | local declarators vs initializer processing vs VLA handling |
-| 2575 | `src/zero_cc/ir/ast_lowering_stmt.c` | statement kinds vs control-flow lowering vs switch/goto |
-| 2531 | `src/zero_cc/ir/ast_lowering_mc.c` | call lowering vs inline asm vs machine-code emission helpers |
-| 2521 | `src/zero_cc/isa/riscv64.c` | RV64 emitters vs RV32 emitters vs shared RISC-V helpers |
+| Original File | Split Target | Post-Split Lines |
+|---------------|--------------|------------------|
+| `src/zero_cc/core/preprocessor.c` (2,971) | `src/zero_cc/core/preprocessor_directives.c` (directive/include/`#embed`/depfile helpers) | 2,242 / 721 |
+| `src/zero_cc/isa/x86_64.c` (2,907) | `src/zero_cc/isa/x86_64_ext.c` + `x86_64_common.h` (128-bit integer ops, atomics, syscall/clone, trampoline stubs) | 2,046 / 570 |
+| `src/zero_cc/jit/compile_unit.c` (2,837) | `src/zero_cc/jit/compile.c` (top-level declaration & thread-local helpers) | 2,424 / 1,952 |
+| `src/zero_cc/parser/const_eval.c` (2,886) | `src/zero_cc/parser/ctfe.c` (C23 `constexpr` CTFE statement/body interpreter) | 2,157 / 605 |
+| `src/zero_cc/ir/ast_lowering_expr.c` (2,642) | `src/zero_cc/ir/ast_lowering_lvalue.c` (lvalue address lowering, member chains, struct copy helpers) | 2,025 / 562 |
+| `src/zero_cc/ir/ast_lowering_builtins.c` (2,636) | `src/zero_cc/ir/ast_lowering_builtin_helpers.c` (`__builtin_object_size`, AST const-eval, complex/FP builtin helpers) | 2,225 / 848 |
+| `src/zero_cc/parser/decl_local.c` (2,582) | `src/zero_cc/parser/init_common.c` (static-local registration & initializer patching) | 1,959 / 2,267 |
+| `src/zero_cc/ir/ast_lowering_stmt.c` (2,575) | `src/zero_cc/ir/ast_lowering_ctrl.c` (if/while/do-while/for/switch/break/continue/label/goto control flow) | 2,207 / 305 |
+| `src/zero_cc/ir/ast_lowering_mc.c` (2,531) | `src/zero_cc/ir/ast_lowering_mc_call.c` (`OP_CALL` machine-code emission) | 2,160 / 361 |
+| `src/zero_cc/isa/riscv64.c` (2,521) | `src/zero_cc/isa/riscv32.c` (RV32 64-bit `(lo,hi)` GPR64 pair emitters) | 2,236 / 501 |
 
-Each split should keep the public API surface stable (same header-visible functions), add `.h` declarations for new internal symbols, update `Makefile` object rules, and be verified with `make test`, `make test-opt`, and `python3 tools/verify/style_check.py`. No behavior change is intended — this is a pure refactor.
+**Resolved `OP_CALL` TODOs (`src/zero_cc/ir/ast_lowering_mc_call.c`, `src/zero_cc/isa/x86_64_asm.c`):**
 
-**Concrete TODOs in `src/zero_cc/ir/ast_lowering_mc.c`** (call-emission path, both small and well-scoped):
-
-1. **Line 2114 — Variadic `%al` setup emitted for all calls.** Per System V AMD64 ABI, `%al` must hold the number of SSE registers used *only for variadic functions*. Currently `emit_variadic_al_setup` runs unconditionally whenever the backend provides it. Gate it on `c->functions[c->lowering.current_func_idx].is_variadic`.
-
-2. **Line 2124 — AArch64 caller-saved save/restore is over-broad.** Currently always saves/restores `x3-x7` around every AArch64 call if they have spill slots. The proper fix is to mark intervals as spanning calls in the register allocator so only live-across-call registers are saved.
-
-Verify both with `make test` plus a variadic-function test in JIT and AOT modes.
+1. **Variadic `%al` setup gated on callee prototype ✅**: `emit_variadic_al_setup` (and AOT `movl $N, %eax` / `xorl %eax, %eax`) is now skipped when calling a known prototyped non-variadic function (`callee_fn && callee_fn->has_prototype && !callee_fn->is_variadic`), and still emitted for variadic functions, unprototyped functions, and indirect calls.
+2. **Removed redundant AArch64 `x3-x7` caller-saved save/restore around `OP_CALL` ✅**: Live intervals spanning calls already have `spans_call = true` in `live_range.h`, and `regalloc.h` allocates only callee-saved registers (`x19-x28`) or stack spill slots to `spans_call` intervals, so the dead `x3-x7` save/restore loops around `OP_CALL` were removed.
 

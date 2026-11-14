@@ -48,5 +48,7 @@ int64_t zc_designator_max_index(ZeroCCCompiler *c, size_t brace_pos);
 size_t zc_measure_fam_init_bytes(ZeroCCCompiler *c, const ZeroCCType *st);
 bool zc_probe_cast_amp(ZeroCCCompiler *c);
 void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType obj_type, uint8_t *buf, size_t buf_off, size_t buf_cap, size_t data_patch_off, size_t *cursor, size_t fam_bytes);
+bool zero_cc_static_local_register(ZeroCCCompiler *c, ZeroCCSym *sym);
+bool zero_cc_static_local_patch_init(ZeroCCCompiler *c, ZeroCCSym *sym);
 
 #endif /* ZERO_CC_PARSER_INIT_COMMON_H */

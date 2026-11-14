@@ -51,6 +51,7 @@ TLS_OBJ = $(OBJ_DIR)/src/zero_cc/jit/tls_backend.o
 EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	src/zero_cc/core/compiler_free.o \
 	src/zero_cc/core/preprocessor.o \
+	src/zero_cc/core/preprocessor_directives.o \
 	src/zero_cc/common/hash_table_tpht.o \
 	src/zero_cc/semantic/diagnostics.o \
 	src/zero_cc/semantic/type.o \
@@ -64,13 +65,16 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	src/zero_cc/parser/decl_struct.o \
 	src/zero_cc/parser/decl_local.o \
 	src/zero_cc/parser/const_eval.o \
+	src/zero_cc/parser/ctfe.o \
 	src/zero_cc/parser/init_common.o \
 	src/zero_cc/parser/ast_expr.o \
 	src/zero_cc/common/arena.o \
 	src/zero_cc/ir/ir.o \
 	src/zero_cc/ir/ast_lowering.o \
 	src/zero_cc/ir/ast_lowering_stmt.o \
+	src/zero_cc/ir/ast_lowering_ctrl.o \
 	src/zero_cc/ir/ast_lowering_expr.o \
+	src/zero_cc/ir/ast_lowering_lvalue.o \
 	src/zero_cc/ir/ast_lowering_call.o \
 	src/zero_cc/ir/ast_lowering_builtins.o \
 	src/zero_cc/ir/ast_lowering_builtin_helpers.o \
@@ -81,6 +85,7 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	src/zero_cc/ir/ast_lowering_unop.o \
 	src/zero_cc/ir/ast_lowering_cast.o \
 	src/zero_cc/ir/ast_lowering_mc.o \
+	src/zero_cc/ir/ast_lowering_mc_call.o \
 	src/zero_cc/ir/asm_emitter.o \
 	src/zero_cc/dwarf/dwarf.o \
 	src/zero_cc/opt/opt_pass.o \
@@ -100,6 +105,7 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	src/zero_cc/core/pragma_state.o \
 	src/zero_cc/isa/backend_registry.o \
 	src/zero_cc/isa/x86_64.o \
+	src/zero_cc/isa/x86_64_ext.o \
 	src/zero_cc/isa/aarch64.o \
 	src/zero_cc/isa/riscv64.o \
 	src/zero_cc/isa/riscv32.o \

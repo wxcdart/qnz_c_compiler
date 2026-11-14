@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-14T01:55:31Z
+timestamp: 2026-11-14T03:16:55Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1449,3 +1449,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-14 — Updated `frontend-and-types.md`
 - Add pointer, string literal, and array support in C23 constexpr CTFE (ZC_CV_PTR)
+
+## 2026-11-14 — Updated `architecture-pipeline.md`
+- Split all .c files >2,500 lines into focused translation units (preprocessor_directives.c, ctfe.c, ast_lowering_ctrl.c, ast_lowering_lvalue.c, ast_lowering_mc_call.c, x86_64_ext.c, plus helpers moved to ast_lowering_builtin_helpers.c, init_common.c, compile.c, riscv32.c) and resolve OP_CALL variadic %al and AArch64 x3-x7 TODOs

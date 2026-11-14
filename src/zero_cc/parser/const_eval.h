@@ -96,5 +96,7 @@ ZCConstVal parse_primary(ZeroCCCompiler *c, size_t *pos);
 int64_t zero_cc_eval_const_expr(ZeroCCCompiler *c);
 ZCConstVal zero_cc_eval_const_expr_val(ZeroCCCompiler *c);
 bool zc_typedef_dim_is_const(ZeroCCCompiler *c, size_t start);
+ZCConstVal ctfe_eval_body(ZeroCCCompiler *c, size_t start, size_t end);
+ZCConstVal ctfe_eval_call(ZeroCCCompiler *c, ZeroCCFunction *fn, size_t *pos);
 
 #endif /* ZERO_CC_PARSER_CONST_EVAL_H */

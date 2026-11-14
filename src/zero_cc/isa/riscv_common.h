@@ -129,4 +129,17 @@ static inline void riscv_emit_u32(ZeroCCCompiler *c, uint32_t insn) {
     me_emit_u8(c, (uint8_t)((insn >> 24) & 0xFF));
 }
 
+/* Shared RV64/RV32 emitters defined in riscv64.c and used by riscv32.c */
+void riscv64_emit_mov_imm(ZeroCCCompiler *c, int dst_reg, int64_t imm);
+void riscv64_emit_mov_reg(ZeroCCCompiler *c, int dst, int src);
+void riscv64_emit_add(ZeroCCCompiler *c, int dst, int src1, int src2);
+void riscv64_emit_sub(ZeroCCCompiler *c, int dst, int src1, int src2);
+void riscv64_emit_mul(ZeroCCCompiler *c, int dst, int src1, int src2);
+void riscv64_emit_and(ZeroCCCompiler *c, int dst, int src1, int src2);
+void riscv64_emit_or(ZeroCCCompiler *c, int dst, int src1, int src2);
+void riscv64_emit_xor(ZeroCCCompiler *c, int dst, int src1, int src2);
+void riscv64_emit_load(ZeroCCCompiler *c, int dst_reg, int base_reg, int32_t offset);
+void riscv64_emit_store(ZeroCCCompiler *c, int src_reg, int base_reg, int32_t offset);
+void riscv64_emit_san_report_block(ZeroCCCompiler *c, int res, int width, int op);
+
 #endif /* ZERO_CC_RISCV_COMMON_H */
