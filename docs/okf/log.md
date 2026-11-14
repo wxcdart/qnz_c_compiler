@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-14T13:00:31Z
+timestamp: 2026-11-14T13:03:16Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1467,3 +1467,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-14 — Updated `host-runtime-and-portability.md`
 - Document trade-off on /etc/ld.so.conf.d snippets and non-standard vendor directory resolution patterns
+
+## 2026-11-14 — Updated `host-runtime-and-portability.md`
+- Add Section 2.2: Loading shared libraries and proprietary drivers with feature table and verified X-Macro example

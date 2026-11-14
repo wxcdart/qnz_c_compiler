@@ -4,7 +4,7 @@ title: Host Runtime, In-Process Dynamic Loading & Portability Architecture
 description: Architecture of ZeroCC's static-musl host toolchain, self-hosting dlfcn, the in-process dynamic loader (musl dynlink.c adaptation), freestanding/baremetal runtime model, and cross-platform portability across Linux, macOS, Windows, and BSDs.
 resource: host-runtime-and-portability
 tags: [host-runtime, dlfcn, musl, static-linking, freestanding, baremetal, portability, macos, windows, bsd]
-timestamp: 2026-11-14T13:00:31Z
+timestamp: 2026-11-14T13:03:16Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -107,6 +107,69 @@ The compiler binary (`build/bin/zerocc`) is a 100% static musl executable (`ldd`
      1. **Binary RPATH**: Specify `RPATH` / `RUNPATH` at build time (e.g. `-Wl,-rpath,'$ORIGIN/../lib'` or `-Wl,-rpath,/opt/vendor_sdk/lib64`),
      2. **Environment**: Set `LD_LIBRARY_PATH` (`export LD_LIBRARY_PATH=/opt/vendor_sdk/lib64:$LD_LIBRARY_PATH`), or
      3. **Explicit Path**: Pass the relative or absolute path directly to `dlopen()` (e.g. `dlopen("/opt/vendor_sdk/lib64/libdriver.so", RTLD_NOW)`).
+
+### 2.2. Loading Shared Libraries & Proprietary Drivers (Pattern & Example)
+
+ZeroCC supports loading both explicit shared library paths and bare names with recursive dependency chains and symbol versioning:
+
+| Feature | Behavior | Example |
+| :--- | :--- | :--- |
+| **Explicit Paths** | Opens the exact file directly from disk. | `dlopen("/opt/vendor/lib/libdriver.so", RTLD_NOW)` |
+| **Bare Names via `LD_LIBRARY_PATH`** | Searches directories specified in `LD_LIBRARY_PATH`. | `dlopen("libdriver.so", RTLD_NOW)` with `LD_LIBRARY_PATH=/opt/vendor/lib` |
+| **Bare Names via System Dirs** | Searches `/usr/local/lib`, `/usr/lib`, `/lib64`, `/lib/x86_64-linux-gnu`, etc. | `dlopen("libcuda.so", RTLD_NOW)` |
+| **Recursive `DT_NEEDED` Dependencies** | If `libdriver.so` depends on `libcore.so`, ZeroCC **automatically loads `libcore.so`**. | No need to manually `dlopen` secondary libraries. |
+| **`$ORIGIN` Expansion in RPATH / RUNPATH** | Evaluates `$ORIGIN` relative to the directory where the calling `.so` lives. | If `libdriver.so` has `RUNPATH: $ORIGIN`, it finds `libcore.so` in the same directory. |
+| **Transitive Symbol Resolution** | Symbols defined in dependencies are accessible via the parent handle. | `dlsym(h_driver, "vendor_core_read")` resolves through the dependency chain. |
+| **GNU Symbol Versioning** | Handles `.gnu.version`, filtering hidden versions for `dlsym()`, and exact versioning with `dlvsym()`. | `dlvsym(h, "driver_init", "DRIVER_2.0")` |
+
+#### Verified Example: Proprietary Multi-Library Driver Loading via X-Macros
+
+This architecture demonstrates a multi-library vendor SDK where `libvendor_driver.so` depends on `libvendor_core.so` located in the same directory (`$ORIGIN`):
+
+```c
+#include <stdio.h>
+#include <dlfcn.h>
+
+#define VENDOR_API(X) \
+    X(int, vendor_init, (int dev_id))
+
+#define DECLARE_FN(ret, name, args) static ret (*name) args;
+VENDOR_API(DECLARE_FN)
+#undef DECLARE_FN
+
+int main(void) {
+    /* 1. Explicit path: loads libvendor_driver.so, automatically loads */
+    /*    libvendor_core.so from $ORIGIN, and relocates all symbols.    */
+    void *h = dlopen("/tmp/mock_vendor/lib/libvendor_driver.so", RTLD_NOW);
+    if (!h) {
+        printf("Error: %s\n", dlerror());
+        return 1;
+    }
+
+    #define LOAD_FN(ret, name, args) \
+        name = (ret (*) args)dlsym(h, #name);
+    VENDOR_API(LOAD_FN)
+    #undef LOAD_FN
+
+    printf("vendor_init(42) = 0x%X\n", vendor_init(42));
+    dlclose(h);
+
+    /* 2. Bare name: resolves via LD_LIBRARY_PATH without any path prefix */
+    setenv("LD_LIBRARY_PATH", "/tmp/mock_vendor/lib", 1);
+    void *h_bare = dlopen("libvendor_driver.so", RTLD_NOW);
+    int (*fn_bare)(int) = (int (*)(int))dlsym(h_bare, "vendor_init");
+    printf("bare vendor_init(7) = 0x%X\n", fn_bare(7));
+    dlclose(h_bare);
+
+    return 0;
+}
+```
+
+Execution output under `./build/bin/zerocc --run app.c`:
+```text
+vendor_init(42) = 0xCAFE002A
+bare vendor_init(7) = 0xCAFE0007
+```
 
 ---
 
