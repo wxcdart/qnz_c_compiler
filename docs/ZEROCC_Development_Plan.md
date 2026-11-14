@@ -306,6 +306,21 @@ Goal: no gcc driver, no glibc, no musl, no binutils in the *product path* — so
     - **Phase 5 — Wider Vectors (AVX / AVX2 / SVE)**:
       - Extend x86-64 backend to support 256-bit AVX / AVX2 (`YMM0`–`YMM15`) and VEX prefix encoding.
       - Add SVE / SVE2 scalable vector support on AArch64.
+15. **GPU Compute Acceleration Targets: NVIDIA PTX & Khronos SPIR-V (`--target ptx`, `--target spirv`)** — Compile C compute kernels directly for GPU execution:
+    - **Host-Side Heterogeneous Driving (Supported Today)**: ZeroCC-compiled static executables (`--zerocc-link`) can dynamically load GPU runtime APIs (`libcuda.so`, `libhsa-runtime64.so`, `libze_loader.so`, `libvulkan.so`, `libOpenCL.so`) via `zero_rt`'s in-process dynamic loader to allocate VRAM, upload buffers, launch compute dispatches, and synchronize results across all 4 major GPU vendors (NVIDIA, AMD, Intel, Qualcomm).
+    - **Track A — NVIDIA CUDA Virtual Assembly (`--target ptx`)**:
+      - *Architecture*: PTX (Parallel Thread Execution) is NVIDIA's low-level virtual assembly ISA. ZeroCC's flat 3-address `Instr` IR maps cleanly to PTX instructions (`ld.global.f32`, `st.global.f32`, `add.f32`, `mul.f32`, `fma.rn.f32`, `setp.lt.f32`, etc.).
+      - *Driver JIT Compilation*: ZeroCC emits `.ptx` text files or in-memory strings. The host driver (`libcuda.so`) JIT-compiles PTX directly into native SASS microcode via `cuModuleLoadDataEx()`, supporting Volta, Ampere, Ada Lovelace, Hopper, and Blackwell with zero proprietary hardware microcode reverse-engineering.
+      - *Language Extensions*: Add kernel qualifiers (`__global__`, `__device__`), thread/block index builtins (`%tid.x`, `%ctaid.x`, `%ntid.x`), and local/shared memory specifiers (`__shared__`).
+    - **Track B — Universal Khronos Bytecode (`--target spirv`)**:
+      - *Architecture*: SPIR-V (Standard Portable Intermediate Representation) is the vendor-neutral, binary intermediate language standardized by Khronos for Vulkan Compute and OpenCL.
+      - *Universal Hardware Coverage*: A single `--target spirv` binary bytecode emitter allows ZeroCC compute kernels to execute across:
+        - **Qualcomm Snapdragon / Adreno** mobile GPUs (via Vulkan Compute or OpenCL).
+        - **Intel Arc & Data Center GPUs** (via Intel Level Zero or OpenCL).
+        - **AMD Radeon & Instinct** (via Vulkan or ROCm OpenCL).
+        - **Apple Silicon** (via Vulkan on MoltenVK).
+        - **NVIDIA GeForce** (via Vulkan Compute).
+      - *Execution Path*: ZeroCC emits binary `.spv` files (stream of 32-bit SPIR-V instruction words). The host loads the `.spv` module directly into Vulkan via `vkCreateShaderModule()` or OpenCL via `clCreateProgramWithIL()`.
 
 **End state:** `zerocc source + zero_rt source → static verified executables on all 4 ISAs with no system C toolchain in the loop`; gcc appears only as the pinned differential oracle (and, until item 7 lands, as the bootstrap builder of zerocc₀).
 
