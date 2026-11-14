@@ -462,7 +462,7 @@ extern void zero_cc_free_string_pool(ZeroCCCompiler *c);
  * multi-compile consumer leaks one IR arena per compile.) */
 extern void zero_cc_compiler_free(ZeroCCCompiler *c);
 
-int64_t decl_align_spec; /* alignment specifier from _Alignas */
+extern int64_t decl_align_spec; /* alignment specifier from _Alignas */
 
 
 #endif /* ZERO_CC_TYPES_SYMBOLS_H */

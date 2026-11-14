@@ -99,6 +99,9 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name, ZeroCCStdDi
             "#define UINT8_MAX 255\n#define UINT16_MAX 65535\n#define UINT32_MAX 4294967295U\n#define UINT64_MAX 18446744073709551615ULL\n"
             "#define INTPTR_MIN (-9223372036854775807L-1)\n#define INTPTR_MAX 9223372036854775807L\n#define UINTPTR_MAX 18446744073709551615UL\n"
             "#define PTRDIFF_MIN (-9223372036854775807L-1)\n#define PTRDIFF_MAX 9223372036854775807L\n#define SIZE_MAX 18446744073709551615UL\n"
+            "#define INT8_C(c) c\n#define INT16_C(c) c\n#define INT32_C(c) c\n#define INT64_C(c) c ## LL\n"
+            "#define UINT8_C(c) c\n#define UINT16_C(c) c\n#define UINT32_C(c) c ## U\n#define UINT64_C(c) c ## ULL\n"
+            "#define INTMAX_C(c) c ## LL\n#define UINTMAX_C(c) c ## ULL\n"
             "#endif\n"
         );
     }

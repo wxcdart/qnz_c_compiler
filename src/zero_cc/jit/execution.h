@@ -236,10 +236,14 @@ static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
                 (tv->is_bss ? bss_offset : data_offset) + t_off);
         } else if (dr->target_kind == 2) {
             /* Extern object defined in another TU: resolved against the
-             * (merged) global registry at patch time. */
+             * (merged) global registry at patch time, or host symbol if JIT. */
             ZeroCCGlobalVar *eg = find_global_var(c, dr->target_extern_name);
             target = eg ? (uintptr_t)((char *)mem +
-                (eg->is_bss ? bss_offset : data_offset) + eg->data_offset) : 0;
+                (eg->is_bss ? bss_offset : data_offset) + eg->data_offset + dr->target_data_offset) : 0;
+            if (target == 0) {
+                void *host_obj = zero_cc_resolve_symbol(dr->target_extern_name);
+                if (host_obj) target = (uintptr_t)host_obj + dr->target_data_offset;
+            }
         } else if (dr->target_kind == 3) {
             /* Function pointer initializer.  Local functions resolve to
              * their text offset in the JIT image; EXTERNAL ones (e.g.

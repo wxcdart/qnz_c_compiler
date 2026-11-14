@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from tools import find_repo_root
 
 ROOT = Path(find_repo_root())
-ZEROCC = ROOT / "build" / "bin" / "zerocc"
+ZEROCC = Path(os.environ.get("ZEROCC", ROOT / "build" / "bin" / "zerocc"))
 
 def find_source_files():
     src_dir = ROOT / "src"

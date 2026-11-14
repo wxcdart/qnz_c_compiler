@@ -1304,25 +1304,26 @@ void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType obj_type,
                 char refn[128];
                 snprintf(refn, sizeof(refn), "%s", c->tokens[ap].str_val);
                 ZeroCCGlobalVar *rgv = find_global_var(c, refn);
+                ZeroCCFunction *rfn = rgv ? NULL : zero_cc_find_function(c, refn);
                 ap++; /* past the ident */
                 size_t addoff = 0;
-                if (rgv && ap < c->token_count && c->tokens[ap].type == TK_LBRACKET) {
-                    ZeroCCType rtt = rgv->type;
+                if (ap < c->token_count && c->tokens[ap].type == TK_LBRACKET) {
+                    ZeroCCType rtt = rgv ? rgv->type : (rfn ? rfn->return_type : zero_cc_type_char());
                     int64_t resz = (rtt.tag == TYPE_ARRAY && rtt.base && rtt.base->size > 0) ?
-                        (int64_t)rtt.base->size : (int64_t)(rtt.size > 0 ? rtt.size : 8);
+                        (int64_t)rtt.base->size : (int64_t)(rtt.size > 0 ? rtt.size : 1);
                     ap++; /* past '[' */
                     c->token_pos = ap;
                     int64_t n = zero_cc_eval_const_expr(c);
                     ap = c->token_pos;
                     if (ap < c->token_count && c->tokens[ap].type == TK_RBRACKET) ap++;
-                    addoff = (size_t)(n * (resz > 0 ? resz : 8));
+                    addoff = (size_t)(n * (resz > 0 ? resz : 1));
                 }
                 while (pdepth > 0 && ap < c->token_count && c->tokens[ap].type == TK_RPAREN) {
                     pdepth--;
                     ap++;
                 }
+                c->token_pos = ap;
                 if (rgv) {
-                    c->token_pos = ap;
                     if (c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
                         ZeroCCDataReloc *dr = &c->data_relocs[c->data_reloc_count++];
                         dr->data_patch_offset = data_patch_off + tgt.abs_off;
@@ -1332,24 +1333,24 @@ void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType obj_type,
                             ? rgv->data_offset + addoff : (size_t)-1; /* global base */
                         dr->target_global_idx = (int)(rgv - c->global_vars);
                     }
-                    if (cursor) {
-                        if (has_desig) {
-                            size_t nc = tgt.leaf_idx + 1;
-                            if (nc > *cursor) *cursor = nc;
-                        } else {
-                            *cursor += tgt.advance;
-                        }
-                    }
                 } else {
-                    /* Not a known global: skip & ident (zero-fill, no reloc). */
-                    c->token_pos = ap;
-                    if (cursor) {
-                        if (has_desig) {
-                            size_t nc = tgt.leaf_idx + 1;
-                            if (nc > *cursor) *cursor = nc;
-                        } else {
-                            *cursor += tgt.advance;
-                        }
+                    /* Extern object or function symbol */
+                    if (c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
+                        ZeroCCDataReloc *dr = &c->data_relocs[c->data_reloc_count++];
+                        dr->data_patch_offset = data_patch_off + tgt.abs_off;
+                        dr->target_kind = (rfn && !rfn->is_object) ? 3 : 2;
+                        dr->rodata_offset = 0;
+                        dr->target_data_offset = addoff;
+                        dr->target_global_idx = -1;
+                        snprintf(dr->target_extern_name, sizeof(dr->target_extern_name), "%s", refn);
+                    }
+                }
+                if (cursor) {
+                    if (has_desig) {
+                        size_t nc = tgt.leaf_idx + 1;
+                        if (nc > *cursor) *cursor = nc;
+                    } else {
+                        *cursor += tgt.advance;
                     }
                 }
             } else {
@@ -1406,11 +1407,12 @@ void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType obj_type,
              * t[] = { { f, g }, ... };`). */
             char fnm[128];
             snprintf(fnm, sizeof(fnm), "%s", c->tokens[c->token_pos].str_val);
+            ZeroCCFunction *rfn = zero_cc_find_function(c, fnm);
             c->token_pos++;
             if (c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
                 ZeroCCDataReloc *dr = &c->data_relocs[c->data_reloc_count++];
                 dr->data_patch_offset = data_patch_off + tgt.abs_off;
-                dr->target_kind = 3; /* function symbol */
+                dr->target_kind = (rfn && rfn->is_object) ? 2 : 3;
                 dr->rodata_offset = 0;
                 dr->target_data_offset = 0;
                 dr->target_global_idx = -1;
@@ -1528,11 +1530,12 @@ void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType obj_type,
             }
             char fnm[128];
             snprintf(fnm, sizeof(fnm), "%s", c->tokens[c->token_pos].str_val);
+            ZeroCCFunction *rfn = zero_cc_find_function(c, fnm);
             c->token_pos++;
             if (c->data_reloc_count < ZERO_CC_MAX_DATA_RELOCS) {
                 ZeroCCDataReloc *dr = &c->data_relocs[c->data_reloc_count++];
                 dr->data_patch_offset = data_patch_off + tgt.abs_off;
-                dr->target_kind = 3; /* function symbol */
+                dr->target_kind = (rfn && rfn->is_object) ? 2 : 3;
                 dr->rodata_offset = 0;
                 dr->target_data_offset = 0;
                 dr->target_global_idx = -1;

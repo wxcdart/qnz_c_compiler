@@ -124,7 +124,7 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	test-project-diff test-project-runs \
 	test-isa-qemu test-isa128 test-dlfcn-isa test-driver test-linker \
 	test-c23 test-asm test-opt test-san test-preproc test-fuzz test-perf \
-	audit-self-host \
+	audit-self-host stage1 test-stage1 \
 	valgrind test-valgrind
 
 all: $(TESTS) $(ZC_BIN) $(BUILD_DIR)/lib/zero_rt.a $(BUILD_DIR)/lib/zero_rt_aarch64.a $(BUILD_DIR)/lib/zero_rt_riscv64.a $(BUILD_DIR)/lib/zero_rt_riscv32.a
@@ -455,6 +455,15 @@ test-project-runs: $(ZC_BIN)
 # Self-hosting compilation audit (Sprint 184): compiles all src/ files with zerocc -c
 audit-self-host: $(ZC_BIN)
 	@python3 tools/verify/self_host_audit.py
+
+# Self-hosting Stage 2 (Sprint 184): builds zerocc-stage1 using zerocc -c
+stage1: $(ZC_BIN) $(ZC_CC)
+	@python3 tools/toolchain/build_stage1.py
+
+# Verify stage 1 self-hosted binary against test-opt and C23 gates
+test-stage1: stage1
+	@python3 tools/verify/opt_sweep.py --zerocc $(BUILD_DIR)/bin/zerocc-stage1
+	@ZEROCC=$(BUILD_DIR)/bin/zerocc-stage1 python3 tools/c23/test_c23.py --all
 
 # zero_rt: the ZeroCC-owned runtime (heap, minimal stdio, strings, exit).
 # Compiled by zerocc itself; the objects are archived with the system `ar`

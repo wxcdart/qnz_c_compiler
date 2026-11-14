@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 165-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-11-14T16:41:41Z
+timestamp: 2026-11-14T20:34:14Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -315,6 +315,10 @@ make test-isa128
 # Self-hosting compilation audit (Sprint 184): compiles all 76 translation units in src/ with zerocc -c
 make audit-self-host
 python3 tools/verify/self_host_audit.py
+
+# Self-hosting Stage 2 (Sprint 184): builds zerocc-stage1 using zerocc -c and verifies against gates
+make stage1
+make test-stage1
 
 ### Cross-ISA Raw-Binary-Emitter Differential Test (`make test-isa-qemu`)
 

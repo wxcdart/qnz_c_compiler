@@ -1,5 +1,31 @@
 # CHANGELOG
 
+## [Sprint 184] - 2026-11-14 - Self-Hosting Epic: Stage 1 & Stage 2 (Self-Compilation & Self-Linking)
+
+Implements Stage 1 (100% clean compilation of all 76 compiler translation units under `zerocc -c`) and Stage 2 (self-linking and execution of `build/bin/zerocc-stage1`):
+- **Stage 1 (Self-Compilation of all 76 Translation Units)**:
+  - Fixed aggregate initializer evaluation in `src/zero_cc/parser/init_common.c` to accept external and function addresses (`&__TMC_END__[0]`, `dlopen`).
+  - Added ISO C99 constant macros (`INT64_C`, `UINT64_C`) to virtual `<stdint.h>`.
+  - Fixed multiple definition of `decl_align_spec` by declaring `extern` in `symbols.h` and defining in `decl_local.c`.
+  - Extended unary prefix/postfix `++`/`--` in `src/zero_cc/ir/ast_lowering_unop.c` to support external integer and pointer variables.
+  - Added `tools/verify/self_host_audit.py` (and `make audit-self-host`), verifying 76/76 translation units compile cleanly (100.0%).
+- **Stage 2 (Self-Linking & Execution of `zerocc-stage1`)**:
+  - Implemented `tools/toolchain/build_stage1.py` (and `make stage1`): compiles 71 ZeroCC library objects, `main.o`, and 5 host `zero_rt` objects using `zerocc -c`, links with `musl-gcc` into `build/bin/zerocc-stage1`, and updates embedded symbols via `embed_symtab.py`.
+  - Fixed `typeof()` evaluation on anonymous struct/union members in `src/zero_cc/parser/type_parser.h` (`zero_cc_type_find_member`): returns the underlying base type instead of generating an empty member list.
+  - Fixed unary `++`/`--` on non-identifier lvalues in `src/zero_cc/ir/ast_lowering_unop.c`: removed stale `|| c->last_expr_is_float` check that miscompiled `c->token_pos++` as double-precision floating-point addition in `zc_eval_const_fp_primary`.
+  - Added `make test-stage1` to verify `zerocc-stage1` against `opt_sweep.py` and `test_c23.py`.
+- **Verification Outcomes**:
+  - `make audit-self-host`: **76/76 (100.0%)** translation units compiled with `zerocc -c`.
+  - `ZEROCC=./build/bin/zerocc-stage1 python3 tools/verify/self_host_audit.py`: **76/76 (100.0%)** translation units compiled by `zerocc-stage1` itself.
+  - `python3 tools/verify/opt_sweep.py --zerocc ./build/bin/zerocc-stage1`: **189 tests: 131 ok, 0 failed, 58 skipped, 1 nondeterministic**.
+  - `ZEROCC=./build/bin/zerocc-stage1 python3 tools/c23/test_c23.py --all`: **31/31 passed** (2 modes x 4 opt levels).
+  - `make test`: **233/233 passed**.
+  - `make test-san`: **720 ok, 0 FAIL**.
+  - `python3 tools/verify/style_check.py`: **189 files, 0 error(s), 0 warning(s)**.
+  - `python3 tools/okf/okf.py lint && python3 tools/okf/okf.py index`: **all OKF schemas and reachability verified**.
+
+---
+
 ## [Sprint 183] - 2026-11-14 - Dynamic Loading Phase 6 (Target AOT Packaging & Non-POSIX Portability)
 
 Implements Phase 6 of the in-process dynamic loading roadmap (`zero_rt/dlfcn/`, `zero_rt/linux/os.c`, `src/zero_cc/core/virtual_headers.h`, `Makefile`):

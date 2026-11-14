@@ -72,7 +72,7 @@ ZeroCC's tools live in `tools/` organized by concern:
 | `tools/verify/` | Regression gates (san_sweep, opt_sweep, perf_budget, torture_run, diag_battery, test_runner, driver_tests, linker_tests, project_diff/runs, abi_interop, asm_diff, cfg_verifier, loop_unroll_verifier, style_check, sret_verifier, type_tag_verifier, isa_qemu_diff, isa128_diff, dlfcn_isa_diff, regress_exec_diff, extension_verifier) |
 | `tools/analysis/` | Codegen inspection (elf_verify, elf_min, riscv_enc_check, reloc_pair_check, vtable_check, cross_isa_comparator, struct_abi_verifier, struct_return_verifier, struct_asm_analyzer, prologue_epilogue_verifier, simd_regression_suite, literal_verifier, qemu_test_runner) |
 | `tools/okf/` | Knowledge graph tooling (okf.py) |
-| `tools/toolchain/` | Toolchain setup (setup_musl_cross.sh, musl_host_toolchain.sh, embed_symtab.py, setup_dev_env.sh) |
+| `tools/toolchain/` | Toolchain setup (setup_musl_cross.sh, musl_host_toolchain.sh, embed_symtab.py, build_stage1.py, setup_dev_env.sh) |
 | `tools/suites/` | Test suite generators (struct_test_generator.py) |
 | `tools/c11/`, `tools/c23/`, `tools/vla/` | Standalone dialect verification suites |
 

@@ -31,6 +31,8 @@
 #include "zero_cc/parser/init_common.h"
 #include "zero_cc/parser/zero_cc_declarator_stack.h"
 
+int64_t decl_align_spec = 0;
+
 /* K&R parameter-declaration parser - defined in zero_cc_declarator_stack.h
  * (included above); reused by the nested K&R path below. */
 static int zero_cc_parse_kr_decl(ZeroCCCompiler *c, const char **out_names, ZeroCCType *out_types, int max);

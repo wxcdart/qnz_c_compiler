@@ -1308,7 +1308,7 @@ static int compile_object_single(CompileOptions *opts, const char *input,
                     sym_idx = elf_ctx.symbol_count;
                 }
                 elf_writer_add_relocation(&elf_ctx, data_section_idx, dr->data_patch_offset,
-                                          sym_idx, reloc_type_data_abs, 0);
+                                          sym_idx, reloc_type_data_abs, (int64_t)dr->target_data_offset);
             } else if (dr->target_kind == 3 && dr->target_extern_name[0]) {
                 /* Function pointer initializer: reloc against the function
                  * symbol (defined in this TU or UND). */
@@ -1324,7 +1324,7 @@ static int compile_object_single(CompileOptions *opts, const char *input,
                     sym_idx = elf_ctx.symbol_count;
                 }
                 elf_writer_add_relocation(&elf_ctx, data_section_idx, dr->data_patch_offset,
-                                          sym_idx, reloc_type_data_abs, 0);
+                                          sym_idx, reloc_type_data_abs, (int64_t)dr->target_data_offset);
             } else if (dr->target_kind == 4) {
                 /* Absolute .data offset: address of an in-TU static local.
                  * Reloc against the .data section symbol (added above, before

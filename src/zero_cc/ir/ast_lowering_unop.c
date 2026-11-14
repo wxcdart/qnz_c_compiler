@@ -143,6 +143,55 @@ int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                     c->last_expr_is_float = 0;
                     return (node->flags & 1) ? val_temp : res_temp;
                 }
+                ZeroCCFunction *xfn = zero_cc_find_function(c, var);
+                if (xfn && xfn->is_external) {
+                    int xaddr = zc_alloc_temp(c);
+                    ir_emit_mov_global(c, xaddr, xfn->name);
+                    const ZeroCCType *xt = &xfn->return_type;
+                    size_t xsz = (xt->size > 0) ? xt->size : 4;
+                    bool xflt = (xt->tag == TYPE_FLOAT || xt->tag == TYPE_DOUBLE);
+                    if (xflt) {
+                        int val_temp = zc_alloc_temp(c);
+                        int one_i = zc_alloc_temp(c);
+                        int one_f = zc_alloc_temp(c);
+                        int res_temp = zc_alloc_temp(c);
+                        if (xsz == 4) ir_emit_vloadss(c, (uint32_t)val_temp, (uint32_t)xaddr);
+                        else ir_emit_vloadsd(c, (uint32_t)val_temp, (uint32_t)xaddr);
+                        ir_emit_mov_imm(c, one_i, 1);
+                        ir_emit_cvtsi2sd(c, (uint32_t)one_f, (uint32_t)one_i);
+                        if (node->aux.op == TK_INC) {
+                            ir_emit_fadd(c, (uint32_t)res_temp, (uint32_t)val_temp, (uint32_t)one_f);
+                        } else {
+                            ir_emit_fsub(c, (uint32_t)res_temp, (uint32_t)val_temp, (uint32_t)one_f);
+                        }
+                        if (xsz == 4) ir_emit_vstoress(c, (uint32_t)xaddr, (uint32_t)res_temp);
+                        else ir_emit_vstoresd(c, (uint32_t)xaddr, (uint32_t)res_temp);
+                        c->last_expr_is_float = 1;
+                        return (node->flags & 1) ? val_temp : res_temp;
+                    }
+                    int val_temp = zc_alloc_temp(c);
+                    int one_temp = zc_alloc_temp(c);
+                    int res_temp = zc_alloc_temp(c);
+                    if (xsz == 1) ir_emit_load_byte(c, val_temp, xaddr);
+                    else if (xsz == 2) ir_emit_load_16(c, val_temp, xaddr);
+                    else if (xsz == 4) ir_emit_load_32(c, val_temp, xaddr);
+                    else ir_emit_deref(c, val_temp, xaddr);
+                    zero_cc_emit_int_extend(c, val_temp, xt);
+
+                    ir_emit_mov_imm(c, one_temp, (node->aux.op == TK_INC) ?
+                        lvalue_inc_step(xt) : -lvalue_inc_step(xt));
+                    ir_emit_add(c, res_temp, val_temp, one_temp);
+                    zc_maybe_emit_ovf_trap_incdec(c, arena, node, (uint32_t)res_temp, val_temp, one_temp);
+                    zero_cc_emit_int_extend(c, res_temp, xt);
+
+                    if (xsz == 1) ir_emit_store_byte(c, res_temp, xaddr);
+                    else if (xsz == 2) ir_emit_store_16(c, res_temp, xaddr);
+                    else if (xsz == 4) ir_emit_store_32(c, res_temp, xaddr);
+                    else ir_emit_store_64(c, res_temp, xaddr);
+
+                    c->last_expr_is_float = 0;
+                    return (node->flags & 1) ? val_temp : res_temp;
+                }
             }
             /* Non-ident lvalue (C11 6.5.2.4): a[i]++, (*p)++, s.f++,
              * p->f++.  Pre-fix these lowered to nothing (silent no-op).
@@ -152,7 +201,7 @@ int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
             if (operand) {
                 TypeInfo *lval_ti = ast_node_get_typeinfo(c, operand);
                 size_t lval_size = lval_ti ? type_size(lval_ti) : 4;
-                bool lval_float = (lval_ti && type_is_floating(lval_ti)) || c->last_expr_is_float;
+                bool lval_float = lval_ti && type_is_floating(lval_ti);
                 if (lval_size == 0) lval_size = 4;
                 int addr = TEMP_NONE;
 
@@ -214,6 +263,16 @@ int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                                     /* global pointer var: deref to get value */
                                     base_addr = zc_alloc_temp(c);
                                     ir_emit_deref(c, base_addr, base_addr);
+                                }
+                            } else {
+                                ZeroCCFunction *bfn = zero_cc_find_function(c, base_node->s.str);
+                                if (bfn && bfn->is_external) {
+                                    base_addr = zc_alloc_temp(c);
+                                    ir_emit_mov_global(c, base_addr, bfn->name);
+                                    if (is_arrow) {
+                                        base_addr = zc_alloc_temp(c);
+                                        ir_emit_deref(c, base_addr, base_addr);
+                                    }
                                 }
                             }
                         } else if (base_node && base_node->tag == NODE_INDEX) {

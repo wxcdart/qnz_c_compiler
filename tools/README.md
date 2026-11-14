@@ -79,6 +79,7 @@ All tools are **stdlib-only** (see [`tools/requirements.txt`](./requirements.txt
 | [`setup_musl_cross.sh`](./toolchain/setup_musl_cross.sh) | Build per-ISA static-musl cross toolchain (`musl-gcc-<arch>`) | `tools/toolchain/setup_musl_cross.sh --arch aarch64 --ccbin aarch64-linux-gnu-gcc` |
 | [`musl_host_toolchain.sh`](./toolchain/musl_host_toolchain.sh) | Build static-musl host toolchain (used by Makefile) | invoked by `make` |
 | [`embed_symtab.py`](./toolchain/embed_symtab.py) | Pre-baked `.symtab` generator for zero_rt dlfcn | invoked by `make build/bin/zerocc` |
+| [`build_stage1.py`](./toolchain/build_stage1.py) | Self-hosting Stage 1 compiler builder: compiles and links `zerocc-stage1` | `python3 tools/toolchain/build_stage1.py` / `make stage1` |
 | [`setup_dev_env.sh`](./toolchain/setup_dev_env.sh) | Development environment setup (Ubuntu/Debian/Fedora/Arch/macOS) | `tools/toolchain/setup_dev_env.sh` |
 
 ### `tools/suites/` — Test Suite Generators
