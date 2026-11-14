@@ -60,6 +60,8 @@
 #include <sys/stat.h>
 #include <sys/mman.h>
 
+#include "dynlink.h"
+
 /* ---- Sprint 153 (Host Runtime #11 Phase 1): pre-baked symbol table ----
  *
  * tools/embed_symtab.py (run by the Makefile right after the first link
@@ -87,7 +89,9 @@ __attribute__((weak)) const ZeroRtEmbeddedSym g_zero_rt_embedded_syms[] =
     { { 0, 0 } };
 __attribute__((weak)) const unsigned long g_zero_rt_embedded_sym_count = 0;
 
-static void *zero_rt_embed_lookup(const char *name) {
+/* Look up a symbol in the pre-baked embedded table.  Exported (non-static)
+ * so zero_rt/dlfcn/dynlink.c can use it for head-DSO symbol resolution. */
+void *zero_rt_embed_lookup(const char *name) {
     if (g_zero_rt_embedded_sym_count == 0) return NULL;
     const ZeroRtEmbeddedSym *t = g_zero_rt_embedded_syms;
     size_t lo = 0, hi = g_zero_rt_embedded_sym_count;
@@ -332,6 +336,10 @@ static void *zero_rt_sym_lookup(const char *name) {
     return NULL;
 }
 
+void *zero_rt_host_sym_lookup(const char *name) {
+    return zero_rt_sym_lookup(name);
+}
+
 /* ---- dlerror bookkeeping ---- */
 
 static char g_rt_dl_errmsg[256];
@@ -381,17 +389,36 @@ ZC_DLFCN_HIDDEN void *dlopen(const char *filename, int flags) {
     if (strncmp(base, "ld-musl-", 8) == 0 && strstr(base, ".so")) {
         return (void *)&g_rt_ns;
     }
+    /* Phase 2: real .so loading via the in-process dynamic linker.
+     * Only paths containing '/' are supported in the initial MVP
+     * (bare-name search via LD_LIBRARY_PATH is deferred). */
+    if (strchr(filename, '/') != NULL) {
+        void *h = zc_dlopen(filename, flags);
+        if (h) return h;
+        /* fall through to set error below */
+    }
     zero_rt_dl_seterr(filename);
     errno = ENOENT;
     return NULL;
 }
 
 ZC_DLFCN_HIDDEN void *dlsym(void *handle, const char *name) {
-    if (handle != NULL && handle != (void *)&g_rt_ns) {
-        zero_rt_dl_seterr("dlsym: invalid handle");
+    if (!name || !name[0]) {
+        zero_rt_dl_seterr("dlsym: invalid name");
         return NULL;
     }
-    void *sym = zero_rt_sym_lookup(name);
+    void *sym = NULL;
+    if (handle != NULL && handle != (void *)&g_rt_ns) {
+        /* Phase 2: specific ZcDso* handle returned by zc_dlopen. */
+        sym = zc_dlsym(handle, name);
+    } else {
+        /* NULL (RTLD_DEFAULT) or &g_rt_ns: search main executable's own
+         * symtab first, then any loaded .so files. */
+        sym = zero_rt_sym_lookup(name);
+        if (!sym) {
+            sym = zc_dlsym(NULL, name);
+        }
+    }
     if (!sym) {
         snprintf(g_rt_dl_errmsg, sizeof(g_rt_dl_errmsg),
                  "dlsym: Symbol not found: %s", name ? name : "(null)");
@@ -404,6 +431,9 @@ ZC_DLFCN_HIDDEN void *dlsym(void *handle, const char *name) {
 ZC_DLFCN_HIDDEN int dlclose(void *handle) {
     if (handle == (void *)&g_rt_ns) {
         /* The namespace is the process itself: nothing to unload. */
+        return 0;
+    }
+    if (zc_dlclose(handle) == 0) {
         return 0;
     }
     zero_rt_dl_seterr("dlclose: invalid handle");

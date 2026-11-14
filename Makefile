@@ -258,6 +258,13 @@ $(ZC_DLCFN_OBJ): zero_rt/dlfcn/dlfcn.c $(ZC_CC)
 	@mkdir -p $(dir $@)
 	$(ZC_CC) $(CFLAGS) -c $< -o $@
 
+# zero_rt's own in-process dynamic linker (Phase 2): loads real .so files
+# into the static-musl host process.  x86-64 ELF64 only in the initial MVP.
+ZC_DYNLINK_OBJ := $(BUILD_DIR)/obj/zero_rt/dlfcn/dynlink.o
+$(ZC_DYNLINK_OBJ): zero_rt/dlfcn/dynlink.c zero_rt/dlfcn/dynlink.h $(ZC_CC)
+	@mkdir -p $(dir $@)
+	$(ZC_CC) $(CFLAGS) -c $< -o $@
+
 # zero_rt's own libgcc complex-division helpers (host side): zerocc's
 # complex `/` lowering calls __div{sc3,dc3,tc3}, which the JIT resolves via
 # dlsym on the executable's own .symtab.  A static build has no libgcc_s to
@@ -308,21 +315,21 @@ $(EMBED_SYMS_OBJ): $(ZC_EMBED_SYMS) $(ZC_CC)
 	@mkdir -p $(dir $@)
 	$(ZC_CC) $(CFLAGS) -c $< -o $@
 
-$(ZC_BIN): $(MAIN_OBJ) $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ) $(JIT_SAN_OBJ) $(ZC_DLCFN_OBJ) $(ZC_COMPLEX_OBJ) $(EMBED_SYMS_OBJ) $(ZC_CC)
+$(ZC_BIN): $(MAIN_OBJ) $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ) $(JIT_SAN_OBJ) $(ZC_DLCFN_OBJ) $(ZC_DYNLINK_OBJ) $(ZC_COMPLEX_OBJ) $(EMBED_SYMS_OBJ) $(ZC_CC)
 	@mkdir -p $(dir $@)
-	$(ZC_CC) $(CFLAGS) $(ZC_MUSL_LINK) -o $@ $(MAIN_OBJ) $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ) $(JIT_SAN_OBJ) $(ZC_DLCFN_OBJ) $(ZC_COMPLEX_OBJ) $(EMBED_SYMS_OBJ) $(LDFLAGS)
+	$(ZC_CC) $(CFLAGS) $(ZC_MUSL_LINK) -o $@ $(MAIN_OBJ) $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ) $(JIT_SAN_OBJ) $(ZC_DLCFN_OBJ) $(ZC_DYNLINK_OBJ) $(ZC_COMPLEX_OBJ) $(EMBED_SYMS_OBJ) $(LDFLAGS)
 	@rc=0; python3 tools/toolchain/embed_symtab.py --bin $@ --out $(ZC_EMBED_SYMS) || rc=$$?; \
 	if [ $$rc -eq 3 ]; then \
 		echo "$(ZC_BIN): embedded symtab changed; relinking"; \
-		$(ZC_CC) $(CFLAGS) $(ZC_MUSL_LINK) -o $@ $(MAIN_OBJ) $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ) $(JIT_SAN_OBJ) $(ZC_DLCFN_OBJ) $(ZC_COMPLEX_OBJ) $(EMBED_SYMS_OBJ) $(LDFLAGS); \
+		$(ZC_CC) $(CFLAGS) $(ZC_MUSL_LINK) -o $@ $(MAIN_OBJ) $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ) $(JIT_SAN_OBJ) $(ZC_DLCFN_OBJ) $(ZC_DYNLINK_OBJ) $(ZC_COMPLEX_OBJ) $(EMBED_SYMS_OBJ) $(LDFLAGS); \
 	fi
 
 .PHONY: zerocc
 zerocc: $(ZC_BIN)
 
-$(TEST_BIN_DIR)/%: test/%.c $(ZC_CC) $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS) $(ZC_DLCFN_OBJ) $(ZC_COMPLEX_OBJ)
+$(TEST_BIN_DIR)/%: test/%.c $(ZC_CC) $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS) $(ZC_DLCFN_OBJ) $(ZC_DYNLINK_OBJ) $(ZC_COMPLEX_OBJ)
 	@mkdir -p $(dir $@)
-	$(ZC_CC) $(CFLAGS) $(ZC_MUSL_LINK) $< $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS) $(ZC_DLCFN_OBJ) $(ZC_COMPLEX_OBJ) $(LDFLAGS) -o $@
+	$(ZC_CC) $(CFLAGS) $(ZC_MUSL_LINK) $< $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS) $(ZC_DLCFN_OBJ) $(ZC_DYNLINK_OBJ) $(ZC_COMPLEX_OBJ) $(LDFLAGS) -o $@
 
 test: all
 	@python3 tools/verify/test_runner.py
@@ -743,7 +750,7 @@ golden_test: $(TEST_BIN_DIR)/unit/golden_error_test
 # Root Cause 4: orphaned .d files after branch switches/renames used to
 # trigger "No rule to make target" errors, forcing make clean). Track all
 # compiler objects plus the per-test binary .d files.
-ALL_OBJS = $(ZEROCCLIB_OBJS) $(MAIN_OBJ) $(JIT_INT128_OBJ) $(ZC_DLCFN_OBJ) $(ZC_COMPLEX_OBJ) $(EMBED_SYMS_OBJ)
+ALL_OBJS = $(ZEROCCLIB_OBJS) $(MAIN_OBJ) $(JIT_INT128_OBJ) $(ZC_DLCFN_OBJ) $(ZC_DYNLINK_OBJ) $(ZC_COMPLEX_OBJ) $(EMBED_SYMS_OBJ)
 -include $(ALL_OBJS:.o=.d)
 -include $(TESTS:=.d)
 
