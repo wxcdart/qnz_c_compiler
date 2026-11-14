@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## [Unreleased] - Dynamic Loading Roadmap (Phases 1–6) & DWARF 4 Composite Types
+
+- **Dynamic Loading Roadmap Formalization**: Documented the 6-phase roadmap for in-process dynamic loading (`zero_rt/dlfcn/dynlink.c`) in `docs/ZEROCC_Development_Plan.md` and `docs/okf/host-runtime-and-portability.md`:
+  - *Phase 1 (Embedded Symtab)*: Pre-baked `.rodata` symbol table with link-time relocations (Shipped, Sprint 153).
+  - *Phase 2 (ELF64 x86-64 Loader MVP)*: `PT_LOAD` mapping, dynamic relocations, constructors, synthetic `head` DSO (Shipped, Sprint 154).
+  - *Phase 3 (Search Paths, Dependencies & Versioning)*: `DT_RPATH`/`DT_RUNPATH` with `$ORIGIN`, `LD_LIBRARY_PATH`, multiarch system dirs, recursive `DT_NEEDED`, cycle-safe BFS symbol resolution, constructor ordering, `.gnu.version` / `dlvsym()` (Shipped, Sprint 180).
+  - *Phase 4 (POSIX API Completeness & Lifecycle)*: `dladdr(addr, &info)` DSO/symbol reverse lookup, `dlsym(RTLD_NEXT, name)` for interposition/hooks, true DSO unmapping via `munmap` and `DT_FINI`/`DT_FINI_ARRAY` destructors in `dlclose()`, and explicit path override for folded libs (`./libc.so`).
+  - *Phase 5 (Multi-ISA Dynamic Loading)*: `ehdr.e_machine` validation (`EM_AARCH64`, `EM_RISCV`), dynamic relocation handlers per ISA (`R_AARCH64_*`, `R_RISCV_*`, and `Elf32_*` parser for RV32), and ISA-specific system search directories.
+  - *Phase 6 (Target AOT Packaging & Portability)*: Packaging `dynlink.c` into `zero_rt_<isa>.a` for standalone static AOT executables (`--zerocc-link`), Windows `<dlfcn.h>` emulation over `LoadLibraryA`/`GetProcAddress`, macOS `libSystem` dynamic binding, and freestanding/baremetal in-memory symbol tables (`BaremetalSym[]`).
+- **DWARF 4 Composite Types (Sprint 179/180)**: Emitted DWARF 4 debug information (`.debug_info`, `.debug_abbrev`, `.debug_str`) for structures, unions, member locations, bitfields, enums with enumerator values, typedefs, 128-bit types, and recursive struct pointers with cycle-safe caching. Verified via interactive GDB sessions in `tools/verify/driver_tests.py` (45/45).
+
+---
+
 ## [Sprint 179] - 2026-11-13 - mem2reg Sparse Valid-Slot List (Optimizer Performance)
 
 First performance win verified by the new `make test-perf` budget gate (Sprint 178). Profiled the 1.26 s passes-only budget on `sqlite3.c` (`--profile-opts`, median of 3): **mem2reg 344.8 ms (21.6%)** and licm 317.8 ms (16.6%) dominated. The local (non-loop) promotion phase of `opt_promote_mem2reg` maintained slot validity through a dense 256-slot array: **every value instruction** ran an O(256) scan ("invalidate any slot holding my `temp_dest`"), and every invalidation event (call, branch-target label, LEA, pointer store, VLA) did a 256-wide clear — ~300M wasted slot checks on a 1.2M-instruction TU.

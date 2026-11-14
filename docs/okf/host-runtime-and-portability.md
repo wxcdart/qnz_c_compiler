@@ -4,7 +4,7 @@ title: Host Runtime, In-Process Dynamic Loading & Portability Architecture
 description: Architecture of ZeroCC's static-musl host toolchain, self-hosting dlfcn, the in-process dynamic loader (musl dynlink.c adaptation), freestanding/baremetal runtime model, and cross-platform portability across Linux, macOS, Windows, and BSDs.
 resource: host-runtime-and-portability
 tags: [host-runtime, dlfcn, musl, static-linking, freestanding, baremetal, portability, macos, windows, bsd]
-timestamp: 2026-11-14T13:04:16Z
+timestamp: 2026-11-14T14:00:51Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -280,6 +280,110 @@ Execution output under `./build/bin/zerocc --run app.c`:
 vendor_init(42) = 0xCAFE002A
 bare vendor_init(7) = 0xCAFE0007
 ```
+
+---
+
+### 2.3. Dynamic Loading Roadmap: Multi-ISA, POSIX Completeness & Cross-Platform Architecture
+
+The ZeroCC dynamic loader (`zero_rt/dlfcn/dynlink.c`) is designed as a phased, multi-ISA subsystem spanning JIT in-process execution, standalone static AOT binaries, and cross-platform targets:
+
+```mermaid
+flowchart TD
+    subgraph Shipped ["Shipped (Sprints 153–180)"]
+        P1["Phase 1: Embedded Symtab (.rodata)"]
+        P2["Phase 2: ELF64 x86-64 Loader MVP"]
+        P3["Phase 3: RPATH/$ORIGIN, DT_NEEDED, dlvsym"]
+    end
+
+    subgraph Planned ["Planned & Sequenced"]
+        P4["Phase 4: POSIX Completeness & Lifecycle<br/>dladdr, RTLD_NEXT, munmap, DT_FINI"]
+        P5["Phase 5: Multi-ISA Dynamic Loading<br/>AArch64, RISC-V 64, RISC-V 32 (ELF32)"]
+        P6["Phase 6: Target AOT Packaging & Portability<br/>zero_rt.a, Windows LoadLibrary, macOS, Baremetal"]
+    end
+
+    P1 --> P2 --> P3 --> P4 --> P5 --> P6
+```
+
+#### Phase 1: Pre-Baked Host Symbol Table (`.rodata`) — SHIPPED (Sprint 153)
+- Generates `build/gen/embedded_syms.c` at build time using `tools/toolchain/embed_symtab.py` with link-time relocations (`&sym`).
+- Eliminates `/proc/self/exe` dependency for hardened environments (chroots, Docker scratch).
+- Fast $O(\log N)$ in-memory binary search.
+
+#### Phase 2: ELF64 x86-64 Loader MVP — SHIPPED (Sprint 154)
+- Direct mapping of `PT_LOAD` segments with trailing memory zero-fill.
+- Dynamic tag parsing (`DT_STRTAB`, `DT_SYMTAB`, `DT_RELA`, `DT_JMPREL`, `DT_INIT`, `DT_INIT_ARRAY`).
+- x86-64 RELA relocations (`R_X86_64_RELATIVE`, `R_X86_64_64`, `R_X86_64_GLOB_DAT`, `R_X86_64_JUMP_SLOT`).
+- Synthetic `head` DSO bridging host musl symbols; basic `dlsym()` and `dlclose()`.
+
+#### Phase 3: Search Paths, Recursive Dependencies & Versioning — SHIPPED (Sprint 180)
+- **Search Paths**: `DT_RPATH` / `DT_RUNPATH` with `$ORIGIN` and `${ORIGIN}` string expansion, `LD_LIBRARY_PATH` list parsing, and multiarch system directory fallbacks (`/lib/x86_64-linux-gnu`, etc.).
+- **Recursive `DT_NEEDED`**: Full dependency graph traversal, cycle-safe insertion into `g_zc_list`, dependency-first constructor ordering, transitive BFS symbol resolution in `zc_scope_lookup`, and host library folding (`libc.so`, `libm.so` folded into `g_zc_head`).
+- **GNU Symbol Versioning**: Parsing `.gnu.version` (`DT_VERSYM`), `.gnu.version_d` (`DT_VERDEF`), and `.gnu.version_r` (`DT_VERNEED`); filtering hidden versions for standard `dlsym()`; exact version lookup with `dlvsym()`.
+
+#### Phase 4: POSIX API Completeness & DSO Lifecycle Management — PLANNED
+1. **`dladdr(const void *addr, Dl_info *info)`**:
+   - Inspects all loaded DSOs in `g_zc_list` as well as the host executable image.
+   - Matches `addr` against mapped segment ranges (`[base + p_vaddr, base + p_vaddr + p_memsz)`) to find the containing DSO (`dli_fname`, `dli_fbase`).
+   - Scans the DSO's `.dynsym` table (or the host's embedded symtab) to locate the closest preceding symbol boundary, populating `dli_sname` and `dli_saddr`.
+   - Essential for crash handlers, stack backtraces, profilers, and debugging utilities.
+2. **`dlsym(RTLD_NEXT, const char *name)`**:
+   - Searches for the next occurrence of `name` in the DSO load list starting *after* the calling library.
+   - Unblocks function interposition and wrapper libraries (e.g. custom allocators wrapping system `malloc`/`free`, logging hooks, LD_PRELOAD-style interceptors).
+3. **True DSO Unmapping & Destructor Execution**:
+   - Tracks per-DSO reference counts in `struct zc_dso`.
+   - In `dlclose()`, decrements the reference count.
+   - When the count drops to zero, executes `DT_FINI` and `DT_FINI_ARRAY` destructors in reverse constructor order, unlinks the DSO from `g_zc_list`, frees heap metadata, and unmaps all loaded segments via `munmap()`.
+4. **Explicit Path Override for Folded Libraries**:
+   - Distinguishes bare library names (`libc.so`, `libm.so`) from explicit paths (`./libc.so`, `/custom/path/libc.so`).
+   - Bare names continue folding into `g_zc_head` for zero-overhead host integration; explicit paths load the actual disk file into memory, supporting custom libc/libm testing.
+
+#### Phase 5: Multi-ISA Dynamic Loading across Backends — PLANNED
+Extends the in-process dynamic loader to support all target ISAs natively:
+1. **ELF Machine Dispatch**:
+   - Validates `ehdr.e_machine` against the host/target architecture:
+     - `EM_X86_64` (62) for x86-64
+     - `EM_AARCH64` (183) for AArch64
+     - `EM_RISCV` (243) for RISC-V 64 and RISC-V 32
+   - Incompatible architectures fail immediately with an informative `dlerror` diagnostic (e.g., `"ELF machine mismatch: expected AArch64 (183), found x86-64 (62)"`).
+2. **Dynamic Relocation Handlers by ISA**:
+   - **AArch64**:
+     - `R_AARCH64_RELATIVE` (1027): `*(uint64_t*)(base + r_offset) = base + r_addend`
+     - `R_AARCH64_ABS64` (257): `*(uint64_t*)(base + r_offset) = sym_val + r_addend`
+     - `R_AARCH64_GLOB_DAT` (1025) & `R_AARCH64_JUMP_SLOT` (1026): GOT/PLT slot updates to `sym_val + r_addend`
+   - **RISC-V 64**:
+     - `R_RISCV_RELATIVE` (3): `*(uint64_t*)(base + r_offset) = base + r_addend`
+     - `R_RISCV_64` (2): `*(uint64_t*)(base + r_offset) = sym_val + r_addend`
+     - `R_RISCV_JUMP_SLOT` (5): PLT slot updates to `sym_val + r_addend`
+   - **RISC-V 32 (ELF32 Support)**:
+     - Implements `Elf32_*` parser structures and 32-bit field accessors (`Elf32_Ehdr`, `Elf32_Phdr`, `Elf32_Dyn`, `Elf32_Sym`, `Elf32_Rela`).
+     - `R_RISCV_RELATIVE` (3): `*(uint32_t*)(base + r_offset) = (uint32_t)(base + r_addend)`
+     - `R_RISCV_32` (1): `*(uint32_t*)(base + r_offset) = (uint32_t)(sym_val + r_addend)`
+     - `R_RISCV_JUMP_SLOT` (5): PLT slot updates to `(uint32_t)(sym_val + r_addend)`
+3. **ISA-Specific Multiarch System Search Paths**:
+   - In `zc_find_system()`, query ISA-specific system directories:
+     - x86-64: `/lib/x86_64-linux-gnu`, `/usr/lib/x86_64-linux-gnu`, `/lib64`, `/usr/lib64`
+     - AArch64: `/lib/aarch64-linux-gnu`, `/usr/lib/aarch64-linux-gnu`
+     - RISC-V 64: `/lib/riscv64-linux-gnu`, `/usr/lib/riscv64-linux-gnu`
+     - RISC-V 32: `/lib/riscv32-linux-gnu`, `/usr/lib/riscv32-linux-gnu`
+4. **Verification**:
+   - Differential QEMU test harness testing shared library loading and relocation resolution across all target architectures (`qemu-aarch64-static`, `qemu-riscv64-static`, `qemu-riscv32-static`).
+
+#### Phase 6: Standalone Target AOT Packaging & Non-POSIX Portability — PLANNED
+1. **Target AOT Packaging (`zero_rt_<isa>.a`)**:
+   - Compile `dynlink.c` as part of `zero_rt` for all 4 ISAs (`zero_rt.a`, `zero_rt_aarch64.a`, `zero_rt_riscv64.a`, `zero_rt_riscv32.a`).
+   - Standalone static executables generated by `zerocc --zerocc-link` can call `dlopen()` / `dlsym()` at runtime to load plugins without needing the system's dynamic linker (`ld-linux.so`).
+2. **Windows `<dlfcn.h>` Emulation Layer**:
+   - Native Win32 translation:
+     - `dlopen(path, flags)` $\rightarrow$ `LoadLibraryA(path)`
+     - `dlsym(handle, name)` $\rightarrow$ `GetProcAddress(handle, name)`
+     - `dlclose(handle)` $\rightarrow$ `FreeLibrary(handle)`
+     - `dlerror()` $\rightarrow$ `FormatMessageA(GetLastError())`
+3. **macOS Host Dynamic Linking**:
+   - Bridges to native Darwin `libSystem.B.dylib` `dlopen` / `dlsym` with `pthread_jit_write_protect_np()` page protection hooks.
+4. **Freestanding / Baremetal In-Memory Symbol Engine**:
+   - In environments without an OS, filesystems, or MMU virtual memory:
+     - Static flash symbol table (`const BaremetalSym g_firmware_symbols[]`).
+     - RAM relocatable object loader for in-memory `.o` modules with processor cache invalidation (`fence.i` / `isb`).
 
 ---
 
