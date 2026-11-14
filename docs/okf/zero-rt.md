@@ -4,7 +4,7 @@ title: Zero_RT — ZeroCC's Own Freestanding Runtime (Linux x86-64 + AArch64/RIS
 description: The zero_rt/ runtime (heap, strings, exit, minimal stdio with Ryū float formatting) compiled by zerocc itself, auto-linked by --zerocc-link, and the zeroc_main_wrapper entry routing that makes atexit work on a plain return from main.
 resource: zero-rt
 tags: [zero-rt, runtime, freestanding, heap, stdio, ryu, zero-cc-link, phase-0]
-timestamp: 2026-11-14T15:49:32Z
+timestamp: 2026-11-14T15:58:32Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -184,6 +184,50 @@ For embedded systems supporting firmware plugins, JIT engines, or runtime diagno
    Modern Harvard-architecture microcontrollers feature separate instruction (I-cache) and data (D-cache) caches. When code is loaded into RAM, the instruction pipeline must be serialized:
    - **RISC-V**: issues `fence.i` (pipeline synchronization and I-cache invalidate).
    - **ARM / AArch64**: issues `isb` (instruction synchronization barrier).
+
+### 5. Custom RTOS Construction Pattern
+
+Because `zero_rt` provides dynamic memory allocation, serial formatting, atomic synchronization, and stack overflow guarding with zero OS overhead, it serves as an ideal runtime foundation for custom **Real-Time Operating Systems (RTOS)** or microkernels (e.g., FreeRTOS- or Zephyr-style systems):
+
+```mermaid
+flowchart TD
+    subgraph AppTasks ["APPLICATION TASKS"]
+        T1["Task 1: Sensor Polling"]
+        T2["Task 2: Motor Control"]
+        T3["Task 3: Telemetry"]
+    end
+
+    subgraph CustomRTOS ["CUSTOM RTOS KERNEL"]
+        S1["Preemptive / Priority Scheduler"]
+        S2["Task Control Blocks (TCB) & Stacks"]
+        S3["Timer Tick ISR (SysTick / mtimecmp)"]
+        S4["Context Switcher (save_context / restore_context)"]
+    end
+
+    subgraph ZeroRT ["zero_rt RUNTIME SERVICES"]
+        Z1["Heap Allocator: malloc / free (core/heap.c)"]
+        Z2["Serial Diagnostics: printf & Ryū formatting (core/stdio.c)"]
+        Z3["Memory & String: memcpy / memset (core/string.c)"]
+        Z4["Stack Hardening: -fstack-protector (__stack_chk_fail)"]
+        Z5["Sync Primitives: Atomics & spinlocks (core/thread.c)"]
+        Z6["Dynamic Modules: Flash symbol dictionary (dlfcn/baremetal.h)"]
+    end
+
+    AppTasks --> CustomRTOS
+    AppTasks --> ZeroRT
+    CustomRTOS --> ZeroRT
+```
+
+#### Kernel Architecture Division:
+1. **What `zero_rt` Supplies (Zero Code Needed)**:
+   - **Task Stack Allocation**: Tasks use `malloc()` from `core/heap.c` to allocate task stacks directly from physical SRAM.
+   - **Task Synchronization**: Inter-task queues and semaphores build upon `zero_rt`'s hardware atomic CAS and LL/SC primitives.
+   - **Kernel Hardening**: `-fstack-protector` inserts canary guards into task activation frames; any task stack overflow triggers `__stack_chk_fail` before kernel data structures are compromised.
+   - **Logging & Telemetry**: Kernel and tasks call `printf()` for serial output over UART with no external C library bloat.
+2. **What the Kernel Developer Implements (~100-150 lines)**:
+   - **Task Control Block (TCB)**: Stores the saved stack pointer (`uintptr_t *sp`), task priority, and ready/blocked state.
+   - **Timer Tick ISR**: Configures a hardware timer (e.g., RISC-V `mtimecmp` or ARM Cortex `SysTick`) to fire periodic preemption interrupts (e.g., every 1 ms).
+   - **Context Switch Assembly**: A small naked assembly routine saving the current task's GPRs onto its stack, updating `g_current_task->sp`, switching to the next task's stack pointer, restoring registers, and executing `mret` / `eret` / `sret`.
 
 ## Related Concepts
 
