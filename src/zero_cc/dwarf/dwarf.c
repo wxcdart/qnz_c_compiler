@@ -22,8 +22,70 @@ enum {
     ABBREV_VARIABLE_GLOBAL,
     ABBREV_VARIABLE_STATIC_GLOBAL,
     ABBREV_ARRAY_TYPE,
-    ABBREV_SUBRANGE_TYPE
+    ABBREV_SUBRANGE_TYPE,
+    ABBREV_STRUCTURE_TYPE,
+    ABBREV_STRUCTURE_TYPE_ANON,
+    ABBREV_UNION_TYPE,
+    ABBREV_UNION_TYPE_ANON,
+    ABBREV_MEMBER,
+    ABBREV_MEMBER_BITFIELD,
+    ABBREV_ENUM_TYPE,
+    ABBREV_ENUM_TYPE_ANON,
+    ABBREV_ENUMERATOR,
+    ABBREV_TYPEDEF
 };
+
+typedef struct {
+    char key[160];
+    uint32_t ref;
+} DwarfTypeMapEntry;
+
+typedef struct {
+    DwarfTypeMapEntry *entries;
+    size_t count;
+    size_t capacity;
+} DwarfTypeMap;
+
+static void dwarf_type_map_init(DwarfTypeMap *map) {
+    map->entries = NULL;
+    map->count = 0;
+    map->capacity = 0;
+}
+
+static uint32_t dwarf_type_map_find(DwarfTypeMap *map, const char *key) {
+    if (!map || !key) return 0;
+    for (size_t i = 0; i < map->count; i++) {
+        if (strcmp(map->entries[i].key, key) == 0) {
+            return map->entries[i].ref;
+        }
+    }
+    return 0;
+}
+
+static void dwarf_type_map_add(DwarfTypeMap *map, const char *key, uint32_t ref) {
+    if (!map || !key) return;
+    if (map->count >= map->capacity) {
+        size_t new_cap = map->capacity ? map->capacity * 2 : 64;
+        DwarfTypeMapEntry *new_entries = (DwarfTypeMapEntry *)realloc(map->entries, new_cap * sizeof(DwarfTypeMapEntry));
+        if (!new_entries) return;
+        map->entries = new_entries;
+        map->capacity = new_cap;
+    }
+    snprintf(map->entries[map->count].key, sizeof(map->entries[map->count].key), "%s", key);
+    map->entries[map->count].ref = ref;
+    map->count++;
+}
+
+static void dwarf_type_map_free(DwarfTypeMap *map) {
+    if (map && map->entries) {
+        free(map->entries);
+        map->entries = NULL;
+    }
+    if (map) {
+        map->count = 0;
+        map->capacity = 0;
+    }
+}
 
 typedef struct {
     uint16_t section_idx;
@@ -329,6 +391,92 @@ static void dwarf_generate_abbrev(ZeroCCBuffer *out) {
     dwarf_emit_uleb128(out, DW_AT_upper_bound); dwarf_emit_uleb128(out, DW_FORM_udata);
     dwarf_emit_uleb128(out, 0);                 dwarf_emit_uleb128(out, 0);
 
+    /* Abbrev 15: DW_TAG_structure_type (children = yes, named) */
+    dwarf_emit_uleb128(out, ABBREV_STRUCTURE_TYPE);
+    dwarf_emit_uleb128(out, DW_TAG_structure_type);
+    dwarf_emit_u8(out, DW_CHILDREN_yes);
+    dwarf_emit_uleb128(out, DW_AT_name);      dwarf_emit_uleb128(out, DW_FORM_strp);
+    dwarf_emit_uleb128(out, DW_AT_byte_size); dwarf_emit_uleb128(out, DW_FORM_udata);
+    dwarf_emit_uleb128(out, 0);               dwarf_emit_uleb128(out, 0);
+
+    /* Abbrev 16: DW_TAG_structure_type_anon (children = yes, anon) */
+    dwarf_emit_uleb128(out, ABBREV_STRUCTURE_TYPE_ANON);
+    dwarf_emit_uleb128(out, DW_TAG_structure_type);
+    dwarf_emit_u8(out, DW_CHILDREN_yes);
+    dwarf_emit_uleb128(out, DW_AT_byte_size); dwarf_emit_uleb128(out, DW_FORM_udata);
+    dwarf_emit_uleb128(out, 0);               dwarf_emit_uleb128(out, 0);
+
+    /* Abbrev 17: DW_TAG_union_type (children = yes, named) */
+    dwarf_emit_uleb128(out, ABBREV_UNION_TYPE);
+    dwarf_emit_uleb128(out, DW_TAG_union_type);
+    dwarf_emit_u8(out, DW_CHILDREN_yes);
+    dwarf_emit_uleb128(out, DW_AT_name);      dwarf_emit_uleb128(out, DW_FORM_strp);
+    dwarf_emit_uleb128(out, DW_AT_byte_size); dwarf_emit_uleb128(out, DW_FORM_udata);
+    dwarf_emit_uleb128(out, 0);               dwarf_emit_uleb128(out, 0);
+
+    /* Abbrev 18: DW_TAG_union_type_anon (children = yes, anon) */
+    dwarf_emit_uleb128(out, ABBREV_UNION_TYPE_ANON);
+    dwarf_emit_uleb128(out, DW_TAG_union_type);
+    dwarf_emit_u8(out, DW_CHILDREN_yes);
+    dwarf_emit_uleb128(out, DW_AT_byte_size); dwarf_emit_uleb128(out, DW_FORM_udata);
+    dwarf_emit_uleb128(out, 0);               dwarf_emit_uleb128(out, 0);
+
+    /* Abbrev 19: DW_TAG_member (children = no) */
+    dwarf_emit_uleb128(out, ABBREV_MEMBER);
+    dwarf_emit_uleb128(out, DW_TAG_member);
+    dwarf_emit_u8(out, DW_CHILDREN_no);
+    dwarf_emit_uleb128(out, DW_AT_name);                 dwarf_emit_uleb128(out, DW_FORM_strp);
+    dwarf_emit_uleb128(out, DW_AT_type);                 dwarf_emit_uleb128(out, DW_FORM_ref4);
+    dwarf_emit_uleb128(out, DW_AT_data_member_location); dwarf_emit_uleb128(out, DW_FORM_udata);
+    dwarf_emit_uleb128(out, 0);                          dwarf_emit_uleb128(out, 0);
+
+    /* Abbrev 20: DW_TAG_member_bitfield (children = no) */
+    dwarf_emit_uleb128(out, ABBREV_MEMBER_BITFIELD);
+    dwarf_emit_uleb128(out, DW_TAG_member);
+    dwarf_emit_u8(out, DW_CHILDREN_no);
+    dwarf_emit_uleb128(out, DW_AT_name);                 dwarf_emit_uleb128(out, DW_FORM_strp);
+    dwarf_emit_uleb128(out, DW_AT_type);                 dwarf_emit_uleb128(out, DW_FORM_ref4);
+    dwarf_emit_uleb128(out, DW_AT_byte_size);            dwarf_emit_uleb128(out, DW_FORM_udata);
+    dwarf_emit_uleb128(out, DW_AT_bit_size);             dwarf_emit_uleb128(out, DW_FORM_udata);
+    dwarf_emit_uleb128(out, DW_AT_bit_offset);           dwarf_emit_uleb128(out, DW_FORM_data1);
+    dwarf_emit_uleb128(out, DW_AT_data_member_location); dwarf_emit_uleb128(out, DW_FORM_udata);
+    dwarf_emit_uleb128(out, 0);                          dwarf_emit_uleb128(out, 0);
+
+    /* Abbrev 21: DW_TAG_enumeration_type (children = yes, named) */
+    dwarf_emit_uleb128(out, ABBREV_ENUM_TYPE);
+    dwarf_emit_uleb128(out, DW_TAG_enumeration_type);
+    dwarf_emit_u8(out, DW_CHILDREN_yes);
+    dwarf_emit_uleb128(out, DW_AT_name);      dwarf_emit_uleb128(out, DW_FORM_strp);
+    dwarf_emit_uleb128(out, DW_AT_byte_size); dwarf_emit_uleb128(out, DW_FORM_data1);
+    dwarf_emit_uleb128(out, DW_AT_type);      dwarf_emit_uleb128(out, DW_FORM_ref4);
+    dwarf_emit_uleb128(out, 0);               dwarf_emit_uleb128(out, 0);
+
+    /* Abbrev 22: DW_TAG_enumeration_type_anon (children = yes, anon) */
+    dwarf_emit_uleb128(out, ABBREV_ENUM_TYPE_ANON);
+    dwarf_emit_uleb128(out, DW_TAG_enumeration_type);
+    dwarf_emit_u8(out, DW_CHILDREN_yes);
+    dwarf_emit_uleb128(out, DW_AT_byte_size); dwarf_emit_uleb128(out, DW_FORM_data1);
+    dwarf_emit_uleb128(out, DW_AT_type);      dwarf_emit_uleb128(out, DW_FORM_ref4);
+    dwarf_emit_uleb128(out, 0);               dwarf_emit_uleb128(out, 0);
+
+    /* Abbrev 23: DW_TAG_enumerator (children = no) */
+    dwarf_emit_uleb128(out, ABBREV_ENUMERATOR);
+    dwarf_emit_uleb128(out, DW_TAG_enumerator);
+    dwarf_emit_u8(out, DW_CHILDREN_no);
+    dwarf_emit_uleb128(out, DW_AT_name);        dwarf_emit_uleb128(out, DW_FORM_strp);
+    dwarf_emit_uleb128(out, DW_AT_const_value); dwarf_emit_uleb128(out, DW_FORM_sdata);
+    dwarf_emit_uleb128(out, 0);                 dwarf_emit_uleb128(out, 0);
+
+    /* Abbrev 24: DW_TAG_typedef (children = no) */
+    dwarf_emit_uleb128(out, ABBREV_TYPEDEF);
+    dwarf_emit_uleb128(out, DW_TAG_typedef);
+    dwarf_emit_u8(out, DW_CHILDREN_no);
+    dwarf_emit_uleb128(out, DW_AT_name);      dwarf_emit_uleb128(out, DW_FORM_strp);
+    dwarf_emit_uleb128(out, DW_AT_decl_file); dwarf_emit_uleb128(out, DW_FORM_data1);
+    dwarf_emit_uleb128(out, DW_AT_decl_line); dwarf_emit_uleb128(out, DW_FORM_udata);
+    dwarf_emit_uleb128(out, DW_AT_type);      dwarf_emit_uleb128(out, DW_FORM_ref4);
+    dwarf_emit_uleb128(out, 0);               dwarf_emit_uleb128(out, 0);
+
     /* End of table */
     dwarf_emit_u8(out, 0);
 }
@@ -470,23 +618,51 @@ static void dwarf_generate_line_table(ZeroCCCompiler *c,
     *(uint32_t *)(out->data + unit_length_pos) = (uint32_t)unit_len;
 }
 
-/* Map ZeroCCType to a base type DIE or pointer type DIE */
-static uint32_t dwarf_get_type_ref(ZeroCCBuffer *info, ZeroCCCompiler *c,
-                                   ZeroCCType type, uint32_t *base_refs,
-                                   uint32_t void_ptr_ref) {
+/* Map ZeroCCType to a base type, pointer, array, struct, union, enum, or typedef DIE */
+static uint32_t dwarf_get_type_ref(ZeroCCCompiler *c,
+                                   ZeroCCBuffer *info,
+                                   ZeroCCBuffer *str_buf,
+                                   uint16_t debug_info_idx,
+                                   uint32_t rel_sec_type,
+                                   uint32_t rel_addr_type,
+                                   DwarfRelocList *relocs,
+                                   ZeroCCType type,
+                                   uint32_t *base_refs,
+                                   uint32_t void_ptr_ref,
+                                   DwarfTypeMap *type_map) {
+    if (type.is_long_double || type.is_float128) {
+        return base_refs[13];
+    }
+
     if (type.tag == TYPE_PTR) {
         if (!type.base || type.base->tag == TYPE_VOID) {
             return void_ptr_ref;
         }
-        uint32_t pointee_ref = dwarf_get_type_ref(info, c, *type.base, base_refs, void_ptr_ref);
+        uint32_t pointee_ref = dwarf_get_type_ref(c, info, str_buf, debug_info_idx,
+                                                  rel_sec_type, rel_addr_type, relocs,
+                                                  *type.base, base_refs, void_ptr_ref, type_map);
+        char pkey[32];
+        snprintf(pkey, sizeof(pkey), "ptr_%u", pointee_ref);
+        uint32_t cached = dwarf_type_map_find(type_map, pkey);
+        if (cached != 0) return cached;
+
         uint32_t ptr_ref = (uint32_t)info->length;
         dwarf_emit_uleb128(info, ABBREV_POINTER_TYPE);
         dwarf_emit_u8(info, (c->isa == ISA_RISCV32) ? 4 : 8);
         dwarf_emit_u32(info, pointee_ref);
+        dwarf_type_map_add(type_map, pkey, ptr_ref);
         return ptr_ref;
     }
+
     if (type.tag == TYPE_ARRAY && type.base) {
-        uint32_t elem_ref = dwarf_get_type_ref(info, c, *type.base, base_refs, void_ptr_ref);
+        uint32_t elem_ref = dwarf_get_type_ref(c, info, str_buf, debug_info_idx,
+                                               rel_sec_type, rel_addr_type, relocs,
+                                               *type.base, base_refs, void_ptr_ref, type_map);
+        char akey[64];
+        snprintf(akey, sizeof(akey), "arr_%u_%zu", elem_ref, type.array_len);
+        uint32_t cached = dwarf_type_map_find(type_map, akey);
+        if (cached != 0) return cached;
+
         uint32_t arr_ref = (uint32_t)info->length;
         dwarf_emit_uleb128(info, ABBREV_ARRAY_TYPE);
         dwarf_emit_u32(info, elem_ref);
@@ -494,23 +670,147 @@ static uint32_t dwarf_get_type_ref(ZeroCCBuffer *info, ZeroCCCompiler *c,
         uint64_t ubound = (type.array_len > 0) ? (uint64_t)(type.array_len - 1) : 0;
         dwarf_emit_uleb128(info, ubound);
         dwarf_emit_u8(info, 0);  /* End of array children */
+        dwarf_type_map_add(type_map, akey, arr_ref);
         return arr_ref;
+    }
+
+    if (type.tag == TYPE_STRUCT || type.tag == TYPE_UNION) {
+        bool is_union = (type.tag == TYPE_UNION);
+        const char *tag_prefix = is_union ? "union" : "struct";
+        char key[160];
+        bool is_named = (type.struct_name[0] != '\0' &&
+                         strncmp(type.struct_name, "__anon_", 7) != 0);
+        if (is_named) {
+            snprintf(key, sizeof(key), "%s %s", tag_prefix, type.struct_name);
+            uint32_t existing = dwarf_type_map_find(type_map, key);
+            if (existing != 0) return existing;
+        } else {
+            snprintf(key, sizeof(key), "anon_%s_%u", tag_prefix, (uint32_t)info->length);
+        }
+
+        ZeroCCType *st_def = is_named ? zero_cc_find_struct(c, type.struct_name) : NULL;
+        const ZeroCCType *src = (st_def && st_def->member_count > 0) ? st_def : &type;
+
+        uint32_t struct_ref = (uint32_t)info->length;
+        dwarf_type_map_add(type_map, key, struct_ref);
+
+        uint32_t abbrev = is_union ? (is_named ? ABBREV_UNION_TYPE : ABBREV_UNION_TYPE_ANON)
+                                   : (is_named ? ABBREV_STRUCTURE_TYPE : ABBREV_STRUCTURE_TYPE_ANON);
+        dwarf_emit_uleb128(info, abbrev);
+        if (is_named) {
+            uint32_t sname_off = dwarf_str_add(str_buf, type.struct_name);
+            dwarf_relocs_add(relocs, debug_info_idx, info->length, ".debug_str", rel_sec_type, sname_off);
+            dwarf_emit_u32(info, sname_off);
+        }
+        dwarf_emit_uleb128(info, (uint64_t)src->size);
+
+        if (src->members) {
+            for (size_t mi = 0; mi < src->member_count; mi++) {
+                ZeroCCStructMember *m = &src->members[mi];
+                if (!m->name[0]) continue;
+
+                uint32_t mname_off = dwarf_str_add(str_buf, m->name);
+                ZeroCCType mtype;
+                memset(&mtype, 0, sizeof(mtype));
+                mtype.tag = m->tag;
+                mtype.size = m->size;
+                mtype.align = m->align;
+                mtype.base = m->base;
+                mtype.is_long_double = m->is_long_double;
+                mtype.is_float128 = m->is_float128;
+                if (m->tag == TYPE_ARRAY) {
+                    mtype.array_len = (m->base && m->base->size > 0) ? (m->size / m->base->size) : m->size;
+                }
+                if ((m->tag == TYPE_STRUCT || m->tag == TYPE_UNION) && m->base && m->base->struct_name[0]) {
+                    snprintf(mtype.struct_name, sizeof(mtype.struct_name), "%s", m->base->struct_name);
+                    mtype.members = m->base->members;
+                    mtype.member_count = m->base->member_count;
+                }
+
+                uint32_t mtype_ref = dwarf_get_type_ref(c, info, str_buf, debug_info_idx,
+                                                        rel_sec_type, rel_addr_type, relocs,
+                                                        mtype, base_refs, void_ptr_ref, type_map);
+
+                if (m->is_bitfield) {
+                    dwarf_emit_uleb128(info, ABBREV_MEMBER_BITFIELD);
+                    dwarf_relocs_add(relocs, debug_info_idx, info->length, ".debug_str", rel_sec_type, mname_off);
+                    dwarf_emit_u32(info, mname_off);
+                    dwarf_emit_u32(info, mtype_ref);
+                    dwarf_emit_uleb128(info, (uint64_t)m->size);
+                    dwarf_emit_uleb128(info, (uint64_t)m->bit_width);
+                    dwarf_emit_u8(info, m->bit_offset);
+                    dwarf_emit_uleb128(info, (uint64_t)m->offset);
+                } else {
+                    dwarf_emit_uleb128(info, ABBREV_MEMBER);
+                    dwarf_relocs_add(relocs, debug_info_idx, info->length, ".debug_str", rel_sec_type, mname_off);
+                    dwarf_emit_u32(info, mname_off);
+                    dwarf_emit_u32(info, mtype_ref);
+                    dwarf_emit_uleb128(info, (uint64_t)m->offset);
+                }
+            }
+        }
+
+        dwarf_emit_u8(info, 0);  /* End of struct/union children */
+        return struct_ref;
+    }
+
+    if (type.tag == TYPE_ENUM) {
+        char key[160];
+        bool is_named = (type.struct_name[0] != '\0' &&
+                         strncmp(type.struct_name, "__anon_", 7) != 0);
+        if (is_named) {
+            snprintf(key, sizeof(key), "enum %s", type.struct_name);
+            uint32_t existing = dwarf_type_map_find(type_map, key);
+            if (existing != 0) return existing;
+        } else {
+            snprintf(key, sizeof(key), "anon_enum_%u", (uint32_t)info->length);
+        }
+
+        uint32_t enum_ref = (uint32_t)info->length;
+        dwarf_type_map_add(type_map, key, enum_ref);
+
+        uint32_t abbrev = is_named ? ABBREV_ENUM_TYPE : ABBREV_ENUM_TYPE_ANON;
+        dwarf_emit_uleb128(info, abbrev);
+        if (is_named) {
+            uint32_t ename_off = dwarf_str_add(str_buf, type.struct_name);
+            dwarf_relocs_add(relocs, debug_info_idx, info->length, ".debug_str", rel_sec_type, ename_off);
+            dwarf_emit_u32(info, ename_off);
+        }
+        dwarf_emit_u8(info, 4);             /* byte_size = 4 */
+        dwarf_emit_u32(info, base_refs[0]); /* DW_AT_type -> int */
+
+        if (c->enum_constants) {
+            for (size_t ec = 0; ec < c->enum_const_capacity; ec++) {
+                if (c->enum_constants[ec].name[0]) {
+                    dwarf_emit_uleb128(info, ABBREV_ENUMERATOR);
+                    uint32_t cname_off = dwarf_str_add(str_buf, c->enum_constants[ec].name);
+                    dwarf_relocs_add(relocs, debug_info_idx, info->length, ".debug_str", rel_sec_type, cname_off);
+                    dwarf_emit_u32(info, cname_off);
+                    dwarf_emit_sleb128(info, c->enum_constants[ec].value);
+                }
+            }
+        }
+
+        dwarf_emit_u8(info, 0);  /* End of enum children */
+        return enum_ref;
     }
 
     /* Base types */
     switch (type.tag) {
-        case TYPE_INT32:  return base_refs[0];  /* int */
-        case TYPE_UINT32: return base_refs[1];  /* unsigned int */
-        case TYPE_INT8:   return base_refs[2];  /* char */
-        case TYPE_UINT8:  return base_refs[3];  /* unsigned char */
-        case TYPE_INT16:  return base_refs[4];  /* short */
-        case TYPE_UINT16: return base_refs[5];  /* unsigned short */
-        case TYPE_INT64:  return base_refs[6];  /* long */
-        case TYPE_UINT64: return base_refs[7];  /* unsigned long */
-        case TYPE_FLOAT:  return base_refs[8];  /* float */
-        case TYPE_DOUBLE: return base_refs[9];  /* double */
-        case TYPE_BOOL:   return base_refs[10]; /* bool */
-        default:          return base_refs[0];  /* default to int */
+        case TYPE_INT32:   return base_refs[0];  /* int */
+        case TYPE_UINT32:  return base_refs[1];  /* unsigned int */
+        case TYPE_INT8:    return base_refs[2];  /* char */
+        case TYPE_UINT8:   return base_refs[3];  /* unsigned char */
+        case TYPE_INT16:   return base_refs[4];  /* short */
+        case TYPE_UINT16:  return base_refs[5];  /* unsigned short */
+        case TYPE_INT64:   return base_refs[6];  /* long */
+        case TYPE_UINT64:  return base_refs[7];  /* unsigned long */
+        case TYPE_FLOAT:   return base_refs[8];  /* float */
+        case TYPE_DOUBLE:  return base_refs[9];  /* double */
+        case TYPE_BOOL:    return base_refs[10]; /* bool */
+        case TYPE_INT128:  return base_refs[11]; /* __int128 */
+        case TYPE_UINT128: return base_refs[12]; /* unsigned __int128 */
+        default:           return base_refs[0];  /* default to int */
     }
 }
 
@@ -581,7 +881,7 @@ static void dwarf_generate_info(ZeroCCCompiler *c,
     dwarf_emit_u32(info, 0);
 
     /* Base types */
-    enum { NUM_BASE = 11 };
+    enum { NUM_BASE = 14 };
     uint32_t base_refs[NUM_BASE];
 
     struct {
@@ -599,7 +899,10 @@ static void dwarf_generate_info(ZeroCCCompiler *c,
         { "long unsigned int", 8, DW_ATE_unsigned },
         { "float", 4, DW_ATE_float },
         { "double", 8, DW_ATE_float },
-        { "_Bool", 1, DW_ATE_boolean }
+        { "_Bool", 1, DW_ATE_boolean },
+        { "__int128", 16, DW_ATE_signed },
+        { "unsigned __int128", 16, DW_ATE_unsigned },
+        { "long double", 16, DW_ATE_float }
     };
 
     for (int b = 0; b < NUM_BASE; b++) {
@@ -615,13 +918,53 @@ static void dwarf_generate_info(ZeroCCCompiler *c,
     dwarf_emit_uleb128(info, ABBREV_POINTER_TYPE_VOID);
     dwarf_emit_u8(info, (c->isa == ISA_RISCV32) ? 4 : 8);
 
+    DwarfTypeMap type_map;
+    dwarf_type_map_init(&type_map);
+
+    /* Typedefs */
+    for (size_t ti = 0; ti < c->typedef_count; ti++) {
+        ZeroCCTypedef *td = &c->typedefs[ti];
+        if (!td->alias[0]) continue;
+        char key[160];
+        snprintf(key, sizeof(key), "typedef %s", td->alias);
+        if (dwarf_type_map_find(&type_map, key) != 0) continue;
+
+        uint32_t target_ref = dwarf_get_type_ref(c, info, str_buf, debug_info_idx,
+                                                 rel_sec_type, rel_addr_type, relocs,
+                                                 td->type, base_refs, void_ptr_ref, &type_map);
+        uint32_t td_ref = (uint32_t)info->length;
+        dwarf_type_map_add(&type_map, key, td_ref);
+
+        dwarf_emit_uleb128(info, ABBREV_TYPEDEF);
+        uint32_t aname_off = dwarf_str_add(str_buf, td->alias);
+        dwarf_relocs_add(relocs, debug_info_idx, info->length, ".debug_str", rel_sec_type, aname_off);
+        dwarf_emit_u32(info, aname_off);
+        dwarf_emit_u8(info, 1);      /* decl_file */
+        dwarf_emit_uleb128(info, 1); /* decl_line */
+        dwarf_emit_u32(info, target_ref);
+    }
+
+    /* Named structs & unions */
+    for (size_t si = 0; si < c->struct_count; si++) {
+        ZeroCCStructDef *sd = &c->structs[si];
+        if (!sd->name[0] || strncmp(sd->name, "__anon_", 7) == 0) continue;
+        char key[160];
+        snprintf(key, sizeof(key), "%s %s", (sd->type.tag == TYPE_UNION) ? "union" : "struct", sd->name);
+        if (dwarf_type_map_find(&type_map, key) != 0) continue;
+        dwarf_get_type_ref(c, info, str_buf, debug_info_idx,
+                           rel_sec_type, rel_addr_type, relocs,
+                           sd->type, base_refs, void_ptr_ref, &type_map);
+    }
+
     /* Global variables */
     for (size_t gi = 0; gi < c->global_var_count; gi++) {
         ZeroCCGlobalVar *gv = &c->global_vars[gi];
         if (!gv->name[0] || gv->alias_target[0] || gv->is_tls) continue;
 
         uint32_t gv_name_off = dwarf_str_add(str_buf, gv->name);
-        uint32_t type_ref = dwarf_get_type_ref(info, c, gv->type, base_refs, void_ptr_ref);
+        uint32_t type_ref = dwarf_get_type_ref(c, info, str_buf, debug_info_idx,
+                                               rel_sec_type, rel_addr_type, relocs,
+                                               gv->type, base_refs, void_ptr_ref, &type_map);
 
         if (gv->is_static) {
             dwarf_emit_uleb128(info, ABBREV_VARIABLE_STATIC_GLOBAL);
@@ -659,7 +1002,9 @@ static void dwarf_generate_info(ZeroCCCompiler *c,
         bool is_void = (fn->return_type.tag == TYPE_VOID);
         uint32_t ret_type_ref = 0;
         if (!is_void) {
-            ret_type_ref = dwarf_get_type_ref(info, c, fn->return_type, base_refs, void_ptr_ref);
+            ret_type_ref = dwarf_get_type_ref(c, info, str_buf, debug_info_idx,
+                                              rel_sec_type, rel_addr_type, relocs,
+                                              fn->return_type, base_refs, void_ptr_ref, &type_map);
         }
 
         uint32_t abbrev;
@@ -697,7 +1042,9 @@ static void dwarf_generate_info(ZeroCCCompiler *c,
             if (!var->name[0] || var->name[0] == '.') continue;
 
             uint32_t var_name_off = dwarf_str_add(str_buf, var->name);
-            uint32_t var_type_ref = dwarf_get_type_ref(info, c, var->type, base_refs, void_ptr_ref);
+            uint32_t var_type_ref = dwarf_get_type_ref(c, info, str_buf, debug_info_idx,
+                                                       rel_sec_type, rel_addr_type, relocs,
+                                                       var->type, base_refs, void_ptr_ref, &type_map);
 
             if (var->is_param) {
                 dwarf_emit_uleb128(info, ABBREV_FORMAL_PARAM);
@@ -750,6 +1097,8 @@ static void dwarf_generate_info(ZeroCCCompiler *c,
 
     /* End of CU children */
     dwarf_emit_u8(info, 0);
+
+    dwarf_type_map_free(&type_map);
 
     /* Patch unit length */
     size_t unit_len = info->length - (unit_length_pos + 4);

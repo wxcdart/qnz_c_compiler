@@ -14,16 +14,19 @@ extern "C" {
 
 /* DWARF 4 Tag constants */
 #define DW_TAG_array_type            0x01
+#define DW_TAG_enumeration_type      0x04
 #define DW_TAG_formal_parameter     0x05
 #define DW_TAG_member               0x0d
 #define DW_TAG_pointer_type         0x0f
 #define DW_TAG_compile_unit         0x11
 #define DW_TAG_structure_type       0x13
+#define DW_TAG_typedef              0x16
+#define DW_TAG_union_type           0x17
+#define DW_TAG_subrange_type        0x21
+#define DW_TAG_base_type            0x24
+#define DW_TAG_enumerator           0x28
 #define DW_TAG_subprogram           0x2e
 #define DW_TAG_variable             0x34
-#define DW_TAG_base_type            0x24
-#define DW_TAG_subrange_type        0x21
-#define DW_TAG_union_type           0x17
 
 /* DWARF 4 Children determination */
 #define DW_CHILDREN_no              0x00
@@ -34,10 +37,13 @@ extern "C" {
 #define DW_AT_location              0x02
 #define DW_AT_name                  0x03
 #define DW_AT_byte_size             0x0b
+#define DW_AT_bit_offset            0x0c
+#define DW_AT_bit_size              0x0d
 #define DW_AT_stmt_list             0x10
 #define DW_AT_low_pc                0x11
 #define DW_AT_high_pc               0x12
 #define DW_AT_language              0x13
+#define DW_AT_const_value           0x1c
 #define DW_AT_comp_dir              0x1b
 #define DW_AT_producer              0x25
 #define DW_AT_prototyped            0x27

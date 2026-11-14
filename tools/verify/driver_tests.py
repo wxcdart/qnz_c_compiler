@@ -348,13 +348,17 @@ def main():
         with open(dwarf_src, "w") as f:
             f.write(
                 "int global_val = 42;\n"
+                "struct Point { int x; int y; };\n"
+                "enum Status { STATUS_OK = 0, STATUS_BUSY = 2 };\n"
                 "int square(int a) {\n"
                 "    int b = a * a;\n"
                 "    return b;\n"
                 "}\n"
                 "int main(void) {\n"
                 "    int x = 5;\n"
-                "    int y = square(x);\n"
+                "    struct Point pt = {10, 20};\n"
+                "    enum Status st = STATUS_BUSY;\n"
+                "    int y = square(x) + pt.x + (int)st;\n"
                 "    return y;\n"
                 "}\n"
             )
@@ -393,6 +397,13 @@ def main():
                     "-ex", "r",
                     "-ex", "n",
                     "-ex", "print x",
+                    "-ex", "n",
+                    "-ex", "print pt.x",
+                    "-ex", "print pt.y",
+                    "-ex", "print pt",
+                    "-ex", "n",
+                    "-ex", "print st",
+                    "-ex", "ptype struct Point",
                     "-ex", "b square",
                     "-ex", "c",
                     "-ex", "print a",
@@ -404,8 +415,13 @@ def main():
                 gp = subprocess.run(gdb_cmd, capture_output=True, text=True, timeout=30)
                 gdb_ok = (gp.returncode == 0 and
                           "$1 = 5" in gp.stdout and
-                          "$2 = 5" in gp.stdout and
-                          "$3 = 42" in gp.stdout and
+                          "$2 = 10" in gp.stdout and
+                          "$3 = 20" in gp.stdout and
+                          "$4 = {x = 10, y = 20}" in gp.stdout and
+                          "$5 = STATUS_BUSY" in gp.stdout and
+                          "struct Point" in gp.stdout and
+                          "$6 = 5" in gp.stdout and
+                          "$7 = 42" in gp.stdout and
                           "#0  square" in gp.stdout and
                           "in main ()" in gp.stdout)
                 check("dwarf-gdb-session", gdb_ok, f"gdb out={gp.stdout!r}")

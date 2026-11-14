@@ -469,21 +469,9 @@ void zero_cc_free_all_struct_arrays(ZeroCCCompiler *c) {
     for (ZeroCCTypeNode *node = g_type_pool_head; node; node = node->next)
         zc_struct_owner_add(owners, &n, node->type.members);
     /* RECORD only (see zero_cc_note_members_array) - zero_cc_compiler_free
-     * is the single point of release. */
+     * is the single point of release. Member arrays remain valid for DWARF
+     * emission and post-compilation inspection until compiler_free. */
     for (size_t i = 0; i < n; i++) zero_cc_note_members_array(c, owners[i]);
-    /* The structs/typedefs tables persist past the compile: null the
-     * owners so a stale entry can't be misread as live (the arrays
-     * themselves stay owned by the compiler list). */
-    if (c) {
-        for (size_t i = 0; i < c->struct_count; i++) {
-            c->structs[i].type.members = NULL;
-            c->structs[i].type.members_cap = 0;
-        }
-        for (size_t i = 0; i < c->typedef_count; i++) {
-            c->typedefs[i].type.members = NULL;
-            c->typedefs[i].type.members_cap = 0;
-        }
-    }
 }
 
 ZeroCCType *zero_cc_type_alloc_base(const ZeroCCType *base) {

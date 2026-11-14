@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-14T13:04:16Z
+timestamp: 2026-11-14T13:25:01Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1473,3 +1473,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-14 — Updated `host-runtime-and-portability.md`
 - Expand Section 2.2 with all 4 shared library loading patterns (ORIGIN layout, X-Macros, environment fallback, and build-time dynamic link)
+
+## 2026-11-14 — Updated `dwarf-debug-info.md`
+- Support composite DWARF types: structs, unions, enums, typedefs, bitfields, and 128-bit types
