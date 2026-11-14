@@ -471,6 +471,7 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name, ZeroCCStdDi
             "#define RTLD_LAZY 1\n#define RTLD_NOW 2\n#define RTLD_GLOBAL 0x100\n#define RTLD_LOCAL 0\n#define RTLD_DEFAULT ((void*)0)\n"
             "void* dlopen(const char *filename, int flags);\n"
             "void* dlsym(void *handle, const char *symbol);\n"
+            "void* dlvsym(void *handle, const char *symbol, const char *version);\n"
             "int dlclose(void *handle);\n"
             "char* dlerror(void);\n"
             "#endif\n"

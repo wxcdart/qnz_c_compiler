@@ -25,6 +25,10 @@ void *zc_dlopen(const char *filename, int flags);
 /* Resolve a symbol within a handle's scope. */
 void *zc_dlsym(void *handle, const char *name);
 
+/* Resolve a symbol within a handle's scope matching a specific GNU version.
+ * If version is NULL, behaves like zc_dlsym (resolves the default version). */
+void *zc_dlvsym(void *handle, const char *name, const char *version);
+
 /* Decrement a handle's refcount (no actual unload in MVP). */
 int zc_dlclose(void *handle);
 

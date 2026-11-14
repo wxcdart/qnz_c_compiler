@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-14T04:40:22Z
+timestamp: 2026-11-14T05:19:24Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1455,3 +1455,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-14 — Updated `host-runtime-and-portability.md`
 - Ship zero_rt/dlfcn/dynlink.c Phase 2 in-process ELF64 .so dynamic loader (exact PT_LOAD mapping, PT_DYNAMIC/DT_GNU_HASH/DT_HASH lookup, RELA relocations, DT_INIT_ARRAY constructors, test/unit/dlfcn_dynlink.c)
+
+## 2026-11-14 — Updated `host-runtime-and-portability.md`
+- Host Runtime #11 Phase 3: Search Paths, Recursive DT_NEEDED Dependencies, and GNU Symbol Versioning

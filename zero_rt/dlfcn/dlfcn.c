@@ -389,14 +389,12 @@ ZC_DLFCN_HIDDEN void *dlopen(const char *filename, int flags) {
     if (strncmp(base, "ld-musl-", 8) == 0 && strstr(base, ".so")) {
         return (void *)&g_rt_ns;
     }
-    /* Phase 2: real .so loading via the in-process dynamic linker.
-     * Only paths containing '/' are supported in the initial MVP
-     * (bare-name search via LD_LIBRARY_PATH is deferred). */
-    if (strchr(filename, '/') != NULL) {
-        void *h = zc_dlopen(filename, flags);
-        if (h) return h;
-        /* fall through to set error below */
-    }
+    /* Real .so loading via the in-process dynamic linker (Phase 2 & 3).
+     * Supports relative/absolute paths, bare names via RPATH/RUNPATH ($ORIGIN),
+     * LD_LIBRARY_PATH, and default system directories. */
+    void *h = zc_dlopen(filename, flags);
+    if (h) return h;
+
     zero_rt_dl_seterr(filename);
     errno = ENOENT;
     return NULL;
@@ -422,6 +420,33 @@ ZC_DLFCN_HIDDEN void *dlsym(void *handle, const char *name) {
     if (!sym) {
         snprintf(g_rt_dl_errmsg, sizeof(g_rt_dl_errmsg),
                  "dlsym: Symbol not found: %s", name ? name : "(null)");
+        g_rt_dl_errset = 1;
+        return NULL;
+    }
+    return sym;
+}
+
+ZC_DLFCN_HIDDEN void *dlvsym(void *handle, const char *name, const char *version) {
+    if (!name || !name[0]) {
+        zero_rt_dl_seterr("dlvsym: invalid name");
+        return NULL;
+    }
+    if (!version || !version[0]) {
+        return dlsym(handle, name);
+    }
+    void *sym = NULL;
+    if (handle != NULL && handle != (void *)&g_rt_ns) {
+        sym = zc_dlvsym(handle, name, version);
+    } else {
+        sym = zc_dlvsym(NULL, name, version);
+        if (!sym) {
+            sym = zero_rt_sym_lookup(name);
+        }
+    }
+    if (!sym) {
+        snprintf(g_rt_dl_errmsg, sizeof(g_rt_dl_errmsg),
+                 "dlvsym: Symbol not found: %s@%s", name ? name : "(null)",
+                 version ? version : "(null)");
         g_rt_dl_errset = 1;
         return NULL;
     }
