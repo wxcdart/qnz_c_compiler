@@ -4,7 +4,7 @@ title: Host Runtime, In-Process Dynamic Loading & Portability Architecture
 description: Architecture of ZeroCC's static-musl host toolchain, self-hosting dlfcn, the in-process dynamic loader (musl dynlink.c adaptation), freestanding/baremetal runtime model, and cross-platform portability across Linux, macOS, Windows, and BSDs.
 resource: host-runtime-and-portability
 tags: [host-runtime, dlfcn, musl, static-linking, freestanding, baremetal, portability, macos, windows, bsd]
-timestamp: 2026-11-14T14:00:51Z
+timestamp: 2026-11-14T14:23:06Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -289,14 +289,14 @@ The ZeroCC dynamic loader (`zero_rt/dlfcn/dynlink.c`) is designed as a phased, m
 
 ```mermaid
 flowchart TD
-    subgraph Shipped ["Shipped (Sprints 153–180)"]
+    subgraph Shipped ["Shipped (Sprints 153–181)"]
         P1["Phase 1: Embedded Symtab (.rodata)"]
         P2["Phase 2: ELF64 x86-64 Loader MVP"]
         P3["Phase 3: RPATH/$ORIGIN, DT_NEEDED, dlvsym"]
+        P4["Phase 4: POSIX Completeness & Lifecycle<br/>dladdr, RTLD_NEXT, munmap, DT_FINI"]
     end
 
     subgraph Planned ["Planned & Sequenced"]
-        P4["Phase 4: POSIX Completeness & Lifecycle<br/>dladdr, RTLD_NEXT, munmap, DT_FINI"]
         P5["Phase 5: Multi-ISA Dynamic Loading<br/>AArch64, RISC-V 64, RISC-V 32 (ELF32)"]
         P6["Phase 6: Target AOT Packaging & Portability<br/>zero_rt.a, Windows LoadLibrary, macOS, Baremetal"]
     end
@@ -320,7 +320,7 @@ flowchart TD
 - **Recursive `DT_NEEDED`**: Full dependency graph traversal, cycle-safe insertion into `g_zc_list`, dependency-first constructor ordering, transitive BFS symbol resolution in `zc_scope_lookup`, and host library folding (`libc.so`, `libm.so` folded into `g_zc_head`).
 - **GNU Symbol Versioning**: Parsing `.gnu.version` (`DT_VERSYM`), `.gnu.version_d` (`DT_VERDEF`), and `.gnu.version_r` (`DT_VERNEED`); filtering hidden versions for standard `dlsym()`; exact version lookup with `dlvsym()`.
 
-#### Phase 4: POSIX API Completeness & DSO Lifecycle Management — PLANNED
+#### Phase 4: POSIX API Completeness & DSO Lifecycle Management — SHIPPED (Sprint 181)
 1. **`dladdr(const void *addr, Dl_info *info)`**:
    - Inspects all loaded DSOs in `g_zc_list` as well as the host executable image.
    - Matches `addr` against mapped segment ranges (`[base + p_vaddr, base + p_vaddr + p_memsz)`) to find the containing DSO (`dli_fname`, `dli_fbase`).

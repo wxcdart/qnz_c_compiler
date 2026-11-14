@@ -80,6 +80,9 @@ struct zc_dso {
     void          (*init_fn)(void);
     void         (**init_array)(void);
     size_t          init_arraysz;
+    void          (*fini_fn)(void);
+    void         (**fini_array)(void);
+    size_t          fini_arraysz;
 
     /* DT_NEEDED and search paths */
     char          *rpath;         /* DT_RPATH (.dynstr pointer) */
@@ -139,8 +142,16 @@ static void zc_seterr(int err) {
 }
 
 static void zc_dso_list_insert(ZcDso *d) {
-    d->next = g_zc_list;
-    g_zc_list = d;
+    d->next = NULL;
+    if (!g_zc_list) {
+        g_zc_list = d;
+        return;
+    }
+    ZcDso *tail = g_zc_list;
+    while (tail->next) {
+        tail = tail->next;
+    }
+    tail->next = d;
 }
 
 static void *zc_head_lookup(const char *name) {
@@ -151,8 +162,10 @@ static void *zc_head_lookup(const char *name) {
 /* Check if a library name is folded into the host executable. */
 static int zc_is_folded_lib(const char *name) {
     if (!name || !name[0]) return 0;
-    const char *base = strrchr(name, '/');
-    base = base ? base + 1 : name;
+    /* Explicit relative or absolute paths (e.g. "./libc.so", "/lib/libc.so")
+     * must NOT be folded into the host executable — only bare names like "libc.so". */
+    if (strchr(name, '/')) return 0;
+    const char *base = name;
     static const char *folded[] = {
         "libm", "libgcc", "libgcc_s", "libc", "libpthread", "libdl",
         "librt", "libutil", "libcrypt", "libresolv", "libxnet", NULL,
@@ -485,6 +498,15 @@ static int zc_parse_dynamic(ZcDso *dso, int fd, void *base) {
             break;
         case DT_INIT_ARRAYSZ:
             dso->init_arraysz = (size_t)dyn[i].d_un.d_val;
+            break;
+        case DT_FINI:
+            dso->fini_fn = (void (*)(void))zc_va_to_ptr(dso, dyn[i].d_un.d_ptr);
+            break;
+        case DT_FINI_ARRAY:
+            dso->fini_array = (void (**)(void))zc_va_to_ptr(dso, dyn[i].d_un.d_ptr);
+            break;
+        case DT_FINI_ARRAYSZ:
+            dso->fini_arraysz = (size_t)dyn[i].d_un.d_val;
             break;
         case DT_RPATH:
             rpath_off = (size_t)dyn[i].d_un.d_val;
@@ -1044,27 +1066,180 @@ void *zc_dlvsym(void *handle, const char *name, const char *version) {
     return NULL;
 }
 
+/* ---- dlsym(RTLD_NEXT) ---- */
+
+void *zc_dlvsym_next(const void *caller_pc, const char *name, const char *version) {
+    if (!g_zc_inited || !name || !name[0]) {
+        errno = EINVAL;
+        return NULL;
+    }
+    uintptr_t c = (uintptr_t)caller_pc;
+    ZcDso *caller_dso = NULL;
+
+    for (ZcDso *d = g_zc_list; d; d = d->next) {
+        if (d == g_zc_head) continue;
+        uintptr_t base = (uintptr_t)d->base;
+        if (c >= base && c < base + d->map_len) {
+            caller_dso = d;
+            break;
+        }
+    }
+
+    if (caller_dso) {
+        /* Check if any dependency of caller_dso defines the symbol */
+        for (int i = 0; i < caller_dso->dep_count; i++) {
+            ZcDso *dep = caller_dso->deps[i];
+            if (!dep || dep == g_zc_head) continue;
+            Elf64_Sym *sym = zc_dso_lookup(dep, name, version);
+            if (sym && ELF64_ST_TYPE(sym->st_info) != STT_SECTION &&
+                sym->st_shndx != SHN_UNDEF) {
+                return zc_va_to_ptr(dep, sym->st_value);
+            }
+        }
+        /* Search subsequent DSOs in load order */
+        for (ZcDso *d = caller_dso->next; d; d = d->next) {
+            if (d == g_zc_head) continue;
+            Elf64_Sym *sym = zc_dso_lookup(d, name, version);
+            if (sym && ELF64_ST_TYPE(sym->st_info) != STT_SECTION &&
+                sym->st_shndx != SHN_UNDEF) {
+                return zc_va_to_ptr(d, sym->st_value);
+            }
+        }
+        /* Fall back to host executable */
+        if (g_zc_head) {
+            void *sym = zc_head_lookup(name);
+            if (sym) return sym;
+        }
+    } else {
+        /* Caller in host executable or JIT code: search loaded DSOs */
+        for (ZcDso *d = g_zc_list; d; d = d->next) {
+            if (d == g_zc_head) continue;
+            Elf64_Sym *sym = zc_dso_lookup(d, name, version);
+            if (sym && ELF64_ST_TYPE(sym->st_info) != STT_SECTION &&
+                sym->st_shndx != SHN_UNDEF) {
+                return zc_va_to_ptr(d, sym->st_value);
+            }
+        }
+    }
+
+    errno = EINVAL;
+    return NULL;
+}
+
+void *zc_dlsym_next(const void *caller_pc, const char *name) {
+    return zc_dlvsym_next(caller_pc, name, NULL);
+}
+
+/* ---- dladdr ---- */
+
+int zc_dladdr(const void *addr, void *info_arg) {
+    if (!g_zc_inited || !info_arg || !addr) return 0;
+    Dl_info *info = (Dl_info *)info_arg;
+    uintptr_t a = (uintptr_t)addr;
+
+    for (ZcDso *d = g_zc_list; d; d = d->next) {
+        if (d == g_zc_head) continue;
+        uintptr_t base = (uintptr_t)d->base;
+        if (a >= base && a < base + d->map_len) {
+            info->dli_fname = d->name;
+            info->dli_fbase = d->base;
+            info->dli_sname = NULL;
+            info->dli_saddr = NULL;
+
+            /* Find closest preceding symbol */
+            if (d->symtab && d->strtab && d->symtab_count > 0) {
+                Elf64_Sym *best_sym = NULL;
+                uintptr_t best_diff = (uintptr_t)-1;
+                for (size_t i = 1; i < d->symtab_count; i++) {
+                    Elf64_Sym *sym = &d->symtab[i];
+                    if (sym->st_shndx == SHN_UNDEF || sym->st_name == 0) continue;
+                    uintptr_t sym_addr = (uintptr_t)zc_va_to_ptr(d, sym->st_value);
+                    if (sym_addr <= a) {
+                        uintptr_t diff = a - sym_addr;
+                        if (diff < best_diff) {
+                            best_diff = diff;
+                            best_sym = sym;
+                        }
+                    }
+                }
+                if (best_sym) {
+                    info->dli_sname = d->strtab + best_sym->st_name;
+                    info->dli_saddr = zc_va_to_ptr(d, best_sym->st_value);
+                }
+            }
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* ---- dlclose ---- */
 
-/* Decrement refcount; actual unload is not implemented in MVP. */
+/* Decrement refcount; on zero, run destructors, unmap segments, and unlink. */
 int zc_dlclose(void *handle) {
     if (!handle || !g_zc_inited) return -1;
     ZcDso *dso = (ZcDso *)handle;
     if (dso == g_zc_head) return 0;
+
+    int found = 0;
     for (ZcDso *d = g_zc_list; d; d = d->next) {
         if (d == dso) {
-            if (dso->refcnt > 0) {
-                dso->refcnt--;
-                if (dso->refcnt == 0) {
-                    for (int i = 0; i < dso->dep_count; i++) {
-                        zc_dlclose(dso->deps[i]);
-                    }
-                }
-            }
-            return 0;
+            found = 1;
+            break;
         }
     }
-    return -1;
+    if (!found) return -1;
+
+    if (dso->refcnt > 0) {
+        dso->refcnt--;
+    }
+    if (dso->refcnt > 0) {
+        return 0;
+    }
+
+    /* Refcount is 0: mark as being unloaded to guard against recursion */
+    dso->refcnt = -1;
+
+    /* Execute destructors: DT_FINI_ARRAY in reverse order, then DT_FINI */
+    if (dso->fini_array && dso->fini_arraysz > 0) {
+        size_t count = dso->fini_arraysz / sizeof(void (*)(void));
+        for (size_t i = count; i > 0; i--) {
+            if (dso->fini_array[i - 1]) {
+                dso->fini_array[i - 1]();
+            }
+        }
+    }
+    if (dso->fini_fn) {
+        dso->fini_fn();
+    }
+
+    /* Decrement refcounts on dependencies */
+    for (int i = 0; i < dso->dep_count; i++) {
+        if (dso->deps[i] && dso->deps[i] != g_zc_head && dso->deps[i]->refcnt > 0) {
+            zc_dlclose(dso->deps[i]);
+        }
+    }
+
+    /* Unlink from global DSO list */
+    ZcDso **pp = &g_zc_list;
+    while (*pp && *pp != dso) {
+        pp = &(*pp)->next;
+    }
+    if (*pp == dso) {
+        *pp = dso->next;
+    }
+
+    /* Unmap memory */
+    if (dso->base && dso->map_len > 0) {
+        munmap(dso->base, dso->map_len);
+    }
+
+    free(dso->name);
+    free(dso->deps);
+    free(dso->needed_offsets);
+    free(dso);
+
+    return 0;
 }
 
 /* ---- bootstrap ---- */

@@ -1,17 +1,40 @@
 # CHANGELOG
 
-## [Unreleased] - Dynamic Loading Roadmap (Phases 1–6) & DWARF 4 Composite Types
+## [Sprint 181] - 2026-11-14 - Dynamic Loading Phase 4 (POSIX Completeness & DSO Lifecycle)
 
-- **Dynamic Loading Roadmap Formalization**: Documented the 6-phase roadmap for in-process dynamic loading (`zero_rt/dlfcn/dynlink.c`) in `docs/ZEROCC_Development_Plan.md` and `docs/okf/host-runtime-and-portability.md`:
-  - *Phase 1 (Embedded Symtab)*: Pre-baked `.rodata` symbol table with link-time relocations (Shipped, Sprint 153).
-  - *Phase 2 (ELF64 x86-64 Loader MVP)*: `PT_LOAD` mapping, dynamic relocations, constructors, synthetic `head` DSO (Shipped, Sprint 154).
-  - *Phase 3 (Search Paths, Dependencies & Versioning)*: `DT_RPATH`/`DT_RUNPATH` with `$ORIGIN`, `LD_LIBRARY_PATH`, multiarch system dirs, recursive `DT_NEEDED`, cycle-safe BFS symbol resolution, constructor ordering, `.gnu.version` / `dlvsym()` (Shipped, Sprint 180).
-  - *Phase 4 (POSIX API Completeness & Lifecycle)*: `dladdr(addr, &info)` DSO/symbol reverse lookup, `dlsym(RTLD_NEXT, name)` for interposition/hooks, true DSO unmapping via `munmap` and `DT_FINI`/`DT_FINI_ARRAY` destructors in `dlclose()`, and explicit path override for folded libs (`./libc.so`).
-  - *Phase 5 (Multi-ISA Dynamic Loading)*: `ehdr.e_machine` validation (`EM_AARCH64`, `EM_RISCV`), dynamic relocation handlers per ISA (`R_AARCH64_*`, `R_RISCV_*`, and `Elf32_*` parser for RV32), and ISA-specific system search directories.
-  - *Phase 6 (Target AOT Packaging & Portability)*: Packaging `dynlink.c` into `zero_rt_<isa>.a` for standalone static AOT executables (`--zerocc-link`), Windows `<dlfcn.h>` emulation over `LoadLibraryA`/`GetProcAddress`, macOS `libSystem` dynamic binding, and freestanding/baremetal in-memory symbol tables (`BaremetalSym[]`).
-- **DWARF 4 Composite Types (Sprint 179/180)**: Emitted DWARF 4 debug information (`.debug_info`, `.debug_abbrev`, `.debug_str`) for structures, unions, member locations, bitfields, enums with enumerator values, typedefs, 128-bit types, and recursive struct pointers with cycle-safe caching. Verified via interactive GDB sessions in `tools/verify/driver_tests.py` (45/45).
+Implements Phase 4 of the in-process dynamic loading roadmap (`zero_rt/dlfcn/dynlink.c` + `dlfcn.c`):
+- **`dladdr(const void *addr, Dl_info *info)`**:
+  - DSO inspection in `dynlink.c`: searches loaded DSOs in `g_zc_list`, matching address bounds against mapped memory regions. Scans `.dynsym` table to identify the closest preceding symbol boundary (`dli_sname`, `dli_saddr`), base address (`dli_fbase`), and pathname (`dli_fname`).
+  - Host executable inspection in `dlfcn.c`: searches pre-baked `.rodata` embedded table (`g_zero_rt_embedded_syms[]`) and `/proc/self/exe` fallback symbols.
+  - Negative/interior address resolution: interior offsets within function bodies resolve cleanly to the enclosing symbol; unmapped/stack/heap addresses safely return 0.
+- **Interposition via `dlsym(RTLD_NEXT, name)`**:
+  - Inspects caller instruction pointer via `__builtin_return_address(0)` to identify caller DSO.
+  - Traverses `caller_dso->deps` dependency graph and subsequent DSOs in chronological load order (`zc_dso_list_insert` FIFO append), unblocking wrapper libraries (e.g. `malloc`/`free` interposition).
+  - Main executable namespace support: `RTLD_NEXT` from main searches all loaded DSOs following host symbols.
+- **True DSO Unmapping & Destructors in `dlclose()`**:
+  - Added ELF `DT_FINI`, `DT_FINI_ARRAY`, `DT_FINI_ARRAYSZ` parsing in `zc_parse_dynamic`.
+  - On reference count dropping to zero, runs `DT_FINI_ARRAY` destructors in reverse order followed by `DT_FINI`.
+  - Cycle-safe recursive `dlclose()` on dependencies.
+  - Unlinks DSO from `g_zc_list`, unmaps memory segments via `munmap(dso->base, dso->map_len)`, and frees heap metadata.
+  - Verified that unmapped DSO addresses immediately fail subsequent `dladdr()` lookups, and reloading loads a clean fresh image from disk.
+- **Explicit Path Override for Folded Libraries (`./libc.so`)**:
+  - Gated `zc_is_folded_lib()` so that only bare library names without directory separators (e.g. `libc.so`, `libm.so`) fold into `g_zc_head`.
+  - Explicit relative or absolute paths (e.g. `./libc.so`, `/path/to/libc.so`) bypass folding and load the actual DSO from disk.
+- **Virtual Header Updates**: Added `Dl_info`, `dladdr()`, and `RTLD_NEXT` to virtual `<dlfcn.h>` in `src/zero_cc/core/virtual_headers.h`.
+- **Verification**:
+  - `make build/test/unit/dlfcn_dynlink` + `./build/test/unit/dlfcn_dynlink`: passed 100% covering basic loading, RPATH/$ORIGIN, recursive dependencies, symbol versioning, `dladdr()`, `RTLD_NEXT`, destructors/unmapping, and `./libc.so` override.
+  - `./build/bin/zerocc --run test/unit/dlfcn_dynlink.c`: passed 100% under in-memory JIT execution.
+  - `make test`: **233/233 passed** (100% green).
+  - `make test-opt`: **131 passed, 0 failed, 58 skipped, 1 nondeterministic** (100% green).
+  - `python3 tools/verify/driver_tests.py`: **45/45 passed** (100% green).
+  - `style_check.py`: 188 files, 0 errors, 0 warnings.
 
 ---
+
+## [Sprint 180] - 2026-11-14 - DWARF 4 Composite Types & Dynamic Loading Phase 3
+
+- **DWARF 4 Composite Types**: Emitted DWARF 4 debug information (`.debug_info`, `.debug_abbrev`, `.debug_str`) for structures, unions, member locations, bitfields, enums with enumerator values, typedefs, 128-bit types, and recursive struct pointers with cycle-safe caching. Verified via interactive GDB sessions in `tools/verify/driver_tests.py` (45/45).
+- **Dynamic Loading Phase 3**: Implemented search paths (`DT_RPATH`/`DT_RUNPATH` with `$ORIGIN`, `LD_LIBRARY_PATH`, system multiarch dirs), recursive `DT_NEEDED`, cycle-safe BFS symbol resolution, constructor ordering, `.gnu.version` / `dlvsym()`.
 
 ## [Sprint 179] - 2026-11-13 - mem2reg Sparse Valid-Slot List (Optimizer Performance)
 

@@ -48,6 +48,10 @@
  */
 #ifdef __linux__
 
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
 #include <dlfcn.h>
 
 #include <stdint.h>
@@ -367,28 +371,31 @@ static void zero_rt_dl_seterr(const char *msg) {
 
 ZC_DLFCN_HIDDEN void *dlopen(const char *filename, int flags) {
     (void)flags;
-    /* NULL: the main program's namespace.  A library name that a static
-     * build folds into the executable (libm, libgcc_s, libc, ...): the
-     * "load" is trivially satisfied by the process itself.  Anything
-     * else: there is no dynamic loader to satisfy it. */
+    /* NULL: the main program's namespace. */
     if (filename == NULL) return (void *)&g_rt_ns;
-    const char *base = strrchr(filename, '/');
-    base = base ? base + 1 : filename;
-    /* Match on the library stem: lib<stem> with any version suffix. */
-    static const char *folded[] = {
-        "libm", "libgcc", "libgcc_s", "libc", "libpthread", "libdl",
-        "librt", "libutil", "libcrypt", "libresolv", "libxnet", NULL,
-    };
-    for (int i = 0; folded[i]; i++) {
-        size_t len = strlen(folded[i]);
-        if (strncmp(base, folded[i], len) == 0 &&
-            (base[len] == '.' || base[len] == '\0')) {
+
+    /* Bare names (without '/') matching folded libraries fold into g_rt_ns.
+     * Explicit paths with '/' bypass folding and load from disk via zc_dlopen. */
+    if (!strchr(filename, '/')) {
+        const char *base = filename;
+        /* Match on the library stem: lib<stem> with any version suffix. */
+        static const char *folded[] = {
+            "libm", "libgcc", "libgcc_s", "libc", "libpthread", "libdl",
+            "librt", "libutil", "libcrypt", "libresolv", "libxnet", NULL,
+        };
+        for (int i = 0; folded[i]; i++) {
+            size_t len = strlen(folded[i]);
+            if (strncmp(base, folded[i], len) == 0 &&
+                (base[len] == '.' || base[len] == '\0' || base[len] == '-')) {
+                return (void *)&g_rt_ns;
+            }
+        }
+        if ((strncmp(base, "ld-musl-", 8) == 0 || strncmp(base, "ld-linux-", 9) == 0) &&
+            strstr(base, ".so")) {
             return (void *)&g_rt_ns;
         }
     }
-    if (strncmp(base, "ld-musl-", 8) == 0 && strstr(base, ".so")) {
-        return (void *)&g_rt_ns;
-    }
+
     /* Real .so loading via the in-process dynamic linker (Phase 2 & 3).
      * Supports relative/absolute paths, bare names via RPATH/RUNPATH ($ORIGIN),
      * LD_LIBRARY_PATH, and default system directories. */
@@ -406,7 +413,10 @@ ZC_DLFCN_HIDDEN void *dlsym(void *handle, const char *name) {
         return NULL;
     }
     void *sym = NULL;
-    if (handle != NULL && handle != (void *)&g_rt_ns) {
+    if (handle == RTLD_NEXT) {
+        void *caller = __builtin_return_address(0);
+        sym = zc_dlsym_next(caller, name);
+    } else if (handle != NULL && handle != (void *)&g_rt_ns) {
         /* Phase 2: specific ZcDso* handle returned by zc_dlopen. */
         sym = zc_dlsym(handle, name);
     } else {
@@ -435,7 +445,10 @@ ZC_DLFCN_HIDDEN void *dlvsym(void *handle, const char *name, const char *version
         return dlsym(handle, name);
     }
     void *sym = NULL;
-    if (handle != NULL && handle != (void *)&g_rt_ns) {
+    if (handle == RTLD_NEXT) {
+        void *caller = __builtin_return_address(0);
+        sym = zc_dlvsym_next(caller, name, version);
+    } else if (handle != NULL && handle != (void *)&g_rt_ns) {
         sym = zc_dlvsym(handle, name, version);
     } else {
         sym = zc_dlvsym(NULL, name, version);
@@ -469,6 +482,79 @@ ZC_DLFCN_HIDDEN char *dlerror(void) {
     if (!g_rt_dl_errset) return NULL;
     g_rt_dl_errset = 0;
     return g_rt_dl_errmsg;
+}
+
+static char g_rt_exe_path[1024];
+static int  g_rt_exe_path_inited = 0;
+
+static const char *zero_rt_get_exe_path(void) {
+    if (!g_rt_exe_path_inited) {
+        ssize_t n = readlink("/proc/self/exe", g_rt_exe_path, sizeof(g_rt_exe_path) - 1);
+        if (n > 0) {
+            g_rt_exe_path[n] = '\0';
+        } else {
+            snprintf(g_rt_exe_path, sizeof(g_rt_exe_path), "/proc/self/exe");
+        }
+        g_rt_exe_path_inited = 1;
+    }
+    return g_rt_exe_path;
+}
+
+ZC_DLFCN_HIDDEN int dladdr(const void *addr, Dl_info *info) {
+    if (!addr || !info) return 0;
+
+    /* 1. First check loaded shared objects via the in-process dynamic loader */
+    if (zc_dladdr(addr, info)) {
+        return 1;
+    }
+
+    /* 2. Check the host executable image */
+    uintptr_t a = (uintptr_t)addr;
+    const char *best_name = NULL;
+    const void *best_addr = NULL;
+    uintptr_t best_diff = (uintptr_t)-1;
+
+    if (g_zero_rt_embedded_sym_count > 0) {
+        for (size_t i = 0; i < g_zero_rt_embedded_sym_count; i++) {
+            uintptr_t s = (uintptr_t)g_zero_rt_embedded_syms[i].addr;
+            if (s > 0 && s <= a) {
+                uintptr_t diff = a - s;
+                if (diff < best_diff) {
+                    best_diff = diff;
+                    best_name = g_zero_rt_embedded_syms[i].name;
+                    best_addr = (const void *)s;
+                }
+            }
+        }
+    } else {
+        if (g_rt_sym_state == 0) {
+            g_rt_sym_state = zero_rt_sym_build() ? 1 : -1;
+        }
+        if (g_rt_sym_state == 1) {
+            for (size_t i = 0; i < g_rt_sym_count; i++) {
+                uintptr_t s = (uintptr_t)g_rt_syms[i].addr;
+                if (s > 0 && s <= a) {
+                    uintptr_t diff = a - s;
+                    if (diff < best_diff) {
+                        best_diff = diff;
+                        best_name = g_rt_syms[i].name;
+                        best_addr = (const void *)s;
+                    }
+                }
+            }
+        }
+    }
+
+    /* If a closest symbol was found within a reasonable distance (< 1MB) */
+    if (best_name && best_diff < (1024 * 1024)) {
+        info->dli_fname = zero_rt_get_exe_path();
+        info->dli_fbase = (void *)0x400000;
+        info->dli_sname = best_name;
+        info->dli_saddr = (void *)best_addr;
+        return 1;
+    }
+
+    return 0;
 }
 
 #else /* !__linux__ */

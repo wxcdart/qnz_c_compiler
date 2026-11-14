@@ -1,4 +1,4 @@
-/* test/unit/dlfcn_dynlink.c — Host-side in-process dynamic loader (Phase 2 & 3).
+/* test/unit/dlfcn_dynlink.c — Host-side in-process dynamic loader (Phase 2, 3, & 4).
  *
  * Tests zero_rt/dlfcn/dynlink.c + dlfcn.c loading real ELF64 shared objects
  * (.so) into the static-musl host process:
@@ -13,6 +13,14 @@
  *      chain loading, dependency constructor ordering, and scope resolution
  *   8. Phase 3 Symbol Versioning: GNU symbol versioning (.gnu.version),
  *      default dlsym resolving unhidden version, and dlvsym() specific version.
+ *   9. Phase 4 dladdr(addr, &info): DSO/symbol reverse inspection for loaded
+ *      DSOs and host executable symbols, closest symbol matching, interior offsets.
+ *  10. Phase 4 dlsym(RTLD_NEXT, name): interposition symbol resolution in
+ *      dependency chain and from main namespace.
+ *  11. Phase 4 Lifecycle & Destructors: DT_FINI_ARRAY/DT_FINI execution on
+ *      refcount 0, DSO unmapping (munmap), unlinking, and dladdr invalidation.
+ *  12. Phase 4 Explicit Path Override: explicit path "./libc.so" bypassing
+ *      static host library folding and loading from disk.
  */
 
 #define _GNU_SOURCE
@@ -22,8 +30,9 @@
 #include <string.h>
 #include <unistd.h>
 
-/* dlvsym prototype (matches virtual_headers.h and glibc) */
+/* dlvsym and dladdr prototypes (matches virtual_headers.h and glibc) */
 extern void *dlvsym(void *handle, const char *symbol, const char *version);
+extern int dladdr(const void *addr, Dl_info *info);
 extern int setenv(const char *name, const char *value, int overwrite);
 
 static const char *g_dso_src =
@@ -84,6 +93,33 @@ static const char *g_symver_map =
     "    global: test_versioned_sym; unversioned_helper;\n"
     "} TEST_1.0;\n";
 
+static const char *g_dtor_src =
+    "static int *g_flag_ptr = 0;\n"
+    "void set_flag_target(int *p) { g_flag_ptr = p; }\n"
+    "__attribute__((destructor)) static void on_fini(void) {\n"
+    "    if (g_flag_ptr) *g_flag_ptr = 888;\n"
+    "}\n"
+    "int dtor_dummy(void) { return 42; }\n";
+
+static const char *g_next_base_src =
+    "int next_worker(int x) {\n"
+    "    return x + 10;\n"
+    "}\n";
+
+static const char *g_next_wrap_src =
+    "#define _GNU_SOURCE\n"
+    "#include <dlfcn.h>\n"
+    "int next_worker(int x) {\n"
+    "    int (*orig)(int) = (int (*)(int))dlsym(RTLD_NEXT, \"next_worker\");\n"
+    "    if (!orig) return -999;\n"
+    "    return orig(x) * 3;\n"
+    "}\n";
+
+static const char *g_custom_libc_src =
+    "int custom_libc_marker(void) {\n"
+    "    return 0x55AA55AA;\n"
+    "}\n";
+
 int main(void) {
     char c_path[256];
     char so_path[256];
@@ -125,6 +161,57 @@ int main(void) {
     } else if (add_fn(21, 21) != 42) {
         printf("FAIL: test_dl_add(21, 21) = %d (expected 42)\n", add_fn(21, 21));
         rc = 1;
+    } else {
+        /* Phase 4 dladdr test on loaded DSO function */
+        Dl_info dlinfo;
+        memset(&dlinfo, 0, sizeof(dlinfo));
+        if (!dladdr(add_fn, &dlinfo)) {
+            printf("FAIL: dladdr(add_fn) returned 0\n");
+            rc = 1;
+        } else {
+            if (!dlinfo.dli_sname || strcmp(dlinfo.dli_sname, "test_dl_add") != 0) {
+                printf("FAIL: dladdr sname mismatch: %s\n", dlinfo.dli_sname ? dlinfo.dli_sname : "(null)");
+                rc = 1;
+            }
+            if (dlinfo.dli_saddr != (void *)add_fn) {
+                printf("FAIL: dladdr saddr mismatch\n");
+                rc = 1;
+            }
+            if (!dlinfo.dli_fbase || !dlinfo.dli_fname) {
+                printf("FAIL: dladdr fbase/fname null\n");
+                rc = 1;
+            }
+        }
+        /* Test interior address (add_fn + 4) */
+        memset(&dlinfo, 0, sizeof(dlinfo));
+        if (!dladdr((const char *)add_fn + 4, &dlinfo)) {
+            printf("FAIL: dladdr(add_fn + 4) returned 0\n");
+            rc = 1;
+        } else if (!dlinfo.dli_sname || strcmp(dlinfo.dli_sname, "test_dl_add") != 0) {
+            printf("FAIL: dladdr(add_fn + 4) wrong sname: %s\n", dlinfo.dli_sname);
+            rc = 1;
+        }
+        /* Test dladdr on host executable symbol (printf) */
+        memset(&dlinfo, 0, sizeof(dlinfo));
+        if (!dladdr((const void *)&printf, &dlinfo)) {
+            printf("FAIL: dladdr(&printf) returned 0\n");
+            rc = 1;
+        } else if (!dlinfo.dli_fname || !dlinfo.dli_fbase) {
+            printf("FAIL: dladdr(&printf) fname or fbase null\n");
+            rc = 1;
+        } else if (!dlinfo.dli_sname || strcmp(dlinfo.dli_sname, "printf") != 0) {
+            printf("FAIL: dladdr(&printf) sname mismatch: %s\n", dlinfo.dli_sname ? dlinfo.dli_sname : "(null)");
+            rc = 1;
+        }
+        /* Negative dladdr tests */
+        if (dladdr(NULL, &dlinfo) != 0) {
+            printf("FAIL: dladdr(NULL) should return 0\n");
+            rc = 1;
+        }
+        if (dladdr(&rc, &dlinfo) != 0) {
+            printf("FAIL: dladdr(stack) should return 0\n");
+            rc = 1;
+        }
     }
 
     const char *(*hello_fn)(void) = (const char *(*)(void))dlsym(h, "test_dl_hello");
@@ -343,6 +430,170 @@ int main(void) {
     unlink(c_symver);
     unlink(map_symver);
     unlink(so_symver);
+
+    /* ---- Part 5: Phase 4 Destructors and Unmapping in dlclose() ---- */
+    char c_dtor[256], so_dtor[256];
+    snprintf(c_dtor, sizeof(c_dtor), "/tmp/zerocc_dtor_%d.c", pid);
+    snprintf(so_dtor, sizeof(so_dtor), "/tmp/zerocc_dtor_%d.so", pid);
+
+    f = fopen(c_dtor, "w");
+    if (f) { fputs(g_dtor_src, f); fclose(f); }
+
+    snprintf(cmd, sizeof(cmd), "gcc -shared -fPIC -O2 %s -o %s", c_dtor, so_dtor);
+    if (system(cmd) != 0) {
+        printf("FAIL: could not build destructor shared object\n");
+        rc = 1;
+    }
+
+    void *h_dtor = dlopen(so_dtor, RTLD_NOW);
+    if (!h_dtor) {
+        printf("FAIL: dlopen(h_dtor) failed: %s\n", dlerror());
+        rc = 1;
+    } else {
+        void (*set_target)(int *) = (void (*)(int *))dlsym(h_dtor, "set_flag_target");
+        void *dummy_fn = dlsym(h_dtor, "dtor_dummy");
+        int flag_target = 0;
+        if (!set_target || !dummy_fn) {
+            printf("FAIL: dlsym on destructor library failed\n");
+            rc = 1;
+        } else {
+            set_target(&flag_target);
+            if (flag_target != 0) {
+                printf("FAIL: flag_target modified prematurely\n");
+                rc = 1;
+            }
+            if (dlclose(h_dtor) != 0) {
+                printf("FAIL: dlclose(h_dtor) failed\n");
+                rc = 1;
+            } else {
+                /* Destructor must have run */
+                if (flag_target != 888) {
+                    printf("FAIL: destructor failed to execute, flag_target=%d\n", flag_target);
+                    rc = 1;
+                }
+                /* Address must now be unmapped from loaded DSOs */
+                Dl_info unmap_info;
+                memset(&unmap_info, 0, sizeof(unmap_info));
+                if (dladdr(dummy_fn, &unmap_info) != 0) {
+                    printf("FAIL: dladdr succeeded on unmapped DSO address\n");
+                    rc = 1;
+                }
+            }
+        }
+    }
+    unlink(c_dtor);
+    unlink(so_dtor);
+
+    /* ---- Part 6: Phase 4 Interposition via dlsym(RTLD_NEXT) ---- */
+    char c_nbase[256], so_nbase[256];
+    char c_nwrap[256], so_nwrap[256];
+    snprintf(c_nbase, sizeof(c_nbase), "/tmp/zerocc_nbase_%d.c", pid);
+    snprintf(so_nbase, sizeof(so_nbase), "/tmp/libnext_base_%d.so", pid);
+    snprintf(c_nwrap, sizeof(c_nwrap), "/tmp/zerocc_nwrap_%d.c", pid);
+    snprintf(so_nwrap, sizeof(so_nwrap), "/tmp/libnext_wrap_%d.so", pid);
+
+    f = fopen(c_nbase, "w");
+    if (f) { fputs(g_next_base_src, f); fclose(f); }
+    f = fopen(c_nwrap, "w");
+    if (f) { fputs(g_next_wrap_src, f); fclose(f); }
+
+    snprintf(cmd, sizeof(cmd), "gcc -shared -fPIC -O2 %s -o %s", c_nbase, so_nbase);
+    if (system(cmd) != 0) {
+        printf("FAIL: could not build next_base\n");
+        rc = 1;
+    }
+    snprintf(cmd, sizeof(cmd), "gcc -shared -fPIC -O2 %s -Wl,--no-as-needed -L/tmp -lnext_base_%d -Wl,-rpath,'$ORIGIN' -o %s",
+             c_nwrap, pid, so_nwrap);
+    if (system(cmd) != 0) {
+        printf("FAIL: could not build next_wrap\n");
+        rc = 1;
+    }
+
+    void *h_wrap = dlopen(so_nwrap, RTLD_NOW);
+    if (!h_wrap) {
+        printf("FAIL: dlopen(so_nwrap) failed: %s\n", dlerror());
+        rc = 1;
+    } else {
+        int (*wrap_fn)(int) = (int (*)(int))dlsym(h_wrap, "next_worker");
+        if (!wrap_fn) {
+            printf("FAIL: dlsym(next_worker) failed: %s\n", dlerror());
+            rc = 1;
+        } else {
+            /* next_worker in wrap calls orig(x) via dlsym(RTLD_NEXT) and multiplies by 3.
+             * orig(5) = 5 + 10 = 15; 15 * 3 = 45 */
+            int res = wrap_fn(5);
+            if (res != 45) {
+                printf("FAIL: next_worker(5) = %d (expected 45)\n", res);
+                rc = 1;
+            }
+        }
+        /* Also test dlsym(RTLD_NEXT) from the caller/main namespace */
+        int (*main_next)(int) = (int (*)(int))dlsym(RTLD_NEXT, "next_worker");
+        if (!main_next) {
+            printf("FAIL: dlsym(RTLD_NEXT, next_worker) from main failed: %s\n", dlerror());
+            rc = 1;
+        }
+        dlclose(h_wrap);
+    }
+    unlink(c_nbase);
+    unlink(so_nbase);
+    unlink(c_nwrap);
+    unlink(so_nwrap);
+
+    /* ---- Part 7: Phase 4 Explicit Path Override for Folded Libs (e.g. ./libc.so) ---- */
+    char c_clibc[256], so_clibc[256], rel_clibc[256];
+    snprintf(c_clibc, sizeof(c_clibc), "/tmp/zerocc_clibc_%d.c", pid);
+    snprintf(so_clibc, sizeof(so_clibc), "/tmp/zerocc_mock_libc_%d.so", pid);
+    snprintf(rel_clibc, sizeof(rel_clibc), "./zerocc_mock_libc_%d.so", pid);
+
+    f = fopen(c_clibc, "w");
+    if (f) { fputs(g_custom_libc_src, f); fclose(f); }
+
+    snprintf(cmd, sizeof(cmd), "gcc -shared -fPIC -O2 %s -o %s", c_clibc, so_clibc);
+    if (system(cmd) != 0) {
+        printf("FAIL: could not build mock libc\n");
+        rc = 1;
+    }
+    /* Create symlink in current directory to test "./mock_libc.so" */
+    unlink(rel_clibc);
+    if (symlink(so_clibc, rel_clibc) != 0) {
+        printf("FAIL: could not create symlink %s\n", rel_clibc);
+        rc = 1;
+    }
+
+    /* 1. Explicit path with slash: must NOT fold into host libc; must load from disk */
+    void *h_custom = dlopen(rel_clibc, RTLD_NOW);
+    if (!h_custom) {
+        printf("FAIL: dlopen(%s) failed: %s\n", rel_clibc, dlerror());
+        rc = 1;
+    } else {
+        int (*marker_fn)(void) = (int (*)(void))dlsym(h_custom, "custom_libc_marker");
+        if (!marker_fn) {
+            printf("FAIL: dlsym(custom_libc_marker) failed on explicit path: %s\n", dlerror());
+            rc = 1;
+        } else if (marker_fn() != 0x55AA55AA) {
+            printf("FAIL: marker_fn() = 0x%X (expected 0x55AA55AA)\n", marker_fn());
+            rc = 1;
+        }
+        dlclose(h_custom);
+    }
+
+    /* 2. Bare name: folds into host namespace where custom marker does NOT exist */
+    void *h_bare_libc = dlopen("libc.so", RTLD_NOW);
+    if (!h_bare_libc) {
+        printf("FAIL: dlopen(libc.so) bare name failed: %s\n", dlerror());
+        rc = 1;
+    } else {
+        if (dlsym(h_bare_libc, "custom_libc_marker") != NULL) {
+            printf("FAIL: bare libc.so resolved custom_libc_marker (should fold into host)\n");
+            rc = 1;
+        }
+        dlclose(h_bare_libc);
+    }
+
+    unlink(rel_clibc);
+    unlink(c_clibc);
+    unlink(so_clibc);
 
     if (rc == 0) {
         printf("dlfcn dynlink ok\n");

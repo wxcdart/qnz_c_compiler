@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-14T14:00:51Z
+timestamp: 2026-11-14T14:23:06Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1479,3 +1479,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-14 — Updated `host-runtime-and-portability.md`
 - Document Dynamic Loading Phases 4-6 roadmap (POSIX completeness, multi-ISA relocations, AOT packaging, Windows/macOS/baremetal portability)
+
+## 2026-11-14 — Updated `host-runtime-and-portability.md`
+- Ship Dynamic Loading Phase 4 (POSIX completeness: dladdr, dlsym RTLD_NEXT, destructors/munmap, explicit path override)

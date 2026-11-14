@@ -29,7 +29,16 @@ void *zc_dlsym(void *handle, const char *name);
  * If version is NULL, behaves like zc_dlsym (resolves the default version). */
 void *zc_dlvsym(void *handle, const char *name, const char *version);
 
-/* Decrement a handle's refcount (no actual unload in MVP). */
+/* Resolve next symbol occurrence starting after caller_pc's DSO (RTLD_NEXT). */
+void *zc_dlsym_next(const void *caller_pc, const char *name);
+void *zc_dlvsym_next(const void *caller_pc, const char *name, const char *version);
+
+/* Reverse lookup: find DSO and closest symbol containing addr.
+ * Returns 1 on match, 0 if addr not found in any loaded DSO.
+ * info is cast to Dl_info*. */
+int zc_dladdr(const void *addr, void *info);
+
+/* Decrement a handle's refcount; unmaps and runs destructors on 0. */
 int zc_dlclose(void *handle);
 
 /* Bootstrap the dynlink subsystem: create the synthetic head DSO

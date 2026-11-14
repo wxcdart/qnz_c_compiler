@@ -468,12 +468,21 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name, ZeroCCStdDi
     if (strcmp(name, "dlfcn.h") == 0) {
         return strdup(
             "#ifndef _DLFCN_H\n#define _DLFCN_H 1\n"
-            "#define RTLD_LAZY 1\n#define RTLD_NOW 2\n#define RTLD_GLOBAL 0x100\n#define RTLD_LOCAL 0\n#define RTLD_DEFAULT ((void*)0)\n"
+            "#define RTLD_LAZY 1\n#define RTLD_NOW 2\n#define RTLD_GLOBAL 0x100\n#define RTLD_LOCAL 0\n"
+            "#define RTLD_DEFAULT ((void*)0)\n"
+            "#define RTLD_NEXT ((void*)-1l)\n"
+            "typedef struct {\n"
+            "    const char *dli_fname;\n"
+            "    void       *dli_fbase;\n"
+            "    const char *dli_sname;\n"
+            "    void       *dli_saddr;\n"
+            "} Dl_info;\n"
             "void* dlopen(const char *filename, int flags);\n"
             "void* dlsym(void *handle, const char *symbol);\n"
             "void* dlvsym(void *handle, const char *symbol, const char *version);\n"
             "int dlclose(void *handle);\n"
             "char* dlerror(void);\n"
+            "int dladdr(const void *addr, Dl_info *info);\n"
             "#endif\n"
         );
     }
