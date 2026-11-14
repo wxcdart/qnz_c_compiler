@@ -290,6 +290,22 @@ Goal: no gcc driver, no glibc, no musl, no binutils in the *product path* — so
     - *Gates*: `test/unit/dlfcn_dynlink.c`, `test/unit/dlfcn_embedded_test.c`, `test/driver/dlopen_embedded.c`, `test/driver/dlopen_aot_standalone.c` (`tools/verify/driver_tests.py`: 46/46).
 12. **Freestanding & Baremetal Deployment (`zero_rt` BSP)** — Formalize the Board Support Package boundary in `zero_rt/rt_os.h` replacing `linux/os.c` with UART MMIO (`write`), memory pool limits (`brk`), and CPU halt loops (`exit`). For baremetal JIT/plugins: in-flash symbol registry (`BaremetalSym[]`), static RAM code buffer with CPU I-cache invalidation (`fence.i` on RISC-V, `isb` on ARM), and relocatable ELF `.o` linking.
 13. **Cross-Platform Host Runtime & Portability (macOS, Windows, BSDs)** — Porting the compiler driver and JIT across non-Linux hosts: native `dlopen`/`libSystem.B.dylib` with `pthread_jit_write_protect_np()` (macOS W^X); Win32 `LoadLibraryA`/`GetProcAddress` and `VirtualAlloc` with `FlushInstructionCache` (Windows PE/COFF); and `sysctl(KERN_PROC_PATHNAME)` with `-Wl,-z,wxneeded` (BSDs). OKF: [`host-runtime-and-portability.md`](./okf/host-runtime-and-portability.md).
+14. **Multi-ISA SIMD Vector Architecture & Target Hardening (`simd`)** — Eliminate target SIMD discrepancies, fix vector register allocation, and resolve pass conflicts:
+    - **Phase 1 — Backend Bug Fixes & AArch64 NEON**:
+      - Fix AArch64 raw MC vector loads/stores (`src/zero_cc/isa/aarch64.c`): `emit_vload` / `emit_vstore` currently emits scalar `ldr dX` / `str dX` (64-bit), truncating 128-bit vector accesses. Emit `ldr qX` / `str qX` (128-bit) in raw MC.
+      - Implement 128-bit integer vector operations in AArch64 raw MC (`aarch64_emit_vpaddd`, `vpsubd`, `vpmulld`) using NEON `add vX.4s`, `sub vX.4s`, `mul vX.4s`.
+    - **Phase 2 — Optimizer Pipeline & Auto-Vectorizer Inversion**:
+      - Resolve loop-unroll / vectorizer inversion: `loop_unroll` (priority 68) currently runs before `auto_vectorize` (priority 70), completely dismantling small countable loops (trip count 1..8) into scalar code before the vectorizer can inspect them. Reorder or preserve candidate vector loops so vectorization precedes scalar unrolling.
+      - Extend auto-vectorizer (`src/zero_cc/opt/opt_vectorize.c`): add basic reduction recognition (`sum += a[i]`), strided access detection, and pointer alignment analysis.
+    - **Phase 3 — Proper RISC-V Vector Architecture (RVV 1.0)**:
+      - Decouple vector register allocation: introduce `REG_CLASS_VEC` in `src/zero_cc/ir/regalloc.h` so RISC-V vector registers (`v0`–`v31`) are tracked independently rather than aliasing into `REG_CLASS_FP` (`f0`–`f31`).
+      - Replace raw MC stubs in `src/zero_cc/isa/riscv64.c`: replace scalar `fadd.s` / scalar integer `add` fallbacks with true RVV 1.0 binary encodings (`vsetvli` / `vsetivli`, `vle32.v`, `vse32.v`, `vadd.vv`, `vfadd.vv`). Implement RV32 vector codegen.
+    - **Phase 4 — Vendor Intrinsics & Virtual Headers**:
+      - Complete `<immintrin.h>` for x86-64 SSE/SSE2 (`_mm_add_ps`, `_mm_load_ps`, `_mm_store_ps`, `_mm_set1_ps`, `_mm_add_epi32`).
+      - Implement `<arm_neon.h>` builtins mapping directly to IR vector opcodes (`vaddq_f32`, `vld1q_f32`, `vst1q_f32`, `vaddq_s32`).
+    - **Phase 5 — Wider Vectors (AVX / AVX2 / SVE)**:
+      - Extend x86-64 backend to support 256-bit AVX / AVX2 (`YMM0`–`YMM15`) and VEX prefix encoding.
+      - Add SVE / SVE2 scalable vector support on AArch64.
 
 **End state:** `zerocc source + zero_rt source → static verified executables on all 4 ISAs with no system C toolchain in the loop`; gcc appears only as the pinned differential oracle (and, until item 7 lands, as the bootstrap builder of zerocc₀).
 

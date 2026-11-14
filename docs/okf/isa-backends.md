@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-11-12T19:59:09Z
+timestamp: 2026-11-14T16:11:01Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -195,6 +195,13 @@ When loop vectorization emits packed vector opcodes (`OP_VLOAD`, `OP_VSTORE`, `O
   - Configuration: `vsetivli zero, 4, e32, m1, ta, ma` (sets vector length to 4 elements of 32-bit floats, LMUL=1).
   - Memory moves: `vle32.v v0, 0(a1)` / `vse32.v v0, 0(a0)`.
   - Scalar float operations continue using standard RISC-V FP registers (`fa0`–`fa7`, `ft0`–`ft11`) via `flw`/`fsw`/`fadd.s`.
+
+### Target SIMD Invariants, Regalloc & Codegen Gaps
+
+- **AArch64 Raw MC Load/Store Discrepancy**: While text ASM emits `ldr q0` / `str q0` (128-bit), the raw machine code backend (`src/zero_cc/isa/aarch64.c`) delegates `emit_vload` / `emit_vstore` to `aarch64_emit_load_fp` (which emits scalar `ldr dX`, 64-bit), causing upper 64-bit truncation during raw AOT / JIT vector memory access.
+- **RISC-V Vector Register File Aliasing**: RISC-V defines a distinct vector register file (`v0`–`v31`). Because ZeroCC only defines `REG_CLASS_GPR` and `REG_CLASS_FP` in `regalloc.h`, vector temps are assigned to `REG_CLASS_FP`, clashing with scalar FP registers. Raw MC (`riscv64.c`) currently stubs `emit_vaddps` to scalar `fadd.s` and `emit_vpaddd` to scalar `add`.
+- **Auto-Vectorizer Pipeline Inversion**: In `opt_pass.c`, `loop_unroll` (priority 68) executes before `auto_vectorize` (priority 70) at `-O3`. Short countable loops (trip count 1..8) are fully unrolled into scalar instructions, destroying the loop structure before the vectorizer can transform them.
+- **x86-64 Width Cap**: Currently capped at 128-bit SSE/SSE2. 256-bit AVX/AVX2 and 512-bit AVX-512 remain roadmap extensions.
 
 ## Scalar Float / Integer Conversions (`OP_CVTSI2SD` / `OP_CVTTSD2SI`)
 
