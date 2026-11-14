@@ -4,7 +4,7 @@ title: Zero_RT — ZeroCC's Own Freestanding Runtime (Linux x86-64 + AArch64/RIS
 description: The zero_rt/ runtime (heap, strings, exit, minimal stdio with Ryū float formatting) compiled by zerocc itself, auto-linked by --zerocc-link, and the zeroc_main_wrapper entry routing that makes atexit work on a plain return from main.
 resource: zero-rt
 tags: [zero-rt, runtime, freestanding, heap, stdio, ryu, zero-cc-link, phase-0]
-timestamp: 2026-11-12T17:46:29Z
+timestamp: 2026-11-14T15:49:32Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -71,8 +71,123 @@ All `zero_rt` `printf` / `snprintf` / `sprintf` / `fprintf` / heap / string capa
 - **Syscall Non-Leaf Frame Safety & 4-ISA QEMU Gate (Sprint 89)**: `OP_SYSCALL` marks lowering functions as non-leaf, preventing x86-64 red zone stack omission (`alloc_frame_size = 0`) from corrupting stack variables during syscall register push/pop sequences; `aarch64_emit_syscall_asm` maintains 16-byte stack alignment (`112`-byte register save area) across `svc #0`; and [`test/isa_qemu/13_syscall.c`](../../test/isa_qemu/13_syscall.c) differential-tests `__zerocc_syscall` (`SYS_getpid`, `SYS_write`, `SYS_brk`) across all 4 ISAs (`x86_64`, `aarch64`, `riscv64`, `riscv32`) in both raw binary and `-S` assembly modes under `make test-isa-qemu`.
 - **Linux Generic Syscalls**: Corrected `RT_SYS_BRK` to 214 and enabled `RT_HAS_BRK` for both AArch64 and RISC-V64. Fixed 64-bit heap allocation free-bit mask in `heap.c` and copy loops in `string.c`.
 
+## Bare-Metal & Embedded Execution Architecture (Board Support Package Layer)
+
+In freestanding bare-metal environments (microcontrollers, bootloaders, kernels, or embedded SoCs), there is **no Linux kernel**, **no POSIX syscall layer**, **no MMU virtual memory paging**, and **no filesystem**. `zero_rt` supports bare-metal targets through a **clean two-layer architecture**:
+
+```mermaid
+flowchart TD
+    subgraph ZeroRT_Core ["PVI / Core C Layer (100% Portable C)"]
+        A["String & Memory: memcpy, memset, strlen, strcmp, qsort"]
+        B["Formatted I/O: printf, snprintf, puts, Ryū Float Formatter"]
+        C["Memory Allocator: heap.c (First-fit, 16B alignment, coalescing)"]
+        D["Lifecycle: atexit dispatch, __stack_chk_fail canary"]
+        E["Baremetal Dynamic Loading: baremetal.h symbol table & lookup"]
+    end
+
+    subgraph BSP ["Board Support Package (BSP) Layer"]
+        F["zeroc_rt_write() --> Hardware UART MMIO FIFO"]
+        G["zeroc_rt_brk()   --> Physical SRAM Linker Boundary (_end)"]
+        H["zeroc_rt_exit()  --> CPU Halt (wfi / wfe / hlt) or Reset"]
+        I["zero_rt_cache_flush() --> I-Cache Invalidation (fence.i / isb)"]
+    end
+
+    ZeroRT_Core --> BSP
+    BSP --> HW["Hardware (SRAM, UART, CPU Cores)"]
+```
+
+### 1. Two-Layer Separation: Core C Logic vs. Hardware BSP
+
+- **Portable Pure-C Core (~95% of `zero_rt`)**:
+  - `core/heap.c`, `core/string.c`, `core/stdio.c`, `core/exit.c`, `core/int128.c`, `complex/complex.c`, and `dlfcn/baremetal.h` are written in clean, ANSI/ISO C.
+  - They execute without OS abstractions and compile directly to machine code using ZeroCC (`--target riscv32`, `aarch64`, `riscv64`, `x86_64`).
+- **The Hardware BSP Boundary (`rt_os.h` / `linux/os.c`)**:
+  - On Linux hosts, OS operations execute kernel syscall instructions (`syscall`, `svc #0`, `ecall`).
+  - On bare metal, the platform boundary file is replaced by a lightweight **Board Support Package (BSP)** binding runtime functions directly to hardware registers.
+
+### 2. Syscall to Bare-Metal Hardware Mapping
+
+| Feature / Subsystem | Linux Kernel Target | Bare Metal BSP Equivalent |
+| :--- | :--- | :--- |
+| **`printf()` / Serial Console** | `write(1, buf, len)` syscall | Directly writes characters into a **Hardware UART MMIO FIFO** register (e.g., 16550, ARM PL011, STM32 USART). |
+| **`malloc()` / Dynamic Heap** | `brk()` / `mmap()` syscalls | Bumps a pointer over a contiguous chunk of physical SRAM bounded by linker script symbols (`_end` to `_ram_end`). |
+| **`exit()` / Termination** | `exit_group()` syscall | Runs registered `atexit` callbacks, then halts the CPU: executes `wfi` (RISC-V), `wfe` (ARM), or `hlt` (x86), or triggers a watchdog reset. |
+| **Stack Canary Check** | Writes to stderr, exits 127 | Emits `"*** stack smashing detected ***"` over serial UART and enters an infinite trap/halt loop. |
+| **Instruction Pipeline Sync** | Kernel `mprotect(PROT_EXEC)` | CPU-specific instruction cache invalidation: `fence.i` (RISC-V) or `isb` (ARM/AArch64). |
+
+### 3. Subsystem Implementation Details
+
+#### Heap Management on Physical SRAM (`core/heap.c`)
+`zero_rt`'s allocator does not require page tables or virtual memory:
+- It is a single-arena, first-fit allocator with 16-byte alignment and bidirectional block coalescing.
+- On bare metal, `rt_arena_init()` is initialized from linker script boundaries:
+  ```c
+  extern char _end;       /* End of .bss in RAM (provided by linker script) */
+  extern char _ram_end;   /* Top of physical SRAM */
+
+  static uint8_t *g_baremetal_heap_ptr = (uint8_t *)&_end;
+
+  uintptr_t zeroc_rt_brk(uintptr_t new_brk) {
+      if (new_brk == 0) return (uintptr_t)g_baremetal_heap_ptr;
+      if (new_brk > (uintptr_t)&_ram_end) return (uintptr_t)-1; /* Out of SRAM */
+      g_baremetal_heap_ptr = (uint8_t *)new_brk;
+      return new_brk;
+  }
+  ```
+- All standard memory allocation calls (`malloc`, `free`, `calloc`, `realloc`) operate normally on physical RAM.
+
+#### Serial Console I/O (`core/stdio.c`)
+`printf()`, `puts()`, and `putchar()` format strings and floats (via Ryū) in memory and dispatch blocks through `zeroc_rt_write(1, buf, len)`:
+```c
+/* Bare metal BSP serial console driver */
+intptr_t zeroc_rt_write(int fd, const void *buf, size_t count) {
+    volatile uint32_t *uart_tx = (volatile uint32_t *)0x10000000; /* MMIO UART FIFO */
+    const char *p = (const char *)buf;
+    for (size_t i = 0; i < count; i++) {
+        if (p[i] == '\n') *uart_tx = '\r'; /* CR-LF conversion */
+        *uart_tx = p[i];
+    }
+    return count;
+}
+```
+
+#### Core Halting on `exit()` or `abort()` (`core/exit.c`)
+On bare metal, a process cannot return to an OS. Calling `exit(code)` or returning from `main()` runs registered `atexit` functions and enters low-power sleep:
+```c
+void zeroc_rt_exit_group(int code) {
+    (void)code;
+#if defined(__riscv)
+    for (;;) { __asm__ volatile("wfi"); }
+#elif defined(__aarch64__) || defined(__arm__)
+    for (;;) { __asm__ volatile("wfe"); }
+#elif defined(__x86_64__)
+    for (;;) { __asm__ volatile("cli; hlt"); }
+#endif
+}
+```
+
+### 4. Dynamic Loading & Plugins on Bare Metal (`dlfcn/baremetal.h`)
+
+For embedded systems supporting firmware plugins, JIT engines, or runtime diagnostics without an OS or filesystem:
+1. **Flash Symbol Registry**: Exported firmware driver APIs are declared in a table in ROM/Flash:
+   ```c
+   static const BaremetalSym g_firmware_symbols[] = {
+       { "uart_write",   (void *)uart_write },
+       { "sensor_read",  (void *)sensor_read },
+       { "gpio_set",     (void *)gpio_set },
+   };
+
+   zero_rt_baremetal_register_symbols(g_firmware_symbols, 3);
+   ```
+2. **In-Memory Symbol Resolution**: Calls to `zero_rt_baremetal_lookup("sensor_read")` resolve function pointers directly from Flash/RAM in constant or linear time without ELF parser overhead.
+3. **Instruction Cache Invalidation (`zero_rt_cache_flush`)**:
+   Modern Harvard-architecture microcontrollers feature separate instruction (I-cache) and data (D-cache) caches. When code is loaded into RAM, the instruction pipeline must be serialized:
+   - **RISC-V**: issues `fence.i` (pipeline synchronization and I-cache invalidate).
+   - **ARM / AArch64**: issues `isb` (instruction synchronization barrier).
+
 ## Related Concepts
 
+- [Host Runtime & Non-POSIX Portability](./host-runtime-and-portability.md) — in-process dynamic loader, host musl, and cross-platform porting models.
 - [ZeroCC Own Linker (T2)](./own-linker.md) — the linker zero_rt is linked with.
 - [Multi-Translation-Unit Driver (T1)](./multi-tu.md)
 - [Frontend, Type System & Semantic Analysis](./frontend-and-types.md) — string-literal array initializers (needed by runtime code).
