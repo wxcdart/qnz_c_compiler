@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-14T14:23:06Z
+timestamp: 2026-11-14T14:53:01Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1482,3 +1482,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-14 — Updated `host-runtime-and-portability.md`
 - Ship Dynamic Loading Phase 4 (POSIX completeness: dladdr, dlsym RTLD_NEXT, destructors/munmap, explicit path override)
+
+## 2026-11-14 — Updated `host-runtime-and-portability.md`
+- Sprint 182: Phase 5 Multi-ISA Dynamic Loading across Backends (x86-64, AArch64, RISC-V 64, RISC-V 32)
+
+## 2026-11-14 — Updated `build-and-verification.md`
+- Sprint 182: add test-dlfcn-isa gate

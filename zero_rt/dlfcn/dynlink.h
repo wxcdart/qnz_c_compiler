@@ -38,6 +38,10 @@ void *zc_dlvsym_next(const void *caller_pc, const char *name, const char *versio
  * info is cast to Dl_info*. */
 int zc_dladdr(const void *addr, void *info);
 
+/* Retrieve last descriptive error message from dynamic loader.
+ * Returns NULL if no error was recorded since the last check. */
+const char *zc_dlerror_msg(void);
+
 /* Decrement a handle's refcount; unmaps and runs destructors on 0. */
 int zc_dlclose(void *handle);
 

@@ -1,4 +1,4 @@
-/* zero_rt/dlfcn/dynlink.c — Host-side in-process dynamic loader (Phase 2 & 3).
+/* zero_rt/dlfcn/dynlink.c — Host-side in-process dynamic loader (Phases 2–5).
  *
  * ZeroCC's `build/bin/zerocc` and its test binaries are fully statically
  * linked against vendored musl, so there is no system dynamic loader
@@ -10,19 +10,17 @@
  * Phase 1 (Sprint 153) covered dlsym on the running process's own symbol
  * namespace.  Phase 2 added real .so loading: mapping ELF PT_LOAD segments,
  * relocating the image, resolving symbols, running constructors.
- * Phase 3 expands dynamic loading:
- *   - Search paths: LD_LIBRARY_PATH, default system directories, and
- *     DT_RPATH / DT_RUNPATH with $ORIGIN expansion.
- *   - Recursive DT_NEEDED dependencies: automatically loading dependency
- *     chains, breadth-first scope symbol lookup, dependency constructor
- *     ordering, and cycle safety.
- *   - Symbol versioning: GNU symbol versioning (.gnu.version / DT_VERSYM,
- *     .gnu.version_d / DT_VERDEF, .gnu.version_r / DT_VERNEED), filtering
- *     hidden versions for default dlsym, and dlvsym(handle, name, version).
+ * Phase 3 expanded search paths, recursive DT_NEEDED, and GNU versioning.
+ * Phase 4 added POSIX completeness: dladdr, dlsym(RTLD_NEXT), and munmap/dtors.
+ * Phase 5 expands dynamic loading across target ISAs:
+ *   - ELF machine & class dispatch (x86-64, AArch64, RISC-V 64, RISC-V 32).
+ *   - Incompatible ISA rejection with detailed dlerror diagnostics.
+ *   - ISA-specific dynamic relocation handlers (x86-64, AArch64, RV64, RV32).
+ *   - Architecture-specific multiarch default search paths.
  *
  * Compiled by the host C compiler (GCC/Clang) and linked into
- * build/bin/zerocc and host test binaries via ZC_DYNLINK_OBJ.  NOT part of
- * the per-target zero_rt.a archives — target-ISA dlopen is future work.
+ * build/bin/zerocc and host test binaries via ZC_DYNLINK_OBJ.  Also compiled
+ * into cross-architecture verification binaries.
  */
 
 #define _GNU_SOURCE
@@ -31,6 +29,7 @@
 #include <elf.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,8 +41,9 @@
 #include "dynlink.h"
 
 /* Defined in zero_rt/dlfcn/dlfcn.c: looks up a symbol in the host executable
- * (embedded table first, then /proc/self/exe fallback). */
-extern void *zero_rt_host_sym_lookup(const char *name);
+ * (embedded table first, then /proc/self/exe fallback).  Weak linkage allows
+ * dynlink.o to be linked in test harnesses without dlfcn.o. */
+extern void *zero_rt_host_sym_lookup(const char *name) __attribute__((weak));
 
 #ifndef DT_GNU_HASH
 #define DT_GNU_HASH 0x6ffffef5UL
@@ -53,6 +53,85 @@ extern void *zero_rt_host_sym_lookup(const char *name);
 #endif
 #ifndef VER_NDX_ELIMINATE
 #define VER_NDX_ELIMINATE 0xff01
+#endif
+
+#ifndef EM_X86_64
+#define EM_X86_64 62
+#endif
+#ifndef EM_AARCH64
+#define EM_AARCH64 183
+#endif
+#ifndef EM_RISCV
+#define EM_RISCV 243
+#endif
+
+/* ---- Architecture & ELF Width Dispatch ---- */
+
+#if defined(__riscv) && (__riscv_xlen == 32)
+#define ZC_TARGET_MACHINE      EM_RISCV
+#define ZC_TARGET_MACHINE_NAME "RISC-V 32"
+#define ZC_TARGET_ELFCLASS     ELFCLASS32
+
+typedef Elf32_Ehdr    Elf_Ehdr;
+typedef Elf32_Phdr    Elf_Phdr;
+typedef Elf32_Shdr    Elf_Shdr;
+typedef Elf32_Dyn     Elf_Dyn;
+typedef Elf32_Sym     Elf_Sym;
+typedef Elf32_Rela    Elf_Rela;
+typedef Elf32_Addr    Elf_Addr;
+typedef Elf32_Word    Elf_Xword;
+typedef Elf32_Sword   Elf_Sxword;
+typedef Elf32_Half    Elf_Half;
+typedef Elf32_Verdef  Elf_Verdef;
+typedef Elf32_Verdaux Elf_Verdaux;
+typedef Elf32_Verneed Elf_Verneed;
+typedef Elf32_Vernaux Elf_Vernaux;
+
+#define ELF_R_SYM(i)            ELF32_R_SYM(i)
+#define ELF_R_TYPE(i)           ELF32_R_TYPE(i)
+#define ELF_ST_BIND(val)        ELF32_ST_BIND(val)
+#define ELF_ST_TYPE(val)        ELF32_ST_TYPE(val)
+#define ELF_ST_VISIBILITY(val)  ELF32_ST_VISIBILITY(val)
+
+#else /* 64-bit architectures */
+
+#if defined(__x86_64__) || defined(_M_X64)
+#define ZC_TARGET_MACHINE      EM_X86_64
+#define ZC_TARGET_MACHINE_NAME "x86-64"
+#elif defined(__aarch64__) || defined(_M_ARM64)
+#define ZC_TARGET_MACHINE      EM_AARCH64
+#define ZC_TARGET_MACHINE_NAME "AArch64"
+#elif defined(__riscv) && (__riscv_xlen == 64)
+#define ZC_TARGET_MACHINE      EM_RISCV
+#define ZC_TARGET_MACHINE_NAME "RISC-V 64"
+#else
+#define ZC_TARGET_MACHINE      EM_X86_64
+#define ZC_TARGET_MACHINE_NAME "x86-64"
+#endif
+
+#define ZC_TARGET_ELFCLASS     ELFCLASS64
+
+typedef Elf64_Ehdr    Elf_Ehdr;
+typedef Elf64_Phdr    Elf_Phdr;
+typedef Elf64_Shdr    Elf_Shdr;
+typedef Elf64_Dyn     Elf_Dyn;
+typedef Elf64_Sym     Elf_Sym;
+typedef Elf64_Rela    Elf_Rela;
+typedef Elf64_Addr    Elf_Addr;
+typedef Elf64_Xword   Elf_Xword;
+typedef Elf64_Sxword  Elf_Sxword;
+typedef Elf64_Half    Elf_Half;
+typedef Elf64_Verdef  Elf_Verdef;
+typedef Elf64_Verdaux Elf_Verdaux;
+typedef Elf64_Verneed Elf_Verneed;
+typedef Elf64_Vernaux Elf_Vernaux;
+
+#define ELF_R_SYM(i)            ELF64_R_SYM(i)
+#define ELF_R_TYPE(i)           ELF64_R_TYPE(i)
+#define ELF_ST_BIND(val)        ELF64_ST_BIND(val)
+#define ELF_ST_TYPE(val)        ELF64_ST_TYPE(val)
+#define ELF_ST_VISIBILITY(val)  ELF64_ST_VISIBILITY(val)
+
 #endif
 
 /* ---- DSO representation ---- */
@@ -66,23 +145,23 @@ struct zc_dso {
     void          *base;          /* mmap'd base address of the loaded image */
     uintptr_t      map_start;     /* page-aligned start of the mapping window */
     size_t         map_len;       /* total length of the mmap'd window */
-    Elf64_Dyn     *dynamic;       /* .dynamic section entries (mmap'd address) */
+    Elf_Dyn       *dynamic;       /* .dynamic section entries (mmap'd address) */
     size_t         dynamic_count;
     char          *strtab;        /* .dynstr (mmap'd address) */
-    Elf64_Sym     *symtab;        /* .dynsym (mmap'd address) */
+    Elf_Sym       *symtab;        /* .dynsym (mmap'd address) */
     size_t         symtab_count;
     uint32_t      *sysv_hash;     /* DT_HASH (mmap'd address) */
     uint32_t      *gnu_hash;      /* DT_GNU_HASH (mmap'd address) */
-    Elf64_Rela     *rela;         /* DT_RELA (.rela.dyn) */
-    size_t          relasz;       /* DT_RELASZ (bytes) */
-    Elf64_Rela     *jmprel;       /* DT_JMPREL (.rela.plt) */
-    size_t          pltrelsz;     /* DT_PLTRELSZ (bytes) */
-    void          (*init_fn)(void);
-    void         (**init_array)(void);
-    size_t          init_arraysz;
-    void          (*fini_fn)(void);
-    void         (**fini_array)(void);
-    size_t          fini_arraysz;
+    Elf_Rela      *rela;          /* DT_RELA (.rela.dyn) */
+    size_t         relasz;        /* DT_RELASZ (bytes) */
+    Elf_Rela      *jmprel;        /* DT_JMPREL (.rela.plt) */
+    size_t         pltrelsz;      /* DT_PLTRELSZ (bytes) */
+    void         (*init_fn)(void);
+    void        (**init_array)(void);
+    size_t         init_arraysz;
+    void         (*fini_fn)(void);
+    void        (**fini_array)(void);
+    size_t         fini_arraysz;
 
     /* DT_NEEDED and search paths */
     char          *rpath;         /* DT_RPATH (.dynstr pointer) */
@@ -96,9 +175,9 @@ struct zc_dso {
 
     /* GNU symbol versioning */
     uint16_t      *versym;        /* DT_VERSYM (.gnu.version) */
-    Elf64_Verdef  *verdef;        /* DT_VERDEF (.gnu.version_d) */
+    Elf_Verdef    *verdef;        /* DT_VERDEF (.gnu.version_d) */
     size_t         verdef_num;    /* DT_VERDEFNUM */
-    Elf64_Verneed *verneed;       /* DT_VERNEED (.gnu.version_r) */
+    Elf_Verneed   *verneed;       /* DT_VERNEED (.gnu.version_r) */
     size_t         verneed_num;   /* DT_VERNEEDNUM */
 
     int            relocated;     /* relocations applied */
@@ -113,8 +192,42 @@ static ZcDso *g_zc_head   = NULL;   /* synthetic DSO for main executable */
 static ZcDso *g_zc_list   = NULL;   /* global DSO list head */
 static int    g_zc_inited = 0;      /* zero_rt_dl_init() called? */
 
+static char   g_zc_errbuf[256] = {0};
+static int    g_zc_errset = 0;
+
 /* Forward declaration */
 static void *zc_dlopen_internal(const char *filename, ZcDso *caller, int flags);
+
+/* ---- error reporting ---- */
+
+static void zc_seterr(int err) {
+    errno = err;
+}
+
+static void zc_set_error(const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(g_zc_errbuf, sizeof(g_zc_errbuf), fmt, ap);
+    va_end(ap);
+    g_zc_errset = 1;
+}
+
+const char *zc_dlerror_msg(void) {
+    if (!g_zc_errset) return NULL;
+    g_zc_errset = 0;
+    return g_zc_errbuf;
+}
+
+static const char *zc_machine_name(uint16_t m) {
+    switch (m) {
+    case EM_X86_64:  return "x86-64";
+    case EM_AARCH64: return "AArch64";
+    case EM_RISCV:   return "RISC-V";
+    case 3:          return "i386";
+    case 40:         return "ARM";
+    default:         return "unknown";
+    }
+}
 
 /* ---- small helpers ---- */
 
@@ -137,10 +250,6 @@ static uint32_t zc_gnu_hash(const char *name) {
     return h;
 }
 
-static void zc_seterr(int err) {
-    errno = err;
-}
-
 static void zc_dso_list_insert(ZcDso *d) {
     d->next = NULL;
     if (!g_zc_list) {
@@ -156,7 +265,10 @@ static void zc_dso_list_insert(ZcDso *d) {
 
 static void *zc_head_lookup(const char *name) {
     if (!name || !name[0]) return NULL;
-    return zero_rt_host_sym_lookup(name);
+    if (zero_rt_host_sym_lookup) {
+        return zero_rt_host_sym_lookup(name);
+    }
+    return NULL;
 }
 
 /* Check if a library name is folded into the host executable. */
@@ -184,7 +296,7 @@ static int zc_is_folded_lib(const char *name) {
     return 0;
 }
 
-/* ---- ELF64 loading ----
+/* ---- ELF loading ----
  *
  * Virtual-address -> mmap'd-address translation:
  *   mmap_addr(vaddr) = dso->base + (vaddr - dso->map_start)
@@ -198,40 +310,68 @@ static void *zc_va_to_ptr(ZcDso *dso, uintptr_t vaddr) {
  * Returns the mmap'd base address on success, NULL on failure (errno set).
  * Sets *map_start and *map_len for the caller. */
 static void *zc_map_segments(int fd, uintptr_t *map_start, size_t *map_len) {
-    Elf64_Ehdr ehdr;
+    unsigned char header_buf[64];
     if (lseek(fd, 0, SEEK_SET) < 0 ||
-        read(fd, &ehdr, sizeof(ehdr)) != sizeof(ehdr)) {
+        read(fd, header_buf, sizeof(header_buf)) < (ssize_t)sizeof(Elf32_Ehdr)) {
+        zc_set_error("failed to read ELF header");
         zc_seterr(EINVAL);
         return NULL;
     }
-    if (ehdr.e_ident[EI_MAG0] != ELFMAG0 ||
-        ehdr.e_ident[EI_MAG1] != ELFMAG1 ||
-        ehdr.e_ident[EI_MAG2] != ELFMAG2 ||
-        ehdr.e_ident[EI_MAG3] != ELFMAG3 ||
-        ehdr.e_ident[EI_CLASS] != ELFCLASS64 ||
-        ehdr.e_ident[EI_DATA] != ELFDATA2LSB) {
+    if (header_buf[EI_MAG0] != ELFMAG0 ||
+        header_buf[EI_MAG1] != ELFMAG1 ||
+        header_buf[EI_MAG2] != ELFMAG2 ||
+        header_buf[EI_MAG3] != ELFMAG3) {
+        zc_set_error("invalid ELF magic");
         zc_seterr(EINVAL);
         return NULL;
     }
-    if (ehdr.e_type != ET_EXEC && ehdr.e_type != ET_DYN) {
+    if (header_buf[EI_DATA] != ELFDATA2LSB) {
+        zc_set_error("ELF endianness mismatch: expected little-endian (ELFDATA2LSB)");
         zc_seterr(EINVAL);
         return NULL;
-    }
-    if (ehdr.e_machine != EM_X86_64) {
-        zc_seterr(EINVAL);
-        return NULL;  /* MVP: x86-64 only */
     }
 
+    uint16_t e_type = (uint16_t)header_buf[16] | ((uint16_t)header_buf[17] << 8);
+    uint16_t e_machine = (uint16_t)header_buf[18] | ((uint16_t)header_buf[19] << 8);
+
+    if (e_machine != ZC_TARGET_MACHINE) {
+        zc_set_error("ELF machine mismatch: expected %s (%u), found %s (%u)",
+                     ZC_TARGET_MACHINE_NAME, (unsigned)ZC_TARGET_MACHINE,
+                     zc_machine_name(e_machine), (unsigned)e_machine);
+        zc_seterr(EINVAL);
+        return NULL;
+    }
+
+    if (header_buf[EI_CLASS] != ZC_TARGET_ELFCLASS) {
+        zc_set_error("ELF class mismatch: expected %s, found %s",
+                     ZC_TARGET_ELFCLASS == ELFCLASS64 ? "ELFCLASS64" : "ELFCLASS32",
+                     header_buf[EI_CLASS] == ELFCLASS64 ? "ELFCLASS64" :
+                     (header_buf[EI_CLASS] == ELFCLASS32 ? "ELFCLASS32" : "unknown"));
+        zc_seterr(EINVAL);
+        return NULL;
+    }
+
+    if (e_type != ET_EXEC && e_type != ET_DYN) {
+        zc_set_error("ELF type mismatch: expected ET_DYN or ET_EXEC, found %u", (unsigned)e_type);
+        zc_seterr(EINVAL);
+        return NULL;
+    }
+
+    Elf_Ehdr ehdr;
+    memcpy(&ehdr, header_buf, sizeof(ehdr));
+
     /* Read all program headers. */
-    Elf64_Phdr *phdrs = malloc(ehdr.e_phnum * sizeof(Elf64_Phdr));
+    Elf_Phdr *phdrs = malloc(ehdr.e_phnum * sizeof(Elf_Phdr));
     if (!phdrs) {
+        zc_set_error("out of memory allocating program headers");
         zc_seterr(ENOMEM);
         return NULL;
     }
     if (lseek(fd, (off_t)ehdr.e_phoff, SEEK_SET) < 0 ||
-        read(fd, phdrs, ehdr.e_phnum * sizeof(Elf64_Phdr)) !=
-            (ssize_t)(ehdr.e_phnum * sizeof(Elf64_Phdr))) {
+        read(fd, phdrs, ehdr.e_phnum * sizeof(Elf_Phdr)) !=
+            (ssize_t)(ehdr.e_phnum * sizeof(Elf_Phdr))) {
         free(phdrs);
+        zc_set_error("failed to read ELF program headers");
         zc_seterr(EINVAL);
         return NULL;
     }
@@ -248,6 +388,7 @@ static void *zc_map_segments(int fd, uintptr_t *map_start, size_t *map_len) {
     }
     if (!has_load) {
         free(phdrs);
+        zc_set_error("ELF image has no PT_LOAD segments");
         zc_seterr(EINVAL);
         return NULL;
     }
@@ -262,6 +403,7 @@ static void *zc_map_segments(int fd, uintptr_t *map_start, size_t *map_len) {
                      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (map == MAP_FAILED) {
         free(phdrs);
+        zc_set_error("mmap failed for PT_LOAD window (%zu bytes)", sz);
         zc_seterr(ENOMEM);
         return NULL;
     }
@@ -280,6 +422,7 @@ static void *zc_map_segments(int fd, uintptr_t *map_start, size_t *map_len) {
                 read(fd, dst, seg_filesz) != (ssize_t)seg_filesz) {
                 munmap(map, sz);
                 free(phdrs);
+                zc_set_error("failed to read PT_LOAD segment data");
                 zc_seterr(EIO);
                 return NULL;
             }
@@ -358,68 +501,67 @@ static int zc_resolve_library_path(const char *filename, ZcDso *caller, char *ou
     }
 
     char candidate[2048];
-    char origin_dir[512];
-    if (caller && caller->name) {
-        zc_get_origin_dir(caller->name, origin_dir, sizeof(origin_dir));
-    } else {
-        snprintf(origin_dir, sizeof(origin_dir), ".");
+
+    /* 2. RPATH / RUNPATH of caller DSO with $ORIGIN expansion */
+    if (caller && caller != g_zc_head) {
+        const char *rpath = caller->runpath ? caller->runpath : caller->rpath;
+        if (rpath && rpath[0]) {
+            char origin_dir[1024];
+            zc_get_origin_dir(caller->name, origin_dir, sizeof(origin_dir));
+
+            char rpath_copy[2048];
+            snprintf(rpath_copy, sizeof(rpath_copy), "%s", rpath);
+            char *token = strtok(rpath_copy, ":");
+            while (token) {
+                char exp_dir[1024];
+                zc_expand_origin_token(token, origin_dir, exp_dir, sizeof(exp_dir));
+                snprintf(candidate, sizeof(candidate), "%s/%s", exp_dir, filename);
+                if (access(candidate, R_OK) == 0) {
+                    snprintf(out_path, out_sz, "%s", candidate);
+                    return 0;
+                }
+                token = strtok(NULL, ":");
+            }
+        }
     }
 
-    /* 2. Caller RPATH / RUNPATH */
-    const char *rpath = (caller && caller->runpath) ? caller->runpath
-                      : (caller && caller->rpath)   ? caller->rpath : NULL;
-    if (rpath && rpath[0]) {
-        const char *p = rpath;
-        while (*p) {
-            const char *colon = strchr(p, ':');
-            size_t tok_len = colon ? (size_t)(colon - p) : strlen(p);
-            char tok[256];
-            if (tok_len >= sizeof(tok)) tok_len = sizeof(tok) - 1;
-            memcpy(tok, p, tok_len);
-            tok[tok_len] = '\0';
-
-            char expanded_dir[512];
-            zc_expand_origin_token(tok, origin_dir, expanded_dir, sizeof(expanded_dir));
-
-            snprintf(candidate, sizeof(candidate), "%s/%s", expanded_dir, filename);
+    /* 3. LD_LIBRARY_PATH environment variable */
+    const char *ld_lib_path = getenv("LD_LIBRARY_PATH");
+    if (ld_lib_path && ld_lib_path[0]) {
+        char env_copy[4096];
+        snprintf(env_copy, sizeof(env_copy), "%s", ld_lib_path);
+        char *token = strtok(env_copy, ":");
+        while (token) {
+            snprintf(candidate, sizeof(candidate), "%s/%s", token, filename);
             if (access(candidate, R_OK) == 0) {
                 snprintf(out_path, out_sz, "%s", candidate);
                 return 0;
             }
-            if (!colon) break;
-            p = colon + 1;
+            token = strtok(NULL, ":");
         }
     }
 
-    /* 3. LD_LIBRARY_PATH */
-    const char *ld_lib = getenv("LD_LIBRARY_PATH");
-    if (ld_lib && ld_lib[0]) {
-        const char *p = ld_lib;
-        while (*p) {
-            const char *colon = strchr(p, ':');
-            size_t tok_len = colon ? (size_t)(colon - p) : strlen(p);
-            char tok[256];
-            if (tok_len >= sizeof(tok)) tok_len = sizeof(tok) - 1;
-            memcpy(tok, p, tok_len);
-            tok[tok_len] = '\0';
-
-            const char *dir = (tok[0] == '\0') ? "." : tok;
-            snprintf(candidate, sizeof(candidate), "%s/%s", dir, filename);
-            if (access(candidate, R_OK) == 0) {
-                snprintf(out_path, out_sz, "%s", candidate);
-                return 0;
-            }
-            if (!colon) break;
-            p = colon + 1;
-        }
-    }
-
-    /* 4. Default system directories */
+    /* 4. Default system directories per target ISA */
     static const char *sys_dirs[] = {
+#if defined(__x86_64__) || defined(_M_X64)
         "/lib/x86_64-linux-gnu",
         "/usr/lib/x86_64-linux-gnu",
         "/lib64",
         "/usr/lib64",
+#elif defined(__aarch64__) || defined(_M_ARM64)
+        "/lib/aarch64-linux-gnu",
+        "/usr/lib/aarch64-linux-gnu",
+        "/lib64",
+        "/usr/lib64",
+#elif defined(__riscv) && (__riscv_xlen == 64)
+        "/lib/riscv64-linux-gnu",
+        "/usr/lib/riscv64-linux-gnu",
+        "/lib64",
+        "/usr/lib64",
+#elif defined(__riscv) && (__riscv_xlen == 32)
+        "/lib/riscv32-linux-gnu",
+        "/usr/lib/riscv32-linux-gnu",
+#endif
         "/lib",
         "/usr/lib",
         "/usr/local/lib",
@@ -439,19 +581,20 @@ static int zc_resolve_library_path(const char *filename, ZcDso *caller, char *ou
 /* ---- dynamic section parsing ---- */
 
 static int zc_parse_dynamic(ZcDso *dso, int fd, void *base) {
-    Elf64_Ehdr *ehdr = (Elf64_Ehdr *)base;
-    Elf64_Phdr *phdrs = (Elf64_Phdr *)((char *)ehdr + ehdr->e_phoff);
+    Elf_Ehdr *ehdr = (Elf_Ehdr *)base;
+    Elf_Phdr *phdrs = (Elf_Phdr *)((char *)ehdr + ehdr->e_phoff);
 
-    Elf64_Dyn *dyn = NULL;
-    size_t     dyn_count = 0;
+    Elf_Dyn *dyn = NULL;
+    size_t   dyn_count = 0;
     for (int i = 0; i < ehdr->e_phnum; i++) {
         if (phdrs[i].p_type == PT_DYNAMIC) {
-            dyn = (Elf64_Dyn *)zc_va_to_ptr(dso, phdrs[i].p_vaddr);
-            dyn_count = phdrs[i].p_filesz / sizeof(Elf64_Dyn);
+            dyn = (Elf_Dyn *)zc_va_to_ptr(dso, phdrs[i].p_vaddr);
+            dyn_count = phdrs[i].p_filesz / sizeof(Elf_Dyn);
             break;
         }
     }
     if (!dyn) {
+        zc_set_error("ELF missing PT_DYNAMIC segment");
         return -1;
     }
 
@@ -462,14 +605,14 @@ static int zc_parse_dynamic(ZcDso *dso, int fd, void *base) {
     size_t runpath_off = (size_t)-1;
 
     for (size_t i = 0; i < dyn_count; i++) {
-        Elf64_Sxword tag = dyn[i].d_tag;
+        Elf_Sxword tag = dyn[i].d_tag;
         if (tag == DT_NULL) break;
-        switch ((uint64_t)tag) {
+        switch ((Elf_Xword)tag) {
         case DT_STRTAB:
             dso->strtab = (char *)zc_va_to_ptr(dso, dyn[i].d_un.d_ptr);
             break;
         case DT_SYMTAB:
-            dso->symtab = (Elf64_Sym *)zc_va_to_ptr(dso, dyn[i].d_un.d_ptr);
+            dso->symtab = (Elf_Sym *)zc_va_to_ptr(dso, dyn[i].d_un.d_ptr);
             break;
         case DT_HASH:
             dso->sysv_hash = (uint32_t *)zc_va_to_ptr(dso, dyn[i].d_un.d_ptr);
@@ -479,13 +622,13 @@ static int zc_parse_dynamic(ZcDso *dso, int fd, void *base) {
             dso->gnu_hash = (uint32_t *)zc_va_to_ptr(dso, dyn[i].d_un.d_ptr);
             break;
         case DT_RELA:
-            dso->rela = (Elf64_Rela *)zc_va_to_ptr(dso, dyn[i].d_un.d_ptr);
+            dso->rela = (Elf_Rela *)zc_va_to_ptr(dso, dyn[i].d_un.d_ptr);
             break;
         case DT_RELASZ:
             dso->relasz = (size_t)dyn[i].d_un.d_val;
             break;
         case DT_JMPREL:
-            dso->jmprel = (Elf64_Rela *)zc_va_to_ptr(dso, dyn[i].d_un.d_ptr);
+            dso->jmprel = (Elf_Rela *)zc_va_to_ptr(dso, dyn[i].d_un.d_ptr);
             break;
         case DT_PLTRELSZ:
             dso->pltrelsz = (size_t)dyn[i].d_un.d_val;
@@ -531,13 +674,13 @@ static int zc_parse_dynamic(ZcDso *dso, int fd, void *base) {
             dso->versym = (uint16_t *)zc_va_to_ptr(dso, dyn[i].d_un.d_ptr);
             break;
         case DT_VERDEF:
-            dso->verdef = (Elf64_Verdef *)zc_va_to_ptr(dso, dyn[i].d_un.d_ptr);
+            dso->verdef = (Elf_Verdef *)zc_va_to_ptr(dso, dyn[i].d_un.d_ptr);
             break;
         case DT_VERDEFNUM:
             dso->verdef_num = (size_t)dyn[i].d_un.d_val;
             break;
         case DT_VERNEED:
-            dso->verneed = (Elf64_Verneed *)zc_va_to_ptr(dso, dyn[i].d_un.d_ptr);
+            dso->verneed = (Elf_Verneed *)zc_va_to_ptr(dso, dyn[i].d_un.d_ptr);
             break;
         case DT_VERNEEDNUM:
             dso->verneed_num = (size_t)dyn[i].d_un.d_val;
@@ -554,14 +697,14 @@ static int zc_parse_dynamic(ZcDso *dso, int fd, void *base) {
 
     /* Read section headers if symtab_count is not yet known. */
     if (dso->symtab_count == 0 && fd >= 0 && ehdr->e_shoff > 0 && ehdr->e_shnum > 0) {
-        size_t shsz = (size_t)ehdr->e_shnum * sizeof(Elf64_Shdr);
-        Elf64_Shdr *shdrs = (Elf64_Shdr *)malloc(shsz);
+        size_t shsz = (size_t)ehdr->e_shnum * sizeof(Elf_Shdr);
+        Elf_Shdr *shdrs = (Elf_Shdr *)malloc(shsz);
         if (shdrs) {
             if (lseek(fd, (off_t)ehdr->e_shoff, SEEK_SET) >= 0 &&
                 read(fd, shdrs, shsz) == (ssize_t)shsz) {
                 for (int i = 0; i < ehdr->e_shnum; i++) {
                     if (shdrs[i].sh_type == SHT_DYNSYM) {
-                        dso->symtab_count = shdrs[i].sh_size / sizeof(Elf64_Sym);
+                        dso->symtab_count = shdrs[i].sh_size / sizeof(Elf_Sym);
                         break;
                     }
                 }
@@ -579,9 +722,9 @@ static int zc_find_verdef_ndx(ZcDso *dso, const char *version) {
     if (!dso->verdef || !dso->strtab || dso->verdef_num == 0) return 0;
     char *curr = (char *)dso->verdef;
     for (size_t i = 0; i < dso->verdef_num; i++) {
-        Elf64_Verdef *vd = (Elf64_Verdef *)curr;
+        Elf_Verdef *vd = (Elf_Verdef *)curr;
         if (vd->vd_cnt > 0 && vd->vd_aux > 0) {
-            Elf64_Verdaux *vda = (Elf64_Verdaux *)(curr + vd->vd_aux);
+            Elf_Verdaux *vda = (Elf_Verdaux *)(curr + vd->vd_aux);
             const char *vname = dso->strtab + vda->vda_name;
             if (strcmp(vname, version) == 0) {
                 return (vd->vd_ndx & 0x7fff);
@@ -597,10 +740,10 @@ static int zc_find_verneed_ndx(ZcDso *dso, const char *version) {
     if (!dso->verneed || !dso->strtab || dso->verneed_num == 0) return 0;
     char *curr = (char *)dso->verneed;
     for (size_t i = 0; i < dso->verneed_num; i++) {
-        Elf64_Verneed *vn = (Elf64_Verneed *)curr;
+        Elf_Verneed *vn = (Elf_Verneed *)curr;
         char *vna_curr = curr + vn->vn_aux;
-        for (Elf64_Half j = 0; j < vn->vn_cnt; j++) {
-            Elf64_Vernaux *vna = (Elf64_Vernaux *)vna_curr;
+        for (Elf_Half j = 0; j < vn->vn_cnt; j++) {
+            Elf_Vernaux *vna = (Elf_Vernaux *)vna_curr;
             const char *vname = dso->strtab + vna->vna_name;
             if (strcmp(vname, version) == 0) {
                 return (vna->vna_other & 0x7fff);
@@ -624,10 +767,10 @@ static const char *zc_get_verneed_name(ZcDso *dso, uint16_t req_v) {
     if (!dso->verneed || !dso->strtab || dso->verneed_num == 0) return NULL;
     char *curr = (char *)dso->verneed;
     for (size_t i = 0; i < dso->verneed_num; i++) {
-        Elf64_Verneed *vn = (Elf64_Verneed *)curr;
+        Elf_Verneed *vn = (Elf_Verneed *)curr;
         char *vna_curr = curr + vn->vn_aux;
-        for (Elf64_Half j = 0; j < vn->vn_cnt; j++) {
-            Elf64_Vernaux *vna = (Elf64_Vernaux *)vna_curr;
+        for (Elf_Half j = 0; j < vn->vn_cnt; j++) {
+            Elf_Vernaux *vna = (Elf_Vernaux *)vna_curr;
             if ((vna->vna_other & 0x7fff) == req_v) {
                 return dso->strtab + vna->vna_name;
             }
@@ -657,7 +800,7 @@ static int zc_sym_matches_version(ZcDso *dso, uint32_t sym_idx, int target_ver_n
 
 /* ---- symbol lookup ---- */
 
-static Elf64_Sym *zc_dso_lookup_sysv(ZcDso *dso, const char *name, int target_ver_ndx, const char *version) {
+static Elf_Sym *zc_dso_lookup_sysv(ZcDso *dso, const char *name, int target_ver_ndx, const char *version) {
     if (!dso->sysv_hash || !dso->symtab || !dso->strtab) return NULL;
     uint32_t nbuckets = dso->sysv_hash[0];
     uint32_t nchains  = dso->sysv_hash[1];
@@ -666,7 +809,7 @@ static Elf64_Sym *zc_dso_lookup_sysv(ZcDso *dso, const char *name, int target_ve
     uint32_t *chains  = buckets + nbuckets;
     uint32_t h = zc_sysv_hash(name) % nbuckets;
     for (uint32_t idx = buckets[h]; idx != STN_UNDEF && idx < nchains; idx = chains[idx]) {
-        Elf64_Sym *sym = &dso->symtab[idx];
+        Elf_Sym *sym = &dso->symtab[idx];
         if (strcmp(dso->strtab + sym->st_name, name) == 0 &&
             zc_sym_matches_version(dso, idx, target_ver_ndx, version))
             return sym;
@@ -674,14 +817,14 @@ static Elf64_Sym *zc_dso_lookup_sysv(ZcDso *dso, const char *name, int target_ve
     return NULL;
 }
 
-static Elf64_Sym *zc_dso_lookup_gnu(ZcDso *dso, const char *name, int target_ver_ndx, const char *version) {
+static Elf_Sym *zc_dso_lookup_gnu(ZcDso *dso, const char *name, int target_ver_ndx, const char *version) {
     if (!dso->gnu_hash || !dso->symtab || !dso->strtab) return NULL;
     uint32_t nbuckets  = dso->gnu_hash[0];
     uint32_t symoffset = dso->gnu_hash[1];
     uint32_t bloom_sz  = dso->gnu_hash[2];
     if (nbuckets == 0) return NULL;
 
-    uint32_t *buckets = dso->gnu_hash + 4 + bloom_sz * (sizeof(uint64_t) / sizeof(uint32_t));
+    uint32_t *buckets = dso->gnu_hash + 4 + bloom_sz * (sizeof(Elf_Addr) / sizeof(uint32_t));
     uint32_t h1 = zc_gnu_hash(name);
     uint32_t idx = buckets[h1 % nbuckets];
     if (!idx || idx < symoffset) return NULL;
@@ -690,7 +833,7 @@ static Elf64_Sym *zc_dso_lookup_gnu(ZcDso *dso, const char *name, int target_ver
     for (h1 |= 1; ; idx++) {
         uint32_t h2 = *hashval++;
         if (h1 == (h2 | 1)) {
-            Elf64_Sym *sym = &dso->symtab[idx];
+            Elf_Sym *sym = &dso->symtab[idx];
             if (strcmp(dso->strtab + sym->st_name, name) == 0 &&
                 zc_sym_matches_version(dso, idx, target_ver_ndx, version))
                 return sym;
@@ -700,10 +843,10 @@ static Elf64_Sym *zc_dso_lookup_gnu(ZcDso *dso, const char *name, int target_ver
     return NULL;
 }
 
-static Elf64_Sym *zc_dso_lookup_linear(ZcDso *dso, const char *name, int target_ver_ndx, const char *version) {
+static Elf_Sym *zc_dso_lookup_linear(ZcDso *dso, const char *name, int target_ver_ndx, const char *version) {
     if (!dso->symtab || !dso->strtab || dso->symtab_count == 0) return NULL;
     for (size_t i = 1; i < dso->symtab_count; i++) {
-        Elf64_Sym *sym = &dso->symtab[i];
+        Elf_Sym *sym = &dso->symtab[i];
         if (sym->st_shndx == SHN_UNDEF) continue;
         if (strcmp(dso->strtab + sym->st_name, name) == 0 &&
             zc_sym_matches_version(dso, (uint32_t)i, target_ver_ndx, version))
@@ -713,7 +856,7 @@ static Elf64_Sym *zc_dso_lookup_linear(ZcDso *dso, const char *name, int target_
 }
 
 /* Look up a symbol within a single DSO.  version may be NULL (default). */
-static Elf64_Sym *zc_dso_lookup(ZcDso *dso, const char *name, const char *version) {
+static Elf_Sym *zc_dso_lookup(ZcDso *dso, const char *name, const char *version) {
     if (!dso || !name || !name[0]) return NULL;
     int target_ver_ndx = 0;
     if (version && version[0]) {
@@ -721,11 +864,11 @@ static Elf64_Sym *zc_dso_lookup(ZcDso *dso, const char *name, const char *versio
         if (dso->versym && target_ver_ndx <= 0) return NULL;
     }
     if (dso->gnu_hash) {
-        Elf64_Sym *s = zc_dso_lookup_gnu(dso, name, target_ver_ndx, version);
+        Elf_Sym *s = zc_dso_lookup_gnu(dso, name, target_ver_ndx, version);
         if (s) return s;
     }
     if (dso->sysv_hash) {
-        Elf64_Sym *s = zc_dso_lookup_sysv(dso, name, target_ver_ndx, version);
+        Elf_Sym *s = zc_dso_lookup_sysv(dso, name, target_ver_ndx, version);
         if (s) return s;
     }
     return zc_dso_lookup_linear(dso, name, target_ver_ndx, version);
@@ -736,7 +879,7 @@ static Elf64_Sym *zc_dso_lookup(ZcDso *dso, const char *name, const char *versio
  * Returns 1 if found in a real DSO (fills found_dso/found_sym),
  * 2 if found in head (found_dso = head, found_sym = NULL sentinel), 0 otherwise. */
 static int zc_scope_lookup(ZcDso *start, const char *name, const char *version,
-                           ZcDso **found_dso, Elf64_Sym **found_sym) {
+                           ZcDso **found_dso, Elf_Sym **found_sym) {
     if (start && start != g_zc_head) {
         ZcDso *queue[128];
         int qhead = 0, qtail = 0;
@@ -744,8 +887,8 @@ static int zc_scope_lookup(ZcDso *start, const char *name, const char *version,
 
         while (qhead < qtail) {
             ZcDso *curr = queue[qhead++];
-            Elf64_Sym *sym = zc_dso_lookup(curr, name, version);
-            if (sym && ELF64_ST_TYPE(sym->st_info) != STT_SECTION &&
+            Elf_Sym *sym = zc_dso_lookup(curr, name, version);
+            if (sym && ELF_ST_TYPE(sym->st_info) != STT_SECTION &&
                 sym->st_shndx != SHN_UNDEF) {
                 *found_dso = curr;
                 *found_sym = sym;
@@ -777,15 +920,20 @@ static int zc_scope_lookup(ZcDso *start, const char *name, const char *version,
 
 /* ---- relocations ---- */
 
-static int zc_resolve_reloc_sym(ZcDso *dso, Elf64_Xword sym_idx, void **out_addr) {
+static int zc_resolve_reloc_sym(ZcDso *dso, Elf_Xword sym_idx, void **out_addr) {
     *out_addr = NULL;
     if (sym_idx == STN_UNDEF || !dso->symtab) return 0;
+    if (sym_idx >= dso->symtab_count) {
+        zc_set_error("relocation symbol index %u out of bounds (%zu)", (unsigned)sym_idx, dso->symtab_count);
+        zc_seterr(EINVAL);
+        return -1;
+    }
 
-    Elf64_Sym *sym = &dso->symtab[sym_idx];
+    Elf_Sym *sym = &dso->symtab[sym_idx];
     const char *sname = (dso->strtab && sym->st_name) ? (dso->strtab + sym->st_name) : NULL;
 
     /* Local symbol with no name (or STB_LOCAL defined in this DSO). */
-    if (ELF64_ST_BIND(sym->st_info) == STB_LOCAL && sym->st_shndx != SHN_UNDEF) {
+    if (ELF_ST_BIND(sym->st_info) == STB_LOCAL && sym->st_shndx != SHN_UNDEF) {
         *out_addr = zc_va_to_ptr(dso, sym->st_value);
         return 0;
     }
@@ -798,40 +946,99 @@ static int zc_resolve_reloc_sym(ZcDso *dso, Elf64_Xword sym_idx, void **out_addr
                 req_version = zc_get_verneed_name(dso, req_v);
             }
         }
-        ZcDso *fdso = NULL;
-        Elf64_Sym *fsym = NULL;
-        int r = zc_scope_lookup(dso, sname, req_version, &fdso, &fsym);
+
+        ZcDso   *fsym_dso = NULL;
+        Elf_Sym *fsym = NULL;
+        int r = zc_scope_lookup(dso, sname, req_version, &fsym_dso, &fsym);
         if (r == 1) {
-            *out_addr = zc_va_to_ptr(fdso, fsym->st_value);
+            *out_addr = zc_va_to_ptr(fsym_dso, fsym->st_value);
             return 0;
         }
         if (r == 2) {
             *out_addr = zc_head_lookup(sname);
-            return 0;
+            if (*out_addr) return 0;
+        }
+
+        /* If versioned lookup failed, try unversioned fallback */
+        if (req_version != NULL) {
+            r = zc_scope_lookup(dso, sname, NULL, &fsym_dso, &fsym);
+            if (r == 1) {
+                *out_addr = zc_va_to_ptr(fsym_dso, fsym->st_value);
+                return 0;
+            }
+            if (r == 2) {
+                *out_addr = zc_head_lookup(sname);
+                if (*out_addr) return 0;
+            }
         }
     }
 
-    /* Defined inside this DSO. */
-    if (sym->st_shndx != SHN_UNDEF) {
-        *out_addr = zc_va_to_ptr(dso, sym->st_value);
-        return 0;
-    }
-
     /* Unresolved weak symbols resolve to 0. */
-    if (ELF64_ST_BIND(sym->st_info) == STB_WEAK) {
+    if (ELF_ST_BIND(sym->st_info) == STB_WEAK) {
         *out_addr = NULL;
         return 0;
     }
 
+    zc_set_error("undefined symbol during relocation: %s", sname ? sname : "(unnamed)");
     zc_seterr(EINVAL);
     return -1;
 }
 
-static int zc_apply_reloc_x86_64(ZcDso *dso, const Elf64_Rela *rela) {
-    Elf64_Xword type = ELF64_R_TYPE(rela->r_info);
-    Elf64_Xword sym  = ELF64_R_SYM(rela->r_info);
-    uint8_t    *fixup = (uint8_t *)zc_va_to_ptr(dso, rela->r_offset);
-    void       *sym_addr = NULL;
+#ifndef R_X86_64_NONE
+#define R_X86_64_NONE 0
+#endif
+#ifndef R_X86_64_64
+#define R_X86_64_64 1
+#endif
+#ifndef R_X86_64_GLOB_DAT
+#define R_X86_64_GLOB_DAT 6
+#endif
+#ifndef R_X86_64_JUMP_SLOT
+#define R_X86_64_JUMP_SLOT 7
+#endif
+#ifndef R_X86_64_RELATIVE
+#define R_X86_64_RELATIVE 8
+#endif
+
+#ifndef R_AARCH64_NONE
+#define R_AARCH64_NONE 0
+#endif
+#ifndef R_AARCH64_ABS64
+#define R_AARCH64_ABS64 257
+#endif
+#ifndef R_AARCH64_GLOB_DAT
+#define R_AARCH64_GLOB_DAT 1025
+#endif
+#ifndef R_AARCH64_JUMP_SLOT
+#define R_AARCH64_JUMP_SLOT 1026
+#endif
+#ifndef R_AARCH64_RELATIVE
+#define R_AARCH64_RELATIVE 1027
+#endif
+
+#ifndef R_RISCV_NONE
+#define R_RISCV_NONE 0
+#endif
+#ifndef R_RISCV_32
+#define R_RISCV_32 1
+#endif
+#ifndef R_RISCV_64
+#define R_RISCV_64 2
+#endif
+#ifndef R_RISCV_RELATIVE
+#define R_RISCV_RELATIVE 3
+#endif
+#ifndef R_RISCV_JUMP_SLOT
+#define R_RISCV_JUMP_SLOT 5
+#endif
+
+int zc_apply_reloc_x86_64(void *dso_arg, const void *rela_arg) {
+    ZcDso          *dso  = (ZcDso *)dso_arg;
+    const Elf_Rela *rela = (const Elf_Rela *)rela_arg;
+    Elf_Xword type = ELF_R_TYPE(rela->r_info);
+    Elf_Xword sym  = ELF_R_SYM(rela->r_info);
+    uint8_t  *fixup = (uint8_t *)zc_va_to_ptr(dso, rela->r_offset);
+    void     *sym_addr = NULL;
 
     switch (type) {
     case R_X86_64_NONE:
@@ -840,32 +1047,126 @@ static int zc_apply_reloc_x86_64(ZcDso *dso, const Elf64_Rela *rela) {
         *(uintptr_t *)fixup = (uintptr_t)((char *)dso->base - dso->map_start + rela->r_addend);
         break;
     case R_X86_64_64:
-        if (zc_resolve_reloc_sym(dso, sym, &sym_addr) < 0) return -1;
-        *(uintptr_t *)fixup = (uintptr_t)sym_addr + (uintptr_t)rela->r_addend;
-        break;
     case R_X86_64_GLOB_DAT:
     case R_X86_64_JUMP_SLOT:
         if (zc_resolve_reloc_sym(dso, sym, &sym_addr) < 0) return -1;
         *(uintptr_t *)fixup = (uintptr_t)sym_addr + (uintptr_t)rela->r_addend;
         break;
     default:
+        zc_set_error("unsupported x86-64 relocation type %u", (unsigned)type);
         zc_seterr(ENOSYS);
         return -1;
     }
     return 0;
 }
 
+int zc_apply_reloc_aarch64(void *dso_arg, const void *rela_arg) {
+    ZcDso          *dso  = (ZcDso *)dso_arg;
+    const Elf_Rela *rela = (const Elf_Rela *)rela_arg;
+    Elf_Xword type = ELF_R_TYPE(rela->r_info);
+    Elf_Xword sym  = ELF_R_SYM(rela->r_info);
+    uint8_t  *fixup = (uint8_t *)zc_va_to_ptr(dso, rela->r_offset);
+    void     *sym_addr = NULL;
+
+    switch (type) {
+    case R_AARCH64_NONE:
+        break;
+    case R_AARCH64_RELATIVE:
+        *(uintptr_t *)fixup = (uintptr_t)((char *)dso->base - dso->map_start + rela->r_addend);
+        break;
+    case R_AARCH64_ABS64:
+    case R_AARCH64_GLOB_DAT:
+    case R_AARCH64_JUMP_SLOT:
+        if (zc_resolve_reloc_sym(dso, sym, &sym_addr) < 0) return -1;
+        *(uintptr_t *)fixup = (uintptr_t)sym_addr + (uintptr_t)rela->r_addend;
+        break;
+    default:
+        zc_set_error("unsupported AArch64 relocation type %u", (unsigned)type);
+        zc_seterr(ENOSYS);
+        return -1;
+    }
+    return 0;
+}
+
+int zc_apply_reloc_riscv64(void *dso_arg, const void *rela_arg) {
+    ZcDso          *dso  = (ZcDso *)dso_arg;
+    const Elf_Rela *rela = (const Elf_Rela *)rela_arg;
+    Elf_Xword type = ELF_R_TYPE(rela->r_info);
+    Elf_Xword sym  = ELF_R_SYM(rela->r_info);
+    uint8_t  *fixup = (uint8_t *)zc_va_to_ptr(dso, rela->r_offset);
+    void     *sym_addr = NULL;
+
+    switch (type) {
+    case R_RISCV_NONE:
+        break;
+    case R_RISCV_RELATIVE:
+        *(uint64_t *)fixup = (uint64_t)(uintptr_t)((char *)dso->base - dso->map_start + rela->r_addend);
+        break;
+    case R_RISCV_64:
+    case R_RISCV_JUMP_SLOT:
+        if (zc_resolve_reloc_sym(dso, sym, &sym_addr) < 0) return -1;
+        *(uint64_t *)fixup = (uint64_t)((uintptr_t)sym_addr + (uintptr_t)rela->r_addend);
+        break;
+    default:
+        zc_set_error("unsupported RISC-V 64 relocation type %u", (unsigned)type);
+        zc_seterr(ENOSYS);
+        return -1;
+    }
+    return 0;
+}
+
+int zc_apply_reloc_riscv32(void *dso_arg, const void *rela_arg) {
+    ZcDso          *dso  = (ZcDso *)dso_arg;
+    const Elf_Rela *rela = (const Elf_Rela *)rela_arg;
+    Elf_Xword type = ELF_R_TYPE(rela->r_info);
+    Elf_Xword sym  = ELF_R_SYM(rela->r_info);
+    uint8_t  *fixup = (uint8_t *)zc_va_to_ptr(dso, rela->r_offset);
+    void     *sym_addr = NULL;
+
+    switch (type) {
+    case R_RISCV_NONE:
+        break;
+    case R_RISCV_RELATIVE:
+        *(uint32_t *)fixup = (uint32_t)((uintptr_t)((char *)dso->base - dso->map_start) + (uintptr_t)rela->r_addend);
+        break;
+    case R_RISCV_32:
+    case R_RISCV_JUMP_SLOT:
+        if (zc_resolve_reloc_sym(dso, sym, &sym_addr) < 0) return -1;
+        *(uint32_t *)fixup = (uint32_t)((uintptr_t)sym_addr + (uintptr_t)rela->r_addend);
+        break;
+    default:
+        zc_set_error("unsupported RISC-V 32 relocation type %u", (unsigned)type);
+        zc_seterr(ENOSYS);
+        return -1;
+    }
+    return 0;
+}
+
+static int zc_apply_reloc(ZcDso *dso, const Elf_Rela *rela) {
+#if defined(__x86_64__) || defined(_M_X64)
+    return zc_apply_reloc_x86_64(dso, rela);
+#elif defined(__aarch64__) || defined(_M_ARM64)
+    return zc_apply_reloc_aarch64(dso, rela);
+#elif defined(__riscv) && (__riscv_xlen == 64)
+    return zc_apply_reloc_riscv64(dso, rela);
+#elif defined(__riscv) && (__riscv_xlen == 32)
+    return zc_apply_reloc_riscv32(dso, rela);
+#else
+    return zc_apply_reloc_x86_64(dso, rela);
+#endif
+}
+
 static int zc_do_relocs(ZcDso *dso) {
     if (dso->rela && dso->relasz > 0) {
-        size_t count = dso->relasz / sizeof(Elf64_Rela);
+        size_t count = dso->relasz / sizeof(Elf_Rela);
         for (size_t j = 0; j < count; j++) {
-            if (zc_apply_reloc_x86_64(dso, &dso->rela[j]) < 0) return -1;
+            if (zc_apply_reloc(dso, &dso->rela[j]) < 0) return -1;
         }
     }
     if (dso->jmprel && dso->pltrelsz > 0) {
-        size_t count = dso->pltrelsz / sizeof(Elf64_Rela);
+        size_t count = dso->pltrelsz / sizeof(Elf_Rela);
         for (size_t j = 0; j < count; j++) {
-            if (zc_apply_reloc_x86_64(dso, &dso->jmprel[j]) < 0) return -1;
+            if (zc_apply_reloc(dso, &dso->jmprel[j]) < 0) return -1;
         }
     }
     return 0;
@@ -886,59 +1187,62 @@ static void zc_run_constructors(ZcDso *dso) {
     if (dso->init_array && dso->init_arraysz > 0) {
         size_t count = dso->init_arraysz / sizeof(void (*)(void));
         for (size_t i = 0; i < count; i++) {
-            if (dso->init_array[i]) dso->init_array[i]();
+            if (dso->init_array[i]) {
+                dso->init_array[i]();
+            }
         }
     }
 }
 
-static int zc_dso_add_dep(ZcDso *dso, ZcDso *dep) {
-    if (!dso || !dep) return 0;
+static void zc_dso_add_dep(ZcDso *dso, ZcDso *dep) {
+    if (!dso || !dep) return;
     for (int i = 0; i < dso->dep_count; i++) {
-        if (dso->deps[i] == dep) return 0;
+        if (dso->deps[i] == dep) return;
     }
     if (dso->dep_count == dso->dep_cap) {
-        int ncap = dso->dep_cap ? dso->dep_cap * 2 : 8;
+        int ncap = dso->dep_cap ? dso->dep_cap * 2 : 4;
         ZcDso **ndeps = realloc(dso->deps, ncap * sizeof(ZcDso *));
-        if (!ndeps) return -1;
+        if (!ndeps) return;
         dso->deps = ndeps;
         dso->dep_cap = ncap;
     }
     dso->deps[dso->dep_count++] = dep;
-    return 0;
 }
 
-static int zc_dso_matches(ZcDso *d, const char *canon_path, const struct stat *st) {
-    if (strcmp(d->name, canon_path) == 0) {
+/* Match loaded DSO by device and inode (or canonical path). */
+static int zc_dso_matches(ZcDso *dso, const char *canon_path, const struct stat *st) {
+    if (!dso || !canon_path) return 0;
+    if (st && dso->dev != 0 && dso->dev == st->st_dev && dso->ino == st->st_ino) {
         return 1;
     }
-    if (d->dev == st->st_dev && d->ino == st->st_ino) {
-        /* Ensure d->name still refers to this inode (guards against inode reuse after unlink) */
-        struct stat chk;
-        if (stat(d->name, &chk) == 0 && chk.st_dev == d->dev && chk.st_ino == d->ino) {
-            return 1;
-        }
-    }
-    return 0;
+    return (strcmp(dso->name, canon_path) == 0);
 }
 
-/* ---- dlopen internal ---- */
+/* ---- zc_dlopen internal ---- */
 
 static void *zc_dlopen_internal(const char *filename, ZcDso *caller, int flags) {
     (void)flags;
     if (!g_zc_inited) {
-        if (zero_rt_dl_init() < 0) return NULL;
+        if (zero_rt_dl_init() < 0) {
+            zc_set_error("failed to initialize dynamic loader subsystem");
+            zc_seterr(ENOMEM);
+            return NULL;
+        }
     }
 
-    if (!filename || filename[0] == '\0') {
+    if (!filename) {
         return g_zc_head;
     }
 
+    /* Folded system libraries map directly to synthetic g_zc_head.
+     * Explicit paths (e.g. "./libc.so") bypass folding to allow testing. */
     if (zc_is_folded_lib(filename)) {
         return g_zc_head;
     }
 
     char resolved_path[1024];
     if (zc_resolve_library_path(filename, caller, resolved_path, sizeof(resolved_path)) < 0) {
+        zc_set_error("library not found: %s", filename);
         zc_seterr(ENOENT);
         return NULL;
     }
@@ -950,6 +1254,7 @@ static void *zc_dlopen_internal(const char *filename, ZcDso *caller, int flags) 
 
     struct stat st;
     if (stat(canon_path, &st) < 0) {
+        zc_set_error("stat failed for %s", canon_path);
         zc_seterr(ENOENT);
         return NULL;
     }
@@ -963,7 +1268,10 @@ static void *zc_dlopen_internal(const char *filename, ZcDso *caller, int flags) 
     }
 
     int fd = open(canon_path, O_RDONLY);
-    if (fd < 0) return NULL;
+    if (fd < 0) {
+        zc_set_error("cannot open file %s", canon_path);
+        return NULL;
+    }
 
     uintptr_t ms = 0;
     size_t  sz = 0;
@@ -977,6 +1285,7 @@ static void *zc_dlopen_internal(const char *filename, ZcDso *caller, int flags) 
     if (!dso) {
         munmap(map, sz);
         close(fd);
+        zc_set_error("out of memory allocating DSO descriptor");
         zc_seterr(ENOMEM);
         return NULL;
     }
@@ -1020,12 +1329,11 @@ static void *zc_dlopen_internal(const char *filename, ZcDso *caller, int flags) 
     return dso;
 }
 
-/* Public dlopen entry point. */
+/* ---- public API ---- */
+
 void *zc_dlopen(const char *filename, int flags) {
     return zc_dlopen_internal(filename, NULL, flags);
 }
-
-/* ---- dlsym ---- */
 
 void *zc_dlsym(void *handle, const char *name) {
     return zc_dlvsym(handle, name, NULL);
@@ -1042,8 +1350,8 @@ void *zc_dlvsym(void *handle, const char *name, const char *version) {
         /* Global search across all loaded DSOs. */
         for (ZcDso *d = g_zc_list; d; d = d->next) {
             if (d == g_zc_head) continue;
-            Elf64_Sym *sym = zc_dso_lookup(d, name, version);
-            if (sym && ELF64_ST_TYPE(sym->st_info) != STT_SECTION &&
+            Elf_Sym *sym = zc_dso_lookup(d, name, version);
+            if (sym && ELF_ST_TYPE(sym->st_info) != STT_SECTION &&
                 sym->st_shndx != SHN_UNDEF) {
                 return zc_va_to_ptr(d, sym->st_value);
             }
@@ -1054,7 +1362,7 @@ void *zc_dlvsym(void *handle, const char *name, const char *version) {
 
     ZcDso *dso = (ZcDso *)handle;
     ZcDso *fdso = NULL;
-    Elf64_Sym *fsym = NULL;
+    Elf_Sym *fsym = NULL;
     int r = zc_scope_lookup(dso, name, version, &fdso, &fsym);
     if (r == 1) {
         return zc_va_to_ptr(fdso, fsym->st_value);
@@ -1090,8 +1398,8 @@ void *zc_dlvsym_next(const void *caller_pc, const char *name, const char *versio
         for (int i = 0; i < caller_dso->dep_count; i++) {
             ZcDso *dep = caller_dso->deps[i];
             if (!dep || dep == g_zc_head) continue;
-            Elf64_Sym *sym = zc_dso_lookup(dep, name, version);
-            if (sym && ELF64_ST_TYPE(sym->st_info) != STT_SECTION &&
+            Elf_Sym *sym = zc_dso_lookup(dep, name, version);
+            if (sym && ELF_ST_TYPE(sym->st_info) != STT_SECTION &&
                 sym->st_shndx != SHN_UNDEF) {
                 return zc_va_to_ptr(dep, sym->st_value);
             }
@@ -1099,8 +1407,8 @@ void *zc_dlvsym_next(const void *caller_pc, const char *name, const char *versio
         /* Search subsequent DSOs in load order */
         for (ZcDso *d = caller_dso->next; d; d = d->next) {
             if (d == g_zc_head) continue;
-            Elf64_Sym *sym = zc_dso_lookup(d, name, version);
-            if (sym && ELF64_ST_TYPE(sym->st_info) != STT_SECTION &&
+            Elf_Sym *sym = zc_dso_lookup(d, name, version);
+            if (sym && ELF_ST_TYPE(sym->st_info) != STT_SECTION &&
                 sym->st_shndx != SHN_UNDEF) {
                 return zc_va_to_ptr(d, sym->st_value);
             }
@@ -1114,8 +1422,8 @@ void *zc_dlvsym_next(const void *caller_pc, const char *name, const char *versio
         /* Caller in host executable or JIT code: search loaded DSOs */
         for (ZcDso *d = g_zc_list; d; d = d->next) {
             if (d == g_zc_head) continue;
-            Elf64_Sym *sym = zc_dso_lookup(d, name, version);
-            if (sym && ELF64_ST_TYPE(sym->st_info) != STT_SECTION &&
+            Elf_Sym *sym = zc_dso_lookup(d, name, version);
+            if (sym && ELF_ST_TYPE(sym->st_info) != STT_SECTION &&
                 sym->st_shndx != SHN_UNDEF) {
                 return zc_va_to_ptr(d, sym->st_value);
             }
@@ -1148,10 +1456,10 @@ int zc_dladdr(const void *addr, void *info_arg) {
 
             /* Find closest preceding symbol */
             if (d->symtab && d->strtab && d->symtab_count > 0) {
-                Elf64_Sym *best_sym = NULL;
+                Elf_Sym *best_sym = NULL;
                 uintptr_t best_diff = (uintptr_t)-1;
                 for (size_t i = 1; i < d->symtab_count; i++) {
-                    Elf64_Sym *sym = &d->symtab[i];
+                    Elf_Sym *sym = &d->symtab[i];
                     if (sym->st_shndx == SHN_UNDEF || sym->st_name == 0) continue;
                     uintptr_t sym_addr = (uintptr_t)zc_va_to_ptr(d, sym->st_value);
                     if (sym_addr <= a) {

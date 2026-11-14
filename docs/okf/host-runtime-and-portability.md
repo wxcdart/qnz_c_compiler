@@ -4,7 +4,7 @@ title: Host Runtime, In-Process Dynamic Loading & Portability Architecture
 description: Architecture of ZeroCC's static-musl host toolchain, self-hosting dlfcn, the in-process dynamic loader (musl dynlink.c adaptation), freestanding/baremetal runtime model, and cross-platform portability across Linux, macOS, Windows, and BSDs.
 resource: host-runtime-and-portability
 tags: [host-runtime, dlfcn, musl, static-linking, freestanding, baremetal, portability, macos, windows, bsd]
-timestamp: 2026-11-14T14:23:06Z
+timestamp: 2026-11-14T14:52:57Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -289,15 +289,15 @@ The ZeroCC dynamic loader (`zero_rt/dlfcn/dynlink.c`) is designed as a phased, m
 
 ```mermaid
 flowchart TD
-    subgraph Shipped ["Shipped (Sprints 153–181)"]
+    subgraph Shipped ["Shipped (Sprints 153–182)"]
         P1["Phase 1: Embedded Symtab (.rodata)"]
         P2["Phase 2: ELF64 x86-64 Loader MVP"]
         P3["Phase 3: RPATH/$ORIGIN, DT_NEEDED, dlvsym"]
         P4["Phase 4: POSIX Completeness & Lifecycle<br/>dladdr, RTLD_NEXT, munmap, DT_FINI"]
+        P5["Phase 5: Multi-ISA Dynamic Loading<br/>AArch64, RISC-V 64, RISC-V 32 (ELF32)"]
     end
 
     subgraph Planned ["Planned & Sequenced"]
-        P5["Phase 5: Multi-ISA Dynamic Loading<br/>AArch64, RISC-V 64, RISC-V 32 (ELF32)"]
         P6["Phase 6: Target AOT Packaging & Portability<br/>zero_rt.a, Windows LoadLibrary, macOS, Baremetal"]
     end
 
@@ -337,36 +337,34 @@ flowchart TD
    - Distinguishes bare library names (`libc.so`, `libm.so`) from explicit paths (`./libc.so`, `/custom/path/libc.so`).
    - Bare names continue folding into `g_zc_head` for zero-overhead host integration; explicit paths load the actual disk file into memory, supporting custom libc/libm testing.
 
-#### Phase 5: Multi-ISA Dynamic Loading across Backends — PLANNED
+#### Phase 5: Multi-ISA Dynamic Loading across Backends — SHIPPED (Sprint 182)
 Extends the in-process dynamic loader to support all target ISAs natively:
 1. **ELF Machine Dispatch**:
    - Validates `ehdr.e_machine` against the host/target architecture:
      - `EM_X86_64` (62) for x86-64
      - `EM_AARCH64` (183) for AArch64
      - `EM_RISCV` (243) for RISC-V 64 and RISC-V 32
-   - Incompatible architectures fail immediately with an informative `dlerror` diagnostic (e.g., `"ELF machine mismatch: expected AArch64 (183), found x86-64 (62)"`).
+   - Incompatible architectures fail immediately with an informative `dlerror` diagnostic (e.g., `"ELF machine mismatch: expected x86-64 (62), found AArch64 (183)"`).
 2. **Dynamic Relocation Handlers by ISA**:
    - **AArch64**:
-     - `R_AARCH64_RELATIVE` (1027): `*(uint64_t*)(base + r_offset) = base + r_addend`
-     - `R_AARCH64_ABS64` (257): `*(uint64_t*)(base + r_offset) = sym_val + r_addend`
-     - `R_AARCH64_GLOB_DAT` (1025) & `R_AARCH64_JUMP_SLOT` (1026): GOT/PLT slot updates to `sym_val + r_addend`
+     - `R_AARCH64_RELATIVE` (1027): `*(uintptr_t*)(base + r_offset) = (char *)dso->base - dso->map_start + rela->r_addend`
+     - `R_AARCH64_ABS64` (257), `R_AARCH64_GLOB_DAT` (1025), `R_AARCH64_JUMP_SLOT` (1026): GOT/PLT and data slot updates to `sym_val + r_addend`
    - **RISC-V 64**:
-     - `R_RISCV_RELATIVE` (3): `*(uint64_t*)(base + r_offset) = base + r_addend`
-     - `R_RISCV_64` (2): `*(uint64_t*)(base + r_offset) = sym_val + r_addend`
-     - `R_RISCV_JUMP_SLOT` (5): PLT slot updates to `sym_val + r_addend`
+     - `R_RISCV_RELATIVE` (3): `*(uint64_t*)(base + r_offset) = (char *)dso->base - dso->map_start + rela->r_addend`
+     - `R_RISCV_64` (2) & `R_RISCV_JUMP_SLOT` (5): PLT slot and data updates to `sym_val + r_addend`
    - **RISC-V 32 (ELF32 Support)**:
      - Implements `Elf32_*` parser structures and 32-bit field accessors (`Elf32_Ehdr`, `Elf32_Phdr`, `Elf32_Dyn`, `Elf32_Sym`, `Elf32_Rela`).
-     - `R_RISCV_RELATIVE` (3): `*(uint32_t*)(base + r_offset) = (uint32_t)(base + r_addend)`
-     - `R_RISCV_32` (1): `*(uint32_t*)(base + r_offset) = (uint32_t)(sym_val + r_addend)`
-     - `R_RISCV_JUMP_SLOT` (5): PLT slot updates to `(uint32_t)(sym_val + r_addend)`
+     - `R_RISCV_RELATIVE` (3): `*(uint32_t*)(base + r_offset) = (uint32_t)((char *)dso->base - dso->map_start + rela->r_addend)`
+     - `R_RISCV_32` (1) & `R_RISCV_JUMP_SLOT` (5): PLT slot and data updates to `(uint32_t)(sym_val + r_addend)`
 3. **ISA-Specific Multiarch System Search Paths**:
-   - In `zc_find_system()`, query ISA-specific system directories:
+   - In `zc_resolve_library_path()`, query ISA-specific system directories:
      - x86-64: `/lib/x86_64-linux-gnu`, `/usr/lib/x86_64-linux-gnu`, `/lib64`, `/usr/lib64`
-     - AArch64: `/lib/aarch64-linux-gnu`, `/usr/lib/aarch64-linux-gnu`
-     - RISC-V 64: `/lib/riscv64-linux-gnu`, `/usr/lib/riscv64-linux-gnu`
+     - AArch64: `/lib/aarch64-linux-gnu`, `/usr/lib/aarch64-linux-gnu`, `/lib64`, `/usr/lib64`
+     - RISC-V 64: `/lib/riscv64-linux-gnu`, `/usr/lib/riscv64-linux-gnu`, `/lib64`, `/usr/lib64`
      - RISC-V 32: `/lib/riscv32-linux-gnu`, `/usr/lib/riscv32-linux-gnu`
 4. **Verification**:
-   - Differential QEMU test harness testing shared library loading and relocation resolution across all target architectures (`qemu-aarch64-static`, `qemu-riscv64-static`, `qemu-riscv32-static`).
+   - Differential QEMU test harness testing shared library loading and relocation resolution across all target architectures (`tools/verify/dlfcn_isa_diff.py`, `make test-dlfcn-isa`: 4/4 passing on x86-64 native, AArch64, RISC-V 64, RISC-V 32 under QEMU).
+   - Foreign architecture rejection tests in `test/unit/dlfcn_dynlink.c` (Part 8) verifying `dlerror()` machine mismatch diagnostics.
 
 #### Phase 6: Standalone Target AOT Packaging & Non-POSIX Portability — PLANNED
 1. **Target AOT Packaging (`zero_rt_<isa>.a`)**:

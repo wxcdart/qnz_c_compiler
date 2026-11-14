@@ -402,7 +402,12 @@ ZC_DLFCN_HIDDEN void *dlopen(const char *filename, int flags) {
     void *h = zc_dlopen(filename, flags);
     if (h) return h;
 
-    zero_rt_dl_seterr(filename);
+    const char *err = zc_dlerror_msg();
+    if (err && err[0]) {
+        zero_rt_dl_seterr(err);
+    } else {
+        zero_rt_dl_seterr(filename);
+    }
     errno = ENOENT;
     return NULL;
 }

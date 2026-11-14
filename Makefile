@@ -122,7 +122,7 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	asan asan-unit asan-semantic asan-abi asan-jit \
 	test-asan test-asan-unit test-asan-semantic test-asan-abi test-asan-jit \
 	test-project-diff test-project-runs \
-	test-isa-qemu test-driver test-linker \
+	test-isa-qemu test-isa128 test-dlfcn-isa test-driver test-linker \
 	test-c23 test-asm test-opt test-san test-preproc test-fuzz test-perf \
 	valgrind test-valgrind
 
@@ -666,6 +666,13 @@ test-isa-qemu: $(ZC_BIN)
 # x86-64-only test-opt cannot see.
 test-isa128: $(ZC_BIN)
 	@python3 tools/verify/isa128_diff.py
+
+# Cross-ISA dynamic loading differential gate (Sprint 182): tests in-process
+# dynamic loader (zero_rt/dlfcn/dynlink.c) across all 4 target ISAs (x86-64,
+# aarch64, riscv64, riscv32 under QEMU), verifying DSO mapping, relocation
+# handlers, constructor/destructor ordering, dladdr, and architecture rejection.
+test-dlfcn-isa:
+	@python3 tools/verify/dlfcn_isa_diff.py
 
 # Host-side ASan/UBSan rebuild of the compiler (catches the compiler's own
 # memory bugs).  Built in a dedicated tree (build_asan) so it cannot clobber

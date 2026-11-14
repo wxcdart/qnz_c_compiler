@@ -1,6 +1,39 @@
 # CHANGELOG
 
-## [Sprint 181] - 2026-11-14 - Dynamic Loading Phase 4 (POSIX Completeness & DSO Lifecycle)
+## [Sprint 182] - 2026-11-14 - Dynamic Loading Phase 5 (Multi-ISA Architecture Dispatch & Relocations)
+
+Implements Phase 5 of the in-process dynamic loading roadmap across all supported backends (`zero_rt/dlfcn/dynlink.c`, `dynlink.h`, `dlfcn.c`):
+- **ELF Machine & Width Architecture Dispatch**:
+  - Dynamically dispatches on compile-time target architecture (`EM_X86_64`, `EM_AARCH64`, `EM_RISCV`).
+  - True ELF32 header and symbol structure support for 32-bit RISC-V (`Elf32_Ehdr`, `Elf32_Phdr`, `Elf32_Dyn`, `Elf32_Sym`, `Elf32_Rela`, `Elf32_Shdr`).
+  - Reads ELF identification bytes (`EI_MAG*`, `EI_DATA`, `EI_CLASS`, `e_type`, `e_machine`) and enforces architecture/class compatibility.
+- **Foreign Architecture Rejection & Detailed `dlerror` Diagnostics**:
+  - Rejects incompatible binaries immediately with detailed error diagnostics via `zc_set_error()` and `zc_dlerror_msg()`:
+    - `"ELF machine mismatch: expected <target> (<num>), found <foreign> (<num>)"`
+    - `"ELF class mismatch: expected ELFCLASS64, found ELFCLASS32"` (and vice-versa)
+    - `"ELF endianness mismatch: expected little-endian (ELFDATA2LSB)"`
+  - Integrated with `zero_rt/dlfcn/dlfcn.c` so that `dlerror()` returns the exact failure diagnostic rather than repeating the filename.
+- **Dynamic Relocation Handlers across Target ISAs**:
+  - **AArch64**: `R_AARCH64_NONE`, `R_AARCH64_RELATIVE` (1027), `R_AARCH64_ABS64` (257), `R_AARCH64_GLOB_DAT` (1025), and `R_AARCH64_JUMP_SLOT` (1026).
+  - **RISC-V 64**: `R_RISCV_NONE`, `R_RISCV_RELATIVE` (3), `R_RISCV_64` (2), and `R_RISCV_JUMP_SLOT` (5).
+  - **RISC-V 32**: `R_RISCV_NONE`, `R_RISCV_RELATIVE` (3), `R_RISCV_32` (1), and `R_RISCV_JUMP_SLOT` (5) with 32-bit word arithmetic.
+  - **x86-64**: `R_X86_64_NONE`, `R_X86_64_RELATIVE` (8), `R_X86_64_64` (1), `R_X86_64_GLOB_DAT` (6), `R_X86_64_JUMP_SLOT` (7).
+- **Target-Specific Multiarch Search Paths**:
+  - Dynamic resolution in `zc_resolve_library_path()` selects matching system library directories per ISA (`/lib/aarch64-linux-gnu`, `/lib/riscv64-linux-gnu`, `/lib/riscv32-linux-gnu`, `/lib/x86_64-linux-gnu`).
+- **Dedicated Cross-ISA Verification Gate (`make test-dlfcn-isa`)**:
+  - Added `tools/verify/dlfcn_isa_diff.py` differential testing dynamic loading across all 4 target ISAs (x86-64 native, AArch64 under `qemu-aarch64-static`, RISC-V 64 under `qemu-riscv64-static`, and RISC-V 32 under `qemu-riscv32-static`).
+  - Verifies DSO segment mapping, constructor ordering (`test_init`), `dlsym()` export resolution, computation execution, data pointer relocation (`g_reloc_ptr`), `dladdr()` reverse symbol lookup, `dlclose()` unmapping/destructor execution, and cross-architecture rejection. **Status: 4/4 ISAs PASS**.
+- **Unit Test Expansion (`test/unit/dlfcn_dynlink.c` Part 8)**:
+  - Added tests compiling mock AArch64, RISC-V 64, and RISC-V 32 shared libraries on x86-64 host and asserting that `dlopen()` returns NULL with exact `ELF machine mismatch` diagnostics.
+- **Verification Outcomes**:
+  - `make test-dlfcn-isa`: **4/4 passed** (x86_64, aarch64, riscv64, riscv32).
+  - `make build/test/unit/dlfcn_dynlink && ./build/test/unit/dlfcn_dynlink`: passed 100%.
+  - `./build/bin/zerocc --run test/unit/dlfcn_dynlink.c`: passed 100% under JIT.
+  - `python3 tools/verify/driver_tests.py`: **45/45 passed**.
+  - `make test`: **233/233 passed**.
+  - `style_check.py`: 189 files, 0 errors, 0 warnings.
+
+---
 
 Implements Phase 4 of the in-process dynamic loading roadmap (`zero_rt/dlfcn/dynlink.c` + `dlfcn.c`):
 - **`dladdr(const void *addr, Dl_info *info)`**:

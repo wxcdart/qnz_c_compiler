@@ -595,6 +595,79 @@ int main(void) {
     unlink(c_clibc);
     unlink(so_clibc);
 
+    /* ---- Part 8: Phase 5 Multi-ISA Foreign Architecture Rejection & Diagnostics ---- */
+    char c_cross[256], so_aarch64[256], so_rv64[256], so_rv32[256];
+    snprintf(c_cross, sizeof(c_cross), "/tmp/zerocc_cross_%d.c", pid);
+    snprintf(so_aarch64, sizeof(so_aarch64), "/tmp/zerocc_foreign_aarch64_%d.so", pid);
+    snprintf(so_rv64, sizeof(so_rv64), "/tmp/zerocc_foreign_rv64_%d.so", pid);
+    snprintf(so_rv32, sizeof(so_rv32), "/tmp/zerocc_foreign_rv32_%d.so", pid);
+
+    f = fopen(c_cross, "w");
+    if (f) {
+        fputs("int cross_test_val(int x) { return x + 42; }\n", f);
+        fclose(f);
+    }
+
+    /* 1. Test AArch64 rejection on x86-64 host */
+    if (system("which aarch64-linux-gnu-gcc >/dev/null 2>&1") == 0) {
+        snprintf(cmd, sizeof(cmd), "aarch64-linux-gnu-gcc -shared -fPIC -O2 %s -o %s", c_cross, so_aarch64);
+        if (system(cmd) == 0) {
+            void *h_bad_arm = dlopen(so_aarch64, RTLD_NOW);
+            if (h_bad_arm != NULL) {
+                printf("FAIL: dlopen(aarch64_so) unexpectedly succeeded on x86-64\n");
+                dlclose(h_bad_arm);
+                rc = 1;
+            } else {
+                char *err = dlerror();
+                if (!err || !strstr(err, "ELF machine mismatch") || !strstr(err, "AArch64 (183)")) {
+                    printf("FAIL: aarch64 rejection dlerror mismatch: got '%s'\n", err ? err : "(null)");
+                    rc = 1;
+                }
+            }
+            unlink(so_aarch64);
+        }
+    }
+
+    /* 2. Test RISC-V 64 rejection on x86-64 host */
+    if (system("which riscv64-linux-gnu-gcc >/dev/null 2>&1") == 0) {
+        snprintf(cmd, sizeof(cmd), "riscv64-linux-gnu-gcc -shared -fPIC -O2 %s -o %s", c_cross, so_rv64);
+        if (system(cmd) == 0) {
+            void *h_bad_rv64 = dlopen(so_rv64, RTLD_NOW);
+            if (h_bad_rv64 != NULL) {
+                printf("FAIL: dlopen(rv64_so) unexpectedly succeeded on x86-64\n");
+                dlclose(h_bad_rv64);
+                rc = 1;
+            } else {
+                char *err = dlerror();
+                if (!err || !strstr(err, "ELF machine mismatch") || !strstr(err, "RISC-V (243)")) {
+                    printf("FAIL: rv64 rejection dlerror mismatch: got '%s'\n", err ? err : "(null)");
+                    rc = 1;
+                }
+            }
+            unlink(so_rv64);
+        }
+
+        /* 3. Test RISC-V 32 (ELF32) rejection on x86-64 host */
+        snprintf(cmd, sizeof(cmd), "riscv64-linux-gnu-gcc -march=rv32gc -mabi=ilp32 -shared -fPIC -nostdlib -O2 %s -o %s", c_cross, so_rv32);
+        if (system(cmd) == 0) {
+            void *h_bad_rv32 = dlopen(so_rv32, RTLD_NOW);
+            if (h_bad_rv32 != NULL) {
+                printf("FAIL: dlopen(rv32_so) unexpectedly succeeded on x86-64\n");
+                dlclose(h_bad_rv32);
+                rc = 1;
+            } else {
+                char *err = dlerror();
+                if (!err || !strstr(err, "ELF machine mismatch")) {
+                    printf("FAIL: rv32 rejection dlerror mismatch: got '%s'\n", err ? err : "(null)");
+                    rc = 1;
+                }
+            }
+            unlink(so_rv32);
+        }
+    }
+
+    unlink(c_cross);
+
     if (rc == 0) {
         printf("dlfcn dynlink ok\n");
     }

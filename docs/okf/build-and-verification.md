@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 165-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-11-13T13:13:49Z
+timestamp: 2026-11-14T14:53:01Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -438,11 +438,24 @@ ZeroCC's verification tools live in `tools/` organized by concern. When adding,
 moving, renaming, or modifying a tool, follow this checklist to keep the repo
 consistent:
 
+### Cross-ISA Dynamic Loading Differential Gate (`make test-dlfcn-isa`)
+
+`tools/verify/dlfcn_isa_diff.py` (Sprint 182) differential-tests the in-process dynamic loader (`zero_rt/dlfcn/dynlink.c`) across all 4 target ISAs (x86-64 native, AArch64 under `qemu-aarch64-static`, RISC-V 64 under `qemu-riscv64-static`, and RISC-V 32 under `qemu-riscv32-static`). For each architecture, it compiles a test DSO with internal calls, relocated data pointers, constructors, and destructors, compiles a static-musl test runner linked with `dynlink.c`, executes under QEMU user emulation, and verifies:
+- `zc_dlopen()` loads and maps the DSO.
+- Constructors run before user code.
+- `zc_dlsym()` resolves functions and relocated data pointers.
+- Function execution computes correct return values.
+- `zc_dladdr()` resolves code pointers to DSO filename and symbol.
+- `zc_dlclose()` unmaps memory and executes destructors.
+- Incompatible foreign-architecture DSOs are rejected with descriptive `"ELF machine mismatch"` diagnostics.
+
+Run with `make test-dlfcn-isa` or `python3 tools/verify/dlfcn_isa_diff.py [--isa <arch>]`.
+
 ### Tool Layout Conventions
 
 | Subpackage | Purpose |
 | :--- | :--- |
-| `tools/verify/` | Regression gates (san_sweep, opt_sweep, torture_run, diag_battery, test_runner, driver_tests, linker_tests, project_diff/runs, abi_interop, asm_diff, cfg_verifier, loop_unroll_verifier, style_check, sret_verifier, type_tag_verifier, isa_qemu_diff, isa128_diff, regress_exec_diff, extension_verifier) |
+| `tools/verify/` | Regression gates (san_sweep, opt_sweep, torture_run, diag_battery, test_runner, driver_tests, linker_tests, project_diff/runs, abi_interop, asm_diff, cfg_verifier, loop_unroll_verifier, style_check, sret_verifier, type_tag_verifier, isa_qemu_diff, isa128_diff, dlfcn_isa_diff, regress_exec_diff, extension_verifier) |
 | `tools/analysis/` | Codegen inspection (elf_verify, elf_min, riscv_enc_check, reloc_pair_check, vtable_check, cross_isa_comparator, struct_abi_verifier, struct_return_verifier, struct_asm_analyzer, prologue_epilogue_verifier, simd_regression_suite, literal_verifier, qemu_test_runner) |
 | `tools/okf/` | Knowledge graph tooling (okf.py) |
 | `tools/toolchain/` | Toolchain setup (setup_musl_cross.sh, musl_host_toolchain.sh, embed_symtab.py, setup_dev_env.sh) |

@@ -274,13 +274,13 @@ Goal: no gcc driver, no glibc, no musl, no binutils in the *product path* — so
       - `dlsym(RTLD_NEXT, name)`: Finds the next occurrence of a symbol in dependency load order following the caller DSO, unblocking library wrapper interposition (e.g. `malloc` / `free` interposition, profiling hooks).
       - *True DSO unmapping & destructors*: Reference-counted DSO handles; on refcount reaching zero, execute `DT_FINI` and `DT_FINI_ARRAY` destructors in reverse constructor order, unlink from `g_zc_list`, free metadata, and unmap segments via `munmap()`.
       - *Explicit path override for folded libraries*: Distinguish explicit paths (`dlopen("./libc.so", ...)`) from bare names (`dlopen("libc.so", ...)`), allowing explicit loads of alternate libc/libm implementations without folding into host `g_zc_head`.
-    - **Phase 5 (Multi-ISA Dynamic Loading across Backends) — PLANNED**:
-      - *ELF machine dispatch*: Audit `ehdr.e_machine` in `dynlink.c` against the executing backend ISA (`EM_X86_64`, `EM_AARCH64`, `EM_RISCV`). Reject incompatible architectures with a clear `dlerror` diagnostic.
-      - *AArch64 dynamic relocations*: Implement `R_AARCH64_RELATIVE` (1027), `R_AARCH64_ABS64` (257), `R_AARCH64_GLOB_DAT` (1025), and `R_AARCH64_JUMP_SLOT` (1026) using RELA entries (`r_offset`, `r_info`, `r_addend`).
-      - *RISC-V 64 dynamic relocations*: Implement `R_RISCV_RELATIVE` (3), `R_RISCV_64` (2), and `R_RISCV_JUMP_SLOT` (5).
-      - *RISC-V 32 dynamic relocations (ELF32)*: Support 32-bit ELF headers and structures (`Elf32_Ehdr`, `Elf32_Phdr`, `Elf32_Dyn`, `Elf32_Sym`, `Elf32_Rela`), word-sized symbol values, and RISC-V 32 relocations (`R_RISCV_RELATIVE`, `R_RISCV_32`, `R_RISCV_JUMP_SLOT`).
-      - *Architecture-specific search paths*: Dynamically select multiarch paths per ISA (e.g. `/lib/aarch64-linux-gnu`, `/lib/riscv64-linux-gnu`, `/lib/riscv32-linux-gnu`).
-      - *QEMU user verification*: Extend `test/isa_qemu/` or add a dedicated cross-ISA test suite running under `qemu-aarch64-static`, `qemu-riscv64-static`, and `qemu-riscv32-static`.
+    - **Phase 5 (Multi-ISA Dynamic Loading across Backends) — SHIPPED (Sprint 182)**:
+      - *ELF machine dispatch*: Audit `ehdr.e_machine` in `dynlink.c` against the executing backend ISA (`EM_X86_64`, `EM_AARCH64`, `EM_RISCV`). Reject incompatible architectures with a clear `dlerror` diagnostic (e.g. `"ELF machine mismatch: expected x86-64 (62), found AArch64 (183)"`).
+      - *AArch64 dynamic relocations*: Implemented `R_AARCH64_RELATIVE` (1027), `R_AARCH64_ABS64` (257), `R_AARCH64_GLOB_DAT` (1025), and `R_AARCH64_JUMP_SLOT` (1026) using RELA entries (`r_offset`, `r_info`, `r_addend`).
+      - *RISC-V 64 dynamic relocations*: Implemented `R_RISCV_RELATIVE` (3), `R_RISCV_64` (2), and `R_RISCV_JUMP_SLOT` (5).
+      - *RISC-V 32 dynamic relocations (ELF32)*: Supported 32-bit ELF headers and structures (`Elf32_Ehdr`, `Elf32_Phdr`, `Elf32_Dyn`, `Elf32_Sym`, `Elf32_Rela`), word-sized symbol values, and RISC-V 32 relocations (`R_RISCV_RELATIVE`, `R_RISCV_32`, `R_RISCV_JUMP_SLOT`).
+      - *Architecture-specific search paths*: Dynamically selected multiarch paths per ISA (`/lib/aarch64-linux-gnu`, `/lib/riscv64-linux-gnu`, `/lib/riscv32-linux-gnu`, `/lib/x86_64-linux-gnu`).
+      - *QEMU user verification*: Dedicated cross-ISA test suite (`tools/verify/dlfcn_isa_diff.py`, `make test-dlfcn-isa`) and unit tests (`test/unit/dlfcn_dynlink.c` Part 8) verifying all 4 ISAs (x86-64 native, aarch64, riscv64, riscv32 under QEMU) are green.
     - **Phase 6 (Target AOT Packaging & Non-POSIX Portability) — PLANNED**:
       - *Target AOT packaging*: Compile `dynlink.c` into `zero_rt.a`, `zero_rt_aarch64.a`, `zero_rt_riscv64.a`, `zero_rt_riscv32.a` so that standalone static executables built by `--zerocc-link` can also `dlopen()` shared libraries at runtime without any dependency on the system dynamic linker (`ld-linux.so`).
       - *Windows `<dlfcn.h>` emulation layer*: Win32 API wrapper implementing `dlopen` via `LoadLibraryA`, `dlsym` via `GetProcAddress`, and `dlclose` via `FreeLibrary`.
