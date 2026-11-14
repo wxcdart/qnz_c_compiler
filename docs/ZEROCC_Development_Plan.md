@@ -319,3 +319,29 @@ These items from earlier roadmap sections are all complete:
 - **K&R (old-style) function definitions (Sprint 98) ✅**: Declarator parser recognizes `int f(a) int a; { ... }` as a K&R definition at both file scope and block scope; K&R aux locals declared in the parameter block are added before body lowering (`zero_cc_add_local` + `is_param=true`); body lowering resolves K&R param names via `zero_cc_find_local` (by parameter index).
 - **Nonlocal goto (Sprint 99) ✅**: `goto` to a label in an enclosing scope via hidden `(rbp, rsp)` pair parameters per ancestor scope (`__nlgbp_*`/`__nlbsp_*` in the ctx), `__label__` support, multi-level nesting (pair words travel through intermediate nested functions' ctx); trampoline stubs forward the pair words; computed goto to an ancestor frame reverts to match GCC. See OKF `frontend-and-types.md`.
 
+### 🔧 Codebase Modularity & File Splitting
+
+**Current priority (new):** Split source files exceeding ~2500 lines into focused translation units, mirroring the earlier Sprint-17/35 work that converted unity-included `.c` files into standalone `.o` units and split `parser/` into `parser/`/`ir/`/`opt/`. The 9 files over 2500 lines are:
+
+| Lines | File | Suggested split |
+|-------|------|-----------------|
+| 2971 | `src/zero_cc/core/preprocessor.c` | directive handling vs macro expansion vs file include/search |
+| 2907 | `src/zero_cc/isa/x86_64.c` | instruction selection vs register-class emitters vs prologue/epilogue |
+| 2837 | `src/zero_cc/jit/compile_unit.c` | file-scope declarations vs function definitions vs external linkage |
+| 2642 | `src/zero_cc/ir/ast_lowering_expr.c` | expressions vs assignments vs compound literals/statement-exprs |
+| 2636 | `src/zero_cc/ir/ast_lowering_builtins.c` | builtin classification vs lowering vs type resolution |
+| 2582 | `src/zero_cc/parser/decl_local.c` | local declarators vs initializer processing vs VLA handling |
+| 2575 | `src/zero_cc/ir/ast_lowering_stmt.c` | statement kinds vs control-flow lowering vs switch/goto |
+| 2531 | `src/zero_cc/ir/ast_lowering_mc.c` | call lowering vs inline asm vs machine-code emission helpers |
+| 2521 | `src/zero_cc/isa/riscv64.c` | RV64 emitters vs RV32 emitters vs shared RISC-V helpers |
+
+Each split should keep the public API surface stable (same header-visible functions), add `.h` declarations for new internal symbols, update `Makefile` object rules, and be verified with `make test`, `make test-opt`, and `python3 tools/verify/style_check.py`. No behavior change is intended — this is a pure refactor.
+
+**Concrete TODOs in `src/zero_cc/ir/ast_lowering_mc.c`** (call-emission path, both small and well-scoped):
+
+1. **Line 2114 — Variadic `%al` setup emitted for all calls.** Per System V AMD64 ABI, `%al` must hold the number of SSE registers used *only for variadic functions*. Currently `emit_variadic_al_setup` runs unconditionally whenever the backend provides it. Gate it on `c->functions[c->lowering.current_func_idx].is_variadic`.
+
+2. **Line 2124 — AArch64 caller-saved save/restore is over-broad.** Currently always saves/restores `x3-x7` around every AArch64 call if they have spill slots. The proper fix is to mark intervals as spanning calls in the register allocator so only live-across-call registers are saved.
+
+Verify both with `make test` plus a variadic-function test in JIT and AOT modes.
+

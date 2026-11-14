@@ -294,7 +294,7 @@ Current status (last full verification 2026-11-13, Sprints 170–174; counts dri
 
 | Suite | Status | Count |
 |-------|--------|-------|
-| **Main regression suite** (`make test`: unit, semantic, ABI, JIT, AOT, asm reference) | ✅ Pass | 231/231 |
+| **Main regression suite** (`make test`: unit, semantic, ABI, JIT, AOT, asm reference) | ✅ Pass | 232/232 |
 | **External ABI interop gate** (`make test-abi-interop`: bidirectional `zerocc.o ↔ gcc.o` — zerocc main + gcc main, 15 calling-convention scenarios at `-O0`/`-O1`/`-O2`, incl. MEMORY struct args, SSE/SSEup 16B structs, `sret`, variadic struct args) | ✅ Pass | 15/15 |
 | **Optimizer sweep** (`make test-opt`, `-O0..-O3` × JIT + AOT via zerocc) | ✅ Pass | 130 ok, 0 failed (embedding tests skipped by design — covered by `make test`) |
 | **C23 differential gate** (`make test-c23`: 24 cases across gnu23/c11/c99 vs gcc-15) | ✅ Pass | 24/24 |
@@ -315,7 +315,7 @@ Current status (last full verification 2026-11-13, Sprints 170–174; counts dri
 | **C11 verification suite** (`tools/c11/test_c11.py`) | ✅ Pass | 11/11 |
 | **VLA verification suite** (`tools/vla/test_vla.py`) | ✅ Pass | 11/11 (incl. VLA-in-loop / VLA-in-block runtime tests — C99 6.7.5.2 legal, gcc-differentially verified) |
 | **Diagnostics battery** (`tools/verify/diag_battery.py`, vs gcc) | ✅ Pass | 16 cases, 8/8 error categories |
-| **C style checker** (`tools/verify/style_check.py`) | ✅ Pass | 179 files, 0 errors, 0 warnings (Sprint 174) |
+| **C style checker** (`tools/verify/style_check.py`) | ✅ Pass | 181 files, 0 errors, 0 warnings (Sprint 174) |
 
 ## C23 Support
 
