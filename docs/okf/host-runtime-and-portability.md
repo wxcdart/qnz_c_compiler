@@ -4,7 +4,7 @@ title: Host Runtime, In-Process Dynamic Loading & Portability Architecture
 description: Architecture of ZeroCC's static-musl host toolchain, self-hosting dlfcn, the in-process dynamic loader (musl dynlink.c adaptation), freestanding/baremetal runtime model, and cross-platform portability across Linux, macOS, Windows, and BSDs.
 resource: host-runtime-and-portability
 tags: [host-runtime, dlfcn, musl, static-linking, freestanding, baremetal, portability, macos, windows, bsd]
-timestamp: 2026-11-14T12:48:51Z
+timestamp: 2026-11-14T12:52:56Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -89,6 +89,20 @@ The compiler binary (`build/bin/zerocc`) is a 100% static musl executable (`ldd`
 2. **Full GNU Symbol Versioning**: Unlike musl, ZeroCC parses `.gnu.version` tables, filters hidden versions for standard `dlsym()`, and implements `dlvsym(handle, name, version)`.
 3. **Host Symbol Bridging**: Loaded `.so` libraries call back into static musl symbols in the host binary (e.g., `malloc`, `printf`, `sin`) via the pre-baked `.rodata` embedded symbol table (`tools/embed_symtab.py`).
 4. **Self-Contained Relocatable Layouts**: Native support for `$ORIGIN` / `${ORIGIN}` expansion in `DT_RPATH` / `DT_RUNPATH` and recursive `DT_NEEDED` allows vendor libraries to ship in self-contained folders without root installation.
+5. **Direct Filesystem Resolution (Host Cache Independence)**:
+   - ZeroCC does **not** depend on host configuration files or cache files like `/etc/ld.so.cache` (glibc) or `/etc/ld-musl-*.path` (musl).
+   - Instead, ZeroCC checks the standard directories directly using `access(candidate, R_OK)`:
+     1. Caller DSO's `DT_RPATH` / `DT_RUNPATH` (with `$ORIGIN` expansion)
+     2. `LD_LIBRARY_PATH` directories (colon-separated)
+     3. Standard system multiarch and fallback paths:
+        - `/lib/x86_64-linux-gnu`
+        - `/usr/lib/x86_64-linux-gnu`
+        - `/lib64`
+        - `/usr/lib64`
+        - `/lib`
+        - `/usr/lib`
+        - `/usr/local/lib`
+   - This ensures **hermetic consistency across environments** (Docker `scratch`, chroots, Alpine) and **instant visibility** (newly added shared libraries in `/usr/local/lib` or `LD_LIBRARY_PATH` resolve immediately without requiring `sudo ldconfig`).
 
 ---
 
