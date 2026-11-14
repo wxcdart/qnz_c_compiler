@@ -4,7 +4,7 @@ title: Host Runtime, In-Process Dynamic Loading & Portability Architecture
 description: Architecture of ZeroCC's static-musl host toolchain, self-hosting dlfcn, the in-process dynamic loader (musl dynlink.c adaptation), freestanding/baremetal runtime model, and cross-platform portability across Linux, macOS, Windows, and BSDs.
 resource: host-runtime-and-portability
 tags: [host-runtime, dlfcn, musl, static-linking, freestanding, baremetal, portability, macos, windows, bsd]
-timestamp: 2026-11-14T12:52:56Z
+timestamp: 2026-11-14T13:00:31Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -103,6 +103,10 @@ The compiler binary (`build/bin/zerocc`) is a 100% static musl executable (`ldd`
         - `/usr/lib`
         - `/usr/local/lib`
    - This ensures **hermetic consistency across environments** (Docker `scratch`, chroots, Alpine) and **instant visibility** (newly added shared libraries in `/usr/local/lib` or `LD_LIBRARY_PATH` resolve immediately without requiring `sudo ldconfig`).
+   - **Trade-off & Non-Standard Vendor Paths**: ZeroCC intentionally does **not** parse host `/etc/ld.so.conf` or `/etc/ld.so.conf.d/*.conf` snippets. If a proprietary vendor driver is installed into an obscure, non-standard directory (e.g. `/opt/vendor_sdk/lib64`) and relies solely on a custom `/etc/ld.so.conf.d/vendor.conf` file, ZeroCC will not automatically resolve it with an unadorned bare name (`dlopen("libvendor.so")`). To load libraries from non-standard locations, use one of three standard patterns:
+     1. **Binary RPATH**: Specify `RPATH` / `RUNPATH` at build time (e.g. `-Wl,-rpath,'$ORIGIN/../lib'` or `-Wl,-rpath,/opt/vendor_sdk/lib64`),
+     2. **Environment**: Set `LD_LIBRARY_PATH` (`export LD_LIBRARY_PATH=/opt/vendor_sdk/lib64:$LD_LIBRARY_PATH`), or
+     3. **Explicit Path**: Pass the relative or absolute path directly to `dlopen()` (e.g. `dlopen("/opt/vendor_sdk/lib64/libdriver.so", RTLD_NOW)`).
 
 ---
 
