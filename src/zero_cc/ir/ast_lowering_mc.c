@@ -1722,14 +1722,20 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                     uint32_t add  = 0x91000000u | ((uint32_t)r << 5) | (uint32_t)r;
                     zero_cc_emit_u32(&c->text_section, adrp);
                     zero_cc_emit_u32(&c->text_section, add);
+                } else if (c->isa == ISA_AARCH32) {
+                    /* AArch32: movw dst, #0; movt dst, #0 */
+                    uint32_t r = (uint32_t)(phys_dst & 0xF);
+                    zero_cc_emit_u32(&c->text_section, 0xE3000000u | (r << 12));
+                    zero_cc_emit_u32(&c->text_section, 0xE3400000u | (r << 12));
                 } else if (BE(c)->emit_mov_imm) {
                     BE(c)->emit_mov_imm(c, phys_dst, 0);
                 }
                 /* Store symbol name for relocation patching. x86-64 movabs is
                  * 10 bytes (8-byte reloc field at the end); RISC-V emits an
-                 * auipc+addi pair; AArch64 emits an adrp+add pair (4-byte lo12 reloc
-                 * field at the end, companion hi21/pcrel_hi added by ELF writer). */
-                size_t reloc_field = (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32 || c->isa == ISA_AARCH64) ? 4 : 8;
+                 * auipc+addi pair; AArch64 emits an adrp+add pair; AArch32 emits
+                 * a movw+movt pair (4-byte reloc field at the end). */
+                size_t reloc_field = (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32 ||
+                                      c->isa == ISA_AARCH64 || c->isa == ISA_AARCH32) ? 4 : 8;
                 if (c->reloc_count < ZERO_CC_MAX_RELOCS) {
                     ZeroCCReloc *r = &c->relocs[c->reloc_count++];
                     r->text_patch_offset = BE(c)->get_code_offset(c) - reloc_field;

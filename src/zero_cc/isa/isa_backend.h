@@ -13,6 +13,7 @@ typedef struct ZeroCCFunction ZeroCCFunction;
 typedef enum {
     ISA_X86_64,
     ISA_AARCH64,
+    ISA_AARCH32,   /* ARMv7-A 32-bit (AAPCS, VFPv3/NEON), Sprint 185 Phase 1 */
     ISA_RISCV32,
     ISA_RISCV64,
     ISA_XTENSA,
@@ -423,6 +424,7 @@ typedef struct ZeroCCISABackend {
     void (*emit_mov_reg)(ZeroCCCompiler *c, int dst_reg, int src_reg);
     void (*emit_push_reg)(ZeroCCCompiler *c, int reg);
     void (*emit_pop_reg)(ZeroCCCompiler *c, int reg);
+    void (*emit_stack_arg)(ZeroCCCompiler *c, int reg, int pos, int slot_sz, int32_t fp_reg, int32_t extra_sp);
     void (*emit_add_imm)(ZeroCCCompiler *c, int dst_reg, int16_t imm);
     void (*emit_sub_imm)(ZeroCCCompiler *c, int dst_reg, int16_t imm);
     void (*emit_inc)(ZeroCCCompiler *c, int dst_reg);
@@ -564,6 +566,7 @@ typedef struct ZeroCCISABackend {
 /* Backend registry */
 extern ZeroCCISABackend x86_64_backend;
 extern ZeroCCISABackend aarch64_backend;
+extern ZeroCCISABackend aarch32_backend;  /* Sprint 185: ARMv7-A 32-bit */
 extern ZeroCCISABackend riscv64_backend;
 extern ZeroCCISABackend riscv32_backend;
 const ZeroCCISABackend *zero_cc_get_backend(ZeroCCISA isa);
@@ -617,6 +620,10 @@ void zero_cc_aarch64_emit_nonlocal_goto_jump(ZeroCCCompiler *c, size_t text_offs
 void zero_cc_riscv_emit_nonlocal_goto_jump(ZeroCCCompiler *c, size_t text_offset);
 void aarch64_init_asm_emission(ZeroCCISABackend *be);
 void riscv64_init_asm_emission(ZeroCCISABackend *be);
+/* Build the AArch32 vtable from the AArch64 table (see aarch32.c): copy the
+ * shared FP/NEON infrastructure + override the 32-bit integer fields. Must be
+ * called before aarch64_init_asm_emission(&aarch64_backend) fills asm pointers. */
+void aarch32_init_backend(void);
 /* Build the RV32 vtable from the RV64 table (see riscv32.c). Must be
  * called before riscv64_init_asm_emission(&riscv32_backend). */
 void riscv32_init_backend(void);

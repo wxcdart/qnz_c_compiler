@@ -19,6 +19,7 @@
 #define ET_REL 1
 #define EM_X86_64 62
 #define EM_AARCH64 183
+#define EM_ARM 40        /* Sprint 185: AArch32 (ARMv7-A) */
 #define EM_RISCV 243
 
 #define EI_NIDENT 16
@@ -113,14 +114,14 @@ static int obj_load_core(const uint8_t *buf, size_t size, const char *path,
     }
     uint16_t e_machine = le16(buf + 18);
     if (e_machine != EM_X86_64 && e_machine != EM_AARCH64 &&
-        e_machine != EM_RISCV) {
+        e_machine != EM_ARM && e_machine != EM_RISCV) {
         snprintf(err, errsz, "%s: unsupported ELF machine %u (the own linker "
-                 "supports x86-64, aarch64, and riscv objects)", path,
+                 "supports x86-64, aarch64, aarch32, and riscv objects)", path,
                  (unsigned)e_machine);
         return -1;
     }
-    if (is_32 && e_machine != EM_RISCV) {
-        snprintf(err, errsz, "%s: unsupported 32-bit ELF machine %u (only riscv32 is supported)",
+    if (is_32 && e_machine != EM_RISCV && e_machine != EM_ARM) {
+        snprintf(err, errsz, "%s: unsupported 32-bit ELF machine %u (only riscv32 and aarch32 are supported)",
                  path, (unsigned)e_machine);
         return -1;
     }

@@ -107,6 +107,7 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	src/zero_cc/isa/x86_64.o \
 	src/zero_cc/isa/x86_64_ext.o \
 	src/zero_cc/isa/aarch64.o \
+	src/zero_cc/isa/aarch32.o \
 	src/zero_cc/isa/riscv64.o \
 	src/zero_cc/isa/riscv32.o \
 	src/zero_cc/jit/elf_writer.o \

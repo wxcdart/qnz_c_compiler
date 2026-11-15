@@ -1400,6 +1400,14 @@ static void aarch64_emit_pop_reg(ZeroCCCompiler *c, int reg) {
     arm64_emit_u32(c, 0xF84087E0u | (uint32_t)(reg & 0x1F));
 }
 
+static void aarch64_emit_stack_arg(ZeroCCCompiler *c, int reg, int pos, int slot_sz, int32_t fp_reg, int32_t extra_sp) {
+    /* AArch64 AAPCS: stack args at fp + 8 + pos*8 (fp is x29) */
+    int32_t off = 8 + pos * 8;
+    if (BE(c)->emit_store) {
+        BE(c)->emit_store(c, reg, fp_reg, off);
+    }
+}
+
 static void aarch64_emit_label(ZeroCCCompiler *c, const char *name) {
     (void)c; (void)name;
 }
@@ -2210,6 +2218,7 @@ ZeroCCISABackend aarch64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_stack_align = aarch64_emit_stack_align,
     .emit_push_reg = aarch64_emit_push_reg,
     .emit_pop_reg = aarch64_emit_pop_reg,
+    .emit_stack_arg = aarch64_emit_stack_arg,
     .emit_add_imm = aarch64_emit_add_imm,
     .emit_sub_imm = aarch64_emit_sub_imm,
     .emit_inc = aarch64_emit_inc,

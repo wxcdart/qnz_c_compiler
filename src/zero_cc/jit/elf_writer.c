@@ -111,13 +111,14 @@ uint16_t elf_writer_section_index(const ElfWriterCtx* ctx, const char* name) {
     return 0;
 }
 
-bool elf_writer_init(ElfWriterCtx* ctx, ElfMachineType machine) {
+bool elf_writer_init(ElfWriterCtx* ctx, ElfMachineType machine, bool is_32) {
     if (!ctx) {
         return false;
     }
 
     memset(ctx, 0, sizeof(*ctx));
     ctx->machine = machine;
+    ctx->is_32 = is_32;
     ctx->strtab_size = 1;  // First byte is always null
     ctx->shstrtab_size = 1;  // First byte is always null
     ctx->output = NULL;
@@ -394,11 +395,15 @@ static bool elf_writer_write_to_buffer_32(ElfWriterCtx* ctx, uint8_t* buffer,
     memset(ehdr->e_ident + 8, 0, 8);
 
     ehdr->e_type = 1;  // ET_REL
-    ehdr->e_machine = 243;  // EM_RISCV
+    ehdr->e_machine = (uint16_t)ctx->machine;
     ehdr->e_version = ELF_VERSION_CURRENT;
     ehdr->e_entry = 0;
     ehdr->e_phoff = 0;
-    ehdr->e_flags = ZC_EF_RISCV_FLOAT_ABI_SOFT;
+    if (ctx->machine == ELF_MACHINE_RISCV) {
+        ehdr->e_flags = ctx->is_32 ? ZC_EF_RISCV_FLOAT_ABI_SOFT : ZC_EF_RISCV_FLOAT_ABI_DOUBLE;
+    } else {
+        ehdr->e_flags = 0;
+    }
     ehdr->e_ehsize = sizeof(Elf32Header);
     ehdr->e_phentsize = 0;
     ehdr->e_phnum = 0;
@@ -661,7 +666,7 @@ size_t elf_writer_get_output_size(ElfWriterCtx* ctx) {
     if (!ctx) {
         return 0;
     }
-    if (ctx->machine == ELF_MACHINE_RISCV32) {
+    if (ctx->is_32) {
         return elf_writer_get_output_size_32(ctx);
     }
 
@@ -733,7 +738,7 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
     if (!ctx || !buffer) {
         return false;
     }
-    if (ctx->machine == ELF_MACHINE_RISCV32) {
+    if (ctx->is_32) {
         return elf_writer_write_to_buffer_32(ctx, buffer, buffer_size, written);
     }
 
@@ -785,8 +790,8 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
     // RISC-V must declare the floating-point ABI. The system cross libc targets
     // double-float (lp64d/ilp32d); leaving e_flags=0 (soft-float) makes the
     // linker reject the link. See EF_RISCV_FLOAT_ABI_* in elf_writer.h. (Sprint 41)
-    if (ctx->machine == ELF_MACHINE_RISCV64 || ctx->machine == ELF_MACHINE_RISCV32) {
-        ehdr->e_flags = ZC_EF_RISCV_FLOAT_ABI_DOUBLE;
+    if (ctx->machine == ELF_MACHINE_RISCV) {
+        ehdr->e_flags = ctx->is_32 ? ZC_EF_RISCV_FLOAT_ABI_SOFT : ZC_EF_RISCV_FLOAT_ABI_DOUBLE;
     } else {
         ehdr->e_flags = 0;
     }
@@ -1207,8 +1212,8 @@ const char* elf_machine_name(ElfMachineType machine) {
     switch (machine) {
         case ELF_MACHINE_X86_64:  return "x86-64";
         case ELF_MACHINE_AARCH64: return "AArch64";
-        case ELF_MACHINE_RISCV64:
-        case ELF_MACHINE_RISCV32: return "RISC-V";
+        case ELF_MACHINE_ARM:     return "ARM";
+        case ELF_MACHINE_RISCV:   return "RISC-V";
         default:                  return "Unknown";
     }
 }
@@ -1219,8 +1224,9 @@ uint32_t elf_get_reloc_type(ElfMachineType machine, ElfSymbolType sym_type) {
             return (sym_type == ELF_STT_FUNC) ? 1 : 2;  // R_X86_64_64 or R_X86_64_32
         case ELF_MACHINE_AARCH64:
             return 258;  // R_AARCH64_ABS64
-        case ELF_MACHINE_RISCV64:
-        case ELF_MACHINE_RISCV32:
+        case ELF_MACHINE_ARM:
+            return 2;  // R_ARM_ABS32
+        case ELF_MACHINE_RISCV:
             return 9;  // R_RISCV_64 or R_RISCV_32
         default:
             return 0;

@@ -33,6 +33,7 @@
 #define ZC_MAX_NAME 512
 
 #define ZC_TEXT_BASE 0x401000ULL
+#define ZC_TEXT_BASE_AARCH32 0x8000ULL
 #define ZC_PAGE 0x1000ULL
 
 #define SHT_NULL 0
@@ -57,6 +58,7 @@
 #define ZC_PIE_STUB_SIZE 95
 #define EM_X86_64 62
 #define EM_AARCH64 183
+#define EM_ARM 40        /* Sprint 185: AArch32 (ARMv7-A) */
 #define EM_RISCV 243
 #define PT_LOAD 1
 #define PF_X 1
@@ -681,8 +683,11 @@ static int layout_sections(ZcLink *L, char *err, size_t errsz) {
     /* VMAs: .text at the per-machine base (base 0 for static PIE); .rodata
      * packed at its max alignment after it; .data and .bss page-aligned (each may
      * anchor the RW PT_LOAD segment), after the .rela.dyn region in PIE. */
-    uint64_t v = (L->pie && L->machine == EM_X86_64) ? 0 : (L->machine == EM_RISCV) ? 0x10000ULL :
-                 (L->machine == EM_AARCH64) ? 0x400000ULL : ZC_TEXT_BASE;
+    uint64_t v = (L->pie && L->machine == EM_X86_64) ? 0 :
+                 (L->machine == EM_RISCV) ? 0x10000ULL :
+                 (L->machine == EM_AARCH64) ? 0x400000ULL :
+                 (L->machine == EM_ARM) ? ZC_TEXT_BASE_AARCH32 :
+                 ZC_TEXT_BASE;
     for (int i = 0; i < 3; i++) {
         if (L->outsec[i].cursor == 0) continue;
         uint64_t al = L->outsec[i].max_align;
@@ -1049,6 +1054,66 @@ static int apply_relocations(ZcLink *L, char *err, size_t errsz) {
                         snprintf(err, errsz,
                                  "unsupported AArch64 relocation type %u in "
                                  "%s (%s)", rel->type, rs->name, o->path);
+                        return -1;
+                    }
+                    site[0] = (uint8_t)nw;
+                    site[1] = (uint8_t)(nw >> 8);
+                    site[2] = (uint8_t)(nw >> 16);
+                    site[3] = (uint8_t)(nw >> 24);
+                    continue;
+                }
+                if (L->machine == EM_ARM) {
+                    uint32_t w = (uint32_t)site[0] | ((uint32_t)site[1] << 8) |
+                                 ((uint32_t)site[2] << 16) |
+                                 ((uint32_t)site[3] << 24);
+                    uint32_t nw = w;
+                    switch (rel->type) {
+                    case 0:  /* R_ARM_NONE */
+                    case 40: /* R_ARM_V4BX */
+                        break;
+                    case 2:  /* R_ARM_ABS32 */
+                        for (int b = 0; b < 4; b++)
+                            site[b] = (uint8_t)((uint32_t)(uint64_t)(S + A) >> (8 * b));
+                        continue;
+                    case 3:  /* R_ARM_REL32 */
+                    {
+                        uint32_t val = (uint32_t)(int32_t)((S + A) - (int64_t)P);
+                        for (int b = 0; b < 4; b++)
+                            site[b] = (uint8_t)(val >> (8 * b));
+                        continue;
+                    }
+                    case 1:  /* R_ARM_PC24 */
+                    case 28: /* R_ARM_CALL */
+                    case 29: /* R_ARM_JUMP24 */
+                    {
+                        int64_t d = (S + A) - (int64_t)(P + 8);
+                        if ((d & 3) != 0 || d < -(1LL << 25) || d >= (1LL << 25)) {
+                            snprintf(err, errsz,
+                                     "R_ARM_CALL out of range for `%s' at 0x%lx in %s",
+                                     sym->name, (unsigned long)P, o->path);
+                            free(pcrel_tab);
+                            return -1;
+                        }
+                        nw = (w & 0xFF000000u) | (uint32_t)((d >> 2) & 0x00FFFFFFu);
+                        break;
+                    }
+                    case 43: /* R_ARM_MOVW_ABS_NC */
+                    {
+                        uint32_t v16 = (uint32_t)(S + A) & 0xFFFFu;
+                        nw = (w & ~0x000F0FFFu) | (((v16 >> 12) & 0xFu) << 16) | (v16 & 0xFFFu);
+                        break;
+                    }
+                    case 44: /* R_ARM_MOVT_ABS */
+                    {
+                        uint32_t v16 = ((uint32_t)(S + A) >> 16) & 0xFFFFu;
+                        nw = (w & ~0x000F0FFFu) | (((v16 >> 12) & 0xFu) << 16) | (v16 & 0xFFFu);
+                        break;
+                    }
+                    default:
+                        snprintf(err, errsz,
+                                 "unsupported ARM relocation type %u in %s (%s)",
+                                 rel->type, rs->name, o->path);
+                        free(pcrel_tab);
                         return -1;
                     }
                     site[0] = (uint8_t)nw;
@@ -1561,7 +1626,8 @@ static int emit_exec(ZcLink *L, const char *out_path, uint64_t entry,
         put64(&p, entry);      /* e_entry */
         put64(&p, 64);         /* e_phoff */
         put64(&p, sh_off);     /* e_shoff */
-        put32(&p, (L->machine == EM_RISCV) ? 4 : 0); /* e_flags: EF_RISCV_FLOAT_ABI_DOUBLE */
+        put32(&p, (L->machine == EM_RISCV) ? 4 :
+                     (L->machine == EM_ARM) ? 0x00000200u : 0); /* e_flags: RISCV EF_RISCV_FLOAT_ABI_DOUBLE, ARM EF_ARM_ABI_HARD */
         put16(&p, 64);         /* e_ehsize */
         put16(&p, 56);         /* e_phentsize */
         put16(&p, (uint16_t)(have_rx + have_rw)); /* e_phnum */
@@ -1672,6 +1738,23 @@ static int emit_exec(ZcLink *L, const char *out_path, uint64_t entry,
             st[8] = 0x01; st[9] = 0x00; st[10] = 0x00; st[11] = 0xd4;
             /* nop (pad to the 16-byte reservation): 0xD503201F */
             st[12] = 0x1f; st[13] = 0x20; st[14] = 0x03; st[15] = 0xd5;
+        } else if (L->machine == EM_ARM) {
+            /* AArch32 (ARMv7-A) 16-byte _start stub:
+             *   +0: bl main           (branch with link, sets lr)
+             *   +4: mov r7, #1        (exit syscall)
+             *   +8: swi #0            (syscall)
+             *   +12: nop (pad to 16-byte reservation)
+             */
+            int32_t rel = (int32_t)((main_vma - (text->vma + 8)) >> 2); /* PC is +8 from bl */
+            uint32_t bl = 0xEB000000u | (rel & 0xFFFFFF);
+            st[0] = (uint8_t)bl; st[1] = (uint8_t)(bl >> 8);
+            st[2] = (uint8_t)(bl >> 16); st[3] = (uint8_t)(bl >> 24);
+            /* mov r7, #1: 0xE3A07001 */
+            st[4] = 0x01; st[5] = 0x70; st[6] = 0xA0; st[7] = 0xE3;
+            /* swi #0: 0xEF000000 */
+            st[8] = 0x00; st[9] = 0x00; st[10] = 0x00; st[11] = 0xEF;
+            /* nop (mov r0, r0): 0xE1A00000 */
+            st[12] = 0x00; st[13] = 0x00; st[14] = 0xA0; st[15] = 0xE1;
         } else if (L->pie) {
             /* Static-PIE self-relocating _start (ZC_PIE_STUB_SIZE bytes,
              * assembled and verified; patch fields:
