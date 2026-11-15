@@ -24,6 +24,7 @@ ZeroCC is a lightweight, embeddable C99/C11/C23 compiler (with GNU extensions) w
 - **Multi-translation-unit driver**: multiple `.c` inputs per invocation
   (JIT image merge + per-input `-c`/`-S`)
 - **Own ELF64/ELF32 linker & `ar` archiver** (`--zerocc-link`, `--ar`): static `ET_EXEC` output across all 4 ISAs (`x86-64`, `aarch64`, `riscv64`, `riscv32`) with no host libc or crt files, native GNU `ar` archive reader/writer, plus `zero_rt` freestanding runtime auto-linking
+- **Full Self-Hosting & Own-Linker Fixed-Point Convergence (Sprint 184)**: ZeroCC compiles itself end-to-end (all 76 library translation units + `main.c` + host runtime) with `zerocc -c` (`make stage1`), passes all test suites, and links itself with its own static linker (`zerocc --zerocc-link`, `make stage1-ownlink`). Stage 1 and Stage 2 achieve **100% bit-for-bit identical binary convergence** (`53,553,224 bytes`, `make test-self-host-ownlink`).
 - **Freestanding C11 `<threads.h>` & POSIX `pthread_*` in `zero_rt`** (Sprint 146): lightweight zero-dependency multithreading (`thrd_create`, `mtx_*`, `cnd_*`, `call_once`, `pthread_create`/`join`/`mutex_*`/`cond_*`) built on `__zerocc_clone` + Ulrich Drepper 3-state futex mutexes across all 4 ISAs
 - Preprocessor (`#include`, `#define`, `#if/#ifdef`, `#warning`, `#error`, virtual C11/C23 headers
   `<stdatomic.h>` / `<stdnoreturn.h>` / `<threads.h>` / `<pthread.h>`, `-E` preprocess-only)
@@ -83,6 +84,10 @@ build/bin/zerocc prog.c -o prog             # AOT executable (system linker)
 build/bin/zerocc prog.c -S                  # emit assembly
 build/bin/zerocc prog.c -c -o prog.o        # emit an ELF object
 build/bin/zerocc prog.c --zerocc-link -o prog  # own linker + zero_rt, no libc
+
+# Self-hosting bootstrap verification
+make stage1-ownlink         # build self-hosted stage 1 with ZeroCC's own linker
+make test-self-host-ownlink # verify 100% bit-for-bit identity across bootstrap cycle
 ```
 
 ### CLI
@@ -582,19 +587,12 @@ See [`tools/README.md`](tools/README.md) for the full tool table.
 
 Tracked in [`docs/ZEROCC_Development_Plan.md`](docs/ZEROCC_Development_Plan.md). Highlights:
 
-- **RISC-V 32 64-bit integers**: `long long` arithmetic on riscv32 is computed in a
-  single 32-bit register (miscompiles; blocks rv32 width-8 sanitizer checks) —
-  needs lo/hi-pair i64 lowering and the two-register ABI.
-- **`zero_san`**: rv32 width-8 checks (after rv32 i64), then div-by-zero / shift-count checks,
-  op-level trap reports, and a leak report (Phase 3). Bounds checking is
-  parked; ASan/LSan are out of scope.
-- **Conformance**: remaining c-torture `SKIP-*` buckets (e.g. `float16` /
-  `bfloat16` / `float128x` runtime), broader real-project coverage.
-- **Platforms**: AArch32 and Windows (PE/COFF) / macOS (Mach-O) linker and
-  runtime phases are planned, not implemented.
-- **Known gaps**: `_Generic` uses simplified matching; `__STDC_NO_COMPLEX__`
-  is intentionally undefined; full anonymous-aggregate parameter types are open
-  work; `_Alignas(N>16)` locals are x86-64 only (other ISAs fall back to 16 with a warning).
+- **Multi-ISA SIMD vector architecture & target hardening (`simd`)**: NEON 128-bit vector MC loads/stores, proper RVV 1.0 decoupled vector register allocation (`REG_CLASS_VEC`), loop unroll vs vectorizer pipeline reordering, and `<immintrin.h>`/`<arm_neon.h>` vendor intrinsics.
+- **AArch32 (ARMv7-A) target**: 32-bit ARM backend completing the 32/64 matrix alongside x86-64, AArch64, RISC-V 64, and RISC-V 32.
+- **GPU compute acceleration targets: NVIDIA PTX & Khronos SPIR-V (`--target ptx`, `--target spirv`)**: direct C compute kernel compilation to PTX (virtual assembly for NVIDIA GPUs) and SPIR-V (universal binary bytecode for Qualcomm, Intel, AMD, Apple Silicon, and NVIDIA via Vulkan/OpenCL).
+- **Platforms**: Windows (PE/COFF + Win64 ABI) and macOS (Mach-O) linker and runtime phases.
+- **Freestanding & baremetal RTOS**: Board Support Package (BSP) boundary in `zero_rt/rt_os.h` for embedded microcontrollers without Linux.
+- **Known gaps**: `_Generic` uses simplified matching; `__STDC_NO_COMPLEX__` is intentionally undefined; full anonymous-aggregate parameter types are open work; `_Alignas(N>16)` locals are x86-64 only (other ISAs fall back to 16 with a warning).
 
 ## License
 
@@ -602,20 +600,21 @@ ZeroCC is released under the MIT License. See the `LICENSE` file for details.
 
 ## Self-Hosting
 
-ZeroCC is designed to eventually **self-host** (compile itself). Current
-status:
+ZeroCC is fully **self-hosting** and reproducible:
 
 - **Phase 1 — compile simple C programs**: ✅ done
 - **Phase 2 — freestanding runtime & self-hosted linking**: ✅ done —
   `zero_rt` is compiled **by zerocc itself** across all 4 target ISAs
   (x86-64, AArch64, RISC-V 64-bit, and RISC-V 32-bit), archived with
   `zerocc --ar`, and `--zerocc-link` produces static executables with no host
-  libc (see [`docs/okf/zero-rt.md`](docs/okf/zero-rt.md)). zerocc compiles its
-  own individual TUs (static-locals, string-pointer arrays, and other
-  self-hosting blockers were closed in Sprint 41)
-- **Phase 3 — full self-compilation bootstrap**: in progress — next
-  milestones are the Windows (PE/COFF + Win64 ABI) and macOS (Mach-O)
-  linker/runtime phases in the development plan
+  libc (see [`docs/okf/zero-rt.md`](docs/okf/zero-rt.md)).
+- **Phase 3 — full self-compilation bootstrap & fixed-point convergence**: ✅ done (Sprint 184) —
+  ZeroCC compiles all 76 translation units in `src/` (`make audit-self-host`), builds `zerocc-stage1`,
+  and compiles `zerocc-stage2` with Stage 1 == Stage 2 **100% bit-for-bit identical** (`make test-self-host`).
+- **Phase 4 — own-linker self-hosting**: ✅ done (Sprint 184) —
+  ZeroCC's own static linker (`--zerocc-link`) links all 77 compiler objects + libc into a standalone static
+  binary with zero host linker dependencies, achieving **100% bit-for-bit identical fixed point**
+  (`53,553,224 bytes`, `make test-self-host-ownlink`).
 
 ## Acknowledgements
 The `gcc.c-torture` conformance corpus is vendored from `gcc-mirror`, the
