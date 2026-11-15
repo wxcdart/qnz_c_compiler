@@ -27,6 +27,14 @@ ROOT = Path(find_repo_root())
 MUSL_GCC = ROOT / "build" / "bin" / "musl-gcc"
 MUSL_LIBC = ROOT / "build" / "musl" / "lib" / "libc.a"
 
+def get_libgcc_path():
+    res = subprocess.run(["gcc", "-print-libgcc-file-name"], capture_output=True, text=True)
+    if res.returncode == 0 and res.stdout.strip():
+        p = Path(res.stdout.strip())
+        if p.exists():
+            return str(p)
+    return None
+
 def parse_makefile_objects():
     with open(ROOT / "Makefile") as f:
         content = f.read()
@@ -56,15 +64,17 @@ def compile_obj(compiler, src_path, obj_path):
         print(res.stderr, file=sys.stderr)
         sys.exit(1)
 
-def build_stage(stage=1):
+def build_stage(stage=1, own_linker=False):
+    suffix = "-ownlink" if own_linker else ""
+    dir_suffix = "_ownlink" if own_linker else ""
     if stage == 1:
         compiler = ROOT / "build" / "bin" / "zerocc"
-        stage_dir = ROOT / "build" / "stage1"
-        out_bin = ROOT / "build" / "bin" / "zerocc-stage1"
+        stage_dir = ROOT / "build" / f"stage1{dir_suffix}"
+        out_bin = ROOT / "build" / "bin" / f"zerocc-stage1{suffix}"
     elif stage == 2:
-        compiler = ROOT / "build" / "bin" / "zerocc-stage1"
-        stage_dir = ROOT / "build" / "stage2"
-        out_bin = ROOT / "build" / "bin" / "zerocc-stage2"
+        compiler = ROOT / "build" / "bin" / f"zerocc-stage1{suffix}"
+        stage_dir = ROOT / "build" / f"stage2{dir_suffix}"
+        out_bin = ROOT / "build" / "bin" / f"zerocc-stage2{suffix}"
     else:
         print(f"Error: Unknown stage {stage}", file=sys.stderr)
         sys.exit(1)
@@ -74,7 +84,8 @@ def build_stage(stage=1):
         if stage == 1:
             print("Run 'make build/bin/zerocc' first.", file=sys.stderr)
         else:
-            print("Run 'python3 tools/toolchain/build_stage1.py --stage 1' first.", file=sys.stderr)
+            prev_flag = " --own-linker" if own_linker else ""
+            print(f"Run 'python3 tools/toolchain/build_stage1.py --stage 1{prev_flag}' first.", file=sys.stderr)
         sys.exit(1)
 
     obj_dir = stage_dir / "obj"
@@ -84,7 +95,7 @@ def build_stage(stage=1):
 
     # 1. Gather all objects to compile
     lib_objs = parse_makefile_objects()
-    print(f"[Stage {stage}] Compiling {len(lib_objs)} library objects with {compiler.name}...")
+    print(f"[Stage {stage}{suffix}] Compiling {len(lib_objs)} library objects with {compiler.name}...")
     compiled_objs = []
     for rel_o in lib_objs:
         src_c = ROOT / (rel_o.replace(".o", ".c"))
@@ -93,7 +104,7 @@ def build_stage(stage=1):
         compiled_objs.append(out_o)
 
     # 2. Main object
-    print(f"[Stage {stage}] Compiling main.c...")
+    print(f"[Stage {stage}{suffix}] Compiling main.c...")
     main_o = obj_dir / "main.o"
     compile_obj(compiler, ROOT / "src" / "main.c", main_o)
     compiled_objs.append(main_o)
@@ -106,7 +117,7 @@ def build_stage(stage=1):
         ROOT / "zero_rt" / "dlfcn" / "dynlink.c",
         ROOT / "zero_rt" / "complex" / "complex.c",
     ]
-    print(f"[Stage {stage}] Compiling {len(host_rt_files)} host zero_rt objects...")
+    print(f"[Stage {stage}{suffix}] Compiling {len(host_rt_files)} host zero_rt objects...")
     for h_src in host_rt_files:
         h_obj = obj_dir / (h_src.stem + ".o")
         compile_obj(compiler, h_src, h_obj)
@@ -122,42 +133,63 @@ def build_stage(stage=1):
     all_objs = compiled_objs + [embed_o]
 
     # 5. Link binary
-    print(f"[Stage {stage}] Linking {out_bin} with musl-gcc...")
-    link_cmd = [
-        str(MUSL_GCC),
-        "-static", "-no-pie",
-        "-Wl,--whole-archive", str(MUSL_LIBC), "-Wl,--no-whole-archive",
-        "-o", str(out_bin)
-    ] + [str(o) for o in all_objs]
+    if own_linker:
+        print(f"[Stage {stage}{suffix}] Linking {out_bin} with ZeroCC own-linker...")
+        crt1 = ROOT / "build" / "musl" / "lib" / "crt1.o"
+        libgcc = get_libgcc_path()
+        link_cmd = [
+            str(compiler),
+            "--zerocc-link",
+            "--no-zerocc-rt",
+            "-o", str(out_bin),
+            str(crt1),
+        ] + [str(o) for o in all_objs] + [str(MUSL_LIBC)]
+        if libgcc:
+            link_cmd.append(str(libgcc))
+    else:
+        print(f"[Stage {stage}] Linking {out_bin} with musl-gcc...")
+        link_cmd = [
+            str(MUSL_GCC),
+            "-static", "-no-pie",
+            "-Wl,--whole-archive", str(MUSL_LIBC), "-Wl,--no-whole-archive",
+            "-o", str(out_bin)
+        ] + [str(o) for o in all_objs]
     res = subprocess.run(link_cmd, cwd=str(ROOT), capture_output=True, text=True)
     if res.returncode != 0:
         print("Link failed:", file=sys.stderr)
         print(res.stderr, file=sys.stderr)
         sys.exit(1)
 
-    # 6. Update embedded syms
-    print(f"[Stage {stage}] Regenerating embedded symbols...")
-    res = subprocess.run([
-        sys.executable, str(ROOT / "tools" / "toolchain" / "embed_symtab.py"),
-        "--bin", str(out_bin), "--out", str(embed_c)
-    ], cwd=str(ROOT))
-    if res.returncode == 3:
-        print(f"[Stage {stage}] Embedded symtab changed, recompiling embedded_syms.o and relinking...")
-        compile_obj(compiler, embed_c, embed_o)
-        res2 = subprocess.run(link_cmd, cwd=str(ROOT), capture_output=True, text=True)
-        if res2.returncode != 0:
-            print("Relink failed:", file=sys.stderr)
-            print(res2.stderr, file=sys.stderr)
+    # 6. Update embedded syms until convergence
+    print(f"[Stage {stage}{suffix}] Regenerating embedded symbols...")
+    for iter_idx in range(5):
+        res = subprocess.run([
+            sys.executable, str(ROOT / "tools" / "toolchain" / "embed_symtab.py"),
+            "--bin", str(out_bin), "--out", str(embed_c)
+        ], cwd=str(ROOT))
+        if res.returncode == 0:
+            break
+        if res.returncode == 3:
+            print(f"[Stage {stage}{suffix}] Embedded symtab changed, recompiling embedded_syms.o and relinking (iteration {iter_idx + 1})...")
+            compile_obj(compiler, embed_c, embed_o)
+            res2 = subprocess.run(link_cmd, cwd=str(ROOT), capture_output=True, text=True)
+            if res2.returncode != 0:
+                print("Relink failed:", file=sys.stderr)
+                print(res2.stderr, file=sys.stderr)
+                sys.exit(1)
+        else:
+            print(f"Error running embed_symtab.py (exit code {res.returncode})", file=sys.stderr)
             sys.exit(1)
 
-    print(f"[Stage {stage}] Successfully built {out_bin}!")
+    print(f"[Stage {stage}{suffix}] Successfully built {out_bin}!")
     return out_bin
 
 def main():
     parser = argparse.ArgumentParser(description="ZeroCC Stage Builder")
     parser.add_argument("--stage", type=int, default=1, choices=[1, 2], help="Stage to build (1 or 2)")
+    parser.add_argument("--own-linker", action="store_true", help="Link with ZeroCC's own static linker (--zerocc-link)")
     args = parser.parse_args()
-    build_stage(args.stage)
+    build_stage(args.stage, own_linker=args.own_linker)
 
 if __name__ == "__main__":
     main()

@@ -28,8 +28,8 @@
 #include "zero_cc/linker/elf_reader.h"
 #include "zero_cc/linker/ar_reader.h"
 
-#define ZC_MAX_INPUTS 256
-#define ZC_MAX_SYMS 16384
+#define ZC_MAX_INPUTS 2048
+#define ZC_MAX_SYMS 65536
 #define ZC_MAX_NAME 512
 
 #define ZC_TEXT_BASE 0x401000ULL
@@ -98,6 +98,7 @@ typedef struct {
     uint64_t size;      /* content size written to file (bss: 0) */
     uint64_t memsz;     /* .bss virtual size */
     uint64_t cursor;
+    uint64_t max_align;
     uint8_t *content;
     size_t cap;
 } ZcOutSec;
@@ -111,6 +112,8 @@ typedef struct {
 typedef struct {
     ZcLinkSym *syms;
     size_t sym_count, sym_cap;
+    int32_t *sym_hash;
+    size_t hash_cap;
 
     ZcElfObj *objs[ZC_MAX_INPUTS];
     int obj_count;
@@ -161,10 +164,49 @@ static bool is_power_of_two_64(uint64_t v) {
 
 /* ---------------- symbol table ---------------- */
 
-static ZcLinkSym *sym_get(ZcLink *L, const char *name) {
-    for (size_t i = 0; i < L->sym_count; i++) {
-        if (strcmp(L->syms[i].name, name) == 0) return &L->syms[i];
+static inline uint32_t str_hash(const char *s) {
+    uint32_t h = 2166136261u;
+    while (*s) {
+        h = (h ^ (uint8_t)*s++) * 16777619u;
     }
+    return h;
+}
+
+static ZcLinkSym *sym_find(ZcLink *L, const char *name) {
+    if (!L->sym_hash || L->hash_cap == 0) return NULL;
+    uint32_t mask = (uint32_t)(L->hash_cap - 1);
+    uint32_t idx = str_hash(name) & mask;
+    while (L->sym_hash[idx] != -1) {
+        int32_t si = L->sym_hash[idx];
+        if (strcmp(L->syms[si].name, name) == 0) return &L->syms[si];
+        idx = (idx + 1) & mask;
+    }
+    return NULL;
+}
+
+static int sym_hash_grow(ZcLink *L) {
+    size_t new_cap = L->hash_cap ? L->hash_cap * 2 : 1024;
+    int32_t *new_hash = malloc(new_cap * sizeof(int32_t));
+    if (!new_hash) return -1;
+    memset(new_hash, -1, new_cap * sizeof(int32_t));
+    uint32_t mask = (uint32_t)(new_cap - 1);
+    for (size_t i = 0; i < L->sym_count; i++) {
+        uint32_t idx = str_hash(L->syms[i].name) & mask;
+        while (new_hash[idx] != -1) {
+            idx = (idx + 1) & mask;
+        }
+        new_hash[idx] = (int32_t)i;
+    }
+    free(L->sym_hash);
+    L->sym_hash = new_hash;
+    L->hash_cap = new_cap;
+    return 0;
+}
+
+static ZcLinkSym *sym_get(ZcLink *L, const char *name) {
+    ZcLinkSym *found = sym_find(L, name);
+    if (found) return found;
+
     if (L->sym_count >= L->sym_cap) {
         if (L->sym_cap >= ZC_MAX_SYMS) return NULL;
         size_t nc = L->sym_cap ? L->sym_cap * 2 : 1024;
@@ -174,19 +216,23 @@ static ZcLinkSym *sym_get(ZcLink *L, const char *name) {
         L->syms = n;
         L->sym_cap = nc;
     }
-    ZcLinkSym *s = &L->syms[L->sym_count++];
+    if (L->hash_cap == 0 || (L->sym_count + 1) * 10 >= L->hash_cap * 7) {
+        if (sym_hash_grow(L) != 0) return NULL;
+    }
+    uint32_t si = (uint32_t)L->sym_count++;
+    ZcLinkSym *s = &L->syms[si];
     memset(s, 0, sizeof(*s));
     snprintf(s->name, ZC_MAX_NAME, "%s", name);
     s->obj = -1;
     s->sym = -1;
-    return s;
-}
 
-static ZcLinkSym *sym_find(ZcLink *L, const char *name) {
-    for (size_t i = 0; i < L->sym_count; i++) {
-        if (strcmp(L->syms[i].name, name) == 0) return &L->syms[i];
+    uint32_t mask = (uint32_t)(L->hash_cap - 1);
+    uint32_t idx = str_hash(name) & mask;
+    while (L->sym_hash[idx] != -1) {
+        idx = (idx + 1) & mask;
     }
-    return NULL;
+    L->sym_hash[idx] = (int32_t)si;
+    return s;
 }
 
 /* ---------------- input loading ---------------- */
@@ -269,6 +315,7 @@ static bool member_resolves_need(ZcLink *L, ZcElfObj *m) {
         if (s->bind == 0 || s->name[0] == '\0' || s->shndx == 0) continue;
         ZcLinkSym *ls = sym_find(L, s->name);
         if (ls && ls->obj == -1 && !ls->is_common) return true;
+        if (ls && ls->obj != -1 && ls->is_weak && s->bind != ZC_STB_WEAK) return true;
     }
     return false;
 }
@@ -297,10 +344,16 @@ static int resolve_symbols(ZcLink *L, char *err, size_t errsz);
 
 static int extract_archives(ZcLink *L, const char *const *archives,
                             int archive_count, char *err, size_t errsz) {
-    ZcAr ar[ZC_MAX_INPUTS];
+    if (archive_count <= 0) return 0;
+    ZcAr *ar = calloc((size_t)archive_count, sizeof(ZcAr));
+    if (!ar) {
+        snprintf(err, errsz, "out of memory");
+        return -1;
+    }
     int ar_count = 0;
-    for (int i = 0; i < archive_count && ar_count < ZC_MAX_INPUTS; i++) {
-        if (zc_ar_open(archives[i], &ar[ar_count], err, errsz) != 0) return -1;
+    int rc = -1;
+    for (int i = 0; i < archive_count; i++) {
+        if (zc_ar_open(archives[i], &ar[ar_count], err, errsz) != 0) goto cleanup;
         ar_count++;
     }
 
@@ -315,7 +368,7 @@ static int extract_archives(ZcLink *L, const char *const *archives,
         changed = false;
         if (++rounds > 100) {
             snprintf(err, errsz, "archive extraction did not converge");
-            return -1;
+            goto cleanup;
         }
         for (int a = 0; a < ar_count; a++) {
             for (size_t m = 0; m < ar[a].member_count; m++) {
@@ -345,7 +398,7 @@ static int extract_archives(ZcLink *L, const char *const *archives,
                              ar[a].path, mem->name);
                     if (add_object(L, mem->data, mem->size, mpath,
                                    err, errsz) != 0) {
-                        return -1;
+                        goto cleanup;
                     }
                     if (extracted_count < ZC_AR_MAX_MEMBERS)
                         extracted[extracted_count++] = mem->data;
@@ -357,11 +410,15 @@ static int extract_archives(ZcLink *L, const char *const *archives,
             /* Re-resolve symbols so newly extracted objects' undefined
              * refs are visible to subsequent archive scans. */
             if (resolve_symbols(L, err, errsz) != 0)
-                return -1;
+                goto cleanup;
         }
     }
+    rc = 0;
+
+cleanup:
     for (int a = 0; a < ar_count; a++) zc_ar_free(&ar[a]);
-    return 0;
+    free(ar);
+    return rc;
 }
 
 /* ---------------- symbol resolution ---------------- */
@@ -499,6 +556,7 @@ static int layout_sections(ZcLink *L, char *err, size_t errsz) {
         L->outsec[i].write = (i == 2 || i == 3);
         L->outsec[i].exec = (i == 0);
         L->outsec[i].nobits = (i == 3);
+        L->outsec[i].max_align = (i == 0) ? 16 : ((i == 2) ? ZC_PAGE : 8);
     }
 
     /* If no input defines _start (a CRT object), reserve a 16-byte stub at
@@ -532,6 +590,7 @@ static int layout_sections(ZcLink *L, char *err, size_t errsz) {
             if (al < 8) al = 8;
             if (!is_power_of_two_64(al)) al = 8;
             ZcOutSec *os = &L->outsec[out];
+            if (al > os->max_align) os->max_align = al;
             if (out == 0 && os->cursor == 0 && L->stub_at_front) {
                 size_t stub_sz = (L->machine == EM_RISCV) ? 20 : 16;
                 if (L->pie) stub_sz = ZC_PIE_STUB_SIZE; /* self-relocating */
@@ -620,13 +679,16 @@ static int layout_sections(ZcLink *L, char *err, size_t errsz) {
     }
 
     /* VMAs: .text at the per-machine base (base 0 for static PIE); .rodata
-     * packed 8-aligned after it; .data and .bss page-aligned (each may
+     * packed at its max alignment after it; .data and .bss page-aligned (each may
      * anchor the RW PT_LOAD segment), after the .rela.dyn region in PIE. */
     uint64_t v = (L->pie && L->machine == EM_X86_64) ? 0 : (L->machine == EM_RISCV) ? 0x10000ULL :
                  (L->machine == EM_AARCH64) ? 0x400000ULL : ZC_TEXT_BASE;
     for (int i = 0; i < 3; i++) {
         if (L->outsec[i].cursor == 0) continue;
-        uint64_t al = (i == 0) ? 16 : ((i == 2) ? ZC_PAGE : 8);
+        uint64_t al = L->outsec[i].max_align;
+        if (i == 0 && al < 16) al = 16;
+        if (i == 2 && al < ZC_PAGE) al = ZC_PAGE;
+        if (al < 8) al = 8;
         if (i == 2 && L->pie && L->rela_dyn_size > 0)
             v = align_up(v, 8) + L->rela_dyn_size;
         v = align_up(v, al);
@@ -639,7 +701,8 @@ static int layout_sections(ZcLink *L, char *err, size_t errsz) {
         v = L->rela_dyn_vma + L->rela_dyn_size;
     }
     if (L->have_bss) {
-        uint64_t al = (L->outsec[2].cursor > 0) ? 8 : ZC_PAGE;
+        uint64_t al = (L->outsec[2].cursor > 0) ? L->outsec[3].max_align : ZC_PAGE;
+        if (al < 8) al = 8;
         v = align_up(v, al);
         L->outsec[3].vma = v;
         L->outsec[3].size = 0;
@@ -689,6 +752,28 @@ static int layout_sections(ZcLink *L, char *err, size_t errsz) {
                 }
             }
             ls->vma = L->outsec[out].vma + in_off + sym->value;
+        }
+    }
+
+    /* Define special linker boundary symbols if referenced. */
+    static const struct { const char *name; int sec; bool end; } specials[] = {
+        {"_end", 3, true},
+        {"__bss_start", 3, false},
+        {"_edata", 2, true},
+        {"__TMC_END__", 2, true},
+        {"_GLOBAL_OFFSET_TABLE_", 2, false},
+        {"__dso_handle", 2, false},
+    };
+    for (size_t si = 0; si < sizeof(specials) / sizeof(specials[0]); si++) {
+        ZcLinkSym *ls = sym_find(L, specials[si].name);
+        if (ls && ls->obj < 0) {
+            int out = specials[si].sec;
+            uint64_t val = L->outsec[out].vma;
+            if (specials[si].end) {
+                val += (out == 3) ? L->outsec[out].memsz : L->outsec[out].size;
+            }
+            ls->vma = val;
+            ls->obj = 0; /* mark as defined */
         }
     }
     return 0;
@@ -823,15 +908,20 @@ static int apply_relocations(ZcLink *L, char *err, size_t errsz) {
                 }
                 const ZcSymbol *sym = &st->syms[rel->sym];
                 if (sym->shndx == 0) {
-                    /* UND: resolved as a definition, or a hard error. */
+                    /* UND: resolved as a definition, or a hard error (weak UND = 0). */
                     ZcLinkSym *ls = sym_find(L, sym->name);
                     if (!ls || (ls->obj == -1 && !ls->is_section)) {
-                        snprintf(err, errsz,
-                                 "undefined symbol: `%s' (referenced by %s)",
-                                 sym->name, o->path);
-                        return -1;
+                        if (sym->bind == ZC_STB_WEAK) {
+                            S = 0;
+                        } else {
+                            snprintf(err, errsz,
+                                     "undefined symbol: `%s' (referenced by %s)",
+                                     sym->name, o->path);
+                            return -1;
+                        }
+                    } else {
+                        S = (int64_t)ls->vma;
                     }
-                    S = (int64_t)ls->vma;
                 } else if (sym->type == ZC_STT_SECTION) {
                     if (sym->shndx >= o->shnum) {
                         snprintf(err, errsz, "bad section symbol %s",
@@ -855,28 +945,39 @@ static int apply_relocations(ZcLink *L, char *err, size_t errsz) {
                     }
                     S = (int64_t)(L->outsec[sout].vma + s_off + sym->value);
                 } else {
-                    if (sym->shndx >= o->shnum) {
-                        snprintf(err, errsz,
-                                 "bad symbol section for `%s' in %s",
-                                 sym->name, o->path);
-                        return -1;
-                    }
-                    const char *secname = o->secs[sym->shndx].name;
-                    int sout = outsec_for_name(secname);
-                    if (sout < 0) {
-                        snprintf(err, errsz, "no output section for `%s'",
-                                 secname);
-                        return -1;
-                    }
-                    uint64_t s_off = 0;
-                    for (size_t m = 0; m < L->map_count; m++) {
-                        if (L->map[m].obj == o &&
-                            L->map[m].insec == sym->shndx) {
-                            s_off = L->map[m].out_off;
-                            break;
+                    /* Defined symbol in this object.
+                     * If it is a global/weak symbol that was overridden in the
+                     * global symbol table by another definition, use ls->vma! */
+                    ZcLinkSym *ls = (sym->bind != 0 && sym->name[0])
+                                        ? sym_find(L, sym->name)
+                                        : NULL;
+                    if (ls && ls->obj >= 0 &&
+                        (ls->obj != oi || ls->sym != (int)rel->sym)) {
+                        S = (int64_t)ls->vma;
+                    } else {
+                        if (sym->shndx >= o->shnum) {
+                            snprintf(err, errsz,
+                                     "bad symbol section for `%s' in %s",
+                                     sym->name, o->path);
+                            return -1;
                         }
+                        const char *secname = o->secs[sym->shndx].name;
+                        int sout = outsec_for_name(secname);
+                        if (sout < 0) {
+                            snprintf(err, errsz, "no output section for `%s'",
+                                     secname);
+                            return -1;
+                        }
+                        uint64_t s_off = 0;
+                        for (size_t m = 0; m < L->map_count; m++) {
+                            if (L->map[m].obj == o &&
+                                L->map[m].insec == sym->shndx) {
+                                s_off = L->map[m].out_off;
+                                break;
+                            }
+                        }
+                        S = (int64_t)(L->outsec[sout].vma + s_off + sym->value);
                     }
-                    S = (int64_t)(L->outsec[sout].vma + s_off + sym->value);
                 }
                 if (P < os->vma ||
                     P - os->vma >= (os->nobits ? os->memsz : os->size)) {
@@ -1189,6 +1290,29 @@ static int apply_relocations(ZcLink *L, char *err, size_t errsz) {
                     }
                     break;
                 }
+                case 9:  /* R_X86_64_GOTPCREL */
+                case 41: /* R_X86_64_GOTPCRELX */
+                case 42: /* R_X86_64_REX_GOTPCRELX */
+                {
+                    /* Relaxation: if the preceding instruction is `mov (%rip), %reg`
+                     * (opcode 0x8b), convert it to `lea (%rip), %reg` (opcode 0x8d)
+                     * and resolve as PC32. */
+                    if (P - os->vma >= 2 && site[-2] == 0x8b) {
+                        site[-2] = 0x8d;
+                    }
+                    int64_t d64 = (S + A) - (int64_t)P;
+                    if (d64 > (int64_t)INT32_MIN && d64 < (int64_t)INT32_MAX) {
+                        int32_t d = (int32_t)d64;
+                        for (int b = 0; b < 4; b++)
+                            site[b] = (uint8_t)((uint32_t)d >> (8 * b));
+                    } else {
+                        snprintf(err, errsz,
+                                 "GOTPCRELX to `%s' in %s out of rel32 range",
+                                 sym->name, o->path);
+                        return -1;
+                    }
+                    break;
+                }
                 case 10: /* R_X86_64_32 */
                     if (L->pie) {
                         snprintf(err, errsz,
@@ -1317,7 +1441,12 @@ static int emit_exec(ZcLink *L, const char *out_path, uint64_t entry,
     for (size_t i = 0; i < L->sym_count; i++) str_cap += ZC_MAX_NAME;
     uint8_t *strtab = calloc(1, str_cap);
     size_t str_size = 1; /* leading NUL for the null symbol */
-    uint32_t sym_stroff[ZC_MAX_SYMS];
+    uint32_t *sym_stroff = malloc((L->sym_count ? L->sym_count : 1) * sizeof(uint32_t));
+    if (!sym_stroff) {
+        snprintf(err, errsz, "out of memory");
+        free(strtab);
+        return -1;
+    }
     for (size_t i = 0; i < L->sym_count; i++) {
         sym_stroff[i] = (uint32_t)str_size;
         size_t n = strlen(L->syms[i].name);
@@ -1398,11 +1527,14 @@ static int emit_exec(ZcLink *L, const char *out_path, uint64_t entry,
         p = img + 52;
         if (have_rx) {
             put32(&p, PT_LOAD);
-            put32(&p, (uint32_t)rx_off);
-            put32(&p, (uint32_t)rx_vma);
-            put32(&p, (uint32_t)rx_vma);
-            put32(&p, (uint32_t)rx_filesz);
-            put32(&p, (uint32_t)rx_filesz);
+            uint32_t l_off = (uint32_t)((rx_vma >= rx_off) ? 0 : rx_off);
+            uint32_t l_vma = (uint32_t)(rx_vma - (rx_off - l_off));
+            uint32_t l_sz = (uint32_t)(rx_filesz + (rx_off - l_off));
+            put32(&p, l_off);
+            put32(&p, l_vma);
+            put32(&p, l_vma);
+            put32(&p, l_sz);
+            put32(&p, l_sz);
             put32(&p, PF_R | PF_X);
             put32(&p, ZC_PAGE);
         }
@@ -1445,11 +1577,14 @@ static int emit_exec(ZcLink *L, const char *out_path, uint64_t entry,
              * stub can both execute and write the relocated sites; it
              * mprotects the segment back to RX at the end of relocation. */
             put32(&p, L->pie ? (PF_R | PF_W | PF_X) : (PF_R | PF_X));
-            put64(&p, rx_off);
-            put64(&p, rx_vma);
-            put64(&p, rx_vma);
-            put64(&p, rx_filesz);
-            put64(&p, rx_filesz);
+            uint64_t l_off = (rx_vma >= rx_off) ? 0 : rx_off;
+            uint64_t l_vma = rx_vma - (rx_off - l_off);
+            uint64_t l_sz = rx_filesz + (rx_off - l_off);
+            put64(&p, l_off);
+            put64(&p, l_vma);
+            put64(&p, l_vma);
+            put64(&p, l_sz);
+            put64(&p, l_sz);
             put64(&p, ZC_PAGE);
         }
         if (have_rw) {
@@ -1753,7 +1888,7 @@ static int emit_exec(ZcLink *L, const char *out_path, uint64_t entry,
             put32(&sh, (uint32_t)(os->nobits ? os->memsz : os->size));
             put32(&sh, 0);  /* link */
             put32(&sh, 0);  /* info */
-            put32(&sh, 4);  /* addralign */
+            put32(&sh, (uint32_t)(os->max_align ? os->max_align : 4));  /* addralign */
             put32(&sh, 0);  /* entsize */
             idx++;
         }
@@ -1815,7 +1950,7 @@ static int emit_exec(ZcLink *L, const char *out_path, uint64_t entry,
             put64(&sh, os->nobits ? os->memsz : os->size);
             put32(&sh, 0);  /* link */
             put32(&sh, 0);  /* info */
-            put64(&sh, 8);  /* addralign */
+            put64(&sh, os->max_align ? os->max_align : 8);  /* addralign */
             put64(&sh, 0);  /* entsize */
             idx++;
         }
@@ -1892,11 +2027,11 @@ static int emit_exec(ZcLink *L, const char *out_path, uint64_t entry,
     }
     fclose(f);
     chmod(out_path, 0755); /* directly executable */
-    free(img); free(strtab); free(shstrtab); free(symtab);
+    free(img); free(strtab); free(shstrtab); free(symtab); free(sym_stroff);
     return 0;
 
 oom:
-    free(img); free(strtab); free(shstrtab); free(symtab);
+    free(img); free(strtab); free(shstrtab); free(symtab); free(sym_stroff);
     return -1;
 }
 
@@ -2008,6 +2143,7 @@ done:
     }
     for (int i = 0; i < 4; i++) free(L->outsec[i].content);
     free(L->syms);
+    free(L->sym_hash);
     free(L->map);
     free(L->rela_dyn);
     free(L);

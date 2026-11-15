@@ -390,7 +390,7 @@ bool zero_cc_ast_assigns_to_param(ZeroCCASTArena *arena, ASTRef root,
 }
 
 
-static __thread ZeroCCTypeNode *g_type_pool_head = NULL;
+static ZeroCCTypeNode *g_type_pool_head = NULL;
 
 void zero_cc_type_pool_free(void) {
     ZeroCCTypeNode *curr = g_type_pool_head;

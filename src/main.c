@@ -1447,7 +1447,7 @@ static int compile_and_link(CompileOptions *opts) {
     char obj_paths[ZERO_CC_MAX_INPUTS][512];
     int obj_temp[ZERO_CC_MAX_INPUTS]; /* 1 = driver-created temp, safe to unlink */
     int obj_count = 0;
-    const char *arch_paths[32];
+    const char *arch_paths[64];
     int arch_count = 0;
     CompileOptions obj_opts = *opts;
     obj_opts.emit_object = !use_text;
@@ -1478,7 +1478,7 @@ static int compile_and_link(CompileOptions *opts) {
         size_t len = strlen(in);
         /* T2: pass through prebuilt objects and archives to the linker. */
         if (len >= 2 && strcmp(in + len - 2, ".a") == 0) {
-            if (opts->zerocc_link && arch_count < 32) {
+            if (opts->zerocc_link && arch_count < 64) {
                 arch_paths[arch_count++] = in;
             } else if (use_text) {
                 fprintf(stderr, "Error: %s: archive input with -S is not "
@@ -1486,7 +1486,7 @@ static int compile_and_link(CompileOptions *opts) {
                 return 1;
             } else {
                 /* System linker: pass the archive through in the link cmd. */
-                if (arch_count < 32) arch_paths[arch_count++] = in;
+                if (arch_count < 64) arch_paths[arch_count++] = in;
             }
             continue;
         }
@@ -1508,7 +1508,7 @@ static int compile_and_link(CompileOptions *opts) {
         obj_count++;
     }
 
-    char all_objs[4096] = "";
+    char all_objs[65536] = "";
     for (int i = 0; i < obj_count; i++) {
         strncat(all_objs, " ", sizeof(all_objs) - strlen(all_objs) - 1);
         strncat(all_objs, obj_paths[i], sizeof(all_objs) - strlen(all_objs) - 1);
@@ -1615,7 +1615,7 @@ static int compile_and_link(CompileOptions *opts) {
         }
 
         if (!opts->no_zerocc_rt && rt_path[0] && access(rt_path, R_OK) == 0
-            && arch_count < 32) {
+            && arch_count < 64) {
             arch_paths[arch_count++] = rt_path;
             if (opts->verbose) printf("Linking zero_rt: %s\n", rt_path);
         }
@@ -1624,7 +1624,7 @@ static int compile_and_link(CompileOptions *opts) {
          * __*di3 call. On rv32 the committed musl-cross prefix's libgcc.a
          * (the shim - single provider, Sprint 167) supplies them for the
          * own-link path, mirroring the system link line. */
-        if (target_isa == ISA_RISCV32 && arch_count < 32) {
+        if (target_isa == ISA_RISCV32 && arch_count < 64) {
             char musl_prefix[512];
             char gcc_path[600];
             if (find_rv32_musl_prefix(musl_prefix, sizeof musl_prefix)) {
@@ -1661,7 +1661,7 @@ static int compile_and_link(CompileOptions *opts) {
 
     /* Invoke system linker (gcc) to create executable. cmd is sized to
      * hold all_objs (up to ZERO_CC_MAX_INPUTS temp paths) plus flags/libs. */
-    char cmd[16384];
+    char cmd[131072];
 
     /* Select appropriate linker based on target ISA.  (RV32 is NOT here:
      * it has no stock cross musl and links through the explicit-musl

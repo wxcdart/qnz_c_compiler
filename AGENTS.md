@@ -42,6 +42,8 @@ Before scanning the 80+ historical files in `docs/`, **always consult the Open K
   make test-asm            # inline-assembly Phase 1 gate: every test/asm/*.c on the AOT text path (-S) at -O0..-O3, assembled+linked with host gcc, diffed (rc+stdout) vs a host-gcc -O2 reference (tools/verify/asm_diff.py)
   make test-project-diff   # project-differential gate: test/projects/ (cJSON, zlib, sqlite3.c) must compile under zerocc at -O0/-O2, diffed against host-gcc acceptance (tools/verify/project_diff.py)
   make audit-self-host     # self-hosting compilation audit: compiles all 76 translation units in src/ with zerocc -c (tools/verify/self_host_audit.py)
+  make test-self-host      # self-hosting 3-stage bootstrap fixed-point gate: Stage 1 == Stage 2 bit-for-bit identity (tools/verify/self_host_cycle.py)
+  make test-self-host-ownlink # own-linker self-hosting 3-stage bootstrap fixed-point gate: compiled & linked by ZeroCC own-linker (tools/verify/self_host_cycle.py --own-linker)
   make asan                # host-side ASan/UBSan rebuild of the compiler itself — run after core-pipeline (parser/semantic/IR/optimizer) changes to catch the compiler's own memory bugs before they become user-facing crashes
   python3 tools/verify/sret_verifier.py --verify-all
   python3 tools/verify/type_tag_verifier.py --verify-all

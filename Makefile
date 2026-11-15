@@ -125,6 +125,7 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	test-isa-qemu test-isa128 test-dlfcn-isa test-driver test-linker \
 	test-c23 test-asm test-opt test-san test-preproc test-fuzz test-perf \
 	audit-self-host stage1 test-stage1 stage2 test-stage2 test-self-host \
+	stage1-ownlink test-stage1-ownlink stage2-ownlink test-stage2-ownlink test-self-host-ownlink \
 	valgrind test-valgrind
 
 all: $(TESTS) $(ZC_BIN) $(BUILD_DIR)/lib/zero_rt.a $(BUILD_DIR)/lib/zero_rt_aarch64.a $(BUILD_DIR)/lib/zero_rt_riscv64.a $(BUILD_DIR)/lib/zero_rt_riscv32.a
@@ -478,6 +479,24 @@ test-stage2: stage2
 # Verifies 100% bit-for-bit identity across all objects and linked binaries (Stage 1 == Stage 2)
 test-self-host: stage1
 	@python3 tools/verify/self_host_cycle.py
+
+# Own-linker self-hosting targets (Sprint 184 Stage 4):
+stage1-ownlink: $(ZC_BIN)
+	@python3 tools/toolchain/build_stage1.py --stage 1 --own-linker
+
+stage2-ownlink: stage1-ownlink
+	@python3 tools/toolchain/build_stage1.py --stage 2 --own-linker
+
+test-stage1-ownlink: stage1-ownlink
+	@python3 tools/verify/opt_sweep.py --zerocc $(BUILD_DIR)/bin/zerocc-stage1-ownlink
+	@ZEROCC=$(BUILD_DIR)/bin/zerocc-stage1-ownlink python3 tools/c23/test_c23.py --all
+
+test-stage2-ownlink: stage2-ownlink
+	@python3 tools/verify/opt_sweep.py --zerocc $(BUILD_DIR)/bin/zerocc-stage2-ownlink
+	@ZEROCC=$(BUILD_DIR)/bin/zerocc-stage2-ownlink python3 tools/c23/test_c23.py --all
+
+test-self-host-ownlink: stage1-ownlink
+	@python3 tools/verify/self_host_cycle.py --own-linker
 
 # zero_rt: the ZeroCC-owned runtime (heap, minimal stdio, strings, exit).
 # Compiled by zerocc itself; the objects are archived with the system `ar`

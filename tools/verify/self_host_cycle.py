@@ -9,6 +9,7 @@ Verifies the complete 3-stage bootstrap cycle (Stage 0 -> Stage 1 -> Stage 2):
 4. Compares the final linked binaries (zerocc-stage1 vs zerocc-stage2) for bit-for-bit identity.
 """
 
+import argparse
 import os
 import subprocess
 import sys
@@ -22,20 +23,27 @@ ROOT = Path(find_repo_root())
 sys.path.insert(0, str(ROOT / "tools" / "toolchain"))
 import build_stage1
 
-STAGE1_BIN = ROOT / "build" / "bin" / "zerocc-stage1"
-STAGE2_BIN = ROOT / "build" / "bin" / "zerocc-stage2"
-STAGE1_OBJ_DIR = ROOT / "build" / "stage1" / "obj"
-STAGE2_OBJ_DIR = ROOT / "build" / "stage2" / "obj"
+def ensure_stages(own_linker=False):
+    suffix = "-ownlink" if own_linker else ""
+    dir_suffix = "_ownlink" if own_linker else ""
+    s1_bin = ROOT / "build" / "bin" / f"zerocc-stage1{suffix}"
+    s1_obj_dir = ROOT / "build" / f"stage1{dir_suffix}" / "obj"
 
-def ensure_stages():
-    if not STAGE1_BIN.exists() or not STAGE1_OBJ_DIR.exists():
-        print("Stage 1 binary not found. Building Stage 1...")
-        build_stage1.build_stage(1)
+    if not s1_bin.exists() or not s1_obj_dir.exists():
+        print(f"Stage 1 binary not found. Building Stage 1{suffix}...")
+        build_stage1.build_stage(1, own_linker=own_linker)
 
-    print("Building Stage 2 with zerocc-stage1...")
-    build_stage1.build_stage(2)
+    print(f"Building Stage 2 with {s1_bin.name}...")
+    build_stage1.build_stage(2, own_linker=own_linker)
 
-def compare_objects():
+def compare_objects(own_linker=False):
+    suffix = "-ownlink" if own_linker else ""
+    dir_suffix = "_ownlink" if own_linker else ""
+    s1_bin = ROOT / "build" / "bin" / f"zerocc-stage1{suffix}"
+    s2_bin = ROOT / "build" / "bin" / f"zerocc-stage2{suffix}"
+    s1_obj_dir = ROOT / "build" / f"stage1{dir_suffix}" / "obj"
+    s2_obj_dir = ROOT / "build" / f"stage2{dir_suffix}" / "obj"
+
     lib_objs = build_stage1.parse_makefile_objects()
     all_obj_names = [Path(rel_o).name for rel_o in lib_objs]
     all_obj_names.append("main.o")
@@ -47,11 +55,11 @@ def compare_objects():
     diffs = []
     missing = []
 
-    print(f"\nComparing {total} object files between Stage 1 and Stage 2...")
+    print(f"\nComparing {total} object files between Stage 1{suffix} and Stage 2{suffix}...")
 
     for name in all_obj_names:
-        s1_file = STAGE1_OBJ_DIR / name
-        s2_file = STAGE2_OBJ_DIR / name
+        s1_file = s1_obj_dir / name
+        s2_file = s2_obj_dir / name
 
         if not s1_file.exists() or not s2_file.exists():
             missing.append(name)
@@ -66,7 +74,8 @@ def compare_objects():
             diffs.append((name, len(s1_bytes), len(s2_bytes)))
 
     print("\n" + "=" * 70)
-    print("SELF-HOSTING BOOTSTRAP FIXED-POINT CONVERGENCE")
+    tag = "OWN-LINKER SELF-HOSTING BOOTSTRAP FIXED-POINT CONVERGENCE" if own_linker else "SELF-HOSTING BOOTSTRAP FIXED-POINT CONVERGENCE"
+    print(tag)
     print("=" * 70)
     print(f"Total objects compared : {total}")
     print(f"Bit-for-bit identical  : {matched} ({matched * 100.0 / total:.1f}%)")
@@ -86,9 +95,9 @@ def compare_objects():
     # Binary comparison
     print("-" * 70)
     binary_identical = False
-    if STAGE1_BIN.exists() and STAGE2_BIN.exists():
-        bin1_bytes = STAGE1_BIN.read_bytes()
-        bin2_bytes = STAGE2_BIN.read_bytes()
+    if s1_bin.exists() and s2_bin.exists():
+        bin1_bytes = s1_bin.read_bytes()
+        bin2_bytes = s2_bin.read_bytes()
         if bin1_bytes == bin2_bytes:
             binary_identical = True
             print(f"Linked Binaries        : BIT-FOR-BIT IDENTICAL ({len(bin1_bytes)} bytes)")
@@ -101,15 +110,18 @@ def compare_objects():
 
     success = (matched == total) and binary_identical
     if success:
-        print("\n[SUCCESS] Stage 1 and Stage 2 are 100% bit-for-bit identical (fixed point reached)!")
+        print(f"\n[SUCCESS] Stage 1{suffix} and Stage 2{suffix} are 100% bit-for-bit identical (fixed point reached)!")
         return 0
     else:
-        print("\n[FAIL] Fixed-point divergence detected between Stage 1 and Stage 2.")
+        print(f"\n[FAIL] Fixed-point divergence detected between Stage 1{suffix} and Stage 2{suffix}.")
         return 1
 
 def main():
-    ensure_stages()
-    rc = compare_objects()
+    parser = argparse.ArgumentParser(description="ZeroCC Self-Hosting Cycle Verifier")
+    parser.add_argument("--own-linker", action="store_true", help="Verify own-linked stages (zerocc-stage1-ownlink vs zerocc-stage2-ownlink)")
+    args = parser.parse_args()
+    ensure_stages(own_linker=args.own_linker)
+    rc = compare_objects(own_linker=args.own_linker)
     sys.exit(rc)
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@ title: ZeroCC Own Linker (T2) - ELF Reader, ar Reader, Static ET_EXEC/PIE Output
 description: ZeroCC's own static linker - the ELF64-LE object reader, the classic ar archive reader with greedy member extraction, symbol resolution, section layout at conventional x86-64/AArch64/RISC-V64 bases, the x86-64 far-rel32 detour-thunk pool, the static-PIE (ET_DYN) self-relocating link, supported relocation sets, and per-ISA generated _start stubs. Gate: make test-linker (21/21) + test/linker/far_thunk.c + test/linker/pie_test.c.
 resource: linker
 tags: [linker, elf, ar, aot, x86-64, aarch64, riscv64, relocations, zero-rt, static-pie, thunks]
-timestamp: 2026-11-12T17:46:29Z
+timestamp: 2026-11-15T03:53:23Z
 generated: pi-agent
 verified: engineering-lead
 status: active
@@ -257,6 +257,33 @@ This invariant is also relied on by `__attribute__((section("name")))` on
 global objects (Sprint 107) and functions (Sprint 108) in `compile_object_single`
 ([`src/main.c`](../../src/main.c)), which emit dedicated `PROGBITS`/`NOBITS`/`EXECINSTR`
 sections and bind each symbol's `shndx` via `elf_writer_section_index`.
+
+## Self-Hosting Linker Capability (Sprint 184 Stage 4)
+
+In Sprint 184 Stage 4, ZeroCC's own linker (`src/zero_cc/linker/linker.c`) was expanded from linking small freestanding `zero_rt` programs to linking the full 77-object compiler suite + static musl libc (`build/musl/lib/libc.a`) + libgcc into a standalone static compiler executable:
+
+1. **Capacity & Performance Scale**:
+   - `ZC_MAX_INPUTS` raised to 2048, `ZC_MAX_SYMS` raised to 65536.
+   - Replaced linear symbol lookup with an open-addressing FNV-1a hash table (`sym_hash` + quadratic probing), turning $O(N^2)$ archive extraction over 65k symbols into near-instant link times (~0.5s for the entire compiler).
+   - Driver CLI `ZERO_CC_MAX_INPUTS` raised from 32 to 512 with buffer expansion in `src/main.c`.
+2. **Weak Symbol Resolution & Override**:
+   - Undefined weak symbols (`sym->bind == ZC_STB_WEAK` with `sym->shndx == 0`) resolve to address 0 (`S = 0`) instead of halting with an undefined symbol error (required for libc runtime hooks like `_DYNAMIC`).
+   - Strong definitions in archive members properly override existing weak definitions across all translation units (resolves musl's `malloc.lo` overriding `lite_malloc.lo`'s weak `__libc_malloc_impl`).
+3. **Relocation & Relaxation Support**:
+   - Added support for `R_X86_64_GOTPCREL` (9), `R_X86_64_GOTPCRELX` (41), and `R_X86_64_REX_GOTPCRELX` (42).
+   - Implemented static instruction relaxation: detects `mov foo@GOTPCREL(%rip), %reg` (`0x8b`), converts it in-place to `lea foo(%rip), %reg` (`0x8d`), and resolves the displacement as standard PC32 relative to the symbol VMA.
+4. **Boundary Special Symbols**:
+   - Built-in synthesis in `layout_sections` for standard linker markers if referenced: `_end`, `__bss_start`, `_edata`, `__TMC_END__`, `_GLOBAL_OFFSET_TABLE_`, and `__dso_handle`.
+5. **ELF Header Mapping & auxv AT_PHDR**:
+   - Sized the first `PT_LOAD` segment starting from file offset 0 (`p_offset = 0`, `p_vaddr = 0x400000`, `p_filesz = rx_filesz + 0x1000`) instead of `0x1000`.
+   - Ensures the Linux kernel's ELF loader maps ELF and Program Headers into memory and populates `aux[AT_PHDR] = 0x400040`, allowing musl's `__init_tls` to initialize thread-local storage without faulting.
+6. **Section Alignment Preservation**:
+   - Each output section tracks `max_align` across all contributing input sections.
+   - Output section VMAs (`.text`, `.rodata`, `.data`, `.bss`) and section headers (`sh_addralign`) honor `max_align` (up to 16/32/64 bytes), preventing SSE `#GP` faults on 16-byte aligned vector instructions like `movdqa` in libc's `qsort_r`.
+7. **Embedded Symbol Multi-Pass Convergence**:
+   - `tools/toolchain/build_stage1.py` and `tools/verify/self_host_cycle.py` iteratively regenerate `embedded_syms.c` via `tools/toolchain/embed_symtab.py` and relink until fixpoint convergence ($N \le 3$).
+8. **Bootstrap Fixed-Point Convergence**:
+   - Stage 1 and Stage 2 built and linked with ZeroCC's own linker achieve 100% bit-for-bit identity across all 77 object files and the final standalone static binary (`53,553,224 bytes`, verified via `make test-self-host-ownlink`).
 
 ## Known limitations (documented, not bugs)
 

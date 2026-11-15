@@ -9,7 +9,7 @@
 #include "zero_cc/types/types.h"
 
 #define VERSION "0.1.0-dev"
-#define ZERO_CC_MAX_INPUTS 32
+#define ZERO_CC_MAX_INPUTS 512
 
 typedef struct {
     const char *input_files[ZERO_CC_MAX_INPUTS];  /* T1: multiple inputs */

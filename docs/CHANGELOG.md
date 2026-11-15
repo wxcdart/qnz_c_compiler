@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## [Sprint 184] - 2026-11-14 - Self-Hosting Epic: Stage 1, Stage 2 & Stage 3 (Self-Compilation, Self-Linking & Fixed-Point Convergence)
+## [Sprint 184] - 2026-11-14 - Self-Hosting Epic: Stage 1, Stage 2, Stage 3 & Stage 4 (Own-Linker Bootstrap & Reproducible Fixed-Point Convergence)
 
 Achieves complete self-hosting bootstrapping and reproducible fixed-point binary convergence:
 - **Stage 1 (Self-Compilation of all 76 Translation Units)**:
@@ -14,18 +14,24 @@ Achieves complete self-hosting bootstrapping and reproducible fixed-point binary
   - Fixed `typeof()` evaluation on anonymous struct/union members in `src/zero_cc/parser/type_parser.h` (`zero_cc_type_find_member`): returns the underlying base type instead of generating an empty member list.
   - Fixed unary `++`/`--` on non-identifier lvalues in `src/zero_cc/ir/ast_lowering_unop.c`: removed stale `|| c->last_expr_is_float` check that miscompiled `c->token_pos++` as double-precision floating-point addition in `zc_eval_const_fp_primary`.
   - Added `make test-stage1` to verify `zerocc-stage1` against `opt_sweep.py` and `test_c23.py`.
-- **Stage 3 (Fixed-Point Bootstrap Convergence: Stage 1 == Stage 2)**:
+- **Stage 3 (Fixed-Point Bootstrap Convergence: Stage 1 == Stage 2 with musl-gcc link)**:
   - Fixed 16-bit stack displacement truncation in `src/zero_cc/ir/ast_lowering_expr.c`: removed `(int16_t)` casts on `total_offset` when emitting `ir_emit_fload` and `ir_emit_lea`, allowing stack offsets in functions with large frames (>32KB, such as `lower_expr_builtin`) to use full 32-bit displacements instead of truncating modulo 64KB.
   - Implemented `tools/verify/self_host_cycle.py` (and `make test-self-host`): compiles all 77 source files with `zerocc-stage1` into `build/stage2/obj/`, links `build/bin/zerocc-stage2`, and performs byte-by-byte comparison against Stage 1.
   - Added `make stage2` and `make test-stage2` Makefile targets.
+- **Stage 4 (Own-Linker Self-Hosting: `--zerocc-link` Standalone Binary & Fixed-Point Convergence)**:
+  - **Linker Capacity & O(1) Speed**: Raised `ZC_MAX_INPUTS` to 2048, `ZC_MAX_SYMS` to 65536 in `src/zero_cc/linker/linker.c`, and implemented an open-addressing FNV-1a hash table (`sym_hash`) for symbol lookups, eliminating $O(N^2)$ linear scans over 65k symbols (~0.5s link time for 77 compiler objects + libc). Sized `ZERO_CC_MAX_INPUTS` to 512 in `src/zero_cc/driver/driver_opts.h` and buffer arrays in `src/main.c`.
+  - **Relocations & Relaxation**: Added support for `R_X86_64_GOTPCREL` (9), `R_X86_64_GOTPCRELX` (41), and `R_X86_64_REX_GOTPCRELX` (42) with static instruction relaxation (converts `mov foo@GOTPCREL(%rip), %reg` [0x8b] to `lea foo(%rip), %reg` [0x8d] and resolves as PC32).
+  - **Weak Symbols & Archive Member Overrides**: Resolved undefined weak symbols (`ZC_STB_WEAK`) to 0 (`S = 0`) instead of throwing an undefined error (satisfies musl `_DYNAMIC`). Allowed strong definitions in archive members to override existing weak definitions across all TUs (ensures `malloc.lo` overrides `lite_malloc.lo`).
+  - **ELF Header Mapping**: Mapped first `PT_LOAD` segment from file offset 0 (`p_offset = 0`, `p_vaddr = 0x400000`, `p_filesz = rx_filesz + 0x1000`) so the Linux kernel populates `aux[AT_PHDR] = 0x400040`, preventing musl `__init_tls` from faulting.
+  - **Section Alignment Preservation**: Tracked `max_align` in output sections (`.text`, `.rodata`, `.data`, `.bss`) and aligned VMAs and section headers accordingly, preventing `#GP` faults on 16-byte aligned vector ops (`movdqa` in `qsort_r`).
+  - **Embedded Symbol Multi-Pass Convergence**: `build_stage1.py` iteratively regenerates `embedded_syms.c` via `embed_symtab.py` and relinks until fixpoint convergence.
+  - **Makefile Integration**: Added `stage1-ownlink`, `stage2-ownlink`, `test-stage1-ownlink`, `test-stage2-ownlink`, and `test-self-host-ownlink`.
 - **Verification Outcomes**:
+  - `make test-self-host-ownlink`: **77/77 objects (100.0%) and own-linked binaries (53,553,224 bytes) are 100% BIT-FOR-BIT IDENTICAL**!
   - `make test-self-host`: **77/77 objects (100.0%) and linked binaries (53,230,576 bytes) are 100% BIT-FOR-BIT IDENTICAL**!
-  - `make audit-self-host`: **76/76 (100.0%)** translation units compiled with `zerocc -c`.
-  - `ZEROCC=./build/bin/zerocc-stage2 python3 tools/verify/self_host_audit.py`: **76/76 (100.0%)** translation units compiled by `zerocc-stage2`.
-  - `ZEROCC=./build/bin/zerocc-stage2 python3 tools/c23/test_c23.py --all`: **31/31 passed** (2 modes x 4 opt levels).
-  - `python3 tools/verify/opt_sweep.py --zerocc ./build/bin/zerocc-stage1`: **189 tests: 131 ok, 0 failed, 58 skipped, 1 nondeterministic**.
-  - `make test`: **233/233 passed**.
-  - `make test-san`: **720 ok, 0 FAIL**.
+  - `make test-stage1-ownlink`: `opt_sweep` **189 tests: 131 ok, 0 failed, 58 skipped, 1 nondeterministic**; C23 gate **31/31 passed**!
+  - `make test-stage2-ownlink`: `opt_sweep` **189 tests: 131 ok, 0 failed, 58 skipped, 1 nondeterministic**; C23 gate **31/31 passed**!
+  - `python3 tools/verify/test_runner.py -z build/bin/zerocc-stage1-ownlink`: **233/233 passed** (100.0%).
   - `python3 tools/verify/style_check.py`: **188 files, 0 error(s), 0 warning(s)**.
   - `python3 tools/okf/okf.py lint && python3 tools/okf/okf.py index`: **all OKF schemas and reachability verified**.
 
