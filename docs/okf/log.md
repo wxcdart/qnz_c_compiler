@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-15T03:53:23Z
+timestamp: 2026-11-15T16:52:40Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1521,3 +1521,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-15 — Updated `build-and-verification.md`
 - Sprint 184 Stage 4: Added own-linker stage1/stage2 and test-self-host-ownlink targets
+
+## 2026-11-15 — Updated `isa-backends.md`
+- Sprint 185: AArch32 (ARMv7-A) backend, MC emission, and own linker integration

@@ -42,6 +42,7 @@ static inline bool zero_cc_emit_elf_obj(ZeroCCCompiler *c, const char *filepath)
     switch (c->isa) {
         case ISA_X86_64:   e_machine = EM_X86_64;   break;
         case ISA_AARCH64:  e_machine = EM_AARCH64;  break;
+        case ISA_AARCH32:  e_machine = EM_ARM;       break;  /* Sprint 185: ARMv7-A */
         case ISA_RISCV64:  e_machine = EM_RISCV;    break;
         case ISA_RISCV32:  e_machine = EM_RISCV;    break;
         default:           e_machine = EM_X86_64;   break;
@@ -185,6 +186,7 @@ static inline bool zero_cc_emit_elf_exe(ZeroCCCompiler *c, const char *filepath)
     switch (c->isa) {
         case ISA_X86_64:   e_machine = EM_X86_64;   break;
         case ISA_AARCH64:  e_machine = EM_AARCH64;  break;
+        case ISA_AARCH32:  e_machine = EM_ARM;       break;  /* Sprint 185: ARMv7-A */
         case ISA_RISCV64:  e_machine = EM_RISCV;    break;
         case ISA_RISCV32:  e_machine = EM_RISCV;    break;
         default:           e_machine = EM_X86_64;   break;

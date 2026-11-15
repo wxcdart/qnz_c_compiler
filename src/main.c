@@ -382,6 +382,7 @@ ZeroCCISA parse_target_arch(const char *target) {
     if (!target) return ISA_X86_64;  // Default
     if (strcmp(target, "x86-64") == 0 || strcmp(target, "x86_64") == 0) return ISA_X86_64;
     if (strcmp(target, "aarch64") == 0 || strcmp(target, "arm64") == 0) return ISA_AARCH64;
+    if (strcmp(target, "aarch32") == 0 || strcmp(target, "arm32") == 0 || strcmp(target, "armv7") == 0) return ISA_AARCH32;
     if (strcmp(target, "riscv64") == 0 || strcmp(target, "riscv") == 0) return ISA_RISCV64;
     if (strcmp(target, "riscv32") == 0) return ISA_RISCV32;
     fprintf(stderr, "Warning: Unknown target architecture '%s', defaulting to x86-64\n", target);
@@ -616,14 +617,15 @@ static int compile_object_single(CompileOptions *opts, const char *input,
     switch (comp->isa) {
         case ISA_X86_64: elf_machine = ELF_MACHINE_X86_64; break;
         case ISA_AARCH64: elf_machine = ELF_MACHINE_AARCH64; break;
-        case ISA_RISCV64: elf_machine = ELF_MACHINE_RISCV64; break;
-        case ISA_RISCV32: elf_machine = ELF_MACHINE_RISCV32; break;
+        case ISA_AARCH32: elf_machine = ELF_MACHINE_ARM; break;
+        case ISA_RISCV64:
+        case ISA_RISCV32: elf_machine = ELF_MACHINE_RISCV; break;
         default: elf_machine = ELF_MACHINE_X86_64; break;
     }
 
     /* Initialize ELF writer */
     ElfWriterCtx elf_ctx;
-    elf_writer_init(&elf_ctx, elf_machine);
+    elf_writer_init(&elf_ctx, elf_machine, comp->isa == ISA_RISCV32 || comp->isa == ISA_AARCH32);
 
     /* Add .text section */
     if (comp->text_section.length > 0) {
@@ -1035,6 +1037,12 @@ static int compile_object_single(CompileOptions *opts, const char *input,
             addend_call = 0;
             addend_rodata = 0;
             break;
+        case ISA_AARCH32:
+            reloc_type_call = 28;   /* R_ARM_CALL */
+            reloc_type_rodata = 43; /* R_ARM_MOVW_ABS_NC */
+            addend_call = 0;
+            addend_rodata = 0;
+            break;
         case ISA_RISCV64:
         case ISA_RISCV32:
             reloc_type_call = 17;   /* R_RISCV_JAL (single 4-byte jal ra) */
@@ -1146,6 +1154,19 @@ static int compile_object_single(CompileOptions *opts, const char *input,
                                           symbol_idx,
                                           277 /* R_AARCH64_ADD_ABS_LO12_NC */,
                                           0);
+            } else if (comp->isa == ISA_AARCH32 && r->text_patch_offset >= 4) {
+                /* AArch32: movw at (patch_offset - 4) gets R_ARM_MOVW_ABS_NC (43),
+                 * movt at patch_offset gets R_ARM_MOVT_ABS (44). */
+                elf_writer_add_relocation(&elf_ctx, text_idx,
+                                          r->text_patch_offset - 4,
+                                          symbol_idx,
+                                          43 /* R_ARM_MOVW_ABS_NC */,
+                                          0);
+                elf_writer_add_relocation(&elf_ctx, text_idx,
+                                          r->text_patch_offset,
+                                          symbol_idx,
+                                          44 /* R_ARM_MOVT_ABS */,
+                                          0);
             } else {
                 int reloc_type_abs64 = (comp->isa == ISA_X86_64) ? 1 /* R_X86_64_64 */ : reloc_type_rodata;
                 elf_writer_add_relocation(&elf_ctx, text_idx,
@@ -1199,6 +1220,19 @@ static int compile_object_single(CompileOptions *opts, const char *input,
                                       sr->text_patch_offset,
                                       rodata_symbol_idx,
                                       277 /* R_AARCH64_ADD_ABS_LO12_NC */,
+                                      (int64_t)sr->rodata_offset);
+        } else if (comp->isa == ISA_AARCH32 && sr->text_patch_offset >= 4) {
+            /* AArch32: movw at (patch_offset - 4) gets R_ARM_MOVW_ABS_NC (43),
+             * movt at patch_offset gets R_ARM_MOVT_ABS (44). */
+            elf_writer_add_relocation(&elf_ctx, text_idx,
+                                      sr->text_patch_offset - 4,
+                                      rodata_symbol_idx,
+                                      43 /* R_ARM_MOVW_ABS_NC */,
+                                      (int64_t)sr->rodata_offset);
+            elf_writer_add_relocation(&elf_ctx, text_idx,
+                                      sr->text_patch_offset,
+                                      rodata_symbol_idx,
+                                      44 /* R_ARM_MOVT_ABS */,
                                       (int64_t)sr->rodata_offset);
         } else {
             elf_writer_add_relocation(&elf_ctx, text_idx,
@@ -1261,6 +1295,7 @@ static int compile_object_single(CompileOptions *opts, const char *input,
     switch (comp->isa) {
         case ISA_X86_64:  reloc_type_data_abs = 1;   /* R_X86_64_64 */ break;
         case ISA_AARCH64: reloc_type_data_abs = 257; /* R_AARCH64_ABS64 */ break;
+        case ISA_AARCH32: reloc_type_data_abs = 2;   /* R_ARM_ABS32 */ break;
         case ISA_RISCV64: reloc_type_data_abs = 2;   /* R_RISCV_64 */ break;
         case ISA_RISCV32: reloc_type_data_abs = 1;   /* R_RISCV_32 */ break;
         default: break;
@@ -1529,7 +1564,8 @@ static int compile_and_link(CompileOptions *opts) {
             if (fread(hdr, 1, 20, f) == 20 && hdr[0] == 0x7f && hdr[1] == 'E' &&
                 hdr[2] == 'L' && hdr[3] == 'F') {
                 uint16_t mach = (uint16_t)hdr[18] | ((uint16_t)hdr[19] << 8);
-                if (mach == 183) target_isa = ISA_AARCH64;
+                if (mach == 40) target_isa = ISA_AARCH32;      /* EM_ARM */
+                else if (mach == 183) target_isa = ISA_AARCH64;
                 else if (mach == 243) target_isa = (hdr[4] == 1) ? ISA_RISCV32 : ISA_RISCV64;
                 else if (mach == 62) target_isa = ISA_X86_64;
             }
@@ -1546,6 +1582,9 @@ static int compile_and_link(CompileOptions *opts) {
     if (target_isa == ISA_AARCH64) {
         rt_filename = "zero_rt_aarch64.a";
         env_var = "ZERO_RT_AARCH64_A";
+    } else if (target_isa == ISA_AARCH32) {
+        rt_filename = "zero_rt_aarch32.a";
+        env_var = "ZERO_RT_AARCH32_A";
     } else if (target_isa == ISA_RISCV64) {
         rt_filename = "zero_rt_riscv64.a";
         env_var = "ZERO_RT_RISCV64_A";
@@ -1573,11 +1612,12 @@ static int compile_and_link(CompileOptions *opts) {
         }
     }
 
-    /* T2: ZeroCC's own linker (x86-64, AArch64, RISC-V 64/32; zero_rt is its
+    /* T2: ZeroCC's own linker (x86-64, AArch64, AArch32, RISC-V 64/32; zero_rt is its
      * first customer). */
     if (opts->zerocc_link) {
         if (target_isa != ISA_X86_64 && target_isa != ISA_AARCH64 &&
-            target_isa != ISA_RISCV64 && target_isa != ISA_RISCV32) {
+            target_isa != ISA_AARCH32 && target_isa != ISA_RISCV64 &&
+            target_isa != ISA_RISCV32) {
             fprintf(stderr,
                     "Error: --zerocc-link currently links x86-64, aarch64, "
                     "riscv64, and riscv32 objects only\n");

@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-11-14T16:15:59Z
+timestamp: 2026-11-15T16:52:40Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -12,9 +12,10 @@ status: active
 
 # Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 
-ZeroCC abstracts target-specific code generation behind `ZeroCCISABackend` (`src/zero_cc/isa/isa_backend.h`), supporting three architectures:
+ZeroCC abstracts target-specific code generation behind `ZeroCCISABackend` (`src/zero_cc/isa/isa_backend.h`), supporting four architecture families (5 targets):
 - **x86-64**: `src/zero_cc/isa/x86_64.c` (JIT binary emission) & `src/zero_cc/isa/x86_64_asm.c` (AOT `.s` assembly emission)
 - **AArch64**: `src/zero_cc/isa/aarch64.c` & `src/zero_cc/isa/aarch64_asm.c`
+- **AArch32 (ARMv7-A)**: `src/zero_cc/isa/aarch32.c` (Sprint 185: complete ARM32 MC encoder, AAPCS calling convention, ELF32 objects & own linker)
 - **RISC-V (RV64GC)**: `src/zero_cc/isa/riscv64.c` & `src/zero_cc/isa/riscv_asm.c`
 - **RISC-V (RV32GC)**: `src/zero_cc/isa/riscv32.c` (reuses the RV64 emitters; see below)
 - **Shared RISC-V encoders**: `src/zero_cc/isa/riscv_common.h`

@@ -140,6 +140,8 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             const char *addr_name = BE(c)->get_hw_reg_name(phys_src1);
             if (c->isa == ISA_AARCH64) {
                 fprintf(out, "\tldr\tw%s, [%s]\n", dst_name + 1, addr_name);
+            } else if (c->isa == ISA_AARCH32) {
+                fprintf(out, "\tldr\t%s, [%s]\n", dst_name, addr_name);
             } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
                 fprintf(out, "\tlw\t%s, 0(%s)\n", dst_name, addr_name);
             } else {
@@ -158,6 +160,8 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             const char *addr_name = BE(c)->get_hw_reg_name(phys_src1);
             if (c->isa == ISA_AARCH64) {
                 fprintf(out, "\tldrh\tw%s, [%s]\n", dst_name + 1, addr_name);
+            } else if (c->isa == ISA_AARCH32) {
+                fprintf(out, "\tldrh\t%s, [%s]\n", dst_name, addr_name);
             } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
                 fprintf(out, "\tlhu\t%s, 0(%s)\n", dst_name, addr_name);
             } else {
@@ -171,6 +175,8 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             const char *addr_name = BE(c)->get_hw_reg_name(phys_src1);
             if (c->isa == ISA_AARCH64) {
                 fprintf(out, "\tldrb\tw%s, [%s]\n", dst_name + 1, addr_name);
+            } else if (c->isa == ISA_AARCH32) {
+                fprintf(out, "\tldrb\t%s, [%s]\n", dst_name, addr_name);
             } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
                 fprintf(out, "\tlbu\t%s, 0(%s)\n", dst_name, addr_name);
             } else {
@@ -184,6 +190,10 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             const char *addr_name = BE(c)->get_hw_reg_name(phys_src2);
             if (c->isa == ISA_AARCH64) {
                 fprintf(out, "\tstr\t%s, [%s]\n", val_name, addr_name);
+            } else if (c->isa == ISA_AARCH32) {
+                /* Two 32-bit stores for 64-bit value */
+                fprintf(out, "\tstr\t%s, [%s]\n", val_name, addr_name);
+                fprintf(out, "\tstr\t%s, [%s, #4]\n", val_name, addr_name);
             } else if (c->isa == ISA_RISCV32) {
                 fprintf(out, "\tsw\t%s, 0(%s)\n", val_name, addr_name);
             } else if (c->isa == ISA_RISCV64) {
@@ -199,6 +209,8 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             const char *addr_name = BE(c)->get_hw_reg_name(phys_src2);
             if (c->isa == ISA_AARCH64) {
                 fprintf(out, "\tstr\tw%s, [%s]\n", val_name + 1, addr_name);
+            } else if (c->isa == ISA_AARCH32) {
+                fprintf(out, "\tstr\t%s, [%s]\n", val_name, addr_name);
             } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
                 fprintf(out, "\tsw\t%s, 0(%s)\n", val_name, addr_name);
             } else {
@@ -217,6 +229,8 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             const char *addr_name = BE(c)->get_hw_reg_name(phys_src2);
             if (c->isa == ISA_AARCH64) {
                 fprintf(out, "\tstrh\tw%s, [%s]\n", val_name + 1, addr_name);
+            } else if (c->isa == ISA_AARCH32) {
+                fprintf(out, "\tstrh\t%s, [%s]\n", val_name, addr_name);
             } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
                 fprintf(out, "\tsh\t%s, 0(%s)\n", val_name, addr_name);
             } else {
@@ -235,6 +249,8 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             const char *addr_name = BE(c)->get_hw_reg_name(phys_src2);
             if (c->isa == ISA_AARCH64) {
                 fprintf(out, "\tstrb\tw%s, [%s]\n", val_name + 1, addr_name);
+            } else if (c->isa == ISA_AARCH32) {
+                fprintf(out, "\tstrb\t%s, [%s]\n", val_name, addr_name);
             } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
                 fprintf(out, "\tsb\t%s, 0(%s)\n", val_name, addr_name);
             } else {
@@ -530,6 +546,8 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             const char *r = BE(c)->get_hw_reg_name(phys_src1);
             if (c->isa == ISA_AARCH64) {
                 fprintf(out, "\tcmp\t%s, #0\n", r);
+            } else if (c->isa == ISA_AARCH32) {
+                fprintf(out, "\tcmp\t%s, #0\n", r);
             } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
                 /* RISC-V flags materialization: state recorded in c->lowering */
             } else {
@@ -601,7 +619,7 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
                 char lbl_buf[64];
                 snprintf(lbl_buf, sizeof(lbl_buf), ".L%zu_%u", func_idx, (unsigned)instr->label_idx);
                 const char *src_name = BE(c)->get_hw_reg_name(phys_src1);
-                if (c->isa == ISA_AARCH64) {
+                if (c->isa == ISA_AARCH64 || c->isa == ISA_AARCH32) {
                     fprintf(out, "\tcmp\t%s, #0\n", src_name);
                 } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
                     fprintf(out, "\tbeq\t%s, zero, %s\n", src_name, lbl_buf);
@@ -618,7 +636,7 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
                 char lbl_buf[64];
                 snprintf(lbl_buf, sizeof(lbl_buf), ".L%zu_%u", func_idx, (unsigned)instr->label_idx);
                 const char *src_name = BE(c)->get_hw_reg_name(phys_src1);
-                if (c->isa == ISA_AARCH64) {
+                if (c->isa == ISA_AARCH64 || c->isa == ISA_AARCH32) {
                     fprintf(out, "\tcmp\t%s, #0\n", src_name);
                 } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
                     fprintf(out, "\tbne\t%s, zero, %s\n", src_name, lbl_buf);
@@ -634,6 +652,11 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             if (BE(c)->emit_jlt_asm) {
                 char lbl_buf[64];
                 snprintf(lbl_buf, sizeof(lbl_buf), ".L%zu_%u", func_idx, (unsigned)instr->label_idx);
+                if (c->isa == ISA_AARCH64 || c->isa == ISA_AARCH32) {
+                    const char *src1_name = BE(c)->get_hw_reg_name(phys_src1);
+                    const char *src2_name = BE(c)->get_hw_reg_name(phys_src2);
+                    fprintf(out, "\tcmp\t%s, %s\n", src1_name, src2_name);
+                }
                 BE(c)->emit_jlt_asm(c, lbl_buf, out);
             }
             return;
@@ -642,6 +665,11 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             if (BE(c)->emit_jle_asm) {
                 char lbl_buf[64];
                 snprintf(lbl_buf, sizeof(lbl_buf), ".L%zu_%u", func_idx, (unsigned)instr->label_idx);
+                if (c->isa == ISA_AARCH64 || c->isa == ISA_AARCH32) {
+                    const char *src1_name = BE(c)->get_hw_reg_name(phys_src1);
+                    const char *src2_name = BE(c)->get_hw_reg_name(phys_src2);
+                    fprintf(out, "\tcmp\t%s, %s\n", src1_name, src2_name);
+                }
                 BE(c)->emit_jle_asm(c, lbl_buf, out);
             }
             return;
@@ -650,6 +678,11 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             if (BE(c)->emit_jgt_asm) {
                 char lbl_buf[64];
                 snprintf(lbl_buf, sizeof(lbl_buf), ".L%zu_%u", func_idx, (unsigned)instr->label_idx);
+                if (c->isa == ISA_AARCH64 || c->isa == ISA_AARCH32) {
+                    const char *src1_name = BE(c)->get_hw_reg_name(phys_src1);
+                    const char *src2_name = BE(c)->get_hw_reg_name(phys_src2);
+                    fprintf(out, "\tcmp\t%s, %s\n", src1_name, src2_name);
+                }
                 BE(c)->emit_jgt_asm(c, lbl_buf, out);
             }
             return;
@@ -659,6 +692,11 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
                 BE(c)->emit_jle_asm || BE(c)->emit_jgt_asm || BE(c)->emit_jge_asm) {
                 char lbl_buf[64];
                 snprintf(lbl_buf, sizeof(lbl_buf), ".L%zu_%u", func_idx, (unsigned)instr->label_idx);
+                if (c->isa == ISA_AARCH64 || c->isa == ISA_AARCH32) {
+                    const char *src1_name = BE(c)->get_hw_reg_name(phys_src1);
+                    const char *src2_name = BE(c)->get_hw_reg_name(phys_src2);
+                    fprintf(out, "\tcmp\t%s, %s\n", src1_name, src2_name);
+                }
                 switch (instr->cond) {
                     case 0: if (BE(c)->emit_jlt_asm) BE(c)->emit_jlt_asm(c, lbl_buf, out); break;
                     case 1: if (BE(c)->emit_jle_asm) BE(c)->emit_jle_asm(c, lbl_buf, out); break;
@@ -676,6 +714,9 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             if (c->isa == ISA_AARCH64) {
                 fprintf(out, "\tadrp\t%s, .Lrodata+%zu\n", dst_name, rodata_offset);
                 fprintf(out, "\tadd\t%s, %s, :lo12:.Lrodata+%zu\n", dst_name, dst_name, rodata_offset);
+            } else if (c->isa == ISA_AARCH32) {
+                /* ARM PC-relative addressing: LDR dst, [pc, #offset] */
+                fprintf(out, "\tldr\t%s, [pc, #%zu]\n", dst_name, rodata_offset);
             } else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
                 /* NOTE: `lla dst, .Lrodata+off` (and %pcrel_hi(sym+off)) are
                  * broken in binutils 2.41 for symbol+offset references on

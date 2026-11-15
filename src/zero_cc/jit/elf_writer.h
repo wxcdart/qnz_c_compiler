@@ -55,8 +55,8 @@ typedef enum {
     ELF_MACHINE_NONE      = 0,   // No machine
     ELF_MACHINE_X86_64    = 62,  // AMD x86-64
     ELF_MACHINE_AARCH64   = 183, // ARM AArch64
-    ELF_MACHINE_RISCV64   = 243, // RISC-V 64-bit
-    ELF_MACHINE_RISCV32   = 244, // RISC-V 32-bit
+    ELF_MACHINE_ARM       = 40,  // ARM AArch32 (ARMv7-A), Sprint 185 Phase 1
+    ELF_MACHINE_RISCV     = 243, // RISC-V (both 32-bit and 64-bit)
 } ElfMachineType;
 
 // RISC-V e_flags EF_RISCV_FLOAT_ABI values, per the RISC-V psABI (SOFT=0,
@@ -276,6 +276,7 @@ typedef struct {
 typedef struct {
     // Configuration
     ElfMachineType machine;
+    bool is_32;                    /* true for 32-bit ELF (ELFCLASS32), false for 64-bit (ELFCLASS64) */
     const char* output_path;
 
     // Section data
@@ -323,7 +324,7 @@ typedef struct {
  * @param machine Target machine type
  * @return true on success, false on error
  */
-bool elf_writer_init(ElfWriterCtx* ctx, ElfMachineType machine);
+bool elf_writer_init(ElfWriterCtx* ctx, ElfMachineType machine, bool is_32);
 
 /* Index (1-based) of an already-added section by name, or 0 if absent.
  * Use this instead of hardcoded section positions when adding symbols or

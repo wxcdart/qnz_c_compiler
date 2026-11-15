@@ -423,7 +423,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     bool can_promote_params = false;
     if (!needs_protect && lowering_fn && !c->debug_info) {
         ZeroCCFunction *fn = lowering_fn;
-        int max_int_params = (c->isa == ISA_X86_64) ? 3 : 8;
+        int max_int_params = (c->isa == ISA_X86_64) ? 3 : BE(c)->conv->int_arg_reg_count;
         if (!fn->is_variadic && fn->ret_struct_sz <= 16 &&
             c->local_count == fn->param_count &&
             !zero_cc_ast_has_call(arena, root, NULL) &&
@@ -816,7 +816,8 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                 ir_emit_param_save_int(c, int_idx, sym->stack_offset);
                 int_idx++;
             } else if (!is_fp) {
-                int32_t caller_off = 16 + (c->isa == ISA_RISCV32 ? 4 : 8) * stack_idx;
+                int32_t caller_off = (c->isa == ISA_AARCH32 ? 8 : 16) +
+                                     ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) ? 4 : 8) * stack_idx;
                 ir_emit_load(c, VREG_0, BE(c)->fp_reg, caller_off);
                 ir_emit_store(c, VREG_0, BE(c)->fp_reg, -sym->stack_offset);
                 stack_idx++;
@@ -1345,7 +1346,8 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
              * so this is FP-omission geometry with a realign prefix. */
             c->lowering.omit_frame_pointer = true;
             c->lowering.frame_delta = (int32_t)total_frame_size;
-        } else if (omit_wanted && !c->lowering.is_frameless && !is_variadic_fn && !c->lowering.has_frame_address) {
+        } else if (omit_wanted && !c->lowering.is_frameless && !is_variadic_fn && !c->lowering.has_frame_address &&
+                   c->isa != ISA_AARCH32) {
             bool has_vla = false;
             for (size_t i = 0; i < ir_count; i++) {
                 if (ir_buf[i].op == OP_VLA_ALLOC) { has_vla = true; break; }

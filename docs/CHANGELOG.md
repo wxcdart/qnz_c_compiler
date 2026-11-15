@@ -1,5 +1,38 @@
 # CHANGELOG
 
+## [Sprint 185] - 2026-11-15 - AArch32 Backend (ARMv7-A 32-bit ELF, Direct MC Codegen & Own-Linker Execution)
+
+Implements full AArch32 (ARMv7-A, 32-bit little-endian) target architecture support (`--target=aarch32`, `ISA_AARCH32`):
+- **Target Definition & Calling Convention (AAPCS32)**:
+  - Register architecture: 16 GPRs (`r0..r15`), `sp = r13`, `lr = r14`, `pc = r15`, `fp = r11`.
+  - Argument registers: `r0..r3` (up to 4 integer arguments in registers, remaining on stack at 4-byte alignment).
+  - Return registers: `r0` (32-bit), `r0`/`r1` (64-bit / 5-8 byte struct return).
+  - Callee-saved registers: `r4..r11`. Scratch/temporary: `r12` (`ip`, scratch 1), `r9` (scratch 2).
+  - Register allocator (`regalloc_set_isa`): configured allocatable pools (`r0..r3`, `r4..r8`, `r10`) and callee-saved tracking for AArch32.
+- **Machine Code (MC) Emission (`src/zero_cc/isa/aarch32.c`)**:
+  - Implemented complete 32-bit ARM instruction encodings: data processing (`ADD`, `SUB`, `RSB`, `MUL`, `AND`, `ORR`, `EOR`, `MOV`, `MVN`, `CMP`, `TST`), ARM rotated immediate encoding (`arm32_encode_imm`), 16-bit wide immediate loads (`MOVW`/`MOVT`).
+  - Integer divide/modulo: `SDIV`/`UDIV` instructions (ARMv7-A IDIV extension) and expanding `MOD` via `SDIV` + `MLS`/`MUL`+`SUB`.
+  - Bit shifts: register shifts (`LSL`, `LSR`, `ASR` with register shift specifier).
+  - Memory operations: `LDR`/`STR` (word, unsigned byte, unsigned halfword, signed byte, signed halfword) with immediate and register offset addressing; fixed missing bit 26 (`1u << 26`) in `ARM_LDR_STR`.
+  - Branches and conditions: conditional execution flags, PC-relative branches (`B`, `BL`), `aarch32_patch_jmp` label resolution preserving top condition/opcode bits, and returns via `bx lr` (`0xE12FFF1E`).
+  - Stack management: `aarch32_emit_push_reg` (`str reg, [sp, #-4]!`) and `aarch32_emit_pop_reg` (`ldr reg, [sp], #4`).
+- **Relocations & Own Linker Integration (`src/zero_cc/linker/linker.c`, `src/main.c`, `src/zero_cc/jit/elf_writer.c`)**:
+  - Relocations emitted in ELF32 relocatable objects: `R_ARM_CALL` (28), `R_ARM_MOVW_ABS_NC` (43), `R_ARM_MOVT_ABS` (44), `R_ARM_ABS32` (2).
+  - Own-linker (`--zerocc-link`) ARM relocation resolver: handles `R_ARM_NONE` (0), `R_ARM_PC24` (1), `R_ARM_ABS32` (2), `R_ARM_REL32` (3), `R_ARM_CALL` (28), `R_ARM_JUMP24` (29), `R_ARM_V4BX` (40), `R_ARM_MOVW_ABS_NC` (43), and `R_ARM_MOVT_ABS` (44).
+  - 16-byte AArch32 `_start` stub in own linker: `bl main`, `mov r7, #1`, `swi #0` (`sys_exit`).
+- **Stack-Passed Call Arguments**:
+  - Configured 4-byte stack slot sizing (`slot_sz = 4`) for `ISA_AARCH32` in `ast_lowering_mc_call.c` and caller argument loading in `ast_lowering.c`.
+  - Removed faulty caller-frame store callback in favor of uniform outgoing `sp`-relative stack pushes.
+- **Verification Outcomes**:
+  - Multi-argument calls, recursion, integer arithmetic, bit shifts, narrow loads/stores, arrays, loops, and globals execute cleanly under `qemu-arm-static` at `-O0`, `-O1`, `-O2`, and `-O3`.
+  - `make test`: **233/233 passed** (0 failed).
+  - `make test-opt`: **189 tests: 131 ok, 0 failed, 58 skipped, 1 nondeterministic**.
+  - `make test-san`: **720 ok, 0 FAIL (174 cross), 534 flagged runs**.
+  - `python3 tools/verify/isa_qemu_diff.py --isa riscv32`: **15/15 passed** (all 4 target ISAs 100% green).
+  - `python3 tools/verify/style_check.py`: **189 files, 0 error(s)**.
+
+---
+
 ## [Sprint 184] - 2026-11-14 - Self-Hosting Epic: Stage 1, Stage 2, Stage 3 & Stage 4 (Own-Linker Bootstrap & Reproducible Fixed-Point Convergence)
 
 Achieves complete self-hosting bootstrapping and reproducible fixed-point binary convergence:
