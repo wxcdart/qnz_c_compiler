@@ -1739,10 +1739,10 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                              * 8-byte FLOAD reads past the member into the
                              * adjacent bytes of the struct. */
                             int a4 = zc_alloc_temp(c);
-                            ir_emit_lea(c, a4, TEMP_NONE, (int16_t)total_offset);
+                            ir_emit_lea(c, a4, TEMP_NONE, total_offset);
                             ir_emit_vloadss(c, (uint32_t)val_temp, (uint32_t)a4);
                         } else {
-                            ir_emit_fload(c, (uint32_t)val_temp, TEMP_NONE, (int16_t)total_offset);
+                            ir_emit_fload(c, (uint32_t)val_temp, TEMP_NONE, total_offset);
                         }
                         c->last_expr_is_float = 1;
                         return val_temp;
@@ -1811,10 +1811,10 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                 if (member_is_float) {
                     if (member_sz == 4) {
                         int a4 = zc_alloc_temp(c);
-                        ir_emit_lea(c, a4, TEMP_NONE, (int16_t)total_offset);
+                        ir_emit_lea(c, a4, TEMP_NONE, total_offset);
                         ir_emit_vloadss(c, (uint32_t)val_temp, (uint32_t)a4);
                     } else {
-                        ir_emit_fload(c, (uint32_t)val_temp, TEMP_NONE, (int16_t)total_offset);
+                        ir_emit_fload(c, (uint32_t)val_temp, TEMP_NONE, total_offset);
                     }
                     c->last_expr_is_float = 1;
                     return val_temp;

@@ -1,8 +1,8 @@
 # CHANGELOG
 
-## [Sprint 184] - 2026-11-14 - Self-Hosting Epic: Stage 1 & Stage 2 (Self-Compilation & Self-Linking)
+## [Sprint 184] - 2026-11-14 - Self-Hosting Epic: Stage 1, Stage 2 & Stage 3 (Self-Compilation, Self-Linking & Fixed-Point Convergence)
 
-Implements Stage 1 (100% clean compilation of all 76 compiler translation units under `zerocc -c`) and Stage 2 (self-linking and execution of `build/bin/zerocc-stage1`):
+Achieves complete self-hosting bootstrapping and reproducible fixed-point binary convergence:
 - **Stage 1 (Self-Compilation of all 76 Translation Units)**:
   - Fixed aggregate initializer evaluation in `src/zero_cc/parser/init_common.c` to accept external and function addresses (`&__TMC_END__[0]`, `dlopen`).
   - Added ISO C99 constant macros (`INT64_C`, `UINT64_C`) to virtual `<stdint.h>`.
@@ -14,14 +14,19 @@ Implements Stage 1 (100% clean compilation of all 76 compiler translation units 
   - Fixed `typeof()` evaluation on anonymous struct/union members in `src/zero_cc/parser/type_parser.h` (`zero_cc_type_find_member`): returns the underlying base type instead of generating an empty member list.
   - Fixed unary `++`/`--` on non-identifier lvalues in `src/zero_cc/ir/ast_lowering_unop.c`: removed stale `|| c->last_expr_is_float` check that miscompiled `c->token_pos++` as double-precision floating-point addition in `zc_eval_const_fp_primary`.
   - Added `make test-stage1` to verify `zerocc-stage1` against `opt_sweep.py` and `test_c23.py`.
+- **Stage 3 (Fixed-Point Bootstrap Convergence: Stage 1 == Stage 2)**:
+  - Fixed 16-bit stack displacement truncation in `src/zero_cc/ir/ast_lowering_expr.c`: removed `(int16_t)` casts on `total_offset` when emitting `ir_emit_fload` and `ir_emit_lea`, allowing stack offsets in functions with large frames (>32KB, such as `lower_expr_builtin`) to use full 32-bit displacements instead of truncating modulo 64KB.
+  - Implemented `tools/verify/self_host_cycle.py` (and `make test-self-host`): compiles all 77 source files with `zerocc-stage1` into `build/stage2/obj/`, links `build/bin/zerocc-stage2`, and performs byte-by-byte comparison against Stage 1.
+  - Added `make stage2` and `make test-stage2` Makefile targets.
 - **Verification Outcomes**:
+  - `make test-self-host`: **77/77 objects (100.0%) and linked binaries (53,230,576 bytes) are 100% BIT-FOR-BIT IDENTICAL**!
   - `make audit-self-host`: **76/76 (100.0%)** translation units compiled with `zerocc -c`.
-  - `ZEROCC=./build/bin/zerocc-stage1 python3 tools/verify/self_host_audit.py`: **76/76 (100.0%)** translation units compiled by `zerocc-stage1` itself.
+  - `ZEROCC=./build/bin/zerocc-stage2 python3 tools/verify/self_host_audit.py`: **76/76 (100.0%)** translation units compiled by `zerocc-stage2`.
+  - `ZEROCC=./build/bin/zerocc-stage2 python3 tools/c23/test_c23.py --all`: **31/31 passed** (2 modes x 4 opt levels).
   - `python3 tools/verify/opt_sweep.py --zerocc ./build/bin/zerocc-stage1`: **189 tests: 131 ok, 0 failed, 58 skipped, 1 nondeterministic**.
-  - `ZEROCC=./build/bin/zerocc-stage1 python3 tools/c23/test_c23.py --all`: **31/31 passed** (2 modes x 4 opt levels).
   - `make test`: **233/233 passed**.
   - `make test-san`: **720 ok, 0 FAIL**.
-  - `python3 tools/verify/style_check.py`: **189 files, 0 error(s), 0 warning(s)**.
+  - `python3 tools/verify/style_check.py`: **188 files, 0 error(s), 0 warning(s)**.
   - `python3 tools/okf/okf.py lint && python3 tools/okf/okf.py index`: **all OKF schemas and reachability verified**.
 
 ---

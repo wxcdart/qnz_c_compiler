@@ -124,7 +124,7 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	test-project-diff test-project-runs \
 	test-isa-qemu test-isa128 test-dlfcn-isa test-driver test-linker \
 	test-c23 test-asm test-opt test-san test-preproc test-fuzz test-perf \
-	audit-self-host stage1 test-stage1 \
+	audit-self-host stage1 test-stage1 stage2 test-stage2 test-self-host \
 	valgrind test-valgrind
 
 all: $(TESTS) $(ZC_BIN) $(BUILD_DIR)/lib/zero_rt.a $(BUILD_DIR)/lib/zero_rt_aarch64.a $(BUILD_DIR)/lib/zero_rt_riscv64.a $(BUILD_DIR)/lib/zero_rt_riscv32.a
@@ -458,12 +458,26 @@ audit-self-host: $(ZC_BIN)
 
 # Self-hosting Stage 2 (Sprint 184): builds zerocc-stage1 using zerocc -c
 stage1: $(ZC_BIN) $(ZC_CC)
-	@python3 tools/toolchain/build_stage1.py
+	@python3 tools/toolchain/build_stage1.py --stage 1
 
 # Verify stage 1 self-hosted binary against test-opt and C23 gates
 test-stage1: stage1
 	@python3 tools/verify/opt_sweep.py --zerocc $(BUILD_DIR)/bin/zerocc-stage1
 	@ZEROCC=$(BUILD_DIR)/bin/zerocc-stage1 python3 tools/c23/test_c23.py --all
+
+# Self-hosting Stage 3 (Sprint 184): builds zerocc-stage2 using zerocc-stage1 -c
+stage2: stage1
+	@python3 tools/toolchain/build_stage1.py --stage 2
+
+# Verify stage 2 self-hosted binary against test-opt and C23 gates
+test-stage2: stage2
+	@python3 tools/verify/opt_sweep.py --zerocc $(BUILD_DIR)/bin/zerocc-stage2
+	@ZEROCC=$(BUILD_DIR)/bin/zerocc-stage2 python3 tools/c23/test_c23.py --all
+
+# Self-hosting bootstrap fixed-point verification gate (Sprint 184 Stage 3):
+# Verifies 100% bit-for-bit identity across all objects and linked binaries (Stage 1 == Stage 2)
+test-self-host: stage1
+	@python3 tools/verify/self_host_cycle.py
 
 # zero_rt: the ZeroCC-owned runtime (heap, minimal stdio, strings, exit).
 # Compiled by zerocc itself; the objects are archived with the system `ar`
