@@ -312,21 +312,19 @@ Goal: no gcc driver, no glibc, no musl, no binutils in the *product path* — so
     - **Phase 5 — Wider Vectors (AVX / AVX2 / SVE)**:
       - Extend x86-64 backend to support 256-bit AVX / AVX2 (`YMM0`–`YMM15`) and VEX prefix encoding.
       - Add SVE / SVE2 scalable vector support on AArch64.
-15. **GPU Compute Acceleration Targets: NVIDIA PTX & Khronos SPIR-V (`--target ptx`, `--target spirv`)** — Compile C compute kernels directly for GPU execution:
-    - **Host-Side Heterogeneous Driving (Supported Today)**: ZeroCC-compiled static executables (`--zerocc-link`) can dynamically load GPU runtime APIs (`libcuda.so`, `libhsa-runtime64.so`, `libze_loader.so`, `libvulkan.so`, `libOpenCL.so`) via `zero_rt`'s in-process dynamic loader to allocate VRAM, upload buffers, launch compute dispatches, and synchronize results across all 4 major GPU vendors (NVIDIA, AMD, Intel, Qualcomm).
-    - **Track A — NVIDIA CUDA Virtual Assembly (`--target ptx`)**:
-      - *Architecture*: PTX (Parallel Thread Execution) is NVIDIA's low-level virtual assembly ISA. ZeroCC's flat 3-address `Instr` IR maps cleanly to PTX instructions (`ld.global.f32`, `st.global.f32`, `add.f32`, `mul.f32`, `fma.rn.f32`, `setp.lt.f32`, etc.).
-      - *Driver JIT Compilation*: ZeroCC emits `.ptx` text files or in-memory strings. The host driver (`libcuda.so`) JIT-compiles PTX directly into native SASS microcode via `cuModuleLoadDataEx()`, supporting Volta, Ampere, Ada Lovelace, Hopper, and Blackwell with zero proprietary hardware microcode reverse-engineering.
-      - *Language Extensions*: Add kernel qualifiers (`__global__`, `__device__`), thread/block index builtins (`%tid.x`, `%ctaid.x`, `%ntid.x`), and local/shared memory specifiers (`__shared__`).
-    - **Track B — Universal Khronos Bytecode (`--target spirv`)**:
-      - *Architecture*: SPIR-V (Standard Portable Intermediate Representation) is the vendor-neutral, binary intermediate language standardized by Khronos for Vulkan Compute and OpenCL.
-      - *Universal Hardware Coverage*: A single `--target spirv` binary bytecode emitter allows ZeroCC compute kernels to execute across:
-        - **Qualcomm Snapdragon / Adreno** mobile GPUs (via Vulkan Compute or OpenCL).
-        - **Intel Arc & Data Center GPUs** (via Intel Level Zero or OpenCL).
-        - **AMD Radeon & Instinct** (via Vulkan or ROCm OpenCL).
-        - **Apple Silicon** (via Vulkan on MoltenVK).
-        - **NVIDIA GeForce** (via Vulkan Compute).
-      - *Execution Path*: ZeroCC emits binary `.spv` files (stream of 32-bit SPIR-V instruction words). The host loads the `.spv` module directly into Vulkan via `vkCreateShaderModule()` or OpenCL via `clCreateProgramWithIL()`.
+15. **GPU Compute Acceleration Architecture (`zero-gpu` Companion Toolchain)**:
+    - **Decoupled Architecture**: Following architectural review, GPU SIMT/kernel compilation is decoupled from ZeroCC's core C pipeline into a standalone Python package (`zero-gpu`). This avoids corrupting ZeroCC's CPU/baremetal pipeline with non-physical register models (PTX virtual registers, SPIR-V SSA IDs), multi-address-space qualifiers (`__global`, `__shared`), and non-ELF bytecode formats.
+    - **Host-Side Heterogeneous Driving (Supported Today in ZeroCC)**: ZeroCC-compiled static executables (`--zerocc-link`) dynamically load GPU runtime APIs (`libcuda.so`, `libhsa-runtime64.so`, `libze_loader.so`, `libvulkan.so`, `libOpenCL.so`) via `zero_rt`'s in-process dynamic loader to allocate VRAM, upload buffers, launch compute dispatches, and synchronize results.
+    - **Track A — NVIDIA CUDA Virtual Assembly (`zero-gpu --target ptx`)**: Emits `.ptx` virtual assembly text; NVIDIA driver JIT-compiles to hardware SASS via `cuModuleLoadDataEx()`.
+    - **Track B — Universal Khronos Bytecode (`zero-gpu --target spirv`)**: Emits `.spv` 32-bit binary bytecode stream; host loads into Vulkan via `vkCreateShaderModule()` or OpenCL via `clCreateProgramWithIL()`.
+    - **ZeroCC Integration**: `zero-gpu` generates standalone `.spv`/`.ptx` files and exports C header arrays (`const uint32_t kernel_spv[] = {...};`), which ZeroCC compiles directly into the host binary and links via `--zerocc-link`.
+
+16. **Multi-ISA Backend Architecture & Baremetal Refactoring**:
+    - **Phase 1 — `TargetTraits` / `TargetConfig` Extraction**: Consolidate target properties (pointer size, word size, stack alignment, red zone presence, return registers, DWARF relocation types) into a single struct, eliminating over 40 ad-hoc `(c->isa == ...) ? 4 : 8` checks in AST lowering and `dwarf.c`.
+    - **Phase 2 — Table-Driven Register Allocation**: Extract hardcoded ISA register reservations and scratch assignments from `regalloc.h` into declarative `TargetRegDesc` tables inside `ISARegInfo`.
+    - **Phase 3 — Decoupled ABI Lowering Hooks**: Replace ISA checks in `ast_lowering_call.c` and `ast_lowering_varargs.c` with backend vtable hooks (`classify_arg`, `classify_return`).
+    - **Phase 4 — Modular Linker Relocation Ops**: Refactor `src/zero_cc/linker/linker.c` into a clean ELF engine delegating architecture-specific relocations and PLT stubs to `TargetLinkerOps`.
+    - **Phase 5 — Baremetal CPU Targets (Cortex-M, RV32E, Xtensa)**: Support linker scripts (`-T script.ld`) with distinct LMA (Flash) vs. VMA (SRAM) memory regions in `linker.c`, an OS-free `crt0` in `zero_rt_baremetal.a` (reset vector, BSS zeroing, Flash-to-RAM copying), and 16-register embedded register sets.
 
 **End state:** `zerocc source + zero_rt source → static verified executables on all 4 ISAs with no system C toolchain in the loop`; gcc appears only as the pinned differential oracle (and, until item 7 lands, as the bootstrap builder of zerocc₀).
 

@@ -52,7 +52,7 @@ Welcome to the **ZeroCC Knowledge Graph**. Start here to navigate architectural 
 - **[System V AMD64 ABI & Struct Calling Conventions](./abi-sysv-x86_64.md)**
   - Integer (`%rdi`..`%r9`) and FP (`%xmm0`..`%xmm7`) register passing, stack arguments, variadic `va_start` spilling, struct by-value (`<=8B`, `9-16B`, `>16B`), and hidden pointer (`sret`) returns for `>16B` structs (direct & indirect calls).
 - **[Multi-ISA Backends (x86-64, AArch64, RISC-V)](./isa-backends.md)**
-  - `ZeroCCISABackend` vtable dispatch, JIT machine code emission vs AOT `.s` assembly emission, parallel call argument setup (`push`/`pop` & `%r11` indirect call scratch), and ELF/JIT relocation resolution.
+  - `ZeroCCISABackend` vtable dispatch, JIT machine code emission vs AOT `.s` assembly emission, target architecture refactoring roadmap (native CPU & baremetal), decoupled `zero-gpu` Python companion toolchain, parallel call argument setup (`push`/`pop` & `%r11` indirect call scratch), and ELF/JIT relocation resolution.
 - **[Global Variables, Data Section & Pointer Relocations](./global-data-relocs.md)**
   - File-scope initializers (scalars, IEEE-754 floats, aggregate/designated init, char arrays from strings), `ZeroCCDataReloc`, JIT data-page patching, and AOT `.rela.<sec>` emission.
 - **[Static TLS (`_Thread_local`) Support](./tls-static.md)**

@@ -23,6 +23,10 @@ Implements full AArch32 (ARMv7-A, 32-bit little-endian) target architecture supp
 - **Stack-Passed Call Arguments**:
   - Configured 4-byte stack slot sizing (`slot_sz = 4`) for `ISA_AARCH32` in `ast_lowering_mc_call.c` and caller argument loading in `ast_lowering.c`.
   - Removed faulty caller-frame store callback in favor of uniform outgoing `sp`-relative stack pushes.
+- **Target Architecture & GPU Roadmap Documentation**:
+  - Documented the multi-ISA backend refactoring roadmap in `docs/okf/isa-backends.md` and `docs/ZEROCC_Development_Plan.md`: planned `TargetTraits` extraction, table-driven register allocator configuration (`regalloc.h`), decoupled ABI lowering hooks, and modular `TargetLinkerOps` in `linker.c`.
+  - Added baremetal CPU extension architecture (linker scripts with LMA vs. VMA, freestanding `crt0` without Linux syscalls, reduced 16-register pools like RV32E).
+  - Formalized the domain boundary between ZeroCC (native/baremetal CPU C compiler) and GPU SIMT compilation, establishing `zero-gpu` as a standalone companion Python package targeting PTX text and SPIR-V binary bytecode.
 - **Verification Outcomes**:
   - Multi-argument calls, recursion, integer arithmetic, bit shifts, narrow loads/stores, arrays, loops, and globals execute cleanly under `qemu-arm-static` at `-O0`, `-O1`, `-O2`, and `-O3`.
   - `make test`: **233/233 passed** (0 failed).
