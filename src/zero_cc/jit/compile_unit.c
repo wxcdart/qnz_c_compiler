@@ -52,6 +52,15 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
     }
     c->reloc_count = 0;
     c->user_label_offset_count = 0;
+
+    /* Initialize ISA backend if not already set */
+    if (!c->isa_backend) {
+        c->isa = zero_cc_get_native_backend()->isa;
+        c->isa_backend = zero_cc_get_native_backend();
+    }
+    int ptr_sz = (c->isa == ISA_AARCH32 || c->isa == ISA_RISCV32) ? 4 : 8;
+    type_set_target_metrics(ptr_sz, ptr_sz);
+
     zero_cc_init_standard_types(c);
     c->thread_local_count = 0;
     /* Initialise default TLS backend */
@@ -59,12 +68,6 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
     /* Initialize register allocator */
     regalloc_init(&c->regalloc);
     c->next_temp_id = 0;
-
-    /* Initialize ISA backend if not already set */
-    if (!c->isa_backend) {
-        c->isa = zero_cc_get_native_backend()->isa;
-        c->isa_backend = zero_cc_get_native_backend();
-    }
 
     /* Initialize IR arenas if not already initialized */
     if (!c->ir_arena.buffer) {

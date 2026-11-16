@@ -547,7 +547,7 @@ static inline ZeroCCType zero_cc_resolve_base_type(ZeroCCCompiler *c, ZeroCCTokT
     if (type_tok == TK_CHAR || type_tok == TK_BOOL_KW) return zero_cc_type_char();
     if (type_tok == TK_SHORT) return zero_cc_type_int16();
     if (type_tok == TK_INT) return zero_cc_type_int();
-    if (type_tok == TK_LONG) return (c->isa == ISA_RISCV32) ? zero_cc_type_int() : zero_cc_type_int64();
+    if (type_tok == TK_LONG) return (c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) ? zero_cc_type_int() : zero_cc_type_int64();
     if (type_tok == TK_FLOAT_KW) return zero_cc_type_float();
     if (type_tok == TK_DOUBLE_KW) return zero_cc_type_double();
     if (type_tok == TK_VOID) return zero_cc_type_void();
@@ -582,7 +582,7 @@ static inline ZeroCCType zero_cc_resolve_base_type(ZeroCCCompiler *c, ZeroCCTokT
         return et ? *et : zero_cc_type_enum(type_name);
     }
     if (type_name) {
-        if (strcmp(type_name, "__builtin_va_list") == 0) return zero_cc_type_va_list();
+        if (strcmp(type_name, "__builtin_va_list") == 0) return zero_cc_type_va_list_arch(c->isa);
         /* GNU __int128 / __uint128_t (Sprint 109): 16-byte scalar base. */
         if (strcmp(type_name, "__int128") == 0 || strcmp(type_name, "__int128_t") == 0)
             return zero_cc_type_int128();

@@ -476,10 +476,13 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
         int g64_np = BE(c)->g128_scratch_pair_count;
         int p64_s1 = -1, p64_s2 = -1, p64_dst = -1;
         if (s164_sp && g64_np > 0) p64_s1 = 0;
-        if (s264_sp && g64_np > 1) p64_s2 = 1;
+        if (s264_sp) {
+            if (p64_s1 < 0 && g64_np > 0) p64_s2 = 0;
+            else if (g64_np > 1) p64_s2 = 1;
+        }
         if (d64_sp) {
-            if (g64_np > 0 && p64_s1 < 0) p64_dst = 0;
-            else if (g64_np > 1 && p64_s2 < 0) p64_dst = 1;
+            if (g64_np > 0 && p64_s1 < 0 && p64_s2 != 0) p64_dst = 0;
+            else if (g64_np > 1 && p64_s1 != 1 && p64_s2 != 1) p64_dst = 1;
             else p64_dst = p64_s1;  /* all three spilled: in-place into src1's pair */
         }
         int g64_dlo = phys_dst, g64_dhi = regalloc_get_reg_hi_for_temp(&c->regalloc, instr->temp_dest);
@@ -495,7 +498,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
             int32_t off_b = spill_base_offset + (spill_src2 + 1) * 8;
             int base_r = BE(c)->scratch_reg1, tmp_r = BE(c)->scratch_reg2;
             BE(c)->emit_load(c, base_r, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_b));
-            if (g64_np > 0) {
+            if (g64_np > 0 && BE(c)->g128_scratch_lo[0] != base_r && BE(c)->g128_scratch_hi[0] != base_r) {
                 BE(c)->emit_load(c, BE(c)->g128_scratch_lo[0], zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_v));
                 BE(c)->emit_load(c, BE(c)->g128_scratch_hi[0], zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off_v + 4));
                 BE(c)->emit_store(c, BE(c)->g128_scratch_lo[0], base_r, 0);
@@ -862,70 +865,85 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
              * g128_s2hi are the high halves, both spill-aware (a spilled GPR128 temp
              * is reloaded into a reserved scratch pair; see the block above). */
             case OP_ADD128:
-                BE(c)->emit_add128(c, phys_dst, g128_dhi,
-                    phys_src1, g128_s1hi,
-                    phys_src2, g128_s2hi);
+                if (BE(c)->emit_add128)
+                    BE(c)->emit_add128(c, phys_dst, g128_dhi,
+                        phys_src1, g128_s1hi,
+                        phys_src2, g128_s2hi);
                 break;
             case OP_SUB128:
-                BE(c)->emit_sub128(c, phys_dst, g128_dhi,
-                    phys_src1, g128_s1hi,
-                    phys_src2, g128_s2hi);
+                if (BE(c)->emit_sub128)
+                    BE(c)->emit_sub128(c, phys_dst, g128_dhi,
+                        phys_src1, g128_s1hi,
+                        phys_src2, g128_s2hi);
                 break;
             case OP_MUL128:
-                BE(c)->emit_mul128(c, phys_dst, g128_dhi,
-                    phys_src1, g128_s1hi,
-                    phys_src2, g128_s2hi);
+                if (BE(c)->emit_mul128)
+                    BE(c)->emit_mul128(c, phys_dst, g128_dhi,
+                        phys_src1, g128_s1hi,
+                        phys_src2, g128_s2hi);
                 break;
             case OP_AND128:
-                BE(c)->emit_and128(c, phys_dst, g128_dhi,
-                    phys_src1, g128_s1hi,
-                    phys_src2, g128_s2hi);
+                if (BE(c)->emit_and128)
+                    BE(c)->emit_and128(c, phys_dst, g128_dhi,
+                        phys_src1, g128_s1hi,
+                        phys_src2, g128_s2hi);
                 break;
             case OP_OR128:
-                BE(c)->emit_or128(c, phys_dst, g128_dhi,
-                    phys_src1, g128_s1hi,
-                    phys_src2, g128_s2hi);
+                if (BE(c)->emit_or128)
+                    BE(c)->emit_or128(c, phys_dst, g128_dhi,
+                        phys_src1, g128_s1hi,
+                        phys_src2, g128_s2hi);
                 break;
             case OP_XOR128:
-                BE(c)->emit_xor128(c, phys_dst, g128_dhi,
-                    phys_src1, g128_s1hi,
-                    phys_src2, g128_s2hi);
+                if (BE(c)->emit_xor128)
+                    BE(c)->emit_xor128(c, phys_dst, g128_dhi,
+                        phys_src1, g128_s1hi,
+                        phys_src2, g128_s2hi);
                 break;
             case OP_NOT128:
-                BE(c)->emit_not128(c, phys_dst, g128_dhi,
-                    phys_src1, g128_s1hi);
+                if (BE(c)->emit_not128)
+                    BE(c)->emit_not128(c, phys_dst, g128_dhi,
+                        phys_src1, g128_s1hi);
                 break;
             case OP_NEG128:
-                BE(c)->emit_neg128(c, phys_dst, g128_dhi,
-                    phys_src1, g128_s1hi);
+                if (BE(c)->emit_neg128)
+                    BE(c)->emit_neg128(c, phys_dst, g128_dhi,
+                        phys_src1, g128_s1hi);
                 break;
             case OP_MOV128:
-                BE(c)->emit_mov128(c, phys_dst, g128_dhi,
-                    phys_src1, g128_s1hi);
+                if (BE(c)->emit_mov128)
+                    BE(c)->emit_mov128(c, phys_dst, g128_dhi,
+                        phys_src1, g128_s1hi);
                 break;
             case OP_MOV128_IMM:
-                BE(c)->emit_mov128_imm(c, phys_dst, g128_dhi,
-                    instr->imm64);
+                if (BE(c)->emit_mov128_imm)
+                    BE(c)->emit_mov128_imm(c, phys_dst, g128_dhi,
+                        instr->imm64);
                 break;
             case OP_LOAD128:
-                BE(c)->emit_load128(c, phys_dst, g128_dhi,
-                    phys_src1, 0);
+                if (BE(c)->emit_load128)
+                    BE(c)->emit_load128(c, phys_dst, g128_dhi,
+                        phys_src1, 0);
                 break;
             case OP_STORE128:
-                BE(c)->emit_store128(c, phys_src1,
-                    g128_s1hi,
-                    phys_src2, 0);
+                if (BE(c)->emit_store128)
+                    BE(c)->emit_store128(c, phys_src1,
+                        g128_s1hi,
+                        phys_src2, 0);
                 break;
             case OP_ZEXT64_128:
-                BE(c)->emit_zext64_128(c, phys_dst, g128_dhi,
-                    phys_src1);
+                if (BE(c)->emit_zext64_128)
+                    BE(c)->emit_zext64_128(c, phys_dst, g128_dhi,
+                        phys_src1);
                 break;
             case OP_SEXT64_128:
-                BE(c)->emit_sext64_128(c, phys_dst, g128_dhi,
-                    phys_src1);
+                if (BE(c)->emit_sext64_128)
+                    BE(c)->emit_sext64_128(c, phys_dst, g128_dhi,
+                        phys_src1);
                 break;
             case OP_TRUNC128_64:
-                BE(c)->emit_trunc128_64(c, phys_dst, phys_src1);
+                if (BE(c)->emit_trunc128_64)
+                    BE(c)->emit_trunc128_64(c, phys_dst, phys_src1);
                 break;
             case OP_LO128:
                 BE(c)->emit_mov_reg(c, phys_dst, phys_src1);  /* dest = src1.lo (phys_src1 is spill-aware) */
@@ -1941,7 +1959,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
             case OP_SETJMP: {
                 int s2 = BE(c)->scratch_reg2;
                 int ret_reg = BE(c)->get_int_reg ? BE(c)->get_int_reg(VREG_0) : 0;
-                int32_t w = (c->isa == ISA_RISCV32) ? 4 : 8;
+                int32_t w = (c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) ? 4 : 8;
                 /* buf[0] = FP, buf[2] = SP (via s2 for AArch64 SP encoding),
                  * buf[1] = .Lsetjmp_resume PC, VREG_0 = 0, then .Lsetjmp_resume: */
                 BE(c)->emit_store(c, BE(c)->fp_reg, phys_src1, 0);
@@ -1958,7 +1976,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 int s1 = BE(c)->scratch_reg1;
                 int s2 = BE(c)->scratch_reg2;
                 int ret_reg = BE(c)->get_int_reg ? BE(c)->get_int_reg(VREG_0) : 0;
-                int32_t w = (c->isa == ISA_RISCV32) ? 4 : 8;
+                int32_t w = (c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) ? 4 : 8;
                 /* s1 = buf (never aliases phys_src2), VREG_0 = val,
                  * FP = buf[0], SP = buf[2], jmp *buf[1] */
                 BE(c)->emit_mov_reg(c, s1, phys_src1);

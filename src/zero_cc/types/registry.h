@@ -276,7 +276,7 @@ static inline void zero_cc_init_standard_types(ZeroCCCompiler *c) {
     zero_cc_register_typedef(c, "uint32_t", zero_cc_type_uint32());
     zero_cc_register_typedef(c, "unsigned", zero_cc_type_uint32());
     zero_cc_register_typedef(c, "unsigned int", zero_cc_type_uint32());
-    if (c->isa == ISA_RISCV32) {
+    if (c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) {
         zero_cc_register_typedef(c, "long", zero_cc_type_int());
         zero_cc_register_typedef(c, "unsigned long", zero_cc_type_uint32());
         zero_cc_register_typedef(c, "size_t", zero_cc_type_uint32());

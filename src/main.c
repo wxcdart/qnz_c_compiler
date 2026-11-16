@@ -93,6 +93,30 @@ static char *preprocess_with_options(const char *source, const CompileOptions *o
         defines.defs[defines.count].name = strdup("__LP64__");
         defines.defs[defines.count].value = strdup("1");
         defines.undef[defines.count++] = 0;
+    } else if (target_isa == ISA_AARCH32) {
+        defines.defs[defines.count].name = strdup("__x86_64__");
+        defines.defs[defines.count].value = NULL;
+        defines.undef[defines.count++] = 1;
+
+        defines.defs[defines.count].name = strdup("__LP64__");
+        defines.defs[defines.count].value = NULL;
+        defines.undef[defines.count++] = 1;
+
+        defines.defs[defines.count].name = strdup("__arm__");
+        defines.defs[defines.count].value = strdup("1");
+        defines.undef[defines.count++] = 0;
+
+        defines.defs[defines.count].name = strdup("__ARM_ARCH_7A__");
+        defines.defs[defines.count].value = strdup("1");
+        defines.undef[defines.count++] = 0;
+
+        defines.defs[defines.count].name = strdup("__ARM_EABI__");
+        defines.defs[defines.count].value = strdup("1");
+        defines.undef[defines.count++] = 0;
+
+        defines.defs[defines.count].name = strdup("__ILP32__");
+        defines.defs[defines.count].value = strdup("1");
+        defines.undef[defines.count++] = 0;
     } else if (target_isa == ISA_RISCV64) {
         defines.defs[defines.count].name = strdup("__x86_64__");
         defines.defs[defines.count].value = NULL;
@@ -397,6 +421,8 @@ void zero_cc_init_compiler_with_target(ZeroCCCompiler *comp, ZeroCCISA target_is
     }
     comp->isa = target_isa;
     comp->isa_backend = backend;
+    int ptr_sz = (target_isa == ISA_AARCH32 || target_isa == ISA_RISCV32) ? 4 : 8;
+    type_set_target_metrics(ptr_sz, ptr_sz);
     comp->omit_frame_pointer = -1; /* default: auto (omit at -O1+); CLI overrides */
     comp->local_lookup_bound = -1; /* default: unbounded */
     comp->parse_struct_body = zero_cc_parse_struct_body;
@@ -1598,6 +1624,7 @@ static int compile_and_link(CompileOptions *opts) {
     if (rt_env && rt_env[0]) {
         snprintf(rt_path, sizeof rt_path, "%s", rt_env);
     } else if (target_isa == ISA_X86_64 || target_isa == ISA_AARCH64 ||
+               target_isa == ISA_AARCH32 ||
                target_isa == ISA_RISCV64 || target_isa == ISA_RISCV32) {
         char self[512];
         ssize_t n = readlink("/proc/self/exe", self, sizeof self - 1);

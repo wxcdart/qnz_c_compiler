@@ -731,7 +731,7 @@ static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c, ZeroCCASTArena
              * zero_cc_type_va_list). Recognize it directly so
              * `typedef __builtin_va_list va_list;` yields the correct size
              * instead of falling through to an integer type. */
-            ttype = zero_cc_type_va_list();
+            ttype = zero_cc_type_va_list_arch(c->isa);
             c->token_pos++;
         } else if (tname &&
                    (strcmp(tname, "__int128") == 0 || strcmp(tname, "__int128_t") == 0 ||
@@ -806,7 +806,7 @@ static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c, ZeroCCASTArena
     if (t == TK_SHORT) {
         ttype = is_unsigned ? zero_cc_type_uint16() : zero_cc_type_int16();
     } else if (t == TK_LONG) {
-        if (is_long_long || c->isa != ISA_RISCV32) {
+        if (is_long_long || (c->isa != ISA_RISCV32 && c->isa != ISA_AARCH32)) {
             ttype = is_unsigned ? zero_cc_type_uint64() : zero_cc_type_int64();
         } else {
             ttype = is_unsigned ? zero_cc_type_uint32() : zero_cc_type_int();

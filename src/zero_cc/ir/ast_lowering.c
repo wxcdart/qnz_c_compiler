@@ -453,8 +453,8 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                         can_promote_params = false; break;
                     }
                     /* Sprint 172 (rv32 i64 ABI): 64-bit parameters consume TWO
-                     * GP argument units on rv32 - use the frame path (is_64_scalar). */
-                    if (c->isa == ISA_RISCV32 &&
+                     * GP argument units on rv32/aarch32 - use the frame path (is_64_scalar). */
+                    if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) &&
                         (sym->type.tag == TYPE_INT64 || sym->type.tag == TYPE_UINT64)) {
                         can_promote_params = false; break;
                     }
@@ -1131,6 +1131,10 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                 c->regalloc.used_callee_saved_gpr_mask |= (1u << reg);
             }
         }
+    }
+
+    if (c->isa == ISA_AARCH32 && (c->regalloc.next_spill_slot > 0 || c->regalloc.used_callee_saved_gpr_mask != 0)) {
+        c->regalloc.used_callee_saved_gpr_mask |= (1u << 8) | (1u << 9) | (1u << 10);
     }
 
     if (c->dump_ir) {

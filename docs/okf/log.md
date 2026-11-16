@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-16T00:13:08Z
+timestamp: 2026-11-16T03:08:25Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1542,3 +1542,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-16 — Updated `frontend-and-types.md`
 - AArch32 Phase 2: 64-bit integer frontend integration (local/global load/store, param/return handling)
+
+## 2026-11-16 — Updated `isa-backends.md`
+- Document AArch32 ARMv7-A backend, AAPCS32 ABI, 64-bit pair lowering, and target-aware pointer sizing

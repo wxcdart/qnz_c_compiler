@@ -85,42 +85,80 @@ int lower_expr_va_start(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode 
                 }
             }
 
-            int t;
-            t = zc_alloc_temp(c);
-            ir_emit_lea(c, t, TEMP_NONE, -(save_base + gp_idx * 8));
-            ir_emit_store_64(c, t, ap_addr);             /* +0 gp */
+            if (c->isa == ISA_AARCH32) {
+                int t = zc_alloc_temp(c);
+                ir_emit_lea(c, t, TEMP_NONE, -(save_base + 16 - gp_idx * 4));
+                ir_emit_store_32(c, t, ap_addr);             /* +0 gp */
 
-            t = zc_alloc_temp(c);
-            ir_emit_lea(c, t, TEMP_NONE, -(save_base + gp_regs * 8));
-            int off8 = zc_alloc_temp(c);
-            ir_emit_mov_imm(c, off8, 8);
-            int ap_8 = zc_alloc_temp(c);
-            ir_emit_add(c, ap_8, ap_addr, off8);
-            ir_emit_store_64(c, t, ap_8);                /* +8 gp_end */
+                t = zc_alloc_temp(c);
+                ir_emit_lea(c, t, TEMP_NONE, -save_base);
+                int off4 = zc_alloc_temp(c);
+                ir_emit_mov_imm(c, off4, 4);
+                int ap_4 = zc_alloc_temp(c);
+                ir_emit_add(c, ap_4, ap_addr, off4);
+                ir_emit_store_32(c, t, ap_4);                /* +4 gp_end */
 
-            t = zc_alloc_temp(c);
-            ir_emit_lea(c, t, TEMP_NONE, -(save_base + (gp_regs + fp_idx) * 8));
-            int off16 = zc_alloc_temp(c);
-            ir_emit_mov_imm(c, off16, 16);
-            int ap_16 = zc_alloc_temp(c);
-            ir_emit_add(c, ap_16, ap_addr, off16);
-            ir_emit_store_64(c, t, ap_16);               /* +16 fp */
+                int off8 = zc_alloc_temp(c);
+                ir_emit_mov_imm(c, off8, 8);
+                int ap_8 = zc_alloc_temp(c);
+                ir_emit_add(c, ap_8, ap_addr, off8);
+                ir_emit_store_32(c, t, ap_8);                /* +8 fp */
 
-            t = zc_alloc_temp(c);
-            ir_emit_lea(c, t, TEMP_NONE, -(save_base + (gp_regs + fp_regs) * 8));
-            int off24 = zc_alloc_temp(c);
-            ir_emit_mov_imm(c, off24, 24);
-            int ap_24 = zc_alloc_temp(c);
-            ir_emit_add(c, ap_24, ap_addr, off24);
-            ir_emit_store_64(c, t, ap_24);               /* +24 fp_end */
+                int off12 = zc_alloc_temp(c);
+                ir_emit_mov_imm(c, off12, 12);
+                int ap_12 = zc_alloc_temp(c);
+                ir_emit_add(c, ap_12, ap_addr, off12);
+                ir_emit_store_32(c, t, ap_12);               /* +12 fp_end */
 
-            t = zc_alloc_temp(c);
-            ir_emit_lea(c, t, TEMP_NONE, 16 + 8 * stack_named);
-            int off32 = zc_alloc_temp(c);
-            ir_emit_mov_imm(c, off32, 32);
-            int ap_32 = zc_alloc_temp(c);
-            ir_emit_add(c, ap_32, ap_addr, off32);
-            ir_emit_store_64(c, t, ap_32);               /* +32 ovf */
+                t = zc_alloc_temp(c);
+                int ovf_start = 8;
+                int ovf_step = 4;
+                ir_emit_lea(c, t, TEMP_NONE, ovf_start + ovf_step * stack_named);
+                int off16 = zc_alloc_temp(c);
+                ir_emit_mov_imm(c, off16, 16);
+                int ap_16 = zc_alloc_temp(c);
+                ir_emit_add(c, ap_16, ap_addr, off16);
+                ir_emit_store_32(c, t, ap_16);               /* +16 ovf */
+            } else {
+                int t;
+                t = zc_alloc_temp(c);
+                ir_emit_lea(c, t, TEMP_NONE, -(save_base + gp_idx * 8));
+                ir_emit_store_64(c, t, ap_addr);             /* +0 gp */
+
+                t = zc_alloc_temp(c);
+                ir_emit_lea(c, t, TEMP_NONE, -(save_base + gp_regs * 8));
+                int off8 = zc_alloc_temp(c);
+                ir_emit_mov_imm(c, off8, 8);
+                int ap_8 = zc_alloc_temp(c);
+                ir_emit_add(c, ap_8, ap_addr, off8);
+                ir_emit_store_64(c, t, ap_8);                /* +8 gp_end */
+
+                t = zc_alloc_temp(c);
+                ir_emit_lea(c, t, TEMP_NONE, -(save_base + (gp_regs + fp_idx) * 8));
+                int off16 = zc_alloc_temp(c);
+                ir_emit_mov_imm(c, off16, 16);
+                int ap_16 = zc_alloc_temp(c);
+                ir_emit_add(c, ap_16, ap_addr, off16);
+                ir_emit_store_64(c, t, ap_16);               /* +16 fp */
+
+                t = zc_alloc_temp(c);
+                ir_emit_lea(c, t, TEMP_NONE, -(save_base + (gp_regs + fp_regs) * 8));
+                int off24 = zc_alloc_temp(c);
+                ir_emit_mov_imm(c, off24, 24);
+                int ap_24 = zc_alloc_temp(c);
+                ir_emit_add(c, ap_24, ap_addr, off24);
+                ir_emit_store_64(c, t, ap_24);               /* +24 fp_end */
+
+                t = zc_alloc_temp(c);
+                int ovf_start = (c->isa == ISA_AARCH32) ? 8 : 16;
+                int ovf_step = (c->isa == ISA_AARCH32 || c->isa == ISA_RISCV32) ? 4 : 8;
+                ir_emit_lea(c, t, TEMP_NONE, ovf_start + ovf_step * stack_named);
+                int off32 = zc_alloc_temp(c);
+                ir_emit_mov_imm(c, off32, 32);
+                int ap_32 = zc_alloc_temp(c);
+                ir_emit_add(c, ap_32, ap_addr, off32);
+                ir_emit_store_64(c, t, ap_32);               /* +32 ovf */
+            }
         }
 
         c->last_expr_is_float = 0;
@@ -202,7 +240,143 @@ int lower_expr_va_arg(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
         }
 
         bool is_fp = t_t && (t_t->kind == TYPE_KIND_FLOAT || t_t->kind == TYPE_KIND_DOUBLE);
-        bool use_fp_stream = is_fp && !(c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32);
+        if (c->isa == ISA_AARCH32) {
+            int result_temp = zc_alloc_temp(c);
+            int ap_addr = zero_cc_lower_lvalue_addr(c, arena, node->left);
+            if (ap_addr != TEMP_NONE) {
+                int off_gp_end = 4;
+                int off_ovf = 16;
+
+                int addr_gp = ap_addr;
+                int addr_gp_end = zc_alloc_temp(c);
+                int t4 = zc_alloc_temp(c);
+                ir_emit_mov_imm(c, t4, off_gp_end);
+                ir_emit_add(c, addr_gp_end, ap_addr, t4);
+
+                int addr_ovf = zc_alloc_temp(c);
+                int t16 = zc_alloc_temp(c);
+                ir_emit_mov_imm(c, t16, off_ovf);
+                ir_emit_add(c, addr_ovf, ap_addr, t16);
+
+                uint16_t ovf_label = c->ir_next_label++;
+                uint16_t end_label = c->ir_next_label++;
+
+                bool is_8byte = (is_fp && t_t->kind == TYPE_KIND_DOUBLE) ||
+                                (t_t && type_size(t_t) == 8);
+
+                if (is_8byte) {
+                    /* Double or 64-bit int: 8-byte aligned, 8 bytes size */
+                    int gp_val = zc_alloc_temp(c);
+                    ir_emit_deref(c, gp_val, addr_gp);
+
+                    /* Align gp_val up to 8: gp_aligned = (gp_val + 7) & ~7 */
+                    int t7 = zc_alloc_temp(c);
+                    ir_emit_mov_imm(c, t7, 7);
+                    int t_add = zc_alloc_temp(c);
+                    ir_emit_add(c, t_add, gp_val, t7);
+                    int t_mask = zc_alloc_temp(c);
+                    ir_emit_mov_imm(c, t_mask, -8);
+                    int gp_aligned = zc_alloc_temp(c);
+                    ir_emit_and(c, gp_aligned, t_add, t_mask);
+
+                    int gp_end_val = zc_alloc_temp(c);
+                    ir_emit_deref(c, gp_end_val, addr_gp_end);
+
+                    /* Check if gp_aligned + 8 <= gp_end_val */
+                    int step8 = zc_alloc_temp(c);
+                    ir_emit_mov_imm(c, step8, 8);
+                    int gp_next = zc_alloc_temp(c);
+                    ir_emit_add(c, gp_next, gp_aligned, step8);
+
+                    int cond = zc_alloc_temp(c);
+                    ir_emit_cmp(c, gp_next, gp_end_val);
+                    ir_emit_cond_set(c, cond, CC_LE);
+                    ir_emit_je(c, cond, ovf_label);
+
+                    /* In register save area */
+                    if (is_fp) {
+                        ir_emit_vloadsd(c, (uint32_t)result_temp, (uint32_t)gp_aligned);
+                    } else {
+                        ir_emit_load64(c, result_temp, gp_aligned, 0);
+                    }
+                    ir_emit_store_32(c, gp_next, addr_gp);
+                    ir_emit_jmp(c, end_label);
+
+                    /* In overflow (stack) area */
+                    ir_emit_label(c, ovf_label);
+                    int ovf_val = zc_alloc_temp(c);
+                    ir_emit_deref(c, ovf_val, addr_ovf);
+
+                    /* Align ovf up to 8 */
+                    int ot7 = zc_alloc_temp(c);
+                    ir_emit_mov_imm(c, ot7, 7);
+                    int ot_add = zc_alloc_temp(c);
+                    ir_emit_add(c, ot_add, ovf_val, ot7);
+                    int ot_mask = zc_alloc_temp(c);
+                    ir_emit_mov_imm(c, ot_mask, -8);
+                    int ovf_aligned = zc_alloc_temp(c);
+                    ir_emit_and(c, ovf_aligned, ot_add, ot_mask);
+
+                    if (is_fp) {
+                        ir_emit_vloadsd(c, (uint32_t)result_temp, (uint32_t)ovf_aligned);
+                    } else {
+                        ir_emit_load64(c, result_temp, ovf_aligned, 0);
+                    }
+                    int ostep8 = zc_alloc_temp(c);
+                    ir_emit_mov_imm(c, ostep8, 8);
+                    int new_ovf = zc_alloc_temp(c);
+                    ir_emit_add(c, new_ovf, ovf_aligned, ostep8);
+                    ir_emit_store_32(c, new_ovf, addr_ovf);
+
+                    ir_emit_label(c, end_label);
+                } else {
+                    /* 4-byte scalar (int, pointer, float) */
+                    int gp_val = zc_alloc_temp(c);
+                    ir_emit_deref(c, gp_val, addr_gp);
+                    int gp_end_val = zc_alloc_temp(c);
+                    ir_emit_deref(c, gp_end_val, addr_gp_end);
+
+                    int step4 = zc_alloc_temp(c);
+                    ir_emit_mov_imm(c, step4, 4);
+                    int gp_next = zc_alloc_temp(c);
+                    ir_emit_add(c, gp_next, gp_val, step4);
+
+                    int cond = zc_alloc_temp(c);
+                    ir_emit_cmp(c, gp_next, gp_end_val);
+                    ir_emit_cond_set(c, cond, CC_LE);
+                    ir_emit_je(c, cond, ovf_label);
+
+                    /* Load from gp */
+                    if (is_fp) {
+                        ir_emit_vloadss(c, (uint32_t)result_temp, (uint32_t)gp_val);
+                    } else {
+                        ir_emit_deref(c, result_temp, gp_val);
+                    }
+                    ir_emit_store_32(c, gp_next, addr_gp);
+                    ir_emit_jmp(c, end_label);
+
+                    /* Load from ovf */
+                    ir_emit_label(c, ovf_label);
+                    int ovf_val = zc_alloc_temp(c);
+                    ir_emit_deref(c, ovf_val, addr_ovf);
+                    if (is_fp) {
+                        ir_emit_vloadss(c, (uint32_t)result_temp, (uint32_t)ovf_val);
+                    } else {
+                        ir_emit_deref(c, result_temp, ovf_val);
+                    }
+                    int ostep4 = zc_alloc_temp(c);
+                    ir_emit_mov_imm(c, ostep4, 4);
+                    int new_ovf = zc_alloc_temp(c);
+                    ir_emit_add(c, new_ovf, ovf_val, ostep4);
+                    ir_emit_store_32(c, new_ovf, addr_ovf);
+
+                    ir_emit_label(c, end_label);
+                }
+            }
+            c->last_expr_is_float = is_fp ? 1 : 0;
+            return result_temp;
+        }
+        bool use_fp_stream = is_fp && !(c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32);
 
         int result_temp = zc_alloc_temp(c);
         int ap_addr = zero_cc_lower_lvalue_addr(c, arena, node->left);
@@ -387,7 +561,8 @@ int lower_expr_va_arg(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
             } else {
                 ir_emit_deref(c, result_temp, t_ovf);
                 int t_pos8 = zc_alloc_temp(c);
-                ir_emit_mov_imm(c, t_pos8, 8);
+                int ovf_step = (c->isa == ISA_AARCH32 || c->isa == ISA_RISCV32) ? 4 : 8;
+                ir_emit_mov_imm(c, t_pos8, ovf_step);
                 int t_ovf2 = zc_alloc_temp(c);
                 ir_emit_add(c, t_ovf2, t_ovf, t_pos8);
                 ir_emit_store_64(c, t_ovf2, addr_ovf_field);

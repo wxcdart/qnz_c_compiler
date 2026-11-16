@@ -68,7 +68,7 @@ void zeroc_rt_exit_group(int code) {
 }
 
 int zeroc_rt_arch_prctl(int code, unsigned long addr) {
-#if !RT_TARGET_AARCH64 && !RT_TARGET_RISCV
+#if !RT_TARGET_AARCH64 && !RT_TARGET_AARCH32 && !RT_TARGET_RISCV
     return (int)__zerocc_syscall(RT_SYS_ARCH_PRCTL, (long)code, (long)addr, 0, 0, 0, 0);
 #else
     (void)code; (void)addr;
@@ -80,7 +80,7 @@ long zeroc_rt_clone(int (*fn)(void *), void *child_stack, unsigned long flags,
                     void *arg, int *ptid, void *tls, int *ctid) {
     /* Align stack to 16 bytes */
     uintptr_t sp = ((uintptr_t)child_stack) & ~15UL;
-#if defined(__riscv) && __riscv_xlen == 32
+#if (defined(__riscv) && __riscv_xlen == 32) || defined(__arm__) || RT_TARGET_AARCH32
     uint32_t *p = (uint32_t *)sp;
     *--p = 0; /* padding to maintain 16-byte alignment */
     *--p = 0;
@@ -121,8 +121,13 @@ int zeroc_rt_futex_wake(int *uaddr, int count) {
 }
 
 void *zeroc_rt_mmap(void *addr, uint64_t length, int prot, int flags, int fd, int64_t offset) {
+#if RT_TARGET_AARCH32
+    long ret = __zerocc_syscall(RT_SYS_MMAP, (long)addr, (long)length,
+                                (long)prot, (long)flags, (long)fd, (long)(offset >> 12));
+#else
     long ret = __zerocc_syscall(RT_SYS_MMAP, (long)addr, (long)length,
                                 (long)prot, (long)flags, (long)fd, (long)offset);
+#endif
     if (ret < 0 && ret >= -4095) {
         return RT_MAP_FAILED;
     }

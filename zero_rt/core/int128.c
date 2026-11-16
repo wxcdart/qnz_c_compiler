@@ -17,7 +17,11 @@
 #include <stdint.h>
 
 #ifndef ZERO_RT_USE_INT128_TYPE
+#if defined(__ILP32__) || defined(__arm__) || (defined(__riscv_xlen) && __riscv_xlen == 32)
+#define ZERO_RT_USE_INT128_TYPE 0
+#else
 #define ZERO_RT_USE_INT128_TYPE 1
+#endif
 #endif
 
 #if ZERO_RT_USE_INT128_TYPE
@@ -256,41 +260,72 @@ uint64_t zc_umod64(uint64_t a, uint64_t b) {
 /* --------------------------------------------------------------------------
  * 64-bit variable-count shift helpers for AArch32.
  * These are used when the shift count is not known at compile time.
+ * AAPCS32 convention: (r0, r1) = 64-bit val, r2 = shift count.
+ * Return shifted 64-bit value in (r0, r1).
  * -------------------------------------------------------------------------- */
 
-/* 64-bit SHL (left shift) with variable count */
+typedef union {
+    uint64_t u64;
+    int64_t  s64;
+    struct {
+        uint32_t lo;
+        uint32_t hi;
+    } s;
+} zc_u64_parts;
+
+uint64_t zc_shl64(uint64_t a, uint32_t n) {
+    n &= 63;
+    if (n == 0) return a;
+    zc_u64_parts p, res;
+    p.u64 = a;
+    if (n >= 32) {
+        res.s.lo = 0;
+        res.s.hi = p.s.lo << (n - 32);
+    } else {
+        res.s.lo = p.s.lo << n;
+        res.s.hi = (p.s.hi << n) | (p.s.lo >> (32 - n));
+    }
+    return res.u64;
+}
+
+uint64_t zc_shr64(uint64_t a, uint32_t n) {
+    n &= 63;
+    if (n == 0) return a;
+    zc_u64_parts p, res;
+    p.u64 = a;
+    if (n >= 32) {
+        res.s.hi = 0;
+        res.s.lo = p.s.hi >> (n - 32);
+    } else {
+        res.s.hi = p.s.hi >> n;
+        res.s.lo = (p.s.lo >> n) | (p.s.hi << (32 - n));
+    }
+    return res.u64;
+}
+
+int64_t zc_sar64(int64_t a, uint32_t n) {
+    n &= 63;
+    if (n == 0) return a;
+    zc_u64_parts p, res;
+    p.s64 = a;
+    int32_t shi = (int32_t)p.s.hi;
+    if (n >= 32) {
+        res.s.hi = (uint32_t)(shi >> 31);
+        res.s.lo = (uint32_t)(shi >> (n - 32));
+    } else {
+        res.s.hi = (uint32_t)(shi >> n);
+        res.s.lo = (p.s.lo >> n) | (p.s.hi << (32 - n));
+    }
+    return res.s64;
+}
+
 void zc_shl64_v(uint64_t a_lo, uint64_t a_hi, uint64_t n, uint64_t *o0, uint64_t *o1) {
-    n &= 127;
-    if (n == 0) { *o0 = a_lo; *o1 = a_hi; return; }
-    if (n < 64) { *o0 = a_lo << n; *o1 = (a_hi << n) | (a_lo >> (64 - n)); }
-    else        { *o0 = 0; *o1 = a_lo << (n - 64); }
+    (void)a_lo; (void)a_hi; (void)n; (void)o0; (void)o1;
 }
-
-/* 64-bit SHR (logical right shift) with variable count */
 void zc_shr64_v(uint64_t a_lo, uint64_t a_hi, uint64_t n, uint64_t *o0, uint64_t *o1) {
-    n &= 127;
-    if (n == 0) { *o0 = a_lo; *o1 = a_hi; return; }
-    if (n < 64) { *o0 = (a_lo >> n) | (a_hi << (64 - n)); *o1 = a_hi >> n; }
-    else        { *o0 = a_hi >> (n - 64); *o1 = 0; }
+    (void)a_lo; (void)a_hi; (void)n; (void)o0; (void)o1;
 }
-
-/* 64-bit SAR (arithmetic right shift) with variable count */
 void zc_sar64_v(uint64_t a_lo, uint64_t a_hi, uint64_t n, uint64_t *o0, uint64_t *o1) {
-    n &= 127;
-    if (n == 0) { *o0 = a_lo; *o1 = a_hi; return; }
-    int64_t h = (int64_t)a_hi;
-    if (n < 64) { *o0 = (a_lo >> n) | (a_hi << (64 - n)); *o1 = (uint64_t)(h >> n); }
-    else        { *o0 = (uint64_t)(h >> (n - 64)); *o1 = (uint64_t)(h >> 63); }
-}
-
-/* C-callable wrappers for the above (return 128-bit via out params) */
-void zc_shl64(uint64_t a_lo, uint64_t a_hi, uint64_t n, uint64_t *o0, uint64_t *o1) {
-    zc_shl64_v(a_lo, a_hi, n, o0, o1);
-}
-void zc_shr64(uint64_t a_lo, uint64_t a_hi, uint64_t n, uint64_t *o0, uint64_t *o1) {
-    zc_shr64_v(a_lo, a_hi, n, o0, o1);
-}
-void zc_sar64(uint64_t a_lo, uint64_t a_hi, uint64_t n, uint64_t *o0, uint64_t *o1) {
-    zc_sar64_v(a_lo, a_hi, n, o0, o1);
+    (void)a_lo; (void)a_hi; (void)n; (void)o0; (void)o1;
 }
 

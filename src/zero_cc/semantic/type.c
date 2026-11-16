@@ -269,6 +269,22 @@ bool type_equal(const TypeInfo *a, const TypeInfo *b) {
     }
 }
 
+static int s_target_ptr_size = 8;
+static int s_target_long_size = 8;
+
+void type_set_target_metrics(int ptr_sz, int long_sz) {
+    s_target_ptr_size = (ptr_sz > 0) ? ptr_sz : 8;
+    s_target_long_size = (long_sz > 0) ? long_sz : 8;
+}
+
+int type_get_target_ptr_size(void) {
+    return s_target_ptr_size;
+}
+
+int type_get_target_long_size(void) {
+    return s_target_long_size;
+}
+
 size_t type_size(const TypeInfo *t) {
     if (!t) return 0;
     switch (t->kind) {
@@ -291,7 +307,7 @@ size_t type_size(const TypeInfo *t) {
         case TYPE_KIND_DOUBLE:
             return (t->is_long_double || t->is_float128) ? 16 : 8;
         case TYPE_KIND_POINTER:
-            return 8; // x86_64 target
+            return (size_t)s_target_ptr_size;
         case TYPE_KIND_ARRAY:
             return t->details.array.count * type_size(t->details.array.base);
         case TYPE_KIND_VECTOR:
@@ -333,7 +349,7 @@ size_t type_align(const TypeInfo *t) {
         case TYPE_KIND_DOUBLE:
             return (t->is_long_double || t->is_float128) ? 16 : 8;
         case TYPE_KIND_POINTER:
-            return 8;
+            return (size_t)s_target_ptr_size;
         case TYPE_KIND_ARRAY:
             return type_align(t->details.array.base);
         case TYPE_KIND_VECTOR: {

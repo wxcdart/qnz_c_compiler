@@ -7,7 +7,7 @@
  *   - >8 integer user args (entry + final stack overflow)
  *   - two-level nesting (a capture that is itself a capture mirror)
  *
- * isa-skip: riscv32 - trampoline stubs are machine-code path and land on
+ * isa-skip: riscv32, aarch32 - trampoline stubs are machine-code path and land on
  * x86-64 / AArch64 / RISC-V64; the RV32 backend rejects capturing nested
  * functions with a clean diagnostic (documented limitation).
  */

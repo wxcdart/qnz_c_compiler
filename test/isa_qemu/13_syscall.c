@@ -2,6 +2,8 @@
 
 #if defined(__x86_64__)
 #define ZC_SYS_WRITE 1
+#elif defined(__arm__)
+#define ZC_SYS_WRITE 4
 #else
 #define ZC_SYS_WRITE 64
 #endif

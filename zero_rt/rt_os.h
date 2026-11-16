@@ -20,6 +20,13 @@
 #define RT_TARGET_AARCH64 0
 #endif
 #endif
+#ifndef RT_TARGET_AARCH32
+#if defined(__arm__)
+#define RT_TARGET_AARCH32 1
+#else
+#define RT_TARGET_AARCH32 0
+#endif
+#endif
 #ifndef RT_TARGET_RISCV
 #if defined(__riscv)
 #define RT_TARGET_RISCV 1
@@ -50,6 +57,32 @@
 #define RT_SYS_CLONE       220
 #define RT_SYS_MMAP        222
 #define RT_SYS_MPROTECT    226
+#define RT_HAS_BRK         1
+#elif RT_TARGET_AARCH32
+/* Linux ARM 32-bit (EABI) syscall numbers. */
+#define RT_SYS_EXIT        1
+#define RT_SYS_READ        3
+#define RT_SYS_WRITE       4
+#define RT_SYS_OPEN        5
+#define RT_SYS_CLOSE       6
+#define RT_SYS_LSEEK       19
+#define RT_SYS_GETPID      20
+#define RT_SYS_ACCESS      33
+#define RT_SYS_BRK         45
+#define RT_SYS_READLINK    85
+#define RT_SYS_MUNMAP      91
+#define RT_SYS_STAT        106
+#define RT_SYS_LSTAT       107
+#define RT_SYS_FSTAT       108
+#define RT_SYS_CLONE       120
+#define RT_SYS_MPROTECT    125
+#define RT_SYS_SCHED_YIELD 158
+#define RT_SYS_NANOSLEEP   162
+#define RT_SYS_MMAP        192   /* mmap2 */
+#define RT_SYS_GETTID      224
+#define RT_SYS_FUTEX       240
+#define RT_SYS_EXIT_GROUP  248
+#define RT_SYS_FUTEX_TIME64 422
 #define RT_HAS_BRK         1
 #elif RT_TARGET_RISCV
 /* Linux RISC-V (rv32 and rv64 share the syscall table). */

@@ -1445,7 +1445,7 @@ static int zero_cc_parse_kr_decl(ZeroCCCompiler *c, const char **out_names, Zero
         } else if (p_has_short) {
             pt = zero_cc_type_int16();
         } else if (p_longs > 0) {
-            if (p_longs >= 2 || c->isa != ISA_RISCV32) {
+            if (p_longs >= 2 || (c->isa != ISA_RISCV32 && c->isa != ISA_AARCH32)) {
                 pt = zero_cc_type_int64();
             } else {
                 pt = zero_cc_type_int();

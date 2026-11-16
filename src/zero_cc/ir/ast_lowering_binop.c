@@ -83,9 +83,9 @@ int zero_cc_operand_int_width(ZeroCCCompiler *c, ZeroCCASTArena *arena,
                 *sign = !(suf & 1u);
                 return 0;                /* no narrowing */
             }
-            if (suf & 2u) {              /* l: 32-bit on RV32, 64-bit on LP64 */
+            if (suf & 2u) {              /* l: 32-bit on RV32/AArch32, 64-bit on LP64 */
                 *sign = !(suf & 1u);
-                if (c->isa == ISA_RISCV32) return 4;
+                if (c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) return 4;
                 return 0;                /* no narrowing */
             }
             if (suf & 1u) {              /* u: unsigned int, or unsigned
@@ -165,7 +165,7 @@ int zero_cc_expr_int_info(ZeroCCCompiler *c, ZeroCCASTArena *arena,
     if (ti) {
         if (type_is_pointer(ti) || ti->kind == TYPE_KIND_ARRAY) {
             *is_unsigned = 1;
-            return (c->isa == ISA_RISCV32) ? 4 : 8;
+            return (c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) ? 4 : 8;
         }
         if (type_is_integer(ti)) {
             size_t sz = type_size(ti);
@@ -187,7 +187,7 @@ int zero_cc_expr_int_info(ZeroCCCompiler *c, ZeroCCASTArena *arena,
             }
             if (suf & 2u) {
                 *is_unsigned = (suf & 1u) ? 1 : 0;
-                return (c->isa == ISA_RISCV32) ? 4 : 8;
+                return (c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) ? 4 : 8;
             }
             if (suf & 1u) {
                 *is_unsigned = 1;
@@ -1826,7 +1826,7 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                 ir_emit_cond_set(c, cmp_i, CC_NE);
                 lc = cmp_i;
                 c->last_expr_is_float = 0;
-            } else if (c->isa == ISA_RISCV32 && c->last_expr_is_64) {
+            } else if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && c->last_expr_is_64) {
                 int zero64 = zc_alloc_temp(c);
                 ir_emit_mov64_imm(c, zero64, 0);
                 ir_emit_cmp64(c, lc, zero64);
@@ -1851,7 +1851,7 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                 ir_emit_cmp(c, rc, zero_f);
                 ir_emit_cond_set(c, rt, CC_NE);
                 c->last_expr_is_float = 0;
-            } else if (c->isa == ISA_RISCV32 && c->last_expr_is_64) {
+            } else if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && c->last_expr_is_64) {
                 int zero64 = zc_alloc_temp(c);
                 ir_emit_mov64_imm(c, zero64, 0);
                 ir_emit_cmp64(c, rc, zero64);

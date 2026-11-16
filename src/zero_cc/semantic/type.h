@@ -322,6 +322,9 @@ static inline bool type_is_aggregate(const TypeInfo *t) {
 bool   type_equal(const TypeInfo *a, const TypeInfo *b);
 size_t type_size(const TypeInfo *t);
 size_t type_align(const TypeInfo *t);
+void   type_set_target_metrics(int ptr_sz, int long_sz);
+int    type_get_target_ptr_size(void);
+int    type_get_target_long_size(void);
 
 /* Struct field access */
 void type_add_field(Arena *perm, TypeInfo *struct_t, const char *name, size_t offset, TypeInfo *field_type);

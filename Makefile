@@ -129,7 +129,7 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	stage1-ownlink test-stage1-ownlink stage2-ownlink test-stage2-ownlink test-self-host-ownlink \
 	valgrind test-valgrind
 
-all: $(TESTS) $(ZC_BIN) $(BUILD_DIR)/lib/zero_rt.a $(BUILD_DIR)/lib/zero_rt_aarch64.a $(BUILD_DIR)/lib/zero_rt_riscv64.a $(BUILD_DIR)/lib/zero_rt_riscv32.a
+all: $(TESTS) $(ZC_BIN) $(BUILD_DIR)/lib/zero_rt.a $(BUILD_DIR)/lib/zero_rt_aarch64.a $(BUILD_DIR)/lib/zero_rt_aarch32.a $(BUILD_DIR)/lib/zero_rt_riscv64.a $(BUILD_DIR)/lib/zero_rt_riscv32.a
 
 # --- Vendored static-musl host toolchain ----------------------------------
 # zerocc and every test binary that links the compiler library are built and
@@ -611,6 +611,61 @@ $(BUILD_DIR)/obj/zero_rt_aarch64/dynlink.o: zero_rt/dlfcn/dynlink.c zero_rt/dlfc
 $(BUILD_DIR)/obj/zero_rt_aarch64/dlfcn.o: zero_rt/dlfcn/dlfcn.c zero_rt/dlfcn/dynlink.h $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --target aarch64 -c $< $(ZERO_RT_CFLAGS) -o $@
+
+# zero_rt for AArch32
+ZERO_RT_AARCH32_OBJS = $(BUILD_DIR)/obj/zero_rt_aarch32/os.o \
+                       $(BUILD_DIR)/obj/zero_rt_aarch32/heap.o $(BUILD_DIR)/obj/zero_rt_aarch32/string.o \
+                       $(BUILD_DIR)/obj/zero_rt_aarch32/exit.o $(BUILD_DIR)/obj/zero_rt_aarch32/stdio.o \
+                       $(BUILD_DIR)/obj/zero_rt_aarch32/d2s.o $(BUILD_DIR)/obj/zero_rt_aarch32/d2fixed.o \
+                       $(BUILD_DIR)/obj/zero_rt_aarch32/int128.o $(BUILD_DIR)/obj/zero_rt_aarch32/errno.o \
+                       $(BUILD_DIR)/obj/zero_rt_aarch32/complex.o $(BUILD_DIR)/obj/zero_rt_aarch32/thread.o \
+                       $(BUILD_DIR)/obj/zero_rt_aarch32/san.o $(BUILD_DIR)/obj/zero_rt_aarch32/dynlink.o \
+                       $(BUILD_DIR)/obj/zero_rt_aarch32/dlfcn.o
+$(BUILD_DIR)/lib/zero_rt_aarch32.a: $(ZERO_RT_AARCH32_OBJS) $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --ar rcs $@ $(ZERO_RT_AARCH32_OBJS)
+$(BUILD_DIR)/obj/zero_rt_aarch32/os.o: zero_rt/linux/os.c zero_rt/rt_os.h $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target aarch32 -c $< $(ZERO_RT_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_aarch32/heap.o: zero_rt/core/heap.c zero_rt/rt_os.h zero_rt/core/san_fmt.h $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target aarch32 -c $< $(ZERO_RT_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_aarch32/string.o: zero_rt/core/string.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target aarch32 -c $< $(ZERO_RT_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_aarch32/exit.o: zero_rt/core/exit.c zero_rt/rt_os.h $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target aarch32 -c $< $(ZERO_RT_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_aarch32/stdio.o: zero_rt/core/stdio.c zero_rt/rt_os.h $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target aarch32 -c $< $(ZERO_RT_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_aarch32/int128.o: zero_rt/core/int128.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target aarch32 -c $< $(ZERO_RT_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_aarch32/complex.o: zero_rt/complex/complex.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target aarch32 -c $< $(ZERO_RT_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_aarch32/d2s.o: third_party/vendor/ryu/ryu/d2s.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target aarch32 -c $< -Ithird_party/vendor/ryu -o $@
+$(BUILD_DIR)/obj/zero_rt_aarch32/d2fixed.o: third_party/vendor/ryu/ryu/d2fixed.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target aarch32 -c $< -Ithird_party/vendor/ryu -o $@
+$(BUILD_DIR)/obj/zero_rt_aarch32/errno.o: zero_rt/core/errno.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target aarch32 -c $< $(ZERO_RT_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_aarch32/thread.o: zero_rt/core/thread.c zero_rt/rt_os.h $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target aarch32 -c $< $(ZERO_RT_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_aarch32/san.o: zero_rt/core/san_report.c zero_rt/core/san_fmt.h $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target aarch32 -c $< $(ZERO_RT_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_aarch32/dynlink.o: zero_rt/dlfcn/dynlink.c zero_rt/dlfcn/dynlink.h $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target aarch32 -c $< $(ZERO_RT_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_aarch32/dlfcn.o: zero_rt/dlfcn/dlfcn.c zero_rt/dlfcn/dynlink.h $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target aarch32 -c $< $(ZERO_RT_CFLAGS) -o $@
 
 # zero_rt for RISC-V 64-bit
 ZERO_RT_RISCV64_OBJS = $(BUILD_DIR)/obj/zero_rt_riscv64/os.o \

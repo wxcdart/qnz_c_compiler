@@ -452,15 +452,16 @@ static inline void zc_store_low_bytes(ZeroCCCompiler *c, int val, int base_addr,
 
 static inline void zc_emit_mem_copy(ZeroCCCompiler *c, int src, int dst, size_t n) {
     if (n == 0) return;
-    size_t full = n / 8;
-    size_t tail = n % 8;
+    int word_sz = (c->isa == ISA_AARCH32 || c->isa == ISA_RISCV32) ? 4 : 8;
+    size_t full = n / (size_t)word_sz;
+    size_t tail = n % (size_t)word_sz;
     int s = c->next_temp_id++;
     int d = c->next_temp_id++;
     int v = c->next_temp_id++;
-    int eight = c->next_temp_id++;
+    int step = c->next_temp_id++;
     ir_emit_mov_reg(c, s, src);
     ir_emit_mov_reg(c, d, dst);
-    ir_emit_mov_imm(c, eight, 8);
+    ir_emit_mov_imm(c, step, word_sz);
     if (full > 0) {
         int cnt = c->next_temp_id++;
         int one = c->next_temp_id++;
@@ -468,10 +469,15 @@ static inline void zc_emit_mem_copy(ZeroCCCompiler *c, int src, int dst, size_t 
         ir_emit_mov_imm(c, one, 1);
         uint16_t loop = c->ir_next_label++;
         ir_emit_label(c, loop);
-        ir_emit_deref(c, v, s);
-        ir_emit_store_64(c, v, d);
-        ir_emit_add(c, s, s, eight);
-        ir_emit_add(c, d, d, eight);
+        if (word_sz == 4) {
+            ir_emit_load_32(c, v, s);
+            ir_emit_store_32(c, v, d);
+        } else {
+            ir_emit_deref(c, v, s);
+            ir_emit_store_64(c, v, d);
+        }
+        ir_emit_add(c, s, s, step);
+        ir_emit_add(c, d, d, step);
         ir_emit_sub(c, cnt, cnt, one);
         ir_emit_jne(c, cnt, loop);
     }

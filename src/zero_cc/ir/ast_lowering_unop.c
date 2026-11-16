@@ -763,7 +763,7 @@ int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                     c->last_expr_is_128 = 1;
                     return result_temp;
                 }
-                else if (!is_struct && c->isa == ISA_RISCV32 &&
+                else if (!is_struct && (c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) &&
                          (p_size == 8 || (ti && ti->kind == TYPE_KIND_LONG))) {
                     ir_emit_load64(c, result_temp, operand_temp, 0);
                     c->last_expr_is_float = 0;

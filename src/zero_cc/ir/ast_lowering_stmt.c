@@ -1291,8 +1291,8 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                                     }
                                 } else {
                                     ir_emit_store(c, result_temp, BE(c)->fp_reg, -sym->stack_offset);
-                                    if (c->isa == ISA_RISCV32 && (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 4 && sym->type.size <= 8) {
-                                        /* RV32 ILP32 ABI: second 4-byte chunk returned in a1 (VREG_2) */
+                                    if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 4 && sym->type.size <= 8) {
+                                        /* RV32 ILP32 / AAPCS32 ABI: second 4-byte chunk returned in a1/r1 (VREG_2) */
                                         ir_emit_store(c, VREG_2, BE(c)->fp_reg, -(sym->stack_offset - 4));
                                     } else if ((sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 8 && sym->type.size <= 16) {
                                         /* System V AMD64 ABI: second eightbyte returned in rdx (VREG_2)
@@ -1336,7 +1336,7 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                  * misclassifies as GPR128 (garbage high half). */
                 bool ret128 = (c->lowering.inlining.return_type.tag == TYPE_INT128 ||
                                c->lowering.inlining.return_type.tag == TYPE_UINT128);
-                bool ret64 = (c->isa == ISA_RISCV32 &&
+                bool ret64 = ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) &&
                               (c->lowering.inlining.return_type.tag == TYPE_INT64 ||
                                c->lowering.inlining.return_type.tag == TYPE_UINT64));
                 if (!c->last_expr_is_float) {
@@ -1428,9 +1428,9 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
             ir_emit_jmp(c, c->lowering.epilogue_label);
             return;
         }
-        /* Sprint 172 (rv32 i64 ABI): 64-bit return on rv32 targets.
-         * RISC-V ILP32 psABI: 64-bit values return in (a0, a1) = (VREG_0, VREG_1). */
-        if (cur_fn2 && c->isa == ISA_RISCV32 &&
+        /* Sprint 172 (rv32/aarch32 i64 ABI): 64-bit return on 32-bit targets.
+         * ILP32 psABI: 64-bit values return in (a0, a1) / (r0, r1) = (VREG_0, VREG_2). */
+        if (cur_fn2 && (c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) &&
             (cur_fn2->return_type.tag == TYPE_INT64 ||
              cur_fn2->return_type.tag == TYPE_UINT64)) {
             int res = lower_expr(c, arena, node->left);
@@ -1622,8 +1622,8 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                 return;
             }
             int32_t struct_offset = -sym->stack_offset;
-            if (c->isa == ISA_RISCV32 && sym->type.size > 4 && sym->type.size <= 8) {
-                /* RV32 ILP32 ABI: 5-8 byte struct returned across a0 (VREG_0) and a1 (VREG_2) */
+            if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && sym->type.size > 4 && sym->type.size <= 8) {
+                /* ILP32 ABI: 5-8 byte struct returned across a0/r0 (VREG_0) and a1/r1 (VREG_2) */
                 ir_emit_load(c, VREG_0, BE(c)->fp_reg, struct_offset);
                 ir_emit_load(c, VREG_2, BE(c)->fp_reg, struct_offset + 4);
                 ir_emit_jmp(c, c->lowering.epilogue_label);
@@ -2009,7 +2009,7 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
         ZeroCCType fn_ret_type = zero_cc_get_current_fn_ret_type(c);
         int final_float_temp = result_temp;
         if (!c->last_expr_is_float) {
-            if (c->isa == ISA_RISCV32 && c->last_expr_is_64 &&
+            if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && c->last_expr_is_64 &&
                 fn_ret_type.tag != TYPE_INT64 && fn_ret_type.tag != TYPE_UINT64) {
                 int trunc_t = zc_alloc_temp(c);
                 ir_emit_trunc64_32(c, trunc_t, result_temp);

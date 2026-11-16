@@ -1472,7 +1472,7 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                 ir_emit_load128(c, result_temp, addr_temp);
                 c->last_expr_is_float = 0;
                 c->last_expr_is_128 = 1;
-            } else if (c->isa == ISA_RISCV32 &&
+            } else if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) &&
                        (elem_size == 8 || (elem_ti && elem_ti->kind == TYPE_KIND_LONG))) {
                 ir_emit_load64(c, result_temp, addr_temp, 0);
                 c->last_expr_is_float = 0;
@@ -1614,7 +1614,7 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                     }
                     if (member_is_wide_bf) {
                         ir_emit_load128(c, val_temp, multi_addr);
-                    } else if (c->isa == ISA_RISCV32 && member_sz == 8) {
+                    } else if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && member_sz == 8) {
                         ir_emit_load64(c, val_temp, multi_addr, 0);
                         c->last_expr_is_64 = 1;
                     } else {
@@ -1661,7 +1661,7 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                          * the upper bytes of the load are not zero and an
                          * early return would leak them into the value). */
                         if (member_is_wide_bf) ir_emit_load128(c, val_temp, gaddr2);
-                        else if (c->isa == ISA_RISCV32 && member_sz == 8) {
+                        else if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && member_sz == 8) {
                             ir_emit_load64(c, val_temp, gaddr2, 0);
                             c->last_expr_is_64 = 1;
                         } else ir_emit_deref(c, val_temp, gaddr2);
@@ -1691,7 +1691,7 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                         return val_temp;
                     } else {
                         if (member_is_wide_bf) ir_emit_load128(c, val_temp, addr_temp);
-                        else if (c->isa == ISA_RISCV32 && member_sz == 8) {
+                        else if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && member_sz == 8) {
                             ir_emit_load64(c, val_temp, addr_temp, 0);
                             c->last_expr_is_64 = 1;
                         } else ir_emit_deref(c, val_temp, addr_temp);
@@ -1722,7 +1722,7 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                         return val_temp;
                     } else {
                         if (member_is_wide_bf) ir_emit_load128(c, val_temp, addr_temp);
-                        else if (c->isa == ISA_RISCV32 && member_sz == 8) {
+                        else if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && member_sz == 8) {
                             ir_emit_load64(c, val_temp, addr_temp, 0);
                             c->last_expr_is_64 = 1;
                         } else ir_emit_deref(c, val_temp, addr_temp);
@@ -1755,7 +1755,7 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                         int waddr = zc_alloc_temp(c);
                         ir_emit_lea(c, waddr, TEMP_NONE, total_offset);
                         ir_emit_load128(c, val_temp, waddr);
-                    } else if (c->isa == ISA_RISCV32 && member_sz == 8) {
+                    } else if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && member_sz == 8) {
                         int waddr = zc_alloc_temp(c);
                         ir_emit_lea(c, waddr, BE(c)->fp_reg, total_offset);
                         ir_emit_load64(c, val_temp, waddr, 0);
@@ -1795,7 +1795,7 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                         return val_temp;
                     } else {
                         if (member_is_wide_bf) ir_emit_load128(c, val_temp, addr_temp);
-                        else if (c->isa == ISA_RISCV32 && member_sz == 8) {
+                        else if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && member_sz == 8) {
                             ir_emit_load64(c, val_temp, addr_temp, 0);
                             c->last_expr_is_64 = 1;
                         } else ir_emit_deref(c, val_temp, addr_temp);
@@ -1827,7 +1827,7 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                     int waddr = zc_alloc_temp(c);
                     ir_emit_lea(c, waddr, TEMP_NONE, total_offset);
                     ir_emit_load128(c, val_temp, waddr);
-                } else if (c->isa == ISA_RISCV32 && member_sz == 8) {
+                } else if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && member_sz == 8) {
                     int waddr = zc_alloc_temp(c);
                     ir_emit_lea(c, waddr, BE(c)->fp_reg, total_offset);
                     ir_emit_load64(c, val_temp, waddr, 0);
@@ -2007,7 +2007,7 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                 if (sz == 1 || sz == 2 || sz == 4) {
                     if (is_u) ir_emit_zext(c, val_temp, (int)sz);
                     else ir_emit_sext(c, val_temp, (int)sz);
-                } else if (c->isa == ISA_RISCV32 && sz == 8) {
+                } else if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && sz == 8) {
                     c->last_expr_is_64 = 1;
                 }
             }

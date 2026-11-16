@@ -53,13 +53,13 @@ void __stack_chk_fail(void) {
     for (;;) { }
 }
 
-#if !RT_TARGET_AARCH64 && !RT_TARGET_RISCV
+#if !RT_TARGET_AARCH64 && !RT_TARGET_AARCH32 && !RT_TARGET_RISCV
 static uintptr_t g_x86_tls_block[8];
 #endif
 
 /* Shared entry prologue: the x86-64 stack-protector TLS setup. */
 static void rt_entry_setup(void) {
-#if !RT_TARGET_AARCH64 && !RT_TARGET_RISCV
+#if !RT_TARGET_AARCH64 && !RT_TARGET_AARCH32 && !RT_TARGET_RISCV
     /* On x86-64, stack protector checks load canary from %fs:40.
      * Set up FS segment base to point to g_x86_tls_block so %fs:40 (index 5)
      * contains __stack_chk_guard. */

@@ -986,16 +986,56 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                       (name && strcmp(name, "snprintf") == 0 ? 3 : 0)));
                 bool is_var_arg = is_callee_variadic && (param_idx > named_params);
 
-                if (c->last_expr_is_float && (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) && is_var_arg) {
-                    /* In RISC-V psABI, variadic FP arguments are passed in integer registers.
-                     * Spill the float temp into a stack slot, then pass that slot as an integer argument. */
-                    int_spill_stack_pos[int_arg_idx] = (gp_stream < gp_regs_avail) ? 255 : (uint8_t)(stack_arg_count++);
-                    gp_stream++;
+                if (c->last_expr_is_float && (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && is_var_arg) {
+                    /* In RISC-V psABI and ARM AAPCS, variadic FP arguments are passed in integer registers/stack. */
                     c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
                     c->current_stack_frame += 8;
                     int32_t slot = c->current_stack_frame;
                     ir_emit_fstore(c, (uint32_t)temp, TEMP_NONE, -slot);
-                    if (int_arg_idx < IR_CALL_MAX_ARGS) {
+                    c->last_expr_is_float = 0;
+
+                    if (c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) {
+                        /* 32-bit targets: double is passed in an even-aligned pair of 32-bit GPRs or 8-byte aligned stack. */
+                        if (gp_stream < gp_regs_avail) {
+                            if (gp_stream & 1) {
+                                int dummy = zc_alloc_temp(c);
+                                ir_emit_mov_imm(c, dummy, 0);
+                                int_spill_stack_pos[int_arg_idx] = 255;
+                                gp_stream++;
+                                c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                                c->current_stack_frame += 8;
+                                int_spill_offsets[int_arg_idx] = c->current_stack_frame;
+                                ir_emit_store(c, dummy, BE(c)->fp_reg, -int_spill_offsets[int_arg_idx]);
+                                int_arg_idx++;
+                            }
+                        }
+                        if (gp_stream + 1 < gp_regs_avail) {
+                            /* Fits in register pair (e.g. r2:r3) */
+                            int_spill_stack_pos[int_arg_idx] = 255;
+                            int_spill_offsets[int_arg_idx] = slot;
+                            gp_stream++;
+                            int_arg_idx++;
+
+                            int_spill_stack_pos[int_arg_idx] = 255;
+                            int_spill_offsets[int_arg_idx] = slot - 4;
+                            gp_stream++;
+                            int_arg_idx++;
+                        } else {
+                            /* Exhausted GPRs: pass on stack */
+                            gp_stream = gp_regs_avail;
+                            if (stack_arg_count & 1) stack_arg_count++; /* 8-byte stack alignment */
+                            int_spill_stack_pos[int_arg_idx] = (uint8_t)(stack_arg_count++);
+                            int_spill_offsets[int_arg_idx] = slot;
+                            int_arg_idx++;
+
+                            int_spill_stack_pos[int_arg_idx] = (uint8_t)(stack_arg_count++);
+                            int_spill_offsets[int_arg_idx] = slot - 4;
+                            int_arg_idx++;
+                        }
+                    } else {
+                        /* 64-bit target (RISC-V 64): single 64-bit GPR or stack slot */
+                        int_spill_stack_pos[int_arg_idx] = (gp_stream < gp_regs_avail) ? 255 : (uint8_t)(stack_arg_count++);
+                        gp_stream++;
                         int_spill_offsets[int_arg_idx] = slot;
                         int_arg_idx++;
                     }
@@ -2140,13 +2180,14 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
             }
 
             /* Sprint 172 (rv32 i64 ABI): 64-bit return on rv32 targets.
-             * RISC-V ILP32 psABI: (a0, a1) = (VREG_0, VREG_2) holds the (lo, hi) result. */
-            if (c->isa == ISA_RISCV32 &&
+             * RISC-V ILP32 psABI: (a0, a1) = (VREG_0, VREG_2) holds the (lo, hi) result.
+             * AArch32 AAPCS: (r0, r1) = (VREG_0, VREG_1) holds the (lo, hi) result. */
+            if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) &&
                 (call_ret_type.tag == TYPE_INT64 || call_ret_type.tag == TYPE_UINT64)) {
                 int lo = zc_alloc_temp(c);
                 ir_emit_mov_reg(c, lo, VREG_0);
                 int hi = zc_alloc_temp(c);
-                ir_emit_mov_reg(c, hi, VREG_2);
+                ir_emit_mov_reg(c, hi, (c->isa == ISA_AARCH32) ? VREG_1 : VREG_2);
                 int res = zc_alloc_temp(c);
                 ir_emit_mk64(c, res, lo, hi);
                 c->last_expr_is_float = 0;

@@ -82,11 +82,19 @@ static inline ZeroCCType zero_cc_type_double(void) {
  * to allocate the object; its members are never accessed from C. This makes
  * `typedef __builtin_va_list va_list;` (c-torture 20041214-1) resolve to the
  * 40-byte object instead of a small integer. */
-static inline ZeroCCType zero_cc_type_va_list(void) {
+static inline ZeroCCType zero_cc_type_va_list_arch(int isa) {
     ZeroCCType t; memset(&t, 0, sizeof(t));
-    t.tag = TYPE_STRUCT; t.size = 40; t.align = 8;
+    t.tag = TYPE_STRUCT;
+    if (isa == 2 /* ISA_AARCH32 */) {
+        t.size = 20; t.align = 4;
+    } else {
+        t.size = 40; t.align = 8;
+    }
     snprintf(t.struct_name, sizeof(t.struct_name), "%s", "__builtin_va_list");
     return t;
+}
+static inline ZeroCCType zero_cc_type_va_list(void) {
+    return zero_cc_type_va_list_arch(-1);
 }
 /* C99 long double: the x86-64 SysV object is 16 bytes (80-bit extended
  * precision, 16-byte alignment); the compiler's value model lowers it
@@ -168,10 +176,12 @@ typedef struct ZeroCCTypePoolArrNode {
     ZeroCCType elems[];
 } ZeroCCTypePoolArrNode;
 void *zero_cc_type_pool_alloc_fn_params(size_t n);
+int type_get_target_ptr_size(void);
 
 static inline ZeroCCType zero_cc_type_ptr(ZeroCCType *base) {
     ZeroCCType t; memset(&t, 0, sizeof(t));
-    t.tag = TYPE_PTR; t.size = 8; t.align = 8;
+    int psz = type_get_target_ptr_size();
+    t.tag = TYPE_PTR; t.size = (size_t)psz; t.align = (size_t)psz;
     if (base) {
         t.base = zero_cc_type_alloc_base(base);
     } else {

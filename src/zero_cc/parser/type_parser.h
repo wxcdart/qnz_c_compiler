@@ -291,7 +291,7 @@ static inline ZeroCCType zero_cc_type_of_primary(ZeroCCCompiler *c, size_t *pos)
         (*pos)++;
         if (suf & 0x04) return (suf & 0x01) ? zero_cc_type_uint64() : zero_cc_type_int64();
         if (suf & 0x02) {
-            if (c->isa == ISA_RISCV32) return (suf & 0x01) ? zero_cc_type_uint32() : zero_cc_type_int();
+            if (c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) return (suf & 0x01) ? zero_cc_type_uint32() : zero_cc_type_int();
             return (suf & 0x01) ? zero_cc_type_uint64() : zero_cc_type_int64();
         }
         if (suf & 0x01) return (v > (int64_t)0xFFFFFFFF) ? zero_cc_type_uint64() : zero_cc_type_uint32();
@@ -699,7 +699,7 @@ static inline ZeroCCType zc_parse_basic_type_spec(ZeroCCCompiler *c, size_t *pos
     if (has_char) return is_unsigned ? zero_cc_type_uint8() : zero_cc_type_char();
     if (has_short) return is_unsigned ? zero_cc_type_uint16() : zero_cc_type_int16();
     if (has_long) {
-        if (has_long == 1 && c->isa == ISA_RISCV32) {
+        if (has_long == 1 && (c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32)) {
             return is_unsigned ? zero_cc_type_uint32() : zero_cc_type_int();
         }
         return is_unsigned ? zero_cc_type_uint64() : zero_cc_type_int64();
@@ -954,7 +954,7 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
                 (*pos)++;
                 ty = zero_cc_type_long_double();
             } else {
-                if (n_long == 1 && c->isa == ISA_RISCV32) {
+                if (n_long == 1 && (c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32)) {
                     ty = is_unsigned ? zero_cc_type_uint32() : zero_cc_type_int();
                 } else {
                     ty = is_unsigned ? zero_cc_type_uint64() : zero_cc_type_int64();
@@ -1233,7 +1233,7 @@ static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c) {
                 ty = zero_cc_type_int64();
                 c->token_pos += 2;
             } else {
-                ty = (c->isa == ISA_RISCV32) ? zero_cc_type_int() : zero_cc_type_int64();
+                ty = (c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) ? zero_cc_type_int() : zero_cc_type_int64();
                 c->token_pos++;
             }
         } else if (strcmp(name, "__int128") == 0 || strcmp(name, "__int128_t") == 0 ||

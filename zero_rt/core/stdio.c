@@ -250,7 +250,7 @@ static int vsnprintf_core(char *out, size_t outcap, const char *fmt, va_list ap)
                 }
             }
             /* length modifiers: consume (all our ints are 64-bit) */
-            while (*fmt == 'l' || *fmt == 'h') fmt++;
+            while (*fmt == 'l' || *fmt == 'h' || *fmt == 'z' || *fmt == 't' || *fmt == 'j') fmt++;
 
             switch (*fmt) {
             case 'd':

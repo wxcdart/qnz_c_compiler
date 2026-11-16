@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-11-16T00:12:34Z
+timestamp: 2026-11-16T03:08:25Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -267,6 +267,28 @@ Differential testing under QEMU exposed several immediate-encoding and relocatio
   - `riscv64_emit_param_save_int`: Fixed incoming parameter save to store `a0..a7` (`x10..x17`) into `-offset(s0)` (was storing `x0` to a positive offset from `sp`), unblocking recursive function arguments in `fact(4)`.
   - `riscv64_emit_load`: Fixed 64-bit load to use `ld` (`funct3=3`) rather than `lw` (`funct3=2`) on RV64, correctly loading 64-bit structs returned by value (`11_retstruct.c`).
   - `elf_emitter.h`: Skipped generic 4-byte call relocation patching on RISC-V to prevent corrupting `jal` opcodes with raw offsets.
+
+## AArch32 (ARMv7-A) Backend & AAPCS32 Integration
+
+ZeroCC includes an ARMv7-A backend (`src/zero_cc/isa/aarch32.c`) targeting 32-bit ARM Linux (EABI / AAPCS32):
+
+- **Register Allocation & Calling Convention**:
+  - **Callee-Saved Registers**: `r4`–`r11` (`r11` serves as the frame pointer), `lr` (return address).
+  - **Argument & Return Registers**: `r0`–`r3` pass the first 4 32-bit arguments; scalar returns are passed in `r0` (or `(r0, r1)` pair for 64-bit integers and doubles).
+  - **Stack Arguments**: Pushed onto stack in 4-byte slots aligned to 4-byte boundaries.
+- **64-bit Scalar Lowering**:
+  - Low-half and high-half decomposition across arithmetic, comparison, and memory operations (`ir_emit_load64`, struct member loads/stores).
+  - Variable-count 64-bit shift helpers (`zc_shl64`, `zc_shr64`, `zc_sar64`) in `zero_rt/core/int128.c` using AAPCS32 register pair `(r0, r1)` and count in `r2`.
+- **Target-Aware Pointer Sizing**:
+  - `type_set_target_metrics(int ptr_sz, int long_sz)` dynamically configures pointer and long sizing across semantic analysis (`TypeInfo`), `ZeroCCType` (`zero_cc_type_ptr`), and parser struct member layouts.
+  - On `ISA_AARCH32` and `ISA_RISCV32`, pointers are 4 bytes and 4-byte aligned (`sizeof(void*) == 4`).
+- **Variadic Arguments (`va_list`)**:
+  - Standardized 20-byte `va_list` layout matching the 5-element 32-bit pointer stream (`gp`, `gp_end`, `fp`, `fp_end`, `ovf`).
+  - Pointer arguments in `va_arg` correctly evaluate as 4-byte scalar quantities instead of 8-byte quantities.
+- **ELF32 Relocatable Object & Linker Support**:
+  - Direct ELF32 object generation (`EM_ARM`, machine code 40) via `elf_writer`.
+  - Relocations: `R_ARM_CALL` / `R_ARM_JUMP24`, `R_ARM_MOVW_ABS_NC`, `R_ARM_MOVT_ABS`, `R_ARM_ABS32`.
+  - Standalone and raw-binary execution verified across all 15 tests in `test/isa_qemu/` under `qemu-arm-static`.
 
 ### Raw Emitter Verification Suite (`tools/`)
 
