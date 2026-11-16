@@ -4,7 +4,7 @@ title: Two-Pass IR & Linear Scan Register Allocation
 description: IR instruction format, in-stream call and inline-asm payload conventions, virtual register conventions, and linear scan register allocation constraints.
 resource: middleend/ir-and-regalloc
 tags: [ir, regalloc, ssa, registers, calling-convention]
-timestamp: 2026-11-13T06:12:42Z
+timestamp: 2026-11-16T00:12:56Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active

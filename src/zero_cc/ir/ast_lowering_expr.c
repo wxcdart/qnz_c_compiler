@@ -235,7 +235,7 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
         case NODE_INT: {
             int us = 0;
             int w = zero_cc_expr_int_info(c, arena, ref, &us);
-            if (c->isa == ISA_RISCV32 && w == 8) {
+            if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && w == 8) {
                 int temp = zc_alloc_temp(c);
                 ir_emit_mov64_imm(c, temp, node->int_val);
                 c->last_expr_is_float = 0;
@@ -418,7 +418,7 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                          * value and silently drop the high half (O2
                          * inlining of `hi128(v)` became `hi128(zext64(v))`). */
                         c->last_expr_is_128 = c->lowering.inlining.param_is_128[p] ? 1 : 0;
-                        c->last_expr_is_64 = (c->isa == ISA_RISCV32 && c->lowering.inlining.param_is_64[p]) ? 1 : 0;
+                        c->last_expr_is_64 = ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && c->lowering.inlining.param_is_64[p]) ? 1 : 0;
                         return p_temp;
                     }
                 }
@@ -502,9 +502,9 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                     c->last_expr_is_float = 0;
                     c->last_expr_is_128 = 1;
                     return temp;
-                } else if (c->isa == ISA_RISCV32 &&
+                } else if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) &&
                            (sym->type.tag == TYPE_INT64 || sym->type.tag == TYPE_UINT64)) {
-                    /* Sprint 170 (rv32 i64): load the full 8 bytes into a
+                    /* Sprint 170 (rv32 i64) / AArch32: load the full 8 bytes into a
                      * GPR64 (lo,hi) temp. */
                     int temp = zc_alloc_temp(c);
                     zc_sym_load64(c, sym, 0, temp);
@@ -563,9 +563,9 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                         c->last_expr_is_128 = 1;
                         return val_temp;
                     }
-                    if (c->isa == ISA_RISCV32 &&
+                    if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) &&
                         (gv->type.tag == TYPE_INT64 || gv->type.tag == TYPE_UINT64)) {
-                        /* Sprint 170 (rv32 i64): load the full 8 bytes into a
+                        /* Sprint 170 (rv32 i64) / AArch32: load the full 8 bytes into a
                          * GPR64 (lo,hi) temp. */
                         ir_emit_load64(c, val_temp, addr_temp, 0);
                         c->last_expr_is_float = 0;
@@ -732,7 +732,7 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                 ir_emit_cond_set(c, cmp_i, CC_NE);
                 cond_temp = cmp_i;
                 c->last_expr_is_float = 0;
-            } else if (c->isa == ISA_RISCV32 && c->last_expr_is_64) {
+            } else if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && c->last_expr_is_64) {
                 int zero64 = zc_alloc_temp(c);
                 ir_emit_mov64_imm(c, zero64, 0);
                 ir_emit_cmp64(c, cond_temp, zero64);
@@ -760,7 +760,7 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
             int then_temp = is_struct_tern ? zero_cc_lower_lvalue_addr(c, arena, node->right) : TEMP_NONE;
             if (then_temp == TEMP_NONE) then_temp = lower_expr(c, arena, node->right);
             int then_fp = is_struct_tern ? 0 : c->last_expr_is_float;
-            int then_64 = (c->isa == ISA_RISCV32 && c->last_expr_is_64);
+            int then_64 = ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && c->last_expr_is_64);
 
             if (then_fp || else_may_be_fp) {
                 if (then_fp) {
@@ -781,7 +781,7 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
             int else_temp = is_struct_tern ? zero_cc_lower_lvalue_addr(c, arena, node->aux.alt) : TEMP_NONE;
             if (else_temp == TEMP_NONE) else_temp = lower_expr(c, arena, node->aux.alt);
             int else_fp = is_struct_tern ? 0 : c->last_expr_is_float;
-            int else_64 = (c->isa == ISA_RISCV32 && c->last_expr_is_64);
+            int else_64 = ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && c->last_expr_is_64);
             int fp_result = is_struct_tern ? 0 : (then_fp || else_fp || else_may_be_fp);
             int is_64_result = (then_64 || else_64);
 

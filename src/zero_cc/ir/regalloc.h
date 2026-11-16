@@ -693,7 +693,17 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
             return gpr128_alloc_pair(ra, interval, cs_pool,
                                      sizeof(cs_pool)/sizeof(cs_pool[0]), cs_mask);
         }
-        return -1; /* GPR64 is rv32-only */
+        /* AArch32 (ARMv7-A): 64-bit value in (lo,hi) pair of 32-bit GPRs.
+         * Use callee-saved registers r4-r11 for GPR64 allocation. */
+        if (ra->target_isa == ISA_AARCH32) {
+            static const int cs_pool[] = {4, 5, 6, 7, 8, 9, 10, 11};  /* r4-r11 */
+            static const uint32_t cs_mask =
+                (1u<<4)|(1u<<5)|(1u<<6)|(1u<<7)|(1u<<8)|(1u<<9)|
+                (1u<<10)|(1u<<11);
+            return gpr128_alloc_pair(ra, interval, cs_pool,
+                                     sizeof(cs_pool)/sizeof(cs_pool[0]), cs_mask);
+        }
+        return -1; /* GPR64 is rv32/aarch32 only */
     } else if (interval->reg_class == REG_CLASS_XMM) {
         /* All FP registers are caller-saved on every supported ABI: an FP
          * interval that spans a call cannot live in a register - force the

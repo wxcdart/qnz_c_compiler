@@ -212,3 +212,85 @@ int64_t __moddi3(int64_t a, int64_t b) {
 }
 #endif /* !(riscv xlen 32) */
 
+/* --------------------------------------------------------------------------
+ * 64-bit software integer division and modulo helpers for AArch32.
+ * These are ZeroCC-owned (NOT libgcc's __divdi3/__udivdi3): the division is
+ * implemented here in portable C using 64-bit halves only, so it is fully
+ * freestanding and works on ARMv7-A with no external runtime dependency.
+ *
+ * AAPCS32 64-bit return convention: (r0, r1) = (lo, hi)
+ * AAPCS32 64-bit argument convention: (r0, r1) = first 64-bit arg, (r2, r3) = second
+ * -------------------------------------------------------------------------- */
+
+/* Signed 64-bit division: returns quotient in (r0, r1) */
+int64_t zc_sdiv64(int64_t a, int64_t b) {
+    int aneg = a < 0, bneg = b < 0;
+    uint64_t ua = aneg ? (uint64_t)-a : (uint64_t)a;
+    uint64_t ub = bneg ? (uint64_t)-b : (uint64_t)b;
+    uint64_t q = zc_udivmod64(ua, ub, 0);
+    return (aneg ^ bneg) ? -(int64_t)q : (int64_t)q;
+}
+
+/* Unsigned 64-bit division: returns quotient in (r0, r1) */
+uint64_t zc_udiv64(uint64_t a, uint64_t b) {
+    return zc_udivmod64(a, b, 0);
+}
+
+/* Signed 64-bit modulo: returns remainder in (r0, r1) */
+int64_t zc_smod64(int64_t a, int64_t b) {
+    int aneg = a < 0;
+    uint64_t ua = aneg ? (uint64_t)-a : (uint64_t)a;
+    uint64_t ub = (b < 0) ? (uint64_t)-b : (uint64_t)b;
+    uint64_t r = 0;
+    zc_udivmod64(ua, ub, &r);
+    return aneg ? -(int64_t)r : (int64_t)r;
+}
+
+/* Unsigned 64-bit modulo: returns remainder in (r0, r1) */
+uint64_t zc_umod64(uint64_t a, uint64_t b) {
+    uint64_t r = 0;
+    zc_udivmod64(a, b, &r);
+    return r;
+}
+
+/* --------------------------------------------------------------------------
+ * 64-bit variable-count shift helpers for AArch32.
+ * These are used when the shift count is not known at compile time.
+ * -------------------------------------------------------------------------- */
+
+/* 64-bit SHL (left shift) with variable count */
+void zc_shl64_v(uint64_t a_lo, uint64_t a_hi, uint64_t n, uint64_t *o0, uint64_t *o1) {
+    n &= 127;
+    if (n == 0) { *o0 = a_lo; *o1 = a_hi; return; }
+    if (n < 64) { *o0 = a_lo << n; *o1 = (a_hi << n) | (a_lo >> (64 - n)); }
+    else        { *o0 = 0; *o1 = a_lo << (n - 64); }
+}
+
+/* 64-bit SHR (logical right shift) with variable count */
+void zc_shr64_v(uint64_t a_lo, uint64_t a_hi, uint64_t n, uint64_t *o0, uint64_t *o1) {
+    n &= 127;
+    if (n == 0) { *o0 = a_lo; *o1 = a_hi; return; }
+    if (n < 64) { *o0 = (a_lo >> n) | (a_hi << (64 - n)); *o1 = a_hi >> n; }
+    else        { *o0 = a_hi >> (n - 64); *o1 = 0; }
+}
+
+/* 64-bit SAR (arithmetic right shift) with variable count */
+void zc_sar64_v(uint64_t a_lo, uint64_t a_hi, uint64_t n, uint64_t *o0, uint64_t *o1) {
+    n &= 127;
+    if (n == 0) { *o0 = a_lo; *o1 = a_hi; return; }
+    int64_t h = (int64_t)a_hi;
+    if (n < 64) { *o0 = (a_lo >> n) | (a_hi << (64 - n)); *o1 = (uint64_t)(h >> n); }
+    else        { *o0 = (uint64_t)(h >> (n - 64)); *o1 = (uint64_t)(h >> 63); }
+}
+
+/* C-callable wrappers for the above (return 128-bit via out params) */
+void zc_shl64(uint64_t a_lo, uint64_t a_hi, uint64_t n, uint64_t *o0, uint64_t *o1) {
+    zc_shl64_v(a_lo, a_hi, n, o0, o1);
+}
+void zc_shr64(uint64_t a_lo, uint64_t a_hi, uint64_t n, uint64_t *o0, uint64_t *o1) {
+    zc_shr64_v(a_lo, a_hi, n, o0, o1);
+}
+void zc_sar64(uint64_t a_lo, uint64_t a_hi, uint64_t n, uint64_t *o0, uint64_t *o1) {
+    zc_sar64_v(a_lo, a_hi, n, o0, o1);
+}
+

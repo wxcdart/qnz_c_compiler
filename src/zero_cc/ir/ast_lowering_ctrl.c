@@ -53,7 +53,7 @@ static int lower_condition_as_int(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTR
         ir_emit_cond_set(c, cmp_i, CC_NE);
         cond_temp = cmp_i;
         c->last_expr_is_float = 0;
-    } else if (c->isa == ISA_RISCV32 && c->last_expr_is_64) {
+    } else if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && c->last_expr_is_64) {
         int zero64 = zc_alloc_temp(c);
         ir_emit_mov64_imm(c, zero64, 0);
         ir_emit_cmp64(c, cond_temp, zero64);

@@ -881,9 +881,9 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
         }
         const char *var = node->s.str;
         ZeroCCSym *sym = lowering_local_sym(c, node, var);
-        if (sym && c->isa == ISA_RISCV32 &&
+        if (sym && (c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) &&
             (sym->type.tag == TYPE_INT64 || sym->type.tag == TYPE_UINT64)) {
-            /* Sprint 170 (rv32 i64): 64-bit local declaration initializer. */
+            /* Sprint 170 (rv32 i64) / AArch32: 64-bit local declaration initializer. */
             int val = zc_operand_to64(c, arena, node->left);
             zc_sym_store64(c, sym, 0, val);
             c->last_expr_is_float = 0;

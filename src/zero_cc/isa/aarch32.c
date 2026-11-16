@@ -108,6 +108,59 @@ static inline void arm32_emit_u32(ZeroCCCompiler *c, uint32_t insn) {
 /* LDR/STR: bit 26=1 (0x04000000), P=bit 24, U=bit 23, B=bit 22, W=bit 21, L=bit 20 */
 #define ARM_LDR_STR(p,u,b,w,l) ((1u<<26)|((p)<<24)|((u)<<23)|((b)<<22)|((w)<<21)|((l)<<20))
 
+/* ========================================================================= */
+/* VFPv3/NEON instruction encoding helpers (ARMv7-A) */
+/* ========================================================================= */
+
+/* VFP Double-Precision Data Processing (VFPv3) */
+/* Encoding: cond(4) | 1110(4) | 1(1) | 1(1) | op(4) | Dd(5) | Dn(5) | Dm(5) | 0(1) */
+/* FADDD:  0xEE300A00 | (Dd<<22) | (Dn<<12) | Dm */
+/* FSUBD:  0xEE300A40 | (Dd<<22) | (Dn<<12) | Dm */
+/* FMULD:  0xEE300A80 | (Dd<<22) | (Dn<<12) | Dm */
+/* FDIVD:  0xEE300AC0 | (Dd<<22) | (Dn<<12) | Dm */
+#define ARM_VFP_FADDD  0xEE300A00u
+#define ARM_VFP_FSUBD  0xEE300A40u
+#define ARM_VFP_FMULD  0xEE300A80u
+#define ARM_VFP_FDIVD  0xEE300AC0u
+
+/* VFP Unary: FNEGD, FABSD, FSQRTD */
+/* Encoding: cond | 11101110 | 1010 | op(4) | Dd(5) | 0(5) | Dm(5) | 0(1) */
+#define ARM_VFP_FNEGD  0xEEB00A40u  /* op=0x8 (0x180 in bits 7:4) */
+#define ARM_VFP_FABSD  0xEEB00A40u  /* op=0x9 */
+#define ARM_VFP_FSQRTD 0xEEB00AC0u  /* op=0xB */
+
+/* VFP Compare: FCMPD, FCMPE (signaling) */
+/* Encoding: cond | 11101110 | 1010 | 1111 | Dn(5) | 0(5) | Dm(5) | 0(1) */
+#define ARM_VFP_FCMPD  0xEEB00AC0u  /* op=0xF */
+
+/* VFP Move: FCPYD (fmov dD, dN) */
+/* Encoding: cond | 11101110 | 1010 | 0100 | Dd(5) | 0(5) | Dm(5) | 0(1) */
+#define ARM_VFP_FCPYD  0xEEB00A40u  /* op=0x4 */
+
+/* VFP Load/Store Double (FLDD/FSTD) */
+/* Encoding: cond | 1101 | P | U | 1 | W | 1 | Rn(4) | Dd(5) | offset_8(8) */
+/* P=1, U=1, W=0, L=1 for load; L=0 for store */
+#define ARM_VFP_FLDD(p,u,w) ((1u<<28)|(0xD<<25)|((p)<<24)|((u)<<23)|(1u<<22)|((w)<<21)|(1u<<20))
+#define ARM_VFP_FSTD(p,u,w) ((1u<<28)|(0xD<<25)|((p)<<24)|((u)<<23)|(1u<<22)|((w)<<21)|(0u<<20))
+
+/* VFP Conversions */
+/* FTOSIZS (double -> signed int): 0xEEB80A40 | (Rd<<16) | (Dm<<12) | 0x180 */
+/* SITOS   (signed int -> double): 0xEEB80A40 | (Dd<<22) | (Rm<<16) | 0x180 */
+#define ARM_VFP_FTOSIZS  0xEEB80A40u
+#define ARM_VFP_SITOS    0xEEB80A40u
+
+/* NEON 128-bit Load/Store (VLD1.64 / VST1.64) */
+/* Encoding is complex - VLD1.64 {qD}, [Rn, #imm] */
+/* For now use: 0xF9... but need to verify exact encoding */
+#define ARM_NEON_VLD1_64(qd, rn, imm)  (0xF9000000u | ((qd & 0xF) << 22) | ((rn & 0xF) << 16) | ((imm & 0xFFF) << 4))
+#define ARM_NEON_VST1_64(qd, rn, imm)  (0xF9000000u | ((qd & 0xF) << 22) | ((rn & 0xF) << 16) | ((imm & 0xFFF) << 4) | (1u<<20))
+
+/* 64-bit Multiply (UMULL/SMULL) */
+/* UMULL: 0xE0800090 | (RdHi<<16) | (RdLo<<12) | (Rn<<8) | Rm */
+/* SMULL: 0xE0C00090 | (RdHi<<16) | (RdLo<<12) | (Rn<<8) | Rm */
+#define ARM_UMULL(rdhi, rdlo, rn, rm)  (0xE0800090u | ((rdhi & 0xF) << 16) | ((rdlo & 0xF) << 12) | ((rn & 0xF) << 8) | (rm & 0xF))
+#define ARM_SMULL(rdhi, rdlo, rn, rm)  (0xE0C00090u | ((rdhi & 0xF) << 16) | ((rdlo & 0xF) << 12) | ((rn & 0xF) << 8) | (rm & 0xF))
+
 /* =========================================================================
  * Register info for AArch32
  * ========================================================================= */
@@ -658,26 +711,349 @@ static void aarch32_resolve_labels(ZeroCCCompiler *c) {
 }
 
 /* =========================================================================
- * Floating point (placeholder - Phase 2)
+ * Floating point (VFPv3) - Phase 2
  * ========================================================================= */
+
+/* VFP Load Double: FLDD dD, [Rn, #offset] */
+/* offset is in bytes, must be multiple of 4 for FLDD/FSTD */
 static void aarch32_emit_load_fp(ZeroCCCompiler *c, int dst_reg, int base_reg, int32_t offset) {
-    (void)c; (void)dst_reg; (void)base_reg; (void)offset;
+    /* FLDD uses offset/4 in the 8-bit immediate field */
+    int32_t imm8 = offset / 4;
+    if (imm8 >= -255 && imm8 <= 255) {
+        int u = (imm8 >= 0) ? 1 : 0;
+        int imm = imm8 >= 0 ? imm8 : -imm8;
+        /* FLDD: cond=AL(14), P=1, U=u, W=0, L=1 */
+        arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | ARM_VFP_FLDD(1, u, 0) |
+                       ARM_RN(base_reg) | ((dst_reg & 0x1F) << 12) | ((imm & 0xFF) << 4));
+    } else {
+        /* Large offset: load address into scratch, then FLDD [scratch] */
+        int scratch = (base_reg != 12) ? 12 : 9;
+        aarch32_emit_mov_imm(c, scratch, offset);
+        arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | ARM_VFP_FLDD(1, 1, 0) |
+                       ARM_RN(scratch) | ((dst_reg & 0x1F) << 12) | 0);
+    }
 }
+
+/* VFP Store Double: FSTD dD, [Rn, #offset] */
 static void aarch32_emit_store_fp(ZeroCCCompiler *c, int src_reg, int base_reg, int32_t offset) {
-    (void)c; (void)src_reg; (void)base_reg; (void)offset;
+    int32_t imm8 = offset / 4;
+    if (imm8 >= -255 && imm8 <= 255) {
+        int u = (imm8 >= 0) ? 1 : 0;
+        int imm = imm8 >= 0 ? imm8 : -imm8;
+        /* FSTD: cond=AL(14), P=1, U=u, W=0, L=0 */
+        arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | ARM_VFP_FSTD(1, u, 0) |
+                       ARM_RN(base_reg) | ((src_reg & 0x1F) << 12) | ((imm & 0xFF) << 4));
+    } else {
+        int scratch = (base_reg != 12 && src_reg != 12) ? 12 : ((base_reg != 9 && src_reg != 9) ? 9 : 14);
+        aarch32_emit_mov_imm(c, scratch, offset);
+        arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | ARM_VFP_FSTD(1, 1, 0) |
+                       ARM_RN(scratch) | ((src_reg & 0x1F) << 12) | 0);
+    }
 }
+
+/* VFP Load Double from rodata: LDR dD, =address (via literal pool) */
 static void aarch32_emit_load_fp_rodata(ZeroCCCompiler *c, int dst_reg, size_t rodata_offset) {
-    (void)c; (void)dst_reg; (void)rodata_offset;
+    /* Load the address into a GPR, then FLDD from it */
+    int scratch = 12; /* r12 (IP) */
+    uint32_t r = (uint32_t)(scratch & 0xF);
+    arm32_emit_u32(c, 0xE3000000u | (r << 12));  /* movw r12, #0 */
+    size_t patch_pos = me_get_offset(c);
+    arm32_emit_u32(c, 0xE3400000u | (r << 12));  /* movt r12, #0 */
+    if (c->str_reloc_count < ZERO_CC_MAX_STR_RELOCS) {
+        c->str_relocs[c->str_reloc_count].text_patch_offset = patch_pos;
+        c->str_relocs[c->str_reloc_count].rodata_offset = rodata_offset;
+        c->str_relocs[c->str_reloc_count].dst_reg = scratch;
+        c->str_reloc_count++;
+    }
+    /* FLDD dD, [r12] */
+    arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | ARM_VFP_FLDD(1, 1, 0) |
+                   ARM_RN(scratch) | ((dst_reg & 0x1F) << 12) | 0);
 }
-static void aarch32_emit_fp_add(ZeroCCCompiler *c, int dst, int src1, int src2) { (void)c; (void)dst; (void)src1; (void)src2; }
-static void aarch32_emit_fp_sub(ZeroCCCompiler *c, int dst, int src1, int src2) { (void)c; (void)dst; (void)src1; (void)src2; }
-static void aarch32_emit_fp_mul(ZeroCCCompiler *c, int dst, int src1, int src2) { (void)c; (void)dst; (void)src1; (void)src2; }
-static void aarch32_emit_fp_div(ZeroCCCompiler *c, int dst, int src1, int src2) { (void)c; (void)dst; (void)src1; (void)src2; }
-static void aarch32_emit_fp_neg(ZeroCCCompiler *c, int dst, int src) { (void)c; (void)dst; (void)src; }
-static void aarch32_emit_fp_cmp(ZeroCCCompiler *c, int src1, int src2) { (void)c; (void)src1; (void)src2; }
-static void aarch32_emit_fp_cvtsi(ZeroCCCompiler *c, int int_dst, int fp_src) { (void)c; (void)int_dst; (void)fp_src; }
-static void aarch32_emit_fp_cvtsf(ZeroCCCompiler *c, int fp_dst, int int_src) { (void)c; (void)fp_dst; (void)int_src; }
-static void aarch32_emit_fp_mov(ZeroCCCompiler *c, int dst, int src) { (void)c; (void)dst; (void)src; }
+
+/* VFP FADDD: faddd dD, dN, dM */
+static void aarch32_emit_fp_add(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | ARM_VFP_FADDD |
+                   ((dst & 0x1F) << 22) | ((src1 & 0x1F) << 12) | (src2 & 0x1F));
+}
+
+/* VFP FSUBD: fsubd dD, dN, dM */
+static void aarch32_emit_fp_sub(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | ARM_VFP_FSUBD |
+                   ((dst & 0x1F) << 22) | ((src1 & 0x1F) << 12) | (src2 & 0x1F));
+}
+
+/* VFP FMULD: fmuld dD, dN, dM */
+static void aarch32_emit_fp_mul(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | ARM_VFP_FMULD |
+                   ((dst & 0x1F) << 22) | ((src1 & 0x1F) << 12) | (src2 & 0x1F));
+}
+
+/* VFP FDIVD: fdivd dD, dN, dM */
+static void aarch32_emit_fp_div(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | ARM_VFP_FDIVD |
+                   ((dst & 0x1F) << 22) | ((src1 & 0x1F) << 12) | (src2 & 0x1F));
+}
+
+/* VFP FNEGD: fnegd dD, dN */
+static void aarch32_emit_fp_neg(ZeroCCCompiler *c, int dst, int src) {
+    /* FNEGD: op=0x8 in bits 7:4 of the VFP unary format */
+    arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | 0xEEB00A40u | (0x8 << 4) |
+                   ((dst & 0x1F) << 22) | (src & 0x1F));
+}
+
+/* VFP FCMPD: fcmpd dN, dM (sets FPSCR flags) */
+static void aarch32_emit_fp_cmp(ZeroCCCompiler *c, int src1, int src2) {
+    /* FCMPD: op=0xF in bits 7:4 */
+    arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | 0xEEB00AC0u | (0xF << 4) |
+                   ((src1 & 0x1F) << 12) | (src2 & 0x1F));
+}
+
+/* VFP FTOSIZS: ftosizs Rd, dN (double -> signed int, truncate) */
+static void aarch32_emit_fp_cvtsi(ZeroCCCompiler *c, int int_dst, int fp_src) {
+    /* FTOSIZS: 0xEEB80A40 | (Rd<<16) | (Dm<<12) | 0x180 */
+    arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | ARM_VFP_FTOSIZS |
+                   ((int_dst & 0xF) << 16) | ((fp_src & 0x1F) << 12) | 0x180);
+}
+
+/* VFP SITOS: sitos dD, Rm (signed int -> double) */
+static void aarch32_emit_fp_cvtsf(ZeroCCCompiler *c, int fp_dst, int int_src) {
+    /* SITOS: 0xEEB80A40 | (Dd<<22) | (Rm<<16) | 0x180 */
+    arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | ARM_VFP_SITOS |
+                   ((fp_dst & 0x1F) << 22) | ((int_src & 0xF) << 16) | 0x180);
+}
+
+/* VFP FCPYD: fcpyd dD, dN (move) */
+static void aarch32_emit_fp_mov(ZeroCCCompiler *c, int dst, int src) {
+    if (dst == src) return;
+    /* FCPYD: op=0x4 in bits 7:4 */
+    arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | 0xEEB00A40u | (0x4 << 4) |
+                   ((dst & 0x1F) << 22) | (src & 0x1F));
+}
+
+/* =========================================================================
+ * NEON 128-bit Vector Load/Store (Phase 2)
+ * ========================================================================= */
+
+/* NEON VLD1.64 {qD}, [Rn, #offset] - 128-bit vector load */
+static void aarch32_emit_vload(ZeroCCCompiler *c, int dst_reg, int base_reg, int32_t offset) {
+    /* NEON VLD1.64 encoding: 0xF9... need to verify */
+    /* For now, use FLDD to load into d-register pair */
+    /* q0 = d0:d1, q1 = d2:d3, etc. */
+    int d_reg = dst_reg * 2;  /* qN maps to d(2N):d(2N+1) */
+    aarch32_emit_load_fp(c, d_reg, base_reg, offset);
+    aarch32_emit_load_fp(c, d_reg + 1, base_reg, offset + 8);
+}
+
+/* NEON VST1.64 {qD}, [Rn, #offset] - 128-bit vector store */
+static void aarch32_emit_vstore(ZeroCCCompiler *c, int src_reg, int base_reg, int32_t offset) {
+    int d_reg = src_reg * 2;
+    aarch32_emit_store_fp(c, d_reg, base_reg, offset);
+    aarch32_emit_store_fp(c, d_reg + 1, base_reg, offset + 8);
+}
+
+/* =========================================================================
+ * 64-bit Integer Multiply via UMULL/SMULL (Phase 2)
+ * ========================================================================= */
+
+/* UMULL: unsigned 64-bit multiply (lo,hi) = a * b */
+static void aarch32_emit_mul64(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi) {
+    /* Use UMULL for low*low, then accumulate cross terms */
+    /* This is a simplified implementation - full 64x64->128 needs more ops */
+    int t0 = BE(c)->scratch_reg1;  /* r12 */
+    int t1 = BE(c)->scratch_reg2;  /* r9 */
+
+    /* lo = a_lo * b_lo */
+    arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | ARM_UMULL(dlo, dhi, a_lo, b_lo));
+
+    /* Cross terms: a_lo*b_hi + a_hi*b_lo */
+    /* t0 = a_lo * b_hi */
+    arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | ARM_UMULL(t0, t1, a_lo, b_hi));
+    aarch32_emit_add(c, dhi, dhi, t0);
+    /* t0 = a_hi * b_lo */
+    arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | ARM_UMULL(t0, t1, a_hi, b_lo));
+    aarch32_emit_add(c, dhi, dhi, t0);
+}
+
+/* =========================================================================
+ * 64-bit Integer Pair Operations (GPR64) for AArch32
+ * =========================================================================
+ * A 64-bit value lives in a (lo,hi) pair of 32-bit GPRs.
+ * lo = lower 32 bits, hi = upper 32 bits.
+ */
+
+/* 64-bit ADD: d = a + b (with carry) */
+static void aarch32_emit_add64(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi) {
+    arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | ARM_OPCODE(ARM_OP_ADD) | ARM_S_BIT |
+                   ARM_RD(dlo) | ARM_RN(alo) | ARM_RM(blo));  /* ADDS dlo, alo, blo */
+    arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | ARM_OPCODE(ARM_OP_ADC) |
+                   ARM_RD(dhi) | ARM_RN(ahi) | ARM_RM(bhi));  /* ADC dhi, ahi, bhi */
+}
+
+/* 64-bit SUB: d = a - b (with borrow) */
+static void aarch32_emit_sub64(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi) {
+    arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | ARM_OPCODE(ARM_OP_SUB) | ARM_S_BIT |
+                   ARM_RD(dlo) | ARM_RN(alo) | ARM_RM(blo));  /* SUBS dlo, alo, blo */
+    arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | ARM_OPCODE(ARM_OP_SBC) |
+                   ARM_RD(dhi) | ARM_RN(ahi) | ARM_RM(bhi));  /* SBC dhi, ahi, bhi */
+}
+
+/* 64-bit AND */
+static void aarch32_emit_and64(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi) {
+    arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | ARM_OPCODE(ARM_OP_AND) |
+                   ARM_RD(dlo) | ARM_RN(alo) | ARM_RM(blo));
+    arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | ARM_OPCODE(ARM_OP_AND) |
+                   ARM_RD(dhi) | ARM_RN(ahi) | ARM_RM(bhi));
+}
+
+/* 64-bit OR */
+static void aarch32_emit_or64(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi) {
+    arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | ARM_OPCODE(ARM_OP_ORR) |
+                   ARM_RD(dlo) | ARM_RN(alo) | ARM_RM(blo));
+    arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | ARM_OPCODE(ARM_OP_ORR) |
+                   ARM_RD(dhi) | ARM_RN(ahi) | ARM_RM(bhi));
+}
+
+/* 64-bit XOR */
+static void aarch32_emit_xor64(ZeroCCCompiler *c, int dlo, int dhi, int alo, int ahi, int blo, int bhi) {
+    arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | ARM_OPCODE(ARM_OP_EOR) |
+                   ARM_RD(dlo) | ARM_RN(alo) | ARM_RM(blo));
+    arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | ARM_OPCODE(ARM_OP_EOR) |
+                   ARM_RD(dhi) | ARM_RN(ahi) | ARM_RM(bhi));
+}
+
+/* 64-bit NOT */
+static void aarch32_emit_not64(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi) {
+    arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | ARM_OPCODE(ARM_OP_MVN) |
+                   ARM_RD(dlo) | ARM_RM(slo));
+    arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | ARM_OPCODE(ARM_OP_MVN) |
+                   ARM_RD(dhi) | ARM_RM(shi));
+}
+
+/* 64-bit NEG (two's complement) */
+static void aarch32_emit_neg64(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi) {
+    arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | ARM_OPCODE(ARM_OP_RSB) | ARM_S_BIT |
+                   ARM_RD(dlo) | ARM_RN(slo) | 0);  /* RSBS dlo, slo, #0 */
+    arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | ARM_OPCODE(ARM_OP_RSC) |
+                   ARM_RD(dhi) | ARM_RN(shi) | 0);  /* RSC dhi, shi, #0 */
+}
+
+/* 64-bit SHL (left shift) - constant count */
+static void aarch32_emit_shl64(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi, int cnt) {
+    int t = BE(c)->scratch_reg1;  /* r12 */
+    if (cnt != 0 && cnt < 32) {
+        arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | 0xE1A00010u | ARM_RD(dlo & 0xF) | ARM_RS(cnt & 0xF) | ARM_RM(slo & 0xF));  /* LSL dlo, slo, #cnt */
+        arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | 0xE1A00050u | ARM_RD(t & 0xF) | ARM_RS((32 - cnt) & 0xF) | ARM_RM(slo & 0xF));  /* LSR t, slo, #32-cnt */
+        arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | 0xE1A00010u | ARM_RD(dhi & 0xF) | ARM_RS(cnt & 0xF) | ARM_RM(shi & 0xF));  /* LSL dhi, shi, #cnt */
+        arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | ARM_OPCODE(ARM_OP_ORR) |
+                       ARM_RD(dhi) | ARM_RN(dhi) | ARM_RM(t));  /* ORR dhi, dhi, t */
+    } else {
+        aarch32_emit_call(c, "zc_shl64");
+    }
+}
+
+/* 64-bit SHR (logical right shift) - constant count */
+static void aarch32_emit_shr64(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi, int cnt) {
+    int t = BE(c)->scratch_reg1;  /* r12 */
+    if (cnt != 0 && cnt < 32) {
+        arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | 0xE1A00030u | ARM_RD(dhi & 0xF) | ARM_RS(cnt & 0xF) | ARM_RM(shi & 0xF));  /* LSR dhi, shi, #cnt */
+        arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | 0xE1A00010u | ARM_RD(t & 0xF) | ARM_RS((32 - cnt) & 0xF) | ARM_RM(slo & 0xF));  /* LSL t, slo, #32-cnt */
+        arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | 0xE1A00030u | ARM_RD(dlo & 0xF) | ARM_RS(cnt & 0xF) | ARM_RM(slo & 0xF));  /* LSR dlo, slo, #cnt */
+        arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | ARM_OPCODE(ARM_OP_ORR) |
+                       ARM_RD(dlo) | ARM_RN(dlo) | ARM_RM(t));  /* ORR dlo, dlo, t */
+    } else {
+        aarch32_emit_call(c, "zc_shr64");
+    }
+}
+
+/* 64-bit SAR (arithmetic right shift) - constant count */
+static void aarch32_emit_sar64(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi, int cnt) {
+    int t = BE(c)->scratch_reg1;  /* r12 */
+    if (cnt != 0 && cnt < 32) {
+        arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | 0xE1A00050u | ARM_RD(dhi & 0xF) | ARM_RS(cnt & 0xF) | ARM_RM(shi & 0xF));  /* ASR dhi, shi, #cnt */
+        arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | 0xE1A00010u | ARM_RD(t & 0xF) | ARM_RS((32 - cnt) & 0xF) | ARM_RM(slo & 0xF));  /* LSL t, slo, #32-cnt */
+        arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | 0xE1A00030u | ARM_RD(dlo & 0xF) | ARM_RS(cnt & 0xF) | ARM_RM(slo & 0xF));  /* LSR dlo, slo, #cnt */
+        arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | ARM_OPCODE(ARM_OP_ORR) |
+                       ARM_RD(dlo) | ARM_RN(dlo) | ARM_RM(t));  /* ORR dlo, dlo, t */
+    } else {
+        aarch32_emit_call(c, "zc_sar64");
+    }
+}
+
+/* 64-bit CMP */
+static void aarch32_emit_cmp64(ZeroCCCompiler *c, int a_lo, int a_hi, int b_lo, int b_hi) {
+    c->lowering.cmp_is_64 = 1;
+    c->lowering.cmp64_s1_lo = a_lo; c->lowering.cmp64_s1_hi = a_hi;
+    c->lowering.cmp64_s2_lo = b_lo; c->lowering.cmp64_s2_hi = b_hi;
+}
+
+/* 64-bit MOV */
+static void aarch32_emit_mov64(ZeroCCCompiler *c, int dlo, int dhi, int slo, int shi) {
+    aarch32_emit_mov_reg(c, dlo, slo);
+    aarch32_emit_mov_reg(c, dhi, shi);
+}
+
+/* 64-bit LOAD */
+static void aarch32_emit_load64(ZeroCCCompiler *c, int dlo, int dhi, int base, int32_t offset) {
+    aarch32_emit_load(c, dlo, base, offset);
+    aarch32_emit_load(c, dhi, base, offset + 4);
+}
+
+/* 64-bit STORE */
+static void aarch32_emit_store64(ZeroCCCompiler *c, int slo, int shi, int base, int32_t offset) {
+    aarch32_emit_store(c, slo, base, offset);
+    aarch32_emit_store(c, shi, base, offset + 4);
+}
+
+/* 64-bit ZEXT32_64 (zero-extend 32 to 64) */
+static void aarch32_emit_zext32_64(ZeroCCCompiler *c, int dlo, int dhi, int src) {
+    aarch32_emit_mov_reg(c, dlo, src);
+    arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | ARM_DP_I_IMM | ARM_OPCODE(ARM_OP_MOV) |
+                   ARM_RD(dhi) | 0);
+}
+
+/* 64-bit SEXT32_64 (sign-extend 32 to 64) */
+static void aarch32_emit_sext32_64(ZeroCCCompiler *c, int dlo, int dhi, int src) {
+    aarch32_emit_mov_reg(c, dlo, src);
+    arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | 0xE1A00050u | ARM_RD(dhi & 0xF) | ARM_RS(31) | ARM_RM(src & 0xF));  /* ASR dhi, src, #31 */
+}
+
+/* 64-bit TRUNC64_32 */
+static void aarch32_emit_trunc64_32(ZeroCCCompiler *c, int dst, int slo, int shi) {
+    (void)shi;
+    aarch32_emit_mov_reg(c, dst, slo);
+}
+
+/* 64-bit MOV_IMM */
+static void aarch32_emit_mov64_imm(ZeroCCCompiler *c, int dlo, int dhi, int64_t imm) {
+    aarch32_emit_mov_imm(c, dlo, (int32_t)(imm & 0xFFFFFFFFLL));
+    aarch32_emit_mov_imm(c, dhi, (int32_t)((uint64_t)imm >> 32));
+}
+
+/* =========================================================================
+ * 64-bit Integer Divide/Modulo via zero_rt helpers (Phase 2)
+ * ========================================================================= */
+
+static void aarch32_emit_div64(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi) {
+    (void)dlo; (void)dhi; (void)a_lo; (void)a_hi; (void)b_lo; (void)b_hi;
+    /* Call zc_sdiv64(a_lo, a_hi, b_lo, b_hi) -> returns (q_lo, q_hi) in r0,r1 */
+    aarch32_emit_call(c, "zc_sdiv64");
+}
+
+static void aarch32_emit_mod64(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi) {
+    (void)dlo; (void)dhi; (void)a_lo; (void)a_hi; (void)b_lo; (void)b_hi;
+    /* Call zc_smod64(a_lo, a_hi, b_lo, b_hi) -> returns (r_lo, r_hi) in r0,r1 */
+    aarch32_emit_call(c, "zc_smod64");
+}
+
+static void aarch32_emit_udiv64(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi) {
+    (void)dlo; (void)dhi; (void)a_lo; (void)a_hi; (void)b_lo; (void)b_hi;
+    aarch32_emit_call(c, "zc_udiv64");
+}
+
+static void aarch32_emit_umod64(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi) {
+    (void)dlo; (void)dhi; (void)a_lo; (void)a_hi; (void)b_lo; (void)b_hi;
+    aarch32_emit_call(c, "zc_umod64");
+}
 
 /* =========================================================================
  * Parameter spilling / function setup
@@ -688,7 +1064,10 @@ static void aarch32_emit_param_save_int(ZeroCCCompiler *c, int reg_idx, int32_t 
     aarch32_emit_store(c, reg, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -offset));
 }
 static void aarch32_emit_param_save_fp(ZeroCCCompiler *c, int reg_idx, int32_t offset, int is_single) {
-    (void)c; (void)reg_idx; (void)offset; (void)is_single;
+    if (reg_idx < 0 || reg_idx >= 8) return;
+    int reg = aarch32_fp_arg_regs[reg_idx];
+    aarch32_emit_store_fp(c, reg, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -offset));
+    (void)is_single;  /* AAPCS VFP variant uses d0-d7 for both float/double */
 }
 static void aarch32_emit_variadic_spill(ZeroCCCompiler *c, int param_count, int32_t base_offset) {
     (void)c; (void)param_count; (void)base_offset;
@@ -905,6 +1284,32 @@ static void aarch32_emit_mod_asm(ZeroCCCompiler *c, int dst, int src1, int src2,
     (void)c; (void)dst; (void)src1; (void)src2; (void)out;
     fprintf(out, "\t# mod: %s = %s %% %s (expand)\n", aarch32_get_hw_reg_name(dst), aarch32_get_hw_reg_name(src1), aarch32_get_hw_reg_name(src2));
 }
+
+/* 64-bit multiply/divide ASM emitters */
+static void aarch32_emit_mul64_asm(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi, FILE *out) {
+    (void)c; (void)a_hi; (void)b_hi;
+    fprintf(out, "\tumull\t%s, %s, %s, %s\n",
+            aarch32_get_hw_reg_name(dlo), aarch32_get_hw_reg_name(dhi),
+            aarch32_get_hw_reg_name(a_lo), aarch32_get_hw_reg_name(b_lo));
+    fprintf(out, "\t# cross terms: a_lo*b_hi + a_hi*b_lo\n");
+}
+static void aarch32_emit_div64_asm(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi, FILE *out) {
+    (void)c; (void)dlo; (void)dhi; (void)a_lo; (void)a_hi; (void)b_lo; (void)b_hi;
+    fprintf(out, "\tbl\tzc_sdiv64\n");
+}
+static void aarch32_emit_mod64_asm(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi, FILE *out) {
+    (void)c; (void)dlo; (void)dhi; (void)a_lo; (void)a_hi; (void)b_lo; (void)b_hi;
+    fprintf(out, "\tbl\tzc_smod64\n");
+}
+static void aarch32_emit_udiv64_asm(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi, FILE *out) {
+    (void)c; (void)dlo; (void)dhi; (void)a_lo; (void)a_hi; (void)b_lo; (void)b_hi;
+    fprintf(out, "\tbl\tzc_udiv64\n");
+}
+static void aarch32_emit_umod64_asm(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi, FILE *out) {
+    (void)c; (void)dlo; (void)dhi; (void)a_lo; (void)a_hi; (void)b_lo; (void)b_hi;
+    fprintf(out, "\tbl\tzc_umod64\n");
+}
+
 static void aarch32_emit_and_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
     (void)c;
     fprintf(out, "\tand\t%s, %s, %s\n", aarch32_get_hw_reg_name(dst), aarch32_get_hw_reg_name(src1), aarch32_get_hw_reg_name(src2));
@@ -1019,34 +1424,44 @@ static void aarch32_emit_jge_asm(ZeroCCCompiler *c, const char *label, FILE *out
     fprintf(out, "\tbge\t%s\n", label);
 }
 static void aarch32_emit_load_fp_asm(ZeroCCCompiler *c, int dst, int base, int32_t offset, FILE *out) {
-    (void)c; (void)dst; (void)base; (void)offset; (void)out;
+    (void)c;
+    fprintf(out, "\tfldd\td%d, [%s, #%d]\n", dst, aarch32_get_hw_reg_name(base), offset);
 }
 static void aarch32_emit_store_fp_asm(ZeroCCCompiler *c, int src, int base, int32_t offset, FILE *out) {
-    (void)c; (void)src; (void)base; (void)offset; (void)out;
+    (void)c;
+    fprintf(out, "\tfstd\td%d, [%s, #%d]\n", src, aarch32_get_hw_reg_name(base), offset);
 }
 static void aarch32_emit_fp_add_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
-    (void)c; (void)dst; (void)src1; (void)src2; (void)out;
+    (void)c;
+    fprintf(out, "\tfaddd\td%d, d%d, d%d\n", dst, src1, src2);
 }
 static void aarch32_emit_fp_sub_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
-    (void)c; (void)dst; (void)src1; (void)src2; (void)out;
+    (void)c;
+    fprintf(out, "\tfsubd\td%d, d%d, d%d\n", dst, src1, src2);
 }
 static void aarch32_emit_fp_mul_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
-    (void)c; (void)dst; (void)src1; (void)src2; (void)out;
+    (void)c;
+    fprintf(out, "\tfmuld\td%d, d%d, d%d\n", dst, src1, src2);
 }
 static void aarch32_emit_fp_div_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
-    (void)c; (void)dst; (void)src1; (void)src2; (void)out;
+    (void)c;
+    fprintf(out, "\tfdivd\td%d, d%d, d%d\n", dst, src1, src2);
 }
 static void aarch32_emit_fp_cmp_asm(ZeroCCCompiler *c, int src1, int src2, FILE *out) {
-    (void)c; (void)src1; (void)src2; (void)out;
+    (void)c;
+    fprintf(out, "\tfcmpd\td%d, d%d\n", src1, src2);
 }
 static void aarch32_emit_fp_mov_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) {
-    (void)c; (void)dst; (void)src; (void)out;
+    (void)c;
+    fprintf(out, "\tfcpyd\td%d, d%d\n", dst, src);
 }
 static void aarch32_emit_fp_cvtsf_asm(ZeroCCCompiler *c, int fp_dst, int int_src, FILE *out) {
-    (void)c; (void)fp_dst; (void)int_src; (void)out;
+    (void)c;
+    fprintf(out, "\tsitos\td%d, %s\n", fp_dst, aarch32_get_hw_reg_name(int_src));
 }
 static void aarch32_emit_fp_cvtsi_asm(ZeroCCCompiler *c, int int_dst, int fp_src, FILE *out) {
-    (void)c; (void)int_dst; (void)fp_src; (void)out;
+    (void)c;
+    fprintf(out, "\tftosizs\t%s, d%d\n", aarch32_get_hw_reg_name(int_dst), fp_src);
 }
 static void aarch32_emit_vla_alloc_asm(ZeroCCCompiler *c, int dst, int size, FILE *out) {
     (void)c; (void)dst; (void)size; (void)out;
@@ -1058,7 +1473,10 @@ static void aarch32_emit_param_save_int_asm(ZeroCCCompiler *c, int reg_idx, int3
     fprintf(out, "\tstr\tr%d, [r11, #-%d]\n", reg_idx, offset);
 }
 static void aarch32_emit_param_save_fp_asm(ZeroCCCompiler *c, int reg_idx, int32_t offset, int is_single, FILE *out) {
-    (void)c; (void)reg_idx; (void)offset; (void)is_single; (void)out;
+    (void)c; (void)is_single;
+    if (reg_idx >= 0 && reg_idx < 8) {
+        fprintf(out, "\tfstd\td%d, [r11, #-%d]\n", reg_idx, offset);
+    }
 }
 static void aarch32_emit_variadic_spill_asm(ZeroCCCompiler *c, int param_count, int32_t base_offset, FILE *out) {
     (void)c; (void)param_count; (void)base_offset; (void)out;
@@ -1081,12 +1499,14 @@ static void aarch32_emit_filescope_asm_mc(ZeroCCCompiler *c, const char *asm_str
     (void)c; (void)asm_str;
 }
 
-/* Vector asm placeholders */
+/* Vector asm - NEON 128-bit load/store */
 static void aarch32_emit_vload_asm(ZeroCCCompiler *c, int dst, int base, int32_t offset, FILE *out) {
-    (void)c; (void)dst; (void)base; (void)offset; (void)out;
+    (void)c;
+    fprintf(out, "\tvld1.64\t{q%d}, [%s, #%d]\n", dst, aarch32_get_hw_reg_name(base), offset);
 }
 static void aarch32_emit_vstore_asm(ZeroCCCompiler *c, int src, int base, int32_t offset, FILE *out) {
-    (void)c; (void)src; (void)base; (void)offset; (void)out;
+    (void)c;
+    fprintf(out, "\tvst1.64\t{q%d}, [%s, #%d]\n", src, aarch32_get_hw_reg_name(base), offset);
 }
 
 /* =========================================================================
@@ -1224,6 +1644,37 @@ void aarch32_init_backend(void) {
 
     aarch32_backend.emit_vla_alloc = aarch32_emit_vla_alloc;
 
+    /* Phase 2: NEON 128-bit vector load/store */
+    aarch32_backend.emit_vload = aarch32_emit_vload;
+    aarch32_backend.emit_vstore = aarch32_emit_vstore;
+
+    /* Phase 2: 64-bit multiply/divide/modulo */
+    aarch32_backend.emit_mul64 = aarch32_emit_mul64;
+    aarch32_backend.emit_div64 = aarch32_emit_div64;
+    aarch32_backend.emit_mod64 = aarch32_emit_mod64;
+    aarch32_backend.emit_udiv64 = aarch32_emit_udiv64;
+    aarch32_backend.emit_umod64 = aarch32_emit_umod64;
+
+    /* Phase 2: GPR64 pair operations */
+    aarch32_backend.emit_add64 = aarch32_emit_add64;
+    aarch32_backend.emit_sub64 = aarch32_emit_sub64;
+    aarch32_backend.emit_and64 = aarch32_emit_and64;
+    aarch32_backend.emit_or64 = aarch32_emit_or64;
+    aarch32_backend.emit_xor64 = aarch32_emit_xor64;
+    aarch32_backend.emit_not64 = aarch32_emit_not64;
+    aarch32_backend.emit_neg64 = aarch32_emit_neg64;
+    aarch32_backend.emit_shl64 = aarch32_emit_shl64;
+    aarch32_backend.emit_shr64 = aarch32_emit_shr64;
+    aarch32_backend.emit_sar64 = aarch32_emit_sar64;
+    aarch32_backend.emit_cmp64 = aarch32_emit_cmp64;
+    aarch32_backend.emit_mov64 = aarch32_emit_mov64;
+    aarch32_backend.emit_load64 = aarch32_emit_load64;
+    aarch32_backend.emit_store64 = aarch32_emit_store64;
+    aarch32_backend.emit_zext32_64 = aarch32_emit_zext32_64;
+    aarch32_backend.emit_sext32_64 = aarch32_emit_sext32_64;
+    aarch32_backend.emit_trunc64_32 = aarch32_emit_trunc64_32;
+    aarch32_backend.emit_mov64_imm = aarch32_emit_mov64_imm;
+
     aarch32_backend.emit_atomic_xadd = aarch32_emit_atomic_xadd;
     aarch32_backend.emit_atomic_or = aarch32_emit_atomic_or;
     aarch32_backend.emit_atomic_and = aarch32_emit_atomic_and;
@@ -1305,4 +1756,11 @@ void aarch32_init_backend(void) {
 
     aarch32_backend.emit_vload_asm = aarch32_emit_vload_asm;
     aarch32_backend.emit_vstore_asm = aarch32_emit_vstore_asm;
+
+    /* Phase 2: 64-bit multiply/divide/modulo ASM */
+    aarch32_backend.emit_mul64_asm = aarch32_emit_mul64_asm;
+    aarch32_backend.emit_div64_asm = aarch32_emit_div64_asm;
+    aarch32_backend.emit_mod64_asm = aarch32_emit_mod64_asm;
+    aarch32_backend.emit_udiv64_asm = aarch32_emit_udiv64_asm;
+    aarch32_backend.emit_umod64_asm = aarch32_emit_umod64_asm;
 }

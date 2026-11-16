@@ -616,7 +616,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
              * then hi), exactly the 16-byte struct chunk pattern. */
             bool is_128_scalar = (sym->type.tag == TYPE_INT128 || sym->type.tag == TYPE_UINT128);
             if (is_128_scalar) is_multi_chunk_struct = true;
-            bool is_64_scalar = (c->isa == ISA_RISCV32 &&
+            bool is_64_scalar = ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) &&
                                  (sym->type.tag == TYPE_INT64 || sym->type.tag == TYPE_UINT64));
 
             if (is_64_scalar) {

@@ -963,7 +963,7 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
             }
             /* Sprint 170 (rv32 i64): a 64-bit integer operand (and not a
              * complex/128 op) lowers on the (lo,hi) GPR64 pair. */
-            if (c->isa == ISA_RISCV32 &&
+            if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) &&
                 !((cres_ti && cres_ti->kind == TYPE_KIND_COMPLEX) ||
                   (cl_ti && cl_ti->kind == TYPE_KIND_COMPLEX) ||
                   (cr_ti && cr_ti->kind == TYPE_KIND_COMPLEX))) {

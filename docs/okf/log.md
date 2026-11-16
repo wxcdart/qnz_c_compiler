@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-15T16:56:31Z
+timestamp: 2026-11-16T00:13:08Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1527,3 +1527,18 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-15 — Updated `isa-backends.md`
 - Document target architecture refactoring roadmap (TargetTraits, table-driven regalloc, baremetal LMA/VMA) and decouple GPU PTX/SPIR-V compilation to standalone zero-gpu Python package
+
+## 2026-11-16 — Updated `isa-backends.md`
+- AArch32 Phase 2: VFPv3 FP, NEON 128-bit vector, GPR64 64-bit integer operations
+
+## 2026-11-16 — Updated `architecture-pipeline.md`
+- AArch32 Phase 2: VFPv3 FP pipeline, NEON 128-bit vector, GPR64 64-bit integer operations in regalloc
+
+## 2026-11-16 — Updated `ir-and-regalloc.md`
+- AArch32 Phase 2: GPR64 register class allocation for 64-bit integers (r4-r11 callee-saved pool)
+
+## 2026-11-16 — Updated `build-and-verification.md`
+- AArch32 Phase 2: zero_rt 64-bit divide helpers (zc_sdiv64/zc_udiv64/zc_smod64/zc_umod64) for ARMv7-A
+
+## 2026-11-16 — Updated `frontend-and-types.md`
+- AArch32 Phase 2: 64-bit integer frontend integration (local/global load/store, param/return handling)

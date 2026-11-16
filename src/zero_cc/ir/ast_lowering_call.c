@@ -555,7 +555,7 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                          * it correctly. */
                         c->last_expr_is_128 = (callee_fn->return_type.tag == TYPE_INT128 ||
                                                callee_fn->return_type.tag == TYPE_UINT128) ? 1 : 0;
-                        c->last_expr_is_64 = (c->isa == ISA_RISCV32 &&
+                        c->last_expr_is_64 = ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) &&
                                               (callee_fn->return_type.tag == TYPE_INT64 ||
                                                callee_fn->return_type.tag == TYPE_UINT64)) ? 1 : 0;
                         return inline_res_temp;
@@ -1401,10 +1401,10 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                         t128 = false;
                     }
 
-                    bool p64 = (c->isa == ISA_RISCV32 && eff_param_count > 0 && (param_idx - 1) < eff_param_count &&
+                    bool p64 = ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && eff_param_count > 0 && (param_idx - 1) < eff_param_count &&
                                 (eff_params[param_idx - 1].tag == TYPE_INT64 ||
                                  eff_params[param_idx - 1].tag == TYPE_UINT64));
-                    bool t64 = (c->isa == ISA_RISCV32 && c->last_expr_is_64);
+                    bool t64 = ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && c->last_expr_is_64);
                     c->last_expr_is_64 = 0;
                     if (p64 && !t64) {
                         int t64_new = zc_alloc_temp(c);
