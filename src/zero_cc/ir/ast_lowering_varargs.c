@@ -42,7 +42,7 @@ int lower_expr_va_start(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode 
              * pointer and multi-chunk struct params). */
             int gp_regs = BE(c)->conv->int_arg_reg_count;
             int fp_regs = BE(c)->conv->fp_arg_reg_count;
-            int gp_idx = (fn->ret_struct_sz > 16 && c->isa != ISA_AARCH64) ? 1 : 0;
+            int gp_idx = (fn->ret_struct_sz > 16 && zc_target_traits(c)->sret_consumes_arg0) ? 1 : 0;
             int fp_idx = 0;
             int stack_named = 0;  /* stack-passed named params (ovf base) */
             for (size_t p = 0; p < fn->param_count && p < c->local_count; p++) {
@@ -388,7 +388,7 @@ int lower_expr_va_arg(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
             c->last_expr_is_float = is_fp ? 1 : 0;
             return result_temp;
         }
-        bool use_fp_stream = is_fp && !(c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32);
+        bool use_fp_stream = is_fp && !zc_target_traits(c)->vararg_floats_in_gpr;
 
         int result_temp = zc_alloc_temp(c);
         int ap_addr = zero_cc_lower_lvalue_addr(c, arena, node->left);

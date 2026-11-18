@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include "zero_cc/isa/isa_backend.h"
+#include "zero_cc/isa/target_traits.h"
 #include "zero_cc/core/compiler_state.h"
 #include "zero_cc/core/buffers.h"
 #include "zero_cc/types/token.h"
@@ -464,6 +465,22 @@ extern void zero_cc_compiler_free(ZeroCCCompiler *c);
 
 extern int64_t decl_align_spec; /* alignment specifier from _Alignas */
 
-#include "zero_cc/isa/target_traits.h"
+static inline const TargetTraits *zc_target_traits(const ZeroCCCompiler *c) {
+    if (!c) return zero_cc_get_target_traits(ISA_X86_64);
+    if (c->isa_backend && c->isa_backend->traits) return c->isa_backend->traits;
+    return zero_cc_get_target_traits(c->isa);
+}
+
+static inline bool zc_target_is_32bit(const ZeroCCCompiler *c) {
+    return zc_target_traits(c)->is_32bit;
+}
+
+static inline int zc_target_ptr_size(const ZeroCCCompiler *c) {
+    return (int)zc_target_traits(c)->ptr_size;
+}
+
+static inline int zc_target_slot_size(const ZeroCCCompiler *c) {
+    return (int)zc_target_traits(c)->slot_size;
+}
 
 #endif /* ZERO_CC_TYPES_SYMBOLS_H */

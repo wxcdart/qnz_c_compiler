@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include "zero_cc/types/type_system.h"
+#include "zero_cc/isa/target_traits.h"
 
 typedef enum {
     ABI_CLASS_NO_CLASS = 0,
@@ -94,6 +95,50 @@ static inline ABIStructClassification abi_classify_struct(const ZeroCCType *type
     }
 
     return result;
+}
+
+/*
+ * Architecture-decoupled ABI classification for function argument or return.
+ */
+static inline ABIStructClassification abi_classify_arg(ZeroCCISA isa, const ZeroCCType *type) {
+    if (isa == ISA_X86_64) {
+        return abi_classify_struct(type);
+    }
+
+    ABIStructClassification result = {{ABI_CLASS_NO_CLASS, ABI_CLASS_NO_CLASS}, 0};
+    if (!type) {
+        result.count = 1;
+        result.classes[0] = ABI_CLASS_INTEGER;
+        return result;
+    }
+
+    if (type->tag != TYPE_STRUCT) {
+        result.count = 1;
+        if (type->tag == TYPE_FLOAT || type->tag == TYPE_DOUBLE) {
+            result.classes[0] = ABI_CLASS_SSE;
+        } else {
+            result.classes[0] = ABI_CLASS_INTEGER;
+        }
+        return result;
+    }
+
+    size_t size = type->size;
+    const TargetTraits *traits = zero_cc_get_target_traits(isa);
+    size_t max_size = (size_t)traits->ret_struct_max_regs_size;
+    if (size > max_size || size == 0) {
+        result.count = 0;
+        result.classes[0] = ABI_CLASS_MEMORY;
+        return result;
+    }
+
+    result.count = (size <= (size_t)traits->word_size) ? 1 : 2;
+    result.classes[0] = ABI_CLASS_INTEGER;
+    result.classes[1] = (result.count > 1) ? ABI_CLASS_INTEGER : ABI_CLASS_NO_CLASS;
+    return result;
+}
+
+static inline ABIStructClassification abi_classify_return(ZeroCCISA isa, const ZeroCCType *type) {
+    return abi_classify_arg(isa, type);
 }
 
 #endif /* ZERO_CC_ABI_CLASSIFY_H */

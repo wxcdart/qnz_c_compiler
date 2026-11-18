@@ -8,6 +8,7 @@
 #include <string.h>
 #include "zero_cc/ir/ir.h"
 #include "zero_cc/isa/isa_backend.h"
+#include "zero_cc/isa/target_traits.h"
 
 #include "zero_cc/types/vregs.h"
 #include "zero_cc/opt/opt_profile.h"
@@ -83,9 +84,7 @@ static const char *vec_registers_riscv[] __attribute__((unused)) = {
 #define VEC_COUNT_RISCV 32
 
 /* Vector register count macro (ISA-specific) */
-#define VEC_COUNT(ra) ((ra)->target_isa == ISA_AARCH64 ? VEC_COUNT_AARCH64 : \
-                       (ra)->target_isa == ISA_AARCH32 ? VEC_COUNT_X86 : \
-                       (ra)->target_isa == ISA_RISCV64 ? VEC_COUNT_RISCV : VEC_COUNT_X86)
+#define VEC_COUNT(ra) (zero_cc_get_target_traits((ra)->target_isa)->regs.num_vec_regs)
 
 /* Live interval for a temporary variable */
 typedef struct LiveInterval {
@@ -186,48 +185,12 @@ static void regalloc_set_isa(RegAllocator *ra, ZeroCCISA isa) __attribute__((unu
 static void regalloc_set_isa(RegAllocator *ra, ZeroCCISA isa) {
     if (!ra) return;
     ra->target_isa = isa;
-    for (int i = 0; i < GPR_COUNT; i++) ra->gpr_free[i] = true;
-    if (isa == ISA_AARCH64) {
-        ra->gpr_free[8] = false;  /* x8 reserved for indirect result location (sret) */
-        ra->gpr_free[9] = false;  /* x9 reserved for scratch_reg1 */
-        ra->gpr_free[10] = false; /* x10 reserved for scratch_reg2 */
-        ra->gpr_free[15] = false; /* x15 reserved for g128 scratch */
-        ra->gpr_free[16] = false; /* x16 (IP0) reserved for linker/scratch */
-        ra->gpr_free[17] = false; /* x17 (IP1) reserved for linker/scratch */
-        ra->gpr_free[18] = false; /* x18 reserved platform register */
-        ra->gpr_free[29] = false; /* x29 reserved for frame pointer */
-        ra->gpr_free[30] = false; /* x30 reserved for link register */
-        ra->gpr_free[31] = false; /* sp reserved for stack pointer */
-    } else if (isa == ISA_AARCH32) {
-        /* ARM 32-bit (AAPCS): r0-r3 args/results, r4-r7 callee-saved;
-         * r8/r10=scratch pair 1, r9=scratch2, r11=fp, r12=scratch1(IP), r13=SP, r14=LR, r15=PC reserved. */
-        ra->gpr_free[8] = false;  /* r8 reserved for g128_scratch_lo[1] */
-        ra->gpr_free[9] = false;  /* r9 reserved for scratch_reg2 */
-        ra->gpr_free[10] = false; /* r10 reserved for g128_scratch_hi[1] */
-        ra->gpr_free[11] = false; /* r11 reserved for frame pointer */
-        ra->gpr_free[12] = false; /* r12 (IP) reserved for scratch_reg1 */
-        ra->gpr_free[13] = false; /* r13 (SP) reserved for stack pointer */
-        ra->gpr_free[14] = false; /* r14 (LR) reserved for link register */
-        ra->gpr_free[15] = false; /* r15 (PC) reserved for program counter */
-        for (int i = 16; i < GPR_COUNT; i++) ra->gpr_free[i] = false;
+    const TargetTraits *traits = zero_cc_get_target_traits(isa);
+    for (int i = 0; i < GPR_COUNT; i++) {
+        ra->gpr_free[i] = (traits->regs.allocatable_gpr_mask & (1u << i)) != 0;
+    }
+    if (isa == ISA_AARCH32) {
         ra->used_callee_saved_gpr_mask |= (1u << 8) | (1u << 10);
-    } else if (isa == ISA_RISCV64 || isa == ISA_RISCV32) {
-        ra->gpr_free[0] = false;  /* zero */
-        ra->gpr_free[1] = false;  /* ra */
-        ra->gpr_free[2] = false;  /* sp */
-        ra->gpr_free[3] = false;  /* gp */
-        ra->gpr_free[4] = false;  /* tp */
-        ra->gpr_free[5] = false;  /* t0 (scratch_reg1) */
-        ra->gpr_free[6] = false;  /* t1 (scratch_reg2) */
-        ra->gpr_free[8] = false;  /* s0 / fp */
-        ra->gpr_free[30] = false; /* t5: large-immediate/offset address scratch
-                                    (Sprint 109) - never holds a live value */
-    } else {
-        ra->gpr_free[1] = false;  /* RCX is reserved for shift count (CL) on x86-64 */
-        ra->gpr_free[4] = false;  /* RSP is reserved for stack pointer */
-        ra->gpr_free[5] = false;  /* RBP is reserved for frame pointer */
-        ra->gpr_free[10] = false; /* r10 is reserved for backend scratch1 (spill reload/store) */
-        ra->gpr_free[11] = false; /* r11 is reserved for backend scratch2 (spill reload) */
     }
 }
 
@@ -389,13 +352,13 @@ static void expire_old_intervals(RegAllocator *ra, size_t current_pos) {
                         }
                     } else if (active->reg_class == REG_CLASS_XMM) {
                         ra->xmm_free[active->assigned_reg] = true;
-                        if (ra->target_isa != ISA_RISCV64 && ra->target_isa != ISA_RISCV32 &&
+                        if (zero_cc_get_target_traits(ra->target_isa)->regs.vec_aliases_xmm &&
                             active->assigned_reg < 32) {
                             ra->vec_free[active->assigned_reg] = true;
                         }
                     } else if (active->reg_class == REG_CLASS_VEC) {
                         ra->vec_free[active->assigned_reg] = true;
-                        if (ra->target_isa != ISA_RISCV64 && ra->target_isa != ISA_RISCV32 &&
+                        if (zero_cc_get_target_traits(ra->target_isa)->regs.vec_aliases_xmm &&
                             active->assigned_reg < XMM_COUNT) {
                             ra->xmm_free[active->assigned_reg] = true;
                         }
@@ -413,16 +376,8 @@ static void expire_old_intervals(RegAllocator *ra, size_t current_pos) {
 
 /* Check if a physical GPR is callee-saved for the target ISA */
 static inline bool regalloc_is_callee_saved_gpr(const RegAllocator *ra, int phys_reg) {
-    if (!ra || phys_reg < 0) return false;
-    if (ra->target_isa == ISA_AARCH64) {
-        return phys_reg >= 19 && phys_reg <= 28;
-    } else if (ra->target_isa == ISA_AARCH32) {
-        return (phys_reg >= 4 && phys_reg <= 7);  /* r4-r7 are allocatable callee-saved */
-    } else if (ra->target_isa == ISA_RISCV64 || ra->target_isa == ISA_RISCV32) {
-        return phys_reg == 9 || (phys_reg >= 18 && phys_reg <= 27);
-    } else {
-        return phys_reg == 3 || (phys_reg >= 12 && phys_reg <= 15);
-    }
+    if (!ra || phys_reg < 0 || phys_reg >= GPR_COUNT) return false;
+    return (zero_cc_get_target_traits(ra->target_isa)->regs.callee_saved_gpr_mask & (1u << phys_reg)) != 0;
 }
 
 /* Physical register an interval is pinned to: VREG_0/VREG_2 are the
@@ -430,14 +385,10 @@ static inline bool regalloc_is_callee_saved_gpr(const RegAllocator *ra, int phys
  * (ABI parameter slot pre-coloring). -1 = unpinned. */
 static inline int regalloc_fixed_reg_of(const RegAllocator *ra, const LiveInterval *other) {
     if (other->temp_id == VREG_0) {
-        return (ra->target_isa == ISA_RISCV64 || ra->target_isa == ISA_RISCV32) ? 10 :
-               (ra->target_isa == ISA_AARCH32) ? 0 : 0;
+        return zero_cc_get_target_traits(ra->target_isa)->ret_gpr_lo;
     }
     if (other->temp_id == VREG_2) {
-        if (ra->target_isa == ISA_RISCV64 || ra->target_isa == ISA_RISCV32) return 11;
-        if (ra->target_isa == ISA_AARCH64) return 1;
-        if (ra->target_isa == ISA_AARCH32) return 1;  /* r1 for AArch32 */
-        return 2;  /* Physical rdx encoding on x86-64 */
+        return zero_cc_get_target_traits(ra->target_isa)->ret_gpr_hi;
     }
     return other->fixed_reg;
 }
@@ -509,10 +460,8 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) __attribute__((un
 static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
     if (!ra || !interval) return -1;
 
-    /* Check target ISA */
-    bool is_aarch64 = (ra->target_isa == ISA_AARCH64);
-    bool is_aarch32 = (ra->target_isa == ISA_AARCH32);
-    bool is_riscv = (ra->target_isa == ISA_RISCV64 || ra->target_isa == ISA_RISCV32);
+    const TargetTraits *traits = zero_cc_get_target_traits(ra->target_isa);
+    const TargetRegDesc *regs = &traits->regs;
 
     /* Find a free register in the appropriate class */
     if (interval->reg_class == REG_CLASS_GPR) {
@@ -520,195 +469,41 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
             if (ra->spill_across_calls) {
                 return -1;
             }
-            if (is_aarch64) {
-                /* AArch64: strictly allocate callee-saved registers (x19-x28) */
-                for (int i = 19; i <= 28; i++) {
-                    if (i < GPR_COUNT && ra->gpr_free[i]) {
-                        ra->gpr_free[i] = false;
-                        ra->used_callee_saved_gpr_mask |= (1u << i);
-                        return i;
-                    }
-                }
-            } else if (is_aarch32) {
-                /* AArch32: strictly allocate callee-saved registers (r4-r7) */
-                static const int a32_callee_saved[] = {4, 5, 6, 7};
-                for (size_t k = 0; k < sizeof(a32_callee_saved)/sizeof(a32_callee_saved[0]); k++) {
-                    int i = a32_callee_saved[k];
-                    if (ra->gpr_free[i]) {
-                        ra->gpr_free[i] = false;
-                        ra->used_callee_saved_gpr_mask |= (1u << i);
-                        return i;
-                    }
-                }
-            } else if (is_riscv) {
-                /* RISC-V: strictly allocate callee-saved registers s1 (9), s2-s11 (18-27) */
-                static const int rv_callee_saved[] = {9, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27};
-                for (size_t k = 0; k < sizeof(rv_callee_saved)/sizeof(rv_callee_saved[0]); k++) {
-                    int phys_reg = rv_callee_saved[k];
-                    if (ra->gpr_free[phys_reg]) {
-                        ra->gpr_free[phys_reg] = false;
-                        ra->used_callee_saved_gpr_mask |= (1u << phys_reg);
-                        return phys_reg;
-                    }
-                }
-            } else {
-                /* x86-64: strictly allocate callee-saved registers (rbx, r12-r15) */
-                static const int callee_saved_pool_to_phys[] = {3, 12, 13, 14, 15};
-                for (size_t k = 0; k < sizeof(callee_saved_pool_to_phys)/sizeof(callee_saved_pool_to_phys[0]); k++) {
-                    int phys_reg = callee_saved_pool_to_phys[k];
-                    if (ra->gpr_free[phys_reg]) {
-                        ra->gpr_free[phys_reg] = false;
-                        ra->used_callee_saved_gpr_mask |= (1u << phys_reg);
-                        return phys_reg;
-                    }
+            uint32_t cs_mask = regs->callee_saved_gpr_mask;
+            for (int i = 0; i < GPR_COUNT; i++) {
+                if ((cs_mask & (1u << i)) && ra->gpr_free[i]) {
+                    ra->gpr_free[i] = false;
+                    ra->used_callee_saved_gpr_mask |= (1u << i);
+                    return i;
                 }
             }
             /* Never assign a caller-saved GPR to an interval that spans a call; spill instead */
             return -1;
         }
 
-        if (is_aarch64) {
-            /* AArch64 general pool: x0-x7, x11-x15, x19-x28 */
-            static const int aarch64_pool[] = {
-                0, 1, 2, 3, 4, 5, 6, 7,
-                11, 12, 13, 14,
-                19, 20, 21, 22, 23, 24, 25, 26, 27, 28
-            };
-            for (size_t pool_idx = 0; pool_idx < sizeof(aarch64_pool)/sizeof(aarch64_pool[0]); pool_idx++) {
-                int phys_reg = aarch64_pool[pool_idx];
-                if (ra->gpr_free[phys_reg] && !regalloc_reg_conflicts_fixed(ra, phys_reg, interval)) {
-                    ra->gpr_free[phys_reg] = false;
-                    if (phys_reg >= 19 && phys_reg <= 28) {
-                        ra->used_callee_saved_gpr_mask |= (1u << phys_reg);
-                    }
-                    return phys_reg;
+        for (int pool_idx = 0; pool_idx < regs->alloc_pool_count; pool_idx++) {
+            int phys_reg = regs->alloc_pool[pool_idx];
+            if (phys_reg == regs->op_scratch_gpr && ra->target_isa == ISA_RISCV32) continue;
+            if (interval->forbidden_mask && (interval->forbidden_mask & (1u << phys_reg))) continue;
+            if (ra->gpr_free[phys_reg] && !regalloc_reg_conflicts_fixed(ra, phys_reg, interval)) {
+                ra->gpr_free[phys_reg] = false;
+                if (regs->callee_saved_gpr_mask & (1u << phys_reg)) {
+                    ra->used_callee_saved_gpr_mask |= (1u << phys_reg);
                 }
-            }
-        } else if (is_aarch32) {
-            /* AArch32 general pool: r0-r3, r4-r7 (callee-saved) */
-            /* r8/r10=scratch pair 1, r9=scratch2, r11=fp, r12=scratch1, r13=sp, r14=lr, r15=pc */
-            static const int aarch32_pool[] = {
-                0, 1, 2, 3,
-                4, 5, 6, 7
-            };
-            for (size_t pool_idx = 0; pool_idx < sizeof(aarch32_pool)/sizeof(aarch32_pool[0]); pool_idx++) {
-                int phys_reg = aarch32_pool[pool_idx];
-                if (ra->gpr_free[phys_reg] && !regalloc_reg_conflicts_fixed(ra, phys_reg, interval)) {
-                    ra->gpr_free[phys_reg] = false;
-                    if (phys_reg >= 4 && phys_reg <= 7) {
-                        ra->used_callee_saved_gpr_mask |= (1u << phys_reg);
-                    }
-                    return phys_reg;
-                }
-            }
-        } else if (is_riscv) {
-            /* RISC-V general pool: a0-a7 (10-17), t2 (7), s1-s11 (9, 18-27).
-             * NOTE: t0/t1 (5,6), t3/t4 (28,29) and t6 (31) are reserved for 128-bit
-             * spill scratch (Sprint 109 GPR128 spill fix) so they hold no 64-bit value
-             * (t0 is also the RISC-V 128-bit add/sub/neg/mul carry scratch). t5 (30)
-             * is the large-immediate/offset address scratch (Sprint 109): li/add
-             * address materialization for out-of-range 12-bit displacements must
-             * never use a register that can hold a live reloaded value (t0/t1 hold
-             * 64-bit spill reloads, t3/t4/t6 hold 128-bit halves), or it clobbers
-             * the operand (FAIL 45: src2's address li overwrote src1's reload in t0).
-             * It is therefore not allocatable.
-             * Sprint 170 (rv32 i64): t2 (7) is ALSO reserved on rv32 - the 64-bit
-             * pair emitters use it as the third carry/multiply scratch alongside
-             * t0/t5, so a live value there would be clobbered mid-op. */
-            static const int riscv_pool[] = {
-                10, 11, 12, 13, 14, 15, 16, 17,
-                7,
-                9, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27
-            };
-            for (size_t pool_idx = 0; pool_idx < sizeof(riscv_pool)/sizeof(riscv_pool[0]); pool_idx++) {
-                int phys_reg = riscv_pool[pool_idx];
-                if (ra->target_isa == ISA_RISCV32 && phys_reg == 7) continue;  /* t2 = 64-bit-op scratch (Sprint 170) */
-                if (ra->gpr_free[phys_reg] && !regalloc_reg_conflicts_fixed(ra, phys_reg, interval)) {
-                    ra->gpr_free[phys_reg] = false;
-                    if (phys_reg == 9 || (phys_reg >= 18 && phys_reg <= 27)) {
-                        ra->used_callee_saved_gpr_mask |= (1u << phys_reg);
-                    }
-                    return phys_reg;
-                }
-            }
-        } else {
-            /* x86-64 general pool (TEMP DIAG: original order to isolate tls.c -O1
-             * regression). */
-            static const int pool_to_phys[] = {7, 6, 2, 8, 9, 0, 3, 12, 13, 14, 15};
-            for (size_t pool_idx = 0; pool_idx < sizeof(pool_to_phys)/sizeof(pool_to_phys[0]); pool_idx++) {
-                int phys_reg = pool_to_phys[pool_idx];
-                if (interval->forbidden_mask && (interval->forbidden_mask & (1u << phys_reg))) continue;
-                if (ra->gpr_free[phys_reg] && !regalloc_reg_conflicts_fixed(ra, phys_reg, interval)) {
-                    ra->gpr_free[phys_reg] = false;
-                    static const uint32_t x86_callee_saved_mask =
-                        (1u << 3) | (1u << 12) | (1u << 13) | (1u << 14) | (1u << 15);
-                    if ((x86_callee_saved_mask >> phys_reg) & 1u) {
-                        ra->used_callee_saved_gpr_mask |= (1u << phys_reg);
-                    }
-                    return phys_reg;
-                }
+                return phys_reg;
             }
         }
-    } else if (interval->reg_class == REG_CLASS_GPR128) {
-        /* 128-bit integer: allocate a PAIR of GPRs (lo returned, hi stored on
-         * the interval). The pair is kept in callee-saved registers so it
-         * survives across calls (a 128-bit value outlives the calls between its
-         * producer and its uses). */
-        if (ra->target_isa == ISA_X86_64) {
-            /* Exclude rax(0)/rdx(2): OP_MUL128 / 128-bit div use them as scratch. */
-            static const int cs_pool[] = {3, 12, 13, 14, 15};
-            static const int gp_pool[] = {7, 6, 8, 9, 3, 12, 13, 14, 15};
-            static const uint32_t x86_cs_mask =
-                (1u << 3) | (1u << 12) | (1u << 13) | (1u << 14) | (1u << 15);
-            const int *pool = interval->spans_call ? cs_pool : gp_pool;
-            size_t npool = interval->spans_call ? 5
-                        : sizeof(gp_pool) / sizeof(gp_pool[0]);
-            return gpr128_alloc_pair(ra, interval, pool, npool, x86_cs_mask);
+    } else if (interval->reg_class == REG_CLASS_GPR128 || interval->reg_class == REG_CLASS_GPR64) {
+        if (regs->pair_cs_pool && regs->pair_cs_pool_count > 0) {
+            const int *pool = (interval->spans_call || !regs->pair_gp_pool)
+                            ? regs->pair_cs_pool
+                            : regs->pair_gp_pool;
+            size_t npool = (interval->spans_call || !regs->pair_gp_pool)
+                         ? (size_t)regs->pair_cs_pool_count
+                         : (size_t)regs->pair_gp_pool_count;
+            return gpr128_alloc_pair(ra, interval, pool, npool, regs->pair_cs_mask);
         }
-        if (ra->target_isa == ISA_AARCH64) {
-            /* (lo,hi) pair from callee-saved x19-x28. */
-            static const int cs_pool[] = {19, 20, 21, 22, 23, 24, 25, 26, 27, 28};
-            static const uint32_t cs_mask =
-                (1u<<19)|(1u<<20)|(1u<<21)|(1u<<22)|(1u<<23)|(1u<<24)|
-                (1u<<25)|(1u<<26)|(1u<<27)|(1u<<28);
-            return gpr128_alloc_pair(ra, interval, cs_pool,
-                                     sizeof(cs_pool)/sizeof(cs_pool[0]), cs_mask);
-        }
-        if (ra->target_isa == ISA_RISCV64) {
-            /* (lo,hi) pair from callee-saved s2-s11 (18-27). */
-            static const int cs_pool[] = {18, 19, 20, 21, 22, 23, 24, 25, 26, 27};
-            static const uint32_t cs_mask =
-                (1u<<18)|(1u<<19)|(1u<<20)|(1u<<21)|(1u<<22)|(1u<<23)|
-                (1u<<24)|(1u<<25)|(1u<<26)|(1u<<27);
-            return gpr128_alloc_pair(ra, interval, cs_pool,
-                                     sizeof(cs_pool)/sizeof(cs_pool[0]), cs_mask);
-        }
-        return -1; /* other ISAs (e.g. riscv32, 32-bit GPRs): spill for now */
-    } else if (interval->reg_class == REG_CLASS_GPR64) {
-        /* Sprint 170 (rv32 i64): a 64-bit value in a (lo,hi) pair of 32-bit
-         * GPRs. Allocate from the RISC-V callee-saved pool (s1, s2-s11) so a
-         * 64-bit value survives the calls between producer and use. */
-        if (ra->target_isa == ISA_RISCV32) {
-            static const int cs_pool[] = {9, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27};
-            static const uint32_t cs_mask =
-                (1u<<9)|(1u<<18)|(1u<<19)|(1u<<20)|(1u<<21)|(1u<<22)|
-                (1u<<23)|(1u<<24)|(1u<<25)|(1u<<26)|(1u<<27);
-            return gpr128_alloc_pair(ra, interval, cs_pool,
-                                     sizeof(cs_pool)/sizeof(cs_pool[0]), cs_mask);
-        }
-        /* AArch32 (ARMv7-A): 64-bit value in (lo,hi) pair of 32-bit GPRs.
-         * Callee-saved r4-r7 (r8/r10=scratch pair 1, r9=scratch2, r11=fp). */
-        if (ra->target_isa == ISA_AARCH32) {
-            static const int cs_pool[] = {4, 5, 6, 7};
-            static const int gp_pool[] = {0, 1, 2, 3, 4, 5, 6, 7};
-            static const uint32_t cs_mask =
-                (1u<<4)|(1u<<5)|(1u<<6)|(1u<<7);
-            const int *pool = interval->spans_call ? cs_pool : gp_pool;
-            size_t npool = interval->spans_call ? sizeof(cs_pool)/sizeof(cs_pool[0])
-                                                : sizeof(gp_pool)/sizeof(gp_pool[0]);
-            return gpr128_alloc_pair(ra, interval, pool, npool, cs_mask);
-        }
-        return -1; /* GPR64 is rv32/aarch32 only */
+        return -1;
     } else if (interval->reg_class == REG_CLASS_XMM) {
         /* All FP registers are caller-saved on every supported ABI: an FP
          * interval that spans a call cannot live in a register - force the
@@ -719,7 +514,7 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
                 ra->xmm_free[i] = false;
                 /* x86/AArch64: VEC index i (i<8) is the same physical
                  * register as xmm i - never double-allocate (C8). */
-                if (ra->target_isa != ISA_RISCV64 && ra->target_isa != ISA_RISCV32 && i < 32) {
+                if (regs->vec_aliases_xmm && i < 32) {
                     ra->vec_free[i] = false;
                 }
                 return i;
@@ -730,14 +525,14 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
         int vec_count = VEC_COUNT(ra);
         for (int i = 0; i < vec_count; i++) {
             if (!ra->vec_free[i]) continue;
-            if (ra->target_isa != ISA_RISCV64 && ra->target_isa != ISA_RISCV32) {
+            if (regs->vec_aliases_xmm) {
                 /* x86/AArch64: vec i (i<8) is the same physical register
                  * as xmm i; 14/15 are the FP spill scratch (C8). */
                 if (i < XMM_COUNT && !ra->xmm_free[i]) continue;
                 if (i == REGALLOC_FP_SCRATCH1 || i == REGALLOC_FP_SCRATCH2) continue;
             }
             ra->vec_free[i] = false;
-            if (ra->target_isa != ISA_RISCV64 && ra->target_isa != ISA_RISCV32 && i < XMM_COUNT) {
+            if (regs->vec_aliases_xmm && i < XMM_COUNT) {
                 ra->xmm_free[i] = false;
             }
             return i;
@@ -813,11 +608,10 @@ static void regalloc_allocate(RegAllocator *ra) {
         /* Try to allocate a register (VREG_0 is pre-colored to return register) */
         int reg;
         if (current->temp_id == VREG_0) {
-            reg = (ra->target_isa == ISA_RISCV64 || ra->target_isa == ISA_RISCV32) ? 10 : 0;
+            reg = zero_cc_get_target_traits(ra->target_isa)->ret_gpr_lo;
             ra->gpr_free[reg] = false;
         } else if (current->temp_id == VREG_2) {
-            reg = (ra->target_isa == ISA_RISCV64 || ra->target_isa == ISA_RISCV32) ? 11 :
-                  (ra->target_isa == ISA_AARCH64 || ra->target_isa == ISA_AARCH32 ? 1 : 2);
+            reg = zero_cc_get_target_traits(ra->target_isa)->ret_gpr_hi;
             ra->gpr_free[reg] = false;
         } else if (current->fixed_reg >= 0) {
             /* ABI parameter slot pre-coloring (Sprint 117): the argument value
@@ -1182,8 +976,8 @@ static int regalloc_idx_to_vreg(int idx) {
 /* Get the physical register assigned to a temp ID */
 static int regalloc_get_reg_for_temp(RegAllocator *ra, int temp_id) __attribute__((unused));
 static int regalloc_get_reg_for_temp(RegAllocator *ra, int temp_id) {
-    int def_ret_reg = (ra && (ra->target_isa == ISA_RISCV64 || ra->target_isa == ISA_RISCV32)) ? 10 :
-                      (ra && ra->target_isa == ISA_AARCH32) ? 0 : 0;
+    const TargetTraits *traits = zero_cc_get_target_traits(ra ? ra->target_isa : ISA_X86_64);
+    int def_ret_reg = traits->ret_gpr_lo;
     if (!ra || (uint32_t)temp_id == TEMP_NONE) return def_ret_reg;
 
     /* VREG_0 (rax / x0 / a0 / r0) and VREG_F0 (xmm0 / v0 / fa0 / d0) are fixed return registers */
@@ -1193,17 +987,12 @@ static int regalloc_get_reg_for_temp(RegAllocator *ra, int temp_id) {
 
     if (temp_id == VREG_1 || temp_id == VREG_F1) {
         if (ra->target_isa == ISA_RISCV64 || ra->target_isa == ISA_RISCV32) return 11; /* a1 / fa1 */
-        if (ra->target_isa == ISA_AARCH64) return 1; /* x1 / v1 */
-        if (ra->target_isa == ISA_AARCH32) return 1; /* r1 */
         return 1;
     }
 
     /* VREG_2 (rdx / x1 / a1 / r1) is a fixed register for 9-16 byte struct returns */
     if (temp_id == VREG_2) {
-        if (ra->target_isa == ISA_RISCV64 || ra->target_isa == ISA_RISCV32) return 11; /* a1 */
-        if (ra->target_isa == ISA_AARCH64) return 1; /* x1 */
-        if (ra->target_isa == ISA_AARCH32) return 1; /* r1 */
-        return 2;  /* Physical rdx encoding on x86-64 */
+        return traits->ret_gpr_hi;
     }
 
     if (zc_temp_is_vreg((uint32_t)temp_id)) {
@@ -1301,9 +1090,7 @@ static const char *regalloc_get_vec_reg_name(ZeroCCISA isa, int reg_idx) {
 /* Get the number of vector registers for a given ISA */
 static int regalloc_get_vec_reg_count(ZeroCCISA isa) __attribute__((unused));
 static int regalloc_get_vec_reg_count(ZeroCCISA isa) {
-    if (isa == ISA_AARCH64) return VEC_COUNT_AARCH64;
-    if (isa == ISA_RISCV64) return VEC_COUNT_RISCV;
-    return VEC_COUNT_X86;
+    return zero_cc_get_target_traits(isa)->regs.num_vec_regs;
 }
 
 /* =========================================================================

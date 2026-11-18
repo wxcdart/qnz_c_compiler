@@ -111,7 +111,7 @@ typedef struct {
     uint64_t out_off;   /* offset of this input section in the out section */
 } ZcInsecMap;
 
-typedef struct {
+typedef struct ZcLink {
     ZcLinkSym *syms;
     size_t sym_count, sym_cap;
     int32_t *sym_hash;
@@ -155,6 +155,8 @@ typedef struct {
     size_t rela_slots;       /* reserved .rela.dyn slots (upper bound) */
     uint64_t rela_dyn_vma, rela_dyn_size; /* 0 = no .rela.dyn section */
 } ZcLink;
+
+#include "zero_cc/linker/linker_reloc.h"
 
 static uint64_t align_up(uint64_t v, uint64_t a) {
     return (v + a - 1) & ~(a - 1);
@@ -594,7 +596,8 @@ static int layout_sections(ZcLink *L, char *err, size_t errsz) {
             ZcOutSec *os = &L->outsec[out];
             if (al > os->max_align) os->max_align = al;
             if (out == 0 && os->cursor == 0 && L->stub_at_front) {
-                size_t stub_sz = (L->machine == EM_RISCV) ? 20 : 16;
+                const TargetLinkerOps *lops = zero_cc_get_linker_ops(L->machine);
+                size_t stub_sz = lops ? lops->plt_stub_size : 16;
                 if (L->pie) stub_sz = ZC_PIE_STUB_SIZE; /* self-relocating */
                 if (outsec_zero_extend(os, stub_sz) != 0) {
                     snprintf(err, errsz, "out of memory");
@@ -683,11 +686,9 @@ static int layout_sections(ZcLink *L, char *err, size_t errsz) {
     /* VMAs: .text at the per-machine base (base 0 for static PIE); .rodata
      * packed at its max alignment after it; .data and .bss page-aligned (each may
      * anchor the RW PT_LOAD segment), after the .rela.dyn region in PIE. */
+    const TargetLinkerOps *lops = zero_cc_get_linker_ops(L->machine);
     uint64_t v = (L->pie && L->machine == EM_X86_64) ? 0 :
-                 (L->machine == EM_RISCV) ? 0x10000ULL :
-                 (L->machine == EM_AARCH64) ? 0x400000ULL :
-                 (L->machine == EM_ARM) ? ZC_TEXT_BASE_AARCH32 :
-                 ZC_TEXT_BASE;
+                 (lops ? lops->default_text_base : ZC_TEXT_BASE);
     for (int i = 0; i < 3; i++) {
         if (L->outsec[i].cursor == 0) continue;
         uint64_t al = L->outsec[i].max_align;
@@ -801,10 +802,6 @@ static int rela_dyn_add(ZcLink *L, uint64_t r_offset, uint64_t r_addend) {
 }
 
 static int apply_relocations(ZcLink *L, char *err, size_t errsz) {
-    typedef struct {
-        uint64_t p_hi;
-        int64_t delta;
-    } ZcRiscvPcrel;
     ZcRiscvPcrel *pcrel_tab = NULL;
     size_t pcrel_cnt = 0, pcrel_cap = 0;
 
@@ -992,265 +989,13 @@ static int apply_relocations(ZcLink *L, char *err, size_t errsz) {
                     return -1;
                 }
                 uint8_t *site = os->content + (P - os->vma);
-                if (L->machine == EM_AARCH64) {
-                    /* AArch64 relocations patch instruction fields (the
-                     * instruction word is already emitted with zeroed
-                     * imm fields; only the fields are rewritten). */
-                    uint32_t w = (uint32_t)site[0] | ((uint32_t)site[1] << 8) |
-                                 ((uint32_t)site[2] << 16) |
-                                 ((uint32_t)site[3] << 24);
-                    uint32_t nw = w;
-                    switch (rel->type) {
-                    case 257: /* R_AARCH64_ABS64 */
-                        for (int b = 0; b < 8; b++)
-                            site[b] = (uint8_t)((uint64_t)(S + A) >> (8 * b));
-                        continue;
-                    case 256: /* R_AARCH64_ABS32 */
-                        for (int b = 0; b < 4; b++)
-                            site[b] = (uint8_t)((uint32_t)(uint64_t)(S + A) >>
-                                                (8 * b));
-                        continue;
-                    case 275: /* R_AARCH64_ADR_PREL_PG_HI21 */
-                        /* ADRP computes (P & ~0xFFF) + (signext(imm21) << 12)
-                         * and must land on the page of (S + A); invert that
-                         * to get the 21-bit signed page offset. Encoding:
-                         * imm21[20:2] in bits [23:5], imm21[1:0] in bits [30:29]. */
-                        int64_t r = ((int64_t)(((uint64_t)(S + A) & ~0xFFFULL) -
-                                               (P & ~0xFFFULL))) >> 12;
-                        if (r < -(1LL << 20) || r >= (1LL << 20)) {
-                            snprintf(err, errsz,
-                                     "ADR_PREL_PG_HI21 out of range for `%s' "
-                                     "at 0x%lx in %s",
-                                     sym->name, (unsigned long)P, o->path);
-                            return -1;
-                        }
-                        uint32_t imm21 = (uint32_t)r & 0x1FFFFF;
-                        uint32_t patch = ((imm21 & 0x1FFFFC) << 3) |
-                                         ((imm21 & 3) << 29);
-                        nw = (w & ~0x60FFFFE0U) | patch;
-                        break;
-                    case 277: /* R_AARCH64_ADD_ABS_LO12_NC */
-                    {
-                        uint32_t lo = (uint32_t)((S + A) & 0xFFF);
-                        /* ADD imm: imm12 in bits [21:10], shift bit 22 = 0. */
-                        nw = (w & ~0x003FFC00U) | (lo << 10);
-                        break;
-                    }
-                    case 283: /* R_AARCH64_CALL26 */
-                    {
-                        int64_t d = S + A - (int64_t)P;
-                        if ((d & 3) != 0 || d < -(1LL << 27) ||
-                            d >= (1LL << 27)) {
-                            snprintf(err, errsz,
-                                     "CALL26 out of range for `%s' at 0x%lx "
-                                     "in %s", sym->name, (unsigned long)P,
-                                     o->path);
-                            return -1;
-                        }
-                        nw = (w & ~0x3FFFFFFU) | (uint32_t)((d >> 2) & 0x3FFFFFF);
-                        break;
-                    }
-                    default:
-                        snprintf(err, errsz,
-                                 "unsupported AArch64 relocation type %u in "
-                                 "%s (%s)", rel->type, rs->name, o->path);
-                        return -1;
-                    }
-                    site[0] = (uint8_t)nw;
-                    site[1] = (uint8_t)(nw >> 8);
-                    site[2] = (uint8_t)(nw >> 16);
-                    site[3] = (uint8_t)(nw >> 24);
-                    continue;
-                }
-                if (L->machine == EM_ARM) {
-                    uint32_t w = (uint32_t)site[0] | ((uint32_t)site[1] << 8) |
-                                 ((uint32_t)site[2] << 16) |
-                                 ((uint32_t)site[3] << 24);
-                    uint32_t nw = w;
-                    switch (rel->type) {
-                    case 0:  /* R_ARM_NONE */
-                    case 40: /* R_ARM_V4BX */
-                        break;
-                    case 2:  /* R_ARM_ABS32 */
-                        for (int b = 0; b < 4; b++)
-                            site[b] = (uint8_t)((uint32_t)(uint64_t)(S + A) >> (8 * b));
-                        continue;
-                    case 3:  /* R_ARM_REL32 */
-                    {
-                        uint32_t val = (uint32_t)(int32_t)((S + A) - (int64_t)P);
-                        for (int b = 0; b < 4; b++)
-                            site[b] = (uint8_t)(val >> (8 * b));
-                        continue;
-                    }
-                    case 1:  /* R_ARM_PC24 */
-                    case 28: /* R_ARM_CALL */
-                    case 29: /* R_ARM_JUMP24 */
-                    {
-                        int64_t d = (S + A) - (int64_t)(P + 8);
-                        if ((d & 3) != 0 || d < -(1LL << 25) || d >= (1LL << 25)) {
-                            snprintf(err, errsz,
-                                     "R_ARM_CALL out of range for `%s' at 0x%lx in %s",
-                                     sym->name, (unsigned long)P, o->path);
-                            free(pcrel_tab);
-                            return -1;
-                        }
-                        nw = (w & 0xFF000000u) | (uint32_t)((d >> 2) & 0x00FFFFFFu);
-                        break;
-                    }
-                    case 43: /* R_ARM_MOVW_ABS_NC */
-                    {
-                        uint32_t v16 = (uint32_t)(S + A) & 0xFFFFu;
-                        nw = (w & ~0x000F0FFFu) | (((v16 >> 12) & 0xFu) << 16) | (v16 & 0xFFFu);
-                        break;
-                    }
-                    case 44: /* R_ARM_MOVT_ABS */
-                    {
-                        uint32_t v16 = ((uint32_t)(S + A) >> 16) & 0xFFFFu;
-                        nw = (w & ~0x000F0FFFu) | (((v16 >> 12) & 0xFu) << 16) | (v16 & 0xFFFu);
-                        break;
-                    }
-                    default:
-                        snprintf(err, errsz,
-                                 "unsupported ARM relocation type %u in %s (%s)",
-                                 rel->type, rs->name, o->path);
+                const TargetLinkerOps *lops = zero_cc_get_linker_ops(L->machine);
+                if (lops && lops->apply_reloc) {
+                    if (lops->apply_reloc(L, site, rel->type, P, S, A,
+                                          sym->name, o->path, rs->name,
+                                          pcrel_tab, pcrel_cnt, err, errsz) != 0) {
                         free(pcrel_tab);
                         return -1;
-                    }
-                    site[0] = (uint8_t)nw;
-                    site[1] = (uint8_t)(nw >> 8);
-                    site[2] = (uint8_t)(nw >> 16);
-                    site[3] = (uint8_t)(nw >> 24);
-                    continue;
-                }
-                if (L->machine == EM_RISCV) {
-                    uint32_t w = (uint32_t)site[0] | ((uint32_t)site[1] << 8) |
-                                 ((uint32_t)site[2] << 16) |
-                                 ((uint32_t)site[3] << 24);
-                    uint32_t nw = w;
-                    switch (rel->type) {
-                    case 0:  /* R_RISCV_NONE */
-                    case 43: /* R_RISCV_ALIGN */
-                    case 51: /* R_RISCV_RELAX */
-                        break;
-                    case 2:  /* R_RISCV_64 */
-                        for (int b = 0; b < 8; b++)
-                            site[b] = (uint8_t)((uint64_t)(S + A) >> (8 * b));
-                        break;
-                    case 1:  /* R_RISCV_32 */
-                        for (int b = 0; b < 4; b++)
-                            site[b] = (uint8_t)((uint32_t)(uint64_t)(S + A) >> (8 * b));
-                        break;
-                    case 16: /* R_RISCV_BRANCH */
-                    {
-                        int64_t d = S + A - (int64_t)P;
-                        if ((d & 1) != 0 || d < -(1LL << 12) || d >= (1LL << 12)) {
-                            snprintf(err, errsz,
-                                     "R_RISCV_BRANCH out of range for `%s' at 0x%lx in %s",
-                                     sym->name, (unsigned long)P, o->path);
-                            free(pcrel_tab);
-                            return -1;
-                        }
-                        uint32_t u = (uint32_t)d & 0x1FFFu;
-                        uint32_t patch = ((u & 0x1000u) << 19) | ((u & 0x7E0u) << 20) |
-                                         ((u & 0x800u) >> 4) | ((u & 0x1Eu) << 7);
-                        nw = (w & 0x01FFF07Fu) | patch;
-                        break;
-                    }
-                    case 17: /* R_RISCV_JAL */
-                    {
-                        int64_t d = S + A - (int64_t)P;
-                        if ((d & 1) != 0 || d < -(1LL << 20) || d >= (1LL << 20)) {
-                            snprintf(err, errsz,
-                                     "R_RISCV_JAL out of range for `%s' at 0x%lx in %s",
-                                     sym->name, (unsigned long)P, o->path);
-                            free(pcrel_tab);
-                            return -1;
-                        }
-                        uint32_t u = (uint32_t)d & 0x1FFFFFu;
-                        uint32_t patch = ((u & 0x100000u) << 11) | ((u & 0x7FEu) << 20) |
-                                         ((u & 0x800u) << 9) | (u & 0xFF000u);
-                        nw = (w & 0xFFFu) | patch;
-                        break;
-                    }
-                    case 18: /* R_RISCV_CALL */
-                    case 19: /* R_RISCV_CALL_PLT */
-                    {
-                        int64_t d = S + A - (int64_t)P;
-                        int32_t hi = (int32_t)((d + 0x800) >> 12);
-                        int32_t lo = (int32_t)(d & 0xFFF);
-                        uint32_t w1 = (uint32_t)site[4] | ((uint32_t)site[5] << 8) |
-                                      ((uint32_t)site[6] << 16) | ((uint32_t)site[7] << 24);
-                        nw = (w & 0xFFFu) | ((uint32_t)hi << 12);
-                        uint32_t nw1 = (w1 & 0x000FFFFFu) | (((uint32_t)lo & 0xFFFu) << 20);
-                        site[4] = (uint8_t)nw1; site[5] = (uint8_t)(nw1 >> 8);
-                        site[6] = (uint8_t)(nw1 >> 16); site[7] = (uint8_t)(nw1 >> 24);
-                        break;
-                    }
-                    case 23: /* R_RISCV_PCREL_HI20 */
-                    {
-                        int64_t delta = S + A - (int64_t)P;
-                        int32_t hi = (int32_t)((delta + 0x800) >> 12);
-                        nw = (w & 0xFFFu) | ((uint32_t)hi << 12);
-                        break;
-                    }
-                    case 24: /* R_RISCV_PCREL_LO12_I */
-                    {
-                        int64_t delta = 0;
-                        bool found = false;
-                        for (size_t k = 0; k < pcrel_cnt; k++) {
-                            if (pcrel_tab[k].p_hi == (uint64_t)S) {
-                                delta = pcrel_tab[k].delta;
-                                found = true;
-                                break;
-                            }
-                        }
-                        if (!found) {
-                            snprintf(err, errsz,
-                                     "R_RISCV_PCREL_LO12_I missing matching HI20 for `%s' at 0x%lx in %s",
-                                     sym->name, (unsigned long)P, o->path);
-                            free(pcrel_tab);
-                            return -1;
-                        }
-                        int32_t lo = (int32_t)((delta + A) & 0xFFF);
-                        nw = (w & 0x000FFFFFu) | (((uint32_t)lo & 0xFFFu) << 20);
-                        break;
-                    }
-                    case 25: /* R_RISCV_PCREL_LO12_S */
-                    {
-                        int64_t delta = 0;
-                        bool found = false;
-                        for (size_t k = 0; k < pcrel_cnt; k++) {
-                            if (pcrel_tab[k].p_hi == (uint64_t)S) {
-                                delta = pcrel_tab[k].delta;
-                                found = true;
-                                break;
-                            }
-                        }
-                        if (!found) {
-                            snprintf(err, errsz,
-                                     "R_RISCV_PCREL_LO12_S missing matching HI20 for `%s' at 0x%lx in %s",
-                                     sym->name, (unsigned long)P, o->path);
-                            free(pcrel_tab);
-                            return -1;
-                        }
-                        int32_t lo = (int32_t)((delta + A) & 0xFFF);
-                        uint32_t u = (uint32_t)lo & 0xFFFu;
-                        nw = (w & 0x01FFF07Fu) | ((u & 0xFE0u) << 20) | ((u & 0x1Fu) << 7);
-                        break;
-                    }
-                    default:
-                        snprintf(err, errsz,
-                                 "unsupported RISC-V relocation type %u in %s (%s)",
-                                 rel->type, rs->name, o->path);
-                        free(pcrel_tab);
-                        return -1;
-                    }
-                    if (rel->type != 1 && rel->type != 2 && rel->type != 0 &&
-                        rel->type != 43 && rel->type != 51) {
-                        site[0] = (uint8_t)nw;
-                        site[1] = (uint8_t)(nw >> 8);
-                        site[2] = (uint8_t)(nw >> 16);
-                        site[3] = (uint8_t)(nw >> 24);
                     }
                     continue;
                 }
@@ -1626,8 +1371,8 @@ static int emit_exec(ZcLink *L, const char *out_path, uint64_t entry,
         put64(&p, entry);      /* e_entry */
         put64(&p, 64);         /* e_phoff */
         put64(&p, sh_off);     /* e_shoff */
-        put32(&p, (L->machine == EM_RISCV) ? 4 :
-                     (L->machine == EM_ARM) ? 0x00000200u : 0); /* e_flags: RISCV EF_RISCV_FLOAT_ABI_DOUBLE, ARM EF_ARM_ABI_HARD */
+        const TargetLinkerOps *lops = zero_cc_get_linker_ops(L->machine);
+        put32(&p, lops ? lops->default_elf_flags : 0);
         put16(&p, 64);         /* e_ehsize */
         put16(&p, 56);         /* e_phentsize */
         put16(&p, (uint16_t)(have_rx + have_rw)); /* e_phnum */
@@ -1697,64 +1442,9 @@ static int emit_exec(ZcLink *L, const char *out_path, uint64_t entry,
      *   +12: 0xD503201F    nop (pad to the 16-byte reservation) */
     if (L->stub_at_front) {
         uint8_t *st = img + text->file_off;
-        if (L->machine == EM_RISCV) {
-            /* RISC-V (20 B):
-             *   +0:  auipc t1, %pcrel_hi(main)
-             *   +4:  addi  t1, t1, %pcrel_lo(main)
-             *   +8:  jalr  ra, t1, 0  (sets ra so main's ret returns here)
-             *   +12: li    a7, 93     (exit_group)
-             *   +16: ecall
-             */
-            int64_t d = (int64_t)(main_vma - text->vma);
-            int32_t imm_hi = (int32_t)((d + 0x800) >> 12);
-            int32_t imm_lo = (int32_t)(d & 0xFFF);
-            uint32_t w0 = 0x00000317u | ((uint32_t)imm_hi << 12);
-            uint32_t w1 = 0x00030313u | (((uint32_t)imm_lo & 0xFFFu) << 20);
-            uint32_t w2 = 0x000300e7u; /* jalr ra, t1, 0 */
-            uint32_t w3 = 0x05d00893u; /* li a7, 93 */
-            uint32_t w4 = 0x00000073u; /* ecall */
-            st[0] = (uint8_t)w0; st[1] = (uint8_t)(w0 >> 8);
-            st[2] = (uint8_t)(w0 >> 16); st[3] = (uint8_t)(w0 >> 24);
-            st[4] = (uint8_t)w1; st[5] = (uint8_t)(w1 >> 8);
-            st[6] = (uint8_t)(w1 >> 16); st[7] = (uint8_t)(w1 >> 24);
-            st[8] = (uint8_t)w2; st[9] = (uint8_t)(w2 >> 8);
-            st[10] = (uint8_t)(w2 >> 16); st[11] = (uint8_t)(w2 >> 24);
-            st[12] = (uint8_t)w3; st[13] = (uint8_t)(w3 >> 8);
-            st[14] = (uint8_t)(w3 >> 16); st[15] = (uint8_t)(w3 >> 24);
-            st[16] = (uint8_t)w4; st[17] = (uint8_t)(w4 >> 8);
-            st[18] = (uint8_t)(w4 >> 16); st[19] = (uint8_t)(w4 >> 24);
-        } else if (L->machine == EM_AARCH64) {
-            /* Words written little-endian (file order). */
-            /* mov x8, #94  (exit_group): word 0xD2800BC8, little-endian */
-            st[0] = 0xc8; st[1] = 0x0b; st[2] = 0x80; st[3] = 0xd2;
-            /* `bl <target>': 0x94000000 | imm26, imm26 = (target - pc) >> 2.
-             * main's `ret` returns to the svc below. */
-            int32_t rel = (int32_t)((main_vma - (text->vma + 4)) >> 2);
-            st[4] = (uint8_t)(rel & 0xFF);
-            st[5] = (uint8_t)((rel >> 8) & 0xFF);
-            st[6] = (uint8_t)((rel >> 16) & 0xFF);
-            st[7] = (uint8_t)(0x94 | ((rel >> 24) & 0x3));
-            /* svc #0: 0xD4000001 */
-            st[8] = 0x01; st[9] = 0x00; st[10] = 0x00; st[11] = 0xd4;
-            /* nop (pad to the 16-byte reservation): 0xD503201F */
-            st[12] = 0x1f; st[13] = 0x20; st[14] = 0x03; st[15] = 0xd5;
-        } else if (L->machine == EM_ARM) {
-            /* AArch32 (ARMv7-A) 16-byte _start stub:
-             *   +0: bl main           (branch with link, sets lr)
-             *   +4: mov r7, #1        (exit syscall)
-             *   +8: swi #0            (syscall)
-             *   +12: nop (pad to 16-byte reservation)
-             */
-            int32_t rel = (int32_t)((main_vma - (text->vma + 8)) >> 2); /* PC is +8 from bl */
-            uint32_t bl = 0xEB000000u | (rel & 0xFFFFFF);
-            st[0] = (uint8_t)bl; st[1] = (uint8_t)(bl >> 8);
-            st[2] = (uint8_t)(bl >> 16); st[3] = (uint8_t)(bl >> 24);
-            /* mov r7, #1: 0xE3A07001 */
-            st[4] = 0x01; st[5] = 0x70; st[6] = 0xA0; st[7] = 0xE3;
-            /* swi #0: 0xEF000000 */
-            st[8] = 0x00; st[9] = 0x00; st[10] = 0x00; st[11] = 0xEF;
-            /* nop (mov r0, r0): 0xE1A00000 */
-            st[12] = 0x00; st[13] = 0x00; st[14] = 0xA0; st[15] = 0xE1;
+        const TargetLinkerOps *lops = zero_cc_get_linker_ops(L->machine);
+        if (lops && lops->emit_start_stub) {
+            lops->emit_start_stub(st, text->vma, main_vma);
         } else if (L->pie) {
             /* Static-PIE self-relocating _start (ZC_PIE_STUB_SIZE bytes,
              * assembled and verified; patch fields:

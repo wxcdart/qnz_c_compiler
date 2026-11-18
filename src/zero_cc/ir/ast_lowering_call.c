@@ -643,7 +643,7 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
             bool callee_uses_sret = ((call_ret_type.tag == TYPE_STRUCT || call_ret_type.tag == TYPE_UNION) ||
                 (call_ret_type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&call_ret_type))) &&
                 (call_ret_type.size > 16);
-            if (callee_uses_sret && c->isa != ISA_AARCH64) gp_stream = 1;  /* hidden sret ptr takes GP slot 0 */
+            if (callee_uses_sret && zc_target_traits(c)->sret_consumes_arg0) gp_stream = 1;  /* hidden sret ptr takes GP slot 0 */
 
             while (arg != AST_NULL) {
                 ZeroCCASTNode *arg_node = zero_cc_ast_get(arena, arg);
@@ -986,7 +986,7 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                       (name && strcmp(name, "snprintf") == 0 ? 3 : 0)));
                 bool is_var_arg = is_callee_variadic && (param_idx > named_params);
 
-                if (c->last_expr_is_float && (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && is_var_arg) {
+                if (c->last_expr_is_float && zc_target_traits(c)->vararg_floats_in_gpr && is_var_arg) {
                     /* In RISC-V psABI and ARM AAPCS, variadic FP arguments are passed in integer registers/stack. */
                     c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
                     c->current_stack_frame += 8;
@@ -994,7 +994,7 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                     ir_emit_fstore(c, (uint32_t)temp, TEMP_NONE, -slot);
                     c->last_expr_is_float = 0;
 
-                    if (c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) {
+                    if (zc_target_is_32bit(c)) {
                         /* 32-bit targets: double is passed in an even-aligned pair of 32-bit GPRs or 8-byte aligned stack. */
                         if (gp_stream < gp_regs_avail) {
                             if (gp_stream & 1) {
@@ -1441,10 +1441,10 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                         t128 = false;
                     }
 
-                    bool p64 = ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && eff_param_count > 0 && (param_idx - 1) < eff_param_count &&
+                    bool p64 = (zc_target_is_32bit(c) && eff_param_count > 0 && (param_idx - 1) < eff_param_count &&
                                 (eff_params[param_idx - 1].tag == TYPE_INT64 ||
                                  eff_params[param_idx - 1].tag == TYPE_UINT64));
-                    bool t64 = ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && c->last_expr_is_64);
+                    bool t64 = (zc_target_is_32bit(c) && c->last_expr_is_64);
                     c->last_expr_is_64 = 0;
                     if (p64 && !t64) {
                         int t64_new = zc_alloc_temp(c);
@@ -2179,15 +2179,14 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                 return res;
             }
 
-            /* Sprint 172 (rv32 i64 ABI): 64-bit return on rv32 targets.
-             * RISC-V ILP32 psABI: (a0, a1) = (VREG_0, VREG_2) holds the (lo, hi) result.
-             * AArch32 AAPCS: (r0, r1) = (VREG_0, VREG_1) holds the (lo, hi) result. */
-            if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) &&
+            /* 64-bit return on 32-bit targets.
+             * (lo, hi) result in (ret_gpr_lo, ret_gpr_hi) = (VREG_0, VREG_2). */
+            if (zc_target_is_32bit(c) &&
                 (call_ret_type.tag == TYPE_INT64 || call_ret_type.tag == TYPE_UINT64)) {
                 int lo = zc_alloc_temp(c);
                 ir_emit_mov_reg(c, lo, VREG_0);
                 int hi = zc_alloc_temp(c);
-                ir_emit_mov_reg(c, hi, (c->isa == ISA_AARCH32) ? VREG_1 : VREG_2);
+                ir_emit_mov_reg(c, hi, VREG_2);
                 int res = zc_alloc_temp(c);
                 ir_emit_mk64(c, res, lo, hi);
                 c->last_expr_is_float = 0;

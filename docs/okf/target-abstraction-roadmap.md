@@ -4,7 +4,7 @@ title: Multi-ISA Target Architecture & Modular Backend Roadmap
 description: Architectural roadmap for decoupling ZeroCC's multi-ISA backends via TargetTraits, table-driven regalloc, modular linker ops, baremetal CPU support, and decoupled GPU toolchains.
 resource: backend/target-abstraction-roadmap
 tags: [multi-isa, target-traits, architecture, roadmap, baremetal, modularity, refactoring]
-timestamp: 2026-11-18T04:02:38Z
+timestamp: 2026-11-18T05:32:59Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -12,13 +12,13 @@ status: active
 
 # Multi-ISA Target Architecture & Modular Backend Roadmap
 
-> **Status (Sprint 186):** **Phase 1 (TargetTraits) in progress**.
+> **Status (Sprint 186):** **Phases 1-5 Complete & Verified**.
 > - **Phase 1 (TargetTraits)**: Declarative architecture metrics (`ptr_size`, `word_size`, `stack_align`, `has_red_zone`, `ret_gpr_lo/hi`, `sret_gpr`, `sret_consumes_arg0`, `elf_machine`, `elf_flags`, `dwarf_addr_reloc`). Eliminates ~50 scattered `(c->isa == ...)` checks across AST lowering, `main.c`, `dwarf.c`, and `elf_writer.c`.
-> - **Phase 2 (Table-Driven Regalloc)**: *Planned*. Declarative `TargetRegDesc` bitmasks for GPR allocatable/callee-saved pools and scratch registers.
-> - **Phase 3 (Decoupled ABI Calling Conventions)**: *Planned*. `TargetABIOps` (`classify_arg`, `classify_return`).
-> - **Phase 4 (Modular Linker Relocation Ops)**: *Planned*. `TargetLinkerOps` (`apply_reloc`, `write_plt`) per target architecture.
-> - **Phase 5 (Clean ASM Emitter Separation)**: *Planned*. Table-driven opcode formatters or complete backend ASM hook coverage in `asm_emitter.c`.
-> - **Baremetal CPU Scope**: *Planned*. LMA/VMA support in linker, baremetal `crt0`, `OS_BAREMETAL` mode.
+> - **Phase 2 (Table-Driven Regalloc)**: Completed. Declarative `TargetRegDesc` bitmasks (`allocatable_gpr_mask`, `callee_saved_gpr_mask`, `reserved_gpr_mask`), scratch registers, and register pools (`alloc_pool`, `pair_cs_pool`, `pair_gp_pool`) in `src/zero_cc/isa/target_traits.h` and `src/zero_cc/ir/regalloc.h`.
+> - **Phase 3 (Decoupled ABI Calling Conventions)**: Completed. `abi_classify_arg` and `abi_classify_return` in `src/zero_cc/ir/abi_classify.h`, with `sret_consumes_arg0` and `vararg_floats_in_gpr` declarative traits in `ast_lowering_call.c` and `ast_lowering_varargs.c`.
+> - **Phase 4 (Modular Linker Relocation Ops)**: Completed. `TargetLinkerOps` (`apply_reloc`, `emit_start_stub`, `default_text_base`, `default_elf_flags`, `plt_stub_size`) in `src/zero_cc/linker/linker_reloc.h` and `src/zero_cc/linker/linker.c`. Replaced ~260 lines of cascading architecture relocation code.
+> - **Phase 5 (Clean ASM Emitter Separation)**: Completed. Added `emit_load_sized_asm`, `emit_store_sized_asm`, `emit_test_zero_asm`, and `emit_cmp_regs_asm` in `src/zero_cc/ir/asm_emitter.c`. Replaced redundant per-ISA switch blocks in memory load/store and conditional branch opcodes.
+> - **Baremetal CPU Scope**: *Next Step*. LMA/VMA support in linker, baremetal `crt0`, `OS_BAREMETAL` mode.
 > - **GPU Scope (`zero_gpu`)**: *Decoupled Sister Project*. Standalone toolchain for SSA, SIMT divergence, multiple address spaces, and PTX / SPIR-V bytecode.
 
 ---
