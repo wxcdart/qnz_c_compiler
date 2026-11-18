@@ -67,6 +67,7 @@ All tools are **stdlib-only** (see [`tools/requirements.txt`](./requirements.txt
 | [`struct_abi_verifier.py`](./analysis/struct_abi_verifier.py) | System V AMD64 struct parameter & return classification verifier | `python3 tools/analysis/struct_abi_verifier.py --test test/abi/struct_return_20byte.c` |
 | [`struct_return_verifier.py`](./analysis/struct_return_verifier.py) | Struct return register (`RAX`, `RAX:RDX`, `sret`) codegen checker | `python3 tools/analysis/struct_return_verifier.py` |
 | [`struct_asm_analyzer.py`](./analysis/struct_asm_analyzer.py) | Disassembly analyzer for struct copies and stack frame offsets | `python3 tools/analysis/struct_asm_analyzer.py` |
+| [`pytrace.py`](./analysis/pytrace.py) | Zero-dependency ptrace debugger, JIT crash inspector, and syscall tracer | `python3 tools/analysis/pytrace.py ./build/bin/zerocc --run test.c` |
 
 ### `tools/okf/` — Knowledge Graph
 

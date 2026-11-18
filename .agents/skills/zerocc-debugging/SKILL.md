@@ -46,7 +46,11 @@ readelf -sW /tmp/t.o                          # symbol table (missing externs?)
   means the callee was never registered in the TU symbol table — see the
   `runtime-function-integration` skill.
 - **JIT crash** (`--run` segfaults): the crash is *inside the zerocc process*.
-  Run under gdb:
+  Run under `pytrace` (zero-dependency Python ptrace tool with automatic crash dumps & JIT RX-page awareness):
+  ```bash
+  python3 tools/analysis/pytrace.py ./build/bin/zerocc --run test.c
+  ```
+  Or under gdb:
   ```bash
   gdb -batch -ex 'set args --run test.c' -ex run -ex bt -ex 'x/3i $pc' \
       ./build/bin/zerocc
