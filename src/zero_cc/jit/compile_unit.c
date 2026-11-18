@@ -58,7 +58,7 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
         c->isa = zero_cc_get_native_backend()->isa;
         c->isa_backend = zero_cc_get_native_backend();
     }
-    int ptr_sz = (c->isa == ISA_AARCH32 || c->isa == ISA_RISCV32) ? 4 : 8;
+    int ptr_sz = zc_target_ptr_size(c);
     type_set_target_metrics(ptr_sz, ptr_sz);
 
     zero_cc_init_standard_types(c);

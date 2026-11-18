@@ -85,7 +85,7 @@ int zero_cc_operand_int_width(ZeroCCCompiler *c, ZeroCCASTArena *arena,
             }
             if (suf & 2u) {              /* l: 32-bit on RV32/AArch32, 64-bit on LP64 */
                 *sign = !(suf & 1u);
-                if (c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) return 4;
+                if (zc_target_is_32bit(c)) return 4;
                 return 0;                /* no narrowing */
             }
             if (suf & 1u) {              /* u: unsigned int, or unsigned
@@ -165,7 +165,7 @@ int zero_cc_expr_int_info(ZeroCCCompiler *c, ZeroCCASTArena *arena,
     if (ti) {
         if (type_is_pointer(ti) || ti->kind == TYPE_KIND_ARRAY) {
             *is_unsigned = 1;
-            return (c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) ? 4 : 8;
+            return zc_target_ptr_size(c);
         }
         if (type_is_integer(ti)) {
             size_t sz = type_size(ti);
@@ -187,7 +187,7 @@ int zero_cc_expr_int_info(ZeroCCCompiler *c, ZeroCCASTArena *arena,
             }
             if (suf & 2u) {
                 *is_unsigned = (suf & 1u) ? 1 : 0;
-                return (c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) ? 4 : 8;
+                return zc_target_ptr_size(c);
             }
             if (suf & 1u) {
                 *is_unsigned = 1;

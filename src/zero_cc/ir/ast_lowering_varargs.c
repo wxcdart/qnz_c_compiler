@@ -151,7 +151,7 @@ int lower_expr_va_start(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode 
 
                 t = zc_alloc_temp(c);
                 int ovf_start = (c->isa == ISA_AARCH32) ? 8 : 16;
-                int ovf_step = (c->isa == ISA_AARCH32 || c->isa == ISA_RISCV32) ? 4 : 8;
+                int ovf_step = zc_target_slot_size(c);
                 ir_emit_lea(c, t, TEMP_NONE, ovf_start + ovf_step * stack_named);
                 int off32 = zc_alloc_temp(c);
                 ir_emit_mov_imm(c, off32, 32);
@@ -573,7 +573,7 @@ int lower_expr_va_arg(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
             } else {
                 ir_emit_deref(c, result_temp, t_ovf);
                 int t_pos8 = zc_alloc_temp(c);
-                int ovf_step = (c->isa == ISA_AARCH32 || c->isa == ISA_RISCV32) ? 4 : 8;
+                int ovf_step = zc_target_slot_size(c);
                 ir_emit_mov_imm(c, t_pos8, ovf_step);
                 int t_ovf2 = zc_alloc_temp(c);
                 ir_emit_add(c, t_ovf2, t_ovf, t_pos8);

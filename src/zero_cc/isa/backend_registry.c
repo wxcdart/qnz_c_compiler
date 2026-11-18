@@ -7,6 +7,7 @@
  */
 #include <stdbool.h>
 #include "zero_cc/isa/isa_backend.h"
+#include "zero_cc/isa/target_traits.h"
 
 /* Fill in ASM-emission function pointers once. The backend tables are
  * writable statics (not .rodata), so no const cast is needed; callers only
@@ -16,6 +17,11 @@ static void zero_cc_init_backends_once(void) {
     if (done) return;
     riscv32_init_backend();  /* copy RV64 table + override RV32 fields (riscv32.c) */
     aarch32_init_backend();  /* copy AArch64 table + override A32 fields (aarch32.c) */
+    x86_64_backend.traits = zero_cc_get_target_traits(ISA_X86_64);
+    aarch64_backend.traits = zero_cc_get_target_traits(ISA_AARCH64);
+    aarch32_backend.traits = zero_cc_get_target_traits(ISA_AARCH32);
+    riscv64_backend.traits = zero_cc_get_target_traits(ISA_RISCV64);
+    riscv32_backend.traits = zero_cc_get_target_traits(ISA_RISCV32);
     x86_init_asm_emission(&x86_64_backend);
     aarch64_init_asm_emission(&aarch64_backend);
     /* AArch32 asm emitters are set in aarch32_init_backend; do NOT call

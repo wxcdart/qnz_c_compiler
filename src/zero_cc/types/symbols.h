@@ -464,5 +464,6 @@ extern void zero_cc_compiler_free(ZeroCCCompiler *c);
 
 extern int64_t decl_align_spec; /* alignment specifier from _Alignas */
 
+#include "zero_cc/isa/target_traits.h"
 
 #endif /* ZERO_CC_TYPES_SYMBOLS_H */

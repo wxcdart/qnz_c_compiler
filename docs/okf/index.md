@@ -63,6 +63,8 @@ Welcome to the **ZeroCC Knowledge Graph**. Start here to navigate architectural 
   - Phased architecture for Clang-style integrated inline assembly: Phase 1 AOT constraint solving and passthrough, Phase 2 lightweight JIT integrated assembler leveraging existing ISA emitters, and Phase 3 `asm goto` / advanced extensions.
 - **[RV32 64-bit Integer (long long) Support Roadmap](./rv32-i64-roadmap.md)**
   - Four-phase plan for 64-bit (lo,hi) GPR pair arithmetic, psABI calling conventions, libgcc `__*di3` division/modulo helpers, and `zero_san` width-8 checks.
+- **[Multi-ISA Target Architecture & Modular Backend Roadmap](./target-abstraction-roadmap.md)**
+  - Architectural roadmap for decoupling ZeroCC's multi-ISA backends via TargetTraits, table-driven regalloc, modular linker ops, baremetal CPU support, and decoupled GPU toolchains.
 
 ---
 

@@ -549,7 +549,7 @@ static void dwarf_generate_line_table(ZeroCCCompiler *c,
     int32_t cur_line = 1;
     uint32_t cur_col = 0;
 
-    int addr_size = (c->isa == ISA_RISCV32) ? 4 : 8;
+    int addr_size = zc_target_ptr_size(c);
 
     /* Set starting address with relocation to .text + 0 */
     dwarf_emit_u8(out, 0);
@@ -648,7 +648,7 @@ static uint32_t dwarf_get_type_ref(ZeroCCCompiler *c,
 
         uint32_t ptr_ref = (uint32_t)info->length;
         dwarf_emit_uleb128(info, ABBREV_POINTER_TYPE);
-        dwarf_emit_u8(info, (c->isa == ISA_RISCV32) ? 4 : 8);
+        dwarf_emit_u8(info, (uint8_t)zc_target_ptr_size(c));
         dwarf_emit_u32(info, pointee_ref);
         dwarf_type_map_add(type_map, pkey, ptr_ref);
         return ptr_ref;
@@ -844,7 +844,7 @@ static void dwarf_generate_info(ZeroCCCompiler *c,
     dwarf_emit_u32(info, 0);
 
     /* Address size */
-    int addr_size = (c->isa == ISA_RISCV32) ? 4 : 8;
+    int addr_size = zc_target_ptr_size(c);
     dwarf_emit_u8(info, (uint8_t)addr_size);
 
     /* String offsets */
@@ -916,7 +916,7 @@ static void dwarf_generate_info(ZeroCCCompiler *c,
     /* Void pointer type */
     uint32_t void_ptr_ref = (uint32_t)info->length;
     dwarf_emit_uleb128(info, ABBREV_POINTER_TYPE_VOID);
-    dwarf_emit_u8(info, (c->isa == ISA_RISCV32) ? 4 : 8);
+    dwarf_emit_u8(info, (uint8_t)zc_target_ptr_size(c));
 
     DwarfTypeMap type_map;
     dwarf_type_map_init(&type_map);
@@ -1123,32 +1123,10 @@ bool zero_cc_dwarf_emit(ZeroCCCompiler *c, ElfWriterCtx *elf_ctx) {
     DwarfRelocList relocs;
     dwarf_relocs_init(&relocs);
 
-    /* Determine relocation types based on target ISA */
-    uint32_t rel_sec_type;   /* 32-bit reloc for DWARF section references */
-    uint32_t rel_addr_type;  /* Address reloc for .text/.data references */
-
-    switch (c->isa) {
-        case ISA_X86_64:
-            rel_sec_type = 10;   /* R_X86_64_32 */
-            rel_addr_type = 1;   /* R_X86_64_64 */
-            break;
-        case ISA_AARCH64:
-            rel_sec_type = 258;  /* R_AARCH64_ABS32 */
-            rel_addr_type = 257; /* R_AARCH64_ABS64 */
-            break;
-        case ISA_RISCV64:
-            rel_sec_type = 1;    /* R_RISCV_32 */
-            rel_addr_type = 2;   /* R_RISCV_64 */
-            break;
-        case ISA_RISCV32:
-            rel_sec_type = 1;    /* R_RISCV_32 */
-            rel_addr_type = 1;   /* R_RISCV_32 */
-            break;
-        default:
-            rel_sec_type = 10;
-            rel_addr_type = 1;
-            break;
-    }
+    /* Determine relocation types based on target ISA traits */
+    const TargetTraits *traits = zc_target_traits(c);
+    uint32_t rel_sec_type = traits->dwarf_sec_reloc;   /* 32-bit reloc for DWARF section references */
+    uint32_t rel_addr_type = traits->dwarf_addr_reloc; /* Address reloc for .text/.data references */
 
     /* 1. Generate .debug_abbrev */
     dwarf_generate_abbrev(&abbrev_buf);

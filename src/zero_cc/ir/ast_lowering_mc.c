@@ -1959,7 +1959,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
             case OP_SETJMP: {
                 int s2 = BE(c)->scratch_reg2;
                 int ret_reg = BE(c)->get_int_reg ? BE(c)->get_int_reg(VREG_0) : 0;
-                int32_t w = (c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) ? 4 : 8;
+                int32_t w = zc_target_slot_size(c);
                 /* buf[0] = FP, buf[2] = SP (via s2 for AArch64 SP encoding),
                  * buf[1] = .Lsetjmp_resume PC, VREG_0 = 0, then .Lsetjmp_resume: */
                 BE(c)->emit_store(c, BE(c)->fp_reg, phys_src1, 0);
@@ -1976,7 +1976,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 int s1 = BE(c)->scratch_reg1;
                 int s2 = BE(c)->scratch_reg2;
                 int ret_reg = BE(c)->get_int_reg ? BE(c)->get_int_reg(VREG_0) : 0;
-                int32_t w = (c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) ? 4 : 8;
+                int32_t w = zc_target_slot_size(c);
                 /* s1 = buf (never aliases phys_src2), VREG_0 = val,
                  * FP = buf[0], SP = buf[2], jmp *buf[1] */
                 BE(c)->emit_mov_reg(c, s1, phys_src1);

@@ -452,7 +452,7 @@ static inline void zc_store_low_bytes(ZeroCCCompiler *c, int val, int base_addr,
 
 static inline void zc_emit_mem_copy(ZeroCCCompiler *c, int src, int dst, size_t n) {
     if (n == 0) return;
-    int word_sz = (c->isa == ISA_AARCH32 || c->isa == ISA_RISCV32) ? 4 : 8;
+    int word_sz = zc_target_slot_size(c);
     size_t full = n / (size_t)word_sz;
     size_t tail = n % (size_t)word_sz;
     int s = c->next_temp_id++;

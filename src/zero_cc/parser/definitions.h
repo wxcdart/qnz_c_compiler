@@ -806,7 +806,7 @@ static inline void zero_cc_stmt_typedef_scalar(ZeroCCCompiler *c, ZeroCCASTArena
     if (t == TK_SHORT) {
         ttype = is_unsigned ? zero_cc_type_uint16() : zero_cc_type_int16();
     } else if (t == TK_LONG) {
-        if (is_long_long || (c->isa != ISA_RISCV32 && c->isa != ISA_AARCH32)) {
+        if (is_long_long || !zc_target_is_32bit(c)) {
             ttype = is_unsigned ? zero_cc_type_uint64() : zero_cc_type_int64();
         } else {
             ttype = is_unsigned ? zero_cc_type_uint32() : zero_cc_type_int();

@@ -553,7 +553,7 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                 in_bitfield = false;
             }
 
-            int ptr_sz = (c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) ? 4 : 8;
+            int ptr_sz = zc_target_ptr_size(c);
             size_t base_align = is_ptr ? (size_t)ptr_sz : (inner_type.align > 0 ? inner_type.align : (size_t)ptr_sz);
             size_t base_size = is_ptr ? (size_t)ptr_sz : inner_type.size;
             size_t effective_align = member_align > base_align ? member_align : base_align;
@@ -1083,7 +1083,7 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
             else if (mt == TK_INT || mt == TK_FLOAT_KW) { base_align = 4; base_size = 4; }
             else if (member_is_long_double) { base_align = 16; base_size = 16; }
             else if (mt == TK_LONG) {
-                if (member_is_long_long || (c->isa != ISA_RISCV32 && c->isa != ISA_AARCH32)) {
+                if (member_is_long_long || !zc_target_is_32bit(c)) {
                     base_align = 8; base_size = 8;
                 } else {
                     base_align = 4; base_size = 4;
@@ -1113,7 +1113,7 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                  mt == TK_SIGNED || mt == TK_UNSIGNED || mt == TK_SHORT ||
                  mt == TK_CHAR || mt == TK_BOOL_KW || mt == TK_LONG);
             if (is_ptr) {
-                int ptr_sz = (c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) ? 4 : 8;
+                int ptr_sz = zc_target_ptr_size(c);
                 base_align = (size_t)ptr_sz;
                 base_size = (size_t)ptr_sz;
             }
@@ -1316,7 +1316,7 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                     else if (mt == TK_LONG || mt == TK_VOID) {
                         if (mt == TK_VOID) m->tag = TYPE_INT64;
                         else if (member_is_long_double) m->tag = TYPE_DOUBLE;
-                        else if (member_is_long_long || (c->isa != ISA_RISCV32 && c->isa != ISA_AARCH32)) {
+                        else if (member_is_long_long || !zc_target_is_32bit(c)) {
                             m->tag = is_unsigned ? TYPE_UINT64 : TYPE_INT64;
                         } else {
                             m->tag = is_unsigned ? TYPE_UINT32 : TYPE_INT32;
@@ -1573,7 +1573,7 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                         else if (mt == TK_LONG || mt == TK_VOID) {
                         if (mt == TK_VOID) m->tag = TYPE_INT64;
                         else if (member_is_long_double) m->tag = TYPE_DOUBLE;
-                        else if (member_is_long_long || (c->isa != ISA_RISCV32 && c->isa != ISA_AARCH32)) {
+                        else if (member_is_long_long || !zc_target_is_32bit(c)) {
                             m->tag = is_unsigned ? TYPE_UINT64 : TYPE_INT64;
                         } else {
                             m->tag = is_unsigned ? TYPE_UINT32 : TYPE_INT32;
@@ -1735,7 +1735,7 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                         c->token_pos++;
                     }
                 }
-                int ptr_sz = (c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) ? 4 : 8;
+                int ptr_sz = zc_target_ptr_size(c);
                 size_t c_base_align = c_is_ptr ? (size_t)ptr_sz : base_align;
                 size_t c_base_size = c_is_ptr ? (size_t)ptr_sz : base_size;
                 size_t c_effective_align = member_align > c_base_align ? member_align : c_base_align;
@@ -1838,7 +1838,7 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                         else if (mt == TK_LONG || mt == TK_VOID) {
                         if (mt == TK_VOID) m->tag = TYPE_INT64;
                         else if (member_is_long_double) m->tag = TYPE_DOUBLE;
-                        else if (member_is_long_long || (c->isa != ISA_RISCV32 && c->isa != ISA_AARCH32)) {
+                        else if (member_is_long_long || !zc_target_is_32bit(c)) {
                             m->tag = is_unsigned ? TYPE_UINT64 : TYPE_INT64;
                         } else {
                             m->tag = is_unsigned ? TYPE_UINT32 : TYPE_INT32;
@@ -2020,7 +2020,7 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                         else if (mt == TK_LONG || mt == TK_VOID) {
                         if (mt == TK_VOID) m->tag = TYPE_INT64;
                         else if (member_is_long_double) m->tag = TYPE_DOUBLE;
-                        else if (member_is_long_long || (c->isa != ISA_RISCV32 && c->isa != ISA_AARCH32)) {
+                        else if (member_is_long_long || !zc_target_is_32bit(c)) {
                             m->tag = is_unsigned ? TYPE_UINT64 : TYPE_INT64;
                         } else {
                             m->tag = is_unsigned ? TYPE_UINT32 : TYPE_INT32;

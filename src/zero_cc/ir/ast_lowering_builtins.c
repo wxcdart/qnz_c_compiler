@@ -135,7 +135,7 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
 
             int res = fp;
             if (is_ret_addr) {
-                int ra_off = (c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) ? 4 : 8;
+                int ra_off = zc_target_slot_size(c);
                 int off_temp = zc_alloc_temp(c);
                 ir_emit_mov_imm(c, off_temp, ra_off);
                 int ra_ptr = zc_alloc_temp(c);

@@ -421,7 +421,7 @@ void zero_cc_init_compiler_with_target(ZeroCCCompiler *comp, ZeroCCISA target_is
     }
     comp->isa = target_isa;
     comp->isa_backend = backend;
-    int ptr_sz = (target_isa == ISA_AARCH32 || target_isa == ISA_RISCV32) ? 4 : 8;
+    int ptr_sz = zc_target_ptr_size(comp);
     type_set_target_metrics(ptr_sz, ptr_sz);
     comp->omit_frame_pointer = -1; /* default: auto (omit at -O1+); CLI overrides */
     comp->local_lookup_bound = -1; /* default: unbounded */
@@ -638,20 +638,10 @@ static int compile_object_single(CompileOptions *opts, const char *input,
         printf("Writing object file: %s\n", output_path);
     }
 
-    /* Determine ELF machine type for target */
-    ElfMachineType elf_machine;
-    switch (comp->isa) {
-        case ISA_X86_64: elf_machine = ELF_MACHINE_X86_64; break;
-        case ISA_AARCH64: elf_machine = ELF_MACHINE_AARCH64; break;
-        case ISA_AARCH32: elf_machine = ELF_MACHINE_ARM; break;
-        case ISA_RISCV64:
-        case ISA_RISCV32: elf_machine = ELF_MACHINE_RISCV; break;
-        default: elf_machine = ELF_MACHINE_X86_64; break;
-    }
-
-    /* Initialize ELF writer */
+    /* Initialize ELF writer from target traits */
+    const TargetTraits *traits = zc_target_traits(comp);
     ElfWriterCtx elf_ctx;
-    elf_writer_init(&elf_ctx, elf_machine, comp->isa == ISA_RISCV32 || comp->isa == ISA_AARCH32);
+    elf_writer_init(&elf_ctx, (ElfMachineType)traits->elf_machine, traits->is_32bit);
 
     /* Add .text section */
     if (comp->text_section.length > 0) {

@@ -9,6 +9,7 @@
 typedef struct ZeroCCCompiler ZeroCCCompiler;
 typedef struct ZeroCCType ZeroCCType;
 typedef struct ZeroCCFunction ZeroCCFunction;
+typedef struct TargetTraits TargetTraits;
 
 typedef enum {
     ISA_X86_64,
@@ -72,6 +73,7 @@ typedef struct {
 
 typedef struct ZeroCCISABackend {
     ZeroCCISA isa;
+    const TargetTraits *traits;  /* Target architecture & platform traits */
     const ISARegInfo *regs;
     const ISACallingConvention *conv;  /* Calling convention tables */
 

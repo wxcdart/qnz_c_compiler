@@ -817,7 +817,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                 int_idx++;
             } else if (!is_fp) {
                 int32_t caller_off = (c->isa == ISA_AARCH32 ? 8 : 16) +
-                                     ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) ? 4 : 8) * stack_idx;
+                                     zc_target_slot_size(c) * stack_idx;
                 ir_emit_load(c, VREG_0, BE(c)->fp_reg, caller_off);
                 ir_emit_store(c, VREG_0, BE(c)->fp_reg, -sym->stack_offset);
                 stack_idx++;

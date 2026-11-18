@@ -401,3 +401,18 @@ These items from earlier roadmap sections are all complete:
 1. **Variadic `%al` setup gated on callee prototype ✅**: `emit_variadic_al_setup` (and AOT `movl $N, %eax` / `xorl %eax, %eax`) is now skipped when calling a known prototyped non-variadic function (`callee_fn && callee_fn->has_prototype && !callee_fn->is_variadic`), and still emitted for variadic functions, unprototyped functions, and indirect calls.
 2. **Removed redundant AArch64 `x3-x7` caller-saved save/restore around `OP_CALL` ✅**: Live intervals spanning calls already have `spans_call = true` in `live_range.h`, and `regalloc.h` allocates only callee-saved registers (`x19-x28`) or stack spill slots to `spans_call` intervals, so the dead `x3-x7` save/restore loops around `OP_CALL` were removed.
 
+---
+
+## 🚀 Multi-ISA Target Architecture Refactoring Plan
+
+**Goal**: Transition ZeroCC from coupled `if (c->isa == ...)` checks (over 80+ locations) and the monolithic 150+ slot `ZeroCCISABackend` into a clean, declarative target-trait and modular plugin model for hosted and baremetal CPUs (x86-64, AArch64, RV64, RV32, AArch32, MIPS), while keeping GPU (PTX / SPIR-V) as a decoupled sister toolchain.
+
+### Phase Breakdown:
+1. **Phase 1 (TargetTraits)**: Declarative `TargetTraits` queryable from the backend (`ptr_size`, `word_size`, `stack_align`, `has_red_zone`, `ret_gpr_lo/hi`, `sret_gpr`, `sret_consumes_arg0`, `elf_machine`, `elf_flags`, `dwarf_addr_reloc`). Eliminates ~50 ad-hoc ternary checks across AST lowering, `main.c`, `dwarf.c`, and `elf_writer.c`.
+2. **Phase 2 (Table-Driven Regalloc)**: Declarative `TargetRegDesc` bitmasks for allocatable, callee-saved, and reserved GPRs, scratch registers, and vector counts. Decouples `regalloc.h` into an ISA-agnostic linear-scan engine.
+3. **Phase 3 (Decoupled ABI & Call Lowering)**: Target ABI classification interface (`classify_arg`, `classify_return`) replacing struct eightbyte and register/stack routing in `ast_lowering_call.c` and `ast_lowering_varargs.c`.
+4. **Phase 4 (Modular Linker Relocations)**: `TargetLinkerOps` (`apply_reloc`, `write_plt`) extracted from `src/zero_cc/linker/linker.c` into target-specific relocation tables (`src/zero_cc/linker/arch_*.c`).
+5. **Phase 5 (Clean ASM Emitter Separation)**: Table-driven instruction formatting or complete hook coverage in `src/zero_cc/ir/asm_emitter.c`, eliminating direct `fprintf` instruction strings with hardcoded ISA checks.
+6. **Baremetal CPU Extensions**: Linker script LMA/VMA support (`-T script.ld`), baremetal `crt0`, and `OS_BAREMETAL` trait to bypass POSIX/Linux syscall wrappers in `zero_rt`.
+7. **Decoupled GPU Compiler (`zero_gpu`)**: Kept as an independent sister toolchain optimized for SSA IR, divergence analysis, multiple address spaces, and bytecode/text emission (PTX/SPIR-V).
+

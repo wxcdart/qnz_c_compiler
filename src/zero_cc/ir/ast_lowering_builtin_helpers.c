@@ -12,7 +12,7 @@
 int zc_bitop_width(ZeroCCCompiler *c, const char *name) {
     size_t len = strlen(name);
     if (len >= 2 && strcmp(name + len - 2, "ll") == 0) return 64;
-    if (len >= 1 && name[len - 1] == 'l') return (c && (c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32)) ? 32 : 64;
+    if (len >= 1 && name[len - 1] == 'l') return (c && zc_target_is_32bit(c)) ? 32 : 64;
     return 32;
 }
 

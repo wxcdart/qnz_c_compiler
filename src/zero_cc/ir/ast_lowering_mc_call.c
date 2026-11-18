@@ -216,7 +216,7 @@ void emit_mc_call(ZeroCCCompiler *c, size_t i, const Instr *instr,
     } else {
         n_stack = (arg_count > int_arg_count) ? arg_count - int_arg_count : 0;
     }
-    int slot_sz = (c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) ? 4 : 8;
+    int slot_sz = zc_target_slot_size(c);
     int stack_bytes = n_stack * slot_sz;
     int stack_pad = ((stack_bytes + 15) & ~15) - stack_bytes;
     int32_t extra_sp = 0;
