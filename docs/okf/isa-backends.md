@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-11-18T03:42:12Z
+timestamp: 2026-11-18T12:55:05Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -318,30 +318,31 @@ To systematically eliminate raw-emitter and cross-target crashes, three dedicate
 - **x86-64 (`x86_emit_syscall`, `x86_emit_syscall_asm`)**: Linux System V AMD64 ABI (`rax = nr`, `rdi, rsi, rdx, r10, r8, r9 = a1..a6`, `syscall`, result in `rax` / `VREG_0`). Preserves caller-saved GPRs (`rcx`, `r11`) clobbered by `syscall`.
 - **AArch64 (`aarch64_emit_syscall`, `aarch64_emit_syscall_asm`)**: Linux AArch64 ABI (`x8 = nr`, `x0..x5 = a1..a6`, `svc #0`, result in `x0` / `VREG_0`). Saves/restores 13 allocatable GPRs on a 16-byte aligned frame (`112` bytes) and loads spilled temporaries via the pre-decrement `sp` frame.
 - **RISC-V 64 & 32 (`riscv64_emit_syscall`, `riscv_emit_syscall_asm`)**: Linux RISC-V ABI (`a7 = nr`, `a0..a5 = a1..a6`, `ecall`, result in `a0` / `VREG_0`). Uses word-sized `sw`/`lw` (`4`-byte slots) on `ISA_RISCV32` and `sd`/`ld` (`8`-byte slots) on `ISA_RISCV64`.
-- **Differential Verification (`test/isa_qemu/13_syscall.c`)**: Exercises `SYS_getpid`, `SYS_write`, and `SYS_brk` across all 4 ISAs under `make test-isa-qemu` (52/52 when the battery had 13 tests, 13/13 per ISA in both raw and `-S` assembly modes; the battery has since grown to 15 tests - 59/59 as of Sprint 100, `15_nested_tramp.c` skipped on riscv32).
+- **Differential Verification (`test/isa_qemu/13_syscall.c`)**: Exercises `SYS_getpid`, `SYS_write`, and `SYS_brk` across all 5 ISAs under `make test-isa-qemu` (80/80 green across all 5 ISAs as of Sprint 189, including `15_nested_tramp.c`).
 
-## Trampoline Stubs (Sprint 93 Phase 3b; cross-ISA Sprint 97)
+## Trampoline Stubs (Sprint 93 Phase 3b; cross-ISA Sprints 97, 189)
 
-Real computed-goto trampolines for indirect calls through nested function pointers (`f = inner; f(x)`), on **x86-64, AArch64 and RISC-V64** (RISC-V32 still rejects capturing nested functions with a clean diagnostic):
+Real computed-goto trampolines for indirect calls through nested function pointers (`f = inner; f(x)`), supported across all 5 target ISAs (**x86-64, AArch64, AArch32, RISC-V64, and RISC-V32**):
 
-- Each capturing nested function gets a static **context object** (`__zf<N>_<name>_ctx`, 32 bytes per capture slot) populated at address-taking time (`zc_lower_fn_value` in `ast_lowering_expr.c`):
+- Each capturing nested function gets a static **context object** (`__zf<N>_<name>_ctx`, 32 bytes per capture slot on 64-bit ISAs, 16 bytes on 32-bit ISAs) populated at address-taking time (`zc_lower_fn_value` in `ast_lowering_expr.c`):
   - **By-value capture**: copies the captured value's words into the context object.
   - **By-reference capture**: stores the pointer value (the enclosing slot's address) - via `zc_sym_addr`, never `zc_sym_load` (that dereferences and stores the pointee's VALUE; a deeper function then dereferences an int as a pointer and segfaults).
   - **Multi-level capture**: stores the pointer value of the intermediate capture (mirror param).
-  - **>32 bytes**: stores the address of the context object itself.
+  - **Large context (>32B / >16B)**: stores the address of the context object itself.
 
-- **Stub function** with the user-facing signature (no hidden context param): emitted right after the real nested function in the same text image (`x86_64_emit_tramp_stub` / `aarch64_emit_tramp_stub` / `riscv64_emit_tramp_stub`, shared unit model in `src/zero_cc/isa/tramp_stub.h`). The stub:
-  1. Rebuilds the full ABI argument stream (8-byte units per class: integer register slots + overflow, FP register slots + overflow, >16B struct hidden pointer; the entry geometry uses **separate namespaces** - register slot 0..7 vs shared caller-stack unit index 0.. - which is why the unit model carries `ue_reg[]` and `ue_stk[]` separately).
+- **Stub function** with the user-facing signature (no hidden context param): emitted right after the real nested function in the same text image (`x86_64_emit_tramp_stub` / `aarch64_emit_tramp_stub` / `aarch32_emit_tramp_stub` / `riscv64_emit_tramp_stub`, shared unit model in `src/zero_cc/isa/tramp_stub.h`). The stub:
+  1. Rebuilds the full ABI argument stream (`w_sz`-byte units per class: integer register slots + overflow, FP register slots + overflow, struct hidden pointer; the entry geometry uses **separate namespaces** - register slot 0..N vs shared caller-stack unit index 0.. - which is why the unit model carries `ue_reg[]` and `ue_stk[]` separately).
   2. Loads context object values into the appropriate argument registers (hidden capture params first, then user args).
-  3. Ensures 16-byte stack alignment with a **pre-push pad** (odd unit count adds 8 to the frame BEFORE any push - matching the OP_CALL lowering model; a post-push pad would shift the shared stack units away from `[entry_sp]` where the real function's prologue reads them).
-  4. `call`s the real nested function; the real function's `ret` lands on the stub's epilogue (`leave; ret` / `ldp x29,x30,[sp],#16; ret` / `ld ra; ld s0; addi sp,sp,16; ret`), returning to the ORIGINAL caller.
+  3. Ensures stack alignment (16-byte on x86-64/AArch64/RISC-V, 8-byte on AArch32) with a **pre-push pad** (odd unit count pads the frame BEFORE any push - matching the OP_CALL lowering model).
+  4. `call`s the real nested function; the real function's `ret` lands on the stub's epilogue, returning to the ORIGINAL caller.
 
   **Sprint 100 (VLA struct members)**: a by-value parameter or capture of a struct/union with variably-modified members occupies **2 GPR units** in the unit model (`tramp_unit_gpr_slots` in `tramp_stub.h` + the x86 local model): unit 0 = object pointer, unit 1 = total runtime size (the by-value ABI is defined in `abi-sysv-x86_64.md`). This is what makes `compile/nested-1.c` (`int nested (struct s x)` with `struct s { int a; char b[argc]; }`) PASS: the stub must route both units into the same argument registers the real function's prologue reads.
 
 - **ISA stub-encoding invariants** (each bug below was found via a QEMU miscompile/segfault):
   - **x86-64**: `movaps xmm,mem` (load) = `0F 28 /r` but `movaps mem,xmm` (store) = `0F 29 /r` - the entry-save loop must use the STORE form; XMM entry-save offsets beyond disp8 (-144) need the disp32 `41`/`44`/`45` REX form; loading XMM from the frame uses `movdqu` (`F3 0F 6F`, 16B) / `movsd` (`F2 0F 10`, 8B) - `F2 0F 6E` is not a valid 16-byte load; entry stack args at `[rbp+16+8m]`; `call rel32`'s PC is the NEXT instruction (the +5 relative to the `call` itself).
   - **AArch64**: LDUR/STUR are the **immediate-offset family** (imm9 signed, two's-complement wrap = 512: STUR int/FP `0xF8000000`/`0xFC000000`, LDUR `0xF8400000`/`0xFC400000`), distinct from the 12-bit 8x-scaled LDR/STR unsigned-offset family (`0xF94`/`0xF90`/`0xFD4`/`0xFD0`) - pasting one family into the other silently loads the wrong register; offsets >255 use `sub x10, x29, #off` + plain `[x10]` access; `bl` is PC-relative with PC = the `bl`'s own address (no +4) and does not push LR (first stack arg at `[x29+16]`); 8-byte `str/ldr` push/pop (`stp/ldp` pairs were wrong for the stub's single-register geometry).
-  - **RISC-V**: `jal` is PC-relative with PC = the `jal`'s own address (no +4); the stub must `addi sp,sp,-D` after `mv s0,sp` (without it the entry saves overwrite the caller's live stack); D > 2047 uses `li t0, D; sub sp,sp,t0`; R-type `sub` is funct7 0x20 (funct7 0x01 is `mul`) and `and` is funct3 7 / funct7 0.
+  - **AArch32**: Prologue creates standard frame link `push {r11, lr}`, saves incoming GPRs `r0..r3` at `[r11-4..-16]`, VFP doubles `d0..d7` at `[r11-24..-80]`, and caller stack args at `[r11+8+4m]`. Materializes ctx address using `movw`/`movt` into `r14` (`lr` is preserved on entry), populates `r0` with ctx, reloads user args into `r1..r3`/`d0..d7` or stack, and invokes inner nested function via `bl <inner_fn>`.
+  - **RISC-V**: `jal` is PC-relative with PC = the `jal`'s own address (no +4); the stub must `addi sp,sp,-D` after `mv s0,sp` (without it the entry saves overwrite the caller's live stack); D > 2047 uses `li t0, D; sub sp,sp,t0`; R-type `sub` is funct7 0x20 (funct7 0x01 is `mul`) and `and` is funct3 7 / funct7 0. RV32 uses `lw`/`sw` (`w_sz=4`) and `fcvt.w.d` (`rs2=0`), while RV64 uses `ld`/`sd` (`w_sz=8`) and `fcvt.l.d` (`rs2=2`).
   - **Direct calls to nested functions on RISC-V** (`riscv64_emit_call`): the early-patch path (baking `fn->text_offset - pos` into the `jal`) is only valid for already-emitted functions. Nested functions are emitted AFTER their enclosing function (deferred), so their `text_offset` is still 0 - early-patching bakes a jump to text offset 0 (the first function = the enclosing scope) and infinite-recurses until the stack overflows. Nested targets are routed through the `R_RISCV_JAL` relocation instead (the .o + system-linker path resolves it at final offsets); AArch64/x86 already use call relocations and are unaffected.
 
 ## GNU `__int128` (128-bit integer) Support (Sprint 109)

@@ -1,15 +1,11 @@
-/* GNU nested-function trampolines (Sprint 97): capturing nested functions
- * called through function pointers, across all target ISAs.
+/* GNU nested-function trampolines (Sprint 97, Sprint 189): capturing nested
+ * functions called through function pointers, across all target ISAs.
  *
  * Covers the trampoline stub's argument streams:
  *   - by-reference scalar captures (int + double) passed as GPR pointers
  *   - FP user args (register window + the shared caller-stack stream)
  *   - >8 integer user args (entry + final stack overflow)
  *   - two-level nesting (a capture that is itself a capture mirror)
- *
- * isa-skip: riscv32, aarch32 - trampoline stubs are machine-code path and land on
- * x86-64 / AArch64 / RISC-V64; the RV32 backend rejects capturing nested
- * functions with a clean diagnostic (documented limitation).
  */
 #include <stdio.h>
 

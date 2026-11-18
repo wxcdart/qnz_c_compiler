@@ -38,17 +38,24 @@ static inline bool zero_cc_tramp_unit_is_fp(const ZeroCCType *t) {
     return (t->tag == TYPE_FLOAT || t->tag == TYPE_DOUBLE);
 }
 
-/* Number of 8-byte ABI units this type occupies in the argument stream. */
-static inline int zero_cc_tramp_unit_slots(const ZeroCCType *t) {
+/* Number of ABI units this type occupies in the argument stream. */
+static inline int zero_cc_tramp_unit_slots_isa(const ZeroCCType *t, ZeroCCISA isa) {
     if (zero_cc_tramp_unit_is_fp(t)) return t->is_complex ? 2 : 1;
     if ((t->tag == TYPE_STRUCT || t->tag == TYPE_UNION) && t->is_vla_struct)
         return 2; /* (hidden pointer, total size) GPR pair */
+    bool is_32 = (isa == ISA_AARCH32 || isa == ISA_RISCV32);
+    size_t limit = is_32 ? 8 : 16;
     if ((t->tag == TYPE_STRUCT || t->tag == TYPE_UNION) &&
         !(t->tag == TYPE_USER_0 && zero_cc_type_is_vector(t)) &&
-        t->size > 16)
+        t->size > limit)
         return 1; /* hidden pointer convention */
-    size_t s = t->size ? t->size : 8;
-    return (int)((s + 7) / 8);
+    size_t w_sz = is_32 ? 4 : 8;
+    size_t s = t->size ? t->size : w_sz;
+    return (int)((s + w_sz - 1) / w_sz);
+}
+
+static inline int zero_cc_tramp_unit_slots(const ZeroCCType *t) {
+    return zero_cc_tramp_unit_slots_isa(t, ISA_X86_64);
 }
 
 /* Total units the function's trampoline stub would need: captures (by-ref
@@ -56,16 +63,20 @@ static inline int zero_cc_tramp_unit_slots(const ZeroCCType *t) {
  * user parameters. A >16B struct RETURN adds nothing (x86-64/RISC-V: the
  * sret pointer is a pass-through of the entry's first integer slot;
  * AArch64: it travels in x8 and never touches the streams). */
-static inline int zero_cc_tramp_total_units(const ZeroCCFunction *nf) {
+static inline int zero_cc_tramp_total_units_isa(const ZeroCCFunction *nf, ZeroCCISA isa) {
     int n = 0;
     for (size_t ci = 0; ci < nf->nested_captured_count; ci++) {
         n += nf->nested_capture_byref[ci] ? 1 :
-             zero_cc_tramp_unit_slots(&nf->nested_capture_types[ci]);
+             zero_cc_tramp_unit_slots_isa(&nf->nested_capture_types[ci], isa);
     }
     for (size_t p = nf->nested_captured_count; p < nf->param_count; p++) {
-        n += zero_cc_tramp_unit_slots(&nf->param_types[p]);
+        n += zero_cc_tramp_unit_slots_isa(&nf->param_types[p], isa);
     }
     return n;
+}
+
+static inline int zero_cc_tramp_total_units(const ZeroCCFunction *nf) {
+    return zero_cc_tramp_total_units_isa(nf, ISA_X86_64);
 }
 
 /* Value source of a stub unit:

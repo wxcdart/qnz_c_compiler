@@ -556,8 +556,7 @@ static inline int zc_lower_fn_value(ZeroCCCompiler *c, const ZeroCCFunction *fn)
         ir_emit_mov_global(c, (uint32_t)t, zero_cc_fn_emit_symbol(fn));
         return t;
     }
-    if ((c->isa != ISA_X86_64 && c->isa != ISA_AARCH64 && c->isa != ISA_RISCV64) ||
-        fn->tramp_stub_fn_idx < 0) {
+    if (fn->tramp_stub_fn_idx < 0) {
         diag_report_error_at_token(c,
             "cannot take the address of nested function '%s' "
             "(capturing nested functions need trampoline support on this target)",

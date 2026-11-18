@@ -827,8 +827,10 @@ static void riscv64_emit_fp_cmp(ZeroCCCompiler *c, int src1, int src2) {
 static void riscv64_emit_fp_cvtsi(ZeroCCCompiler *c, int int_dst, int fp_src) {
     /* fcvt.l.d rd, fs (round toward zero, rm=1) - 64-bit result, matching the
      * IR contract "CVTTSD2SI yields a 64-bit int" (narrower targets are
-     * sign/zero-extended afterwards by the width fixup). */
-    riscv_emit_u32(c, rv64_FP(RV_REG(int_dst), RV_REG(fp_src), 2, 0x61, 1));
+     * sign/zero-extended afterwards by the width fixup). On RV32 XLEN is 32,
+     * so emit fcvt.w.d (rs2=0; fcvt.l.d is an illegal instruction on rv32). */
+    int rs2 = (c->isa == ISA_RISCV32) ? 0 : 2;
+    riscv_emit_u32(c, rv64_FP(RV_REG(int_dst), RV_REG(fp_src), rs2, 0x61, 1));
 }
 
 static void riscv64_emit_fp_cvtsf(ZeroCCCompiler *c, int fp_dst, int int_src) {
@@ -1533,8 +1535,10 @@ static void riscv64_emit_ovf_trap(ZeroCCCompiler *c, int res, int a, int b,
  * ===================================================================== */
 
 void zero_cc_riscv_emit_tramp_stub(ZeroCCCompiler *c, const ZeroCCFunction *nf) {
-    /* RV64 only - the RV32 FP/arg model predates this work. */
-    if (c->isa != ISA_RISCV64) return;
+    if (c->isa != ISA_RISCV64 && c->isa != ISA_RISCV32) return;
+    bool is_32 = (c->isa == ISA_RISCV32);
+    int gpr_sz = is_32 ? 4 : 8;
+    int f3_gpr = is_32 ? 2 : 3; /* funct3: 2 for lw/sw, 3 for ld/sd */
     size_t C = nf->nested_captured_count;
     size_t U = nf->param_count - C;
 
@@ -1547,7 +1551,7 @@ void zero_cc_riscv_emit_tramp_stub(ZeroCCCompiler *c, const ZeroCCFunction *nf) 
     int ue_n = 0, e_gpr = 0, e_fp = 0, e_shared = 0;
     for (size_t ui = 0; ui < U && ue_n < ZERO_CC_TRAMP_MAX_UNITS; ui++) {
         const ZeroCCType *t = &nf->param_types[C + ui];
-        int slots = zero_cc_tramp_unit_slots(t);
+        int slots = zero_cc_tramp_unit_slots_isa(t, c->isa);
         bool isfp = zero_cc_tramp_unit_is_fp(t);
         for (int w = 0; w < slots; w++) {
             int sidx = isfp ? e_fp : e_gpr;
@@ -1577,11 +1581,11 @@ void zero_cc_riscv_emit_tramp_stub(ZeroCCCompiler *c, const ZeroCCFunction *nf) 
             continue;
         }
         const ZeroCCType *t = &nf->nested_capture_types[ci];
-        int slots = zero_cc_tramp_unit_slots(t);
+        int slots = zero_cc_tramp_unit_slots_isa(t, c->isa);
         bool isfp = zero_cc_tramp_unit_is_fp(t);
         bool big_struct = (t->tag == TYPE_STRUCT || t->tag == TYPE_UNION) &&
-                          !zero_cc_type_is_vector(t) && t->size > 16;
-        int words = (int)((t->size + 7) / 8);
+                          !zero_cc_type_is_vector(t) && t->size > (size_t)(is_32 ? 8 : 16);
+        int words = (int)((t->size + (size_t)(gpr_sz - 1)) / (size_t)gpr_sz);
         for (int w = 0; w < slots; w++) {
             if (n >= ZERO_CC_TRAMP_MAX_UNITS) return;
             u[n].is_fp = isfp;
@@ -1591,12 +1595,12 @@ void zero_cc_riscv_emit_tramp_stub(ZeroCCCompiler *c, const ZeroCCFunction *nf) 
             if (big_struct) {
                 if (w == 0) {
                     u[n].src = 5;
-                    u[n].src_off = 208 + 8 * entry_stack_n + 32 * (int)ci;
+                    u[n].src_off = 208 + gpr_sz * entry_stack_n + 32 * (int)ci;
                     copy_words += words;
                 }
             } else {
                 u[n].src = 0;
-                u[n].src_off = (int)(32 * ci) + 8 * w;
+                u[n].src_off = (int)(32 * ci) + gpr_sz * w;
             }
             n++;
         }
@@ -1610,18 +1614,18 @@ void zero_cc_riscv_emit_tramp_stub(ZeroCCCompiler *c, const ZeroCCFunction *nf) 
             u[n].fin_slot = gpr_run < 8 ? gpr_run++ : -1;
             u[n].fin_stack = u[n].fin_slot < 0 ? decl_stack_run++ : -1;
             u[n].src = 0;
-            u[n].src_off = (int)(32 * C + 16 * pi) + 8 * w;
+            u[n].src_off = (int)(32 * C + 16 * pi) + gpr_sz * w;
             n++;
         }
     }
-    int entry_gpr_off = 8;    /* first entry GPR save: [s0-8] */
-    int entry_fp_off = 80;    /* first entry FP save: [s0-80] */
-    int entry_st_off = 208;   /* first entry stack save: [s0-208] */
+    int entry_gpr_off = gpr_sz;   /* first entry GPR save: [s0-gpr_sz] */
+    int entry_fp_off = entry_gpr_off + 8 * gpr_sz;    /* first entry FP save: [s0-fp_off] */
+    int entry_st_off = entry_fp_off + 8 * 16;  /* first entry stack save */
 
     int j = 0;
     for (size_t ui = 0; ui < U; ui++) {
         const ZeroCCType *t = &nf->param_types[C + ui];
-        int slots = zero_cc_tramp_unit_slots(t);
+        int slots = zero_cc_tramp_unit_slots_isa(t, c->isa);
         bool isfp = zero_cc_tramp_unit_is_fp(t);
         for (int w = 0; w < slots; w++) {
             if (n >= ZERO_CC_TRAMP_MAX_UNITS) return;
@@ -1635,14 +1639,14 @@ void zero_cc_riscv_emit_tramp_stub(ZeroCCCompiler *c, const ZeroCCFunction *nf) 
                     u[n].src_off = entry_fp_off + 16 * ue_reg[j];
                 } else {
                     u[n].src = 3;
-                    u[n].src_off = entry_st_off + 8 * ue_stk[j];
+                    u[n].src_off = entry_st_off + gpr_sz * ue_stk[j];
                 }
             } else if (ue_reg[j] >= 0) {
                 u[n].src = 1;
-                u[n].src_off = entry_gpr_off + 8 * ue_reg[j];
+                u[n].src_off = entry_gpr_off + gpr_sz * ue_reg[j];
             } else {
                 u[n].src = 3;
-                u[n].src_off = entry_st_off + 8 * ue_stk[j];
+                u[n].src_off = entry_st_off + gpr_sz * ue_stk[j];
             }
             n++;
             j++;
@@ -1650,15 +1654,21 @@ void zero_cc_riscv_emit_tramp_stub(ZeroCCCompiler *c, const ZeroCCFunction *nf) 
     }
     int fin_stack_n = decl_stack_run;
 
-    size_t D = 208 + 8 * (size_t)entry_stack_n + 8 * (size_t)copy_words;
-    if (decl_stack_run & 1) D += 8; /* pre-push alignment pad (CALL model) */
+    size_t D = (size_t)entry_st_off + (size_t)gpr_sz * (size_t)entry_stack_n + (size_t)gpr_sz * (size_t)copy_words;
+    int stack_bytes = 0;
+    for (int i = 0; i < n; i++) {
+        if (u[i].fin_stack >= 0)
+            stack_bytes += u[i].is_fp ? 8 : gpr_sz;
+    }
+    int stack_pad = ((stack_bytes + 15) & ~15) - stack_bytes;
+    D += (size_t)stack_pad;
     D = (D + 15) & ~(size_t)15;
 
     /* a0..a7 = 10..17, fa0..fa7 = 10..17 (FP-numbering) */
     /* ---- prologue ---- */
     riscv_emit_u32(c, rv64_I(RV64_SP, RV64_SP, 0, -16, 0x13));    /* addi sp, sp, -16 */
-    riscv_emit_u32(c, rv64_S(RV64_SP, RV64_RA, 3, 8, 0x23));      /* sd ra, 8(sp) */
-    riscv_emit_u32(c, rv64_S(RV64_SP, RV64_S0, 3, 0, 0x23));      /* sd s0, 0(sp) */
+    riscv_emit_u32(c, rv64_S(RV64_SP, RV64_RA, f3_gpr, 8, 0x23)); /* sw/sd ra, 8(sp) */
+    riscv_emit_u32(c, rv64_S(RV64_SP, RV64_S0, f3_gpr, 0, 0x23)); /* sw/sd s0, 0(sp) */
     riscv_emit_u32(c, rv64_I(RV64_S0, RV64_SP, 0, 0, 0x13));      /* mv s0, sp */
     /* allocate the stub frame - WITHOUT this the entry saves below
      * write into the CALLER's live stack. D <= 2047 in practice; use
@@ -1672,14 +1682,14 @@ void zero_cc_riscv_emit_tramp_stub(ZeroCCCompiler *c, const ZeroCCFunction *nf) 
 
     /* save entry GPR arg regs a0..a7 */
     for (int g = 0; g < 8; g++)
-        riscv_emit_u32(c, rv64_S(RV64_S0, 10 + g, 3, -(int32_t)(entry_gpr_off + 8 * g), 0x23));
+        riscv_emit_u32(c, rv64_S(RV64_S0, 10 + g, f3_gpr, -(int32_t)(entry_gpr_off + gpr_sz * g), 0x23));
     /* save entry FP arg regs fa0..fa7 */
     for (int f = 0; f < 8; f++)
         riscv_emit_u32(c, rv64_S(RV64_S0, 10 + f, 3, -(int32_t)(entry_fp_off + 16 * f), 0x27));
-    /* save entry stack units: [s0+16+8m] -> [s0-208-8m] (via t1) */
+    /* save entry stack units: [s0+16+gpr_sz*m] -> [s0-entry_st_off-gpr_sz*m] (via t1) */
     for (int s = 0; s < entry_stack_n; s++) {
-        riscv_emit_u32(c, rv64_I(RV64_T1, RV64_S0, 3, 16 + 8 * s, 0x03)); /* ld t1, (16+8s)(s0) */
-        riscv_emit_u32(c, rv64_S(RV64_S0, RV64_T1, 3, -(int32_t)(entry_st_off + 8 * s), 0x23));
+        riscv_emit_u32(c, rv64_I(RV64_T1, RV64_S0, f3_gpr, 16 + gpr_sz * s, 0x03)); /* lw/ld t1, ... */
+        riscv_emit_u32(c, rv64_S(RV64_S0, RV64_T1, f3_gpr, -(int32_t)(entry_st_off + gpr_sz * s), 0x23));
     }
 
     /* ctx base in t0: auipc+addi pair with the data reloc (same shape
@@ -1695,19 +1705,18 @@ void zero_cc_riscv_emit_tramp_stub(ZeroCCCompiler *c, const ZeroCCFunction *nf) 
         zero_cc_reloc_overflow_note(c);
     }
 
-    /* copy >16B by-value struct captures from ctx into the frame
-     * (storage for capture ci at [s0 - (208 + 8m + 32ci + 8w)]). */
+    /* copy >16B (or >8B on RV32) by-value struct captures from ctx into the frame */
     for (size_t ci = 0; ci < C; ci++) {
         if (nf->nested_capture_byref[ci]) continue;
         const ZeroCCType *t = &nf->nested_capture_types[ci];
         bool big_struct = (t->tag == TYPE_STRUCT || t->tag == TYPE_UNION) &&
-                          !zero_cc_type_is_vector(t) && t->size > 16;
+                          !zero_cc_type_is_vector(t) && t->size > (size_t)(is_32 ? 8 : 16);
         if (!big_struct) continue;
-        int words = (int)((t->size + 7) / 8);
+        int words = (int)((t->size + (size_t)(gpr_sz - 1)) / (size_t)gpr_sz);
         for (int w = 0; w < words; w++) {
-            riscv_emit_u32(c, rv64_I(RV64_T1, RV64_T0, 3, 32 * (int)ci + 8 * w, 0x03)); /* ld t1, (32ci+8w)(t0) */
-            riscv_emit_u32(c, rv64_S(RV64_S0, RV64_T1, 3,
-                                     -(int32_t)(entry_st_off + 8 * entry_stack_n + 32 * (int)ci + 8 * w), 0x23));
+            riscv_emit_u32(c, rv64_I(RV64_T1, RV64_T0, f3_gpr, 32 * (int)ci + gpr_sz * w, 0x03));
+            riscv_emit_u32(c, rv64_S(RV64_S0, RV64_T1, f3_gpr,
+                                     -(int32_t)(entry_st_off + gpr_sz * entry_stack_n + 32 * (int)ci + gpr_sz * w), 0x23));
         }
     }
 
@@ -1729,12 +1738,12 @@ void zero_cc_riscv_emit_tramp_stub(ZeroCCCompiler *c, const ZeroCCFunction *nf) 
             }
         } else {
             switch (a->src) {
-            case 0:  /* ctx: ld dst, off(t0) */
-                riscv_emit_u32(c, rv64_I(dst, RV64_T0, 3, a->src_off, 0x03));
+            case 0:  /* ctx: lw/ld dst, off(t0) */
+                riscv_emit_u32(c, rv64_I(dst, RV64_T0, f3_gpr, a->src_off, 0x03));
                 break;
             case 1:  /* entry GPR save */
             case 3:  /* entry stack save */
-                riscv_emit_u32(c, rv64_I(dst, RV64_S0, 3, -a->src_off, 0x03));
+                riscv_emit_u32(c, rv64_I(dst, RV64_S0, f3_gpr, -a->src_off, 0x03));
                 break;
             case 5:  /* address of the big-capture frame storage */
                 riscv64_emit_mov_imm(c, RV64_T5, -(int64_t)a->src_off);
@@ -1768,11 +1777,11 @@ void zero_cc_riscv_emit_tramp_stub(ZeroCCCompiler *c, const ZeroCCFunction *nf) 
             } else {
                 switch (a->src) {
                 case 0:
-                    riscv_emit_u32(c, rv64_I(RV64_T1, RV64_T0, 3, a->src_off, 0x03));
+                    riscv_emit_u32(c, rv64_I(RV64_T1, RV64_T0, f3_gpr, a->src_off, 0x03));
                     break;
                 case 1:
                 case 3:
-                    riscv_emit_u32(c, rv64_I(RV64_T1, RV64_S0, 3, -a->src_off, 0x03));
+                    riscv_emit_u32(c, rv64_I(RV64_T1, RV64_S0, f3_gpr, -a->src_off, 0x03));
                     break;
                 case 5:
                     riscv64_emit_mov_imm(c, RV64_T1, -(int64_t)a->src_off);
@@ -1780,28 +1789,21 @@ void zero_cc_riscv_emit_tramp_stub(ZeroCCCompiler *c, const ZeroCCFunction *nf) 
                     break;
                 default: break;
                 }
-                riscv_emit_u32(c, rv64_I(RV64_SP, RV64_SP, 0, -8, 0x13)); /* addi sp, sp, -8 */
-                riscv_emit_u32(c, rv64_S(RV64_SP, RV64_T1, 3, 0, 0x23));  /* sd t1, 0(sp) */
+                riscv_emit_u32(c, rv64_I(RV64_SP, RV64_SP, 0, -(int32_t)gpr_sz, 0x13)); /* addi sp, sp, -gpr_sz */
+                riscv_emit_u32(c, rv64_S(RV64_SP, RV64_T1, f3_gpr, 0, 0x23));           /* sw/sd t1, 0(sp) */
             }
         }
     }
 
     /* 16-byte stack alignment at the jal: handled by the pre-push pad
-     * in the prologue frame (same model as zerocc's OP_CALL lowering:
-     * pad 8 when fin_stack_n is ODD, BEFORE the pushes - a post-push
-     * pad would shift the stack units away from [entry_sp], where the
-     * real fn's prologue reads the shared stream). jal leaves SP
-     * untouched (the return address goes in ra). */
-
-    /* jal ra, real-nested-fn - same text image, exact J-type offset
-     * (jal is PC-relative with PC = the jal's own address). */
+     * in the prologue frame. jal leaves SP untouched (return address goes in ra). */
     size_t call_pos = me_get_offset(c);
     riscv_emit_u32(c, rv64_J(1 /* ra */, (int32_t)(nf->text_offset - call_pos)));
 
     /* the target's `ret` lands here: return to the original caller */
     riscv_emit_u32(c, rv64_I(RV64_SP, RV64_S0, 0, 0, 0x13));  /* addi sp, s0, 0 */
-    riscv_emit_u32(c, rv64_I(RV64_RA, RV64_SP, 3, 8, 0x03));  /* ld ra, 8(sp) */
-    riscv_emit_u32(c, rv64_I(RV64_S0, RV64_SP, 3, 0, 0x03));  /* ld s0, 0(sp) */
+    riscv_emit_u32(c, rv64_I(RV64_RA, RV64_SP, f3_gpr, 8, 0x03));  /* lw/ld ra, 8(sp) */
+    riscv_emit_u32(c, rv64_I(RV64_S0, RV64_SP, f3_gpr, 0, 0x03));  /* lw/ld s0, 0(sp) */
     riscv_emit_u32(c, rv64_I(RV64_SP, RV64_SP, 0, 16, 0x13)); /* addi sp, sp, 16 */
     riscv_emit_u32(c, 0x00008067u);                           /* ret (jalr zero, 0(ra)) */
 }

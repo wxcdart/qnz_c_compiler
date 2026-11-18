@@ -718,7 +718,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                             ir_emit_param_save_fp(c, xmm_idx, chunk_off, 0);
                         } else {
                             if (fpstack_copy_count < 64) {
-                                fpstack_src_off[fpstack_copy_count] = 16 + 8 * stack_idx;
+                                fpstack_src_off[fpstack_copy_count] = (c->isa == ISA_AARCH32 ? 8 : 16) + 8 * stack_idx;
                                 fpstack_dst_off[fpstack_copy_count] = chunk_off;
                                 fpstack_is_flt[fpstack_copy_count] = 0;
                                 fpstack_copy_count++;
@@ -753,7 +753,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                         ir_emit_param_save_fp(c, xmm_idx, sym->stack_offset, 0);
                     } else {
                         if (fpstack_copy_count < 64) {
-                            fpstack_src_off[fpstack_copy_count] = 16 + 8 * stack_idx;
+                            fpstack_src_off[fpstack_copy_count] = (c->isa == ISA_AARCH32 ? 8 : 16) + 8 * stack_idx;
                             fpstack_dst_off[fpstack_copy_count] = sym->stack_offset;
                             fpstack_is_flt[fpstack_copy_count] = 0;
                             fpstack_copy_count++;
@@ -770,7 +770,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                             /* Stack half: defer the load until after the
                              * variadic spill (see fpstack_* above). */
                             if (fpstack_copy_count < 64) {
-                                fpstack_src_off[fpstack_copy_count] = 16 + 8 * stack_idx;
+                                fpstack_src_off[fpstack_copy_count] = (c->isa == ISA_AARCH32 ? 8 : 16) + 8 * stack_idx;
                                 fpstack_dst_off[fpstack_copy_count] = half_off;
                                 fpstack_is_flt[fpstack_copy_count] = is_flt ? 1 : 0;
                                 fpstack_copy_count++;
@@ -805,7 +805,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                  * caller-stack stream in argument order.  Deferred like
                  * the complex stack halves (see fpstack_* above). */
                 if (fpstack_copy_count < 64) {
-                    fpstack_src_off[fpstack_copy_count] = 16 + 8 * stack_idx;
+                    fpstack_src_off[fpstack_copy_count] = (c->isa == ISA_AARCH32 ? 8 : 16) + 8 * stack_idx;
                     fpstack_dst_off[fpstack_copy_count] = sym->stack_offset;
                     fpstack_is_flt[fpstack_copy_count] = (sym->type.tag == TYPE_FLOAT) ? 1 : 0;
                     fpstack_copy_count++;

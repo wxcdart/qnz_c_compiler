@@ -2199,6 +2199,292 @@ static size_t aarch32_get_code_offset(ZeroCCCompiler *c) {
     return c->text_section.length;
 }
 
+/* =====================================================================
+ * Trampoline stub for a capturing nested function on AArch32 (ARMv7-A)
+ *
+ * Calling convention:
+ *   GPR units: r0..r3 (4 registers)
+ *   FP units: d0..d7 (8 registers)
+ *   Overflow units: shared stack stream [entry_sp + 4*s]
+ *
+ * Frame layout (r11 = entry_sp - 8, after `push {r11, lr}; mov r11, sp`):
+ *   [r11 + 4]           saved lr
+ *   [r11 + 0]           saved r11
+ *   [r11 + 8 + 4*s]     entry stack unit s (the caller's stack args)
+ *   [r11 - 4 - 4*g]     entry GPR arg saves (r0..r3)
+ *   [r11 - 24 - 8*f]    entry FP arg saves (d0..d7, 8-byte aligned)
+ *   [r11 - 88 - 4*s]    entry stack unit saves
+ *
+ * Scratch registers:
+ *   r12 (IP): scratch temp
+ *   r14 (LR): saved in frame, free to use as ctx base pointer
+ * ===================================================================== */
+
+void zero_cc_aarch32_emit_tramp_stub(ZeroCCCompiler *c, const ZeroCCFunction *nf) {
+    if (c->isa != ISA_AARCH32) return;
+    size_t C = nf->nested_captured_count;
+    size_t U = nf->param_count - C;
+
+    /* ---- pass 1: entry geometry of USER call's units ---- */
+    bool ue_isfp[ZERO_CC_TRAMP_MAX_UNITS];
+    int  ue_reg[ZERO_CC_TRAMP_MAX_UNITS];
+    int  ue_stk[ZERO_CC_TRAMP_MAX_UNITS];
+    int ue_n = 0, e_gpr = 0, e_fp = 0, e_shared = 0;
+    for (size_t ui = 0; ui < U && ue_n < ZERO_CC_TRAMP_MAX_UNITS; ui++) {
+        const ZeroCCType *t = &nf->param_types[C + ui];
+        int slots = zero_cc_tramp_unit_slots_isa(t, c->isa);
+        bool isfp = zero_cc_tramp_unit_is_fp(t);
+        for (int w = 0; w < slots; w++) {
+            int sidx = isfp ? e_fp : e_gpr;
+            ue_isfp[ue_n] = isfp;
+            if (isfp) {
+                if (sidx < 8) { ue_reg[ue_n] = sidx; ue_stk[ue_n] = -1; }
+                else          { ue_reg[ue_n] = -1;  ue_stk[ue_n] = e_shared++; }
+                e_fp++;
+            } else {
+                if (sidx < 4) { ue_reg[ue_n] = sidx; ue_stk[ue_n] = -1; }
+                else          { ue_reg[ue_n] = -1;  ue_stk[ue_n] = e_shared++; }
+                e_gpr++;
+            }
+            ue_n++;
+        }
+    }
+    int entry_stack_n = e_shared;
+
+    /* ---- pass 2: final unit list (captures first, then user params) ---- */
+    ZeroCCTrampUnit u[ZERO_CC_TRAMP_MAX_UNITS];
+    int n = 0, gpr_run = 0, fp_run = 0, decl_stack_run = 0;
+    int copy_words = 0;
+
+    for (size_t ci = 0; ci < C; ci++) {
+        if (nf->nested_capture_byref[ci]) {
+            if (n >= ZERO_CC_TRAMP_MAX_UNITS) return;
+            u[n].is_fp = false;
+            u[n].fin_slot = gpr_run < 4 ? gpr_run++ : -1;
+            u[n].fin_stack = u[n].fin_slot < 0 ? decl_stack_run++ : -1;
+            u[n].src = 0;
+            u[n].src_off = (int)(32 * ci);
+            n++;
+            continue;
+        }
+        const ZeroCCType *t = &nf->nested_capture_types[ci];
+        int slots = zero_cc_tramp_unit_slots_isa(t, c->isa);
+        bool isfp = zero_cc_tramp_unit_is_fp(t);
+        bool big_struct = (t->tag == TYPE_STRUCT || t->tag == TYPE_UNION) &&
+                          !zero_cc_type_is_vector(t) && t->size > 8;
+        int words = (int)((t->size + 3) / 4);
+        for (int w = 0; w < slots; w++) {
+            if (n >= ZERO_CC_TRAMP_MAX_UNITS) return;
+            u[n].is_fp = isfp;
+            u[n].fin_slot = isfp ? (fp_run < 8 ? fp_run++ : -1)
+                                 : (gpr_run < 4 ? gpr_run++ : -1);
+            u[n].fin_stack = u[n].fin_slot < 0 ? decl_stack_run++ : -1;
+            if (big_struct) {
+                if (w == 0) {
+                    u[n].src = 5;
+                    u[n].src_off = 88 + 4 * entry_stack_n + 32 * (int)ci;
+                    copy_words += words;
+                }
+            } else {
+                u[n].src = 0;
+                u[n].src_off = (int)(32 * ci) + 4 * w;
+            }
+            n++;
+        }
+    }
+    for (int pi = 0; pi < nf->goto_pair_count; pi++) {
+        for (int w = 0; w < 2; w++) {
+            if (n >= ZERO_CC_TRAMP_MAX_UNITS) return;
+            u[n].is_fp = false;
+            u[n].fin_slot = gpr_run < 4 ? gpr_run++ : -1;
+            u[n].fin_stack = u[n].fin_slot < 0 ? decl_stack_run++ : -1;
+            u[n].src = 0;
+            u[n].src_off = (int)(32 * C + 16 * pi) + 4 * w;
+            n++;
+        }
+    }
+    int entry_gpr_off = 4;
+    int entry_fp_off = 24;
+    int entry_st_off = 88;
+
+    int j = 0;
+    for (size_t ui = 0; ui < U; ui++) {
+        const ZeroCCType *t = &nf->param_types[C + ui];
+        int slots = zero_cc_tramp_unit_slots_isa(t, c->isa);
+        bool isfp = zero_cc_tramp_unit_is_fp(t);
+        for (int w = 0; w < slots; w++) {
+            if (n >= ZERO_CC_TRAMP_MAX_UNITS) return;
+            u[n].is_fp = isfp;
+            u[n].fin_slot = isfp ? (fp_run < 8 ? fp_run++ : -1)
+                                 : (gpr_run < 4 ? gpr_run++ : -1);
+            u[n].fin_stack = u[n].fin_slot < 0 ? decl_stack_run++ : -1;
+            if (ue_isfp[j]) {
+                if (ue_reg[j] >= 0) {
+                    u[n].src = 2;
+                    u[n].src_off = entry_fp_off + 8 * ue_reg[j];
+                } else {
+                    u[n].src = 3;
+                    u[n].src_off = entry_st_off + 4 * ue_stk[j];
+                }
+            } else if (ue_reg[j] >= 0) {
+                u[n].src = 1;
+                u[n].src_off = entry_gpr_off + 4 * ue_reg[j];
+            } else {
+                u[n].src = 3;
+                u[n].src_off = entry_st_off + 4 * ue_stk[j];
+            }
+            n++;
+            j++;
+        }
+    }
+    int fin_stack_n = decl_stack_run;
+
+    size_t D = 88 + 4 * (size_t)entry_stack_n + 4 * (size_t)copy_words;
+    int stack_bytes = 0;
+    for (int i = 0; i < n; i++) {
+        if (u[i].fin_stack >= 0)
+            stack_bytes += u[i].is_fp ? 8 : 4;
+    }
+    int stack_pad = ((stack_bytes + 7) & ~7) - stack_bytes;
+    D += (size_t)stack_pad;
+    D = (D + 7) & ~(size_t)7;
+
+    /* ---- prologue ---- */
+    arm32_emit_u32(c, 0xE92D4800u); /* STMDB sp!, {r11, lr} */
+    arm32_emit_u32(c, 0xE28DB000u); /* ADD r11, sp, #0 */
+    if (D > 0) {
+        uint32_t enc = arm32_encode_imm((int64_t)D);
+        if (enc != 0xFFFFFFFFu) {
+            arm32_emit_u32(c, 0xE24DD000u | enc); /* SUB sp, sp, #D */
+        } else {
+            aarch32_emit_mov_imm(c, 12, (int64_t)D);
+            arm32_emit_u32(c, 0xE04DD00Cu); /* SUB sp, sp, r12 */
+        }
+    }
+
+    /* Save entry GPRs r0..r3 */
+    for (int g = 0; g < 4; g++)
+        aarch32_emit_store(c, g, 11, -(int32_t)(entry_gpr_off + 4 * g));
+    /* Save entry FPs d0..d7 */
+    for (int f = 0; f < 8; f++)
+        aarch32_emit_store_fp(c, f, 11, -(int32_t)(entry_fp_off + 8 * f));
+    /* Save entry stack units: [r11+8+4s] -> [r11-entry_st_off-4s] */
+    for (int s = 0; s < entry_stack_n; s++) {
+        aarch32_emit_load(c, 12, 11, 8 + 4 * s);
+        aarch32_emit_store(c, 12, 11, -(int32_t)(entry_st_off + 4 * s));
+    }
+
+    /* Load ctx base into r14 (lr) via movw/movt with reloc */
+    arm32_emit_u32(c, 0xE300E000u); /* movw lr, #0 */
+    arm32_emit_u32(c, 0xE340E000u); /* movt lr, #0 */
+    if (c->reloc_count < ZERO_CC_MAX_RELOCS) {
+        ZeroCCReloc *r = &c->relocs[c->reloc_count++];
+        r->text_patch_offset = me_get_offset(c) - 4;
+        snprintf(r->target_symbol, sizeof(r->target_symbol), "%s", nf->tramp_ctx_name);
+        r->is_call = false;
+    } else {
+        zero_cc_reloc_overflow_note(c);
+    }
+
+    /* Copy big struct captures if any */
+    for (size_t ci = 0; ci < C; ci++) {
+        if (nf->nested_capture_byref[ci]) continue;
+        const ZeroCCType *t = &nf->nested_capture_types[ci];
+        bool big_struct = (t->tag == TYPE_STRUCT || t->tag == TYPE_UNION) &&
+                          !zero_cc_type_is_vector(t) && t->size > 8;
+        if (!big_struct) continue;
+        int words = (int)((t->size + 3) / 4);
+        for (int w = 0; w < words; w++) {
+            aarch32_emit_load(c, 12, 14, 32 * (int)ci + 4 * w);
+            aarch32_emit_store(c, 12, 11,
+                               -(int32_t)(entry_st_off + 4 * entry_stack_n + 32 * (int)ci + 4 * w));
+        }
+    }
+
+    /* ---- place final REGISTER units ---- */
+    for (int i = 0; i < n; i++) {
+        ZeroCCTrampUnit *a = &u[i];
+        if (a->fin_slot < 0) continue;
+        if (a->is_fp) {
+            int dst = a->fin_slot;
+            switch (a->src) {
+            case 0:
+                aarch32_emit_load_fp(c, dst, 14, a->src_off);
+                break;
+            case 2:
+            case 3:
+                aarch32_emit_load_fp(c, dst, 11, -a->src_off);
+                break;
+            default: break;
+            }
+        } else {
+            int dst = a->fin_slot;
+            switch (a->src) {
+            case 0:
+                aarch32_emit_load(c, dst, 14, a->src_off);
+                break;
+            case 1:
+            case 3:
+                aarch32_emit_load(c, dst, 11, -a->src_off);
+                break;
+            case 5:
+                aarch32_emit_lea(c, dst, 11, -a->src_off);
+                break;
+            default: break;
+            }
+        }
+    }
+
+    /* ---- place final STACK units (descending order) ---- */
+    for (int idx = fin_stack_n - 1; idx >= 0; idx--) {
+        for (int i = 0; i < n; i++) {
+            ZeroCCTrampUnit *a = &u[i];
+            if (a->fin_stack != idx) continue;
+            if (a->is_fp) {
+                switch (a->src) {
+                case 0:
+                    aarch32_emit_load_fp(c, 7, 14, a->src_off);
+                    break;
+                case 2:
+                case 3:
+                    aarch32_emit_load_fp(c, 7, 11, -a->src_off);
+                    break;
+                default: break;
+                }
+                arm32_emit_u32(c, 0xE24DD008u); /* SUB sp, sp, #8 */
+                aarch32_emit_store_fp(c, 7, 13, 0); /* VSTR.64 d7, [sp] */
+            } else {
+                switch (a->src) {
+                case 0:
+                    aarch32_emit_load(c, 12, 14, a->src_off);
+                    break;
+                case 1:
+                case 3:
+                    aarch32_emit_load(c, 12, 11, -a->src_off);
+                    break;
+                case 5:
+                    aarch32_emit_lea(c, 12, 11, -a->src_off);
+                    break;
+                default: break;
+                }
+                arm32_emit_u32(c, 0xE24DD004u); /* SUB sp, sp, #4 */
+                arm32_emit_u32(c, 0xE58DC000u); /* STR r12, [sp, #0] */
+            }
+        }
+    }
+
+    /* Call real nested function */
+    size_t call_pos = me_get_offset(c);
+    int32_t diff = (int32_t)(nf->text_offset - (call_pos + 8));
+    uint32_t imm24 = ((uint32_t)(diff >> 2)) & 0x00FFFFFFu;
+    arm32_emit_u32(c, 0xEB000000u | imm24); /* BL nf */
+
+    /* Epilogue */
+    arm32_emit_u32(c, 0xE28BD000u); /* ADD sp, r11, #0 */
+    arm32_emit_u32(c, 0xE8BD4800u); /* LDMIA sp!, {r11, lr} */
+    arm32_emit_u32(c, 0xE12FFF1Eu); /* BX lr */
+}
+
 /* =========================================================================
  * AArch32 backend instance - zero-initialized, populated by aarch32_init_backend()
  * ========================================================================= */

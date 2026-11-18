@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 165-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-11-18T11:07:19Z
+timestamp: 2026-11-18T12:55:05Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -378,7 +378,7 @@ A uniform musl-static reference is used across all 5 ISAs so the differential
 baseline is consistent. The harness lists exactly what is missing if absent and
 prints the `setup_musl_cross.sh` command to build each reference.
 
-**Current state** (raw emitters): **All 4 target ISAs (63/63 runs)** pass cleanly with 0 failures, 0 timeouts, and 0 mismatches: **x86-64 16/16**, **aarch64 16/16**, **riscv64 16/16**, and **riscv32 15/15** (16 tests in `test/isa_qemu/`; `15_nested_tramp.c` is `isa-skip: riscv32` because RISC-V32 rejects address-taking of capturing nested functions by design). For aarch64, stack frame setup, relocation pairing (`ADR_PREL_PG_HI21`/`ADD_ABS_LO12_NC`), byte/halfword stores, variable shifts, and FP instruction encodings are green. For riscv32, true ELF32 object generation, frame setup, shift/extension width fixups, and struct return registers are green. Run a single ISA with `python3 tools/verify/isa_qemu_diff.py --isa <arch>`.
+**Current state** (raw emitters): **All 5 target ISAs (80/80 runs)** pass cleanly with 0 failures, 0 timeouts, 0 mismatches, and 0 skips: **x86-64 16/16**, **aarch64 16/16**, **aarch32 16/16**, **riscv64 16/16**, and **riscv32 16/16** (16 tests in `test/isa_qemu/`, including `15_nested_tramp.c` across all 5 architectures). For aarch64, stack frame setup, relocation pairing (`ADR_PREL_PG_HI21`/`ADD_ABS_LO12_NC`), byte/halfword stores, variable shifts, and FP instruction encodings are green. For aarch32, AAPCS frames, register saving, and nested trampolines are green. For riscv32, true ELF32 object generation, frame setup, shift/extension width fixups, struct return registers, and RV32 nested trampolines are green. Run a single ISA with `python3 tools/verify/isa_qemu_diff.py --isa <arch>`.
 
 ### Cross-ISA __int128 Differential Gate (`make test-isa128`)
 

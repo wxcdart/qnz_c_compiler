@@ -1,5 +1,28 @@
 # CHANGELOG
 
+## [Sprint 189] - 2026-11-18 - 32-bit Capturing Nested Function Trampolines (AArch32 & RV32; 100% 5-ISA QEMU Gate Coverage)
+
+Extends GNU nested function trampolines with closure capture to 32-bit target architectures (AArch32 and RISC-V 32) and unskips `15_nested_tramp.c`, achieving 100% green coverage (80/80, 0 skips) across all 5 target ISAs:
+- **AArch32 Trampoline Stub (`src/zero_cc/isa/aarch32.c`, `src/zero_cc/isa/isa_backend.h`)**:
+  - Implemented `zero_cc_aarch32_emit_tramp_stub` for ARMv7-A / AArch32 AAPCS.
+  - Generates machine-code trampoline stubs matching the AArch32 calling convention: saves frame link `push {r11, lr}`, saves incoming GPR arguments (`r0..r3`), caller VFP double arguments (`d0..d7`), and caller stack arguments into a temporary frame.
+  - Computes context object address using `movw`/`movt` into `r14` (`lr`), populates the inner nested function's ABI argument stream (passing context pointer in `r0`, forwarding user args in remaining GPRs/FP registers or stack slots), executes `bl <inner_fn>`, and restores frame.
+- **RV32 Trampoline Stub Extension (`src/zero_cc/isa/riscv64.c`)**:
+  - Generalized `zero_cc_riscv_emit_tramp_stub` to handle both RV64 and RV32 by making word size, slot limits, and instruction encodings ISA-aware (`w_sz = 4`, `limit = 8`).
+  - Switched word load/store operations to use `lw`/`sw` on RV32 vs `ld`/`sd` on RV64, and adapted stack push adjustments and stack save geometry.
+- **RV32 Floating-Point Truncation Fix (`src/zero_cc/isa/riscv64.c`)**:
+  - Fixed `riscv64_emit_fp_cvtsi` (`OP_CVTTSD2SI`): on RV32, XLEN is 32 bits and `fcvt.l.d` (`rs2=2`) is an illegal instruction. Switched to `fcvt.w.d` (`rs2=0`) when `c->isa == ISA_RISCV32`.
+- **Target Independence in Trampoline Sizing (`src/zero_cc/isa/tramp_stub.h`, `src/zero_cc/parser/decl_local.c`, `src/zero_cc/ir/ast_lowering_internal.h`, `src/zero_cc/jit/compile.c`)**:
+  - Introduced `zero_cc_tramp_unit_slots_isa` and `zero_cc_tramp_total_units_isa` to correctly calculate context struct offsets on 32-bit vs 64-bit architectures (`sizeof(void*) = 4` vs `8`).
+  - Enabled trampoline stub emission for `ISA_AARCH32` and `ISA_RISCV32` in the parser local declaration stage, lowered nested function values, and dispatched stub generation in the JIT/AOT pipeline.
+- **Verification & Gate Outcomes**:
+  - Removed `isa-skip: riscv32, aarch32` from `test/isa_qemu/15_nested_tramp.c`.
+  - `python3 tools/verify/isa_qemu_diff.py`: **80/80 (100%) passed across all 5 target ISAs** (x86-64 16/16, aarch64 16/16, aarch32 16/16, riscv64 16/16, riscv32 16/16; 0 skips).
+  - `make test`: **233/233 passed**.
+  - `python3 tools/verify/style_check.py`: **192 files, 0 error(s), 0 warning(s)**.
+
+---
+
 ## [Sprint 188] - 2026-11-18 - AArch32 Floating-Point & 64-bit Hardening (Scratch Collision Fix, 64-bit va_arg & 5-ISA QEMU Gate)
 
 Resolves runtime execution bugs on AArch32 (ARMv7-A) and achieves full cross-ISA differential parity across all 5 supported architectures:

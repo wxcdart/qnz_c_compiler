@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-18T11:07:19Z
+timestamp: 2026-11-18T12:55:05Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1560,3 +1560,12 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-18 — Updated `build-and-verification.md`
 - Add AArch32 to cross-ISA QEMU gate (78/78)
+
+## 2026-11-18 — Updated `isa-backends.md`
+- Sprint 189: 32-bit capturing nested function trampolines for AArch32 and RV32
+
+## 2026-11-18 — Updated `build-and-verification.md`
+- Sprint 189: Cross-ISA raw-emitter QEMU gate achieves 80/80 green across all 5 ISAs
+
+## 2026-11-18 — Updated `architecture-pipeline.md`
+- Sprint 189: Capturing nested function trampolines across all 5 target ISAs

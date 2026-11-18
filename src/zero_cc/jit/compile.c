@@ -1544,8 +1544,10 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
                         zero_cc_x86_emit_tramp_stub(c, nf);
                     else if (c->isa == ISA_AARCH64)
                         zero_cc_aarch64_emit_tramp_stub(c, nf);
-                    else if (c->isa == ISA_RISCV64)
+                    else if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32)
                         zero_cc_riscv_emit_tramp_stub(c, nf);
+                    else if (c->isa == ISA_AARCH32)
+                        zero_cc_aarch32_emit_tramp_stub(c, nf);
                 }
             }
         } else {

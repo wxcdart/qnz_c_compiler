@@ -612,6 +612,7 @@ void x86_init_asm_emission(ZeroCCISABackend *be);
  * undefined (same pre-existing limitation on all three ISAs). */
 void zero_cc_x86_emit_tramp_stub(ZeroCCCompiler *c, const ZeroCCFunction *nf);
 void zero_cc_aarch64_emit_tramp_stub(ZeroCCCompiler *c, const ZeroCCFunction *nf);
+void zero_cc_aarch32_emit_tramp_stub(ZeroCCCompiler *c, const ZeroCCFunction *nf);
 void zero_cc_riscv_emit_tramp_stub(ZeroCCCompiler *c, const ZeroCCFunction *nf);
 
 /* Sprint 99: emit the absolute jump to an already-emitted code label for
