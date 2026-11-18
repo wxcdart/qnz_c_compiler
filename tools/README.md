@@ -68,6 +68,7 @@ All tools are **stdlib-only** (see [`tools/requirements.txt`](./requirements.txt
 | [`struct_return_verifier.py`](./analysis/struct_return_verifier.py) | Struct return register (`RAX`, `RAX:RDX`, `sret`) codegen checker | `python3 tools/analysis/struct_return_verifier.py` |
 | [`struct_asm_analyzer.py`](./analysis/struct_asm_analyzer.py) | Disassembly analyzer for struct copies and stack frame offsets | `python3 tools/analysis/struct_asm_analyzer.py` |
 | [`pytrace.py`](./analysis/pytrace.py) | Zero-dependency ptrace debugger, JIT crash inspector, and syscall tracer | `python3 tools/analysis/pytrace.py ./build/bin/zerocc --run test.c` |
+| [`pymemcheck.py`](./analysis/pymemcheck.py) | Zero-dependency memory leak & heap corruption checker (Valgrind alternative) | `python3 tools/analysis/pymemcheck.py ./build/bin/zerocc --run test.c` |
 
 ### `tools/okf/` — Knowledge Graph
 

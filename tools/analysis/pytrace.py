@@ -35,6 +35,7 @@ from pathlib import Path
 # Repository root path resolution (docs/coding_style.md & AGENTS.md rules)
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from tools import find_repo_root
+from tools.analysis import elf_min
 
 ROOT = find_repo_root()
 
@@ -400,6 +401,9 @@ class PyTracer:
         self.cmd = cmd
         self.is_interactive = is_interactive
         self.do_strace = do_strace
+        self.do_leak_check = getattr(args, "leak_check", False) or getattr(
+            args, "heap_check", False
+        )
         self.pid = None
         self.arch = canonical_arch(platform.machine())
         self.breakpoints = {}  # addr -> orig_bytes
@@ -407,6 +411,99 @@ class PyTracer:
         self.insn_count = 0
         self.in_syscall = False
         self.last_syscall_num = None
+
+        # Heap & Leak tracking structures
+        self.active_allocs = {}  # ptr -> {'size': sz, 'callsite': pc, 'id': n}
+        self.freed_allocs = {}  # ptr -> (info, free_callsite)
+        self.pending_alloc_ret = {}  # ret_addr -> alloc_metadata
+        self.heap_errors = []
+        self.total_alloc_count = 0
+        self.total_free_count = 0
+        self.total_allocated_bytes = 0
+        self.sym_malloc = None
+        self.sym_calloc = None
+        self.sym_realloc = None
+        self.sym_free = None
+        self.symbols_by_addr = {}
+
+    def resolve_symbols(self):
+        """Extract allocator and function symbols from ELF binary if available."""
+        bin_path = self.cmd[0]
+        if not os.path.exists(bin_path):
+            for p in os.environ.get("PATH", "").split(os.pathsep):
+                cand = os.path.join(p, bin_path)
+                if os.path.isfile(cand) and os.access(cand, os.X_OK):
+                    bin_path = cand
+                    break
+
+        try:
+            elf = elf_min.load(bin_path)
+            for s in elf.symbols:
+                if s.name and s.value > 0:
+                    self.symbols_by_addr[s.value] = s.name
+                    if s.name in ("malloc", "rt_malloc"):
+                        self.sym_malloc = s.value
+                    elif s.name in ("calloc", "rt_calloc"):
+                        self.sym_calloc = s.value
+                    elif s.name in ("realloc", "rt_realloc"):
+                        self.sym_realloc = s.value
+                    elif s.name in ("free", "rt_free"):
+                        self.sym_free = s.value
+        except Exception:
+            pass
+
+    def lookup_symbol(self, addr):
+        """Format an address as symbol+offset if available."""
+        if addr in self.symbols_by_addr:
+            return self.symbols_by_addr[addr]
+        best_sym = None
+        best_delta = 0xFFFFFFFF
+        for sym_addr, name in self.symbols_by_addr.items():
+            if sym_addr <= addr and (addr - sym_addr) < best_delta:
+                best_delta = addr - sym_addr
+                best_sym = name
+        if best_sym and best_delta < 0x2000:
+            return f"{best_sym}+0x{best_delta:x}"
+        return f"0x{addr:x}"
+
+    def print_leak_summary(self):
+        print("\n" + "=" * 60)
+        print(f"{COLOR_BOLD}=== pytrace: HEAP & LEAK SUMMARY ==={COLOR_RESET}")
+        print("=" * 60)
+        print(
+            f"Total heap allocations: {self.total_alloc_count} ({self.total_allocated_bytes} bytes)"
+        )
+        print(f"Total heap frees:       {self.total_free_count}")
+
+        if self.heap_errors:
+            print("\n" + "-" * 60)
+            print(
+                f"{COLOR_BOLD}{COLOR_RED}*** HEAP CORRUPTION DETECTED ({len(self.heap_errors)} error(s)) ***{COLOR_RESET}"
+            )
+            print("-" * 60)
+            for err in self.heap_errors:
+                print(f"  {COLOR_RED}[!] {err}{COLOR_RESET}")
+
+        print("\n" + "-" * 60)
+        print(f"{COLOR_BOLD}LEAK SUMMARY:{COLOR_RESET}")
+        print("-" * 60)
+        if not self.active_allocs:
+            print(
+                f"{COLOR_GREEN}All heap blocks were freed -- no leaks are possible!{COLOR_RESET}"
+            )
+        else:
+            total_lost = sum(i["size"] for i in self.active_allocs.values())
+            print(
+                f"{COLOR_RED}definitely lost: {total_lost} bytes in {len(self.active_allocs)} block(s){COLOR_RESET}"
+            )
+            for ptr, info in sorted(
+                self.active_allocs.items(), key=lambda x: x[1]["id"]
+            ):
+                callsite_str = self.lookup_symbol(info["callsite"])
+                print(
+                    f"  {COLOR_YELLOW}block 0x{ptr:012x}{COLOR_RESET}: {info['size']:>5d} bytes allocated at {COLOR_CYAN}{callsite_str}{COLOR_RESET}"
+                )
+        print("=" * 60 + "\n")
 
     def read_maps(self):
         self.maps = []
@@ -505,33 +602,37 @@ class PyTracer:
             offset += chunk_len
         return True
 
-    def set_breakpoint(self, addr):
+    def set_breakpoint(self, addr, verbose=False):
         bp_bytes = ARCH_BREAKPOINTS.get(self.arch, ARCH_BREAKPOINTS["x86_64"])
         length = len(bp_bytes)
         orig_bytes = self.read_mem(addr, length)
         if not orig_bytes:
-            print(
-                f"{COLOR_RED}Error: Cannot read memory at 0x{addr:x}{COLOR_RESET}"
-            )
+            if verbose or self.args.verbose:
+                print(
+                    f"{COLOR_RED}Error: Cannot read memory at 0x{addr:x}{COLOR_RESET}"
+                )
             return False
         if self.write_mem(addr, bp_bytes):
             self.breakpoints[addr] = orig_bytes
-            print(
-                f"{COLOR_GREEN}Breakpoint set at 0x{addr:x} (orig: {orig_bytes.hex()}){COLOR_RESET}"
-            )
+            if verbose or self.args.verbose:
+                print(
+                    f"{COLOR_GREEN}Breakpoint set at 0x{addr:x} (orig: {orig_bytes.hex()}){COLOR_RESET}"
+                )
             return True
         else:
-            print(
-                f"{COLOR_RED}Failed to set breakpoint at 0x{addr:x}{COLOR_RESET}"
-            )
+            if verbose or self.args.verbose:
+                print(
+                    f"{COLOR_RED}Failed to set breakpoint at 0x{addr:x}{COLOR_RESET}"
+                )
             return False
 
-    def remove_breakpoint(self, addr):
+    def remove_breakpoint(self, addr, verbose=False):
         if addr in self.breakpoints:
             orig_bytes = self.breakpoints[addr]
             self.write_mem(addr, orig_bytes)
             del self.breakpoints[addr]
-            print(f"{COLOR_YELLOW}Breakpoint removed at 0x{addr:x}{COLOR_RESET}")
+            if verbose or self.args.verbose:
+                print(f"{COLOR_YELLOW}Breakpoint removed at 0x{addr:x}{COLOR_RESET}")
             return True
         return False
 
@@ -1146,6 +1247,18 @@ class PyTracer:
         # Populate initial memory maps
         self.read_maps()
 
+        # Arm heap/leak tracking breakpoints if enabled
+        if self.do_leak_check:
+            self.resolve_symbols()
+            if self.sym_malloc:
+                self.set_breakpoint(self.sym_malloc)
+            if self.sym_calloc:
+                self.set_breakpoint(self.sym_calloc)
+            if self.sym_realloc:
+                self.set_breakpoint(self.sym_realloc)
+            if self.sym_free:
+                self.set_breakpoint(self.sym_free)
+
         # Set initial breakpoints from CLI
         if self.args.initial_break:
             for brk in self.args.initial_break:
@@ -1187,6 +1300,8 @@ class PyTracer:
             # Check if child terminated normally
             if os.WIFEXITED(status):
                 exitcode = os.WEXITSTATUS(status)
+                if self.do_leak_check:
+                    self.print_leak_summary()
                 if self.args.verbose or self.args.count_insns:
                     print(
                         f"{COLOR_DIM}[pytrace: child exited normally with code {exitcode}]{COLOR_RESET}"
@@ -1198,6 +1313,8 @@ class PyTracer:
             # Check if child was terminated by unhandled signal
             if os.WIFSIGNALED(status):
                 term_sig = os.WTERMSIG(status)
+                if self.do_leak_check:
+                    self.print_leak_summary()
                 print(
                     f"{COLOR_RED}[pytrace: child terminated by signal {term_sig} ({signal.Signals(term_sig).name})]{COLOR_RESET}"
                 )
@@ -1235,6 +1352,108 @@ class PyTracer:
                     regs = self.get_regs()
                     cur_pc = self.get_pc(regs)
                     hit_addr = cur_pc - bp_step
+
+                    # Heap & Leak tracking breakpoint dispatch
+                    if self.do_leak_check and regs and self.arch == "x86_64":
+                        if hit_addr in self.pending_alloc_ret:
+                            meta = self.pending_alloc_ret.pop(hit_addr)
+                            self.remove_breakpoint(hit_addr)
+                            if bp_step > 0:
+                                self.set_pc(regs, hit_addr)
+                                self.set_regs(regs)
+                            ret_ptr = regs.rax
+                            if ret_ptr != 0:
+                                self.total_alloc_count += 1
+                                self.total_allocated_bytes += meta["size"]
+                                self.active_allocs[ret_ptr] = {
+                                    "size": meta["size"],
+                                    "callsite": meta["callsite"],
+                                    "id": self.total_alloc_count,
+                                }
+                                if self.args.verbose:
+                                    print(
+                                        f"{COLOR_DIM}[pytrace:heap] {meta['fn']}({meta['size']}) -> 0x{ret_ptr:x} at {self.lookup_symbol(meta['callsite'])}{COLOR_RESET}"
+                                    )
+                            libc.ptrace(PTRACE_SINGLESTEP, pid, None, None)
+                            os.waitpid(pid, 0)
+                            continue
+
+                        if self.sym_malloc and hit_addr == self.sym_malloc:
+                            self.remove_breakpoint(hit_addr)
+                            if bp_step > 0:
+                                self.set_pc(regs, hit_addr)
+                                self.set_regs(regs)
+                            size = regs.rdi
+                            rsp_val = libc.ptrace(
+                                PTRACE_PEEKDATA, pid, ctypes.c_void_p(regs.rsp), None
+                            )
+                            ret_addr = rsp_val & 0xFFFFFFFFFFFFFFFF
+                            self.pending_alloc_ret[ret_addr] = {
+                                "fn": "malloc",
+                                "size": size,
+                                "callsite": ret_addr,
+                            }
+                            self.set_breakpoint(ret_addr)
+                            libc.ptrace(PTRACE_SINGLESTEP, pid, None, None)
+                            os.waitpid(pid, 0)
+                            self.set_breakpoint(self.sym_malloc)
+                            continue
+
+                        if self.sym_calloc and hit_addr == self.sym_calloc:
+                            self.remove_breakpoint(hit_addr)
+                            if bp_step > 0:
+                                self.set_pc(regs, hit_addr)
+                                self.set_regs(regs)
+                            total_size = regs.rdi * regs.rsi
+                            rsp_val = libc.ptrace(
+                                PTRACE_PEEKDATA, pid, ctypes.c_void_p(regs.rsp), None
+                            )
+                            ret_addr = rsp_val & 0xFFFFFFFFFFFFFFFF
+                            self.pending_alloc_ret[ret_addr] = {
+                                "fn": "calloc",
+                                "size": total_size,
+                                "callsite": ret_addr,
+                            }
+                            self.set_breakpoint(ret_addr)
+                            libc.ptrace(PTRACE_SINGLESTEP, pid, None, None)
+                            os.waitpid(pid, 0)
+                            self.set_breakpoint(self.sym_calloc)
+                            continue
+
+                        if self.sym_free and hit_addr == self.sym_free:
+                            self.remove_breakpoint(hit_addr)
+                            if bp_step > 0:
+                                self.set_pc(regs, hit_addr)
+                                self.set_regs(regs)
+                            ptr = regs.rdi
+                            rsp_val = libc.ptrace(
+                                PTRACE_PEEKDATA, pid, ctypes.c_void_p(regs.rsp), None
+                            )
+                            callsite = rsp_val & 0xFFFFFFFFFFFFFFFF
+                            if ptr == 0:
+                                pass
+                            elif ptr in self.freed_allocs:
+                                prev_info, prev_site = self.freed_allocs[ptr]
+                                msg = f"DOUBLE FREE of 0x{ptr:x} at {self.lookup_symbol(callsite)} (originally allocated at {self.lookup_symbol(prev_info['callsite'])}, first freed at {self.lookup_symbol(prev_site)})"
+                                self.heap_errors.append(msg)
+                                print(f"{COLOR_BOLD}{COLOR_RED}[!] {msg}{COLOR_RESET}")
+                            elif ptr in self.active_allocs:
+                                info = self.active_allocs.pop(ptr)
+                                self.freed_allocs[ptr] = (info, callsite)
+                                self.total_free_count += 1
+                                if self.args.verbose:
+                                    print(
+                                        f"{COLOR_DIM}[pytrace:heap] free(0x{ptr:x}, {info['size']}B) at {self.lookup_symbol(callsite)}{COLOR_RESET}"
+                                    )
+                            else:
+                                msg = f"INVALID FREE of unallocated pointer 0x{ptr:x} at {self.lookup_symbol(callsite)}"
+                                self.heap_errors.append(msg)
+                                print(f"{COLOR_BOLD}{COLOR_RED}[!] {msg}{COLOR_RESET}")
+                            libc.ptrace(PTRACE_SINGLESTEP, pid, None, None)
+                            os.waitpid(pid, 0)
+                            self.set_breakpoint(self.sym_free)
+                            continue
+
                     if regs and hit_addr in self.breakpoints:
                         bp_addr = hit_addr
                         # Restore original instruction and rewind PC if x86
@@ -1298,6 +1517,16 @@ def main():
     )
     parser.add_argument(
         "--strace", action="store_true", help="Trace Linux system calls"
+    )
+    parser.add_argument(
+        "--leak-check",
+        action="store_true",
+        help="Track heap memory allocations and report memory leaks on exit (Valgrind alternative)",
+    )
+    parser.add_argument(
+        "--heap-check",
+        action="store_true",
+        help="Detect double-frees, invalid frees, and heap corruptions",
     )
     parser.add_argument(
         "--count-insns",
