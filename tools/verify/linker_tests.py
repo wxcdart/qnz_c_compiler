@@ -588,6 +588,88 @@ def case_leak_report():
         check(f"leak_{label}", ok, detail)
 
 
+def case_gc_sections_tests():
+    # 1. gc_dead_func: unused function in separate section is discarded
+    with tempfile.TemporaryDirectory() as td:
+        m = os.path.join(td, "main.c")
+        d = os.path.join(td, "dead.c")
+        with open(m, "w") as f:
+            f.write("int live_func(void); int main(void) { return live_func() - 42; }\n")
+        with open(d, "w") as f:
+            f.write("int live_func(void) { return 42; }\nvoid never_called(void) { extern void undefined_symbol(void); undefined_symbol(); }\n")
+        mo = os.path.join(td, "main.o")
+        do = os.path.join(td, "dead.o")
+        exe = os.path.join(td, "app")
+        subprocess.run([BIN, "-S", "-ffunction-sections", m, "-o", os.path.join(td, "main.s")], check=True)
+        subprocess.run([BIN, "-S", "-ffunction-sections", d, "-o", os.path.join(td, "dead.s")], check=True)
+        subprocess.run(["gcc", "-c", os.path.join(td, "main.s"), "-o", mo], check=True)
+        subprocess.run(["gcc", "-c", os.path.join(td, "dead.s"), "-o", do], check=True)
+
+        # Linking without GC should fail due to undefined_symbol
+        p_no = subprocess.run([BIN, "--zerocc-link", mo, do, "-o", exe], capture_output=True, text=True)
+        # Linking with --gc-sections should succeed and strip never_called
+        p_gc = subprocess.run([BIN, "--zerocc-link", "--gc-sections", "--print-gc-sections", mo, do, "-o", exe], capture_output=True, text=True)
+        pe = subprocess.run([exe], capture_output=True)
+        psym = subprocess.run(["readelf", "-s", exe], capture_output=True, text=True)
+
+        ok = (p_no.returncode != 0 and p_gc.returncode == 0 and pe.returncode == 0 and
+              "never_called" not in psym.stdout and "live_func" in psym.stdout and
+              "removing unused section '.text.never_called'" in p_gc.stdout)
+        check("gc_dead_func", ok)
+
+    # 2. gc_dead_data: unused data & bss in separate sections are discarded
+    with tempfile.TemporaryDirectory() as td:
+        m = os.path.join(td, "main.c")
+        d = os.path.join(td, "data.c")
+        with open(m, "w") as f:
+            f.write("extern int live_var; int main(void) { return live_var - 123; }\n")
+        with open(d, "w") as f:
+            f.write("int live_var = 123;\nint dead_var = 456;\nint dead_bss[100];\n")
+        mo = os.path.join(td, "main.o")
+        do = os.path.join(td, "data.o")
+        exe = os.path.join(td, "app")
+        subprocess.run([BIN, "-S", "-fdata-sections", m, "-o", os.path.join(td, "main.s")], check=True)
+        subprocess.run([BIN, "-S", "-fdata-sections", d, "-o", os.path.join(td, "data.s")], check=True)
+        subprocess.run(["gcc", "-c", os.path.join(td, "main.s"), "-o", mo], check=True)
+        subprocess.run(["gcc", "-c", os.path.join(td, "data.s"), "-o", do], check=True)
+
+        p = subprocess.run([BIN, "--zerocc-link", "--gc-sections", "--print-gc-sections", mo, do, "-o", exe], capture_output=True, text=True)
+        pe = subprocess.run([exe], capture_output=True)
+        psym = subprocess.run(["readelf", "-s", exe], capture_output=True, text=True)
+
+        ok = (p.returncode == 0 and pe.returncode == 0 and
+              "dead_var" not in psym.stdout and "dead_bss" not in psym.stdout and
+              "live_var" in psym.stdout and
+              "removing unused section '.data.dead_var'" in p.stdout and
+              "removing unused section '.bss.dead_bss'" in p.stdout)
+        check("gc_dead_data", ok)
+
+    # 3. gc_keep_directive: KEEP(*(pattern)) in linker script preserves unreferenced section
+    with tempfile.TemporaryDirectory() as td:
+        m = os.path.join(td, "main.c")
+        ld = os.path.join(td, "script.ld")
+        with open(m, "w") as f:
+            f.write('__attribute__((section(".keep_table"))) const int my_vector[4] = {1, 2, 3, 4};\n'
+                    '__attribute__((section(".drop_table"))) const int unused_vector[4] = {5, 6, 7, 8};\n'
+                    'int main(void) { return 0; }\n')
+        with open(ld, "w") as f:
+            f.write('MEMORY {\n  FLASH (rx) : ORIGIN = 0x08000000, LENGTH = 256K\n  RAM (rwx) : ORIGIN = 0x20000000, LENGTH = 64K\n}\n'
+                    'ENTRY(main)\nSECTIONS {\n  .text : {\n    KEEP(*(.keep_table))\n    *(.text*)\n  } > FLASH\n}\n')
+        mo = os.path.join(td, "main.o")
+        exe = os.path.join(td, "app")
+        subprocess.run([BIN, "-S", m, "-o", os.path.join(td, "main.s")], check=True)
+        subprocess.run(["gcc", "-c", os.path.join(td, "main.s"), "-o", mo], check=True)
+
+        p = subprocess.run([BIN, "--baremetal", "-T", ld, "--zerocc-link", "--gc-sections", "--print-gc-sections", mo, "-o", exe], capture_output=True, text=True)
+        psym = subprocess.run(["readelf", "-s", exe], capture_output=True, text=True)
+
+        ok = (p.returncode == 0 and
+              "my_vector" in psym.stdout and
+              "unused_vector" not in psym.stdout and
+              "removing unused section '.drop_table'" in p.stdout)
+        check("gc_keep_directive", ok)
+
+
 def main():
     if not os.path.exists(BIN):
         print("build/bin/zerocc missing - run `make build/bin/zerocc` first")
@@ -631,6 +713,9 @@ def main():
     case_link_error("dup_def", ["dup_a.c", "dup_b.c"], "multiple definition")
     case_link_error("nomain", ["nomain.c"], "main")
     case_link_error("undef", ["undef_main.c"], "undefined symbol", no_rt=True)
+
+    print("-- --gc-sections (dead code & data elimination) --")
+    case_gc_sections_tests()
 
     print("-- riscv32 (QEMU differential) --")
     case_riscv32_run("rv32_hi", ["hi_main.c", "hi_impl.c"])

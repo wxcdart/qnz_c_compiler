@@ -1,5 +1,30 @@
 # CHANGELOG
 
+## [Sprint 190] - 2026-11-18 - Cross-TU Dead Code & Data Elimination (`--gc-sections`, `KEEP`, `-ffunction-sections`, `-fdata-sections`)
+
+Implements cross-translation-unit dead code and dead data stripping (`--gc-sections`) in ZeroCC's own static linker:
+- **Mark-and-Sweep Dead Section GC (`src/zero_cc/linker/linker.c`, `src/zero_cc/linker/linker.h`)**:
+  - Implemented `gc_mark_and_sweep` in `src/zero_cc/linker/linker.c` running between symbol resolution and section layout.
+  - Seeds GC roots with entry points (`_start`, `Reset_Handler`, `main`, script `ENTRY(...)`, driver `entry_wrapper`, `RT_ENTRY_WRAPPER`, `zeroc_leak_main_wrapper`), non-discardable runtime sections (`.init*`, `.fini*`, `.ctors*`, `.dtors*`, `.note*`, `.jcr`, `.isr_vector*`, `.vectors*`), and linker script `KEEP(*(pattern))` directives.
+  - BFS worklist traverses relocations from live sections across all loaded objects, resolving undefined references, global definitions, local symbols, and common symbols (`ls->is_referenced`).
+  - Discards unreferenced input sections during layout (`layout_sections`), skips relocations on dead sections in `apply_relocations` (preventing false undefined-symbol errors from unused code), and omits dead symbols from output `.symtab`.
+- **Linker Script `KEEP(*(pattern))` Support (`src/zero_cc/linker/linker_script.h`, `src/zero_cc/linker/linker.c`)**:
+  - Parsed `KEEP(*(pattern))` directives inside `SECTIONS { ... }` blocks in `src/zero_cc/linker/linker_script.h`, storing up to 16 keep patterns.
+  - Implemented wildcard pattern matching (`zc_pattern_match`) to preserve vector tables, interrupt descriptors, and hardware tables under `--gc-sections`.
+  - Added `outsec_for_section` to gracefully map baremetal vector tables (`.isr_vector`, `.vectors`) and custom linker script sections into appropriate output segments (`.text`, `.data`, `.rodata`).
+- **Driver CLI & Compiler Flags (`src/zero_cc/driver/driver_opts.h`, `src/zero_cc/driver/driver_asm.h`, `src/zero_cc/ir/asm_emitter.c`, `src/main.c`)**:
+  - Added CLI options: `--gc-sections` (aliases `-gc-sections`, `-Wl,--gc-sections`), `--no-gc-sections` (`-Wl,--no-gc-sections`), `--print-gc-sections` (`-Wl,--print-gc-sections`).
+  - Added compiler flags: `-ffunction-sections` (emits `.text.<func>`), `-fno-function-sections`, `-fdata-sections` (emits `.data.<var>` and `.bss.<var>`), `-fno-data-sections`.
+  - Fixed BSS emission in `driver_asm.h`: skipped BSS variables during initialized `.data` loop to prevent duplicate symbol emission when using `-fdata-sections`.
+- **Verification & Linker Test Suite (`tools/verify/linker_tests.py`, `Makefile`)**:
+  - Added dedicated `--gc-sections` test coverage in `tools/verify/linker_tests.py`: `gc_dead_func` (verifies unused function stripping and missing-symbol elimination), `gc_dead_data` (verifies unused initialized data and uninitialized BSS stripping), and `gc_keep_directive` (verifies KEEP retention in baremetal linker scripts).
+  - `make test-linker`: **52/52 passed** (up from 49/49).
+  - `make test-baremetal`: **All baremetal CPU scope verification tests PASSED**.
+  - `make test`: **233/233 passed**.
+  - `python3 tools/verify/style_check.py`: **192 files, 0 error(s), 0 warning(s)**.
+
+---
+
 ## [Sprint 189] - 2026-11-18 - 32-bit Capturing Nested Function Trampolines (AArch32 & RV32; 100% 5-ISA QEMU Gate Coverage)
 
 Extends GNU nested function trampolines with closure capture to 32-bit target architectures (AArch32 and RISC-V 32) and unskips `15_nested_tramp.c`, achieving 100% green coverage (80/80, 0 skips) across all 5 target ISAs:

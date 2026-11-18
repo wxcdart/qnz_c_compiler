@@ -36,6 +36,8 @@ typedef struct {
     bool           has_entry;
     uint64_t       stack_top;
     bool           has_stack_top;
+    char           keep_patterns[16][64];
+    int            keep_count;
 } ZcLinkScript;
 
 static inline const char *zc_skip_ws_and_comments(const char *p) {
@@ -310,14 +312,38 @@ static inline int zero_cc_parse_linker_script(const char *content, ZcLinkScript 
             continue;
         }
 
-        /* Skip balanced { ... } blocks such as SECTIONS { ... } */
+        /* Scan and skip balanced { ... } blocks such as SECTIONS { ... },
+         * capturing any KEEP(*(pattern)) directives. */
         if (*p == '{') {
             int depth = 1;
             p++;
             while (*p && depth > 0) {
-                if (*p == '{') depth++;
-                else if (*p == '}') depth--;
-                p++;
+                if (*p == '{') {
+                    depth++;
+                    p++;
+                } else if (*p == '}') {
+                    depth--;
+                    p++;
+                } else if (strncasecmp(p, "KEEP", 4) == 0 &&
+                           (p[4] == '(' || isspace((unsigned char)p[4]))) {
+                    const char *kp = p + 4;
+                    kp = zc_skip_ws_and_comments(kp);
+                    if (*kp == '(') {
+                        kp++;
+                        while (*kp && (*kp == '*' || *kp == '(' || isspace((unsigned char)*kp))) kp++;
+                        const char *start = kp;
+                        while (*kp && *kp != ')' && *kp != ' ' && *kp != '\t' && *kp != '\n' && *kp != ';') kp++;
+                        size_t len = (size_t)(kp - start);
+                        if (len > 0 && len < 64 && script->keep_count < 16) {
+                            memcpy(script->keep_patterns[script->keep_count], start, len);
+                            script->keep_patterns[script->keep_count][len] = '\0';
+                            script->keep_count++;
+                        }
+                    }
+                    p += 4;
+                } else {
+                    p++;
+                }
             }
             continue;
         }

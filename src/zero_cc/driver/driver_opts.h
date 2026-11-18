@@ -53,6 +53,10 @@ typedef struct {
     int stack_protector;    /* -fstack-protector[-all|-strong]: 0=off, 1=basic, 2=all, 3=strong */
     int baremetal;          /* --baremetal / -ffreestanding */
     const char *linker_script; /* -T <file> */
+    int gc_sections;        /* --gc-sections / -Wl,--gc-sections */
+    int print_gc_sections;  /* --print-gc-sections / -Wl,--print-gc-sections */
+    int function_sections;  /* -ffunction-sections */
+    int data_sections;      /* -fdata-sections */
 } CompileOptions;
 
 static void print_usage(const char *prog) {
@@ -233,6 +237,18 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
                 opts->no_builtin[opts->no_builtin_count++] = strdup(arg + 13);
             }
         }
+        else if (strcmp(arg, "-ffunction-sections") == 0) {
+            opts->function_sections = 1;
+        }
+        else if (strcmp(arg, "-fno-function-sections") == 0) {
+            opts->function_sections = 0;
+        }
+        else if (strcmp(arg, "-fdata-sections") == 0) {
+            opts->data_sections = 1;
+        }
+        else if (strcmp(arg, "-fno-data-sections") == 0) {
+            opts->data_sections = 0;
+        }
         else if (strcmp(arg, "--target") == 0 && i + 1 < argc) {
             opts->target_arch = argv[++i];
             if (strstr(opts->target_arch, "-none-") ||
@@ -267,6 +283,18 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
         else if (strcmp(arg, "--zerocc-link-pie") == 0) {
             opts->zerocc_link = 1;
             opts->zerocc_link_pie = 1;
+        }
+        else if (strcmp(arg, "--gc-sections") == 0 || strcmp(arg, "-gc-sections") == 0 ||
+                 strcmp(arg, "-Wl,--gc-sections") == 0) {
+            opts->gc_sections = 1;
+        }
+        else if (strcmp(arg, "--no-gc-sections") == 0 || strcmp(arg, "-no-gc-sections") == 0 ||
+                 strcmp(arg, "-Wl,--no-gc-sections") == 0) {
+            opts->gc_sections = 0;
+        }
+        else if (strcmp(arg, "--print-gc-sections") == 0 || strcmp(arg, "-print-gc-sections") == 0 ||
+                 strcmp(arg, "-Wl,--print-gc-sections") == 0) {
+            opts->print_gc_sections = 1;
         }
         else if (strcmp(arg, "-MMD") == 0) {
             opts->gen_deps = 1;

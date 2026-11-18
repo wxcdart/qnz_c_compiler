@@ -4,7 +4,7 @@ title: ZeroCC Own Linker (T2) - ELF Reader, ar Reader, Static ET_EXEC/PIE Output
 description: ZeroCC's own static linker - the ELF64-LE object reader, the classic ar archive reader with greedy member extraction, symbol resolution, section layout at conventional x86-64/AArch64/RISC-V64 bases, the x86-64 far-rel32 detour-thunk pool, the static-PIE (ET_DYN) self-relocating link, supported relocation sets, and per-ISA generated _start stubs. Gate: make test-linker (21/21) + test/linker/far_thunk.c + test/linker/pie_test.c.
 resource: linker
 tags: [linker, elf, ar, aot, x86-64, aarch64, riscv64, relocations, zero-rt, static-pie, thunks]
-timestamp: 2026-11-15T03:53:23Z
+timestamp: 2026-11-18T14:03:13Z
 generated: pi-agent
 verified: engineering-lead
 status: active
@@ -59,7 +59,23 @@ through), or `.a` (archive extraction).
    stable member-data pointers.
 4. **Re-resolve** (idempotent; an `(obj, sym)` pair already registered is
    skipped) so the duplicate-definition check also covers archive members.
-5. **Layout**: `.text` at `0x401000` (x86-64), `0x400000` (AArch64), or `0x10000` (RISC-V64);
+5. **Dead Section Elimination (`--gc-sections`, Sprint 190)**:
+   When `--gc-sections` (or `-Wl,--gc-sections`) is requested, the linker performs
+   mark-and-sweep garbage collection over all input object sections prior to layout:
+   - **Roots**: Entry symbols (`_start`, `Reset_Handler`, `main`, script `ENTRY(...)`,
+     driver `entry_wrapper`, `RT_ENTRY_WRAPPER`), non-discardable sections (`.init*`,
+     `.fini*`, `.ctors*`, `.dtors*`, `.note*`, `.jcr`, `.isr_vector*`, `.vectors*`), and
+     sections matching linker script `KEEP(*(pattern))` directives.
+   - **Tracer**: BFS worklist follows relocations from live sections to identify referenced
+     local sections, global definitions, and `SHN_COMMON` symbols (`ls->is_referenced`).
+   - **Discards**: Unmarked input sections are omitted from output section layout (`ZcOutSec`),
+     cursor calculations, and symbol VMA assignment. Undefined symbol references originating
+     exclusively within dead sections are ignored (relocations skipped).
+   - **Reporting**: `--print-gc-sections` logs each removed non-empty alloc section
+     (`removing unused section '%s' in file '%s'`).
+   - **Compiler Emission**: Paired with `-ffunction-sections` (emits `.text.<func>`) and
+     `-fdata-sections` (emits `.data.<var>` and `.bss.<var>`).
+6. **Layout**: `.text` at `0x401000` (x86-64), `0x400000` (AArch64), or `0x10000` (RISC-V64);
    `.rodata` packed 8-aligned after it, `.data` page-aligned (RW segment), `.bss` after
    `.data` (page-aligned when `.data` is empty). Input sections are
    merged **by name family** (`.text*`/`.rodata*`/`.data*`/`.bss*` —
@@ -73,7 +89,7 @@ through), or `.a` (archive extraction).
    and `g_leak_ignore` overwrote `g_atexit_fns[0]` (a malloc'd pointer
    that `exit()` then called). The output `.bss` keeps `size = 0`, with
    `memsz` as its virtual size.
-6. **Apply relocations** (per `e_machine`; all inputs must agree):
+7. **Apply relocations** (per `e_machine`; all inputs must agree):
    - **x86-64**: `R_X86_64_{64, PC32, PLT32, 32, 32S, RELATIVE}`;
      `PLT32` resolves as `PC32` (a fully static link has no PLT stubs).
      **Far rel32 detour thunks**: a `PC32`/`PLT32` whose final delta
@@ -109,7 +125,7 @@ through), or `.a` (archive extraction).
    Unknown types are a hard error. Section symbols resolve to the final
    section VMA (+ value); UND symbols must be resolved or the link fails
    with `undefined symbol`.
-7. **Emit ET_EXEC**: ELF header (all `Half`/`Word`/`DWORD` field sizes; RISC-V sets `EF_RISCV_FLOAT_ABI_DOUBLE` (4)),
+8. **Emit ET_EXEC**: ELF header (all `Half`/`Word`/`DWORD` field sizes; RISC-V sets `EF_RISCV_FLOAT_ABI_DOUBLE` (4)),
    two `PT_LOAD`s with `p_offset ≡ p_vaddr (mod 0x1000)`, section headers,
    and the string tables placed **after** the shdr table (a leading NUL in
    both `.strtab` and `.shstrtab` is mandatory). Output is `chmod 0755`.

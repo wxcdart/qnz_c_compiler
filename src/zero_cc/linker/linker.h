@@ -39,6 +39,8 @@ typedef struct {
     const char *linker_script; /* path to linker script (-T script.ld) */
     bool        baremetal;     /* baremetal mode (--baremetal / -ffreestanding) */
     bool        pie;           /* static PIE (x86-64) */
+    bool        gc_sections;   /* --gc-sections: dead code/data elimination */
+    bool        print_gc_sections; /* --print-gc-sections: log discarded sections */
     const char *entry_wrapper; /* entry wrapper target symbol (or NULL) */
 } ZcLinkOpts;
 

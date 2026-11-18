@@ -322,6 +322,8 @@ static ZeroCCCompiler *jit_compile_tu(CompileOptions *opts, const char *input, i
     comp->stack_protector = opts->stack_protector;
     comp->std_dialect = opts->std_dialect;
     comp->debug_info = opts->debug_info;
+    comp->function_sections = opts->function_sections;
+    comp->data_sections = opts->data_sections;
     comp->source_filename = input;
     static char cwd_buf[1024];
     if (getcwd(cwd_buf, sizeof(cwd_buf))) {
@@ -591,6 +593,8 @@ static int compile_object_single(CompileOptions *opts, const char *input,
     comp->stack_protector = opts->stack_protector;
     comp->std_dialect = opts->std_dialect;
     comp->debug_info = opts->debug_info;
+    comp->function_sections = opts->function_sections;
+    comp->data_sections = opts->data_sections;
     comp->source_filename = input;
     static char cwd_buf[1024];
     if (getcwd(cwd_buf, sizeof(cwd_buf))) {
@@ -1725,6 +1729,8 @@ static int compile_and_link(CompileOptions *opts) {
         lopts.baremetal = opts->baremetal ? true : false;
         lopts.entry_wrapper = entry_wrapper;
         lopts.pie = opts->zerocc_link_pie ? true : false;
+        lopts.gc_sections = opts->gc_sections ? true : false;
+        lopts.print_gc_sections = opts->print_gc_sections ? true : false;
 
         int lr = zero_cc_link_exec_ext(output, objs_ref, obj_count,
                                        arch_paths, arch_count,

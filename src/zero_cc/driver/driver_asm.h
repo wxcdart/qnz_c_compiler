@@ -50,6 +50,7 @@ static inline void emit_asm_data_sections(ZeroCCCompiler *comp) {
             if (gv->alias_target[0]) continue;
             /* TLS variables live in .tdata/.tbss (emitted below), not .data */
             if (gv->is_tls) continue;
+            if (gv->is_bss) continue;
 
             /* Fill any alignment padding gap before this variable */
             if (gv->data_offset > cur_offset && cur_offset < data_len) {
@@ -73,6 +74,11 @@ static inline void emit_asm_data_sections(ZeroCCCompiler *comp) {
             }
 
             /* Visibility / symbol label */
+            if (gv->section[0]) {
+                fprintf(comp->asm_out, "\t.section\t%s,\"aw\",@progbits\n", gv->section);
+            } else if (comp->data_sections) {
+                fprintf(comp->asm_out, "\t.section\t.data.%s,\"aw\",@progbits\n", gv->name);
+            }
             if (!gv->is_static) {
                 fprintf(comp->asm_out, "\t.globl\t%s\n", gv->name);
             }
@@ -207,6 +213,11 @@ static inline void emit_asm_data_sections(ZeroCCCompiler *comp) {
                 int p2 = 0;
                 while ((1ULL << p2) < align) p2++;
                 fprintf(comp->asm_out, "\t.p2align\t%d\n", p2);
+            }
+            if (gv->section[0]) {
+                fprintf(comp->asm_out, "\t.section\t%s,\"aw\",@nobits\n", gv->section);
+            } else if (comp->data_sections) {
+                fprintf(comp->asm_out, "\t.section\t.bss.%s,\"aw\",@nobits\n", gv->name);
             }
             if (!gv->is_static) {
                 fprintf(comp->asm_out, "\t.globl\t%s\n", gv->name);

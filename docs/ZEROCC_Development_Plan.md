@@ -416,5 +416,6 @@ These items from earlier roadmap sections are all complete:
 4. **Phase 4 (Modular Linker Relocations)**: `TargetLinkerOps` (`apply_reloc`, `write_plt`) extracted from `src/zero_cc/linker/linker.c` into target-specific relocation tables (`src/zero_cc/linker/arch_*.c`).
 5. **Phase 5 (Clean ASM Emitter Separation)**: Table-driven instruction formatting or complete hook coverage in `src/zero_cc/ir/asm_emitter.c`, eliminating direct `fprintf` instruction strings with hardcoded ISA checks.
 6. **Baremetal CPU Extensions**: Linker script LMA/VMA support (`-T script.ld`), baremetal `crt0`, and `OS_BAREMETAL` trait to bypass POSIX/Linux syscall wrappers in `zero_rt`.
-7. **Decoupled GPU Compiler (`zero_gpu`)**: Kept as an independent sister toolchain optimized for SSA IR, divergence analysis, multiple address spaces, and bytecode/text emission (PTX/SPIR-V).
+7. **Cross-TU Dead Code & Data Elimination (`--gc-sections`, Sprint 190)**: Mark-and-sweep section garbage collection across object files and archives, eliminating unreferenced functions and data variables. Paired with `-ffunction-sections`, `-fdata-sections`, and linker script `KEEP(*(pattern))` directives to preserve reset vectors and hardware tables.
+8. **Decoupled GPU Compiler (`zero_gpu`)**: Kept as an independent sister toolchain optimized for SSA IR, divergence analysis, multiple address spaces, and bytecode/text emission (PTX/SPIR-V).
 

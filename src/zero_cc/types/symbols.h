@@ -293,6 +293,8 @@ typedef struct ZeroCCCompiler {
     bool emit_asm; /* Emit assembly (-S flag) */
     FILE *asm_out; /* Assembly output file (NULL = stdout) */
     int debug_info;                        /* 1 = emit DWARF debug info (-g) */
+    int function_sections;                 /* -ffunction-sections: emit each function in .text.<name> */
+    int data_sections;                     /* -fdata-sections: emit each global var in .data/.bss/.rodata.<name> */
     const char *source_filename;           /* Source filename */
     const char *comp_dir;                  /* Current compilation directory */
     uint32_t current_line;                 /* Current source line during lowering */

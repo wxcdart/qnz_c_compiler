@@ -69,6 +69,7 @@
 #define ZC_SHN_ABS 0xfff1
 #define ZC_SHN_COMMON 0xfff2
 
+#define ZC_STB_LOCAL 0
 #define ZC_STB_GLOBAL 1
 #define ZC_STB_WEAK 2
 #define ZC_STT_OBJECT 1
@@ -82,6 +83,7 @@ typedef struct {
     uint64_t vma;       /* final value (filled during layout) */
     bool is_weak;
     bool is_common;
+    bool is_referenced; /* referenced by a live section or root */
     bool is_section;    /* section symbol: vma follows its output section */
     uint64_t sec_off;   /* for section symbols: offset within the section */
     uint64_t size;
@@ -153,6 +155,9 @@ typedef struct ZcLink {
      * no static-PIE self-relocation of its own). */
     bool pie;
     bool baremetal;
+    bool gc_sections;
+    bool print_gc_sections;
+    uint8_t *sec_live[ZC_MAX_INPUTS];
     ZcLinkScript script;
     bool has_script;
     ZcRelaDyn *rela_dyn;
@@ -555,7 +560,248 @@ static int outsec_for_name(const char *name) {
     if (strncmp(name, ".rodata", 7) == 0) return 1;
     if (strncmp(name, ".data", 5) == 0) return 2;
     if (strncmp(name, ".bss", 4) == 0) return 3;
+    if (strncmp(name, ".isr_vector", 11) == 0) return 0;
+    if (strncmp(name, ".vectors", 8) == 0) return 0;
     return -1;
+}
+
+static int outsec_for_section(const ZcLink *L, const ZcSection *sec) {
+    int out = outsec_for_name(sec->name);
+    if (out >= 0) return out;
+    if (L && L->has_script) {
+        if (sec->flags & SHF_EXECINSTR) return 0;
+        if (sec->flags & SHF_WRITE) return 2;
+        return 1;
+    }
+    return -1;
+}
+
+/* ---------------- dead section elimination (--gc-sections) ---------------- */
+
+typedef struct {
+    int obj;
+    int sec;
+} ZcGcWorkItem;
+
+static bool zc_pattern_match(const char *pat, const char *str) {
+    if (!pat || !str) return false;
+    if (strcmp(pat, "*") == 0) return true;
+    size_t plen = strlen(pat);
+    if (plen >= 2 && pat[0] == '*' && pat[plen - 1] == '*') {
+        char sub[64];
+        if (plen - 2 < sizeof(sub)) {
+            memcpy(sub, pat + 1, plen - 2);
+            sub[plen - 2] = '\0';
+            return strstr(str, sub) != NULL;
+        }
+    }
+    if (plen > 1 && pat[plen - 1] == '*') {
+        return strncmp(pat, str, plen - 1) == 0;
+    }
+    if (plen > 1 && pat[0] == '*') {
+        size_t slen = strlen(str);
+        if (slen < plen - 1) return false;
+        return strcmp(str + (slen - (plen - 1)), pat + 1) == 0;
+    }
+    return strcmp(pat, str) == 0;
+}
+
+static int gc_mark_and_sweep(ZcLink *L, char *err, size_t errsz) {
+    for (int oi = 0; oi < L->obj_count; oi++) {
+        size_t n = L->objs[oi]->shnum ? (size_t)L->objs[oi]->shnum : 1;
+        L->sec_live[oi] = calloc(n, sizeof(uint8_t));
+        if (!L->sec_live[oi]) {
+            snprintf(err, errsz, "out of memory in --gc-sections");
+            return -1;
+        }
+    }
+
+    size_t q_cap = 256;
+    size_t q_head = 0, q_tail = 0;
+    ZcGcWorkItem *q = malloc(q_cap * sizeof(ZcGcWorkItem));
+    if (!q) {
+        snprintf(err, errsz, "out of memory in --gc-sections");
+        return -1;
+    }
+
+    #define GC_ENQUEUE(o_idx, s_idx) do { \
+        int _oi = (o_idx); int _si = (s_idx); \
+        if (_oi >= 0 && _oi < L->obj_count && _si > 0 && _si < L->objs[_oi]->shnum) { \
+            if (!L->sec_live[_oi][_si]) { \
+                L->sec_live[_oi][_si] = 1; \
+                if (q_tail >= q_cap) { \
+                    size_t _nc = q_cap * 2; \
+                    ZcGcWorkItem *_nq = realloc(q, _nc * sizeof(ZcGcWorkItem)); \
+                    if (!_nq) { free(q); snprintf(err, errsz, "out of memory"); return -1; } \
+                    q = _nq; q_cap = _nc; \
+                } \
+                q[q_tail].obj = _oi; \
+                q[q_tail].sec = _si; \
+                q_tail++; \
+            } \
+        } \
+    } while (0)
+
+    #define GC_ROOT_SYM(symname) do { \
+        const char *_sname = (symname); \
+        if (_sname) { \
+            ZcLinkSym *_ls = sym_find(L, _sname); \
+            if (_ls) { \
+                _ls->is_referenced = true; \
+                if (_ls->obj >= 0 && _ls->sym >= 0) { \
+                    ZcElfObj *_o = L->objs[_ls->obj]; \
+                    if (_o->sec_symtab >= 0) { \
+                        const ZcSection *_st = &_o->secs[_o->sec_symtab]; \
+                        if ((size_t)_ls->sym < _st->sym_count) { \
+                            uint16_t _shndx = _st->syms[_ls->sym].shndx; \
+                            if (_shndx > 0 && _shndx < _o->shnum) { \
+                                GC_ENQUEUE(_ls->obj, _shndx); \
+                            } \
+                        } \
+                    } \
+                } \
+            } \
+        } \
+    } while (0)
+
+    /* 1. Mark entry points */
+    if (L->has_script && L->script.has_entry) {
+        GC_ROOT_SYM(L->script.entry);
+    }
+    GC_ROOT_SYM("_start");
+    GC_ROOT_SYM("Reset_Handler");
+    GC_ROOT_SYM("main");
+    if (L->entry_wrapper) {
+        GC_ROOT_SYM(L->entry_wrapper);
+    }
+    GC_ROOT_SYM(RT_ENTRY_WRAPPER);
+    GC_ROOT_SYM("zeroc_leak_main_wrapper");
+
+    /* 2. Mark non-discardable / KEEP sections */
+    for (int oi = 0; oi < L->obj_count; oi++) {
+        ZcElfObj *o = L->objs[oi];
+        for (int si = 1; si < o->shnum; si++) {
+            const ZcSection *sec = &o->secs[si];
+            if (!(sec->flags & SHF_ALLOC)) continue;
+            if (sec->type != SHT_PROGBITS && sec->type != SHT_NOBITS) continue;
+
+            bool keep = false;
+            if (strncmp(sec->name, ".init", 5) == 0 ||
+                strncmp(sec->name, ".fini", 5) == 0 ||
+                strncmp(sec->name, ".ctors", 6) == 0 ||
+                strncmp(sec->name, ".dtors", 6) == 0 ||
+                strncmp(sec->name, ".note", 5) == 0 ||
+                strncmp(sec->name, ".jcr", 4) == 0 ||
+                strncmp(sec->name, ".isr_vector", 11) == 0 ||
+                strncmp(sec->name, ".vectors", 8) == 0) {
+                keep = true;
+            }
+            if (!keep && L->has_script) {
+                for (int k = 0; k < L->script.keep_count; k++) {
+                    if (zc_pattern_match(L->script.keep_patterns[k], sec->name)) {
+                        keep = true;
+                        break;
+                    }
+                }
+            }
+            if (keep) {
+                GC_ENQUEUE(oi, si);
+            }
+        }
+    }
+
+    /* 3. Mark & sweep loop: process worklist */
+    while (q_head < q_tail) {
+        int cur_obj = q[q_head].obj;
+        int cur_sec = q[q_head].sec;
+        q_head++;
+
+        ZcElfObj *o = L->objs[cur_obj];
+        for (int ri = 0; ri < o->shnum; ri++) {
+            const ZcSection *rs = &o->secs[ri];
+            if (rs->type != SHT_RELA || rs->info != (uint32_t)cur_sec) continue;
+            const ZcSection *st = zc_elf_symtab(o);
+            if (!st) continue;
+
+            for (size_t r = 0; r < rs->reloc_count; r++) {
+                const ZcReloc *rel = &rs->relocs[r];
+                if (rel->sym >= st->sym_count) continue;
+                const ZcSymbol *sym = &st->syms[rel->sym];
+
+                if (sym->shndx == 0) {
+                    /* Undefined symbol in this object: resolve globally */
+                    ZcLinkSym *ls = sym_find(L, sym->name);
+                    if (ls) {
+                        ls->is_referenced = true;
+                        if (ls->obj >= 0 && ls->sym >= 0) {
+                            ZcElfObj *tgt = L->objs[ls->obj];
+                            if (tgt->sec_symtab >= 0) {
+                                const ZcSection *tst = &tgt->secs[tgt->sec_symtab];
+                                if ((size_t)ls->sym < tst->sym_count) {
+                                    uint16_t tshndx = tst->syms[ls->sym].shndx;
+                                    if (tshndx > 0 && tshndx < tgt->shnum) {
+                                        GC_ENQUEUE(ls->obj, tshndx);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else if (sym->shndx == ZC_SHN_COMMON) {
+                    ZcLinkSym *ls = sym_find(L, sym->name);
+                    if (ls) ls->is_referenced = true;
+                } else if (sym->bind == ZC_STB_LOCAL || sym->type == ZC_STT_SECTION) {
+                    /* Local symbol or section symbol: targets section in cur_obj */
+                    if (sym->shndx > 0 && sym->shndx < o->shnum) {
+                        GC_ENQUEUE(cur_obj, sym->shndx);
+                    }
+                } else {
+                    /* Defined non-local symbol: could be overridden or in cur_obj */
+                    ZcLinkSym *ls = sym_find(L, sym->name);
+                    if (ls) {
+                        ls->is_referenced = true;
+                        if (ls->obj >= 0 && ls->sym >= 0) {
+                            ZcElfObj *tgt = L->objs[ls->obj];
+                            if (tgt->sec_symtab >= 0) {
+                                const ZcSection *tst = &tgt->secs[tgt->sec_symtab];
+                                if ((size_t)ls->sym < tst->sym_count) {
+                                    uint16_t tshndx = tst->syms[ls->sym].shndx;
+                                    if (tshndx > 0 && tshndx < tgt->shnum) {
+                                        GC_ENQUEUE(ls->obj, tshndx);
+                                    }
+                                }
+                            }
+                        }
+                    } else if (sym->shndx > 0 && sym->shndx < o->shnum) {
+                        GC_ENQUEUE(cur_obj, sym->shndx);
+                    }
+                }
+            }
+        }
+    }
+
+    #undef GC_ROOT_SYM
+    #undef GC_ENQUEUE
+    free(q);
+
+    /* 4. If print_gc_sections is requested, report all discarded alloc sections */
+    if (L->print_gc_sections) {
+        for (int oi = 0; oi < L->obj_count; oi++) {
+            ZcElfObj *o = L->objs[oi];
+            for (int si = 1; si < o->shnum; si++) {
+                const ZcSection *ins = &o->secs[si];
+                if (!(ins->flags & SHF_ALLOC)) continue;
+                if (ins->type != SHT_PROGBITS && ins->type != SHT_NOBITS) continue;
+                if (ins->size == 0) continue;
+                if (outsec_for_section(L, ins) < 0) continue;
+                if (strncmp(ins->name, ".eh_frame", 9) == 0) continue;
+                if (!L->sec_live[oi][si]) {
+                    printf("removing unused section '%s' in file '%s'\n", ins->name, o->path);
+                }
+            }
+        }
+    }
+
+    return 0;
 }
 
 static int layout_sections(ZcLink *L, char *err, size_t errsz) {
@@ -593,7 +839,8 @@ static int layout_sections(ZcLink *L, char *err, size_t errsz) {
             const ZcSection *ins = &L->objs[oi]->secs[si];
             if (ins->type != SHT_PROGBITS && ins->type != SHT_NOBITS) continue;
             if (!(ins->flags & SHF_ALLOC)) continue;
-            int out = outsec_for_name(ins->name);
+            if (L->gc_sections && L->sec_live[oi] && !L->sec_live[oi][si]) continue;
+            int out = outsec_for_section(L, ins);
             if (out < 0) {
                 /* Sections a static ET_EXEC need not carry (unwind info). */
                 if (strncmp(ins->name, ".eh_frame", 9) == 0) continue;
@@ -662,7 +909,8 @@ static int layout_sections(ZcLink *L, char *err, size_t errsz) {
             for (int si = 0; si < o->shnum; si++) {
                 const ZcSection *rs = &o->secs[si];
                 if (rs->type != SHT_RELA || rs->info >= o->shnum) continue;
-                if (outsec_for_name(o->secs[rs->info].name) < 0) continue;
+                if (outsec_for_section(L, &o->secs[rs->info]) < 0) continue;
+                if (L->gc_sections && L->sec_live[oi] && !L->sec_live[oi][rs->info]) continue;
                 for (size_t r = 0; r < rs->reloc_count; r++) {
                     if (rs->relocs[r].type == 2 /* R_X86_64_PC32 */ ||
                         rs->relocs[r].type == 4 /* R_X86_64_PLT32 */)
@@ -805,10 +1053,11 @@ static int layout_sections(ZcLink *L, char *err, size_t errsz) {
             if (ls->obj < 0) continue;
             if (ls->sym < 0) continue;
             const ZcSection *ins = &L->objs[ls->obj]->secs[ls->sym];
-            int out = outsec_for_name(ins->name);
+            int out = outsec_for_section(L, ins);
             if (out < 0) continue;
             ls->vma = L->outsec[out].vma + ls->sec_off;
         } else if (ls->is_common) {
+            if (L->gc_sections && !ls->is_referenced) continue;
             ZcOutSec *d = &L->outsec[2];
             if (d->vma == 0) {
                 /* No .data input at all: give the section a vma. */
@@ -834,14 +1083,21 @@ static int layout_sections(ZcLink *L, char *err, size_t errsz) {
             const ZcSymbol *sym = &st->syms[ls->sym];
             if (sym->shndx == 0 || sym->shndx >= o->shnum) continue;
             const char *secname = o->secs[sym->shndx].name;
-            int out = outsec_for_name(secname);
+            (void)secname;
+            int out = outsec_for_section(L, &o->secs[sym->shndx]);
             if (out < 0) continue;
             uint64_t in_off = 0;
+            bool found_in_map = false;
             for (size_t m = 0; m < L->map_count; m++) {
                 if (L->map[m].obj == o && L->map[m].insec == sym->shndx) {
                     in_off = L->map[m].out_off;
+                    found_in_map = true;
                     break;
                 }
+            }
+            if (!found_in_map) {
+                ls->vma = 0;
+                continue;
             }
             ls->vma = L->outsec[out].vma + in_off + sym->value;
         }
@@ -929,7 +1185,8 @@ static int apply_relocations(ZcLink *L, char *err, size_t errsz) {
             for (int si = 0; si < o->shnum; si++) {
                 const ZcSection *rs = &o->secs[si];
                 if (rs->type != SHT_RELA || rs->info >= o->shnum) continue;
-                int out = outsec_for_name(o->secs[rs->info].name);
+                if (L->gc_sections && L->sec_live[oi] && !L->sec_live[oi][rs->info]) continue;
+                int out = outsec_for_section(L, &o->secs[rs->info]);
                 if (out < 0) continue;
                 uint64_t in_off = 0;
                 for (size_t m = 0; m < L->map_count; m++) {
@@ -1001,8 +1258,9 @@ static int apply_relocations(ZcLink *L, char *err, size_t errsz) {
             const ZcSection *rs = &o->secs[si];
             if (rs->type != SHT_RELA) continue;
             if (rs->info >= o->shnum) continue;
+            if (L->gc_sections && L->sec_live[oi] && !L->sec_live[oi][rs->info]) continue;
             const ZcSection *ins = &o->secs[rs->info];
-            int out = outsec_for_name(ins->name);
+            int out = outsec_for_section(L, ins);
             if (out < 0) continue;
             ZcOutSec *os = &L->outsec[out];
             uint64_t in_off = 0;
@@ -1291,6 +1549,30 @@ static void put64(uint8_t **p, uint64_t v) {
     for (int b = 0; b < 8; b++) { **p = (uint8_t)(v >> (8 * b)); (*p)++; }
 }
 
+static bool sym_is_live(const ZcLink *L, const ZcLinkSym *ls) {
+    if (!L->gc_sections) return true;
+    if (ls->is_section) {
+        if (ls->obj < 0 || ls->sym < 0) return false;
+        return (L->sec_live[ls->obj] && L->sec_live[ls->obj][ls->sym]);
+    }
+    if (ls->is_common) {
+        return ls->is_referenced;
+    }
+    if (ls->obj >= 0) {
+        ZcElfObj *o = L->objs[ls->obj];
+        if (ls->sym >= 0 && o->sec_symtab >= 0) {
+            const ZcSection *st = &o->secs[o->sec_symtab];
+            if ((size_t)ls->sym < st->sym_count) {
+                const ZcSymbol *sym = &st->syms[ls->sym];
+                if (sym->shndx > 0 && sym->shndx < o->shnum) {
+                    return (L->sec_live[ls->obj] && L->sec_live[ls->obj][sym->shndx]);
+                }
+            }
+        }
+    }
+    return true;
+}
+
 static int emit_exec(ZcLink *L, const char *out_path, uint64_t entry,
                      uint64_t main_vma, char *err, size_t errsz) {
     ZcOutSec *text = &L->outsec[0];
@@ -1357,6 +1639,7 @@ static int emit_exec(ZcLink *L, const char *out_path, uint64_t entry,
     size_t nsyms = 1;
     for (size_t i = 0; i < L->sym_count; i++) {
         ZcLinkSym *ls = &L->syms[i];
+        if (!sym_is_live(L, ls)) continue;
         if (ls->is_section) { nsyms++; continue; }
         if (ls->obj == -1) continue; /* undefined or common: skip */
         nsyms++;
@@ -1656,6 +1939,7 @@ static int emit_exec(ZcLink *L, const char *out_path, uint64_t entry,
             sp += 16;
             for (size_t i = 0; i < L->sym_count; i++) {
                 ZcLinkSym *ls = &L->syms[i];
+                if (!sym_is_live(L, ls)) continue;
                 if (ls->is_section) {
                     put32(&sp, sym_stroff[i]);
                     put32(&sp, (uint32_t)ls->vma);
@@ -1715,6 +1999,7 @@ static int emit_exec(ZcLink *L, const char *out_path, uint64_t entry,
             sp += 24;
             for (size_t i = 0; i < L->sym_count; i++) {
                 ZcLinkSym *ls = &L->syms[i];
+                if (!sym_is_live(L, ls)) continue;
                 if (ls->is_section) {
                     put32(&sp, sym_stroff[i]);
                     *sp = (uint8_t)((0 << 4) | ZC_STT_SECTION); /* LOCAL */
@@ -1965,6 +2250,8 @@ int zero_cc_link_exec_ext(const char *out_path,
     L->pie = pie;
     L->entry_wrapper = entry_wrapper;
     L->baremetal = baremetal;
+    L->gc_sections = opts ? opts->gc_sections : false;
+    L->print_gc_sections = opts ? opts->print_gc_sections : false;
 
     if (linker_script) {
         if (zero_cc_parse_linker_script_file(linker_script, &L->script, err, errsz) != 0) {
@@ -1995,6 +2282,9 @@ int zero_cc_link_exec_ext(const char *out_path,
                  "no input objects (archives %s contributed nothing)",
                  archive_count > 0 ? "did" : "were not given");
         goto done;
+    }
+    if (L->gc_sections) {
+        if (gc_mark_and_sweep(L, err, errsz) != 0) goto done;
     }
     if (layout_sections(L, err, errsz) != 0) goto done;
     if (pie && !L->stub_at_front) {
@@ -2070,6 +2360,7 @@ int zero_cc_link_exec_ext(const char *out_path,
 
 done:
     for (int i = 0; i < L->obj_count; i++) {
+        if (L->sec_live[i]) free(L->sec_live[i]);
         zc_elf_obj_free(L->objs[i]);
         free(L->objs[i]);
     }

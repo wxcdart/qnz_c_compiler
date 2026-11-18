@@ -49,6 +49,11 @@ void emit_function_label_asm(ZeroCCCompiler *c) {
 
     /* Emit .globl and label (skip .globl for static functions) */
     if (func_idx < c->function_count && c->functions[func_idx].name[0]) {
+        if (c->functions[func_idx].section[0]) {
+            fprintf(out, "\t.section\t%s,\"ax\",@progbits\n", c->functions[func_idx].section);
+        } else if (c->function_sections) {
+            fprintf(out, "\t.section\t.text.%s,\"ax\",@progbits\n", c->functions[func_idx].name);
+        }
         if (c->debug_info) {
             if (func_idx == 0 && c->source_filename) {
                 fprintf(out, "\t.file 1 \"%s\"\n", c->source_filename);
