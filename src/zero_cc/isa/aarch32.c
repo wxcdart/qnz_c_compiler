@@ -663,9 +663,15 @@ static void aarch32_emit_vla_alloc(ZeroCCCompiler *c, int dst_reg, int size_reg)
  * ========================================================================= */
 static void aarch32_emit_lea_rip(ZeroCCCompiler *c, int dst_reg, size_t rodata_offset) {
     uint32_t r = (uint32_t)(dst_reg & 0xF);
-    arm32_emit_u32(c, 0xE3000000u | (r << 12));  /* movw dst, 0 */
+    uint16_t lo16 = (uint16_t)(rodata_offset & 0xFFFF);
+    uint16_t hi16 = (uint16_t)((rodata_offset >> 16) & 0xFFFF);
+    uint32_t imm4_lo = ((uint32_t)lo16 >> 12) & 0xF;
+    uint32_t imm12_lo = (uint32_t)lo16 & 0xFFF;
+    uint32_t imm4_hi = ((uint32_t)hi16 >> 12) & 0xF;
+    uint32_t imm12_hi = (uint32_t)hi16 & 0xFFF;
+    arm32_emit_u32(c, 0xE3000000u | (imm4_lo << 16) | (r << 12) | imm12_lo);  /* movw dst, #lo16 */
     size_t patch_pos = me_get_offset(c);
-    arm32_emit_u32(c, 0xE3400000u | (r << 12));  /* movt dst, 0 */
+    arm32_emit_u32(c, 0xE3400000u | (imm4_hi << 16) | (r << 12) | imm12_hi);  /* movt dst, #hi16 */
     if (c->str_reloc_count < ZERO_CC_MAX_STR_RELOCS) {
         c->str_relocs[c->str_reloc_count].text_patch_offset = patch_pos;
         c->str_relocs[c->str_reloc_count].rodata_offset = rodata_offset;
@@ -923,9 +929,15 @@ static void aarch32_emit_fp_cvtsi2ss(ZeroCCCompiler *c, int dst, int src) {
 static void aarch32_emit_load_fp_rodata(ZeroCCCompiler *c, int dst_reg, size_t rodata_offset) {
     int scratch = 12; /* r12 (IP) */
     uint32_t r = (uint32_t)(scratch & 0xF);
-    arm32_emit_u32(c, 0xE3000000u | (r << 12));  /* movw r12, #0 */
+    uint16_t lo16 = (uint16_t)(rodata_offset & 0xFFFF);
+    uint16_t hi16 = (uint16_t)((rodata_offset >> 16) & 0xFFFF);
+    uint32_t imm4_lo = ((uint32_t)lo16 >> 12) & 0xF;
+    uint32_t imm12_lo = (uint32_t)lo16 & 0xFFF;
+    uint32_t imm4_hi = ((uint32_t)hi16 >> 12) & 0xF;
+    uint32_t imm12_hi = (uint32_t)hi16 & 0xFFF;
+    arm32_emit_u32(c, 0xE3000000u | (imm4_lo << 16) | (r << 12) | imm12_lo);  /* movw r12, #lo16 */
     size_t patch_pos = me_get_offset(c);
-    arm32_emit_u32(c, 0xE3400000u | (r << 12));  /* movt r12, #0 */
+    arm32_emit_u32(c, 0xE3400000u | (imm4_hi << 16) | (r << 12) | imm12_hi);  /* movt r12, #hi16 */
     if (c->str_reloc_count < ZERO_CC_MAX_STR_RELOCS) {
         c->str_relocs[c->str_reloc_count].text_patch_offset = patch_pos;
         c->str_relocs[c->str_reloc_count].rodata_offset = rodata_offset;
@@ -1031,21 +1043,16 @@ static void aarch32_emit_vstore(ZeroCCCompiler *c, int src_reg, int base_reg, in
 
 /* UMULL: unsigned 64-bit multiply (lo,hi) = a * b */
 static void aarch32_emit_mul64(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi) {
-    /* Use UMULL for low*low, then accumulate cross terms */
-    /* This is a simplified implementation - full 64x64->128 needs more ops */
-    int t0 = BE(c)->scratch_reg1;  /* r12 */
-    int t1 = BE(c)->scratch_reg2;  /* r9 */
-
-    /* lo = a_lo * b_lo */
-    arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | ARM_UMULL(dlo, dhi, a_lo, b_lo));
-
-    /* Cross terms: a_lo*b_hi + a_hi*b_lo */
-    /* t0 = a_lo * b_hi */
-    arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | ARM_UMULL(t0, t1, a_lo, b_hi));
-    aarch32_emit_add(c, dhi, dhi, t0);
-    /* t0 = a_hi * b_lo */
-    arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | ARM_UMULL(t0, t1, a_hi, b_lo));
-    aarch32_emit_add(c, dhi, dhi, t0);
+    /* Use lr (r14) as dedicated cross-term scratch register.
+     * lr is caller-saved, non-allocatable by regalloc, and never used as a spill scratch pair. */
+    /* 1. lr = a_lo * b_hi */
+    aarch32_emit_mul(c, 14, a_lo, b_hi);
+    /* 2. lr = lr + a_hi * b_lo (MLA lr, a_hi, b_lo, lr) */
+    arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | 0x00200090u | (14 << 16) | (14 << 12) | ((b_lo & 0xF) << 8) | (a_hi & 0xF));
+    /* 3. (dlo, dhi) = a_lo * b_lo */
+    arm32_emit_u32(c, ARM_COND(ARM_CC_AL) | ARM_UMULL(dhi, dlo, a_lo, b_lo));
+    /* 4. dhi += cross terms */
+    aarch32_emit_add(c, dhi, dhi, 14);
 }
 
 /* =========================================================================
@@ -1571,11 +1578,13 @@ static void aarch32_emit_mod_asm(ZeroCCCompiler *c, int dst, int src1, int src2,
 
 /* 64-bit multiply/divide ASM emitters */
 static void aarch32_emit_mul64_asm(ZeroCCCompiler *c, int dlo, int dhi, int a_lo, int a_hi, int b_lo, int b_hi, FILE *out) {
-    (void)c; (void)a_hi; (void)b_hi;
+    (void)c;
+    fprintf(out, "\tmul\tlr, %s, %s\n", aarch32_get_hw_reg_name(a_lo), aarch32_get_hw_reg_name(b_hi));
+    fprintf(out, "\tmla\tlr, %s, %s, lr\n", aarch32_get_hw_reg_name(a_hi), aarch32_get_hw_reg_name(b_lo));
     fprintf(out, "\tumull\t%s, %s, %s, %s\n",
             aarch32_get_hw_reg_name(dlo), aarch32_get_hw_reg_name(dhi),
             aarch32_get_hw_reg_name(a_lo), aarch32_get_hw_reg_name(b_lo));
-    fprintf(out, "\t# cross terms: a_lo*b_hi + a_hi*b_lo\n");
+    fprintf(out, "\tadd\t%s, %s, lr\n", aarch32_get_hw_reg_name(dhi), aarch32_get_hw_reg_name(dhi));
 }
 
 static void aarch32_emit_64div_call_asm(ZeroCCCompiler *c, const char *fn,

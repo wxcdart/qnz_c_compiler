@@ -249,13 +249,21 @@ static int vsnprintf_core(char *out, size_t outcap, const char *fmt, va_list ap)
                     fmt++;
                 }
             }
-            /* length modifiers: consume (all our ints are 64-bit) */
-            while (*fmt == 'l' || *fmt == 'h' || *fmt == 'z' || *fmt == 't' || *fmt == 'j') fmt++;
+            /* length modifiers */
+            int is_64 = (sizeof(long) == 8);
+            if (*fmt == 'l' && *(fmt + 1) == 'l') {
+                is_64 = 1;
+                fmt += 2;
+            } else if (*fmt == 'j') {
+                is_64 = 1;
+                fmt++;
+            }
+            while (*fmt == 'l' || *fmt == 'h' || *fmt == 'z' || *fmt == 't') fmt++;
 
             switch (*fmt) {
             case 'd':
             case 'i': {
-                long v = va_arg(ap, long);
+                int64_t v = is_64 ? va_arg(ap, long long) : (int64_t)va_arg(ap, int);
                 if (v < 0) {
                     sink_put(&s, '-');
                     u64_chars(core, 0 - (uint64_t)v, 10, 0);
@@ -267,14 +275,16 @@ static int vsnprintf_core(char *out, size_t outcap, const char *fmt, va_list ap)
                           zpad && !left ? '0' : ' ');
                 break;
             }
-            case 'u':
-                u64_chars(core, (uint64_t)va_arg(ap, long), 10, 0);
+            case 'u': {
+                uint64_t v = is_64 ? (uint64_t)va_arg(ap, unsigned long long) : (uint64_t)va_arg(ap, unsigned int);
+                u64_chars(core, v, 10, 0);
                 sink_emit(&s, core, strlen(core), width, left,
                           zpad && !left ? '0' : ' ');
                 break;
+            }
             case 'x':
             case 'X': {
-                uint64_t v = (uint64_t)va_arg(ap, long);
+                uint64_t v = is_64 ? (uint64_t)va_arg(ap, unsigned long long) : (uint64_t)va_arg(ap, unsigned int);
                 int n;
                 u64_chars(core, v, 16, *fmt == 'X');
                 n = (int)strlen(core);
@@ -289,7 +299,7 @@ static int vsnprintf_core(char *out, size_t outcap, const char *fmt, va_list ap)
                 break;
             }
             case 'o': {
-                uint64_t v = (uint64_t)va_arg(ap, long);
+                uint64_t v = is_64 ? (uint64_t)va_arg(ap, unsigned long long) : (uint64_t)va_arg(ap, unsigned int);
                 u64_chars(core, v, 8, 0);
                 if (alt && v && core[0] != '0') {
                     int n = (int)strlen(core);

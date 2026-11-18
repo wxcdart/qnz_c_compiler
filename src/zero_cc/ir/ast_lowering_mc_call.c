@@ -18,6 +18,7 @@ void emit_mc_call(ZeroCCCompiler *c, size_t i, const Instr *instr,
     int total_arg_count = (int)instr->temp_dest;
     int call_arg_temps[IR_CALL_MAX_ARGS] = {0};
     int call_arg_is_fp[IR_CALL_MAX_ARGS] = {0};
+    int call_arg_is_64[IR_CALL_MAX_ARGS] = {0};
     uint8_t call_arg_stack_pos[IR_CALL_MAX_ARGS] = {0};
 
     if (total_arg_count > 0 && instr->temp_src1 != TEMP_NONE) {
@@ -44,6 +45,7 @@ void emit_mc_call(ZeroCCCompiler *c, size_t i, const Instr *instr,
     int indirect_callee_temp = -1;
     int aarch64_sret_temp = -1;
     int arg_temps[IR_CALL_MAX_ARGS] = {0};
+    int arg_is_64[IR_CALL_MAX_ARGS] = {0};
     int arg_count = 0;
     for (int a = 0; a < total_arg_count; a++) {
         if (call_arg_is_fp[a] == 2) {
@@ -56,7 +58,14 @@ void emit_mc_call(ZeroCCCompiler *c, size_t i, const Instr *instr,
              * push/pop register phase - System V memory-arg
              * chunks (pos < 255) ride the caller stack and are
              * handled by the stack-arg push loop. */
-            arg_temps[arg_count++] = call_arg_temps[a];
+            arg_temps[arg_count] = call_arg_temps[a];
+            /* Detect 64-bit integer arguments (GPR64) by checking
+             * if the temp has a GPR64 register class. */
+            RegClass rc = regalloc_get_class_for_temp(&c->regalloc, call_arg_temps[a]);
+            if (rc == REG_CLASS_GPR64) {
+                arg_is_64[arg_count] = 1;
+            }
+            arg_count++;
         }
     }
 

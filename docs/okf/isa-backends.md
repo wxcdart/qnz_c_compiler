@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-11-16T03:08:25Z
+timestamp: 2026-11-18T03:42:12Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -278,15 +278,19 @@ ZeroCC includes an ARMv7-A backend (`src/zero_cc/isa/aarch32.c`) targeting 32-bi
   - **Stack Arguments**: Pushed onto stack in 4-byte slots aligned to 4-byte boundaries.
 - **64-bit Scalar Lowering**:
   - Low-half and high-half decomposition across arithmetic, comparison, and memory operations (`ir_emit_load64`, struct member loads/stores).
+  - 64-bit integer multiply (`aarch32_emit_mul64`, `aarch32_emit_mul64_asm`): evaluates cross-terms `a_lo * b_hi + a_hi * b_lo` using `lr` (r14) with `MLA` (`mla lr, a_hi, b_lo, lr`) followed by `umull dlo, dhi, a_lo, b_lo` and `add dhi, dhi, lr`. Dedicated `lr` usage ensures zero register collision when `(dlo, dhi)` aliases with spilled scratch pairs.
   - Variable-count 64-bit shift helpers (`zc_shl64`, `zc_shr64`, `zc_sar64`) in `zero_rt/core/int128.c` using AAPCS32 register pair `(r0, r1)` and count in `r2`.
 - **Target-Aware Pointer Sizing**:
   - `type_set_target_metrics(int ptr_sz, int long_sz)` dynamically configures pointer and long sizing across semantic analysis (`TypeInfo`), `ZeroCCType` (`zero_cc_type_ptr`), and parser struct member layouts.
   - On `ISA_AARCH32` and `ISA_RISCV32`, pointers are 4 bytes and 4-byte aligned (`sizeof(void*) == 4`).
-- **Variadic Arguments (`va_list`)**:
+- **Variadic Arguments (`va_list`) & stdio Formatting**:
   - Standardized 20-byte `va_list` layout matching the 5-element 32-bit pointer stream (`gp`, `gp_end`, `fp`, `fp_end`, `ovf`).
   - Pointer arguments in `va_arg` correctly evaluate as 4-byte scalar quantities instead of 8-byte quantities.
+  - AAPCS32 even-register-pair alignment: in `ast_lowering_varargs.c`, 8-byte variadic arguments (`double`, `long long`) check current register offset `(gp_val - gp_start) & 4` and advance to the next even register pair `(r0:r1, r2:r3)` before loading.
+  - `zero_rt/core/stdio.c` (`vsnprintf_core`): length-modifier-aware unpacking (`is_64` for `ll` and `j`), popping 64 bits (`long long`) for `%lld/%llu/%llx` on 32-bit targets where `sizeof(long) == 4`.
 - **ELF32 Relocatable Object & Linker Support**:
-  - Direct ELF32 object generation (`EM_ARM`, machine code 40) via `elf_writer`.
+  - Direct ELF32 object generation (`EM_ARM`, machine code 40) via `elf_writer` with `e_flags = ZC_EF_ARM_EABI_VER5` (`0x05000000u`).
+  - In-instruction addend encoding: `aarch32_emit_lea_rip` and `aarch32_emit_load_fp_rodata` encode `rodata_offset` into the lower/upper 16-bit immediate fields of `movw` and `movt` instructions, ensuring standard ELF `REL` format compliance when linked by GNU `ld` or own-linker.
   - Relocations: `R_ARM_CALL` / `R_ARM_JUMP24`, `R_ARM_MOVW_ABS_NC`, `R_ARM_MOVT_ABS`, `R_ARM_ABS32`.
   - Standalone and raw-binary execution verified across all 15 tests in `test/isa_qemu/` under `qemu-arm-static`.
 

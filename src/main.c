@@ -1744,6 +1744,10 @@ static int compile_and_link(CompileOptions *opts) {
         linker = "riscv64-linux-gnu-gcc";
         abi_flags = "-mabi=lp64d -march=rv64gc";
         static_flag = "-static";
+    } else if (target_isa == ISA_AARCH32) {
+        linker = "arm-linux-gnueabihf-gcc";
+        abi_flags = "-mabi=aapcs-linux -march=armv7-a -mfloat-abi=hard";
+        static_flag = "-static";
     }
 
     char lib_args[1024] = "";

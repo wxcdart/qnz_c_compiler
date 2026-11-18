@@ -265,22 +265,32 @@ int lower_expr_va_arg(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                                 (t_t && type_size(t_t) == 8);
 
                 if (is_8byte) {
-                    /* Double or 64-bit int: 8-byte aligned, 8 bytes size */
+                    /* Double or 64-bit int: 8-byte aligned, 8 bytes size.
+                     * In AAPCS32, an 8-byte argument in registers must begin in an even-numbered
+                     * register (r0 or r2). The register save area runs from (gp_end_val - 16) to
+                     * gp_end_val. If the current offset from start is odd ((offset & 4) != 0),
+                     * skip to the next even register. */
                     int gp_val = zc_alloc_temp(c);
                     ir_emit_deref(c, gp_val, addr_gp);
 
-                    /* Align gp_val up to 8: gp_aligned = (gp_val + 7) & ~7 */
-                    int t7 = zc_alloc_temp(c);
-                    ir_emit_mov_imm(c, t7, 7);
-                    int t_add = zc_alloc_temp(c);
-                    ir_emit_add(c, t_add, gp_val, t7);
-                    int t_mask = zc_alloc_temp(c);
-                    ir_emit_mov_imm(c, t_mask, -8);
-                    int gp_aligned = zc_alloc_temp(c);
-                    ir_emit_and(c, gp_aligned, t_add, t_mask);
-
                     int gp_end_val = zc_alloc_temp(c);
                     ir_emit_deref(c, gp_end_val, addr_gp_end);
+
+                    int t16 = zc_alloc_temp(c);
+                    ir_emit_mov_imm(c, t16, 16);
+                    int gp_start = zc_alloc_temp(c);
+                    ir_emit_sub(c, gp_start, gp_end_val, t16);
+
+                    int reg_off = zc_alloc_temp(c);
+                    ir_emit_sub(c, reg_off, gp_val, gp_start);
+
+                    int t4_val = zc_alloc_temp(c);
+                    ir_emit_mov_imm(c, t4_val, 4);
+                    int is_odd = zc_alloc_temp(c);
+                    ir_emit_and(c, is_odd, reg_off, t4_val);
+
+                    int gp_aligned = zc_alloc_temp(c);
+                    ir_emit_add(c, gp_aligned, gp_val, is_odd);
 
                     /* Check if gp_aligned + 8 <= gp_end_val */
                     int step8 = zc_alloc_temp(c);
@@ -304,6 +314,7 @@ int lower_expr_va_arg(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
 
                     /* In overflow (stack) area */
                     ir_emit_label(c, ovf_label);
+                    ir_emit_store_32(c, gp_end_val, addr_gp);
                     int ovf_val = zc_alloc_temp(c);
                     ir_emit_deref(c, ovf_val, addr_ovf);
 
@@ -357,6 +368,7 @@ int lower_expr_va_arg(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
 
                     /* Load from ovf */
                     ir_emit_label(c, ovf_label);
+                    ir_emit_store_32(c, gp_end_val, addr_gp);
                     int ovf_val = zc_alloc_temp(c);
                     ir_emit_deref(c, ovf_val, addr_ovf);
                     if (is_fp) {

@@ -401,6 +401,8 @@ static bool elf_writer_write_to_buffer_32(ElfWriterCtx* ctx, uint8_t* buffer,
     ehdr->e_phoff = 0;
     if (ctx->machine == ELF_MACHINE_RISCV) {
         ehdr->e_flags = ctx->is_32 ? ZC_EF_RISCV_FLOAT_ABI_SOFT : ZC_EF_RISCV_FLOAT_ABI_DOUBLE;
+    } else if (ctx->machine == ELF_MACHINE_ARM) {
+        ehdr->e_flags = ZC_EF_ARM_EABI_VER5;
     } else {
         ehdr->e_flags = 0;
     }
@@ -792,6 +794,8 @@ bool elf_writer_write_to_buffer(ElfWriterCtx* ctx, uint8_t* buffer,
     // linker reject the link. See EF_RISCV_FLOAT_ABI_* in elf_writer.h. (Sprint 41)
     if (ctx->machine == ELF_MACHINE_RISCV) {
         ehdr->e_flags = ctx->is_32 ? ZC_EF_RISCV_FLOAT_ABI_SOFT : ZC_EF_RISCV_FLOAT_ABI_DOUBLE;
+    } else if (ctx->machine == ELF_MACHINE_ARM) {
+        ehdr->e_flags = ZC_EF_ARM_EABI_VER5;
     } else {
         ehdr->e_flags = 0;
     }

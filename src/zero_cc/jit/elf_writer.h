@@ -70,6 +70,7 @@ enum {
     ZC_EF_RISCV_FLOAT_ABI_SOFT   = 0x0,
     ZC_EF_RISCV_FLOAT_ABI_SINGLE = 0x2,
     ZC_EF_RISCV_FLOAT_ABI_DOUBLE = 0x4,
+    ZC_EF_ARM_EABI_VER5          = 0x05000000u,
 };
 
 // ELF Section Types
