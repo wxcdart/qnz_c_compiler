@@ -29,6 +29,13 @@ Before scanning the 80+ historical files in `docs/`, **always consult the Open K
   ./build/bin/zerocc path/to/test.c -o /tmp/test_bin && /tmp/test_bin
   ./build/bin/zerocc --run path/to/test.c
   ```
+- **Crash Triaging & Debugging with `pytrace`**: When JIT execution (`--run`) or compiled AOT binaries crash (`SIGSEGV`, `SIGILL`, `SIGBUS`, `SIGABRT`), **do not use gdb**. Run under `tools/analysis/pytrace.py` instead. It requires zero host dependencies, runs seamlessly in non-interactive/CI environments, and automatically emits structured crash dumps with fault addresses, full register tables across ISAs (x86-64, AArch64, ARM, RISC-V), disassembly windows around the fault PC, stack memory analysis, and JIT anonymous page classification:
+  ```bash
+  python3 tools/analysis/pytrace.py ./build/bin/zerocc --run path/to/test.c
+  python3 tools/analysis/pytrace.py /tmp/test_bin
+  python3 tools/analysis/pytrace.py --strace ./build/bin/zerocc --run test.c  # system call trace
+  python3 tools/analysis/pytrace.py -i ./build/bin/zerocc --run test.c        # interactive step/breakpoints
+  ```
 - **Regression Suite & Verifiers**:
   ```bash
   make test
