@@ -68,8 +68,16 @@ static int rt_arena_init(void) {
     uintptr_t base = zeroc_rt_brk(0);
     if (base == 0 || ((intptr_t)base < 0 && (intptr_t)base >= -4095)) return -1;
     uintptr_t start = (base + RT_PAGE - 1) & ~(RT_PAGE - 1);
-    uintptr_t end = start + RT_INIT_ARENA;
-    if (zeroc_rt_brk(end) != end) return -1;
+    uintptr_t req = RT_INIT_ARENA;
+    uintptr_t end = 0;
+    while (req >= 4096UL) {
+        if (zeroc_rt_brk(start + req) == start + req) {
+            end = start + req;
+            break;
+        }
+        req /= 2;
+    }
+    if (end == 0) return -1;
     g_lo = (uint8_t *)start;
     g_hi = end;
     RtHdr *h = (RtHdr *)g_lo;

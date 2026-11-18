@@ -319,6 +319,12 @@ static int load_input_file(ZcLink *L, const char *path, char *err,
     return rc;
 }
 
+static bool has_defined_sym(ZcLink *L, const char *name) {
+    if (!name) return false;
+    ZcLinkSym *ls = sym_find(L, name);
+    return ls && ls->obj >= 0;
+}
+
 /* ---------------- archive extraction ---------------- */
 
 static bool member_resolves_need(ZcLink *L, ZcElfObj *m) {
@@ -401,10 +407,17 @@ static int extract_archives(ZcLink *L, const char *const *archives,
                  * it. The requested name is preferred; the default stays in
                  * the probe so the requested member (same archive member in
                  * practice) also covers the fallback symbol. */
+                bool baremetal_entry = L->baremetal &&
+                    !has_defined_sym(L, "Reset_Handler") &&
+                    !has_defined_sym(L, "_start") &&
+                    (!L->has_script || !L->script.has_entry || !has_defined_sym(L, L->script.entry)) &&
+                    (member_defines(&probe, "Reset_Handler") || member_defines(&probe, "_start") ||
+                     (L->has_script && L->script.has_entry && member_defines(&probe, L->script.entry)));
                 bool take = member_resolves_need(L, &probe) ||
-                            member_defines(&probe, RT_ENTRY_WRAPPER) ||
+                            (!L->baremetal && member_defines(&probe, RT_ENTRY_WRAPPER)) ||
                             (L->entry_wrapper &&
-                             member_defines(&probe, L->entry_wrapper));
+                             member_defines(&probe, L->entry_wrapper)) ||
+                            baremetal_entry;
                 zc_elf_obj_free(&probe);
                 if (take && !in) {
                     char mpath[600];

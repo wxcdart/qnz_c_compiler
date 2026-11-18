@@ -260,7 +260,6 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
         }
         else if (strcmp(arg, "--baremetal") == 0 || strcmp(arg, "-ffreestanding") == 0) {
             opts->baremetal = 1;
-            opts->no_zerocc_rt = 1;
         }
         else if (strcmp(arg, "-nostdlib") == 0 || strcmp(arg, "-nodefaultlibs") == 0) {
             opts->no_zerocc_rt = 1;
@@ -269,13 +268,11 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
             opts->linker_script = argv[++i];
             opts->baremetal = 1;
             opts->zerocc_link = 1;
-            opts->no_zerocc_rt = 1;
         }
         else if (strncmp(arg, "-T", 2) == 0 && arg[2]) {
             opts->linker_script = arg + 2;
             opts->baremetal = 1;
             opts->zerocc_link = 1;
-            opts->no_zerocc_rt = 1;
         }
         else if (strcmp(arg, "--zerocc-link") == 0) {
             opts->zerocc_link = 1;

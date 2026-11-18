@@ -1626,18 +1626,36 @@ static int compile_and_link(CompileOptions *opts) {
      * fallback archive after -lc -lm for the host/cross linker. */
     const char *rt_filename = "zero_rt.a";
     const char *env_var = "ZERO_RT_A";
-    if (target_isa == ISA_AARCH64) {
-        rt_filename = "zero_rt_aarch64.a";
-        env_var = "ZERO_RT_AARCH64_A";
-    } else if (target_isa == ISA_AARCH32) {
-        rt_filename = "zero_rt_aarch32.a";
-        env_var = "ZERO_RT_AARCH32_A";
-    } else if (target_isa == ISA_RISCV64) {
-        rt_filename = "zero_rt_riscv64.a";
-        env_var = "ZERO_RT_RISCV64_A";
-    } else if (target_isa == ISA_RISCV32) {
-        rt_filename = "zero_rt_riscv32.a";
-        env_var = "ZERO_RT_RISCV32_A";
+    if (opts->baremetal) {
+        rt_filename = "zero_rt_baremetal.a";
+        env_var = "ZERO_RT_BAREMETAL_A";
+        if (target_isa == ISA_RISCV32) {
+            rt_filename = "zero_rt_baremetal_rv32.a";
+            env_var = "ZERO_RT_BAREMETAL_RV32_A";
+        } else if (target_isa == ISA_AARCH32) {
+            rt_filename = "zero_rt_baremetal_arm.a";
+            env_var = "ZERO_RT_BAREMETAL_ARM_A";
+        } else if (target_isa == ISA_RISCV64) {
+            rt_filename = "zero_rt_baremetal_riscv64.a";
+            env_var = "ZERO_RT_BAREMETAL_RISCV64_A";
+        } else if (target_isa == ISA_AARCH64) {
+            rt_filename = "zero_rt_baremetal_aarch64.a";
+            env_var = "ZERO_RT_BAREMETAL_AARCH64_A";
+        }
+    } else {
+        if (target_isa == ISA_AARCH64) {
+            rt_filename = "zero_rt_aarch64.a";
+            env_var = "ZERO_RT_AARCH64_A";
+        } else if (target_isa == ISA_AARCH32) {
+            rt_filename = "zero_rt_aarch32.a";
+            env_var = "ZERO_RT_AARCH32_A";
+        } else if (target_isa == ISA_RISCV64) {
+            rt_filename = "zero_rt_riscv64.a";
+            env_var = "ZERO_RT_RISCV64_A";
+        } else if (target_isa == ISA_RISCV32) {
+            rt_filename = "zero_rt_riscv32.a";
+            env_var = "ZERO_RT_RISCV32_A";
+        }
     }
 
     char rt_path[2048] = "";
@@ -1711,8 +1729,8 @@ static int compile_and_link(CompileOptions *opts) {
         /* Sprint 173 (rv32 i64 Phase 3): 64-bit div/rem lowers to a libgcc
          * __*di3 call. On rv32 the committed musl-cross prefix's libgcc.a
          * (the shim - single provider, Sprint 167) supplies them for the
-         * own-link path, mirroring the system link line. */
-        if (target_isa == ISA_RISCV32 && arch_count < 64) {
+         * own-link path, mirroring the system link line. (Skipped in baremetal). */
+        if (!opts->baremetal && target_isa == ISA_RISCV32 && arch_count < 64) {
             char musl_prefix[512];
             char gcc_path[600];
             if (find_rv32_musl_prefix(musl_prefix, sizeof musl_prefix)) {

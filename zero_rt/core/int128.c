@@ -187,7 +187,7 @@ static uint64_t zc_udivmod64(uint64_t u, uint64_t v, uint64_t *rem) {
  * (rv32 i64 division is not lowered - see sanitizer-roadmap.md §4d).
  * On 64-bit targets the definitions stay (harmless: 64-bit div/mod is
  * native and nothing references the libgcc names). */
-#if !(defined(__riscv_xlen) && __riscv_xlen == 32)
+#if !(defined(__riscv_xlen) && __riscv_xlen == 32 && !defined(__BAREMETAL__))
 uint64_t __udivdi3(uint64_t u, uint64_t v) {
     return zc_udivmod64(u, v, 0);
 }

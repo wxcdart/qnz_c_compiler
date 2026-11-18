@@ -18,7 +18,9 @@
 #include <stdarg.h>
 #include <string.h>
 #include "rt_os.h"
+#if !defined(__BAREMETAL__)
 #include "ryu/ryu.h"
+#endif
 
 /* The first definition of FILE wins; the stdio.h emu declares it opaque. */
 typedef struct FILE FILE;
@@ -141,8 +143,43 @@ static int ryu_parse(const char *src, char *digits, int *ndig, int *exp_out) {
     return 0;
 }
 
+#if defined(__BAREMETAL__)
+static void bm_fmt_float(char *buf, double d, int prec) {
+    if (prec < 0) prec = 6;
+    if (prec > 9) prec = 9;
+    long integer_part = (long)d;
+    double frac = d - (double)integer_part;
+    if (frac < 0) frac = -frac;
+    int len = 0;
+    char int_buf[32];
+    int int_len = 0;
+    long tmp = integer_part < 0 ? -integer_part : integer_part;
+    if (tmp == 0) int_buf[int_len++] = '0';
+    else {
+        while (tmp > 0) { int_buf[int_len++] = '0' + (tmp % 10); tmp /= 10; }
+    }
+    for (int i = 0; i < int_len; i++) buf[len++] = int_buf[int_len - 1 - i];
+    if (prec > 0) {
+        buf[len++] = '.';
+        for (int i = 0; i < prec; i++) {
+            frac *= 10.0;
+            int digit = (int)frac;
+            buf[len++] = '0' + digit;
+            frac -= digit;
+        }
+    }
+    buf[len] = '\0';
+}
+#endif
+
 /* %g: C rules over Ryü's correctly-rounded significant digits. */
 static void fmt_g(RtSink *s, double x, int prec, int alt) {
+#if defined(__BAREMETAL__)
+    (void)alt;
+    char bmbuf[64];
+    bm_fmt_float(bmbuf, x < 0 ? -x : x, prec);
+    sink_puts(s, bmbuf);
+#else
     char ryu_buf[80];
     char digits[64];
     int ndig, E, i;
@@ -204,6 +241,7 @@ static void fmt_g(RtSink *s, double x, int prec, int alt) {
             if (alt && frac == 0) sink_put(s, '0');
         }
     }
+#endif
 }
 
 /* ------------------------------------------------------------------ */
@@ -340,7 +378,11 @@ static int vsnprintf_core(char *out, size_t outcap, const char *fmt, va_list ap)
                 double d = va_arg(ap, double);
                 int p = prec >= 0 ? prec : 6;
                 if (d < 0) sink_put(&s, '-');
+#if defined(__BAREMETAL__)
+                bm_fmt_float(core, d < 0 ? -d : d, p);
+#else
                 d2fixed_buffered(d < 0 ? -d : d, (uint32_t)p, core);
+#endif
                 sink_emit(&s, core, strlen(core), width, left,
                           zpad && !left ? '0' : ' ');
                 break;
@@ -349,7 +391,11 @@ static int vsnprintf_core(char *out, size_t outcap, const char *fmt, va_list ap)
                 double d = va_arg(ap, double);
                 int p = prec >= 0 ? prec : 6;
                 if (d < 0) sink_put(&s, '-');
+#if defined(__BAREMETAL__)
+                bm_fmt_float(core, d < 0 ? -d : d, p);
+#else
                 d2exp_buffered(d < 0 ? -d : d, (uint32_t)p, core);
+#endif
                 sink_emit(&s, core, strlen(core), width, left,
                           zpad && !left ? '0' : ' ');
                 break;

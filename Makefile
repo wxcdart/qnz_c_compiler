@@ -129,7 +129,7 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	stage1-ownlink test-stage1-ownlink stage2-ownlink test-stage2-ownlink test-self-host-ownlink \
 	valgrind test-valgrind
 
-all: $(TESTS) $(ZC_BIN) $(BUILD_DIR)/lib/zero_rt.a $(BUILD_DIR)/lib/zero_rt_aarch64.a $(BUILD_DIR)/lib/zero_rt_aarch32.a $(BUILD_DIR)/lib/zero_rt_riscv64.a $(BUILD_DIR)/lib/zero_rt_riscv32.a
+all: $(TESTS) $(ZC_BIN) $(BUILD_DIR)/lib/zero_rt.a $(BUILD_DIR)/lib/zero_rt_aarch64.a $(BUILD_DIR)/lib/zero_rt_aarch32.a $(BUILD_DIR)/lib/zero_rt_riscv64.a $(BUILD_DIR)/lib/zero_rt_riscv32.a $(BUILD_DIR)/lib/zero_rt_baremetal.a $(BUILD_DIR)/lib/zero_rt_baremetal_rv32.a $(BUILD_DIR)/lib/zero_rt_baremetal_arm.a
 
 # --- Vendored static-musl host toolchain ----------------------------------
 # zerocc and every test binary that links the compiler library are built and
@@ -365,7 +365,7 @@ test-linker: $(ZC_BIN)
 
 # Embedded Baremetal CPU tests: linker scripts, LMA/VMA separation, boundary symbols,
 # freestanding environment, and capacity overflow checks across all target ISAs.
-test-baremetal: $(ZC_BIN)
+test-baremetal: $(ZC_BIN) $(BUILD_DIR)/lib/zero_rt_baremetal.a $(BUILD_DIR)/lib/zero_rt_baremetal_rv32.a $(BUILD_DIR)/lib/zero_rt_baremetal_arm.a
 	@python3 tools/verify/baremetal_test.py
 
 # GCC c-torture conformance gate (Sprint 57): runs the vendored gcc.c-torture
@@ -781,6 +781,145 @@ $(BUILD_DIR)/obj/zero_rt_riscv32/dynlink.o: zero_rt/dlfcn/dynlink.c zero_rt/dlfc
 $(BUILD_DIR)/obj/zero_rt_riscv32/dlfcn.o: zero_rt/dlfcn/dlfcn.c zero_rt/dlfcn/dynlink.h $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --target riscv32 -c $< $(ZERO_RT_CFLAGS) -o $@
+
+# zero_rt for Baremetal Microcontrollers
+ZERO_RT_BAREMETAL_CFLAGS = -O0 --baremetal -Izero_rt
+ZERO_RT_BAREMETAL_OBJS = $(BUILD_DIR)/obj/zero_rt_baremetal/startup.o \
+                         $(BUILD_DIR)/obj/zero_rt_baremetal/uart.o \
+                         $(BUILD_DIR)/obj/zero_rt_baremetal/os.o \
+                         $(BUILD_DIR)/obj/zero_rt_baremetal/heap.o \
+                         $(BUILD_DIR)/obj/zero_rt_baremetal/string.o \
+                         $(BUILD_DIR)/obj/zero_rt_baremetal/exit.o \
+                         $(BUILD_DIR)/obj/zero_rt_baremetal/stdio.o \
+                         $(BUILD_DIR)/obj/zero_rt_baremetal/errno.o \
+                         $(BUILD_DIR)/obj/zero_rt_baremetal/int128.o \
+                         $(BUILD_DIR)/obj/zero_rt_baremetal/complex.o
+$(BUILD_DIR)/lib/zero_rt_baremetal.a: $(ZERO_RT_BAREMETAL_OBJS) $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	@rm -f $@
+	$(BUILD_DIR)/bin/zerocc --ar rcs $@ $(ZERO_RT_BAREMETAL_OBJS)
+$(BUILD_DIR)/obj/zero_rt_baremetal/startup.o: zero_rt/baremetal/startup.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc -c $< $(ZERO_RT_BAREMETAL_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_baremetal/uart.o: zero_rt/baremetal/uart.c zero_rt/baremetal/uart.h $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc -c $< $(ZERO_RT_BAREMETAL_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_baremetal/os.o: zero_rt/baremetal/os.c zero_rt/rt_os.h zero_rt/baremetal/uart.h $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc -c $< $(ZERO_RT_BAREMETAL_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_baremetal/heap.o: zero_rt/core/heap.c zero_rt/rt_os.h zero_rt/core/san_fmt.h $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc -c $< $(ZERO_RT_BAREMETAL_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_baremetal/string.o: zero_rt/core/string.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc -c $< $(ZERO_RT_BAREMETAL_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_baremetal/exit.o: zero_rt/core/exit.c zero_rt/rt_os.h $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc -c $< $(ZERO_RT_BAREMETAL_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_baremetal/stdio.o: zero_rt/core/stdio.c zero_rt/rt_os.h $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc -c $< $(ZERO_RT_BAREMETAL_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_baremetal/errno.o: zero_rt/core/errno.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc -c $< $(ZERO_RT_BAREMETAL_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_baremetal/int128.o: zero_rt/core/int128.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc -c $< $(ZERO_RT_BAREMETAL_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_baremetal/complex.o: zero_rt/complex/complex.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc -c $< $(ZERO_RT_BAREMETAL_CFLAGS) -o $@
+
+# zero_rt for RISC-V 32-bit Baremetal
+ZERO_RT_BAREMETAL_RV32_OBJS = $(BUILD_DIR)/obj/zero_rt_baremetal_rv32/startup.o \
+                              $(BUILD_DIR)/obj/zero_rt_baremetal_rv32/uart.o \
+                              $(BUILD_DIR)/obj/zero_rt_baremetal_rv32/os.o \
+                              $(BUILD_DIR)/obj/zero_rt_baremetal_rv32/heap.o \
+                              $(BUILD_DIR)/obj/zero_rt_baremetal_rv32/string.o \
+                              $(BUILD_DIR)/obj/zero_rt_baremetal_rv32/exit.o \
+                              $(BUILD_DIR)/obj/zero_rt_baremetal_rv32/stdio.o \
+                              $(BUILD_DIR)/obj/zero_rt_baremetal_rv32/errno.o \
+                              $(BUILD_DIR)/obj/zero_rt_baremetal_rv32/int128.o \
+                              $(BUILD_DIR)/obj/zero_rt_baremetal_rv32/complex.o
+$(BUILD_DIR)/lib/zero_rt_baremetal_rv32.a: $(ZERO_RT_BAREMETAL_RV32_OBJS) $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	@rm -f $@
+	$(BUILD_DIR)/bin/zerocc --ar rcs $@ $(ZERO_RT_BAREMETAL_RV32_OBJS)
+$(BUILD_DIR)/obj/zero_rt_baremetal_rv32/startup.o: zero_rt/baremetal/startup.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target riscv32 -c $< $(ZERO_RT_BAREMETAL_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_baremetal_rv32/uart.o: zero_rt/baremetal/uart.c zero_rt/baremetal/uart.h $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target riscv32 -c $< $(ZERO_RT_BAREMETAL_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_baremetal_rv32/os.o: zero_rt/baremetal/os.c zero_rt/rt_os.h zero_rt/baremetal/uart.h $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target riscv32 -c $< $(ZERO_RT_BAREMETAL_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_baremetal_rv32/heap.o: zero_rt/core/heap.c zero_rt/rt_os.h zero_rt/core/san_fmt.h $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target riscv32 -c $< $(ZERO_RT_BAREMETAL_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_baremetal_rv32/string.o: zero_rt/core/string.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target riscv32 -c $< $(ZERO_RT_BAREMETAL_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_baremetal_rv32/exit.o: zero_rt/core/exit.c zero_rt/rt_os.h $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target riscv32 -c $< $(ZERO_RT_BAREMETAL_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_baremetal_rv32/stdio.o: zero_rt/core/stdio.c zero_rt/rt_os.h $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target riscv32 -c $< $(ZERO_RT_BAREMETAL_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_baremetal_rv32/errno.o: zero_rt/core/errno.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target riscv32 -c $< $(ZERO_RT_BAREMETAL_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_baremetal_rv32/int128.o: zero_rt/core/int128.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target riscv32 -c $< $(ZERO_RT_BAREMETAL_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_baremetal_rv32/complex.o: zero_rt/complex/complex.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target riscv32 -c $< $(ZERO_RT_BAREMETAL_CFLAGS) -o $@
+
+# zero_rt for AArch32 / ARM Baremetal
+ZERO_RT_BAREMETAL_ARM_OBJS = $(BUILD_DIR)/obj/zero_rt_baremetal_arm/startup.o \
+                             $(BUILD_DIR)/obj/zero_rt_baremetal_arm/uart.o \
+                             $(BUILD_DIR)/obj/zero_rt_baremetal_arm/os.o \
+                             $(BUILD_DIR)/obj/zero_rt_baremetal_arm/heap.o \
+                             $(BUILD_DIR)/obj/zero_rt_baremetal_arm/string.o \
+                             $(BUILD_DIR)/obj/zero_rt_baremetal_arm/exit.o \
+                             $(BUILD_DIR)/obj/zero_rt_baremetal_arm/stdio.o \
+                             $(BUILD_DIR)/obj/zero_rt_baremetal_arm/errno.o \
+                             $(BUILD_DIR)/obj/zero_rt_baremetal_arm/int128.o \
+                             $(BUILD_DIR)/obj/zero_rt_baremetal_arm/complex.o
+$(BUILD_DIR)/lib/zero_rt_baremetal_arm.a: $(ZERO_RT_BAREMETAL_ARM_OBJS) $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	@rm -f $@
+	$(BUILD_DIR)/bin/zerocc --ar rcs $@ $(ZERO_RT_BAREMETAL_ARM_OBJS)
+$(BUILD_DIR)/obj/zero_rt_baremetal_arm/startup.o: zero_rt/baremetal/startup.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target aarch32 -c $< $(ZERO_RT_BAREMETAL_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_baremetal_arm/uart.o: zero_rt/baremetal/uart.c zero_rt/baremetal/uart.h $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target aarch32 -c $< $(ZERO_RT_BAREMETAL_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_baremetal_arm/os.o: zero_rt/baremetal/os.c zero_rt/rt_os.h zero_rt/baremetal/uart.h $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target aarch32 -c $< $(ZERO_RT_BAREMETAL_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_baremetal_arm/heap.o: zero_rt/core/heap.c zero_rt/rt_os.h zero_rt/core/san_fmt.h $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target aarch32 -c $< $(ZERO_RT_BAREMETAL_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_baremetal_arm/string.o: zero_rt/core/string.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target aarch32 -c $< $(ZERO_RT_BAREMETAL_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_baremetal_arm/exit.o: zero_rt/core/exit.c zero_rt/rt_os.h $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target aarch32 -c $< $(ZERO_RT_BAREMETAL_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_baremetal_arm/stdio.o: zero_rt/core/stdio.c zero_rt/rt_os.h $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target aarch32 -c $< $(ZERO_RT_BAREMETAL_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_baremetal_arm/errno.o: zero_rt/core/errno.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target aarch32 -c $< $(ZERO_RT_BAREMETAL_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_baremetal_arm/int128.o: zero_rt/core/int128.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target aarch32 -c $< $(ZERO_RT_BAREMETAL_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_baremetal_arm/complex.o: zero_rt/complex/complex.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target aarch32 -c $< $(ZERO_RT_BAREMETAL_CFLAGS) -o $@
 
 # Cross-ISA raw-binary-emitter differential test under QEMU. Builds each
 # test/isa_qemu/*.c for every target ISA via zerocc's RAW binary emitter

@@ -1,6 +1,36 @@
 # CHANGELOG
 
-## [Sprint 191] - 2026-11-18 - Multi-ISA SIMD / Vector Pipeline Enhancements (AArch64 NEON & RVV 1.0 MC Emission, Vector Regalloc Decoupling)
+## [Sprint 192] - 2026-11-18 - Freestanding Baremetal Microcontroller Runtime (`zero_rt_baremetal.a`, MMIO UART Driver, Emulation & Verification)
+
+Implements Track 2: freestanding baremetal microcontroller runtime (`zero_rt_baremetal.a`), MMIO serial UART driver, memory lifecycle, and automated execution verification under emulation:
+- **Freestanding Startup crt0 (`zero_rt/baremetal/startup.c`)**:
+  - Implemented weak `Reset_Handler` and `_start` hardware entry point.
+  - Automatically copies initialized `.data` from Flash LMA (`_sidata`) to physical RAM VMA (`_sdata`..`_edata`).
+  - Zeroes uninitialized `.bss` in RAM (`_sbss`..`_ebss`).
+  - Invokes `main(0, (char **)0)` and routes the return status to `exit(ret)`.
+  - Enters low-power CPU halt loop `for (;;) { }` if `exit()` returns.
+- **MMIO UART Driver & Trace Ring Buffer (`zero_rt/baremetal/uart.h`, `zero_rt/baremetal/uart.c`)**:
+  - Implemented memory-mapped serial I/O targeting 16550 UART (base `0x10000000` on RISC-V) and ARM PL011 UART (base `0x09000000` on ARM/AArch32).
+  - Maintained in-memory circular trace buffer `g_baremetal_uart_buf` (`UART_RING_BUF_SIZE = 2048`) and atomic write pointer `g_baremetal_uart_pos` for debugging and emulator capture.
+  - Implemented `uart_init`, `uart_putc`, `uart_puts`, and `uart_getc`.
+- **Baremetal OS Layer & Microcontroller Memory Management (`zero_rt/baremetal/os.c`, `zero_rt/core/heap.c`, `zero_rt/core/stdio.c`)**:
+  - Replaced Linux kernel syscalls with freestanding hardware routines: `zeroc_rt_write` (dispatches to UART and trace buffer), `zeroc_rt_read` (dispatches to UART input), `zeroc_rt_exit` and `zeroc_rt_exit_group` (records `g_baremetal_exit_code = code`, `g_baremetal_has_exited = 1`, and halts CPU).
+  - Implemented physical bump-pointer allocator `zeroc_rt_brk` operating between `_ebss` and `_stack_top - guard`, respecting physical RAM boundaries.
+  - Updated `zero_rt/core/heap.c`: `rt_arena_init` gracefully falls back to smaller initial arena requests down to 4096 bytes when RAM is constrained.
+  - Updated `zero_rt/core/stdio.c`: under `__BAREMETAL__`, uses a compact 25-line integer/fraction float formatter `bm_fmt_float` instead of requiring 191KB of Ryū lookup tables (`d2fixed.c` / `d2s.c`), fitting the entire runtime within microcontroller Flash limits.
+  - Updated `zero_rt/core/int128.c`: provides `__udivdi3`, `__umoddi3`, `__divdi3`, and `__moddi3` for RISC-V 32 under `__BAREMETAL__` where no Linux cross-musl `libgcc.a` shim exists.
+- **Own-Linker Extraction & Entry Routing (`src/zero_cc/linker/linker.c`, `src/zero_cc/driver/driver_opts.h`, `src/main.c`)**:
+  - In `extract_archives`, added `baremetal_entry` extraction: automatically force-extracts `startup.o` (`Reset_Handler` / `_start`) from the baremetal runtime archive when no entry symbol is already defined, and suppresses hosted `zeroc_main_wrapper` extraction.
+  - Updated driver options: `--baremetal` and `-T <script.ld>` select the baremetal runtime archives (`zero_rt_baremetal.a`, `zero_rt_baremetal_rv32.a`, `zero_rt_baremetal_arm.a`) without unsetting runtime linking (only disabled by `-nostdlib` or `--no-zerocc-rt`).
+- **Build Targets & Automated Execution Verification (`Makefile`, `tools/verify/baremetal_test.py`)**:
+  - Added Makefile targets `$(BUILD_DIR)/lib/zero_rt_baremetal.a`, `$(BUILD_DIR)/lib/zero_rt_baremetal_rv32.a`, and `$(BUILD_DIR)/lib/zero_rt_baremetal_arm.a` to `all:` and `test-baremetal`.
+  - Added `run_rv32_sim` and `test_baremetal_execution` in `tools/verify/baremetal_test.py`: compiles a freestanding program with `puts`, `malloc`, `free`, initialized globals, and BSS variables, simulates execution on a virtual RV32 core, and verifies UART string emission and exit code 42.
+  - `make test-baremetal`: **All baremetal CPU scope verification tests PASSED**.
+  - `make test`: **234/234 passed** (0 failed).
+  - `python3 tools/verify/style_check.py`: **192 files, 0 error(s), 0 warning(s)**.
+  - `python3 tools/okf/okf.py lint`: **23/23 reachable, 0 errors**.
+
+---
 
 Implements comprehensive Multi-ISA SIMD / Vector pipeline enhancements spanning machine code emission, vector register allocation, text assembly, and auto-vectorization:
 - **AArch64 128-bit NEON Machine Code Emission (`src/zero_cc/isa/aarch64.c`)**:
