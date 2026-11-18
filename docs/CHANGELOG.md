@@ -1,6 +1,53 @@
 # CHANGELOG
 
-## [Sprint 185] - 2026-11-15 - AArch32 Backend (ARMv7-A 32-bit ELF, Direct MC Codegen & Own-Linker Execution)
+## [Sprint 187] - 2026-11-18 - Embedded Baremetal CPU Target Support (Linker Scripts, LMA/VMA Separation & Freestanding Mode)
+
+Implements embedded baremetal CPU targeting across all supported ISAs (x86-64, aarch64, aarch32, riscv32, riscv64):
+- **Linker Script Engine (`src/zero_cc/linker/linker_script.h`)**:
+  - Implemented a GNU ld-compatible declarative linker script parser supporting `MEMORY { FLASH (...), RAM (...) }`, `ORIGIN`, `LENGTH`, `ENTRY()`, and symbol assignments (e.g. `_stack_top = ORIGIN(RAM) + LENGTH(RAM);`).
+  - Added section placement rules and memory region capacity accounting with overflow diagnostic errors.
+- **LMA vs. VMA Separation (`src/zero_cc/linker/linker.c`)**:
+  - Separated Load Memory Address (LMA / Flash) from Virtual Memory Address (VMA / RAM).
+  - Placed `.text` and `.rodata` directly in Flash; `.data` loaded from Flash (LMA) to RAM (VMA) at system boot; `.bss` zero-initialized in RAM.
+  - Emitted separate `p_paddr` (LMA) vs `p_vaddr` (VMA) in ELF Program Headers (`PT_LOAD`) for both 32-bit and 64-bit ELF images.
+  - Automatically exported standard embedded boundary symbols: `_sidata` (flash load address of `.data`), `_sdata` / `_edata` (RAM bounds of `.data`), `_sbss` / `_ebss` (RAM bounds of `.bss`), and `_stack_top`.
+- **Compiler Driver Freestanding Support (`src/main.c`)**:
+  - Added driver flags: `--baremetal`, `-ffreestanding` (defines `__STDC_HOSTED__=0`, `__BAREMETAL__=1`), `-T <script.ld>`, and `-nostdlib`.
+  - Added automatic baremetal triplet detection (`arm-none-eabi`, `riscv32-unknown-elf`, `riscv64-unknown-elf`).
+- **Baremetal Verification Gate (`tools/verify/baremetal_test.py`, `make test-baremetal`)**:
+  - Added automated baremetal gate verifying Flash/RAM memory mapping, boundary symbol resolution, LMA/VMA ELF program headers, and capacity overflow checks across all 5 target ISAs.
+  - Hardened `tools/verify/linker_tests.py` with binary decode replacement and `R_RISCV_RVC_JUMP` support.
+- **Verification Outcomes**:
+  - `make test-baremetal`: **All 5 target ISAs verified (ELF32 + ELF64)**.
+  - `make test`: **233/233 passed**.
+  - `python3 tools/verify/style_check.py`: **0 error(s), 0 warning(s)**.
+
+---
+
+## [Sprint 186] - 2026-11-18 - Multi-ISA Target Architecture Refactoring (TargetTraits, Table-Driven RegAlloc & Modular LinkerOps)
+
+Refactors the multi-ISA backend pipeline into declarative, decoupled abstractions (Phases 1-5):
+- **Phase 1: `TargetTraits` Extraction (`src/zero_cc/isa/target_traits.h`)**:
+  - Created a unified declarative target capability struct (`TargetTraits`) queried via `target_traits_get(isa)`.
+  - Encapsulated target bitness (`is_32`), pointer size (`ptr_size`), word size (`word_size`), `long` size, stack alignment, integer registers, and ABI options.
+  - Replaced over 50 ad-hoc `c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32` checks across `type_parser.h`, `decl_struct.c`, `definitions.h`, and `ast_lowering_*.c`.
+- **Phase 2: Table-Driven Register Allocator (`src/zero_cc/ir/regalloc.h`)**:
+  - Introduced `TargetRegDesc` bitmasks and declarative register pools (`alloc_pool`, `pair_cs_pool`, `pair_gp_pool`).
+  - Replaced ~200 lines of per-ISA loops and branch conditions with unified table-driven iteration across physical register sets.
+- **Phase 3: Decoupled ABI Calling Convention (`src/zero_cc/ir/abi_classify.h`)**:
+  - Unified ABI classification traits (`sret_consumes_arg0`, `vararg_floats_in_gpr`) in AST lowering, cleanly abstracting System V x86-64, AAPCS64, AAPCS32, and RISC-V calling conventions.
+- **Phase 4: Modular Linker Relocation Operations (`src/zero_cc/linker/linker_reloc.h`)**:
+  - Extracted modular `TargetLinkerOps` vtable (`apply_reloc`, `emit_start_stub`, `plt_stub_size`, `default_text_base`, `default_elf_flags`), eliminating ~260 lines of monolithic per-ISA switch statements in `src/zero_cc/linker/linker.c`.
+- **Phase 5: Clean ASM Emitter Separation (`src/zero_cc/ir/asm_emitter.c`)**:
+  - Added clean dispatcher helpers (`emit_load_sized_asm`, `emit_store_sized_asm`, `emit_test_zero_asm`, `emit_cmp_regs_asm`), eliminating scattered per-ISA assembly emission blocks.
+- **Verification Outcomes**:
+  - `make test`: **233/233 passed** (0 failed).
+  - `make test-opt`: **189 tests: 131 ok, 0 failed, 58 skipped, 1 nondeterministic**.
+  - `python3 tools/verify/style_check.py`: **0 error(s), 0 warning(s)**.
+
+---
+
+## [Sprint 185] - 2026-11-15 - AArch32 Backend (ARMv7-A 32-bit ELF, Direct MC Codegen, VFPv3/NEON & Own-Linker Execution)
 
 Implements full AArch32 (ARMv7-A, 32-bit little-endian) target architecture support (`--target=aarch32`, `ISA_AARCH32`):
 - **Target Definition & Calling Convention (AAPCS32)**:
@@ -16,13 +63,18 @@ Implements full AArch32 (ARMv7-A, 32-bit little-endian) target architecture supp
   - Memory operations: `LDR`/`STR` (word, unsigned byte, unsigned halfword, signed byte, signed halfword) with immediate and register offset addressing; fixed missing bit 26 (`1u << 26`) in `ARM_LDR_STR`.
   - Branches and conditions: conditional execution flags, PC-relative branches (`B`, `BL`), `aarch32_patch_jmp` label resolution preserving top condition/opcode bits, and returns via `bx lr` (`0xE12FFF1E`).
   - Stack management: `aarch32_emit_push_reg` (`str reg, [sp, #-4]!`) and `aarch32_emit_pop_reg` (`ldr reg, [sp], #4`).
+- **VFPv3 Floating-Point & NEON SIMD Phase 2**:
+  - Implemented double-precision scalar FP pipeline: `fldd`/`fstd`, arithmetic `faddd`/`fsubd`/`fmuld`/`fdivd`/`fnegd`/`fcmpd`/`fcpyd`, conversions `ftosizs` (FP->int) and `sitos` (int->FP), and `emit_param_save_fp` for `d0..d7`.
+  - NEON 128-bit vector load/store: MC/ASM emission for `vld1.64` and `vst1.64` via d-register pairs (`qN = d2N:d2N+1`).
+- **GPR64 64-Bit Integer Operations (`REG_CLASS_GPR64`)**:
+  - Lo/hi GPR pairs: `ADCS` (add with carry), `SBCS` (sub with borrow), `UMULL`/`SMULL` (64-bit multiply with cross terms), bitwise ops, 64-bit comparisons with flag preservation.
+  - Zero-RT runtime math helpers in `zero_rt/core/int128.c`: 64-bit divide/modulo (`zc_sdiv64`, `zc_udiv64`, `zc_smod64`, `zc_umod64`) and variable-count shifts (`zc_shl64`, `zc_shr64`, `zc_sar64`).
+  - Front-end integration: local/global load/store, parameter and return passing, casts, and 64-bit formatted I/O (`%lld`).
 - **Relocations & Own Linker Integration (`src/zero_cc/linker/linker.c`, `src/main.c`, `src/zero_cc/jit/elf_writer.c`)**:
   - Relocations emitted in ELF32 relocatable objects: `R_ARM_CALL` (28), `R_ARM_MOVW_ABS_NC` (43), `R_ARM_MOVT_ABS` (44), `R_ARM_ABS32` (2).
   - Own-linker (`--zerocc-link`) ARM relocation resolver: handles `R_ARM_NONE` (0), `R_ARM_PC24` (1), `R_ARM_ABS32` (2), `R_ARM_REL32` (3), `R_ARM_CALL` (28), `R_ARM_JUMP24` (29), `R_ARM_V4BX` (40), `R_ARM_MOVW_ABS_NC` (43), and `R_ARM_MOVT_ABS` (44).
   - 16-byte AArch32 `_start` stub in own linker: `bl main`, `mov r7, #1`, `swi #0` (`sys_exit`).
-- **Stack-Passed Call Arguments**:
-  - Configured 4-byte stack slot sizing (`slot_sz = 4`) for `ISA_AARCH32` in `ast_lowering_mc_call.c` and caller argument loading in `ast_lowering.c`.
-  - Removed faulty caller-frame store callback in favor of uniform outgoing `sp`-relative stack pushes.
+  - Handled in-instruction MOVW/MOVT addends for static data and AAPCS32 8-byte alignment for 64-bit arguments and `va_arg`.
 - **Target Architecture & GPU Roadmap Documentation**:
   - Documented the multi-ISA backend refactoring roadmap in `docs/okf/isa-backends.md` and `docs/ZEROCC_Development_Plan.md`: planned `TargetTraits` extraction, table-driven register allocator configuration (`regalloc.h`), decoupled ABI lowering hooks, and modular `TargetLinkerOps` in `linker.c`.
   - Added baremetal CPU extension architecture (linker scripts with LMA vs. VMA, freestanding `crt0` without Linux syscalls, reduced 16-register pools like RV32E).
