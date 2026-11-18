@@ -314,12 +314,12 @@ Goal: no gcc driver, no glibc, no musl, no binutils in the *product path* — so
     - **Phase 5 — Wider Vectors (AVX / AVX2 / SVE)**:
       - Extend x86-64 backend to support 256-bit AVX / AVX2 (`YMM0`–`YMM15`) and VEX prefix encoding.
       - Add SVE / SVE2 scalable vector support on AArch64.
-15. **GPU Compute Acceleration Architecture (`zero-gpu` Companion Toolchain)**:
-    - **Decoupled Architecture**: Following architectural review, GPU SIMT/kernel compilation is decoupled from ZeroCC's core C pipeline into a standalone Python package (`zero-gpu`). This avoids corrupting ZeroCC's CPU/baremetal pipeline with non-physical register models (PTX virtual registers, SPIR-V SSA IDs), multi-address-space qualifiers (`__global`, `__shared`), and non-ELF bytecode formats.
+15. **GPU Compute Acceleration Architecture (`zero_gpu` Standalone Repository)**:
+    - **Decoupled Architecture**: Following architectural review, GPU SIMT/kernel compilation is established as an independent project in its own dedicated repository (`zero_gpu`). This cleanly separates GPU-specific concerns (PTX virtual registers, SPIR-V SSA IDs, `__global`/`__shared` address spaces, non-ELF bytecode formats) from ZeroCC's native CPU and baremetal pipeline.
     - **Host-Side Heterogeneous Driving (Supported Today in ZeroCC)**: ZeroCC-compiled static executables (`--zerocc-link`) dynamically load GPU runtime APIs (`libcuda.so`, `libhsa-runtime64.so`, `libze_loader.so`, `libvulkan.so`, `libOpenCL.so`) via `zero_rt`'s in-process dynamic loader to allocate VRAM, upload buffers, launch compute dispatches, and synchronize results.
-    - **Track A — NVIDIA CUDA Virtual Assembly (`zero-gpu --target ptx`)**: Emits `.ptx` virtual assembly text; NVIDIA driver JIT-compiles to hardware SASS via `cuModuleLoadDataEx()`.
-    - **Track B — Universal Khronos Bytecode (`zero-gpu --target spirv`)**: Emits `.spv` 32-bit binary bytecode stream; host loads into Vulkan via `vkCreateShaderModule()` or OpenCL via `clCreateProgramWithIL()`.
-    - **ZeroCC Integration**: `zero-gpu` generates standalone `.spv`/`.ptx` files and exports C header arrays (`const uint32_t kernel_spv[] = {...};`), which ZeroCC compiles directly into the host binary and links via `--zerocc-link`.
+    - **Track A — NVIDIA CUDA Virtual Assembly (`zero_gpu --target ptx`)**: Emits `.ptx` virtual assembly text; NVIDIA driver JIT-compiles to hardware SASS via `cuModuleLoadDataEx()`.
+    - **Track B — Universal Khronos Bytecode (`zero_gpu --target spirv`)**: Emits `.spv` 32-bit binary bytecode stream; host loads into Vulkan via `vkCreateShaderModule()` or OpenCL via `clCreateProgramWithIL()`.
+    - **ZeroCC Integration**: `zero_gpu` generates standalone `.spv`/`.ptx` files and exports C header arrays (`const uint32_t kernel_spv[] = {...};`), which ZeroCC compiles directly into the host binary and links via `--zerocc-link`.
 
 16. **Multi-ISA Backend Architecture & Baremetal Refactoring**:
     - **Phase 1 — `TargetTraits` / `TargetConfig` Extraction**: Consolidate target properties (pointer size, word size, stack alignment, red zone presence, return registers, DWARF relocation types) into a single struct, eliminating over 40 ad-hoc `(c->isa == ...) ? 4 : 8` checks in AST lowering and `dwarf.c`.
@@ -407,7 +407,7 @@ These items from earlier roadmap sections are all complete:
 
 ## 🚀 Multi-ISA Target Architecture Refactoring Plan
 
-**Goal**: Transition ZeroCC from coupled `if (c->isa == ...)` checks (over 80+ locations) and the monolithic 150+ slot `ZeroCCISABackend` into a clean, declarative target-trait and modular plugin model for hosted and baremetal CPUs (x86-64, AArch64, RV64, RV32, AArch32, MIPS), while keeping GPU (PTX / SPIR-V) as a decoupled sister toolchain.
+**Goal**: Transition ZeroCC from coupled `if (c->isa == ...)` checks (over 80+ locations) and the monolithic 150+ slot `ZeroCCISABackend` into a clean, declarative target-trait and modular plugin model for hosted and baremetal CPUs (x86-64, AArch64, RV64, RV32, AArch32, MIPS), while keeping GPU (PTX / SPIR-V) as a separate standalone project in its own repository (`zero_gpu`).
 
 ### Phase Breakdown:
 1. **Phase 1 (TargetTraits)**: Declarative `TargetTraits` queryable from the backend (`ptr_size`, `word_size`, `stack_align`, `has_red_zone`, `ret_gpr_lo/hi`, `sret_gpr`, `sret_consumes_arg0`, `elf_machine`, `elf_flags`, `dwarf_addr_reloc`). Eliminates ~50 ad-hoc ternary checks across AST lowering, `main.c`, `dwarf.c`, and `elf_writer.c`.
@@ -417,5 +417,5 @@ These items from earlier roadmap sections are all complete:
 5. **Phase 5 (Clean ASM Emitter Separation)**: Table-driven instruction formatting or complete hook coverage in `src/zero_cc/ir/asm_emitter.c`, eliminating direct `fprintf` instruction strings with hardcoded ISA checks.
 6. **Baremetal CPU Extensions**: Linker script LMA/VMA support (`-T script.ld`), baremetal `crt0`, and `OS_BAREMETAL` trait to bypass POSIX/Linux syscall wrappers in `zero_rt`.
 7. **Cross-TU Dead Code & Data Elimination (`--gc-sections`, Sprint 190)**: Mark-and-sweep section garbage collection across object files and archives, eliminating unreferenced functions and data variables. Paired with `-ffunction-sections`, `-fdata-sections`, and linker script `KEEP(*(pattern))` directives to preserve reset vectors and hardware tables.
-8. **Decoupled GPU Compiler (`zero_gpu`)**: Kept as an independent sister toolchain optimized for SSA IR, divergence analysis, multiple address spaces, and bytecode/text emission (PTX/SPIR-V).
+8. **Standalone GPU Compiler Repository (`zero_gpu`)**: Maintained as an independent project in its own dedicated repository, specialized for SSA IR, divergence analysis, multiple address spaces, and bytecode/text emission (PTX/SPIR-V), driven by ZeroCC host binaries via standard dynamic GPU runtime libraries.
 

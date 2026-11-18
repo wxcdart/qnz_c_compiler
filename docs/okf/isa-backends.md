@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-11-18T18:56:01Z
+timestamp: 2026-11-18T20:46:11Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -396,7 +396,7 @@ On 32-bit RISC-V (`--target riscv32`, ILP32 ABI), 64-bit integers (`long long` /
 - **MC-path fix found by this work (all FP args, not float128-specific)**: the raw machine-code `OP_CALL` handler loaded FP register args from a **fixed 64-entry** `call_fp_spills` side table (per function); calls past the 64th in a function silently passed **garbage** FP args (the `-S` emitter uses the dynamically-grown `IRCallArgs` table and was unaffected — a raw-AOT-only miscompile that `-S` diffing would not have caught). The MC handler now falls back to the `IRCallArgs` reload temps (register move or spill-slot load; FP **stack** args past the cap spill to `[rsp-8]` before the push, mirroring the `-S` emitter), and `call_idx` advances unconditionally (the old code also read the capped table out of bounds for FP stack args past the cap). Covered by `test/jit/int128_float128.c` (main makes 143 calls; the FP-arg calls sit past the 64th).
 - **Verified**: `test/jit/int128_float128.c` (arithmetic, comparisons, casts incl. float128→int, globals, struct members + pass-by-value structs, arrays, pointers, ternary, 143-call main) passes at `-O0..-O3` in JIT and both AOT paths on x86-64 (native), AArch64 and RISC-V64 (QEMU), diffed against host `gcc -static` in `make test-isa128` (144/144).
 
-## GPU Acceleration Architecture & Toolchain Boundary (PTX & SPIR-V)
+## GPU Acceleration Architecture & Separate Project Boundary (zero_gpu Repository)
 
 Heterogeneous acceleration compiles compute kernels to run on massively parallel GPU shader cores. Following an architectural review, ZeroCC adopts a strict **domain separation** between CPU/baremetal compilation and GPU compute:
 
@@ -411,9 +411,9 @@ flowchart TD
         ZCC_BE --> ZCC_LINK[Own Linker / ELF / JIT]
     end
 
-    subgraph ZeroGPU ["zero-gpu (Python Package)"]
+    subgraph ZeroGPU ["zero_gpu (Separate Repository)"]
         direction TB
-        GPU_SRC["Kernel Source / Python DSL"] --> GPU_FE[Kernel Parser]
+        GPU_SRC["Kernel Source / DSL"] --> GPU_FE[Kernel Parser]
         GPU_FE --> GPU_SSA[SSA IR (Address Spaces)]
         GPU_SSA --> GPU_SIMT[SIMT Optimizations (Divergence / Coalescing)]
         GPU_SIMT --> PTX_OUT["NVIDIA PTX Text (.ptx)"]
@@ -424,7 +424,7 @@ flowchart TD
     PTX_OUT -.->|Export C Header / In-Memory String| ZCC_LINK
 ```
 
-### Why GPU Compilation is Decoupled from the Core C Compiler
+### Why GPU Compilation is Decoupled to a Separate Repository
 
 Attempting to force GPU targets into ZeroCC's core C pipeline introduces severe architectural impedance mismatch:
 
@@ -440,12 +440,12 @@ Attempting to force GPU targets into ZeroCC's core C pipeline introduces severe 
 4. **Binary & Object Formats**:
    - SPIR-V is a stream of 32-bit integer words (magic `0x07230203`), and PTX is UTF-8 text. Neither conforms to ELF relocatable objects (`elf_writer.c` and `linker.c`).
 
-### Python Implementation Advantage for `zero-gpu`
-Instead of thousands of lines of C boilerplate, a standalone Python package (`zero-gpu`) provides:
-- **Trivial Bytecode / Text Emission**: SPIR-V is cleanly serialized via Python's standard `struct.pack('<I', ...)`, and PTX is generated using f-strings and text templates.
-- **Fast SSA Transformations**: SSA dominance frontiers, dead-code elimination, and memory coalescing passes are implemented with high developer velocity using Python `@dataclass` structures.
-- **Direct Driver JIT Testing via `ctypes`**: Python can interact directly with `libcuda.so` (`cuModuleLoadDataEx`, `cuLaunchKernel`) or `libvulkan.so` via `ctypes` without compiling C host test harnesses.
-- **ZeroCC Integration**: `zero-gpu` compiles kernels to `.spv` or `.ptx` and exports C header arrays (`const uint32_t my_kernel_spv[] = {...};`), which ZeroCC compiles directly into the host binary and links via `--zerocc-link`.
+### Dedicated Architecture in Independent `zero_gpu` Repository
+Established as an independent project in its own repository, `zero_gpu` provides:
+- **Trivial Bytecode / Text Emission**: SPIR-V is cleanly serialized via structured 32-bit word encoders, and PTX is generated using dedicated emitter templates.
+- **Fast SSA Transformations**: SSA dominance frontiers, dead-code elimination, and memory coalescing passes are implemented with high developer velocity.
+- **Direct Driver JIT Testing**: Dynamic loading of `libcuda.so` (`cuModuleLoadDataEx`, `cuLaunchKernel`) or `libvulkan.so` without compiling complex C host harnesses.
+- **ZeroCC Integration**: `zero_gpu` compiles kernels to `.spv` or `.ptx` and exports C header arrays (`const uint32_t my_kernel_spv[] = {...};`) or embedded binaries, which ZeroCC compiles directly into the host binary and links via `--zerocc-link`.
 
 ---
 

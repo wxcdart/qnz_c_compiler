@@ -52,7 +52,7 @@ Welcome to the **ZeroCC Knowledge Graph**. Start here to navigate architectural 
 - **[System V AMD64 ABI & Struct Calling Conventions](./abi-sysv-x86_64.md)**
   - Integer (`%rdi`..`%r9`) and FP (`%xmm0`..`%xmm7`) register passing, stack arguments, variadic `va_start` spilling, struct by-value (`<=8B`, `9-16B`, `>16B`), and hidden pointer (`sret`) returns for `>16B` structs (direct & indirect calls).
 - **[Multi-ISA Backends (x86-64, AArch64, RISC-V)](./isa-backends.md)**
-  - `ZeroCCISABackend` vtable dispatch, JIT machine code emission vs AOT `.s` assembly emission, target architecture refactoring roadmap (native CPU & baremetal), decoupled `zero-gpu` Python companion toolchain, parallel call argument setup (`push`/`pop` & `%r11` indirect call scratch), and ELF/JIT relocation resolution.
+  - `ZeroCCISABackend` vtable dispatch, JIT machine code emission vs AOT `.s` assembly emission, target architecture refactoring roadmap (native CPU & baremetal), standalone `zero_gpu` repository boundary, parallel call argument setup (`push`/`pop` & `%r11` indirect call scratch), and ELF/JIT relocation resolution.
 - **[Global Variables, Data Section & Pointer Relocations](./global-data-relocs.md)**
   - File-scope initializers (scalars, IEEE-754 floats, aggregate/designated init, char arrays from strings), `ZeroCCDataReloc`, JIT data-page patching, and AOT `.rela.<sec>` emission.
 - **[Static TLS (`_Thread_local`) Support](./tls-static.md)**
@@ -64,7 +64,7 @@ Welcome to the **ZeroCC Knowledge Graph**. Start here to navigate architectural 
 - **[RV32 64-bit Integer (long long) Support Roadmap](./rv32-i64-roadmap.md)**
   - Four-phase plan for 64-bit (lo,hi) GPR pair arithmetic, psABI calling conventions, libgcc `__*di3` division/modulo helpers, and `zero_san` width-8 checks.
 - **[Multi-ISA Target Architecture & Modular Backend Roadmap](./target-abstraction-roadmap.md)**
-  - Architectural roadmap for decoupling ZeroCC's multi-ISA backends via TargetTraits, table-driven regalloc, modular linker ops, baremetal CPU support, and decoupled GPU toolchains.
+  - Architectural roadmap for decoupling ZeroCC's multi-ISA backends via TargetTraits, table-driven regalloc, modular linker ops, baremetal CPU support, and independent `zero_gpu` repository boundary.
 
 ---
 

@@ -659,7 +659,7 @@ Tracked in [`docs/ZEROCC_Development_Plan.md`](docs/ZEROCC_Development_Plan.md).
 
 - **Multi-ISA SIMD Vector Architecture & Target Hardening (`simd`)**: NEON 128-bit vector MC loads/stores, proper RVV 1.0 decoupled vector register allocation (`REG_CLASS_VEC`), loop unroll vs vectorizer pipeline reordering, and `<immintrin.h>`/`<arm_neon.h>` vendor intrinsics.
 - **AArch32 JIT & Floating-Point Stabilization**: Complete floating-point `.rodata` relocation fixes and soft-float/libgcc helper extraction in own-linker mode.
-- **Companion GPU Toolchain (`zero-gpu`, PTX & SPIR-V)**: Standalone sister compiler for GPU compute kernels emitting NVIDIA PTX and Khronos SPIR-V, dynamically driven by ZeroCC executables via `zero_rt`'s dynamic loader.
+- **Standalone GPU Compiler Repository (`zero_gpu`, PTX & SPIR-V)**: Developed as an independent, standalone project in its own repository (`zero_gpu`), specialized for GPU compute kernels emitting NVIDIA PTX and Khronos SPIR-V, decoupled from ZeroCC's CPU/baremetal pipeline. ZeroCC applications drive GPU acceleration through standard host runtime APIs (`libcuda.so`, `libvulkan.so`, `libOpenCL.so`) via `zero_rt`'s dynamic loader.
 - **Platform Portability: Windows & macOS**: PE/COFF + Win64 ABI (`T3-Win`) and Mach-O (`T4-Mac`) object/executable backends and runtime support.
 - **Embedded RTOS Board Support Package (BSP)**: Formalized `zero_rt/rt_os.h` boundary for microcontroller environments without Linux syscalls (MMIO UART, static memory pools, CPU halt loops).
 - **Cross-Translation-Unit Link-Time Optimization (LTO)**: Whole-program optimization (cross-TU inlining of static functions, whole-program constant propagation, and dead-function stripping) within ZeroCC's own linker.
