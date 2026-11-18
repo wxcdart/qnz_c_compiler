@@ -626,16 +626,44 @@ See [`tools/README.md`](tools/README.md) for the full tool table.
   `python3 tools/okf/okf.py lint && python3 tools/okf/okf.py index`.
 - Work lands in numbered sprints with a `docs/CHANGELOG.md` entry each.
 
-## Roadmap & Known Limitations
+## Known Limitations
 
-Tracked in [`docs/ZEROCC_Development_Plan.md`](docs/ZEROCC_Development_Plan.md). Highlights:
+ZeroCC prioritizes standard C99/C11/C23 semantics, small binary size, and zero-dependency hermetic compilation. Certain advanced features, platform-specific extensions, and niche standard constructs are intentionally bounded or documented as current limitations:
 
-- **Multi-ISA SIMD vector architecture & target hardening (`simd`)**: NEON 128-bit vector MC loads/stores, proper RVV 1.0 decoupled vector register allocation (`REG_CLASS_VEC`), loop unroll vs vectorizer pipeline reordering, and `<immintrin.h>`/`<arm_neon.h>` vendor intrinsics.
-- **AArch32 (ARMv7-A) target**: 32-bit ARM backend completing the 32/64 matrix alongside x86-64, AArch64, RISC-V 64, and RISC-V 32 (codegen, raw ELF32 emission, and baremetal support implemented; floating-point constant loading hardening ongoing).
-- **GPU compute acceleration targets: NVIDIA PTX & Khronos SPIR-V (`--target ptx`, `--target spirv`)**: direct C compute kernel compilation to PTX (virtual assembly for NVIDIA GPUs) and SPIR-V (universal binary bytecode for Qualcomm, Intel, AMD, Apple Silicon, and NVIDIA via Vulkan/OpenCL).
-- **Platforms**: Windows (PE/COFF + Win64 ABI) and macOS (Mach-O) linker and runtime phases.
-- **Freestanding & baremetal RTOS**: Board Support Package (BSP) boundary in `zero_rt/rt_os.h` for embedded microcontrollers without Linux.
-- **Known gaps**: `_Generic` uses simplified matching; `__STDC_NO_COMPLEX__` is intentionally undefined; full anonymous-aggregate parameter types are open work; `_Alignas(N>16)` locals are x86-64 only (other ISAs fall back to 16 with a warning).
+### Language & Standards Conformance
+- **`_Generic` Selection**: Uses a simplified type-matching mechanism; complex nested matching across implicit qualification layers is not fully implemented.
+- **Anonymous Aggregate Parameters**: Parsing of anonymous `struct { ... }` or `union { ... }` parameters is supported, but full member-access semantics on such parameters is open work.
+- **Local Variable Dynamic Alignment (`_Alignas(N > 16)`)**: Runtime stack alignment (`and $-N, %rsp`) for locals requiring alignment greater than 16 bytes is fully supported on x86-64; on AArch64, AArch32, and RISC-V it clamps to 16-byte alignment with a compiler warning.
+- **Imaginary Numeric Literals**: GNU-style imaginary constant suffixes (e.g. `200i`) are not recognized by the lexer; standard C99 `_Complex` arithmetic and initialization expressions must be used.
+- **Nested Block Struct Layout Redefinition**: Dynamic layout calculations for tagged `struct`/`union` types redefined with variable-length arrays inside nested block scopes are currently unhandled.
+
+### Target Architecture & Code Generation
+- **AArch32 (ARMv7-A) Hardening**: Core integer arithmetic, AAPCS calling conventions, VFP/NEON scalar floats, and baremetal ELF32 output (`-T`) are functional; floating-point constant loading into `.rodata` via `R_ARM_MOVW_ABS_NC` / `R_ARM_MOVT_ABS` and own-linker 64-bit integer division helpers are undergoing active stabilization.
+- **SIMD / Vector Scope**: Auto-vectorization targets 128-bit SSE2/SSE4.1 (x86-64), NEON (AArch64), and RVV (RISC-V). Wider vector ISA extensions (AVX/AVX2/AVX-512, ARM SVE/SVE2) are not yet implemented. RISC-V Vector (RVV) register allocation shares the floating-point register class (`REG_CLASS_FP`) rather than an independent vector class.
+- **Nested Function Trampolines**: GNU nested functions with closure capture are supported via runtime trampolines on x86-64, AArch64, and RISC-V 64; trampolines for AArch32 and RV32 are not yet implemented.
+
+### Linker & Toolchain
+- **Static Executable Output Only**: ZeroCC's own linker (`--zerocc-link`) produces static `ET_EXEC` ELF binaries. Shared library generation (`-shared`, `ET_DYN`) and linking against dynamic libraries (`.so`) at link time are unsupported. (Runtime dynamic loading is handled via the in-process dynamic loader `dynlink.c`).
+- **Linker Script Grammar Subset**: The built-in linker script parser (`src/zero_cc/linker/linker_script.h`) supports `MEMORY` regions (`ORIGIN`, `LENGTH`), `ENTRY`, basic section placement (`.text`, `.rodata`, `.data`, `.bss`), boundary symbols (`_sidata`, `_sdata`, `_edata`, `_sbss`, `_ebss`, `_stack_top`), and simple arithmetic expressions. Advanced GNU `ld` script syntax (`PHDRS`, `SECTIONS` overlays, input section sorting, wildcards) is not supported.
+- **Object Format Support**: Linux ELF64 and ELF32 are natively supported. Non-ELF container formats (Windows PE/COFF, macOS Mach-O) are not yet supported in ZeroCC's own linker.
+
+### Freestanding Runtime (`zero_rt`)
+- **Minimal Standard Library Surface**: `zero_rt` is a freestanding runtime designed for zero-dependency execution (thread-safe `brk` heap, unbuffered stdio with Ryū float formatting, strings, 128-bit math, complex division, and futex threads). Heavyweight POSIX APIs (signals, robust thread attributes, locale, terminal control, BSD sockets) require building against host musl libc.
+
+### Optimizer & IR
+- **Non-SSA Linear IR**: ZeroCC's IR is a linear 172-opcode instruction array backed by a lazy, versioned CFG and dominator tree. Global SSA-dependent transformations (such as Sparse Conditional Constant Propagation or Partial Redundancy Elimination) are not implemented.
+- **Conservative Inlining & Unrolling**: Small-function inlining at `-O2`/`-O3` conservatively rejects functions containing floating-point signatures, local variables, address-taken parameters, or labels/gotos. Loop unrolling at `-O3` skips loops with function calls, atomics, volatile accesses, or VLA allocations.
+
+## Future Roadmap
+
+Tracked in [`docs/ZEROCC_Development_Plan.md`](docs/ZEROCC_Development_Plan.md). Key milestones:
+
+- **Multi-ISA SIMD Vector Architecture & Target Hardening (`simd`)**: NEON 128-bit vector MC loads/stores, proper RVV 1.0 decoupled vector register allocation (`REG_CLASS_VEC`), loop unroll vs vectorizer pipeline reordering, and `<immintrin.h>`/`<arm_neon.h>` vendor intrinsics.
+- **AArch32 JIT & Floating-Point Stabilization**: Complete floating-point `.rodata` relocation fixes and soft-float/libgcc helper extraction in own-linker mode.
+- **Companion GPU Toolchain (`zero-gpu`, PTX & SPIR-V)**: Standalone sister compiler for GPU compute kernels emitting NVIDIA PTX and Khronos SPIR-V, dynamically driven by ZeroCC executables via `zero_rt`'s dynamic loader.
+- **Platform Portability: Windows & macOS**: PE/COFF + Win64 ABI (`T3-Win`) and Mach-O (`T4-Mac`) object/executable backends and runtime support.
+- **Embedded RTOS Board Support Package (BSP)**: Formalized `zero_rt/rt_os.h` boundary for microcontroller environments without Linux syscalls (MMIO UART, static memory pools, CPU halt loops).
+- **Cross-Translation-Unit Link-Time Optimization (LTO)**: Whole-program optimization (cross-TU inlining of static functions, whole-program constant propagation, and dead-function stripping) within ZeroCC's own linker.
 
 ## License
 
