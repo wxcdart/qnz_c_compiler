@@ -8,6 +8,10 @@
 #include <string.h>
 #include <limits.h>
 
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
+
 #include "zero_cc/types/type_system.h"
 
 #define ZERO_CC_MAX_INCLUDE_PATHS  256

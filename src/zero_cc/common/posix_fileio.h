@@ -12,8 +12,7 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-
-}
+#include <stdarg.h>
 
 static inline int zero_posix_fstat(int fd, struct stat *st) {
     if (fd < 0 || !st) return -1;

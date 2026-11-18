@@ -460,5 +460,6 @@ static inline int zero_posix_lstat(const char *path, struct stat *st) {
     (void)path; (void)st;
     return -1;
 #endif
+}
 
 #endif /* ZERO_CC_POSIX_MMAP_H */
