@@ -4,6 +4,8 @@
 Provides zero-dependency non-interactive crash triaging, JIT execution inspection,
 system call tracing, and interactive instruction-level debugging without requiring GDB.
 
+Supports x86-64, AArch64, ARM (AArch32), and RISC-V (64/32-bit) architectures.
+
 Usage:
   python3 tools/analysis/pytrace.py [OPTIONS] <executable> [args...]
 
@@ -78,6 +80,15 @@ libc.ptrace.restype = ctypes.c_long
 
 NT_PRSTATUS = 1
 
+
+# struct iovec for PTRACE_GETREGSET / PTRACE_SETREGSET
+class IOVec(ctypes.Structure):
+    _fields_ = [
+        ("iov_base", ctypes.c_void_p),
+        ("iov_len", ctypes.c_size_t),
+    ]
+
+
 # Colors for terminal output
 COLOR_BOLD = "\033[1m"
 COLOR_RED = "\033[31m"
@@ -130,6 +141,99 @@ class UserRegsX86_64(ctypes.Structure):
     ]
 
 
+# AArch64 user_pt_regs (272 bytes: x0-x30, sp, pc, pstate)
+class UserRegsAArch64(ctypes.Structure):
+    _fields_ = [
+        ("regs", ctypes.c_ulonglong * 31),
+        ("sp", ctypes.c_ulonglong),
+        ("pc", ctypes.c_ulonglong),
+        ("pstate", ctypes.c_ulonglong),
+    ]
+
+
+# ARM (AArch32) pt_regs (72 bytes: r0-r15, cpsr, orig_r0)
+class UserRegsARM(ctypes.Structure):
+    _fields_ = [
+        ("uregs", ctypes.c_uint32 * 18),
+    ]
+
+
+# RISC-V 64 user_regs_struct (256 bytes: pc, ra, sp, gp, tp, t0-t2, s0, s1, a0-a7, s2-s11, t3-t6)
+class UserRegsRISCV64(ctypes.Structure):
+    _fields_ = [
+        ("pc", ctypes.c_ulonglong),
+        ("ra", ctypes.c_ulonglong),
+        ("sp", ctypes.c_ulonglong),
+        ("gp", ctypes.c_ulonglong),
+        ("tp", ctypes.c_ulonglong),
+        ("t0", ctypes.c_ulonglong),
+        ("t1", ctypes.c_ulonglong),
+        ("t2", ctypes.c_ulonglong),
+        ("s0", ctypes.c_ulonglong),
+        ("s1", ctypes.c_ulonglong),
+        ("a0", ctypes.c_ulonglong),
+        ("a1", ctypes.c_ulonglong),
+        ("a2", ctypes.c_ulonglong),
+        ("a3", ctypes.c_ulonglong),
+        ("a4", ctypes.c_ulonglong),
+        ("a5", ctypes.c_ulonglong),
+        ("a6", ctypes.c_ulonglong),
+        ("a7", ctypes.c_ulonglong),
+        ("s2", ctypes.c_ulonglong),
+        ("s3", ctypes.c_ulonglong),
+        ("s4", ctypes.c_ulonglong),
+        ("s5", ctypes.c_ulonglong),
+        ("s6", ctypes.c_ulonglong),
+        ("s7", ctypes.c_ulonglong),
+        ("s8", ctypes.c_ulonglong),
+        ("s9", ctypes.c_ulonglong),
+        ("s10", ctypes.c_ulonglong),
+        ("s11", ctypes.c_ulonglong),
+        ("t3", ctypes.c_ulonglong),
+        ("t4", ctypes.c_ulonglong),
+        ("t5", ctypes.c_ulonglong),
+        ("t6", ctypes.c_ulonglong),
+    ]
+
+
+# RISC-V 32 user_regs_struct (128 bytes)
+class UserRegsRISCV32(ctypes.Structure):
+    _fields_ = [
+        ("pc", ctypes.c_uint32),
+        ("ra", ctypes.c_uint32),
+        ("sp", ctypes.c_uint32),
+        ("gp", ctypes.c_uint32),
+        ("tp", ctypes.c_uint32),
+        ("t0", ctypes.c_uint32),
+        ("t1", ctypes.c_uint32),
+        ("t2", ctypes.c_uint32),
+        ("s0", ctypes.c_uint32),
+        ("s1", ctypes.c_uint32),
+        ("a0", ctypes.c_uint32),
+        ("a1", ctypes.c_uint32),
+        ("a2", ctypes.c_uint32),
+        ("a3", ctypes.c_uint32),
+        ("a4", ctypes.c_uint32),
+        ("a5", ctypes.c_uint32),
+        ("a6", ctypes.c_uint32),
+        ("a7", ctypes.c_uint32),
+        ("s2", ctypes.c_uint32),
+        ("s3", ctypes.c_uint32),
+        ("s4", ctypes.c_uint32),
+        ("s5", ctypes.c_uint32),
+        ("s6", ctypes.c_uint32),
+        ("s7", ctypes.c_uint32),
+        ("s8", ctypes.c_uint32),
+        ("s9", ctypes.c_uint32),
+        ("s10", ctypes.c_uint32),
+        ("s11", ctypes.c_uint32),
+        ("t3", ctypes.c_uint32),
+        ("t4", ctypes.c_uint32),
+        ("t5", ctypes.c_uint32),
+        ("t6", ctypes.c_uint32),
+    ]
+
+
 # Linux siginfo_t (128 bytes total)
 class SigInfo(ctypes.Structure):
     _fields_ = [
@@ -175,7 +279,7 @@ SIG_CODES = {
         7: "FPE_FLTINV (floating-point invalid operation)",
     },
     signal.SIGTRAP: {
-        1: "TRAP_BRKPT (process breakpoint / int3)",
+        1: "TRAP_BRKPT (process breakpoint / trap)",
         2: "TRAP_TRACE (process trace trap / single-step)",
         3: "TRAP_BRANCH (process branch trap)",
         4: "TRAP_HWBKPT (hardware breakpoint/watchpoint)",
@@ -230,6 +334,40 @@ SYSCALL_NAMES_X86_64 = {
 }
 
 
+def canonical_arch(raw_arch):
+    raw = raw_arch.lower()
+    if raw in ("x86_64", "amd64", "x64"):
+        return "x86_64"
+    if raw in ("aarch64", "arm64"):
+        return "aarch64"
+    if raw.startswith("arm") or raw in ("aarch32", "armhf", "armel"):
+        return "arm"
+    if raw in ("riscv64", "rv64", "riscv64gc"):
+        return "riscv64"
+    if raw in ("riscv32", "rv32", "riscv32gc"):
+        return "riscv32"
+    return raw
+
+
+# Architecture specific breakpoint instruction bytes
+ARCH_BREAKPOINTS = {
+    "x86_64": bytes([0xCC]),  # int3 (1 byte)
+    "aarch64": struct.pack("<I", 0xD4200000),  # brk #0 (4 bytes)
+    "arm": struct.pack("<I", 0xE7F001F0),  # bkpt #0 (4 bytes ARM mode)
+    "riscv64": struct.pack("<I", 0x00100073),  # ebreak (4 bytes)
+    "riscv32": struct.pack("<I", 0x00100073),  # ebreak (4 bytes)
+}
+
+# Architecture specific objdump machine strings
+ARCH_OBJDUMP_MACH = {
+    "x86_64": "i386:x86-64",
+    "aarch64": "aarch64",
+    "arm": "arm",
+    "riscv64": "riscv:rv64",
+    "riscv32": "riscv:rv32",
+}
+
+
 class MemoryMap:
     def __init__(self, start, end, perms, offset, dev, inode, pathname):
         self.start = start
@@ -263,8 +401,8 @@ class PyTracer:
         self.is_interactive = is_interactive
         self.do_strace = do_strace
         self.pid = None
-        self.arch = platform.machine()
-        self.breakpoints = {}  # addr -> orig_byte
+        self.arch = canonical_arch(platform.machine())
+        self.breakpoints = {}  # addr -> orig_bytes
         self.maps = []
         self.insn_count = 0
         self.in_syscall = False
@@ -336,38 +474,50 @@ class PyTracer:
             res.extend(chunk[: min(8, length - offset)])
         return bytes(res) if res else None
 
-    def write_byte(self, addr, byte_val):
-        """Write single byte using PTRACE_PEEKTEXT/POKETEXT."""
-        aligned_addr = addr & ~7
-        offset = addr & 7
-        val = libc.ptrace(
-            PTRACE_PEEKTEXT, self.pid, ctypes.c_void_p(aligned_addr), None
-        )
-        if val == -1:
-            return False
-        raw = bytearray(struct.pack("<q", val))
-        raw[offset] = byte_val
-        new_val = struct.unpack("<q", raw)[0]
-        res = libc.ptrace(
-            PTRACE_POKETEXT,
-            self.pid,
-            ctypes.c_void_p(aligned_addr),
-            ctypes.c_void_p(new_val),
-        )
-        return res != -1
+    def write_mem(self, addr, data_bytes):
+        """Write bytes to tracee memory word-by-word."""
+        cur = addr
+        offset = 0
+        length = len(data_bytes)
+        while offset < length:
+            aligned_addr = cur & ~7
+            in_word_offset = cur & 7
+            val = libc.ptrace(
+                PTRACE_PEEKTEXT, self.pid, ctypes.c_void_p(aligned_addr), None
+            )
+            if val == -1:
+                return False
+            raw = bytearray(struct.pack("<q", val))
+            chunk_len = min(8 - in_word_offset, length - offset)
+            raw[in_word_offset : in_word_offset + chunk_len] = data_bytes[
+                offset : offset + chunk_len
+            ]
+            new_val = struct.unpack("<q", raw)[0]
+            res = libc.ptrace(
+                PTRACE_POKETEXT,
+                self.pid,
+                ctypes.c_void_p(aligned_addr),
+                ctypes.c_void_p(new_val),
+            )
+            if res == -1:
+                return False
+            cur += chunk_len
+            offset += chunk_len
+        return True
 
     def set_breakpoint(self, addr):
-        mem = self.read_mem(addr, 1)
-        if not mem:
+        bp_bytes = ARCH_BREAKPOINTS.get(self.arch, ARCH_BREAKPOINTS["x86_64"])
+        length = len(bp_bytes)
+        orig_bytes = self.read_mem(addr, length)
+        if not orig_bytes:
             print(
                 f"{COLOR_RED}Error: Cannot read memory at 0x{addr:x}{COLOR_RESET}"
             )
             return False
-        orig_byte = mem[0]
-        if self.write_byte(addr, 0xCC):  # int3 on x86
-            self.breakpoints[addr] = orig_byte
+        if self.write_mem(addr, bp_bytes):
+            self.breakpoints[addr] = orig_bytes
             print(
-                f"{COLOR_GREEN}Breakpoint set at 0x{addr:x} (orig byte: 0x{orig_byte:02x}){COLOR_RESET}"
+                f"{COLOR_GREEN}Breakpoint set at 0x{addr:x} (orig: {orig_bytes.hex()}){COLOR_RESET}"
             )
             return True
         else:
@@ -378,8 +528,8 @@ class PyTracer:
 
     def remove_breakpoint(self, addr):
         if addr in self.breakpoints:
-            orig_byte = self.breakpoints[addr]
-            self.write_byte(addr, orig_byte)
+            orig_bytes = self.breakpoints[addr]
+            self.write_mem(addr, orig_bytes)
             del self.breakpoints[addr]
             print(f"{COLOR_YELLOW}Breakpoint removed at 0x{addr:x}{COLOR_RESET}")
             return True
@@ -388,22 +538,136 @@ class PyTracer:
     def get_regs(self):
         if self.arch == "x86_64":
             regs = UserRegsX86_64()
+            iov = IOVec(
+                ctypes.cast(ctypes.byref(regs), ctypes.c_void_p),
+                ctypes.sizeof(regs),
+            )
             res = libc.ptrace(
-                PTRACE_GETREGS, self.pid, None, ctypes.byref(regs)
+                PTRACE_GETREGSET,
+                self.pid,
+                ctypes.c_void_p(NT_PRSTATUS),
+                ctypes.byref(iov),
             )
             if res == 0:
+                return regs
+        elif self.arch == "aarch64":
+            regs = UserRegsAArch64()
+            iov = IOVec(
+                ctypes.cast(ctypes.byref(regs), ctypes.c_void_p),
+                ctypes.sizeof(regs),
+            )
+            if (
+                libc.ptrace(
+                    PTRACE_GETREGSET,
+                    self.pid,
+                    ctypes.c_void_p(NT_PRSTATUS),
+                    ctypes.byref(iov),
+                )
+                == 0
+            ):
+                return regs
+        elif self.arch == "arm":
+            regs = UserRegsARM()
+            iov = IOVec(
+                ctypes.cast(ctypes.byref(regs), ctypes.c_void_p),
+                ctypes.sizeof(regs),
+            )
+            if (
+                libc.ptrace(
+                    PTRACE_GETREGSET,
+                    self.pid,
+                    ctypes.c_void_p(NT_PRSTATUS),
+                    ctypes.byref(iov),
+                )
+                == 0
+            ):
+                return regs
+        elif self.arch == "riscv64":
+            regs = UserRegsRISCV64()
+            iov = IOVec(
+                ctypes.cast(ctypes.byref(regs), ctypes.c_void_p),
+                ctypes.sizeof(regs),
+            )
+            if (
+                libc.ptrace(
+                    PTRACE_GETREGSET,
+                    self.pid,
+                    ctypes.c_void_p(NT_PRSTATUS),
+                    ctypes.byref(iov),
+                )
+                == 0
+            ):
+                return regs
+        elif self.arch == "riscv32":
+            regs = UserRegsRISCV32()
+            iov = IOVec(
+                ctypes.cast(ctypes.byref(regs), ctypes.c_void_p),
+                ctypes.sizeof(regs),
+            )
+            if (
+                libc.ptrace(
+                    PTRACE_GETREGSET,
+                    self.pid,
+                    ctypes.c_void_p(NT_PRSTATUS),
+                    ctypes.byref(iov),
+                )
+                == 0
+            ):
                 return regs
         return None
 
     def set_regs(self, regs):
-        if self.arch == "x86_64":
-            return (
-                libc.ptrace(
-                    PTRACE_SETREGS, self.pid, None, ctypes.byref(regs)
-                )
-                == 0
+        iov = IOVec(
+            ctypes.cast(ctypes.byref(regs), ctypes.c_void_p),
+            ctypes.sizeof(regs),
+        )
+        return (
+            libc.ptrace(
+                PTRACE_SETREGSET,
+                self.pid,
+                ctypes.c_void_p(NT_PRSTATUS),
+                ctypes.byref(iov),
             )
-        return False
+            == 0
+        )
+
+    def get_pc(self, regs):
+        if not regs:
+            return 0
+        if self.arch == "x86_64":
+            return regs.rip
+        if self.arch == "aarch64":
+            return regs.pc
+        if self.arch == "arm":
+            return regs.uregs[15]  # r15 = pc
+        if self.arch in ("riscv64", "riscv32"):
+            return regs.pc
+        return 0
+
+    def set_pc(self, regs, val):
+        if not regs:
+            return
+        if self.arch == "x86_64":
+            regs.rip = val
+        elif self.arch == "aarch64":
+            regs.pc = val
+        elif self.arch == "arm":
+            regs.uregs[15] = val
+        elif self.arch in ("riscv64", "riscv32"):
+            regs.pc = val
+
+    def get_sp(self, regs):
+        if not regs:
+            return 0
+        if self.arch == "x86_64":
+            return regs.rsp
+        if self.arch == "aarch64":
+            return regs.sp
+        if self.arch == "arm":
+            return regs.uregs[13]  # r13 = sp
+        if self.arch in ("riscv64", "riscv32"):
+            return regs.sp
+        return 0
 
     def get_siginfo(self):
         info = SigInfo()
@@ -441,7 +705,7 @@ class PyTracer:
             print("Registers unavailable.")
             return
 
-        def fmt_reg(name, val):
+        def fmt_reg(name, val, is_32=False):
             is_fault = (
                 fault_addr is not None and abs(val - fault_addr) < 4096
             )
@@ -451,26 +715,118 @@ class PyTracer:
                 else f"{COLOR_BOLD}{COLOR_CYAN}"
             )
             val_color = COLOR_YELLOW if is_fault else COLOR_RESET
+            if is_32:
+                return f"{color}{name:>4s}{COLOR_RESET}: {val_color}0x{val:08x}{COLOR_RESET}"
             return f"{color}{name:>4s}{COLOR_RESET}: {val_color}0x{val:016x}{COLOR_RESET}"
 
-        print(
-            f"  {fmt_reg('RAX', regs.rax)}  {fmt_reg('RBX', regs.rbx)}  {fmt_reg('RCX', regs.rcx)}"
-        )
-        print(
-            f"  {fmt_reg('RDX', regs.rdx)}  {fmt_reg('RSI', regs.rsi)}  {fmt_reg('RDI', regs.rdi)}"
-        )
-        print(
-            f"  {fmt_reg('RBP', regs.rbp)}  {fmt_reg('RSP', regs.rsp)}  {fmt_reg('R8', regs.r8)}"
-        )
-        print(
-            f"  {fmt_reg('R9', regs.r9)}  {fmt_reg('R10', regs.r10)}  {fmt_reg('R11', regs.r11)}"
-        )
-        print(
-            f"  {fmt_reg('R12', regs.r12)}  {fmt_reg('R13', regs.r13)}  {fmt_reg('R14', regs.r14)}"
-        )
-        print(
-            f"  {fmt_reg('R15', regs.r15)}  {fmt_reg('RIP', regs.rip)}  {COLOR_BOLD}{COLOR_CYAN}EFL{COLOR_RESET}: 0x{regs.eflags:08x} [{self.format_eflags(regs.eflags)}]"
-        )
+        if self.arch == "x86_64":
+            print(
+                f"  {fmt_reg('RAX', regs.rax)}  {fmt_reg('RBX', regs.rbx)}  {fmt_reg('RCX', regs.rcx)}"
+            )
+            print(
+                f"  {fmt_reg('RDX', regs.rdx)}  {fmt_reg('RSI', regs.rsi)}  {fmt_reg('RDI', regs.rdi)}"
+            )
+            print(
+                f"  {fmt_reg('RBP', regs.rbp)}  {fmt_reg('RSP', regs.rsp)}  {fmt_reg('R8', regs.r8)}"
+            )
+            print(
+                f"  {fmt_reg('R9', regs.r9)}  {fmt_reg('R10', regs.r10)}  {fmt_reg('R11', regs.r11)}"
+            )
+            print(
+                f"  {fmt_reg('R12', regs.r12)}  {fmt_reg('R13', regs.r13)}  {fmt_reg('R14', regs.r14)}"
+            )
+            print(
+                f"  {fmt_reg('R15', regs.r15)}  {fmt_reg('RIP', regs.rip)}  {COLOR_BOLD}{COLOR_CYAN}EFL{COLOR_RESET}: 0x{regs.eflags:08x} [{self.format_eflags(regs.eflags)}]"
+            )
+        elif self.arch == "aarch64":
+            for i in range(0, 30, 3):
+                print(
+                    f"  {fmt_reg(f'X{i}', regs.regs[i])}  {fmt_reg(f'X{i+1}', regs.regs[i+1])}  {fmt_reg(f'X{i+2}', regs.regs[i+2])}"
+                )
+            print(
+                f"  {fmt_reg('X30', regs.regs[30])}  {fmt_reg('SP', regs.sp)}  {fmt_reg('PC', regs.pc)}"
+            )
+            print(
+                f"  {COLOR_BOLD}{COLOR_CYAN}PSTATE{COLOR_RESET}: 0x{regs.pstate:016x}"
+            )
+        elif self.arch == "arm":
+            names = [
+                "R0",
+                "R1",
+                "R2",
+                "R3",
+                "R4",
+                "R5",
+                "R6",
+                "R7",
+                "R8",
+                "R9",
+                "R10",
+                "FP",
+                "IP",
+                "SP",
+                "LR",
+                "PC",
+            ]
+            for i in range(0, 15, 4):
+                print(
+                    "  "
+                    + "  ".join(
+                        fmt_reg(names[i + j], regs.uregs[i + j], is_32=True)
+                        for j in range(4)
+                        if i + j < 16
+                    )
+                )
+            print(
+                f"  {fmt_reg('CPSR', regs.uregs[16], is_32=True)}  {fmt_reg('ORIG', regs.uregs[17], is_32=True)}"
+            )
+        elif self.arch in ("riscv64", "riscv32"):
+            is_32 = self.arch == "riscv32"
+            rv_regs = [
+                ("PC", regs.pc),
+                ("RA", regs.ra),
+                ("SP", regs.sp),
+                ("GP", regs.gp),
+                ("TP", regs.tp),
+                ("T0", regs.t0),
+                ("T1", regs.t1),
+                ("T2", regs.t2),
+                ("S0", regs.s0),
+                ("S1", regs.s1),
+                ("A0", regs.a0),
+                ("A1", regs.a1),
+                ("A2", regs.a2),
+                ("A3", regs.a3),
+                ("A4", regs.a4),
+                ("A5", regs.a5),
+                ("A6", regs.a6),
+                ("A7", regs.a7),
+                ("S2", regs.s2),
+                ("S3", regs.s3),
+                ("S4", regs.s4),
+                ("S5", regs.s5),
+                ("S6", regs.s6),
+                ("S7", regs.s7),
+                ("S8", regs.s8),
+                ("S9", regs.s9),
+                ("S10", regs.s10),
+                ("S11", regs.s11),
+                ("T3", regs.t3),
+                ("T4", regs.t4),
+                ("T5", regs.t5),
+                ("T6", regs.t6),
+            ]
+            for i in range(0, len(rv_regs), 4):
+                print(
+                    "  "
+                    + "  ".join(
+                        fmt_reg(
+                            rv_regs[i + j][0], rv_regs[i + j][1], is_32=is_32
+                        )
+                        for j in range(4)
+                        if i + j < len(rv_regs)
+                    )
+                )
 
     def disassemble_around(self, addr, count=6):
         """Disassemble instruction window around target address using objdump."""
@@ -483,6 +839,8 @@ class PyTracer:
             )
             return
 
+        mach = ARCH_OBJDUMP_MACH.get(self.arch, "i386:x86-64")
+
         try:
             with tempfile.NamedTemporaryFile() as tf:
                 tf.write(data)
@@ -494,7 +852,7 @@ class PyTracer:
                         "-b",
                         "binary",
                         "-m",
-                        "i386:x86-64",
+                        mach,
                         f"--adjust-vma={start}",
                         tf.name,
                     ],
@@ -510,7 +868,6 @@ class PyTracer:
                             continue
                         if not found_section or not line.strip():
                             continue
-                        # Match: 7f...:  40 88 37   mov %sil,(%rdi)
                         m = re.match(r"^\s*([0-9a-f]+):\s+(.+)$", line)
                         if m:
                             line_addr = int(m.group(1), 16)
@@ -530,17 +887,20 @@ class PyTracer:
         # Fallback raw hex display
         print(f"  Raw bytes at 0x{addr:x}: {data[:16].hex(' ')}")
 
-    def dump_stack(self, rsp, words=8):
+    def dump_stack(self, sp, words=8):
         """Dump words on stack and annotate code pointers."""
+        is_32 = self.arch in ("arm", "riscv32")
+        word_size = 4 if is_32 else 8
+        fmt = "<I" if is_32 else "<Q"
         print(
-            f"{COLOR_BOLD}Stack Dump (RSP: 0x{rsp:012x}):{COLOR_RESET}"
+            f"{COLOR_BOLD}Stack Dump (SP: 0x{sp:012x}):{COLOR_RESET}"
         )
         for i in range(words):
-            cur = rsp + i * 8
-            data = self.read_mem(cur, 8)
-            if not data or len(data) < 8:
+            cur = sp + i * word_size
+            data = self.read_mem(cur, word_size)
+            if not data or len(data) < word_size:
                 break
-            val = struct.unpack("<Q", data)[0]
+            val = struct.unpack(fmt, data)[0]
             loc = self.locate_addr(val)
             annot = ""
             for m in self.maps:
@@ -548,7 +908,7 @@ class PyTracer:
                     annot = f" {COLOR_YELLOW}<- [code pointer / return addr?]{COLOR_RESET}"
                     break
             print(
-                f"  [RSP+0x{i*8:02x}] 0x{cur:012x}: 0x{val:016x}  ({loc}){annot}"
+                f"  [SP+0x{i*word_size:02x}] 0x{cur:012x}: 0x{val:016x}  ({loc}){annot}"
             )
 
     def print_crash_dump(self, signo, siginfo):
@@ -566,14 +926,16 @@ class PyTracer:
             )
 
         fault_addr = siginfo.si_addr if siginfo else None
+        pc = self.get_pc(regs)
+        sp = self.get_sp(regs)
 
         print("\n" + "=" * 78)
         print(
-            f"{COLOR_BOLD}{COLOR_RED}*** ZeroCC pytrace: CRASH / EXCEPTION DETECTED ***{COLOR_RESET}"
+            f"{COLOR_BOLD}{COLOR_RED}*** ZeroCC pytrace: CRASH / EXCEPTION DETECTED ({self.arch}) ***{COLOR_RESET}"
         )
         print("=" * 78)
         print(
-            f"{COLOR_BOLD}Process:{COLOR_RESET} PID {self.pid} [{os.path.basename(self.cmd[0])}]"
+            f"{COLOR_BOLD}Process:{COLOR_RESET} PID {self.pid} [{os.path.basename(self.cmd[0])}] (Arch: {self.arch})"
         )
         print(
             f"{COLOR_BOLD}Signal: {COLOR_RESET}{COLOR_RED}{sig_name} ({signo}){COLOR_RESET} - {code_str}"
@@ -584,31 +946,31 @@ class PyTracer:
                 f"{COLOR_BOLD}Fault Address:{COLOR_RESET} {COLOR_RED}0x{fault_addr:012x}{COLOR_RESET} -> {loc}"
             )
         if regs:
-            rip_loc = self.locate_addr(regs.rip)
+            rip_loc = self.locate_addr(pc)
             print(
-                f"{COLOR_BOLD}Faulting Instruction Pointer:{COLOR_RESET} 0x{regs.rip:012x} -> {rip_loc}"
+                f"{COLOR_BOLD}Faulting Instruction Pointer:{COLOR_RESET} 0x{pc:012x} -> {rip_loc}"
             )
             print("-" * 78)
             print(f"{COLOR_BOLD}CPU Registers:{COLOR_RESET}")
             self.print_regs(regs, fault_addr)
             print("-" * 78)
-            print(f"{COLOR_BOLD}Disassembly Window:{COLOR_RESET}")
-            self.disassemble_around(regs.rip)
+            print(f"{COLOR_BOLD}Disassembly Window ({self.arch}):{COLOR_RESET}")
+            self.disassemble_around(pc)
             print("-" * 78)
-            self.dump_stack(regs.rsp, words=8)
+            self.dump_stack(sp, words=8)
         print("=" * 78 + "\n")
 
     def interactive_prompt(self, signo=None):
         self.read_maps()
         regs = self.get_regs()
+        pc = self.get_pc(regs)
+        sp = self.get_sp(regs)
         prompt_sig = f" [stopped by {signo}]" if signo else ""
         print(
-            f"{COLOR_CYAN}ZeroCC pytrace interactive mode{prompt_sig}. Type 'h' for help.{COLOR_RESET}"
+            f"{COLOR_CYAN}ZeroCC pytrace interactive mode ({self.arch}){prompt_sig}. Type 'h' for help.{COLOR_RESET}"
         )
         if regs:
-            print(
-                f"RIP: 0x{regs.rip:012x} ({self.locate_addr(regs.rip)})"
-            )
+            print(f"PC: 0x{pc:012x} ({self.locate_addr(pc)})")
 
         while True:
             try:
@@ -633,7 +995,7 @@ class PyTracer:
                 print("  s, si, step, stepi [N]  - Single-step N instructions")
                 print("  r, regs                 - Print CPU register state")
                 print(
-                    "  dis, disasm [addr]      - Disassemble around address (default RIP)"
+                    "  dis, disasm [addr]      - Disassemble around address (default PC)"
                 )
                 print(
                     "  st, stack [words]       - Dump words from current stack pointer"
@@ -670,10 +1032,11 @@ class PyTracer:
                     self.insn_count += 1
                 regs = self.get_regs()
                 if regs:
+                    cur_pc = self.get_pc(regs)
                     print(
-                        f"Step -> RIP: 0x{regs.rip:012x} ({self.locate_addr(regs.rip)})"
+                        f"Step -> PC: 0x{cur_pc:012x} ({self.locate_addr(cur_pc)})"
                     )
-                    self.disassemble_around(regs.rip, count=2)
+                    self.disassemble_around(cur_pc, count=2)
 
             elif cmd in ("r", "regs"):
                 regs = self.get_regs()
@@ -684,7 +1047,7 @@ class PyTracer:
                 addr = (
                     int(parts[1], 16)
                     if len(parts) > 1
-                    else (regs.rip if regs else 0)
+                    else self.get_pc(regs)
                 )
                 self.disassemble_around(addr)
 
@@ -692,7 +1055,7 @@ class PyTracer:
                 regs = self.get_regs()
                 words = int(parts[1]) if len(parts) > 1 else 8
                 if regs:
-                    self.dump_stack(regs.rsp, words=words)
+                    self.dump_stack(self.get_sp(regs), words=words)
 
             elif cmd in ("m", "mem"):
                 if len(parts) < 2:
@@ -725,7 +1088,7 @@ class PyTracer:
                     print("No breakpoints set.")
                 for b, orig in self.breakpoints.items():
                     print(
-                        f"  0x{b:012x} (orig byte 0x{orig:02x}) -> {self.locate_addr(b)}"
+                        f"  0x{b:012x} (orig: {orig.hex()}) -> {self.locate_addr(b)}"
                     )
 
             elif cmd == "maps":
@@ -796,6 +1159,8 @@ class PyTracer:
                 return 0
 
         # Main supervision loop
+        bp_step = 1 if self.arch == "x86_64" else 0
+
         while True:
             # Resume child
             if self.do_strace:
@@ -844,7 +1209,7 @@ class PyTracer:
                 # Syscall event under PTRACE_O_TRACESYSGOOD (stopsig == SIGTRAP | 0x80 == 133)
                 if self.do_strace and stopsig == (signal.SIGTRAP | 0x80):
                     regs = self.get_regs()
-                    if regs:
+                    if regs and self.arch == "x86_64":
                         if not self.in_syscall:
                             # Syscall entry
                             self.in_syscall = True
@@ -865,16 +1230,19 @@ class PyTracer:
                             )
                     continue
 
-                # Check software breakpoint hit (SIGTRAP on x86 leaves RIP at addr + 1)
+                # Check software breakpoint hit
                 if stopsig == signal.SIGTRAP:
                     regs = self.get_regs()
-                    if regs and (regs.rip - 1) in self.breakpoints:
-                        bp_addr = regs.rip - 1
-                        # Restore original instruction and rewind RIP
-                        orig_byte = self.breakpoints[bp_addr]
-                        self.write_byte(bp_addr, orig_byte)
-                        regs.rip = bp_addr
-                        self.set_regs(regs)
+                    cur_pc = self.get_pc(regs)
+                    hit_addr = cur_pc - bp_step
+                    if regs and hit_addr in self.breakpoints:
+                        bp_addr = hit_addr
+                        # Restore original instruction and rewind PC if x86
+                        orig_bytes = self.breakpoints[bp_addr]
+                        self.write_mem(bp_addr, orig_bytes)
+                        if bp_step > 0:
+                            self.set_pc(regs, bp_addr)
+                            self.set_regs(regs)
                         print(
                             f"\n{COLOR_GREEN}Hit breakpoint at 0x{bp_addr:012x}!{COLOR_RESET}"
                         )
@@ -884,7 +1252,10 @@ class PyTracer:
                         # Re-arm breakpoint by single-stepping past instruction then re-inserting
                         libc.ptrace(PTRACE_SINGLESTEP, pid, None, None)
                         os.waitpid(pid, 0)
-                        self.write_byte(bp_addr, 0xCC)
+                        bp_bytes = ARCH_BREAKPOINTS.get(
+                            self.arch, ARCH_BREAKPOINTS["x86_64"]
+                        )
+                        self.write_mem(bp_addr, bp_bytes)
                         continue
 
                 # Crash or fault signal: SIGSEGV, SIGILL, SIGBUS, SIGFPE, SIGABRT
@@ -917,7 +1288,7 @@ class PyTracer:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="pytrace: Zero-dependency Python ptrace debugger & crash inspector for ZeroCC."
+        description="pytrace: Multi-ISA Python ptrace debugger & crash inspector for ZeroCC."
     )
     parser.add_argument(
         "-i",
