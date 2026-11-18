@@ -2037,10 +2037,20 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
                        (s164_sp || d64_sp);
     if (sh64_cnt_sp) {
         int32_t slot_off = spill_base_offset + (spill_src2 + 1) * 8;
-        if (BE(c)->emit_load_asm) {
-            BE(c)->emit_load_asm(c, BE(c)->scratch_reg1, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off), out);
+        int cnt_reg = BE(c)->scratch_reg1;
+        if (p64_s1 >= 0 && (BE(c)->g128_scratch_lo[p64_s1] == cnt_reg ||
+                           BE(c)->g128_scratch_hi[p64_s1] == cnt_reg)) {
+            if (g64_np > 1 && p64_s1 != 1) {
+                cnt_reg = BE(c)->g128_scratch_lo[1];
+            } else if (BE(c)->scratch_reg2 != BE(c)->g128_scratch_lo[p64_s1] &&
+                       BE(c)->scratch_reg2 != BE(c)->g128_scratch_hi[p64_s1]) {
+                cnt_reg = BE(c)->scratch_reg2;
+            }
         }
-        phys_src2 = BE(c)->scratch_reg1;
+        if (BE(c)->emit_load_asm) {
+            BE(c)->emit_load_asm(c, cnt_reg, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off), out);
+        }
+        phys_src2 = cnt_reg;
     }
     if (op64) {
         phys_dst = g64_dlo; phys_src1 = g64_s1lo;

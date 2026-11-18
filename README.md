@@ -346,7 +346,7 @@ Current status (last full verification 2026-11-18, Sprints 170–186; counts dri
 | **`zero_san` flag-ON sweep** (`make test-san`: `san_ok_*` clean + `san_trap_*` SIGILL at `-O0..-O3`, JIT + AOT, cross-ISA qemu smoke on **both** raw-AOT and `-S`+cross-assembler paths) | ✅ Pass | 720 ok / 0 FAIL (174 cross-ISA runs, both paths × all 4 ISAs) |
 | **Multi-file driver** (`make test-driver`, multi-TU JIT/AOT + per-input `-c`/`-S`) | ✅ Pass | 40/40 |
 | **Own linker & archiver** (`make test-linker`, `--zerocc-link` + `--ar` across all ISAs + gcc differential) | ✅ Pass | 49/49 |
-| **Cross-ISA raw-emitter QEMU gate** (`make test-isa-qemu`, vs static-musl reference) | ✅ Pass | 63/63 (all 4 ISAs) |
+| **Cross-ISA raw-emitter QEMU gate** (`make test-isa-qemu`, vs static-musl reference) | ✅ Pass | 78/78 (all 5 ISAs: x86-64, aarch64, aarch32, riscv64, riscv32) |
 | **Cross-ISA `__int128` raw-emitter QEMU gate** (`make test-isa128`, vs static-musl reference) | ✅ Pass | 144/144 (all 3 ISAs × 6 tests × 4 levels × 2 paths) |
 | **Cross-ISA dynamic loading gate** (`make test-dlfcn-isa`, vs static-musl reference across all 4 ISAs) | ✅ Pass | 4/4 (x86-64 native, AArch64, RISC-V 64, RISC-V 32 under QEMU) |
 | **GCC c-torture conformance gate** (`make test-torture`, ratcheted baseline, gcc-15 reference) | ✅ Pass | 3,781 PASS / 3,940 corpus (0 MISCOMPILE / 0 REJECT; SKIP-SUPPORT 87, SKIP-C89 33, SKIP-REFSEM 7, SKIP-TARGET: arm 2, ia64 1, mips 4, powerpc 2, s390x 1, windows 1, float16/bfloat16/float128x runtime 3, SKIP-UB/PTR/BOGUS 3, EXPECTED-REJECT 4, NO-REF 1, REF-BUG 11) |

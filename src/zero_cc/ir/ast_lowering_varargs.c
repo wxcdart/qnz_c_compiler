@@ -243,6 +243,8 @@ int lower_expr_va_arg(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
         if (c->isa == ISA_AARCH32) {
             int result_temp = zc_alloc_temp(c);
             int ap_addr = zero_cc_lower_lvalue_addr(c, arena, node->left);
+            bool is_8byte = (is_fp && t_t->kind == TYPE_KIND_DOUBLE) ||
+                            (t_t && type_size(t_t) == 8);
             if (ap_addr != TEMP_NONE) {
                 int off_gp_end = 4;
                 int off_ovf = 16;
@@ -260,9 +262,6 @@ int lower_expr_va_arg(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
 
                 uint16_t ovf_label = c->ir_next_label++;
                 uint16_t end_label = c->ir_next_label++;
-
-                bool is_8byte = (is_fp && t_t->kind == TYPE_KIND_DOUBLE) ||
-                                (t_t && type_size(t_t) == 8);
 
                 if (is_8byte) {
                     /* Double or 64-bit int: 8-byte aligned, 8 bytes size.
@@ -386,6 +385,7 @@ int lower_expr_va_arg(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                 }
             }
             c->last_expr_is_float = is_fp ? 1 : 0;
+            c->last_expr_is_64 = (is_8byte && !is_fp) ? 1 : 0;
             return result_temp;
         }
         bool use_fp_stream = is_fp && !zc_target_traits(c)->vararg_floats_in_gpr;

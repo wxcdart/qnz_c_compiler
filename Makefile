@@ -33,7 +33,7 @@ TEST_BIN_DIR ?= $(BUILD_DIR)/test
 # corpus: san_trap_* tests DIE with SIGILL by design, so they cannot run
 # through the host-gcc suite; tools/verify/san_sweep.py (make test-san) drives them
 # with zerocc directly at -O0..-O3 in JIT + AOT.
-TEST_SRCS = $(filter-out test/diag/% test/driver/% test/linker/% test/san/% test/abi_interop/% test/preproc/% test/jit/builtin_apply.c test/jit/unroll_nonlocal_goto.c,$(wildcard test/*/*.c))
+TEST_SRCS = $(filter-out test/diag/% test/driver/% test/linker/% test/baremetal/% test/san/% test/abi_interop/% test/preproc/% test/jit/builtin_apply.c test/jit/unroll_nonlocal_goto.c,$(wildcard test/*/*.c))
 TESTS = $(patsubst test/%.c,$(TEST_BIN_DIR)/%,$(TEST_SRCS))
 
 # Category-scoped test lists (Fix stale-build Root Cause 3: avoid relinking

@@ -27,7 +27,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 ARCH=""; CCBIN=""; EXTRA=""; HOST=""; PREFIX_ROOT="$REPO_ROOT/third_party/vendor/musl-cross"; BINDIR="$HOME/.local/bin"
 while [ $# -gt 0 ]; do case "$1" in

@@ -47,6 +47,8 @@ ISAS = {
                     setup="--arch x86_64 --ccbin gcc-15 --host x86_64-linux-musl"),
     "aarch64": dict(target="aarch64", ref="musl-gcc-aarch64", qemu="qemu-aarch64-static",
                     setup="--arch aarch64 --ccbin aarch64-linux-gnu-gcc"),
+    "aarch32": dict(target="aarch32", ref="musl-gcc-aarch32", qemu="qemu-arm-static",
+                    setup="--arch aarch32 --ccbin arm-linux-gnueabihf-gcc --host arm-linux-musleabihf"),
     "riscv64": dict(target="riscv64", ref="musl-gcc-riscv64", qemu="qemu-riscv64-static",
                     setup="--arch riscv64 --ccbin riscv64-linux-gnu-gcc"),
     "riscv32": dict(target="riscv32", ref="musl-gcc-riscv32", qemu="qemu-riscv32-static",

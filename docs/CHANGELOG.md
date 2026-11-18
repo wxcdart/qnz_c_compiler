@@ -1,5 +1,27 @@
 # CHANGELOG
 
+## [Sprint 188] - 2026-11-18 - AArch32 Floating-Point & 64-bit Hardening (Scratch Collision Fix, 64-bit va_arg & 5-ISA QEMU Gate)
+
+Resolves runtime execution bugs on AArch32 (ARMv7-A) and achieves full cross-ISA differential parity across all 5 supported architectures:
+- **64-bit Shift Scratch Register Collision Fix (`src/zero_cc/ir/ast_lowering_mc.c`, `src/zero_cc/ir/asm_emitter.c`)**:
+  - Fixed a register collision when shifting a spilled 64-bit pair operand (`s1`) by a spilled 32-bit count (`src2`) under `OP_SHL64`, `OP_SHR64`, and `OP_SAR64`.
+  - On AArch32, `g128_scratch_lo[0]` is `r12` and `scratch_reg1` is also `r12`. Reloading the shift count into `scratch_reg1` directly destroyed the low half of `s1`.
+  - Added collision detection: if `cnt_reg` (`scratch_reg1`) matches either `lo` or `hi` of `p64_s1`, fallback to `g128_scratch_lo[1]` (`r8`) or `scratch_reg2` (`r9`), avoiding register corruption.
+  - Resolves Ryu `d2fixed_buffered_n` formatting and 64-bit shifts on AArch32.
+- **64-bit `va_arg` Promotion Fix (`src/zero_cc/ir/ast_lowering_varargs.c`)**:
+  - Ensured `c->last_expr_is_64` is correctly tagged for 8-byte non-FP expressions in `va_arg(ap, long long)`, preventing enclosing expressions and ternary operators from truncating 64-bit integers to 32 bits on 32-bit architectures.
+- **Cross-ISA Toolchain & Gate Integration (`tools/toolchain/setup_musl_cross.sh`, `tools/verify/isa_qemu_diff.py`, `Makefile`)**:
+  - Fixed path resolution in `setup_musl_cross.sh` and built a static musl-cross toolchain for AArch32 (`musl-gcc-aarch32`).
+  - Integrated `aarch32` into `tools/verify/isa_qemu_diff.py` (`make test-isa-qemu`), running under `qemu-arm-static`.
+  - Achieved **78/78 (100%) passing tests** across all 5 target ISAs (x86-64: 16/16, aarch64: 16/16, aarch32: 15/15, riscv64: 16/16, riscv32: 15/15).
+- **Verification Outcomes**:
+  - `python3 tools/verify/isa_qemu_diff.py`: **78/78 passed** across all 5 ISAs.
+  - `make test`: **233/233 passed**.
+  - `make test-san`: **720 ok, 0 FAIL (174 cross)**.
+  - `python3 tools/verify/style_check.py`: **192 files, 0 error(s), 0 warning(s)**.
+
+---
+
 ## [Sprint 187] - 2026-11-18 - Embedded Baremetal CPU Target Support (Linker Scripts, LMA/VMA Separation & Freestanding Mode)
 
 Implements embedded baremetal CPU targeting across all supported ISAs (x86-64, aarch64, aarch32, riscv32, riscv64):

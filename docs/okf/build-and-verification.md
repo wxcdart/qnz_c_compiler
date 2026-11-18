@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 165-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-11-16T00:13:01Z
+timestamp: 2026-11-18T11:07:19Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -352,10 +352,10 @@ default), builds a reference with a **static-musl** cross toolchain
 matching `qemu-*-static`, and diffs stdout + exit code.
 
 **Dependency (required, preflighted):** `qemu-user-static`
-(`qemu-x86_64-static`, `qemu-aarch64-static`, `qemu-riscv64-static`,
+(`qemu-x86_64-static`, `qemu-aarch64-static`, `qemu-arm-static`, `qemu-riscv64-static`,
 `qemu-riscv32-static`) **and** a per-ISA static-musl reference wrapper
-(`musl-gcc-<arch>`) installed by `tools/setup_musl_cross.sh` (which builds static
-musl with the system cross gcc — `aarch64-linux-gnu-gcc`,
+(`musl-gcc-<arch>`) installed by `tools/toolchain/setup_musl_cross.sh` (which builds static
+musl with the system cross gcc — `aarch64-linux-gnu-gcc`, `arm-linux-gnueabihf-gcc`,
 `riscv64-linux-gnu-gcc`, host **`gcc-15`** for x86_64 (Sprint 142 — uniform with the
 c-torture/C23 gates; rebuild with `--ccbin gcc-15`) — and, for riscv32, a small rv32 libgcc shim).
 Since Sprint 157 the script's defaults are machine-relative: the per-arch prefix
@@ -374,7 +374,7 @@ cross reference version is not a constraint.
 **Decision (Sprint 142)**: Bootlin provides prebuilt gcc-15.3 cross toolchains for aarch64/riscv64/riscv32 (glibc + musl), but we defer adoption until the ISA corpora grow C23 test cases. Rationale: the current corpora are C99/C11 + int128/float128 — gcc-13.3 produces correct reference values (both gates 0 mismatches); bootstrapping adds ~1 GB + setup overhead with no immediate benefit. When `test/isa_qemu/` or `test/jit/int128_*.c` gain C23 features (`nullptr`, `true`/`false`, `constexpr`, etc.), that is the trigger to switch the cross references to Bootlin gcc-15 and rebuild the musl wrappers. Documented in AGENTS.md and README prerequisites.
 
 **Reference tracking policy**: we follow the [GCC C status page](https://gcc.gnu.org/projects/c-status.html) for C standard support. The primary reference compiler tracks the **latest stable GCC with complete support for the highest ratified C standard** (currently GCC 15 for C23). When a new C standard is ratified and GCC ships complete support in a stable release, we migrate the differential gates to that version (ratcheting the c-torture baseline). Experimental/pre-release support (e.g., GCC 16's C2y draft support) is **not** used as the primary reference; it may be added as an optional informational probe (`make test-gcc-trunk`) but never replaces the ratified baseline.
-A uniform musl-static reference is used across all 4 ISAs so the differential
+A uniform musl-static reference is used across all 5 ISAs so the differential
 baseline is consistent. The harness lists exactly what is missing if absent and
 prints the `setup_musl_cross.sh` command to build each reference.
 
