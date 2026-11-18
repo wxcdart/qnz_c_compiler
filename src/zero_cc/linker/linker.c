@@ -27,6 +27,7 @@
 
 #include "zero_cc/linker/elf_reader.h"
 #include "zero_cc/linker/ar_reader.h"
+#include "zero_cc/linker/linker_script.h"
 
 #define ZC_MAX_INPUTS 2048
 #define ZC_MAX_SYMS 65536
@@ -96,6 +97,7 @@ typedef struct {
     char name[16];
     bool write, exec, nobits;
     uint64_t vma;
+    uint64_t lma;
     uint64_t file_off;
     uint64_t size;      /* content size written to file (bss: 0) */
     uint64_t memsz;     /* .bss virtual size */
@@ -150,6 +152,9 @@ typedef struct ZcLink {
      * linker-generated _start stub applies them at startup (musl 1.2.6 has
      * no static-PIE self-relocation of its own). */
     bool pie;
+    bool baremetal;
+    ZcLinkScript script;
+    bool has_script;
     ZcRelaDyn *rela_dyn;
     size_t rela_dyn_count, rela_dyn_cap;
     size_t rela_slots;       /* reserved .rela.dyn slots (upper bound) */
@@ -567,13 +572,21 @@ static int layout_sections(ZcLink *L, char *err, size_t errsz) {
      * the front of .text:
      *   xor %rbp,%rbp ; call <target> ; mov %eax,%edi ; mov $60,%eax ; syscall
      * <target> is main, or zero_rt's zeroc_main_wrapper when that archive
-     * was linked (call offset patched in emit_exec once the vma is final). */
+     * was linked (call offset patched in emit_exec once the vma is final).
+     * In baremetal mode with a reset handler or custom entry, no Linux stub is needed. */
     bool have_start = false;
     for (size_t i = 0; i < L->sym_count; i++) {
-        if (strcmp(L->syms[i].name, "_start") == 0 &&
-            L->syms[i].obj >= 0) have_start = true;
+        if (L->syms[i].obj >= 0) {
+            if (strcmp(L->syms[i].name, "_start") == 0 ||
+                strcmp(L->syms[i].name, "Reset_Handler") == 0 ||
+                (L->has_script && L->script.has_entry &&
+                 strcmp(L->syms[i].name, L->script.entry) == 0)) {
+                have_start = true;
+                break;
+            }
+        }
     }
-    L->stub_at_front = !have_start;
+    L->stub_at_front = !have_start && !L->baremetal;
 
     for (int oi = 0; oi < L->obj_count; oi++) {
         for (int si = 0; si < L->objs[oi]->shnum; si++) {
@@ -683,35 +696,106 @@ static int layout_sections(ZcLink *L, char *err, size_t errsz) {
         }
     }
 
-    /* VMAs: .text at the per-machine base (base 0 for static PIE); .rodata
-     * packed at its max alignment after it; .data and .bss page-aligned (each may
-     * anchor the RW PT_LOAD segment), after the .rela.dyn region in PIE. */
-    const TargetLinkerOps *lops = zero_cc_get_linker_ops(L->machine);
-    uint64_t v = (L->pie && L->machine == EM_X86_64) ? 0 :
-                 (lops ? lops->default_text_base : ZC_TEXT_BASE);
-    for (int i = 0; i < 3; i++) {
-        if (L->outsec[i].cursor == 0) continue;
-        uint64_t al = L->outsec[i].max_align;
-        if (i == 0 && al < 16) al = 16;
-        if (i == 2 && al < ZC_PAGE) al = ZC_PAGE;
-        if (al < 8) al = 8;
-        if (i == 2 && L->pie && L->rela_dyn_size > 0)
-            v = align_up(v, 8) + L->rela_dyn_size;
-        v = align_up(v, al);
-        L->outsec[i].vma = v;
-        L->outsec[i].size = L->outsec[i].cursor;
-        v = L->outsec[i].vma + L->outsec[i].cursor;
-    }
-    if (L->pie && L->rela_dyn_size > 0 && L->outsec[2].cursor == 0) {
-        /* No .data: the .bss (if any) must still clear the rela region. */
-        v = L->rela_dyn_vma + L->rela_dyn_size;
-    }
-    if (L->have_bss) {
-        uint64_t al = (L->outsec[2].cursor > 0) ? L->outsec[3].max_align : ZC_PAGE;
-        if (al < 8) al = 8;
-        v = align_up(v, al);
-        L->outsec[3].vma = v;
+    /* VMAs & LMAs:
+     * When a linker script with explicit FLASH and RAM regions is present,
+     * lay out .text and .rodata in FLASH (LMA == VMA), .data in RAM (VMA)
+     * with load image in FLASH (LMA), and .bss in RAM (VMA, NOBITS).
+     * Otherwise, apply conventional static layout (base 0 for static PIE). */
+    if (L->has_script && L->script.has_flash && L->script.has_ram) {
+        uint64_t flash_base = L->script.flash.origin;
+        uint64_t ram_base = L->script.ram.origin;
+
+        /* .text in Flash */
+        L->outsec[0].vma = flash_base;
+        L->outsec[0].lma = flash_base;
+        L->outsec[0].size = L->outsec[0].cursor;
+        uint64_t flash_curr = flash_base + L->outsec[0].size;
+
+        /* .rodata packed in Flash */
+        if (L->outsec[1].cursor > 0) {
+            uint64_t al = L->outsec[1].max_align;
+            if (al < 8) al = 8;
+            flash_curr = align_up(flash_curr, al);
+            L->outsec[1].vma = flash_curr;
+            L->outsec[1].lma = flash_curr;
+            L->outsec[1].size = L->outsec[1].cursor;
+            flash_curr += L->outsec[1].size;
+        } else {
+            L->outsec[1].vma = flash_curr;
+            L->outsec[1].lma = flash_curr;
+            L->outsec[1].size = 0;
+        }
+
+        /* .data in RAM (VMA) loaded from Flash (LMA) */
+        uint64_t ram_curr = ram_base;
+        if (L->outsec[2].cursor > 0) {
+            uint64_t al = L->outsec[2].max_align;
+            if (al < 8) al = 8;
+            ram_curr = align_up(ram_curr, al);
+            flash_curr = align_up(flash_curr, al);
+            L->outsec[2].vma = ram_curr;
+            L->outsec[2].lma = flash_curr;
+            L->outsec[2].size = L->outsec[2].cursor;
+            ram_curr += L->outsec[2].size;
+            flash_curr += L->outsec[2].size;
+        } else {
+            L->outsec[2].vma = ram_curr;
+            L->outsec[2].lma = flash_curr;
+            L->outsec[2].size = 0;
+        }
+
+        /* .bss in RAM (NOBITS) */
+        uint64_t bss_al = L->outsec[3].max_align;
+        if (bss_al < 8) bss_al = 8;
+        ram_curr = align_up(ram_curr, bss_al);
+        L->outsec[3].vma = ram_curr;
+        L->outsec[3].lma = 0;
         L->outsec[3].size = 0;
+        if (L->have_bss) {
+            ram_curr += L->outsec[3].memsz;
+        }
+
+        /* Capacity checks */
+        if (flash_curr > L->script.flash.origin + L->script.flash.length) {
+            snprintf(err, errsz, "region FLASH overflowed by %llu bytes",
+                     (unsigned long long)(flash_curr - (L->script.flash.origin + L->script.flash.length)));
+            return -1;
+        }
+        if (ram_curr > L->script.ram.origin + L->script.ram.length) {
+            snprintf(err, errsz, "region RAM overflowed by %llu bytes",
+                     (unsigned long long)(ram_curr - (L->script.ram.origin + L->script.ram.length)));
+            return -1;
+        }
+    } else {
+        const TargetLinkerOps *lops = zero_cc_get_linker_ops(L->machine);
+        uint64_t v = (L->pie && L->machine == EM_X86_64) ? 0 :
+                     (lops ? lops->default_text_base : ZC_TEXT_BASE);
+        for (int i = 0; i < 3; i++) {
+            if (L->outsec[i].cursor == 0) continue;
+            uint64_t al = L->outsec[i].max_align;
+            if (i == 0 && al < 16) al = 16;
+            if (i == 2 && al < ZC_PAGE) al = ZC_PAGE;
+            if (al < 8) al = 8;
+            if (i == 2 && L->pie && L->rela_dyn_size > 0)
+                v = align_up(v, 8) + L->rela_dyn_size;
+            v = align_up(v, al);
+            L->outsec[i].vma = v;
+            L->outsec[i].lma = v;
+            L->outsec[i].size = L->outsec[i].cursor;
+            v = L->outsec[i].vma + L->outsec[i].cursor;
+        }
+        if (L->pie && L->rela_dyn_size > 0 && L->outsec[2].cursor == 0) {
+            /* No .data: the .bss (if any) must still clear the rela region. */
+            v = L->rela_dyn_vma + L->rela_dyn_size;
+        }
+        if (L->have_bss) {
+            uint64_t al = (L->outsec[2].cursor > 0) ? L->outsec[3].max_align : ZC_PAGE;
+            if (al < 8) al = 8;
+            v = align_up(v, al);
+            L->outsec[3].vma = v;
+            L->outsec[3].lma = v;
+            L->outsec[3].size = 0;
+        }
     }
 
     /* Finalize symbol VMAs. */
@@ -728,7 +812,9 @@ static int layout_sections(ZcLink *L, char *err, size_t errsz) {
             ZcOutSec *d = &L->outsec[2];
             if (d->vma == 0) {
                 /* No .data input at all: give the section a vma. */
-                d->vma = align_up(v, ZC_PAGE);
+                d->vma = (L->has_script && L->script.has_ram)
+                             ? L->script.ram.origin
+                             : align_up(L->outsec[1].vma + L->outsec[1].size, ZC_PAGE);
             }
             d->cursor = align_up(d->cursor, 8);
             ls->vma = d->vma + d->cursor;
@@ -762,24 +848,54 @@ static int layout_sections(ZcLink *L, char *err, size_t errsz) {
     }
 
     /* Define special linker boundary symbols if referenced. */
-    static const struct { const char *name; int sec; bool end; } specials[] = {
-        {"_end", 3, true},
-        {"__bss_start", 3, false},
-        {"_edata", 2, true},
-        {"__TMC_END__", 2, true},
-        {"_GLOBAL_OFFSET_TABLE_", 2, false},
-        {"__dso_handle", 2, false},
+    static const struct { const char *name; int sec; bool end; bool lma; } specials[] = {
+        {"_end", 3, true, false},
+        {"__bss_start", 3, false, false},
+        {"__bss_start__", 3, false, false},
+        {"_sbss", 3, false, false},
+        {"_ebss", 3, true, false},
+        {"__bss_end__", 3, true, false},
+        {"_edata", 2, true, false},
+        {"_sdata", 2, false, false},
+        {"__data_start", 2, false, false},
+        {"__data_start__", 2, false, false},
+        {"_sidata", 2, false, true},
+        {"__data_load", 2, false, true},
+        {"__data_load__", 2, false, true},
+        {"_etext", 0, true, false},
+        {"__etext", 0, true, false},
+        {"__TMC_END__", 2, true, false},
+        {"_GLOBAL_OFFSET_TABLE_", 2, false, false},
+        {"__dso_handle", 2, false, false},
     };
     for (size_t si = 0; si < sizeof(specials) / sizeof(specials[0]); si++) {
-        ZcLinkSym *ls = sym_find(L, specials[si].name);
+        ZcLinkSym *ls = L->baremetal ? sym_get(L, specials[si].name) : sym_find(L, specials[si].name);
         if (ls && ls->obj < 0) {
             int out = specials[si].sec;
-            uint64_t val = L->outsec[out].vma;
+            uint64_t val = specials[si].lma ? L->outsec[out].lma : L->outsec[out].vma;
             if (specials[si].end) {
                 val += (out == 3) ? L->outsec[out].memsz : L->outsec[out].size;
             }
             ls->vma = val;
             ls->obj = 0; /* mark as defined */
+        }
+    }
+
+    /* Stack top symbol */
+    static const char *const stack_syms[] = {"_stack_top", "__stack_top"};
+    for (size_t si = 0; si < sizeof(stack_syms) / sizeof(stack_syms[0]); si++) {
+        ZcLinkSym *ls = L->baremetal ? sym_get(L, stack_syms[si]) : sym_find(L, stack_syms[si]);
+        if (ls && ls->obj < 0) {
+            uint64_t val = 0;
+            if (L->has_script && L->script.has_stack_top) {
+                val = L->script.stack_top;
+            } else if (L->has_script && L->script.has_ram) {
+                val = L->script.ram.origin + L->script.ram.length;
+            } else {
+                val = L->outsec[3].vma + L->outsec[3].memsz + 0x4000;
+            }
+            ls->vma = val;
+            ls->obj = 0;
         }
     }
     return 0;
@@ -1206,9 +1322,13 @@ static int emit_exec(ZcLink *L, const char *out_path, uint64_t entry,
     uint64_t rw_off = 0, rw_vma = 0;
     if (have_rw) {
         rw_vma = data->size > 0 ? data->vma : bss->vma;
-        rw_off = align_up(rx_off + rx_filesz, ZC_PAGE);
-        /* keep p_offset congruent to p_vaddr mod page */
-        rw_off += (rw_vma - rw_off) & (ZC_PAGE - 1);
+        if (L->baremetal) {
+            rw_off = align_up(rx_off + rx_filesz, 8);
+        } else {
+            rw_off = align_up(rx_off + rx_filesz, ZC_PAGE);
+            /* keep p_offset congruent to p_vaddr mod page */
+            rw_off += (rw_vma - rw_off) & (ZC_PAGE - 1);
+        }
         data->file_off = rw_off;
     }
 
@@ -1325,7 +1445,8 @@ static int emit_exec(ZcLink *L, const char *out_path, uint64_t entry,
         put32(&p, (uint32_t)entry); /* e_entry */
         put32(&p, 52);         /* e_phoff */
         put32(&p, (uint32_t)sh_off); /* e_shoff */
-        put32(&p, 0);          /* e_flags */
+        const TargetLinkerOps *lops = zero_cc_get_linker_ops(L->machine);
+        put32(&p, lops ? lops->default_elf_flags : 0); /* e_flags */
         put16(&p, 52);         /* e_ehsize */
         put16(&p, 32);         /* e_phentsize */
         put16(&p, (uint16_t)(have_rx + have_rw)); /* e_phnum */
@@ -1337,26 +1458,33 @@ static int emit_exec(ZcLink *L, const char *out_path, uint64_t entry,
         p = img + 52;
         if (have_rx) {
             put32(&p, PT_LOAD);
-            uint32_t l_off = (uint32_t)((rx_vma >= rx_off) ? 0 : rx_off);
-            uint32_t l_vma = (uint32_t)(rx_vma - (rx_off - l_off));
-            uint32_t l_sz = (uint32_t)(rx_filesz + (rx_off - l_off));
+            uint32_t l_off, l_vma, l_sz;
+            if (L->baremetal) {
+                l_off = (uint32_t)rx_off;
+                l_vma = (uint32_t)rx_vma;
+                l_sz = (uint32_t)rx_filesz;
+            } else {
+                l_off = (uint32_t)((rx_vma >= rx_off) ? 0 : rx_off);
+                l_vma = (uint32_t)(rx_vma - (rx_off - l_off));
+                l_sz = (uint32_t)(rx_filesz + (rx_off - l_off));
+            }
             put32(&p, l_off);
             put32(&p, l_vma);
-            put32(&p, l_vma);
+            put32(&p, (uint32_t)text->lma); /* p_paddr: LMA in Flash */
             put32(&p, l_sz);
             put32(&p, l_sz);
             put32(&p, PF_R | PF_X);
-            put32(&p, ZC_PAGE);
+            put32(&p, (uint32_t)(L->baremetal ? 8 : ZC_PAGE));
         }
         if (have_rw) {
             put32(&p, PT_LOAD);
             put32(&p, (uint32_t)rw_off);
             put32(&p, (uint32_t)rw_vma);
-            put32(&p, (uint32_t)rw_vma);
+            put32(&p, (uint32_t)data->lma); /* p_paddr: LMA in Flash */
             put32(&p, (uint32_t)data->size);
             put32(&p, (uint32_t)(data->size + (L->have_bss ? bss->memsz : 0)));
             put32(&p, PF_R | PF_W);
-            put32(&p, ZC_PAGE);
+            put32(&p, (uint32_t)(L->baremetal ? 8 : ZC_PAGE));
         }
     } else {
         put8(&p, 0x7f); put8(&p, 'E'); put8(&p, 'L'); put8(&p, 'F');
@@ -1388,25 +1516,32 @@ static int emit_exec(ZcLink *L, const char *out_path, uint64_t entry,
              * stub can both execute and write the relocated sites; it
              * mprotects the segment back to RX at the end of relocation. */
             put32(&p, L->pie ? (PF_R | PF_W | PF_X) : (PF_R | PF_X));
-            uint64_t l_off = (rx_vma >= rx_off) ? 0 : rx_off;
-            uint64_t l_vma = rx_vma - (rx_off - l_off);
-            uint64_t l_sz = rx_filesz + (rx_off - l_off);
+            uint64_t l_off, l_vma, l_sz;
+            if (L->baremetal) {
+                l_off = rx_off;
+                l_vma = rx_vma;
+                l_sz = rx_filesz;
+            } else {
+                l_off = (rx_vma >= rx_off) ? 0 : rx_off;
+                l_vma = rx_vma - (rx_off - l_off);
+                l_sz = rx_filesz + (rx_off - l_off);
+            }
             put64(&p, l_off);
             put64(&p, l_vma);
-            put64(&p, l_vma);
+            put64(&p, text->lma); /* p_paddr: LMA in Flash */
             put64(&p, l_sz);
             put64(&p, l_sz);
-            put64(&p, ZC_PAGE);
+            put64(&p, L->baremetal ? 8 : ZC_PAGE);
         }
         if (have_rw) {
             put32(&p, PT_LOAD);
             put32(&p, PF_R | PF_W);
             put64(&p, rw_off);
             put64(&p, rw_vma);
-            put64(&p, rw_vma);
+            put64(&p, data->lma); /* p_paddr: LMA in Flash */
             put64(&p, data->size);
             put64(&p, data->size + (L->have_bss ? bss->memsz : 0));
-            put64(&p, ZC_PAGE);
+            put64(&p, L->baremetal ? 8 : ZC_PAGE);
         }
     }
 
@@ -1567,7 +1702,7 @@ static int emit_exec(ZcLink *L, const char *out_path, uint64_t entry,
                 bool present = (k == 3) ? L->have_bss
                             : (os->size > 0 || (k == 2 && data->vma != 0));
                 if (!present) continue;
-                put32(&sp, shs_off[k]);
+                put32(&sp, 0); /* section symbols have st_name = 0 in ELF */
                 put32(&sp, (uint32_t)os->vma);
                 put32(&sp, (uint32_t)(os->nobits ? os->memsz : os->size));
                 *sp++ = (uint8_t)((0 << 4) | ZC_STT_SECTION);
@@ -1628,7 +1763,7 @@ static int emit_exec(ZcLink *L, const char *out_path, uint64_t entry,
                 bool present = (k == 3) ? L->have_bss
                             : (os->size > 0 || (k == 2 && data->vma != 0));
                 if (!present) continue;
-                put32(&sp, shs_off[k]);
+                put32(&sp, 0); /* section symbols have st_name = 0 in ELF */
                 *sp = (uint8_t)((0 << 4) | ZC_STT_SECTION);
                 sp++;
                 *sp = 0; sp++;
@@ -1808,12 +1943,16 @@ oom:
     return -1;
 }
 
-static int zero_cc_link_exec_impl(const char *out_path,
-                                  const char *const *objects, int object_count,
-                                  const char *const *archives,
-                                  int archive_count,
-                                  const char *entry_wrapper, bool pie,
-                                  char *err, size_t errsz) {
+int zero_cc_link_exec_ext(const char *out_path,
+                          const char *const *objects, int object_count,
+                          const char *const *archives, int archive_count,
+                          const ZcLinkOpts *opts,
+                          char *err, size_t errsz) {
+    bool pie = opts ? opts->pie : false;
+    const char *entry_wrapper = opts ? opts->entry_wrapper : NULL;
+    const char *linker_script = opts ? opts->linker_script : NULL;
+    bool baremetal = opts ? opts->baremetal : false;
+
     if (object_count == 0 && archive_count == 0) {
         snprintf(err, errsz, "no input files to link");
         return -1;
@@ -1825,6 +1964,16 @@ static int zero_cc_link_exec_impl(const char *out_path,
     }
     L->pie = pie;
     L->entry_wrapper = entry_wrapper;
+    L->baremetal = baremetal;
+
+    if (linker_script) {
+        if (zero_cc_parse_linker_script_file(linker_script, &L->script, err, errsz) != 0) {
+            free(L);
+            return -1;
+        }
+        L->has_script = true;
+        L->baremetal = true;
+    }
 
     int rc = -1;
     for (int i = 0; i < object_count; i++) {
@@ -1856,17 +2005,27 @@ static int zero_cc_link_exec_impl(const char *out_path,
     }
     if (apply_relocations(L, err, errsz) != 0) goto done;
 
-    /* Entry: _start if defined (a CRT object), else the linker's _start
+    /* Entry: custom entry if defined by linker script, else _start if defined
+     * (a CRT object), else Reset_Handler (baremetal), else the linker's _start
      * stub, which calls main (ZeroCC programs use the no-argument main). */
     uint64_t entry = 0, main_vma = 0;
-    const ZcLinkSym *start = NULL, *main = NULL;
+    const ZcLinkSym *custom_entry = NULL, *start = NULL, *reset_handler = NULL, *main = NULL;
     for (size_t i = 0; i < L->sym_count; i++) {
         if (L->syms[i].obj < 0) continue;
+        if (L->has_script && L->script.has_entry &&
+            strcmp(L->syms[i].name, L->script.entry) == 0) {
+            custom_entry = &L->syms[i];
+        }
         if (strcmp(L->syms[i].name, "_start") == 0) start = &L->syms[i];
+        if (strcmp(L->syms[i].name, "Reset_Handler") == 0) reset_handler = &L->syms[i];
         if (strcmp(L->syms[i].name, "main") == 0) main = &L->syms[i];
     }
-    if (start) {
+    if (custom_entry) {
+        entry = custom_entry->vma;
+    } else if (start) {
         entry = start->vma;
+    } else if (reset_handler) {
+        entry = reset_handler->vma;
     } else if (L->stub_at_front) {
         if (!main) {
             snprintf(err, errsz,
@@ -1903,7 +2062,7 @@ static int zero_cc_link_exec_impl(const char *out_path,
     } else {
         snprintf(err, errsz,
                  "undefined reference to `main' "
-                 "(provide a main() or a _start CRT object)");
+                 "(provide a main(), Reset_Handler(), or a _start CRT object)");
         goto done;
     }
     if (emit_exec(L, out_path, entry, main_vma, err, errsz) != 0) goto done;
@@ -1928,9 +2087,10 @@ int zero_cc_link_exec(const char *out_path,
                       const char *const *archives, int archive_count,
                       const char *entry_wrapper,
                       char *err, size_t errsz) {
-    return zero_cc_link_exec_impl(out_path, objects, object_count, archives,
-                                  archive_count, entry_wrapper, false, err,
-                                  errsz);
+    ZcLinkOpts opts = {0};
+    opts.entry_wrapper = entry_wrapper;
+    return zero_cc_link_exec_ext(out_path, objects, object_count, archives,
+                                 archive_count, &opts, err, errsz);
 }
 
 int zero_cc_link_exec_pie(const char *out_path,
@@ -1938,7 +2098,9 @@ int zero_cc_link_exec_pie(const char *out_path,
                           const char *const *archives, int archive_count,
                           const char *entry_wrapper,
                           char *err, size_t errsz) {
-    return zero_cc_link_exec_impl(out_path, objects, object_count, archives,
-                                  archive_count, entry_wrapper, true, err,
-                                  errsz);
+    ZcLinkOpts opts = {0};
+    opts.entry_wrapper = entry_wrapper;
+    opts.pie = true;
+    return zero_cc_link_exec_ext(out_path, objects, object_count, archives,
+                                 archive_count, &opts, err, errsz);
 }

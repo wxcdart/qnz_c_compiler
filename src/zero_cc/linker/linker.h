@@ -29,10 +29,18 @@
  * kernel may place the image at an arbitrary base.
  */
 #include <stddef.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+typedef struct {
+    const char *linker_script; /* path to linker script (-T script.ld) */
+    bool        baremetal;     /* baremetal mode (--baremetal / -ffreestanding) */
+    bool        pie;           /* static PIE (x86-64) */
+    const char *entry_wrapper; /* entry wrapper target symbol (or NULL) */
+} ZcLinkOpts;
 
 /* objects/archives: input file paths (.o / .a). Either list may be empty,
  * not both. entry_wrapper: optional _start stub target symbol (e.g. zero_rt's
@@ -51,6 +59,13 @@ int zero_cc_link_exec_pie(const char *out_path,
                           const char *const *objects, int object_count,
                           const char *const *archives, int archive_count,
                           const char *entry_wrapper,
+                          char *err, size_t errsz);
+
+/* Extended link interface supporting linker scripts and baremetal CPU targets. */
+int zero_cc_link_exec_ext(const char *out_path,
+                          const char *const *objects, int object_count,
+                          const char *const *archives, int archive_count,
+                          const ZcLinkOpts *opts,
                           char *err, size_t errsz);
 
 #ifdef __cplusplus

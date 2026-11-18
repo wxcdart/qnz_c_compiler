@@ -155,6 +155,28 @@ static char *preprocess_with_options(const char *source, const CompileOptions *o
         defines.undef[defines.count++] = 0;
     }
 
+    if (opts->baremetal) {
+        defines.defs[defines.count].name = strdup("__linux__");
+        defines.defs[defines.count].value = NULL;
+        defines.undef[defines.count++] = 1;
+
+        defines.defs[defines.count].name = strdup("__unix__");
+        defines.defs[defines.count].value = NULL;
+        defines.undef[defines.count++] = 1;
+
+        defines.defs[defines.count].name = strdup("__STDC_HOSTED__");
+        defines.defs[defines.count].value = strdup("0");
+        defines.undef[defines.count++] = 0;
+
+        defines.defs[defines.count].name = strdup("__BAREMETAL__");
+        defines.defs[defines.count].value = strdup("1");
+        defines.undef[defines.count++] = 0;
+    } else {
+        defines.defs[defines.count].name = strdup("__STDC_HOSTED__");
+        defines.defs[defines.count].value = strdup("1");
+        defines.undef[defines.count++] = 0;
+    }
+
     for (int d = 0; d < opts->macro_opt_count; d++) {
         if (defines.count >= 128) break;
         /* Copy the option string: the caller's CompileOptions must stay
@@ -409,6 +431,11 @@ ZeroCCISA parse_target_arch(const char *target) {
     if (strcmp(target, "aarch32") == 0 || strcmp(target, "arm32") == 0 || strcmp(target, "armv7") == 0) return ISA_AARCH32;
     if (strcmp(target, "riscv64") == 0 || strcmp(target, "riscv") == 0) return ISA_RISCV64;
     if (strcmp(target, "riscv32") == 0) return ISA_RISCV32;
+    if (strstr(target, "aarch64") || strstr(target, "arm64")) return ISA_AARCH64;
+    if (strstr(target, "arm") || strstr(target, "aarch32") || strstr(target, "cortex")) return ISA_AARCH32;
+    if (strstr(target, "riscv32") || strstr(target, "rv32")) return ISA_RISCV32;
+    if (strstr(target, "riscv64") || strstr(target, "rv64") || strstr(target, "riscv")) return ISA_RISCV64;
+    if (strstr(target, "x86_64") || strstr(target, "x86-64")) return ISA_X86_64;
     fprintf(stderr, "Warning: Unknown target architecture '%s', defaulting to x86-64\n", target);
     return ISA_X86_64;
 }
@@ -1693,15 +1720,16 @@ static int compile_and_link(CompileOptions *opts) {
             }
         }
 
-        int lr = opts->zerocc_link_pie
-                     ? zero_cc_link_exec_pie(output, objs_ref, obj_count,
-                                             arch_paths, arch_count,
-                                             entry_wrapper, link_err,
-                                             sizeof link_err)
-                     : zero_cc_link_exec(output, objs_ref, obj_count,
-                                         arch_paths, arch_count,
-                                         entry_wrapper, link_err,
-                                         sizeof link_err);
+        ZcLinkOpts lopts = {0};
+        lopts.linker_script = opts->linker_script;
+        lopts.baremetal = opts->baremetal ? true : false;
+        lopts.entry_wrapper = entry_wrapper;
+        lopts.pie = opts->zerocc_link_pie ? true : false;
+
+        int lr = zero_cc_link_exec_ext(output, objs_ref, obj_count,
+                                       arch_paths, arch_count,
+                                       &lopts, link_err,
+                                       sizeof link_err);
         for (int i = 0; i < obj_count; i++) {
             if (obj_temp[i] && !getenv("ZC_KEEP_OBJ")) unlink(obj_paths[i]);
         }

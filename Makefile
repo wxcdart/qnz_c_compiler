@@ -363,6 +363,11 @@ test-driver: $(ZC_BIN)
 test-linker: $(ZC_BIN)
 	@python3 tools/verify/linker_tests.py
 
+# Embedded Baremetal CPU tests: linker scripts, LMA/VMA separation, boundary symbols,
+# freestanding environment, and capacity overflow checks across all target ISAs.
+test-baremetal: $(ZC_BIN)
+	@python3 tools/verify/baremetal_test.py
+
 # GCC c-torture conformance gate (Sprint 57): runs the vendored gcc.c-torture
 # corpus (third_party/vendor/c-torture) against a gcc -O1 reference and checks
 # against the ratcheting baseline in test/torture/baseline.json.

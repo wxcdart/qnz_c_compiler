@@ -111,7 +111,10 @@ zerocc [options] <source.c> [more.c ...]
   -D<macro>  -U<macro>     Define / undefine a macro
   -include <file>          Force-include a file before the main source
   -run, --run     Run in JIT mode (default)
-  --target <arch> Target architecture (x86-64, aarch64, riscv64, riscv32)
+  --target <arch> Target architecture (x86-64, aarch64, aarch32, riscv64, riscv32)
+  --baremetal     Baremetal / embedded CPU target mode
+  -ffreestanding  Freestanding execution environment (__STDC_HOSTED__=0, __BAREMETAL__=1)
+  -T <file>       Linker script defining MEMORY regions (FLASH/RAM) and LMA/VMA mapping
   -fsanitize=undefined  Target-side UB traps (signed overflow for +,-,*, ++/--,
                        compound assign; div/rem by zero; shift bounds) across
                        all 4 ISAs at width 4 and 8 (both emitters; Sprints 116–174)

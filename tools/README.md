@@ -32,6 +32,7 @@ All tools are **stdlib-only** (see [`tools/requirements.txt`](./requirements.txt
 | [`diag_battery.py`](./verify/diag_battery.py) | Differential diagnostics vs gcc on `test/diag/*.c` | `python3 tools/verify/diag_battery.py` |
 | [`driver_tests.py`](./verify/driver_tests.py) | Multi-file driver tests (JIT, AOT, duplicate-def, missing-main) | `python3 tools/verify/driver_tests.py` |
 | [`linker_tests.py`](./verify/linker_tests.py) | Own-linker (T2) differential battery | `python3 tools/verify/linker_tests.py` |
+| [`baremetal_test.py`](./verify/baremetal_test.py) | Embedded baremetal CPU verification gate (linker scripts, LMA/VMA, boundary symbols) | `python3 tools/verify/baremetal_test.py` / `make test-baremetal` |
 | [`abi_interop.py`](./verify/abi_interop.py) | External ABI interop: zerocc.o <-> gcc.o linking | `python3 tools/verify/abi_interop.py` |
 | [`asm_diff.py`](./verify/asm_diff.py) | Inline-assembly Phase 1 differential gate (`-S` text path) | `python3 tools/verify/asm_diff.py` |
 | [`cfg_verifier.py`](./verify/cfg_verifier.py) | CFG layer verification vs independent Python recomputation | `python3 tools/verify/cfg_verifier.py --verify-all` |

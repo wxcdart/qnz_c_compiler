@@ -281,6 +281,12 @@ python3 tools/verify/prologue_epilogue_verifier.py
 # test/linker/pie_test.c (built/run by the normal suite, see own-linker.md).
 make test-linker
 
+# Embedded Baremetal CPU gate: verifies linker script (-T) parsing, LMA/VMA
+# separation, boundary symbols (_sidata, _sdata, _edata, _sbss, _ebss, _stack_top),
+# freestanding environment (__STDC_HOSTED__=0, __BAREMETAL__=1), and capacity
+# overflow reporting across all target ISAs (x86-64, aarch64, aarch32, riscv32, riscv64).
+make test-baremetal
+
 # C style/convention checker (ruff-style; codifies docs/coding_style.md):
 # include conventions, tab-free indentation, EOF newline, header guards,
 # <module>_<action> public-function prefix. Errors gate, warnings report.

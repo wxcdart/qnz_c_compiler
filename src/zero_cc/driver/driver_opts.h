@@ -51,6 +51,8 @@ typedef struct {
     const char *dep_file;   /* -MF: dependency output file */
     const char *dep_target; /* -MT: target name in dependency file */
     int stack_protector;    /* -fstack-protector[-all|-strong]: 0=off, 1=basic, 2=all, 3=strong */
+    int baremetal;          /* --baremetal / -ffreestanding */
+    const char *linker_script; /* -T <file> */
 } CompileOptions;
 
 static void print_usage(const char *prog) {
@@ -86,6 +88,9 @@ static void print_usage(const char *prog) {
     fprintf(stderr, "  --version       Print version\n");
     fprintf(stderr, "  -h, --help      Show this help\n");
     fprintf(stderr, "  --target <arch> Target architecture (x86-64, aarch64, aarch32, riscv64, riscv32)\n");
+    fprintf(stderr, "  --baremetal     Baremetal / embedded CPU target mode\n");
+    fprintf(stderr, "  -ffreestanding  Freestanding execution environment (__STDC_HOSTED__=0)\n");
+    fprintf(stderr, "  -T <file>       Use specified linker script for section layout and regions\n");
     fprintf(stderr, "  --zerocc-link  With -o: link with ZeroCC's own linker (T2; all 4 target ISAs)\n");
     fprintf(stderr, "  --ar [options]  Archive tool (create/update static archive, e.g. --ar rcs lib.a obj...)\n");
     fprintf(stderr, "  --zerocc-link-pie  Static-PIE (ET_DYN, self-relocating _start) variant of --zerocc-link (x86-64)\n");
@@ -230,6 +235,31 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
         }
         else if (strcmp(arg, "--target") == 0 && i + 1 < argc) {
             opts->target_arch = argv[++i];
+            if (strstr(opts->target_arch, "-none-") ||
+                strstr(opts->target_arch, "-elf") ||
+                strstr(opts->target_arch, "-baremetal")) {
+                opts->baremetal = 1;
+                opts->no_zerocc_rt = 1;
+            }
+        }
+        else if (strcmp(arg, "--baremetal") == 0 || strcmp(arg, "-ffreestanding") == 0) {
+            opts->baremetal = 1;
+            opts->no_zerocc_rt = 1;
+        }
+        else if (strcmp(arg, "-nostdlib") == 0 || strcmp(arg, "-nodefaultlibs") == 0) {
+            opts->no_zerocc_rt = 1;
+        }
+        else if (strcmp(arg, "-T") == 0 && i + 1 < argc) {
+            opts->linker_script = argv[++i];
+            opts->baremetal = 1;
+            opts->zerocc_link = 1;
+            opts->no_zerocc_rt = 1;
+        }
+        else if (strncmp(arg, "-T", 2) == 0 && arg[2]) {
+            opts->linker_script = arg + 2;
+            opts->baremetal = 1;
+            opts->zerocc_link = 1;
+            opts->no_zerocc_rt = 1;
         }
         else if (strcmp(arg, "--zerocc-link") == 0) {
             opts->zerocc_link = 1;

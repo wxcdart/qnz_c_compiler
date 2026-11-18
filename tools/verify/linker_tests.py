@@ -384,7 +384,7 @@ def case_thread_run(name, src_file):
             if rc != 0:
                 check(f"{name}_riscv32", False, f"link failed: {err.strip()}")
             else:
-                p = subprocess.run([qemu_rv32, exe_rv32], capture_output=True, text=True, timeout=30)
+                p = subprocess.run([qemu_rv32, exe_rv32], capture_output=True, text=True, errors="replace", timeout=30)
                 check(f"{name}_riscv32", p.returncode == 0, f"rc={p.returncode}")
 
 

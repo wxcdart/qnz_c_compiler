@@ -214,6 +214,30 @@ static inline int linker_reloc_riscv(ZcLink *L, uint8_t *site, uint32_t type,
         nw = (w & 0xFFFu) | patch;
         break;
     }
+    case 45: /* R_RISCV_RVC_JUMP (c.j) */
+    {
+        int64_t d = S + A - (int64_t)P;
+        if ((d & 1) != 0 || d < -(1LL << 11) || d >= (1LL << 11)) {
+            snprintf(err, errsz,
+                     "R_RISCV_RVC_JUMP out of range for `%s' at 0x%lx in %s",
+                     sym_name, (unsigned long)P, obj_path);
+            return -1;
+        }
+        uint32_t u = (uint32_t)d & 0xFFFu;
+        uint16_t w16 = (uint16_t)site[0] | ((uint16_t)site[1] << 8);
+        uint16_t patch = (((u >> 11) & 1) << 12) |
+                         (((u >> 4)  & 1) << 11) |
+                         (((u >> 8)  & 3) << 9)  |
+                         (((u >> 10) & 1) << 8)  |
+                         (((u >> 6)  & 1) << 7)  |
+                         (((u >> 7)  & 1) << 6)  |
+                         (((u >> 1)  & 7) << 3)  |
+                         (((u >> 5)  & 1) << 2);
+        w16 = (w16 & ~0x1FFCu) | patch;
+        site[0] = (uint8_t)w16;
+        site[1] = (uint8_t)(w16 >> 8);
+        return 0;
+    }
     case 18: /* R_RISCV_CALL */
     case 19: /* R_RISCV_CALL_PLT */
     {
