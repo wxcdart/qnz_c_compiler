@@ -1134,16 +1134,36 @@ static void riscv_emit_vla_alloc_asm(ZeroCCCompiler *c, int dst, int size, FILE 
 static void riscv_emit_vload_asm(ZeroCCCompiler *c, int dst, int base, int32_t offset, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *base_name = BE(c)->get_hw_reg_name(base);
+    const char *addr_name = base_name;
+    if (offset != 0) {
+        if (offset >= -2048 && offset <= 2047) {
+            fprintf(out, "\taddi\tt5, %s, %d\n", base_name, (int)offset);
+        } else {
+            fprintf(out, "\tli\tt5, %d\n", (int)offset);
+            fprintf(out, "\tadd\tt5, %s, t5\n", base_name);
+        }
+        addr_name = "t5";
+    }
     fprintf(out, "\tvsetivli\tzero, 4, e32, m1, ta, ma\n");
-    fprintf(out, "\tvle32.v\t%s, %d(%s)\n", dst_name, offset, base_name);
+    fprintf(out, "\tvle32.v\t%s, (%s)\n", dst_name, addr_name);
 }
 
 /* Vector store - vse32.v */
 static void riscv_emit_vstore_asm(ZeroCCCompiler *c, int src, int base, int32_t offset, FILE *out) {
     const char *src_name = BE(c)->get_vec_reg_name(src);
     const char *base_name = BE(c)->get_hw_reg_name(base);
+    const char *addr_name = base_name;
+    if (offset != 0) {
+        if (offset >= -2048 && offset <= 2047) {
+            fprintf(out, "\taddi\tt5, %s, %d\n", base_name, (int)offset);
+        } else {
+            fprintf(out, "\tli\tt5, %d\n", (int)offset);
+            fprintf(out, "\tadd\tt5, %s, t5\n", base_name);
+        }
+        addr_name = "t5";
+    }
     fprintf(out, "\tvsetivli\tzero, 4, e32, m1, ta, ma\n");
-    fprintf(out, "\tvse32.v\t%s, %d(%s)\n", src_name, offset, base_name);
+    fprintf(out, "\tvse32.v\t%s, (%s)\n", src_name, addr_name);
 }
 
 /* Vector scalar single add - fadd.s */

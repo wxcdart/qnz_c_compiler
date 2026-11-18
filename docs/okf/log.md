@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-18T14:03:13Z
+timestamp: 2026-11-18T18:56:04Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1572,3 +1572,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-18 — Updated `own-linker.md`
 - Implement cross-TU dead code stripping (--gc-sections), KEEP directive, and -ffunction-sections/-fdata-sections in own-linker (Sprint 190)
+
+## 2026-11-18 — Updated `isa-backends.md`
+- Sprint 179: Multi-ISA SIMD / Vector Pipeline Enhancements (AArch64 NEON & RVV 1.0 MC emission, vector regalloc decoupling)
+
+## 2026-11-18 — Updated `optimization-passes.md`
+- Sprint 179: Auto-vectorizer induction classification across SEXT/ZEXT and 16-bit temp space mapping

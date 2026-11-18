@@ -610,7 +610,13 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
          * r10/r11 (C8). GPR128 operands are handled above (skipped here). */
         if (spill_src1 >= 0 && !s128_sp && !s164_sp) {
             int32_t slot_off = spill_base_offset + (spill_src1 + 1) * 8;
-            if (regalloc_get_class_for_temp(&c->regalloc, instr->temp_src1) == REG_CLASS_XMM) {
+            RegClass rc = regalloc_get_class_for_temp(&c->regalloc, instr->temp_src1);
+            if (rc == REG_CLASS_VEC) {
+                if (BE(c)->emit_vload) {
+                    BE(c)->emit_vload(c, BE(c)->fp_scratch_reg1, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off));
+                }
+                phys_src1 = BE(c)->fp_scratch_reg1;
+            } else if (rc == REG_CLASS_XMM) {
                 if (BE(c)->emit_load_fp) {
                     BE(c)->emit_load_fp(c, BE(c)->fp_scratch_reg1, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off));
                 }
@@ -624,7 +630,13 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
         }
         if (spill_src2 >= 0 && !s228_sp && !s264_sp && !sh64_cnt_sp) {
             int32_t slot_off = spill_base_offset + (spill_src2 + 1) * 8;
-            if (regalloc_get_class_for_temp(&c->regalloc, instr->temp_src2) == REG_CLASS_XMM) {
+            RegClass rc = regalloc_get_class_for_temp(&c->regalloc, instr->temp_src2);
+            if (rc == REG_CLASS_VEC) {
+                if (BE(c)->emit_vload) {
+                    BE(c)->emit_vload(c, BE(c)->fp_scratch_reg2, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off));
+                }
+                phys_src2 = BE(c)->fp_scratch_reg2;
+            } else if (rc == REG_CLASS_XMM) {
                 if (BE(c)->emit_load_fp) {
                     BE(c)->emit_load_fp(c, BE(c)->fp_scratch_reg2, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off));
                 }
@@ -637,7 +649,8 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
             }
         }
         if (spill_dst >= 0 && !d128_sp && !d64_sp) {
-            if (regalloc_get_class_for_temp(&c->regalloc, instr->temp_dest) == REG_CLASS_XMM) {
+            RegClass rc = regalloc_get_class_for_temp(&c->regalloc, instr->temp_dest);
+            if (rc == REG_CLASS_VEC || rc == REG_CLASS_XMM) {
                 phys_dst = BE(c)->fp_scratch_reg1;
             } else {
                 phys_dst = BE(c)->scratch_reg1;
@@ -2168,6 +2181,10 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 if (BE(c)->emit_store) {
                     BE(c)->emit_store(c, g64_dlo, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off));
                     BE(c)->emit_store(c, g64_dhi, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off + 4));
+                }
+            } else if (regalloc_get_class_for_temp(&c->regalloc, instr->temp_dest) == REG_CLASS_VEC) {
+                if (BE(c)->emit_vstore) {
+                    BE(c)->emit_vstore(c, BE(c)->fp_scratch_reg1, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off));
                 }
             } else if (regalloc_get_class_for_temp(&c->regalloc, instr->temp_dest) == REG_CLASS_XMM) {
                 if (BE(c)->emit_store_fp) {

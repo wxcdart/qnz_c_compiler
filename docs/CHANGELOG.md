@@ -1,5 +1,31 @@
 # CHANGELOG
 
+## [Sprint 191] - 2026-11-18 - Multi-ISA SIMD / Vector Pipeline Enhancements (AArch64 NEON & RVV 1.0 MC Emission, Vector Regalloc Decoupling)
+
+Implements comprehensive Multi-ISA SIMD / Vector pipeline enhancements spanning machine code emission, vector register allocation, text assembly, and auto-vectorization:
+- **AArch64 128-bit NEON Machine Code Emission (`src/zero_cc/isa/aarch64.c`)**:
+  - Implemented authentic 128-bit `ldr q` and `str q` vector load/store machine code emission in `aarch64_emit_vload` and `aarch64_emit_vstore`.
+  - Added support for 12-bit scaled unsigned immediate offsets (`0x3DC00000` / `0x3D800000`), 9-bit unscaled signed immediate offsets (`0x3CC00000` / `0x3C800000`), and scratch register `x16` base-offset calculation for large or unaligned displacements.
+- **RISC-V RVV 1.0 Machine Code & Text Assembly (`src/zero_cc/isa/riscv64.c`, `src/zero_cc/isa/riscv_asm.c`)**:
+  - Implemented authentic RVV 1.0 vector machine code emission with explicit vector configuration: `vsetivli zero, 4, e32, m1, ta, ma` (`0xCD027057`) for 4x32-bit single-precision floats and 32-bit ints, and `vsetivli zero, 2, e64, m1, ta, ma` (`0xCD817057`) for 2x64-bit double-precision floats.
+  - Implemented vector load/store (`vle32.v` / `vse32.v`), vector single/double FP arithmetic (`vfadd.vv`, `vfsub.vv`, `vfmul.vv`, `vfdiv.vv`), vector 32-bit integer arithmetic (`vadd.vv`, `vsub.vv`, `vmul.vv`), and vector moves (`vmv.v.v`).
+  - Fixed RISC-V text assembly emitter (`riscv_asm.c`): accumulated non-zero immediate displacements into scratch `t5` before emitting `vle32.v` / `vse32.v`, conforming to GNU as syntax which rejects immediate offsets on vector memory instructions.
+- **Decoupled Vector Register Allocation (`REG_CLASS_VEC`, `src/zero_cc/ir/regalloc.h`, `src/zero_cc/ir/ast_lowering_mc.c`, `src/zero_cc/ir/asm_emitter.c`)**:
+  - Fully decoupled `REG_CLASS_VEC` from `REG_CLASS_XMM`: vector registers are caller-saved across function calls (`spans_call -> spill`), vector scratches (14/15) are reserved, and 16-byte aligned 2-slot spill slots are allocated (`next_spill_slot += 2`).
+  - Wired up `REG_CLASS_VEC` spill store and reload in machine code lowering (`ast_lowering_mc.c`) and assembly lowering (`asm_emitter.c`) using `emit_vload` / `emit_vstore`.
+  - Disambiguated `ir_opcode_is_simd` (strictly packed 128-bit vector operations) from `ir_opcode_is_float` (scalar FP single/double operations including SSE scalar `*SS` and `*SD`), preventing scalar float spills from clobbering vector registers.
+- **Auto-Vectorizer Enhancements (`src/zero_cc/opt/opt_vectorize.c`)**:
+  - Enhanced induction address classification (`classify_addr_temp`) to trace across `OP_SEXT8/16/32` and `OP_ZEXT8/16/32`, vectorizing standard loops indexed by 32-bit `int` counters (`arr[i]`).
+  - Expanded scalar-to-vector temp mapping checks to the complete 16-bit virtual temporary space (65536 entries), ensuring later functions in multi-function translation units vectorize completely.
+- **Verification Suite & Multi-ISA Tests (`test/jit/simd_multi_isa_test.c`, `Makefile`)**:
+  - Added comprehensive Multi-ISA SIMD test battery `test/jit/simd_multi_isa_test.c` verifying 4x32-bit float, 2x64-bit double, 4x32-bit int, and heavy vector spill/reload across all optimization levels (`-O0..-O3`).
+  - `make test`: **234/234 passed** (0 failed).
+  - `make test-opt`: **190 tests: 132 ok, 0 failed, 58 skipped**.
+  - `make test-isa-qemu`: **80/80 passed across all 5 ISAs** (x86-64, aarch64, aarch32, riscv64, riscv32; 0 mismatches, 0 skips).
+  - `python3 tools/verify/style_check.py`: **193 files, 0 error(s), 0 warning(s)**.
+
+---
+
 ## [Sprint 190] - 2026-11-18 - Cross-TU Dead Code & Data Elimination (`--gc-sections`, `KEEP`, `-ffunction-sections`, `-fdata-sections`)
 
 Implements cross-translation-unit dead code and dead data stripping (`--gc-sections`) in ZeroCC's own static linker:

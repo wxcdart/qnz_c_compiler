@@ -660,23 +660,24 @@ static inline bool ir_opcode_is_float(Opcode op) {
         case OP_VLOADSD:   /* scalar 8-byte load: result is a float temp (XMM pool) */
         case OP_VLOADSS_RAW: /* raw 4-byte float load (ABI boundary, XMM pool) */
         case OP_CVTTSD2SS:   /* double -> single (ABI float boundary) */
+        case OP_VADDSS: case OP_VSUBSS: case OP_VMULSS: case OP_VDIVSS:
+        case OP_VADDSD: case OP_VSUBSD: case OP_VMULSD: case OP_VDIVSD:
+        case OP_VMOVSS: case OP_VMOVSD:
+        case OP_VSTORESS: case OP_VSTORESD: case OP_VSTORESS_RAW:
+        case OP_VCVT_SI2SS: case OP_VCVT_SS2SI:
+        case OP_VCVT_SI2SD: case OP_VCVT_SD2SI:
+        case OP_VCMPSS: case OP_VCMPSD:
             return true;
         default:
             return false;
     }
 }
 
-/* Check if opcode is a SIMD operation */
+/* Check if opcode is a SIMD (packed vector) operation */
 static inline bool ir_opcode_is_simd(Opcode op) {
     switch (op) {
-        case OP_VADDSS: case OP_VSUBSS: case OP_VMULSS: case OP_VDIVSS:
-        case OP_VADDSD: case OP_VSUBSD: case OP_VMULSD: case OP_VDIVSD:
-        case OP_VMOV: case OP_VMOVSS: case OP_VMOVSD:
+        case OP_VMOV:
         case OP_VLOAD: case OP_VSTORE:
-        case OP_VSTORESS: case OP_VSTORESD:
-        case OP_VCVT_SI2SS: case OP_VCVT_SS2SI:
-        case OP_VCVT_SI2SD: case OP_VCVT_SD2SI:
-        case OP_VCMPSS: case OP_VCMPSD:
         case OP_VAND: case OP_VOR: case OP_VXOR:
         case OP_VSHUF: case OP_VANDN:
         case OP_VORPS: case OP_VSUBPS: case OP_VMULPS:

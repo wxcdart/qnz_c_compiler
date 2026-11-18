@@ -1273,11 +1273,35 @@ static void aarch64_emit_fp_cvtsi2ss(ZeroCCCompiler *c, int fp_dst, int int_src)
 }
 
 static void aarch64_emit_vload(ZeroCCCompiler *c, int dst, int base, int32_t offset) {
-    aarch64_emit_load_fp(c, dst, base, offset);
+    /* 128-bit vector load (LDR Q / LDUR Q) */
+    if (offset >= 0 && offset <= 65520 && (offset % 16) == 0) {
+        /* Scaled 12-bit unsigned immediate (offset/16) */
+        arm64_emit_u32(c, 0x3DC00000 | (((offset / 16) & 0xFFF) << 10) | ((base & 0x1F) << 5) | (dst & 0x1F));
+    } else if (offset >= -256 && offset <= 255) {
+        /* Unscaled 9-bit signed immediate */
+        uint32_t imm9 = ((uint32_t)offset) & 0x1FF;
+        arm64_emit_u32(c, 0x3CC00000 | (imm9 << 12) | ((base & 0x1F) << 5) | (dst & 0x1F));
+    } else {
+        /* Large or unaligned offset: compute address with scratch x16 */
+        aarch64_emit_mov_imm(c, 16, offset);
+        arm64_emit_u32(c, 0x3CE06800u | (16u << 16) | ((base & 0x1F) << 5) | (dst & 0x1F));
+    }
 }
 
 static void aarch64_emit_vstore(ZeroCCCompiler *c, int src, int base, int32_t offset) {
-    aarch64_emit_store_fp(c, src, base, offset);
+    /* 128-bit vector store (STR Q / STUR Q) */
+    if (offset >= 0 && offset <= 65520 && (offset % 16) == 0) {
+        /* Scaled 12-bit unsigned immediate (offset/16) */
+        arm64_emit_u32(c, 0x3D800000 | (((offset / 16) & 0xFFF) << 10) | ((base & 0x1F) << 5) | (src & 0x1F));
+    } else if (offset >= -256 && offset <= 255) {
+        /* Unscaled 9-bit signed immediate */
+        uint32_t imm9 = ((uint32_t)offset) & 0x1FF;
+        arm64_emit_u32(c, 0x3C800000 | (imm9 << 12) | ((base & 0x1F) << 5) | (src & 0x1F));
+    } else {
+        /* Large or unaligned offset: compute address with scratch x16 */
+        aarch64_emit_mov_imm(c, 16, offset);
+        arm64_emit_u32(c, 0x3CA06800u | (16u << 16) | ((base & 0x1F) << 5) | (src & 0x1F));
+    }
 }
 
 static void aarch64_emit_vaddps(ZeroCCCompiler *c, int dst, int src1, int src2) {

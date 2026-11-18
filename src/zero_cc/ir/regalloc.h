@@ -521,15 +521,18 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
             }
         }
     } else if (interval->reg_class == REG_CLASS_VEC) {
+        /* All vector registers are caller-saved across supported target ABIs */
+        if (interval->spans_call) return -1;
         /* Vector register allocation (ISA-specific count) */
         int vec_count = VEC_COUNT(ra);
         for (int i = 0; i < vec_count; i++) {
             if (!ra->vec_free[i]) continue;
+            /* Reserve scratch registers 14 and 15 across all ISAs */
+            if (i == REGALLOC_FP_SCRATCH1 || i == REGALLOC_FP_SCRATCH2) continue;
             if (regs->vec_aliases_xmm) {
                 /* x86/AArch64: vec i (i<8) is the same physical register
-                 * as xmm i; 14/15 are the FP spill scratch (C8). */
+                 * as xmm i (C8). */
                 if (i < XMM_COUNT && !ra->xmm_free[i]) continue;
-                if (i == REGALLOC_FP_SCRATCH1 || i == REGALLOC_FP_SCRATCH2) continue;
             }
             ra->vec_free[i] = false;
             if (regs->vec_aliases_xmm && i < XMM_COUNT) {
@@ -547,11 +550,12 @@ static void spill_interval(RegAllocator *ra, LiveInterval *interval) __attribute
 static void spill_interval(RegAllocator *ra, LiveInterval *interval) {
     if (!ra || !interval) return;
 
-    /* Vector spill slots are 16-byte aligned */
+    /* Vector spill slots are 16-byte aligned (reserve TWO 8-byte slots) */
     if (interval->reg_class == REG_CLASS_VEC) {
-        /* Align to 16 bytes (4 x 32-bit floats or 2 x 64-bit doubles) */
-        interval->spill_slot = ra->next_vec_spill_slot;
-        ra->next_vec_spill_slot += 16;  /* Each vector spill slot is 16 bytes */
+        /* Align to 16 bytes (two 8-byte slots) */
+        if ((ra->next_spill_slot & 1) != 0) ra->next_spill_slot++;
+        interval->spill_slot = ra->next_spill_slot;
+        ra->next_spill_slot += 2;
     } else if (interval->reg_class == REG_CLASS_GPR128) {
         /* 128-bit integer: reserve TWO 8-byte GPR slots (16 bytes). The
          * backend loads/stores the (lo,hi) pair at offset (slot+1)*8. */

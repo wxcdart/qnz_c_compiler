@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-11-18T12:55:05Z
+timestamp: 2026-11-18T18:56:01Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -197,11 +197,20 @@ When loop vectorization emits packed vector opcodes (`OP_VLOAD`, `OP_VSTORE`, `O
   - Memory moves: `vle32.v v0, 0(a1)` / `vse32.v v0, 0(a0)`.
   - Scalar float operations continue using standard RISC-V FP registers (`fa0`–`fa7`, `ft0`–`ft11`) via `flw`/`fsw`/`fadd.s`.
 
-### Target SIMD Invariants, Regalloc & Codegen Gaps
+### Target SIMD Implementation & Register Allocator Integration (Sprint 179)
 
-- **AArch64 Raw MC Load/Store Discrepancy**: While text ASM emits `ldr q0` / `str q0` (128-bit), the raw machine code backend (`src/zero_cc/isa/aarch64.c`) delegates `emit_vload` / `emit_vstore` to `aarch64_emit_load_fp` (which emits scalar `ldr dX`, 64-bit), causing upper 64-bit truncation during raw AOT / JIT vector memory access.
-- **RISC-V Vector Register File Aliasing**: RISC-V defines a distinct vector register file (`v0`–`v31`). Because ZeroCC only defines `REG_CLASS_GPR` and `REG_CLASS_FP` in `regalloc.h`, vector temps are assigned to `REG_CLASS_FP`, clashing with scalar FP registers. Raw MC (`riscv64.c`) currently stubs `emit_vaddps` to scalar `fadd.s` and `emit_vpaddd` to scalar `add`.
-- **Auto-Vectorizer Pipeline Inversion**: In `opt_pass.c`, `loop_unroll` (priority 68) executes before `auto_vectorize` (priority 70) at `-O3`. Short countable loops (trip count 1..8) are fully unrolled into scalar instructions, destroying the loop structure before the vectorizer can transform them.
+- **AArch64 128-bit NEON Raw MC Emission**: `aarch64_emit_vload` and `aarch64_emit_vstore` in `src/zero_cc/isa/aarch64.c` emit authentic 128-bit `ldr q` (`0x3DC00000` / `0x3CC00000`) and `str q` (`0x3D800000` / `0x3C800000`). Handles scaled 12-bit unsigned offsets (multiples of 16), unscaled 9-bit signed offsets, and scratch register `x16` computation for unaligned or large offsets.
+- **RISC-V RVV 1.0 Raw MC & Text Assembly Emission**:
+  - `src/zero_cc/isa/riscv64.c` implements authentic RVV 1.0 vector machine code emission with explicit vector configuration: `vsetivli zero, 4, e32, m1, ta, ma` (`0xCD027057`) for 4x32-bit single-precision floats and 32-bit integers, and `vsetivli zero, 2, e64, m1, ta, ma` (`0xCD817057`) for 2x64-bit double-precision floats.
+  - Implements `emit_vload`, `emit_vstore`, `emit_vaddps` (`vfadd.vv`), `emit_vsubps` (`vfsub.vv`), `emit_vmulps` (`vfmul.vv`), `emit_vdivps` (`vfdiv.vv`), `emit_vaddpd`, `emit_vsubpd`, `emit_vmulpd`, `emit_vdivpd`, `emit_vpaddd` (`vadd.vv`), `emit_vpsubd` (`vsub.vv`), `emit_vpmulld` (`vmul.vv`), and `emit_vmovaps` (`vmv.v.v`).
+  - Text assembly emission in `src/zero_cc/isa/riscv_asm.c` accumulates non-zero offsets into scratch register `t5` before emitting `vle32.v` / `vse32.v`, conforming to GNU assembler syntax which rejects immediate displacements on vector memory instructions.
+- **Decoupled Vector Register Allocation (`REG_CLASS_VEC`)**:
+  - `REG_CLASS_VEC` is decoupled from scalar FP (`REG_CLASS_XMM`): vector registers are caller-saved across function calls (`spans_call -> spill`), vector scratch registers (14 and 15) are reserved from allocation, and 16-byte aligned 2-slot spill slots are allocated on the stack.
+  - Machine code lowering (`ast_lowering_mc.c`) and text assembly lowering (`asm_emitter.c`) route vector spill reloads and stores through `emit_vload` / `emit_vstore`.
+  - Strict separation between packed vector opcodes (`ir_opcode_is_simd`) and scalar floating-point opcodes (`ir_opcode_is_float`, e.g. `OP_VADDSS`, `OP_VSTORESD`) guarantees scalar float temps never alias or spill as vector registers.
+- **Auto-Vectorizer Induction Classification (`opt_vectorize.c`)**:
+  - Induction address classification supports `OP_SEXT8/16/32` and `OP_ZEXT8/16/32`, enabling vectorization of standard loops indexing arrays with 32-bit `int` variables.
+  - Temp-to-vector mapping checks use the complete 16-bit temp space (65536).
 - **x86-64 Width Cap**: Currently capped at 128-bit SSE/SSE2. 256-bit AVX/AVX2 and 512-bit AVX-512 remain roadmap extensions.
 
 ## Scalar Float / Integer Conversions (`OP_CVTSI2SD` / `OP_CVTTSD2SI`)

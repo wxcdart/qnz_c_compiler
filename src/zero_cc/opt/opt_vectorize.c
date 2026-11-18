@@ -249,6 +249,9 @@ static int classify_addr_temp(ZeroCCCompiler *c, int start, int end, int t, int 
             if (cls2 == 1 && cls1 == 0) { *scale_out = sc2; return 1; }
             return -1;
         }
+        case OP_SEXT8: case OP_SEXT16: case OP_SEXT32:
+        case OP_ZEXT8: case OP_ZEXT16: case OP_ZEXT32:
+            return classify_addr_temp(c, start, end, s1, loop_var, counter_slot, depth + 1, scale_out);
         default:
             return -1;
     }
@@ -278,6 +281,10 @@ static bool value_is_vec_chain(ZeroCCCompiler *c, int start, int end, int t, int
     bool is_load = (d->op == OP_LOAD_32 || d->op == OP_FLOAD ||
                     d->op == OP_VLOADSS || d->op == OP_VLOADSD);
     if (is_load) return true;  /* base of the chain: a loop array load */
+
+    if (d->op == OP_CVTSS2SD || d->op == OP_CVTSD2SS) {
+        return value_is_vec_chain(c, start, end, (int)d->temp_src1, depth + 1);
+    }
 
     bool arith = (d->op == OP_ADD || d->op == OP_SUB || d->op == OP_MUL ||
                   d->op == OP_FADD || d->op == OP_FSUB || d->op == OP_FMUL ||
@@ -807,6 +814,16 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
             continue;
         }
 
+        /* Handle scalar float conversions -> forward mapping */
+        if (instr->op == OP_CVTSS2SD || instr->op == OP_CVTSD2SS) {
+            if (zc_temp_is_user(instr->temp_dest) && instr->temp_dest < 65536 &&
+                zc_temp_is_user(instr->temp_src1) && instr->temp_src1 < 65536) {
+                scalar_to_vec_map[instr->temp_dest] = scalar_to_vec_map[instr->temp_src1];
+                instr->op = OP_NOP;
+                continue;
+            }
+        }
+
         /* Handle scalar arithmetic -> vector arithmetic */
         if (is_vec_arith(instr)) {
             if (!zc_temp_is_user(instr->temp_dest) || instr->temp_dest >= 65536 ||
@@ -860,7 +877,7 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
             }
 
             /* Get vector value from map */
-            int vec_value = (scalar_val_temp >= 0 && scalar_val_temp < 256) ? scalar_to_vec_map[scalar_val_temp] : -1;
+            int vec_value = (scalar_val_temp >= 0 && scalar_val_temp < 65536) ? scalar_to_vec_map[scalar_val_temp] : -1;
 
             /* Skip if value not mapped */
             if (vec_value < 0) {

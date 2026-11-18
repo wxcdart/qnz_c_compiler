@@ -743,10 +743,15 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
                 if (instr->op == OP_CVTSI2SD || instr->op == OP_VCVT_SI2SS || instr->op == OP_VCVT_SI2SD ||
                     instr->op == OP_VLOAD || instr->op == OP_VSTORE ||
                     instr->op == OP_VLOADSS || instr->op == OP_VLOADSD ||
-                    instr->op == OP_VSTORESS || instr->op == OP_VSTORESD) {
+                    instr->op == OP_VSTORESS || instr->op == OP_VSTORESD ||
+                    instr->op == OP_VLOADSS_RAW || instr->op == OP_VSTORESS_RAW) {
                     lra->temp_reg_class[instr->temp_src1] = REG_CLASS_GPR;
                 } else if (instr->op == OP_CVTTSD2SI || instr->op == OP_FSTORE || instr->op == OP_FMOV ||
-                    instr->op == OP_CVTSS2SD || instr->op == OP_CVTSD2SS) {
+                    instr->op == OP_CVTSS2SD || instr->op == OP_CVTSD2SS ||
+                    instr->op == OP_VCVT_SS2SI || instr->op == OP_VCVT_SD2SI ||
+                    instr->op == OP_VADDSS || instr->op == OP_VSUBSS || instr->op == OP_VMULSS || instr->op == OP_VDIVSS ||
+                    instr->op == OP_VADDSD || instr->op == OP_VSUBSD || instr->op == OP_VMULSD || instr->op == OP_VDIVSD ||
+                    instr->op == OP_VMOVSS || instr->op == OP_VMOVSD || instr->op == OP_VCMPSS || instr->op == OP_VCMPSD) {
                     lra->temp_reg_class[instr->temp_src1] = REG_CLASS_XMM;
                 } else if (ir_opcode_is_simd(instr->op)) {
                     /* SIMD instructions consume vector registers for sources */
@@ -779,7 +784,12 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
                     lra->temp_reg_class[instr->temp_src2] = REG_CLASS_GPR; /* base pointer */
                 } else if (instr->op == OP_VSTORE) {
                     lra->temp_reg_class[instr->temp_src2] = REG_CLASS_VEC; /* vector value to store */
-                } else if (instr->op == OP_FADD || instr->op == OP_FSUB || instr->op == OP_FMUL || instr->op == OP_FDIV) {
+                } else if (instr->op == OP_VSTORESS || instr->op == OP_VSTORESD || instr->op == OP_VSTORESS_RAW) {
+                    lra->temp_reg_class[instr->temp_src2] = REG_CLASS_XMM; /* scalar float/double value to store */
+                } else if (instr->op == OP_FADD || instr->op == OP_FSUB || instr->op == OP_FMUL || instr->op == OP_FDIV ||
+                           instr->op == OP_VADDSS || instr->op == OP_VSUBSS || instr->op == OP_VMULSS || instr->op == OP_VDIVSS ||
+                           instr->op == OP_VADDSD || instr->op == OP_VSUBSD || instr->op == OP_VMULSD || instr->op == OP_VDIVSD ||
+                           instr->op == OP_VCMPSS || instr->op == OP_VCMPSD) {
                     lra->temp_reg_class[instr->temp_src2] = REG_CLASS_XMM;
                 } else if (ir_opcode_is_simd(instr->op)) {
                     /* SIMD instructions consume vector registers for sources */
