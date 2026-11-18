@@ -24,6 +24,11 @@ ZeroCC is a lightweight, embeddable C99/C11/C23 compiler (with GNU extensions) w
   - **Standard Embedded Boundary Symbols**: Automatic generation and resolution of `_sidata` (Flash load address of initialized data), `_sdata` / `_edata` (RAM runtime bounds of `.data`), `_sbss` / `_ebss` (RAM zero-init bounds of `.bss`), and `_stack_top` (initial stack pointer).
   - **Freestanding Embedded Environment**: `--baremetal`, `-ffreestanding`, and `-nostdlib` compiler and driver flags; predefined macros `__STDC_HOSTED__=0` and `__BAREMETAL__=1`.
   - Verified across all 5 target ISAs via `make test-baremetal` (`tools/verify/baremetal_test.py`).
+- **Freestanding Microcontroller Runtime & BSP (`zero_rt_baremetal.a`, Sprint 192)**:
+  - **Startup crt0 (`startup.c`)**: Hardware `Reset_Handler` / `_start` entry point copying initialized `.data` from Flash LMA (`_sidata`) to RAM VMA (`_sdata`..`_edata`), zeroing uninitialized `.bss`, invoking `main()`, and halting the CPU on exit.
+  - **Memory-Mapped Serial UART Drivers (`uart.c`, `uart.h`)**: Standard MMIO UART drivers for 16550 (RISC-V base `0x10000000`) and ARM PL011 (ARM/AArch32 base `0x09000000`), plus in-memory circular trace buffer (`UART_RING_BUF_SIZE = 2048`).
+  - **Freestanding OS Layer & Microcontroller Memory Management (`os.c`, `heap.c`)**: Physical bump-pointer allocator (`brk`) bounded between `_ebss` and `_stack_top`, compact integer/fraction float formatting (`bm_fmt_float`) eliminating 191KB of table bloat, and standalone multiword arithmetic helpers.
+  - Automated execution verification under virtual simulation (`make test-baremetal`).
 - **RISC-V 32-bit 64-bit Integer (`long long`) Architecture (All 4 Phases Complete, Sprints 170–174)**:
   - **Phase 1 (Core Arithmetic & Ops)**: 64-bit integer expressions (`long long`, `uint64_t`) lowered into `(lo, hi)` 32-bit GPR pairs (`REG_CLASS_GPR64`) with dedicated IR opcodes (`OP_*64`: ADD, SUB, MUL, AND, OR, XOR, NOT, NEG, SHL, SHR, SAR, CMP, MOV, LOAD, STORE, ZEXT, SEXT, TRUNC, MOV_IMM) across raw binary and `-S` assembly emitters.
   - **Phase 2 (RISC-V ILP32 psABI Calling Conventions)**: Aligned even-odd register pair argument passing (`a0:a1`..`a6:a7`), 8-byte stack alignment, `(a0, a1)` function return values (`OP_MK64`/`OP_HI64`), callee parameter reception, variadic `printf("%lld", ...)`, and strict ILP32 `long` (32-bit) vs `long long` (64-bit) scoping.
@@ -657,12 +662,10 @@ ZeroCC prioritizes standard C99/C11/C23 semantics, small binary size, and zero-d
 
 Tracked in [`docs/ZEROCC_Development_Plan.md`](docs/ZEROCC_Development_Plan.md). Key milestones:
 
-- **Multi-ISA SIMD Vector Architecture & Target Hardening (`simd`)**: NEON 128-bit vector MC loads/stores, proper RVV 1.0 decoupled vector register allocation (`REG_CLASS_VEC`), loop unroll vs vectorizer pipeline reordering, and `<immintrin.h>`/`<arm_neon.h>` vendor intrinsics.
-- **AArch32 JIT & Floating-Point Stabilization**: Complete floating-point `.rodata` relocation fixes and soft-float/libgcc helper extraction in own-linker mode.
-- **Standalone GPU Compiler Repository (`zero_gpu`, PTX & SPIR-V)**: Developed as an independent, standalone project in its own repository (`zero_gpu`), specialized for GPU compute kernels emitting NVIDIA PTX and Khronos SPIR-V, decoupled from ZeroCC's CPU/baremetal pipeline. ZeroCC applications drive GPU acceleration through standard host runtime APIs (`libcuda.so`, `libvulkan.so`, `libOpenCL.so`) via `zero_rt`'s dynamic loader.
+- **SIMD Vendor Intrinsics & Wider Vector Targets**: `<immintrin.h>` (x86 SSE/SSE2) and `<arm_neon.h>` vendor intrinsics headers, loop unrolling vs auto-vectorization pass inversion, and wider vector targets (256-bit AVX2 / AArch64 SVE). *(Core NEON 128-bit MC loads/stores and RVV 1.0 decoupled `REG_CLASS_VEC` regalloc are completed in Sprint 191).*
+- **Cross-Translation-Unit Link-Time Optimization (LTO)**: Whole-program optimization (cross-TU inlining of static functions and inter-procedural constant propagation) across translation units. *(Cross-TU dead code & data elimination `--gc-sections` is completed in Sprint 190).*
 - **Platform Portability: Windows & macOS**: PE/COFF + Win64 ABI (`T3-Win`) and Mach-O (`T4-Mac`) object/executable backends and runtime support.
-- **Embedded RTOS Board Support Package (BSP)**: Formalized `zero_rt/rt_os.h` boundary for microcontroller environments without Linux syscalls (MMIO UART, static memory pools, CPU halt loops).
-- **Cross-Translation-Unit Link-Time Optimization (LTO)**: Whole-program optimization (cross-TU inlining of static functions, whole-program constant propagation, and dead-function stripping) within ZeroCC's own linker.
+- **Standalone GPU Compiler Repository (`zero_gpu`, PTX & SPIR-V)**: Developed as an independent, standalone project in its own repository (`zero_gpu`), specialized for GPU compute kernels emitting NVIDIA PTX and Khronos SPIR-V, decoupled from ZeroCC's CPU/baremetal pipeline. ZeroCC applications drive GPU acceleration through standard host runtime APIs (`libcuda.so`, `libvulkan.so`, `libOpenCL.so`) via `zero_rt`'s dynamic loader.
 
 ## License
 
