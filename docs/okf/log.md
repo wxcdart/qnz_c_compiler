@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-18T20:46:11Z
+timestamp: 2026-11-18T22:36:44Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1587,3 +1587,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-18 — Updated `isa-backends.md`
 - Document zero_gpu as separate project with its own repository
+
+## 2026-11-18 — Updated `host-runtime-and-portability.md`
+- Add Linux-host PE/COFF Win64 ABI and Mach-O verification plan (T3-Win / T4-Mac)

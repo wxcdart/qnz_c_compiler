@@ -643,8 +643,8 @@ ZeroCC prioritizes standard C99/C11/C23 semantics, small binary size, and zero-d
 - **Nested Block Struct Layout Redefinition**: Dynamic layout calculations for tagged `struct`/`union` types redefined with variable-length arrays inside nested block scopes are currently unhandled.
 
 ### Target Architecture & Code Generation
-- **AArch32 (ARMv7-A) Hardening**: Core integer arithmetic, AAPCS calling conventions, VFP/NEON scalar floats, and baremetal ELF32 output (`-T`) are functional; floating-point constant loading into `.rodata` via `R_ARM_MOVW_ABS_NC` / `R_ARM_MOVT_ABS` and own-linker 64-bit integer division helpers are undergoing active stabilization.
-- **SIMD / Vector Scope**: Auto-vectorization targets 128-bit SSE2/SSE4.1 (x86-64), NEON (AArch64), and RVV (RISC-V). Wider vector ISA extensions (AVX/AVX2/AVX-512, ARM SVE/SVE2) are not yet implemented. RISC-V Vector (RVV) register allocation shares the floating-point register class (`REG_CLASS_FP`) rather than an independent vector class.
+- **AArch32 & 32-bit Embedded Gaps**: Core integer/64-bit arithmetic, AAPCS32 calling conventions, VFPv3 scalar floats, `.rodata` `R_ARM_MOVW_ABS_NC`/`R_ARM_MOVT_ABS` relocations, nested-function trampolines, and baremetal ELF32 (`-T`) on AArch32 are verified (`16/16` in `make test-isa-qemu`); open 32-bit/baremetal enhancements are raw-binary variadic register spilling on RV32 and hardware `__attribute__((interrupt))` ISR prologues/epilogues.
+- **SIMD / Vector Scope**: Auto-vectorization targets 128-bit SSE2/SSE4.1 (x86-64), NEON (`ldr q`/`str q`, AArch64), and RVV 1.0 (RISC-V, with decoupled `REG_CLASS_VEC` register allocation). Vendor intrinsics headers (`<immintrin.h>`, `<arm_neon.h>`) and wider vector ISA extensions (256-bit AVX/AVX2/AVX-512, ARM SVE/SVE2) are not yet implemented.
 
 ### Linker & Toolchain
 - **Static Executable Output Only**: ZeroCC's own linker (`--zerocc-link`) produces static `ET_EXEC` ELF binaries. Shared library generation (`-shared`, `ET_DYN`) and linking against dynamic libraries (`.so`) at link time are unsupported. (Runtime dynamic loading is handled via the in-process dynamic loader `dynlink.c`).
