@@ -385,6 +385,13 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
              * `struct st { ... } f (params) { ... }` (the `;` after the
              * body is omitted - the declarator continues the declaration). */
             fn_ret_type = zero_cc_parse_struct_body(c, fn_ret_is_union);
+            if (fn_ret_type.struct_name[0] == '\0') {
+                snprintf(fn_ret_type.struct_name, sizeof(fn_ret_type.struct_name),
+                         "__anon_%s_%zu", fn_ret_is_union ? "union" : "struct",
+                         c->anon_struct_seq++);
+            }
+            zero_cc_register_struct(c, fn_ret_type.struct_name, fn_ret_type);
+            zero_cc_note_members_array(c, fn_ret_type.members);
         } else if (c->tokens[c->token_pos].type == TK_IDENT) {
             char fn_st_name[128];
             snprintf(fn_st_name, sizeof(fn_st_name), "%s", c->tokens[c->token_pos].str_val);
@@ -573,9 +580,10 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
         ZeroCCASTArena darena;
         ZeroCCDeclarator d;
         zero_cc_ast_arena_init(&darena, 256);
-        if (!zero_cc_parse_declarator(c, &darena, ctx, &d, false) || !d.name ||
+        if (!zero_cc_parse_declarator(c, &darena, ctx, &d, true) || !d.name ||
             !zero_cc_declarator_is_function(&d)) {
             zero_cc_ast_arena_free(&darena);
+            zero_cc_declarator_free(&d);
             return;
         }
         snprintf(fn_name, sizeof(fn_name), "%s", d.name);
@@ -587,6 +595,7 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
         if (fn_ret_type.is_func) {
             diag_report_error_at_token(c, "function '%s' cannot return a function", d.name);
             zero_cc_ast_arena_free(&darena);
+            zero_cc_declarator_free(&d);
             return;
         }
         const ZeroCCDeclaratorChunk *fc = zero_cc_declarator_get_function_chunk(&d);
@@ -605,8 +614,12 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
                 zero_cc_ensure_param_cap(ctx, &param_types, &param_names, &param_cap, pi + 1);
                 param_types[pi] = zero_cc_type_int();
                 if (pi < fc->param_count) {
-                    TypeInfo *pti = ast_node_get_typeinfo(c, pn);
-                    if (pti) param_types[pi] = typeinfo_to_zero_cc_type(pti);
+                    if (d.param_zt && d.param_zt_cap > pi) {
+                        param_types[pi] = d.param_zt[pi];
+                    } else {
+                        TypeInfo *pti = ast_node_get_typeinfo(c, pn);
+                        if (pti) param_types[pi] = typeinfo_to_zero_cc_type(pti);
+                    }
                 }
                 param_names[pi] = zero_cc_intern_string(c, (pn->s.str && pn->s.str[0]) ? pn->s.str : "");
                 /* C99 6.7.6.2: a VLA parameter's dimension expression is
@@ -638,6 +651,7 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
             param_count = pi;
         }
         zero_cc_ast_arena_free(&darena);
+        zero_cc_declarator_free(&d);
         /* The prototype registration below keys off first_param_count,
          * which is only synced after the plain-name branch - a
          * parenthesized function declarator (`void (*f(a, b))(void);`)

@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-11-18T20:46:11Z
+timestamp: 2026-11-21T04:35:00Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -106,9 +106,10 @@ ZeroCC manages function stack frames and register preservation symmetrically acr
      - x86-64: prologue `sub rsp, X` (X = `frame_delta + 8`); `frame_delta = X - 8` (i.e. `alloc_frame_size` normally, `-8` for the red-zone leaf case with X = 0). Epilogue `add rsp, X` (emitted by both `emit_epilogue` and `emit_leave`, the latter being the real final-epilogue hook — an FP-less epilogue that only `ret`s leaks the frame and corrupts the caller's stack).
      - AArch64: prologue `str x30, [sp, #-16]!` + `sub sp, sp, #aligned`; `frame_delta = aligned`. Epilogue restores CSRs, `add sp, sp, #aligned`, `ldr x30, [sp], #16`. For `aligned > 4095` the epilogue uses `add x16, sp, x16; mov sp, x16` because SP is not a valid Rd of ADD (extended) (Rd = 31 encodes XZR).
      - RISC-V (64 & 32): prologue `addi sp, sp, -(aligned+16)` + `sd/sw ra, (aligned+8)(sp)`; `frame_delta = aligned`. Epilogue `ld/lw ra`, `addi sp, sp, aligned+16`. The FP is kept (fallback) when `aligned + 16 > 2047` to stay inside the `addi` immediate range.
-   - **C11 `_Alignas(N>16)` realign mode** (Sprint 95 x86-64, Sprint 96 all ISAs): when the max local alignment N > 16 (power of two, ≤ 4096; no VLA/variadic/frame-address), the frame is rounded to N and SP itself is realigned at entry so slots are actually N-aligned. `LoweringState.frame_align` holds N; all four backends emit the realign prefix and use the omit-FP slot geometry (`frame_delta = frame`, base = SP):
-     - x86-64: `push rbp; mov rbp, rsp; and $-N, %rsp; sub $frame, %rsp`; epilogue = plain `leave` (rbp kept at entry-SP-8).
+   - **C11 `_Alignas(N>16)` realign mode** (Sprint 95 x86-64, Sprint 96 MC + x86/AArch64/RISC-V ASM, Sprint 194 AArch32 `-S` & x86-64 signed mask parity): when the max local alignment N > 16 (power of two, ≤ 4096; no VLA/variadic/frame-address), the frame is rounded to N and SP itself is realigned at entry so slots are actually N-aligned. `LoweringState.frame_align` holds N; all 5 target configurations (`x86-64`, `aarch64`, `aarch32`, `riscv64`, `riscv32`) emit the realign prefix and use the omit-FP slot geometry (`frame_delta = frame`, base = SP) across both raw MC and `-S` assembly paths:
+     - x86-64: `push rbp; mov rbp, rsp; and $-N, %rsp; sub $frame, %rsp` (Sprint 194: `x86_64_asm.c` emits signed `$-N` instead of positive `$0x...`, which GNU `as` rejected for 64-bit `andq`); epilogue = plain `leave` (rbp kept at entry-SP-8).
      - AArch64: `stp x29,x30,[sp,#-16]!; mov x29,sp; mov x16,sp; and x16,x16,#-N; sub x16,x29,x16; sub sp,sp,x16; sub sp,sp,#frame` (SP cannot be the destination of a logical op → mask through x16/IP0); epilogue = plain FP-mode `mov sp,x29; ldp x29,x30,[sp],#16`.
+     - AArch32: `push {r11, lr}; add r11, sp, #0; bic sp, sp, #(N-1)` (or `movw`/`movt` scratch `r12` + `bic sp, sp, r12` for large masks), `sub sp, sp, #frame`, CSR/param/variadic accesses rebased via `zero_cc_frame_base_reg`/`zero_cc_frame_disp` with large-offset scratch fallbacks in both MC and `-S` (`aarch32.c`), `OP_MOD` `-S` lowering (`udiv`/`sdiv` + `mul` + `sub`), and `.arch armv7ve` + `.fpu vfpv3-d16` emitted at the top of AArch32 `.s` files (`src/main.c`); epilogue restores CSRs, `mov sp, r11; pop {r11, lr}`.
      - RISC-V (64 & 32): `addi sp,sp,-16; sd/sw ra,8(sp)/4(sp); sd/sw s0,0(sp); mv s0,sp; andi sp,sp,-N (N<4096) or li t0,-N; and sp,sp,t0 (N=4096); sub sp,sp,#frame` (register-sub for frame > 2047); epilogue = plain leave (`addi sp,s0,0; lw/ld ra; lw/ld s0; addi sp,sp,16`). **RV32 note**: the ra save slot is at +4 (not +8) to match `riscv32_emit_leave`.
      - **AArch64 AND-mask encodings**: the realign mask MUST be the 64-bit logical-immediate form (`and x16, x16, #-N`, SF=0, e.g. N=32 → `0x927BEA10`). The 32-bit literal form (`#0xffffffe0`, SF=1) zero-extends into x16 and destroys SP's upper half — QEMU matches real hardware. The `aarch64.c` table carries a comment about this pitfall.
      - **RISC-V N=4096**: `(~(N-1)) & 0xFFF == 0` would emit `andi sp, sp, 0` (zeroes SP) — both MC (`riscv.c`) and ASM (`riscv_asm.c`) fall back to `li t0, -N; and sp, sp, t0` (t0 is free at function entry).
@@ -301,7 +302,7 @@ ZeroCC includes an ARMv7-A backend (`src/zero_cc/isa/aarch32.c`) targeting 32-bi
   - Direct ELF32 object generation (`EM_ARM`, machine code 40) via `elf_writer` with `e_flags = ZC_EF_ARM_EABI_VER5` (`0x05000000u`).
   - In-instruction addend encoding: `aarch32_emit_lea_rip` and `aarch32_emit_load_fp_rodata` encode `rodata_offset` into the lower/upper 16-bit immediate fields of `movw` and `movt` instructions, ensuring standard ELF `REL` format compliance when linked by GNU `ld` or own-linker.
   - Relocations: `R_ARM_CALL` / `R_ARM_JUMP24`, `R_ARM_MOVW_ABS_NC`, `R_ARM_MOVT_ABS`, `R_ARM_ABS32`.
-  - Standalone and raw-binary execution verified across all 15 tests in `test/isa_qemu/` under `qemu-arm-static`.
+  - Standalone, `-S` text assembly, and raw-binary execution verified across all 16 tests in `test/isa_qemu/` under `qemu-arm-static`.
 
 ### Raw Emitter Verification Suite (`tools/`)
 

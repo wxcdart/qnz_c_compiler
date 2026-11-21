@@ -252,7 +252,7 @@ static inline TypeInfo *type_builtin_libc_return(Arena *perm, const char *name) 
         static const char *const dbl_m[] = {
             "fabs", "fmax", "fmin", "floor", "ceil", "round", "trunc",
             "fmod", "pow", "exp", "log", "log2", "log10", "sin", "cos",
-            "tan", "atan2", "sinh", "cosh", "tanh",
+            "tan", "atan2", "sinh", "cosh", "tanh", "copysign", "huge_val",
         };
         static const size_t ndbl = sizeof(dbl_m) / sizeof(dbl_m[0]);
         for (size_t mi = 0; mi < ndbl; mi++) {

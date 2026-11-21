@@ -522,6 +522,16 @@ def run_one(src, level, zero_san, timeout=60):
     return parse_dump(out.stderr)
 
 
+def _is_embedding_test(path):
+    """Return True for host-API embedding tests that link zerocc internals."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            return bool(re.search(r'#include\s+"(zero_cc\.h|zero_cc/)',
+                                  fh.read()))
+    except OSError:
+        return False
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[1])
     ap.add_argument("--verify-all", action="store_true")
@@ -541,7 +551,8 @@ def main():
     elif args.verify_all:
         for d in SWEEP_CORPUS:
             files += [(f, False) for f in
-                      sorted(glob.glob(os.path.join(ROOT, d, "*.c")))]
+                      sorted(glob.glob(os.path.join(ROOT, d, "*.c")))
+                      if not _is_embedding_test(f)]
         files += [(f, True) for f in
                   sorted(glob.glob(os.path.join(ROOT, SAN_DIR, "*.c")))]
     else:

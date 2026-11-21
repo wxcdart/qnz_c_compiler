@@ -1,5 +1,25 @@
 # CHANGELOG
 
+## [Sprint 194] - 2026-11-20 - Known Limitations Burn-Down (`_Alignas(N>16)` Across All 5 ISAs, Inline Aggregate Parameters, Nested `_Generic`)
+
+Closes all three Track 4 known limitations from `README.md` and hardens cross-ISA `-S` assembly emission:
+- **Runtime SP Realignment (`_Alignas(N > 16)`) Across All 5 ISAs**:
+  - Fixed AArch32 `-S` text assembly emitter (`src/zero_cc/isa/aarch32.c`): removed the early return in `aarch32_emit_prologue_asm` that skipped CSR saves on `frame_align > 16`, rebased CSR saves/restores and `param_save_*` / `variadic_spill` offsets via `zero_cc_frame_base_reg`/`zero_cc_frame_disp`, added large-offset scratch fallbacks in `load`/`store`/`load_fp`/`store_fp`/`lea`, implemented `movw`/`movt` immediate fallback, and replaced the `# mod` comment stub in `aarch32_emit_mod_asm` with `udiv`/`sdiv` + `mul` + `sub`.
+  - Updated `src/main.c` to emit `.arch armv7ve` / `.fpu vfpv3-d16` headers on AArch32 `.s` output and select `-march=armv7ve` / `arm-linux-gnueabihf-as`.
+  - Fixed `src/zero_cc/isa/x86_64_asm.c:53` to emit signed `andq $-N, %rsp` instead of positive hex `$0x%x` rejected by GNU `as`.
+  - Verified `test/isa_qemu/14_align.c` across all 5 ISAs (`x86_64`, `aarch64`, `aarch32`, `riscv64`, `riscv32`) in both raw-binary and `--text` (`-S`) paths.
+- **Full Member-Access Semantics on Anonymous & Inline Aggregate Parameters**:
+  - Updated `zero_cc_parse_param_list` (`src/zero_cc/parser/zero_cc_declarator_stack.h`) and `zc_parse_struct_or_union_spec` / `zc_parse_enum_spec` (`src/zero_cc/parser/type_parser.h`) to parse inline anonymous/named `struct`/`union`/`enum` bodies instead of brace-skipping, registering synthetic `__anon_%s_%zu` tags and full member tables in `c->structs`.
+  - Updated `src/zero_cc/parser/decl_struct.c` (lazy `c->tu_ast_arena` init for VLA members and `__anon_%s_%zu` registration for named anonymous-struct fields) and `src/zero_cc/jit/compile.c` (register anonymous inline return structs and enable `want_param_zt` for parenthesized function declarators, scoped in `zero_cc_declarator_stack.h` to `level == d->name_level` so outer return function-pointer suffixes do not overwrite `d->param_zt`).
+  - Added structural member compatibility for anonymous records (`!tag || strncmp(tag, "__anon_", 7) == 0`) in `src/zero_cc/semantic/promote.c`.
+- **Nested Qualification Normalization & Matching in `_Generic`**:
+  - Extended `zero_cc_type_strip_qualifiers` (`src/zero_cc/types/type_funcs.h`) to clear `is_restrict`; implemented C11 6.7.3p9 array-qualifier propagation (`zero_cc_type_normalize_array_qualifiers`) and recursive inner compatibility (`zero_cc_types_compatible_inner`) in `src/zero_cc/types/symbol_mgmt.h`.
+  - Preserved per-star `const`/`volatile`/`restrict`/`_Atomic` qualifiers, inner-to-outer multidimensional array suffixes, trailing base qualifiers, and function-pointer parameter prototypes in `src/zero_cc/parser/type_parser.h` and `src/zero_cc/jit/compile_unit.c`.
+  - Unified `_Generic` association scanning via `zero_cc_generic_select_span` across runtime AST expressions (`src/zero_cc/parser/ast_expr.c`), `typeof`/`sizeof` type queries (`src/zero_cc/parser/type_parser.h`), and constant expressions (`src/zero_cc/parser/const_eval.c`).
+- **Verification**:
+  - Added regression suites [`test/jit/anon_param_member.c`](../test/jit/anon_param_member.c) and [`test/jit/generic_nested_qual.c`](../test/jit/generic_nested_qual.c) (passing under ZeroCC AOT, JIT, `-O0..-O3`, ASan/UBSan, and host GCC).
+  - Verified `make test`, `make test-opt`, `make test-isa-qemu`, `make test-san`, `tools/verify/diag_battery.py`, `tools/verify/type_tag_verifier.py --verify-all`, `tools/verify/style_check.py`, and `make asan`.
+
 ## [Sprint 193] - 2026-11-18 - Standalone GPU Compiler Repository (`zero_gpu`) Boundary Formalization
 
 Formalizes the architectural separation of GPU compilation into an independent, standalone project with its own dedicated repository (`zero_gpu`):

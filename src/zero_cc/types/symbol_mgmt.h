@@ -431,18 +431,45 @@ static inline void* zero_cc_resolve_symbol(const char *name) {
 #endif
 }
 
-/* Type compatibility for _Generic selection (C11 6.5.1.1, 6.2.7).
- * The controlling expression type (first arg) has already undergone lvalue
- * conversion which strips top-level qualifiers. The association type (second
- * arg) retains its qualifiers. Two types are compatible if they match per
- * 6.2.7 - qualifiers must match identically for qualified types. */
-static inline int zero_cc_types_compatible(ZeroCCType a, ZeroCCType b) {
-    /* Strip qualifiers only from controlling type (a), not association (b) */
-    a = zero_cc_type_strip_qualifiers(a);
+/* C11 6.7.3p9: Qualifiers on an array type qualify the element type rather
+ * than the array itself. Propagate any qualifiers from TYPE_ARRAY nodes down
+ * to the element type recursively, while preserving pointer-level qualifiers. */
+static inline ZeroCCType zero_cc_type_normalize_array_qualifiers(ZeroCCType ty) {
+    if (ty.tag == TYPE_ARRAY && ty.base) {
+        ZeroCCType elem = *ty.base;
+        if (ty.is_const) elem.is_const = true;
+        if (ty.is_volatile) elem.is_volatile = true;
+        if (ty.is_restrict) elem.is_restrict = true;
+        if (ty.is_atomic) elem.is_atomic = true;
+        elem = zero_cc_type_normalize_array_qualifiers(elem);
+        ty.base = zero_cc_type_alloc_base(&elem);
+        ty.is_const = false;
+        ty.is_volatile = false;
+        ty.is_restrict = false;
+        ty.is_atomic = false;
+    } else if (ty.tag == TYPE_PTR && ty.base) {
+        ZeroCCType pointee = zero_cc_type_normalize_array_qualifiers(*ty.base);
+        ty.base = zero_cc_type_alloc_base(&pointee);
+    }
+    return ty;
+}
+
+static inline int zc_is_anon_struct_name(const char *s) {
+    return !s || !s[0] || strncmp(s, "__anon_", 7) == 0;
+}
+
+/* Inner compatibility check (C11 6.2.7): requires identical qualifiers at the
+ * current level and recurses into pointee / element / function signature. */
+static inline int zero_cc_types_compatible_inner(ZeroCCType a, ZeroCCType b) {
+    if (a.is_const != b.is_const || a.is_volatile != b.is_volatile ||
+        a.is_restrict != b.is_restrict || a.is_atomic != b.is_atomic) {
+        return 0;
+    }
+    if (a.is_complex != b.is_complex || a.is_long_double != b.is_long_double ||
+        a.is_float128 != b.is_float128 || a.is_func_ptr != b.is_func_ptr) {
+        return 0;
+    }
     if (a.tag != b.tag) return 0;
-    /* For qualified types, qualifiers must match identically (6.2.7p3).
-     * Since a has no top-level qualifiers after stripping, b must also have none. */
-    if (b.is_const || b.is_volatile || b.is_atomic) return 0;
     switch (a.tag) {
         case TYPE_VOID:
         case TYPE_BOOL:
@@ -454,26 +481,85 @@ static inline int zero_cc_types_compatible(ZeroCCType a, ZeroCCType b) {
         case TYPE_UINT32:
         case TYPE_INT64:
         case TYPE_UINT64:
+        case TYPE_INT128:
+        case TYPE_UINT128:
         case TYPE_FLOAT:
         case TYPE_DOUBLE:
         case TYPE_NULLPTR:
             return 1;
+        case TYPE_ENUM:
+            if (a.struct_name[0] && b.struct_name[0]) {
+                return strcmp(a.struct_name, b.struct_name) == 0;
+            }
+            return a.size == b.size;
         case TYPE_PTR:
-            /* Pointer types compatible only if pointee types compatible */
             if (!a.base || !b.base) return 0;
-            return zero_cc_types_compatible(*a.base, *b.base);
+            if (a.is_func_ptr) {
+                if (!zero_cc_types_compatible_inner(*a.base, *b.base)) return 0;
+                if (a.base->fn_has_prototype && b.base->fn_has_prototype) {
+                    if (a.base->fn_param_count != b.base->fn_param_count ||
+                        a.base->fn_is_variadic != b.base->fn_is_variadic) {
+                        return 0;
+                    }
+                    for (size_t i = 0; i < a.base->fn_param_count; i++) {
+                        if (!a.base->fn_params || !b.base->fn_params) return 0;
+                        ZeroCCType pa = zero_cc_type_strip_qualifiers(
+                            zero_cc_type_normalize_array_qualifiers(a.base->fn_params[i]));
+                        ZeroCCType pb = zero_cc_type_strip_qualifiers(
+                            zero_cc_type_normalize_array_qualifiers(b.base->fn_params[i]));
+                        if (!zero_cc_types_compatible_inner(pa, pb)) return 0;
+                    }
+                }
+                return 1;
+            }
+            return zero_cc_types_compatible_inner(*a.base, *b.base);
         case TYPE_ARRAY:
             if (!a.base || !b.base) return 0;
-            return zero_cc_types_compatible(*a.base, *b.base) && a.array_len == b.array_len;
+            if (a.array_len > 0 && b.array_len > 0 && a.array_len != b.array_len) {
+                return 0;
+            }
+            return zero_cc_types_compatible_inner(*a.base, *b.base);
         case TYPE_USER_0:  /* vector: same width + compatible elements */
             if (!a.base || !b.base) return 0;
-            return a.size == b.size && zero_cc_types_compatible(*a.base, *b.base);
+            return a.size == b.size && zero_cc_types_compatible_inner(*a.base, *b.base);
         case TYPE_STRUCT:
         case TYPE_UNION:
-            return strcmp(a.struct_name, b.struct_name) == 0;
+            if (a.struct_name[0] && b.struct_name[0] &&
+                strcmp(a.struct_name, b.struct_name) == 0) {
+                return 1;
+            }
+            if (zc_is_anon_struct_name(a.struct_name) &&
+                zc_is_anon_struct_name(b.struct_name)) {
+                if (a.size != b.size || a.align != b.align ||
+                    a.member_count != b.member_count) {
+                    return 0;
+                }
+                if (a.member_count > 0 && (!a.members || !b.members)) return 0;
+                for (size_t i = 0; i < a.member_count; i++) {
+                    if (a.members[i].offset != b.members[i].offset ||
+                        a.members[i].tag != b.members[i].tag ||
+                        a.members[i].size != b.members[i].size) {
+                        return 0;
+                    }
+                }
+                return 1;
+            }
+            return 0;
         default:
             return 0;
     }
+}
+
+/* Type compatibility for _Generic selection (C11 6.5.1.1, 6.2.7).
+ * The controlling expression type (first arg) has already undergone lvalue
+ * conversion which strips ONLY top-level qualifiers. Nested qualifiers
+ * (pointee qualifiers, array element qualifiers, inner pointer qualifiers)
+ * remain intact and must match identically at every nested level. */
+static inline int zero_cc_types_compatible(ZeroCCType a, ZeroCCType b) {
+    a = zero_cc_type_normalize_array_qualifiers(a);
+    b = zero_cc_type_normalize_array_qualifiers(b);
+    a = zero_cc_type_strip_qualifiers(a);
+    return zero_cc_types_compatible_inner(a, b);
 }
 
 

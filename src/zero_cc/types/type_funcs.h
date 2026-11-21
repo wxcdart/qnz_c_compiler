@@ -299,6 +299,7 @@ static inline ZeroCCType zero_cc_type_array(ZeroCCType *base, ssize_t length) {
 static inline ZeroCCType zero_cc_type_strip_qualifiers(ZeroCCType ty) {
     ty.is_const = false;
     ty.is_volatile = false;
+    ty.is_restrict = false;
     ty.is_atomic = false;
     return ty;
 }

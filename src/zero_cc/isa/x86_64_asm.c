@@ -50,7 +50,7 @@ static void x86_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
         if (c->lowering.frame_align > 16) {
             fprintf(out, "\tpushq\t%%rbp\n");
             fprintf(out, "\tmovq\t%%rsp, %%rbp\n");
-            fprintf(out, "\tandq\t$0x%x, %%rsp\n", (unsigned)(-(int32_t)c->lowering.frame_align));
+            fprintf(out, "\tandq\t$-%d, %%rsp\n", (int)c->lowering.frame_align);
         }
         size_t X = (c->lowering.frame_align > 16)
             ? (size_t)c->lowering.frame_delta

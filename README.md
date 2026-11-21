@@ -389,10 +389,10 @@ ZeroCC implements the following C23 features:
 |---------|--------|-------|
 | **`_Thread_local`** | ✅ Complete | `tls_backend`; static TLS (`.tdata`/`.tbss`, x86-64 initial-exec + `R_X86_64_TPOFF32`; JIT data-section fallback) — see [`docs/okf/tls-static.md`](docs/okf/tls-static.md) |
 | **`_Atomic`** | ✅ Implemented | Hardware atomic IR ops (`OP_ATOMIC_*`), `__sync_*`/`__atomic_*` builtins, `<stdatomic.h>` virtual header |
-| **`_Alignas` / `_Alignof`** | ✅ Implemented | Struct fields, file-scope objects (any N, `.data`/`.bss` section alignment), and locals (any N on x86-64 via a runtime `and $-N, %rsp` SP realign prologue, GCC-style; VLA/variadic fns and other ISAs fall back to 16 with a warning) |
+| **`_Alignas` / `_Alignof`** | ✅ Implemented | Struct fields, file-scope objects (any N, `.data`/`.bss` section alignment), and locals (`N > 16` up to 4096 via runtime SP realign prologue on x86-64, AArch64, AArch32, RISC-V 64/32 across raw MC and `-S` text paths; VLA/variadic fns fall back to 16 with a warning) |
 | **`_Noreturn`** | ✅ Implemented | `<stdnoreturn.h>` virtual header |
 | **`_Static_assert`** | ✅ Implemented | Constant-evaluated at compile time |
-| **`_Generic`** | ✅ Simplified | Full C11 matching rules not implemented |
+| **`_Generic`** | ✅ Complete | Full C11 qualification stripping/nested compatibility (`const`/`volatile`/`restrict`/`_Atomic`, multi-level pointers, array qualifiers per 6.7.3p9, fn-pointer params, `const_eval`, `typeof`) |
 | **`inline` semantics** | ✅ Implemented | Inlining at `-O2`/`-O3` with conservative candidate filters |
 | **`<threads.h>`** | ✅ Complete | Virtual header + freestanding `zero_rt` runtime (`thrd_*`/`mtx_*`/`cnd_*`/`call_once` + POSIX `pthread_*` over `OP_CLONE` & futexes on all 4 ISAs; Sprint 146) |
 | **`_Complex` (C99 + GNU)** | ✅ Implemented | `_Complex float`/`double` (C99 6.2.5) and GNU integer `_Complex`/`__complex__` (`int`/`long`/`short`/`char`): `+ - * /` (clean-room `__divdc3` in `zero_rt`), `==`/`!=`, `~` conjugate, `__real__`/`__imag__`; FP passed in `xmm0/xmm1`, integer ≤8B in 1 GPR / 16B in 2 GPRs — [`docs/okf/frontend-and-types.md`](docs/okf/frontend-and-types.md) |
@@ -636,9 +636,6 @@ See [`tools/README.md`](tools/README.md) for the full tool table.
 ZeroCC prioritizes standard C99/C11/C23 semantics, small binary size, and zero-dependency hermetic compilation. Certain advanced features, platform-specific extensions, and niche standard constructs are intentionally bounded or documented as current limitations:
 
 ### Language & Standards Conformance
-- **`_Generic` Selection**: Uses a simplified type-matching mechanism; complex nested matching across implicit qualification layers is not fully implemented.
-- **Anonymous Aggregate Parameters**: Parsing of anonymous `struct { ... }` or `union { ... }` parameters is supported, but full member-access semantics on such parameters is open work.
-- **Local Variable Dynamic Alignment (`_Alignas(N > 16)`)**: Runtime stack alignment (`and $-N, %rsp`) for locals requiring alignment greater than 16 bytes is fully supported on x86-64; on AArch64, AArch32, and RISC-V it clamps to 16-byte alignment with a compiler warning.
 - **Imaginary Numeric Literals**: GNU-style imaginary constant suffixes (e.g. `200i`) are not recognized by the lexer; standard C99 `_Complex` arithmetic and initialization expressions must be used.
 - **Nested Block Struct Layout Redefinition**: Dynamic layout calculations for tagged `struct`/`union` types redefined with variable-length arrays inside nested block scopes are currently unhandled.
 

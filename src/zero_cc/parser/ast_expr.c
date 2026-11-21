@@ -595,83 +595,12 @@ ASTRef parse_primary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
 
     /* C11 _Generic compile-time selection */
     if (tok->type == TK_GENERIC) {
-        c->token_pos++;
-        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) c->token_pos++;
-        size_t ctrl_pos = c->token_pos;
-        ZeroCCType ctrl_ty = zero_cc_type_of_equality(c, &ctrl_pos);
-        c->token_pos = ctrl_pos;
-        ctrl_ty = zero_cc_type_strip_qualifiers(ctrl_ty);
-        if (ctrl_ty.tag == TYPE_ARRAY) {
-            /* Lvalue conversion + array-to-pointer decay (C11 6.5.1.1): the
-             * control `"s"` (char[2]) decays to `char *` - a pointer to the
-             * ELEMENT type, not to the whole array. */
-            if (ctrl_ty.base) {
-                ZeroCCType elem = *ctrl_ty.base;
-                ctrl_ty = zero_cc_type_ptr(&elem);
-            }
-        }
-        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++;
-
-        ASTRef selected_expr = AST_NULL;
-        size_t default_expr_start = 0;
-        bool matched = false;
-
-        while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_RPAREN && c->tokens[c->token_pos].type != TK_EOF) {
-            if (c->tokens[c->token_pos].type == TK_DEFAULT) {
-                c->token_pos++;
-                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COLON) c->token_pos++;
-                default_expr_start = c->token_pos;
-                /* Skip expression tokens until comma or rparen */
-                int paren_depth = 0;
-                while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_EOF) {
-                    ZeroCCTokType tt = c->tokens[c->token_pos].type;
-                    if (tt == TK_LPAREN) paren_depth++;
-                    else if (tt == TK_RPAREN) {
-                        if (paren_depth == 0) break;
-                        paren_depth--;
-                    } else if (tt == TK_COMMA && paren_depth == 0) {
-                        break;
-                    }
-                    c->token_pos++;
-                }
-            } else {
-                ZeroCCType assoc_ty = zero_cc_parse_type_name(c);
-                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COLON) c->token_pos++;
-                /* C11 6.5.1.1: Only the controlling expression undergoes lvalue
-                 * conversion (which strips qualifiers). Association types are
-                 * matched WITH their qualifiers intact. */
-                if (!matched && zero_cc_types_compatible(ctrl_ty, assoc_ty)) {
-                    matched = true;
-                    selected_expr = parse_assignment_ast(c, arena);
-                } else {
-                    /* Skip expression */
-                    int paren_depth = 0;
-                    while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_EOF) {
-                        ZeroCCTokType tt = c->tokens[c->token_pos].type;
-                        if (tt == TK_LPAREN) paren_depth++;
-                        else if (tt == TK_RPAREN) {
-                            if (paren_depth == 0) break;
-                            paren_depth--;
-                        } else if (tt == TK_COMMA && paren_depth == 0) {
-                            break;
-                        }
-                        c->token_pos++;
-                    }
-                }
-            }
-            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++;
-        }
-        size_t end_pos = c->token_pos;
-        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) {
-            c->token_pos++;
-            end_pos = c->token_pos;
-        }
-        if (matched) return selected_expr;
-        if (default_expr_start > 0) {
-            c->token_pos = default_expr_start;
-            ASTRef def_expr = parse_assignment_ast(c, arena);
+        size_t sel_pos = 0, end_pos = 0;
+        if (zero_cc_generic_select_span(c, &c->token_pos, &sel_pos, &end_pos)) {
+            c->token_pos = sel_pos;
+            ASTRef selected_expr = parse_assignment_ast(c, arena);
             c->token_pos = end_pos;
-            return def_expr;
+            return selected_expr;
         }
         return AST_NULL;
     }

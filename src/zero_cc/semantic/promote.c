@@ -218,9 +218,39 @@ bool type_is_compatible(const TypeInfo *t1, const TypeInfo *t2) {
         }
 
         case TYPE_KIND_STRUCT:
-        case TYPE_KIND_UNION:
+        case TYPE_KIND_UNION: {
+            if (t1->details.record.tag && t2->details.record.tag &&
+                strcmp(t1->details.record.tag, t2->details.record.tag) == 0) {
+                return true;
+            }
+            bool anon1 = !t1->details.record.tag || !t1->details.record.tag[0] ||
+                         strncmp(t1->details.record.tag, "__anon_", 7) == 0;
+            bool anon2 = !t2->details.record.tag || !t2->details.record.tag[0] ||
+                         strncmp(t2->details.record.tag, "__anon_", 7) == 0;
+            if (anon1 && anon2) {
+                if (t1->details.record.size != t2->details.record.size ||
+                    t1->details.record.align != t2->details.record.align ||
+                    t1->details.record.field_count != t2->details.record.field_count) {
+                    return false;
+                }
+                if (t1->details.record.field_count > 0 &&
+                    (!t1->details.record.fields || !t2->details.record.fields)) {
+                    return false;
+                }
+                for (size_t i = 0; i < t1->details.record.field_count; i++) {
+                    if (t1->details.record.fields[i].offset != t2->details.record.fields[i].offset ||
+                        !type_is_compatible(t1->details.record.fields[i].type,
+                                            t2->details.record.fields[i].type)) {
+                        return false;
+                    }
+                }
+                return true;
+            }
+            return false;
+        }
+
         case TYPE_KIND_ENUM:
-                    if (t1->details.record.tag && t2->details.record.tag) {
+            if (t1->details.record.tag && t2->details.record.tag) {
                 return strcmp(t1->details.record.tag, t2->details.record.tag) == 0;
             }
             if (!t1->details.record.tag && !t2->details.record.tag) {

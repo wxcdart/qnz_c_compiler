@@ -647,6 +647,9 @@ static int compile_object_single(CompileOptions *opts, const char *input,
             zero_cc_compiler_free(comp);
             return 1;
         }
+        if (comp->isa == ISA_AARCH32) {
+            fprintf(comp->asm_out, "\t.arch\tarmv7ve\n\t.fpu\tvfpv3-d16\n");
+        }
         if (opts->verbose) {
             printf("Writing assembly to: %s\n", out_path);
         }
@@ -1788,7 +1791,7 @@ static int compile_and_link(CompileOptions *opts) {
         static_flag = "-static";
     } else if (target_isa == ISA_AARCH32) {
         linker = "arm-linux-gnueabihf-gcc";
-        abi_flags = "-mabi=aapcs-linux -march=armv7-a -mfloat-abi=hard";
+        abi_flags = "-mabi=aapcs-linux -march=armv7ve -mfloat-abi=hard";
         static_flag = "-static";
     }
 
@@ -1880,7 +1883,9 @@ static int compile_object_cross(CompileOptions *opts) {
     }
 
     ZeroCCISA tisa = parse_target_arch(opts->target_arch);
-    const char *as = (tisa == ISA_AARCH64) ? "aarch64-linux-gnu-as" : "riscv64-linux-gnu-as";
+    const char *as = (tisa == ISA_AARCH64) ? "aarch64-linux-gnu-as" :
+                     (tisa == ISA_AARCH32) ? "arm-linux-gnueabihf-as" :
+                                             "riscv64-linux-gnu-as";
     const char *output = opts->output_file ? opts->output_file : "a.out";
     char cmd[2048];
     snprintf(cmd, sizeof(cmd), "%s %s -o %s 2>&1", as, tmp_s, output);

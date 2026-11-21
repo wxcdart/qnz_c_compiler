@@ -58,7 +58,7 @@ static inline void arm32_emit_u32(ZeroCCCompiler *c, uint32_t insn) {
 #define ARM_CC_AL  14
 
 /* Helpers: ARM 32-bit instruction field encoding */
-#define ARM_COND(cc)     ((cc) << 28)
+#define ARM_COND(cc)     ((uint32_t)(cc) << 28)
 #define ARM_DP_I_IMM     (1u << 25)    /* data-processing immediate */
 #define ARM_DP_SHIFT_IMM (1u << 25)    /* also for shift-immediate */
 #define ARM_RD(rd)       (((uint32_t)(rd) & 0xFu) << 12)
@@ -1456,30 +1456,48 @@ static void aarch32_emit_stack_align(ZeroCCCompiler *c, uint8_t alignment) {
 /* =========================================================================
  * ASM emission functions (text output) - Phase 1 AOT
  * ========================================================================= */
+static const char *aarch32_get_hw_reg_name(int phys_reg);
+static void aarch32_emit_mov_imm_asm(ZeroCCCompiler *c, int dst, int64_t imm, FILE *out);
+static void aarch32_emit_load_asm(ZeroCCCompiler *c, int dst, int base, int32_t offset, FILE *out);
+static void aarch32_emit_store_asm(ZeroCCCompiler *c, int src, int base, int32_t offset, FILE *out);
+static void aarch32_emit_lea_asm(ZeroCCCompiler *c, int dst, int base, int32_t offset, FILE *out);
+
 static void aarch32_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
+    FILE *out = c->asm_out ? c->asm_out : stdout;
     if (c->lowering.frame_align > 16) {
         size_t frame = (size_t)c->lowering.frame_delta;
         uint32_t N = (uint32_t)c->lowering.frame_align;
-        fprintf(c->asm_out, "\tpush\t{r11, lr}\n");
-        fprintf(c->asm_out, "\tadd\tr11, sp, #0\n");
+        fprintf(out, "\tpush\t{r11, lr}\n");
+        fprintf(out, "\tadd\tr11, sp, #0\n");
         uint32_t enc = arm32_encode_imm((int64_t)(N - 1));
         if (enc != 0xFFFFFFFFu) {
-            fprintf(c->asm_out, "\tbic\tsp, sp, #%u\n", N - 1);
+            fprintf(out, "\tbic\tsp, sp, #%u\n", N - 1);
         } else {
             uint32_t mask = (uint32_t)(~((int64_t)N - 1));
-            fprintf(c->asm_out, "\tmovw\tr12, #%u\n", mask & 0xFFFFu);
-            fprintf(c->asm_out, "\tmovt\tr12, #%u\n", (mask >> 16) & 0xFFFFu);
-            fprintf(c->asm_out, "\tand\tsp, sp, r12\n");
+            fprintf(out, "\tmovw\tr12, #%u\n", mask & 0xFFFFu);
+            fprintf(out, "\tmovt\tr12, #%u\n", (mask >> 16) & 0xFFFFu);
+            fprintf(out, "\tand\tsp, sp, r12\n");
         }
         if (frame > 0) {
-            fprintf(c->asm_out, "\tsub\tsp, sp, #%zu\n", frame);
+            if (arm32_encode_imm((int64_t)frame) != 0xFFFFFFFFu) {
+                fprintf(out, "\tsub\tsp, sp, #%zu\n", frame);
+            } else {
+                aarch32_emit_mov_imm_asm(c, 12, (int64_t)frame, out);
+                fprintf(out, "\tsub\tsp, sp, r12\n");
+            }
         }
-        return;
-    }
-    fprintf(c->asm_out, "\tpush\t{r11, lr}\n");
-    fprintf(c->asm_out, "\tadd\tr11, sp, #0\n");
-    if (stack_size > 0) {
-        fprintf(c->asm_out, "\tsub\tsp, sp, #%zu\n", (stack_size + 7) & ~7);
+    } else {
+        size_t sz = (stack_size + 7) & ~7;
+        fprintf(out, "\tpush\t{r11, lr}\n");
+        fprintf(out, "\tadd\tr11, sp, #0\n");
+        if (stack_size > 0) {
+            if (arm32_encode_imm((int64_t)sz) != 0xFFFFFFFFu) {
+                fprintf(out, "\tsub\tsp, sp, #%zu\n", sz);
+            } else {
+                aarch32_emit_mov_imm_asm(c, 12, (int64_t)sz, out);
+                fprintf(out, "\tsub\tsp, sp, r12\n");
+            }
+        }
     }
     uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
     if (mask && BE(c)->conv && BE(c)->conv->callee_saved_gpr) {
@@ -1491,11 +1509,12 @@ static void aarch32_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
             if (reg == 11) continue;
             if (!((mask >> reg) & 1u)) continue;
             int32_t slot = slot_offsets ? slot_offsets[i] : (8 + (i * 8));
-            fprintf(c->asm_out, "\tstr\t%s, [r11, #-%d]\n", aarch32_get_hw_reg_name(reg), slot);
+            aarch32_emit_store_asm(c, reg, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot), out);
         }
     }
 }
 static void aarch32_emit_epilogue_asm(ZeroCCCompiler *c) {
+    FILE *out = c->asm_out ? c->asm_out : stdout;
     uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
     if (mask && BE(c)->conv && BE(c)->conv->callee_saved_gpr) {
         const int *callee_saved = BE(c)->conv->callee_saved_gpr;
@@ -1506,12 +1525,12 @@ static void aarch32_emit_epilogue_asm(ZeroCCCompiler *c) {
             if (reg == 11) continue;
             if (!((mask >> reg) & 1u)) continue;
             int32_t slot = slot_offsets ? slot_offsets[i] : (8 + (i * 8));
-            fprintf(c->asm_out, "\tldr\t%s, [r11, #-%d]\n", aarch32_get_hw_reg_name(reg), slot);
+            aarch32_emit_load_asm(c, reg, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot), out);
         }
     }
-    fprintf(c->asm_out, "\tmov\tsp, r11\n");
-    fprintf(c->asm_out, "\tpop\t{r11, lr}\n");
-    fprintf(c->asm_out, "\tmov\tpc, lr\n");
+    fprintf(out, "\tmov\tsp, r11\n");
+    fprintf(out, "\tpop\t{r11, lr}\n");
+    fprintf(out, "\tmov\tpc, lr\n");
 }
 static void aarch32_emit_stack_guard_init_asm(ZeroCCCompiler *c, int32_t slot_off, FILE *out) {
     (void)c;
@@ -1541,19 +1560,42 @@ static const char *aarch32_get_vec_reg_name(int vec_reg_idx) {
 /* Basic asm emitters for Phase 1 */
 static void aarch32_emit_mov_imm_asm(ZeroCCCompiler *c, int dst, int64_t imm, FILE *out) {
     (void)c;
-    fprintf(out, "\tmov\t%s, #%ld\n", aarch32_get_hw_reg_name(dst), imm);
+    const char *rname = aarch32_get_hw_reg_name(dst);
+    uint32_t v = (uint32_t)imm;
+    if (arm32_encode_imm(imm) != 0xFFFFFFFFu) {
+        fprintf(out, "\tmov\t%s, #%lld\n", rname, (long long)(int32_t)v);
+    } else if (imm < 0 && arm32_encode_imm(~imm) != 0xFFFFFFFFu) {
+        fprintf(out, "\tmvn\t%s, #%lld\n", rname, (long long)(uint32_t)(~imm));
+    } else {
+        uint32_t lo16 = v & 0xFFFFu;
+        uint32_t hi16 = (v >> 16) & 0xFFFFu;
+        fprintf(out, "\tmovw\t%s, #%u\n", rname, lo16);
+        if (hi16 != 0) {
+            fprintf(out, "\tmovt\t%s, #%u\n", rname, hi16);
+        }
+    }
 }
 static void aarch32_emit_mov_reg_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) {
     (void)c;
     if (dst != src) fprintf(out, "\tmov\t%s, %s\n", aarch32_get_hw_reg_name(dst), aarch32_get_hw_reg_name(src));
 }
 static void aarch32_emit_load_asm(ZeroCCCompiler *c, int dst, int base, int32_t offset, FILE *out) {
-    (void)c;
-    fprintf(out, "\tldr\t%s, [%s, #%d]\n", aarch32_get_hw_reg_name(dst), aarch32_get_hw_reg_name(base), offset);
+    if (offset >= -4095 && offset <= 4095) {
+        fprintf(out, "\tldr\t%s, [%s, #%d]\n", aarch32_get_hw_reg_name(dst), aarch32_get_hw_reg_name(base), offset);
+    } else {
+        int scratch = (base != 12) ? 12 : 9;
+        aarch32_emit_mov_imm_asm(c, scratch, offset, out);
+        fprintf(out, "\tldr\t%s, [%s, %s]\n", aarch32_get_hw_reg_name(dst), aarch32_get_hw_reg_name(base), aarch32_get_hw_reg_name(scratch));
+    }
 }
 static void aarch32_emit_store_asm(ZeroCCCompiler *c, int src, int base, int32_t offset, FILE *out) {
-    (void)c;
-    fprintf(out, "\tstr\t%s, [%s, #%d]\n", aarch32_get_hw_reg_name(src), aarch32_get_hw_reg_name(base), offset);
+    if (offset >= -4095 && offset <= 4095) {
+        fprintf(out, "\tstr\t%s, [%s, #%d]\n", aarch32_get_hw_reg_name(src), aarch32_get_hw_reg_name(base), offset);
+    } else {
+        int scratch = (base != 12 && src != 12) ? 12 : ((base != 9 && src != 9) ? 9 : 14);
+        aarch32_emit_mov_imm_asm(c, scratch, offset, out);
+        fprintf(out, "\tstr\t%s, [%s, %s]\n", aarch32_get_hw_reg_name(src), aarch32_get_hw_reg_name(base), aarch32_get_hw_reg_name(scratch));
+    }
 }
 static void aarch32_emit_add_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
     (void)c;
@@ -1568,12 +1610,15 @@ static void aarch32_emit_mul_asm(ZeroCCCompiler *c, int dst, int src1, int src2,
     fprintf(out, "\tmul\t%s, %s, %s\n", aarch32_get_hw_reg_name(dst), aarch32_get_hw_reg_name(src1), aarch32_get_hw_reg_name(src2));
 }
 static void aarch32_emit_div_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
-    (void)c;
-    fprintf(out, "\tsdiv\t%s, %s, %s\n", aarch32_get_hw_reg_name(dst), aarch32_get_hw_reg_name(src1), aarch32_get_hw_reg_name(src2));
+    fprintf(out, "\t%s\t%s, %s, %s\n",
+            c->lowering.div_is_unsigned ? "udiv" : "sdiv",
+            aarch32_get_hw_reg_name(dst), aarch32_get_hw_reg_name(src1), aarch32_get_hw_reg_name(src2));
 }
 static void aarch32_emit_mod_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
-    (void)c; (void)dst; (void)src1; (void)src2; (void)out;
-    fprintf(out, "\t# mod: %s = %s %% %s (expand)\n", aarch32_get_hw_reg_name(dst), aarch32_get_hw_reg_name(src1), aarch32_get_hw_reg_name(src2));
+    int t = (src1 != 12 && src2 != 12) ? 12 : ((src1 != 9 && src2 != 9) ? 9 : 14);
+    aarch32_emit_div_asm(c, t, src1, src2, out);
+    aarch32_emit_mul_asm(c, t, t, src2, out);
+    aarch32_emit_sub_asm(c, dst, src1, t, out);
 }
 
 /* 64-bit multiply/divide ASM emitters */
@@ -1860,8 +1905,15 @@ static void aarch32_emit_not_asm(ZeroCCCompiler *c, int dst, int src, FILE *out)
     fprintf(out, "\tmvn\t%s, %s\n", aarch32_get_hw_reg_name(dst), aarch32_get_hw_reg_name(src));
 }
 static void aarch32_emit_lea_asm(ZeroCCCompiler *c, int dst, int base, int32_t offset, FILE *out) {
-    (void)c;
-    fprintf(out, "\tadd\t%s, %s, #%d\n", aarch32_get_hw_reg_name(dst), aarch32_get_hw_reg_name(base), offset);
+    if (offset >= 0 && arm32_encode_imm((int64_t)offset) != 0xFFFFFFFFu) {
+        fprintf(out, "\tadd\t%s, %s, #%d\n", aarch32_get_hw_reg_name(dst), aarch32_get_hw_reg_name(base), offset);
+    } else if (offset < 0 && arm32_encode_imm(-(int64_t)offset) != 0xFFFFFFFFu) {
+        fprintf(out, "\tsub\t%s, %s, #%d\n", aarch32_get_hw_reg_name(dst), aarch32_get_hw_reg_name(base), -offset);
+    } else {
+        int scratch = (base != 12) ? 12 : 9;
+        aarch32_emit_mov_imm_asm(c, scratch, offset, out);
+        fprintf(out, "\tadd\t%s, %s, %s\n", aarch32_get_hw_reg_name(dst), aarch32_get_hw_reg_name(base), aarch32_get_hw_reg_name(scratch));
+    }
 }
 static void aarch32_emit_deref_asm(ZeroCCCompiler *c, int dst, int src, FILE *out) {
     (void)c;
@@ -2051,12 +2103,22 @@ static void aarch32_emit_jge_asm(ZeroCCCompiler *c, const char *label, FILE *out
     fprintf(out, "\tbge\t%s\n", label);
 }
 static void aarch32_emit_load_fp_asm(ZeroCCCompiler *c, int dst, int base, int32_t offset, FILE *out) {
-    (void)c;
-    fprintf(out, "\tfldd\td%d, [%s, #%d]\n", dst, aarch32_get_hw_reg_name(base), offset);
+    if (offset >= -1020 && offset <= 1020 && (offset & 3) == 0) {
+        fprintf(out, "\tfldd\td%d, [%s, #%d]\n", dst, aarch32_get_hw_reg_name(base), offset);
+    } else {
+        int scratch = (base != 12) ? 12 : 9;
+        aarch32_emit_lea_asm(c, scratch, base, offset, out);
+        fprintf(out, "\tfldd\td%d, [%s, #0]\n", dst, aarch32_get_hw_reg_name(scratch));
+    }
 }
 static void aarch32_emit_store_fp_asm(ZeroCCCompiler *c, int src, int base, int32_t offset, FILE *out) {
-    (void)c;
-    fprintf(out, "\tfstd\td%d, [%s, #%d]\n", src, aarch32_get_hw_reg_name(base), offset);
+    if (offset >= -1020 && offset <= 1020 && (offset & 3) == 0) {
+        fprintf(out, "\tfstd\td%d, [%s, #%d]\n", src, aarch32_get_hw_reg_name(base), offset);
+    } else {
+        int scratch = (base != 12) ? 12 : 9;
+        aarch32_emit_lea_asm(c, scratch, base, offset, out);
+        fprintf(out, "\tfstd\td%d, [%s, #0]\n", src, aarch32_get_hw_reg_name(scratch));
+    }
 }
 static void aarch32_emit_fp_add_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
     (void)c;
@@ -2104,13 +2166,12 @@ static void aarch32_emit_vla_alloc_asm(ZeroCCCompiler *c, int dst, int size, FIL
     fprintf(out, "\tmov\t%s, sp\n", aarch32_get_hw_reg_name(dst));
 }
 static void aarch32_emit_param_save_int_asm(ZeroCCCompiler *c, int reg_idx, int32_t offset, FILE *out) {
-    (void)c;
-    fprintf(out, "\tstr\tr%d, [r11, #-%d]\n", reg_idx, offset);
+    aarch32_emit_store_asm(c, reg_idx, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -offset), out);
 }
 static void aarch32_emit_param_save_fp_asm(ZeroCCCompiler *c, int reg_idx, int32_t offset, int is_single, FILE *out) {
-    (void)c; (void)is_single;
+    (void)is_single;
     if (reg_idx >= 0 && reg_idx < 8) {
-        fprintf(out, "\tfstd\td%d, [r11, #-%d]\n", reg_idx, offset);
+        aarch32_emit_store_fp_asm(c, reg_idx, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -offset), out);
     }
 }
 static void aarch32_emit_variadic_spill_asm(ZeroCCCompiler *c, int param_count, int32_t base_offset, FILE *out) {
@@ -2118,7 +2179,7 @@ static void aarch32_emit_variadic_spill_asm(ZeroCCCompiler *c, int param_count, 
     int gp_regs = BE(c)->conv->int_arg_reg_count;
     for (int i = 0; i < gp_regs; i++) {
         int r = BE(c)->conv->int_arg_regs[i];
-        fprintf(out, "\tstr\tr%d, [r11, #-%d]\n", r, base_offset + 16 - i * 4);
+        aarch32_emit_store_asm(c, r, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -(base_offset + 16 - i * 4)), out);
     }
 }
 static void aarch32_emit_syscall_asm(ZeroCCCompiler *c, int arg_count, const int *arg_temps, FILE *out) {

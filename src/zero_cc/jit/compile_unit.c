@@ -821,15 +821,16 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                     }
                 }
             }
-            /* Pointer declarators: int *p;  char **pp;  (qualifiers after stars are skipped) */
+            /* Pointer declarators: int *p;  char **pp; */
             int ptr_depth = 0;
+            uint8_t ptr_quals[16];
+            memset(ptr_quals, 0, sizeof(ptr_quals));
             while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STAR) {
+                int pidx = ptr_depth;
                 ptr_depth++;
                 c->token_pos++;
-                while (c->token_pos < c->token_count &&
-                       (c->tokens[c->token_pos].type == TK_CONST || c->tokens[c->token_pos].type == TK_VOLATILE)) {
-                    c->token_pos++;
-                }
+                uint8_t pq = zc_consume_qualifiers(c, &c->token_pos);
+                if (pidx < 16) ptr_quals[pidx] = pq;
                 /* GNU aligned(N) marker between pointer chunks:
                  * `int *__attribute__((aligned(16))) *p;` */
                 {
@@ -860,6 +861,7 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
             }
             for (int pd = 0; pd < ptr_depth; pd++) {
                 gtype = zero_cc_type_ptr(&gtype);
+                if (pd < 16) zc_apply_qual_mask(&gtype, ptr_quals[pd]);
             }
             /* Unwrap pure parenthesized pointer/identifier declarators with no
              * function or array suffixes inside the parentheses, e.g.
@@ -2275,25 +2277,29 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                              * rest of the declaration (c-torture pr57281,
                              * pr57321, pr125039, 20020116-1). */
                             int nd_ptr = 0;
+                            uint8_t nd_quals[16];
+                            memset(nd_quals, 0, sizeof(nd_quals));
                             while (c->token_pos < c->token_count &&
                                    c->tokens[c->token_pos].type == TK_STAR) {
+                                int pidx = nd_ptr;
                                 nd_ptr++;
                                 c->token_pos++;
-                                while (c->token_pos < c->token_count &&
-                                       (c->tokens[c->token_pos].type == TK_CONST ||
-                                        c->tokens[c->token_pos].type == TK_VOLATILE)) {
-                                    c->token_pos++;
-                                }
+                                uint8_t pq = zc_consume_qualifiers(c, &c->token_pos);
+                                if (pidx < 16) nd_quals[pidx] = pq;
                                 size_t probe = 0;
                                 while (zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) { /* skip */ }
                             }
-                            if (c->token_pos < c->token_count &&
-                                c->tokens[c->token_pos].type == TK_CONST) {
-                                c->token_pos++;
-                            }
+                            uint8_t extra_q = zc_consume_qualifiers(c, &c->token_pos);
                             ZeroCCType ng = gtype_base;
+                            if (nd_ptr == 0 && extra_q) {
+                                zc_apply_qual_mask(&ng, extra_q);
+                            }
                             for (int nd = 0; nd < nd_ptr; nd++) {
                                 ng = zero_cc_type_ptr(&ng);
+                                if (nd < 16) zc_apply_qual_mask(&ng, nd_quals[nd]);
+                            }
+                            if (nd_ptr > 0 && extra_q) {
+                                zc_apply_qual_mask(&ng, extra_q);
                             }
                             gtype = ng;
                             ptr_depth = nd_ptr;

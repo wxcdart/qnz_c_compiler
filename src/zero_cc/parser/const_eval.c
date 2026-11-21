@@ -1772,6 +1772,15 @@ ZCConstVal parse_primary(ZeroCCCompiler *c, size_t *pos)
         (*pos)++;
         return zc_cv_ptr(NULL, 1, TYPE_INT8);
     }
+    if (t == TK_GENERIC) {
+        size_t sel_pos = 0, end_pos = 0;
+        if (zero_cc_generic_select_span(c, pos, &sel_pos, &end_pos)) {
+            ZCConstVal gv = parse_conditional(c, &sel_pos);
+            *pos = end_pos;
+            return gv;
+        }
+        return zc_cv_int(0);
+    }
     if (t == TK_STRING) {
         const char *first = c->tokens[*pos].str_val;
         (*pos)++;

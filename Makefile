@@ -961,7 +961,7 @@ ASAN_SUBMAKE = $(MAKE) ZC_ASAN=1 BUILD_DIR=build_asan
 # documented static-musl/dynamic-ASan limitation, NOT a memory bug) so the rest
 # of the suite - the core pipeline where memory bugs live - is validated under
 # ASan.  Ratchet this list: if a new test hits the same limitation, add it here.
-ASAN_SKIP = dlfcn_embedded_test,float_printf,rodata_demo_jit
+ASAN_SKIP = dlfcn_embedded_test,dlfcn_dynlink,float_printf,rodata_demo_jit
 .PHONY: asan asan-unit asan-semantic asan-abi asan-jit
 asan:
 	+$(ASAN_SUBMAKE) all

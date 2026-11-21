@@ -9,6 +9,7 @@
 
 #include "zero_cc/types/types.h"
 #include "zero_cc/parser/const_eval.h"
+#include "zero_cc/parser/decl_struct.h"
 #include "zero_cc/parser/parser.h"
 #include "zero_cc/parser/ast_expr.h"
 #include "zero_cc/parser/ast_arena.h"
@@ -382,30 +383,58 @@ static inline void zero_cc_parse_param_list(
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_INT) c->token_pos++;
         }
         const char *param_tag_name = NULL;
-        if ((param_type_tok == TK_STRUCT || param_type_tok == TK_UNION || param_type_tok == TK_ENUM) &&
-            c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
-            param_tag_name = c->tokens[c->token_pos].str_val;
-            c->token_pos++;
-        } else if ((param_type_tok == TK_STRUCT || param_type_tok == TK_UNION) &&
-            c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACE) {
-            /* Anonymous struct/union parameter definition:
-             * `void f(int a, struct {int b[a];} c)` (C99 6.7.2.1,
-             * c-torture compile/20020210-1).  Skip the balanced body;
-             * the declarator name follows the closing brace.  The
-             * parameter keeps the int64 fallback base - the same
-             * (mis)type the legacy prototype parser recorded for this
-             * shape - and the function compiles with the body skipped
-             * rather than re-entering the top-level dispatch.  A
-             * semantically complete anonymous-aggregate parameter type
-             * (with member access) remains open work. */
-            int bdepth = 0;
-            while (c->token_pos < c->token_count) {
-                if (c->tokens[c->token_pos].type == TK_LBRACE) bdepth++;
-                else if (c->tokens[c->token_pos].type == TK_RBRACE) {
-                    bdepth--;
-                    if (bdepth == 0) { c->token_pos++; break; }
+        size_t inline_rec_align = 0;
+        ZeroCCType param_inline_type;
+        memset(&param_inline_type, 0, sizeof(param_inline_type));
+        bool param_has_inline_type = false;
+        if (param_type_tok == TK_STRUCT || param_type_tok == TK_UNION || param_type_tok == TK_ENUM) {
+            {
+                size_t probe = 0;
+                while (zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) {
+                    if (probe > inline_rec_align) inline_rec_align = probe;
                 }
+            }
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
+                param_tag_name = c->tokens[c->token_pos].str_val;
                 c->token_pos++;
+                size_t probe = 0;
+                while (zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) {
+                    if (probe > inline_rec_align) inline_rec_align = probe;
+                }
+            }
+            if ((param_type_tok == TK_STRUCT || param_type_tok == TK_UNION) &&
+                c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACE) {
+                ZeroCCType st = zero_cc_parse_struct_body(c, param_type_tok == TK_UNION);
+                if (inline_rec_align > st.align) st.align = inline_rec_align;
+                char reg_tag[128];
+                if (param_tag_name && param_tag_name[0]) {
+                    snprintf(reg_tag, sizeof(reg_tag), "%s", param_tag_name);
+                } else {
+                    snprintf(reg_tag, sizeof(reg_tag), "__anon_%s_%zu",
+                             (param_type_tok == TK_UNION) ? "union" : "struct",
+                             c->anon_struct_seq++);
+                }
+                snprintf(st.struct_name, sizeof(st.struct_name), "%s", reg_tag);
+                zero_cc_register_struct(c, reg_tag, st);
+                zero_cc_sync_globals_with_struct(c, reg_tag, &st);
+                zero_cc_note_members_array(c, st.members);
+                param_inline_type = st;
+                param_has_inline_type = true;
+            } else if (param_type_tok == TK_ENUM && c->token_pos < c->token_count &&
+                       (c->tokens[c->token_pos].type == TK_LBRACE ||
+                        c->tokens[c->token_pos].type == TK_COLON)) {
+                ZCEnumUnderlying und = zero_cc_parse_enum_underlying(c);
+                ZeroCCType et = zero_cc_type_enum(param_tag_name);
+                zc_enum_apply_underlying(&et, &und);
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACE) {
+                    c->token_pos++;
+                    zero_cc_parse_enum_members(c, &und);
+                }
+                if (param_tag_name && param_tag_name[0]) {
+                    zero_cc_register_enum(c, param_tag_name, et);
+                }
+                param_inline_type = et;
+                param_has_inline_type = true;
             }
         }
         while (c->token_pos < c->token_count &&
@@ -417,7 +446,9 @@ static inline void zero_cc_parse_param_list(
             c->token_pos++;
         }
         const char *ptname = param_tag_name ? param_tag_name : c->tokens[ptype_pos].str_val;
-        ZeroCCType param_base = param_has_typeof ? param_typeof_type : zero_cc_resolve_base_type(c, param_type_tok, ptname);
+        ZeroCCType param_base = param_has_typeof ? param_typeof_type :
+                                param_has_inline_type ? param_inline_type :
+                                zero_cc_resolve_base_type(c, param_type_tok, ptname);
         if (param_is_long_long) {
             param_base = zero_cc_type_int64();
         }
@@ -1032,7 +1063,9 @@ static inline bool zero_cc_parse_declarator_internal(
             ZeroCCDeclaratorChunk fn_chunk;
             memset(&fn_chunk, 0, sizeof(fn_chunk));
             fn_chunk.kind = ZERO_CC_DECL_CHUNK_FUNCTION;
-            zero_cc_parse_param_list(c, arena, ctx, &fn_chunk, d, want_param_zt);
+            bool record_zt = want_param_zt && d->name != NULL &&
+                             level == d->name_level && lvl->suffix_count == 0;
+            zero_cc_parse_param_list(c, arena, ctx, &fn_chunk, d, record_zt);
             if (lvl->suffix_count < ZERO_CC_DECLARATOR_MAX_ITEMS) {
                 lvl->suffixes[lvl->suffix_count++] = fn_chunk;
             }

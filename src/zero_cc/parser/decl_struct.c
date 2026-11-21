@@ -44,6 +44,17 @@ void zero_cc_sync_globals_with_struct(ZeroCCCompiler *c, const char *name, const
 
 
 
+static ZeroCCASTArena *zc_ensure_tu_ast_arena(ZeroCCCompiler *c) {
+    if (!c->tu_ast_arena) {
+        ZeroCCASTArena *a = (ZeroCCASTArena *)malloc(sizeof(ZeroCCASTArena));
+        if (a) {
+            zero_cc_ast_arena_init(a, 1024);
+            c->tu_ast_arena = a;
+        }
+    }
+    return (ZeroCCASTArena *)c->tu_ast_arena;
+}
+
 /* M3: the struct/union member table is heap-backed (it was a fixed 64-entry
  * array and the 65th+ member was silently dropped). Reserve one slot for the
  * next member; on OOM report a clean fatal diagnostic (had_error => no binary). */
@@ -388,6 +399,13 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                     if (inner_tag[0] != '\0') {
                         snprintf(inner_type.struct_name, sizeof(inner_type.struct_name), "%s", inner_tag);
                         zero_cc_register_struct(c, inner_tag, inner_type);
+                        zero_cc_note_members_array(c, inner_type.members);
+                    } else if (c->tokens[c->token_pos].type != TK_SEMI) {
+                        snprintf(inner_type.struct_name, sizeof(inner_type.struct_name),
+                                 "__anon_%s_%zu", inner_is_union ? "union" : "struct",
+                                 c->anon_struct_seq++);
+                        zero_cc_register_struct(c, inner_type.struct_name, inner_type);
+                        zero_cc_note_members_array(c, inner_type.members);
                     }
                 }
             } else if (inner_tag[0] != '\0') {
@@ -517,9 +535,10 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                 } else {
                     member_vla = true;
                     member_vla_count++;
-                    if (member_vla_count == 1)
-                        member_vla_expr = parse_expr_ast_internal(c, (ZeroCCASTArena *)c->tu_ast_arena);
-                    else
+                    if (member_vla_count == 1) {
+                        ZeroCCASTArena *tua = zc_ensure_tu_ast_arena(c);
+                        if (tua) member_vla_expr = parse_expr_ast_internal(c, tua);
+                    } else
                         diag_report_error_at_token(c,
                             "multiple variable dimensions in a struct member are not supported");
                     dim = 2; /* GCC placeholder for the static layout */
@@ -1254,9 +1273,10 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                 } else {
                     member_vla = true;
                     member_vla_count++;
-                    if (member_vla_count == 1)
-                        member_vla_expr = parse_expr_ast_internal(c, (ZeroCCASTArena *)c->tu_ast_arena);
-                    else
+                    if (member_vla_count == 1) {
+                        ZeroCCASTArena *tua = zc_ensure_tu_ast_arena(c);
+                        if (tua) member_vla_expr = parse_expr_ast_internal(c, tua);
+                    } else
                         diag_report_error_at_token(c,
                             "multiple variable dimensions in a struct member are not supported");
                     dim = 2; /* GCC placeholder for the static layout */
@@ -1779,9 +1799,10 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                     } else {
                         c_member_vla = true;
                         c_member_vla_count++;
-                        if (c_member_vla_count == 1)
-                            c_member_vla_expr = parse_expr_ast_internal(c, (ZeroCCASTArena *)c->tu_ast_arena);
-                        else
+                        if (c_member_vla_count == 1) {
+                            ZeroCCASTArena *tua = zc_ensure_tu_ast_arena(c);
+                            if (tua) c_member_vla_expr = parse_expr_ast_internal(c, tua);
+                        } else
                             diag_report_error_at_token(c,
                                 "multiple variable dimensions in a struct member are not supported");
                         dim = 2; /* GCC placeholder for the static layout */

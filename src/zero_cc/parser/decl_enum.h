@@ -9,59 +9,7 @@
 #include "zero_cc/types/global_vars.h"
 #include "zero_cc/parser/const_eval.h"
 
-void skip_c23_attributes(ZeroCCCompiler *c);
 void skip_c23_attributes_at(ZeroCCCompiler *c, size_t *pos);
-
-/* Parse one enum body `c->token_pos` at the first member (LBRACE consumed);
- * consumes through RBRACE. M1: two fixes vs the old per-site loops —
- *   (1) `false`/`true` are accepted as member names: in C they are plain
- *       identifiers unless <stdbool.h> is included (TK_FALSE/TK_TRUE tokens
- *       carried str_val; the old TK_IDENT-only check stalled the loop on
- *       `enum { false, true }` — compile/pr94238.c); and
- *   (2) a progress guard: any token that neither member nor comma parsing
- *       consumes is diagnosed and skipped, so a malformed body
- *       (e.g. `enum { 1, 2 }`) can never spin the parser forever.
- * `und` (C23 fixed underlying type, NULL = traditional) wraps each member
- * value into the fixed width. */
-static inline void zero_cc_parse_enum_members(ZeroCCCompiler *c,
-                                              const ZCEnumUnderlying *und) {
-    int64_t enum_val = 0;
-    while (c->token_pos < c->token_count &&
-           c->tokens[c->token_pos].type != TK_RBRACE &&
-           c->tokens[c->token_pos].type != TK_EOF) {
-        skip_c23_attributes(c);
-        size_t saved = c->token_pos;
-        if (c->tokens[c->token_pos].type == TK_IDENT ||
-            (c->tokens[c->token_pos].type == TK_FALSE &&
-             c->std_dialect != ZC_STD_C23 && c->std_dialect != ZC_STD_GNU23) ||
-            (c->tokens[c->token_pos].type == TK_TRUE &&
-             c->std_dialect != ZC_STD_C23 && c->std_dialect != ZC_STD_GNU23)) {
-            char ename[128];
-            snprintf(ename, sizeof(ename), "%s", c->tokens[c->token_pos].str_val);
-            c->token_pos++;
-            skip_c23_attributes(c);
-            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_ASSIGN) {
-                c->token_pos++;
-                enum_val = zero_cc_eval_const_expr(c);
-            }
-            skip_c23_attributes(c);
-            enum_val = zc_enum_wrap_value(enum_val, und);
-            zero_cc_register_enum_const(c, ename, enum_val);
-            if (enum_val == INT64_MAX) {
-                diag_report_error_at_token(c, "overflow in enumeration values");
-            } else {
-                enum_val++;
-            }
-        }
-        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++;
-        if (c->token_pos == saved) {
-            diag_report_error_at_token(c, "expected identifier in enum definition");
-            c->token_pos++;
-        }
-    }
-    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACE) c->token_pos++;
-}
-
 
 /* Typedef Enum Definition */
 static inline void zero_cc_stmt_typedef_enum(ZeroCCCompiler *c) {
