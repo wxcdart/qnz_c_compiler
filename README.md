@@ -38,8 +38,7 @@ ZeroCC is a lightweight, embeddable C99/C11/C23 compiler (with GNU extensions) w
 - **Inline assembly (Phases 1–3 complete)**: GNU extended asm (`__asm__ [volatile] [goto] ("..." : outs : ins : clobbers [: labels])`) with `r`/`m`/`=r`/`+r`/fixed-register (`a`/`b`/`d`/`S`/`D`) operands, matching-digit constraints, symbolic `%[name]` / `%l[name]` operands, AT&T/Intel `{att | intel}` dialect alternatives, and `memory`/`cc`/GPR clobbers — lowered to `OP_ASM`, register-allocated (operands `no_spill`, clobbered registers forbidden for operands, live values across clobbers spilled), and supported across AOT `.s` text emission, in-memory JIT, and raw binary emission via the integrated assembler (`make test-asm` 72/72 runs vs gcc; [`docs/okf/inline-assembly-roadmap.md`](docs/okf/inline-assembly-roadmap.md))
 - **`-fsanitize=undefined`** — target-side signed-integer-overflow traps, division/remainder by zero, and shift-count bounds checks on all four ISAs (x86-64 `ud2` via OF flag / compare; AArch64 `brk #0` and RISC-V `unimp` via compare-based lowering); both emitters; check width follows usual arithmetic conversions; covers signed `+ - *`, `++`/`--`, `+= -= *=`, `/=`, `%=`, `<<=`, `>>=`, at both width 4 and width 8 (including RV32 64-bit pairs, Sprints 116–117, 161, 163, 166, 174; `make test-san` flag-ON gate incl. cross-ISA qemu trap-firing across all 4 target ISAs; [`docs/okf/sanitizer-roadmap.md`](docs/okf/sanitizer-roadmap.md))
 - **`-fstack-protector` / `-fstack-protector-strong` / `-fstack-protector-all`** — GCC/Clang-compatible stack canary guards across all 4 ISAs (`%fs:40` on x86-64, `__stack_chk_guard` on AArch64/RISC-V; Sprint 147)
-- **Multi-translation-unit driver**: multiple `.c` inputs per invocation
-  (JIT image merge + per-input `-c`/`-S`)
+- **Multi-translation-unit driver & whole-program LTO (`-flto`)**: multiple `.c`, `.o`, and `.a` inputs per invocation (JIT image merge + per-input `-c`/`-S`); `-flto` enables two-phase cross-TU inlining, Fat-LTO `.zc.lto` sections in `.o`/`.a`, constant global propagation, pure const-return folding, inter-procedural constant propagation (IPCP), dead branch/function/global elimination, and static symbol isolation (Sprint 195)
 - **Own ELF64/ELF32 linker & `ar` archiver** (`--zerocc-link`, `--ar`): static `ET_EXEC` output across all 5 target configurations (`x86-64`, `aarch64`, `aarch32`, `riscv64`, `riscv32`) with no host libc or crt files, native GNU `ar` archive reader/writer, cross-TU dead code & data elimination (`--gc-sections`, `--print-gc-sections`, `-ffunction-sections`, `-fdata-sections`), linker script `KEEP(*(pattern))` retention, `zero_rt` freestanding runtime auto-linking, and embedded baremetal linker script support
 - **Full Self-Hosting & Own-Linker Fixed-Point Convergence (Sprint 184)**: ZeroCC compiles itself end-to-end (all 76 library translation units + `main.c` + host runtime) with `zerocc -c` (`make stage1`), passes all test suites, and links itself with its own static linker (`zerocc --zerocc-link`, `make stage1-ownlink`). Stage 1 and Stage 2 achieve **100% bit-for-bit identical binary convergence** (`53,553,224 bytes`, `make test-self-host-ownlink`).
 - **Freestanding C11 `<threads.h>` & POSIX `pthread_*` in `zero_rt`** (Sprint 146): lightweight zero-dependency multithreading (`thrd_create`, `mtx_*`, `cnd_*`, `call_once`, `pthread_create`/`join`/`mutex_*`/`cond_*`) built on `__zerocc_clone` + Ulrich Drepper 3-state futex mutexes across all 4 ISAs
@@ -118,6 +117,7 @@ zerocc [options] <source.c> [more.c ...]
   -E              Preprocess only, to stdout (or -o file)
   -O0..-O3        Optimization level (-O1 is the default;
                   -O / -Os / -Oz / -Ofast are aliases for 1 / 2 / 3 / 3)
+  -flto / -fno-lto  Enable/disable cross-TU link-time optimization (Fat-LTO in .o/.a)
   -std=<dialect>  Language standard: c99, gnu99, c11, gnu11 (default),
                   c17, gnu17, c23, gnu23 (drives keywords & __STDC_VERSION__)
   -fomit-frame-pointer    Omit frame pointers in fixed-frame functions
@@ -163,7 +163,7 @@ zero_cc/
 │   ├─ main.c              # Driver: CLI, multi-TU, AOT/JIT, linker dispatch
 │   └─ zero_cc/
 │       ├─ common/         # Arena allocator, hash tables, POSIX shims
-│       ├─ core/           # Compiler state, preprocessor, pragma state
+│       ├─ core/           # Compiler state, preprocessor, pragma state, LTO engine (lto.h), multi-TU merge (multi_tu.h)
 │       ├─ driver/         # Driver helpers extracted from main.c: CLI option
 │       │                   # parsing (driver_opts.h) & AOT asm emission (driver_asm.h)
 │       ├─ lexer/          # Tokenizer (C99/C11/C23 keyword tables)
@@ -266,6 +266,7 @@ stopping when a round makes no change (`src/zero_cc/opt/opt_pass.c`):
 | **-O1** (default) | `constant_fold`, `flag_dce`, `dce`, `copy_prop`, `mem2reg` |
 | **-O2** | + `cse`, `gvn`, `licm`; small static/`inline` function inlining |
 | **-O3** | + `branchless`, `strength_reduction`, `branch_simplify`, `loop_unroll` (constant-trip `1..8` full unroll + runtime-bound partial unroll factor 2/4 with remainder peel), `auto_vectorize` (SSE2/SSE4.1, NEON, RVV) |
+| **`-flto`** | Two-phase cross-TU inlining (`-O1`+), global constant scalar propagation, 3-round pure const-return & IPCP fixpoint, constant-branch/post-terminator pruning, Fat-LTO `.zc.lto` objects/archives, and demand-driven dead function/global elimination |
 
 Inlining uses conservative candidate filters (no FP signatures, no body
 locals, no labels/gotos, no `&param`, no value-param writes — see
@@ -332,13 +333,13 @@ against a static-musl reference). See
 
 ## Test Results
 
-Current status (last full verification 2026-11-18, Sprints 170–186; counts drift as tests are added — `docs/CHANGELOG.md` has the per-sprint figures):
+Current status (last full verification 2026-11-21, Sprints 170–195; counts drift as tests are added — `docs/CHANGELOG.md` has the per-sprint figures):
 
 | Suite | Status | Count |
 |-------|--------|-------|
-| **Main regression suite** (`make test`: unit, semantic, ABI, JIT, AOT, asm reference) | ✅ Pass | 233/233 |
+| **Main regression suite** (`make test`: unit, semantic, ABI, JIT, AOT, asm reference) | ✅ Pass | 237/237 |
 | **External ABI interop gate** (`make test-abi-interop`: bidirectional `zerocc.o ↔ gcc.o` — zerocc main + gcc main, 15 calling-convention scenarios at `-O0`/`-O1`/`-O2`, incl. MEMORY struct args, SSE/SSEup 16B structs, `sret`, variadic struct args) | ✅ Pass | 15/15 |
-| **Optimizer sweep** (`make test-opt`, `-O0..-O3` × JIT + AOT via zerocc) | ✅ Pass | 130 ok, 0 failed (embedding tests skipped by design — covered by `make test`) |
+| **Optimizer sweep** (`make test-opt`, `-O0..-O3` × JIT + AOT via zerocc) | ✅ Pass | 135 ok, 0 failed (embedding tests skipped by design — covered by `make test`) |
 | **Baremetal CPU verification gate** (`make test-baremetal`: linker script `-T`, LMA/VMA mapping, boundary symbols across all 5 target ISAs) | ✅ Pass | 5/5 ISAs |
 | **Self-hosting bootstrap fixed-point gate** (`make test-self-host`, `make test-self-host-ownlink`: Stage 1 == Stage 2 bit-for-bit identity across all 76 TUs) | ✅ Pass | 100% bit-for-bit identical (53,553,224 bytes) |
 | **Self-hosting compilation audit** (`make audit-self-host`: all 76 translation units in `src/` compiled by `zerocc -c`) | ✅ Pass | 76/76 TUs |
@@ -349,20 +350,20 @@ Current status (last full verification 2026-11-18, Sprints 170–186; counts dri
 | **Inline-asm Phases 1–3 gate** (`make test-asm`: `test/asm/*.c` across `-S` text, JIT, and raw AOT at `-O0..-O3` vs host-gcc reference) | ✅ Pass | 72/72 |
 | **Project-differential gate** (`make test-project-diff`: cJSON, zlib, sqlite3.c at -O0/-O2) | ✅ Pass | 36/36 TUs |
 | **`zero_san` flag-ON sweep** (`make test-san`: `san_ok_*` clean + `san_trap_*` SIGILL at `-O0..-O3`, JIT + AOT, cross-ISA qemu smoke on **both** raw-AOT and `-S`+cross-assembler paths) | ✅ Pass | 720 ok / 0 FAIL (174 cross-ISA runs, both paths × all 4 ISAs) |
-| **Multi-file driver** (`make test-driver`, multi-TU JIT/AOT + per-input `-c`/`-S`) | ✅ Pass | 40/40 |
-| **Own linker & archiver** (`make test-linker`, `--zerocc-link` + `--ar` across all ISAs + gcc differential) | ✅ Pass | 49/49 |
+| **Multi-file driver** (`make test-driver`, multi-TU JIT/AOT + per-input `-c`/`-S` + `-flto`) | ✅ Pass | 49/49 |
+| **Own linker & archiver** (`make test-linker`, `--zerocc-link` + `--ar` across all ISAs + gcc differential + Fat-LTO `.o`/`.a`) | ✅ Pass | 54/54 |
 | **Cross-ISA raw-emitter QEMU gate** (`make test-isa-qemu`, vs static-musl reference) | ✅ Pass | 80/80 (all 5 ISAs: x86-64, aarch64, aarch32, riscv64, riscv32; 0 skips) |
 | **Cross-ISA `__int128` raw-emitter QEMU gate** (`make test-isa128`, vs static-musl reference) | ✅ Pass | 144/144 (all 3 ISAs × 6 tests × 4 levels × 2 paths) |
 | **Cross-ISA dynamic loading gate** (`make test-dlfcn-isa`, vs static-musl reference across all 4 ISAs) | ✅ Pass | 4/4 (x86-64 native, AArch64, RISC-V 64, RISC-V 32 under QEMU) |
 | **GCC c-torture conformance gate** (`make test-torture`, ratcheted baseline, gcc-15 reference) | ✅ Pass | 3,781 PASS / 3,940 corpus (0 MISCOMPILE / 0 REJECT; SKIP-SUPPORT 87, SKIP-C89 33, SKIP-REFSEM 7, SKIP-TARGET: arm 2, ia64 1, mips 4, powerpc 2, s390x 1, windows 1, float16/bfloat16/float128x runtime 3, SKIP-UB/PTR/BOGUS 3, EXPECTED-REJECT 4, NO-REF 1, REF-BUG 11) |
-| **Type-tag verifier** (`tools/verify/type_tag_verifier.py --verify-all`, invariants I1–I10 at `-O0/2/3`) | ✅ Pass | 219 files, RESULT OK |
+| **Type-tag verifier** (`tools/verify/type_tag_verifier.py --verify-all`, invariants I1–I10 at `-O0/2/3`) | ✅ Pass | 168 files, RESULT OK |
 | **Loop unroll verifier** (`tools/verify/loop_unroll_verifier.py`, `-O3` constant-trip full unrolling + runtime-bound partial unrolling w/ remainder peel, `expect-unroll`/`expect-partial` markers) | ✅ Pass | 25/25 |
-| **ASan/UBSan rebuild** (`make asan`) | ✅ Pass | 224/224 |
+| **ASan/UBSan rebuild** (`make asan`) | ✅ Pass | 233/233 |
 | **`sret` ABI verifier** (`tools/verify/sret_verifier.py --verify-all`) | ✅ Pass | 6/6 |
 | **C11 verification suite** (`tools/c11/test_c11.py`) | ✅ Pass | 11/11 |
 | **VLA verification suite** (`tools/vla/test_vla.py`) | ✅ Pass | 11/11 (incl. VLA-in-loop / VLA-in-block runtime tests — C99 6.7.5.2 legal, gcc-differentially verified) |
-| **Diagnostics battery** (`tools/verify/diag_battery.py`, vs gcc) | ✅ Pass | 16 cases, 8/8 error categories |
-| **C style checker** (`tools/verify/style_check.py`) | ✅ Pass | 181 files, 0 errors, 0 warnings (Sprint 174) |
+| **Diagnostics battery** (`tools/verify/diag_battery.py`, vs gcc) | ✅ Pass | 18 cases, 9/9 error categories |
+| **C style checker** (`tools/verify/style_check.py`) | ✅ Pass | 193 files, 0 errors, 0 warnings (Sprint 195) |
 
 ## C23 Support
 
@@ -660,7 +661,7 @@ ZeroCC prioritizes standard C99/C11/C23 semantics, small binary size, and zero-d
 Tracked in [`docs/ZEROCC_Development_Plan.md`](docs/ZEROCC_Development_Plan.md). Key milestones:
 
 - **SIMD Vendor Intrinsics & Wider Vector Targets**: `<immintrin.h>` (x86 SSE/SSE2) and `<arm_neon.h>` vendor intrinsics headers, loop unrolling vs auto-vectorization pass inversion, and wider vector targets (256-bit AVX2 / AArch64 SVE). *(Core NEON 128-bit MC loads/stores and RVV 1.0 decoupled `REG_CLASS_VEC` regalloc are completed in Sprint 191).*
-- **Cross-Translation-Unit Link-Time Optimization (LTO)**: Whole-program optimization (cross-TU inlining of static functions and inter-procedural constant propagation) across translation units. *(Cross-TU dead code & data elimination `--gc-sections` is completed in Sprint 190).*
+- **Cross-Translation-Unit Link-Time Optimization (LTO) — COMPLETE (Sprint 195)**: Two-phase whole-program LTO (`-flto`) with Fat-LTO `.zc.lto` ELF sections inside `.o`/`.a`, cross-TU inlining (`-O1`+), global constant propagation, 3-round IPCP & pure constant-return fixpoint, dead branch/post-terminator pruning, demand-driven worklist lowering, dead function/global elimination, `--gc-sections` integration, and `--run` JIT LTO. *(Built on Sprint 190's `--gc-sections` dead-stripping).*
 - **Platform Portability: Windows & macOS**: PE/COFF + Win64 ABI (`T3-Win`) and Mach-O (`T4-Mac`) object/executable backends and runtime support.
 - **Standalone GPU Compiler Repository (`zero_gpu`, PTX & SPIR-V)**: Developed as an independent, standalone project in its own repository (`zero_gpu`), specialized for GPU compute kernels emitting NVIDIA PTX and Khronos SPIR-V, decoupled from ZeroCC's CPU/baremetal pipeline. ZeroCC applications drive GPU acceleration through standard host runtime APIs (`libcuda.so`, `libvulkan.so`, `libOpenCL.so`) via `zero_rt`'s dynamic loader.
 

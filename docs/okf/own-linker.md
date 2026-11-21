@@ -4,7 +4,7 @@ title: ZeroCC Own Linker (T2) - ELF Reader, ar Reader, Static ET_EXEC/PIE Output
 description: ZeroCC's own static linker - the ELF64-LE object reader, the classic ar archive reader with greedy member extraction, symbol resolution, section layout at conventional x86-64/AArch64/RISC-V64 bases, the x86-64 far-rel32 detour-thunk pool, the static-PIE (ET_DYN) self-relocating link, supported relocation sets, and per-ISA generated _start stubs. Gate: make test-linker (21/21) + test/linker/far_thunk.c + test/linker/pie_test.c.
 resource: linker
 tags: [linker, elf, ar, aot, x86-64, aarch64, riscv64, relocations, zero-rt, static-pie, thunks]
-timestamp: 2026-11-18T14:03:13Z
+timestamp: 2026-11-21T19:45:56Z
 generated: pi-agent
 verified: engineering-lead
 status: active
@@ -300,6 +300,10 @@ In Sprint 184 Stage 4, ZeroCC's own linker (`src/zero_cc/linker/linker.c`) was e
    - `tools/toolchain/build_stage1.py` and `tools/verify/self_host_cycle.py` iteratively regenerate `embedded_syms.c` via `tools/toolchain/embed_symtab.py` and relink until fixpoint convergence ($N \le 3$).
 8. **Bootstrap Fixed-Point Convergence**:
    - Stage 1 and Stage 2 built and linked with ZeroCC's own linker achieve 100% bit-for-bit identity across all 77 object files and the final standalone static binary (`53,553,224 bytes`, verified via `make test-self-host-ownlink`).
+9. **Fat-LTO Object/Archive Integration (`-flto`, Sprint 195)**:
+   - `-flto -c` emits a normal standalone ELF object plus a non-allocatable `.zc.lto` (`SHT_PROGBITS`, `flags = 0`) section carrying preprocessed source text.
+   - `compile_and_link` under `-flto` inspects `.o` and `.a` inputs via `zc_elf_obj_load` / `zc_ar_open`, feeding Fat-LTO members into `ZeroCCLTOContext`, registering `SHN_UNDEF` symbols from non-LTO objects/members as `ext_roots`, and auto-enabling `--gc-sections` when invoked with `--zerocc-link` (unless `--no-gc-sections` is explicitly passed).
+   - `write_compiled_object` skips `lto_eliminated` functions, globals, symbols, and dead `.data` relocations; `linker.c` ignores non-`SHF_ALLOC` `.zc.lto` sections automatically.
 
 ## Known limitations (documented, not bugs)
 

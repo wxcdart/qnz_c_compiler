@@ -471,7 +471,7 @@ void riscv64_emit_call(ZeroCCCompiler *c, const char *func_name) {
     ZeroCCFunction *fn = func_name ? zero_cc_find_function_by_symbol(c, func_name) : NULL;
     size_t pos = me_get_offset(c);
 
-    if (fn && !fn->is_prototype && !fn->is_nested) {
+    if (fn && !fn->is_prototype && !fn->is_nested && (!fn->lto_defer || fn->lto_lowered)) {
         /* Internal function: compute relative offset and emit jal with correct displacement */
         int32_t rel = (int32_t)(fn->text_offset - pos);
         riscv_emit_u32(c, rv64_J(1 /* ra */, rel));

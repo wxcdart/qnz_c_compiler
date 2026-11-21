@@ -1058,7 +1058,7 @@ static void x86_emit_call(ZeroCCCompiler *c, const char *fn_name) {
 
     /* Emit placeholder offset (0 for external, calculated for internal) */
     int32_t rel = 0;
-    if (fn && !fn->is_prototype) {
+    if (fn && !fn->is_prototype && (!fn->lto_defer || fn->lto_lowered)) {
         rel = (int32_t)(fn->text_offset - (patch_pos + 4));
     }
     me_emit_u32(c, (uint32_t)rel);

@@ -1214,48 +1214,16 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
                        diag_error_count(ctx->diags) == err_count_before);
 
         if (sem_ok) {
-            /* Reset register allocator for this function */
-            regalloc_init(&c->regalloc);
-            c->next_temp_id = VREG_USER_START;
-            c->ir_next_label = 0;
-
-            /* Reset IR buffer for this function */
-            ir_reset(c);
-
-            /* Pass 1: Lower AST to IR (instruction selection) */
-            c->has_pending_lowering_fn = true;
-            c->pending_lowering_fn_idx = (size_t)(fn - c->functions);
-            zero_cc_lower_ast(c, &arena, body);
-
-            fn->text_size = c->text_section.length - fn->text_offset;
-            if (c->local_count > 0) {
-                Arena *farena = zero_cc_get_fn_arena(c);
-                fn->dwarf_vars = (ZeroCCDwarfVar *)arena_alloc(farena, c->local_count * sizeof(ZeroCCDwarfVar));
-                fn->dwarf_var_count = c->local_count;
-                for (size_t li = 0; li < c->local_count; li++) {
-                    ZeroCCSym *sym = &c->locals[li];
-                    ZeroCCDwarfVar *dv = &fn->dwarf_vars[li];
-                    snprintf(dv->name, sizeof(dv->name), "%s", sym->name);
-                    dv->type = sym->type;
-                    dv->stack_offset = sym->stack_offset;
-                    dv->is_param = sym->is_param;
-                    dv->is_static_local = sym->is_static_local;
-                    dv->static_data_offset = sym->static_data_offset;
-                    dv->line = sym->line ? sym->line : fn->line;
-                    dv->col = sym->col;
+            bool has_nested = false;
+            for (size_t ni = c->nested_fn_base; ni < c->function_count; ni++) {
+                ZeroCCFunction *nf = &c->functions[ni];
+                if (nf->is_nested && nf->text_offset == 0 && !nf->is_tramp_stub) {
+                    has_nested = true;
+                    break;
                 }
             }
 
-            /* Pass 1 (Lower AST -> IR), Register Allocation, and Pass 2 (IR -> Machine Code)
-             * are executed inside zero_cc_lower_ast(). The VLA parameter
-             * dimension expressions were consumed at entry during Pass 1. */
-            if (dim_arena) {
-                zero_cc_ast_arena_free(dim_arena);
-                free(dim_arena);
-                dim_arena = NULL;
-            }
-
-            /* Record small static/inline function body in translation-unit arena for inlining.
+            /* Record small static/inline (or LTO-visible) function body in translation-unit arena for inlining.
              * Sprint 35 Phase 1 (inline audit) conservative candidate filters - the
              * call-site expander re-lowers the body in the CALLER's context, where the
              * callee's parse-time state is unavailable or collides:
@@ -1279,7 +1247,7 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
                  zero_cc_ast_has_call(&arena, body, "__builtin_va_arg_pack_len"));
             bool ret_is_128_scalar = (fn_ret_type.tag == TYPE_INT128 ||
                                       fn_ret_type.tag == TYPE_UINT128);
-            if (c->tu_ast_arena && (fn_inline || fn_static) &&
+            if (c->tu_ast_arena && (fn_inline || fn_static || (c->lto_mode && !fn->is_weak)) &&
                 (!fn->is_variadic || uses_va_arg_pack) &&
                 !fn->returns_struct && (fn->ret_struct_sz <= 8 || ret_is_128_scalar)) {
                 ZeroCCASTArena *tu_arena = (ZeroCCASTArena *)c->tu_ast_arena;
@@ -1328,7 +1296,75 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
                         fn->can_inline = true;
                         fn->inline_body = cloned_body;
                         fn->ast_arena = tu_arena;
+                        fn->perm_arena = perm;
+                        fn->lto_can_cross_inline = true;
                     }
+                }
+            }
+
+            if (c->lto_mode && c->lto_phase == 1 && !has_nested && c->tu_ast_arena) {
+                ZeroCCASTArena *tu_arena = (ZeroCCASTArena *)c->tu_ast_arena;
+                ASTRef lto_cloned = zero_cc_ast_clone(&arena, body, tu_arena);
+                if (lto_cloned != AST_NULL) {
+                    if (c->local_count > 0) {
+                        fn->lto_locals = (ZeroCCSym *)malloc(c->local_count * sizeof(ZeroCCSym));
+                        if (fn->lto_locals) {
+                            memcpy(fn->lto_locals, c->locals, c->local_count * sizeof(ZeroCCSym));
+                            fn->lto_local_count = c->local_count;
+                        }
+                    }
+                    fn->lto_stack_frame = c->current_stack_frame;
+                    fn->lto_canary_offset = c->canary_stack_offset;
+                    fn->lto_body = lto_cloned;
+                    fn->ast_arena = tu_arena;
+                    fn->perm_arena = perm;
+                    fn->owner_tu = c->tu_index;
+                    fn->lto_defer = true;
+                    dim_arena = NULL; /* ownership remains on fn->param_dim_arena until Phase 2 */
+                }
+            }
+
+            if (!fn->lto_defer) {
+                /* Reset register allocator for this function */
+                regalloc_init(&c->regalloc);
+                c->next_temp_id = VREG_USER_START;
+                c->ir_next_label = 0;
+
+                /* Reset IR buffer for this function */
+                ir_reset(c);
+
+                /* Pass 1: Lower AST to IR (instruction selection) */
+                c->has_pending_lowering_fn = true;
+                c->pending_lowering_fn_idx = (size_t)(fn - c->functions);
+                zero_cc_lower_ast(c, &arena, body);
+
+                fn->text_size = c->text_section.length - fn->text_offset;
+                if (c->local_count > 0) {
+                    Arena *farena = zero_cc_get_fn_arena(c);
+                    fn->dwarf_vars = (ZeroCCDwarfVar *)arena_alloc(farena, c->local_count * sizeof(ZeroCCDwarfVar));
+                    fn->dwarf_var_count = c->local_count;
+                    for (size_t li = 0; li < c->local_count; li++) {
+                        ZeroCCSym *sym = &c->locals[li];
+                        ZeroCCDwarfVar *dv = &fn->dwarf_vars[li];
+                        snprintf(dv->name, sizeof(dv->name), "%s", sym->name);
+                        dv->type = sym->type;
+                        dv->stack_offset = sym->stack_offset;
+                        dv->is_param = sym->is_param;
+                        dv->is_static_local = sym->is_static_local;
+                        dv->static_data_offset = sym->static_data_offset;
+                        dv->line = sym->line ? sym->line : fn->line;
+                        dv->col = sym->col;
+                    }
+                }
+
+                /* Pass 1 (Lower AST -> IR), Register Allocation, and Pass 2 (IR -> Machine Code)
+                 * are executed inside zero_cc_lower_ast(). The VLA parameter
+                 * dimension expressions were consumed at entry during Pass 1. */
+                if (dim_arena) {
+                    zero_cc_ast_arena_free(dim_arena);
+                    free(dim_arena);
+                    dim_arena = NULL;
+                    fn->param_dim_arena = NULL;
                 }
             }
 
@@ -1567,6 +1603,12 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
         } else {
             c->had_error = 1;
             /* Errors are recorded in ctx->diags and merged into c->diag_buf at TU end */
+            if (dim_arena) {
+                zero_cc_ast_arena_free(dim_arena);
+                free(dim_arena);
+                dim_arena = NULL;
+                fn->param_dim_arena = NULL;
+            }
         }
 
         // Restore scope and return type after analysis
@@ -1579,6 +1621,89 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
         // Consume closing brace if present
         if (c->tokens[c->token_pos].type == TK_RBRACE) c->token_pos++;
     }
+}
+
+void zero_cc_lower_deferred_fn(ZeroCCCompiler *c, ZeroCCFunction *fn) {
+    if (!c || !fn || !fn->lto_defer || fn->lto_lowered || fn->lto_eliminated ||
+        fn->lto_body == AST_NULL || !fn->ast_arena) {
+        return;
+    }
+    fn->text_offset = c->text_section.length;
+    fn->lto_lowered = true;
+
+    c->local_count = 0;
+    c->local_lookup_bound = -1;
+    if (fn->lto_local_count > 0 && fn->lto_locals) {
+        if (fn->lto_local_count > c->local_capacity) {
+            size_t ncap = c->local_capacity ? c->local_capacity : 64;
+            while (ncap < fn->lto_local_count) ncap *= 2;
+            ZeroCCSym *nl = (ZeroCCSym *)realloc(c->locals, ncap * sizeof(ZeroCCSym));
+            int32_t *nn = (int32_t *)realloc(c->local_hash_next, ncap * sizeof(int32_t));
+            if (!nl || !nn) {
+                if (nl) c->locals = nl;
+                if (nn) c->local_hash_next = nn;
+                c->had_error = 1;
+                return;
+            }
+            c->locals = nl;
+            c->local_hash_next = nn;
+            c->local_capacity = ncap;
+        }
+        memcpy(c->locals, fn->lto_locals, fn->lto_local_count * sizeof(ZeroCCSym));
+        c->local_count = fn->lto_local_count;
+        size_t bcap = 64;
+        while (bcap < fn->lto_local_count * 2) bcap *= 2;
+        zero_cc_local_hash_rehash(c, bcap);
+    } else if (c->local_hash_buckets && c->local_hash_bucket_count > 0) {
+        for (size_t b = 0; b < c->local_hash_bucket_count; b++) {
+            c->local_hash_buckets[b] = -1;
+        }
+    }
+
+    c->current_stack_frame = fn->lto_stack_frame;
+    c->canary_stack_offset = fn->lto_canary_offset;
+    void *prev_lto_perm = c->lto_perm_arena;
+    c->lto_perm_arena = fn->perm_arena;
+
+    regalloc_init(&c->regalloc);
+    c->next_temp_id = VREG_USER_START;
+    c->ir_next_label = 0;
+    ir_reset(c);
+
+    ZeroCCASTArena work_arena;
+    zero_cc_ast_arena_init(&work_arena, 1024);
+    ASTRef work_body = zero_cc_ast_clone((ZeroCCASTArena *)fn->ast_arena, (ASTRef)fn->lto_body, &work_arena);
+
+    c->has_pending_lowering_fn = true;
+    c->pending_lowering_fn_idx = (size_t)(fn - c->functions);
+    zero_cc_lower_ast(c, &work_arena, work_body != AST_NULL ? work_body : (ASTRef)fn->lto_body);
+
+    fn->text_size = c->text_section.length - fn->text_offset;
+    if (c->local_count > 0 && !fn->dwarf_vars) {
+        Arena *farena = zero_cc_get_fn_arena(c);
+        fn->dwarf_vars = (ZeroCCDwarfVar *)arena_alloc(farena, c->local_count * sizeof(ZeroCCDwarfVar));
+        fn->dwarf_var_count = c->local_count;
+        for (size_t li = 0; li < c->local_count; li++) {
+            ZeroCCSym *sym = &c->locals[li];
+            ZeroCCDwarfVar *dv = &fn->dwarf_vars[li];
+            snprintf(dv->name, sizeof(dv->name), "%s", sym->name);
+            dv->type = sym->type;
+            dv->stack_offset = sym->stack_offset;
+            dv->is_param = sym->is_param;
+            dv->is_static_local = sym->is_static_local;
+            dv->static_data_offset = sym->static_data_offset;
+            dv->line = sym->line ? sym->line : fn->line;
+            dv->col = sym->col;
+        }
+    }
+
+    zero_cc_ast_arena_free(&work_arena);
+    if (fn->param_dim_arena) {
+        zero_cc_ast_arena_free((ZeroCCASTArena *)fn->param_dim_arena);
+        free(fn->param_dim_arena);
+        fn->param_dim_arena = NULL;
+    }
+    c->lto_perm_arena = prev_lto_perm;
 }
 
 bool zero_cc_struct_def_is_fn(ZeroCCCompiler *c) {

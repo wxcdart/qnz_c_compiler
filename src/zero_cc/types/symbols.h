@@ -419,6 +419,13 @@ typedef struct ZeroCCCompiler {
     size_t *ctfe_scope_stack;
     size_t ctfe_scope_count;
     size_t ctfe_scope_cap;
+
+    /* LTO (Link-Time Optimization, -flto) state */
+    bool lto_mode;                        /* -flto enabled */
+    int lto_phase;                        /* 0 = off, 1 = Phase 1 AST capture, 2 = Phase 2 lowering */
+    void *lto_perm_arena;                 /* Active semantic perm Arena * during Phase 2 lowering */
+    void *lto_kept_perm_arena;            /* Preserved perm Arena * owned by this TU for Phase 2 */
+    void *lto_ctx;                        /* struct ZeroCCLTOContext * active during Phase 2 */
 } ZeroCCCompiler;
 
 /* Report (at most once per compilation) that the TU's text-relocation

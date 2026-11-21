@@ -471,10 +471,19 @@ static inline ZeroCCType typeinfo_to_zero_cc_type(const TypeInfo *ti) {
 
 /* Canonical accessor to retrieve TypeInfo* attached to an AST node */
 static inline TypeInfo *ast_node_get_typeinfo(ZeroCCCompiler *c, const ZeroCCASTNode *node) {
-    if (!c || !c->sem_ctx || !c->sem_ctx->perm_arena || !node || node->aux.extra == 0) {
+    if (!c || !node || node->aux.extra == 0) {
         return NULL;
     }
-    return (TypeInfo *)arena_index_to_ptr(c->sem_ctx->perm_arena, (size_t)(node->aux.extra - 1));
+    Arena *pa = NULL;
+    if (c->lowering.inlining.active_depth > 0 && c->lowering.inlining.perm_arena) {
+        pa = (Arena *)c->lowering.inlining.perm_arena;
+    } else if (c->lto_perm_arena) {
+        pa = (Arena *)c->lto_perm_arena;
+    } else if (c->sem_ctx && c->sem_ctx->perm_arena) {
+        pa = c->sem_ctx->perm_arena;
+    }
+    if (!pa) return NULL;
+    return (TypeInfo *)arena_index_to_ptr(pa, (size_t)(node->aux.extra - 1));
 }
 
 /* Canonical accessor to attach TypeInfo* to an AST node */

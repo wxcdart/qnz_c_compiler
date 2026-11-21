@@ -8,6 +8,7 @@
 #include <stdio.h>
 
 #include "zero_cc/ir/ast_lowering_internal.h"
+#include "zero_cc/core/lto.h"
 #include "zero_cc/types/types.h"
 #include "zero_cc/parser/parser.h"
 #include "zero_cc/parser/vla_struct.h"
@@ -25,6 +26,72 @@
 void lower_node(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
 int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
 static void lower_asm_stmt(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node);
+
+static bool zc_stmt_has_label_or_case(ZeroCCASTArena *arena, ASTRef ref, int depth) {
+    if (!arena || ref == AST_NULL || depth > 64) return false;
+    ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
+    if (!n) return false;
+    if (n->tag == NODE_LABEL || n->tag == NODE_CASE || n->tag == NODE_DEFAULT) {
+        return true;
+    }
+    if (zc_stmt_has_label_or_case(arena, n->left, depth + 1)) return true;
+    if (zc_stmt_has_label_or_case(arena, n->right, depth + 1)) return true;
+    if ((n->tag == NODE_IF || n->tag == NODE_TERNARY) &&
+        zc_stmt_has_label_or_case(arena, (ASTRef)n->aux.alt, depth + 1)) {
+        return true;
+    }
+    if (n->tag == NODE_FOR &&
+        (zc_stmt_has_label_or_case(arena, n->aux.step, depth + 1) ||
+         zc_stmt_has_label_or_case(arena, (ASTRef)n->aux.alt, depth + 1))) {
+        return true;
+    }
+    if (n->tag == NODE_CASE &&
+        zc_stmt_has_label_or_case(arena, n->aux.step, depth + 1)) {
+        return true;
+    }
+    return zc_stmt_has_label_or_case(arena, n->next, depth + 1);
+}
+
+static bool zc_stmt_always_terminates(ZeroCCCompiler *c, ZeroCCASTArena *arena,
+                                      ASTRef ref, int depth) {
+    if (!c || !arena || ref == AST_NULL || depth > 64) return false;
+    ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
+    if (!n) return false;
+    switch (n->tag) {
+        case NODE_RETURN:
+        case NODE_BREAK:
+        case NODE_CONTINUE:
+        case NODE_GOTO:
+            return true;
+        case NODE_LABEL:
+            return zc_stmt_always_terminates(c, arena, n->left, depth + 1);
+        case NODE_BLOCK: {
+            ASTRef cur = n->left;
+            while (cur != AST_NULL) {
+                ZeroCCASTNode *cn = zero_cc_ast_get(arena, cur);
+                if (!cn) break;
+                if (zc_stmt_always_terminates(c, arena, cur, depth + 1)) {
+                    return cn->next == AST_NULL ||
+                           !zc_stmt_has_label_or_case(arena, cn->next, depth + 1);
+                }
+                cur = cn->next;
+            }
+            return false;
+        }
+        case NODE_IF: {
+            int64_t cond = 0;
+            if (zc_ast_const_eval(c, arena, n->left, &cond)) {
+                ASTRef taken = cond ? n->right : (ASTRef)n->aux.alt;
+                return zc_stmt_always_terminates(c, arena, taken, depth + 1);
+            }
+            return n->right != AST_NULL && n->aux.alt != AST_NULL &&
+                   zc_stmt_always_terminates(c, arena, n->right, depth + 1) &&
+                   zc_stmt_always_terminates(c, arena, (ASTRef)n->aux.alt, depth + 1);
+        }
+        default:
+            return false;
+    }
+}
 
 void lower_stmt_block(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
     c->lowering.vla.block_depth++;
@@ -49,7 +116,13 @@ void lower_stmt_block(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
     while (stmt != AST_NULL) {
         lower_node(c, arena, stmt);
         ZeroCCASTNode *snode = zero_cc_ast_get(arena, stmt);
-        stmt = snode ? snode->next : AST_NULL;
+        if (!snode) break;
+        if (c->lto_mode && snode->next != AST_NULL &&
+            zc_stmt_always_terminates(c, arena, stmt, 0) &&
+            !zc_stmt_has_label_or_case(arena, snode->next, 0)) {
+            break;
+        }
+        stmt = snode->next;
     }
 
     c->lowering.vla.block_depth--;

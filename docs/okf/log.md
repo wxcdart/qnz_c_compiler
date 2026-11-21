@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-21T04:35:00Z
+timestamp: 2026-11-21T19:45:57Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1596,3 +1596,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-21 — Updated `isa-backends.md`
 - Sprint 194: AArch32 -S text assembly dynamic stack realignment (_Alignas(N > 16)) and large-frame displacement support
+
+## 2026-11-21 — Updated `multi-tu.md`
+- Sprint 195: Implement cross-TU link-time optimization (-flto) with Fat-LTO .o/.a support, cross-TU inlining, IPCP, const global propagation, and demand-driven DCE

@@ -27,6 +27,9 @@
 
 #include "zero_cc/types/global_vars.h"
 #include "zero_cc/core/multi_tu.h"
+#include "zero_cc/core/lto.h"
+#include "zero_cc/linker/elf_reader.h"
+#include "zero_cc/linker/ar_reader.h"
 #include "zero_cc/linker/linker.h"
 #include "zero_cc/linker/ar_writer.h"
 
@@ -38,6 +41,8 @@ static ZeroCCISA parse_target_arch(const char *target);
 static void zero_cc_init_compiler_with_target(ZeroCCCompiler *comp, ZeroCCISA target_isa);
 
 static int compile_object_single(CompileOptions *opts, const char *input, const char *output);
+static int write_compiled_object(ZeroCCCompiler *comp, CompileOptions *opts,
+                                 const char *output_path, const char *lto_prep_source);
 
 static char *read_file(const char *path) {
     FILE *f = fopen(path, "r");
@@ -362,7 +367,118 @@ static ZeroCCCompiler *jit_compile_tu(CompileOptions *opts, const char *input, i
     return comp;
 }
 
+static ZeroCCCompiler *lto_compile_tu_phase1(CompileOptions *opts, const char *source_name,
+                                               const char *prep_source, int tu_index) {
+    ZeroCCCompiler *comp = calloc(1, sizeof(ZeroCCCompiler));
+    if (!comp) {
+        perror("calloc");
+        return NULL;
+    }
+
+    ZeroCCISA target_isa = parse_target_arch(opts->target_arch);
+    zero_cc_init_compiler_with_target(comp, target_isa);
+
+    comp->opt_level = (OptLevel)opts->opt_level;
+    comp->omit_frame_pointer = opts->omit_frame_pointer;
+    comp->no_builtin_all = opts->no_builtin_all != 0;
+    comp->no_builtin_count = opts->no_builtin_count;
+    for (int nb = 0; nb < opts->no_builtin_count; nb++) {
+        snprintf(comp->no_builtin_names[nb], sizeof(comp->no_builtin_names[nb]),
+                 "%s", opts->no_builtin[nb]);
+    }
+    comp->sanitize_overflow = opts->sanitize_overflow != 0;
+    comp->sanitize_report = opts->sanitize_report != 0;
+    comp->stack_protector = opts->stack_protector;
+    comp->std_dialect = opts->std_dialect;
+    comp->debug_info = opts->debug_info;
+    comp->function_sections = opts->function_sections;
+    comp->data_sections = opts->data_sections;
+    comp->source_filename = zero_cc_intern_string(comp, source_name ? source_name : "<lto>");
+    static char cwd_buf[1024];
+    if (getcwd(cwd_buf, sizeof(cwd_buf))) {
+        comp->comp_dir = cwd_buf;
+    }
+
+    bool is_jit = (opts->run_mode || (!opts->output_file && !opts->emit_object &&
+                                      !opts->emit_asm && !opts->emit_preproc));
+    comp->jit_mode = is_jit ? 1 : 0;
+    comp->lto_mode = true;
+    comp->lto_phase = 1;
+    comp->tu_index = tu_index;
+
+    zero_cc_tokenize_c99(prep_source, comp);
+    if (opts->dump_ir) comp->dump_ir = 1;
+    if (opts->dump_cfg) comp->dump_cfg = 1;
+    if (opts->profile_opts) {
+        opt_profile_enable(1);
+        opt_profile_reset();
+    }
+
+    zero_cc_compile_c99(comp);
+    if (comp->had_error) {
+        fprintf(stderr, "Compile error: %s\n", comp->error_msg);
+        zero_cc_compiler_free(comp);
+        return NULL;
+    }
+    return comp;
+}
+
 static int compile_jit(CompileOptions *opts) {
+    if (opts->lto) {
+        ZeroCCLTOContext lto;
+        zero_cc_lto_init(&lto);
+        for (int i = 0; i < opts->input_count; i++) {
+            char *source = read_file(opts->input_files[i]);
+            if (!source) {
+                zero_cc_lto_cleanup(&lto);
+                return 1;
+            }
+            char *prep = preprocess_with_options(source, opts, opts->input_files[i], opts->dep_target);
+            free(source);
+            if (!prep) {
+                zero_cc_lto_cleanup(&lto);
+                return 1;
+            }
+            ZeroCCCompiler *tu = lto_compile_tu_phase1(opts, opts->input_files[i], prep, lto.tu_count);
+            free(prep);
+            if (!tu || zero_cc_lto_add_tu(&lto, tu) != 0) {
+                if (tu) zero_cc_compiler_free(tu);
+                if (lto.had_error) fprintf(stderr, "zerocc: error: %s\n", lto.error_msg);
+                zero_cc_lto_cleanup(&lto);
+                return 1;
+            }
+        }
+        if (zero_cc_lto_analyze(&lto) != 0 || zero_cc_lto_optimize_and_lower(&lto) != 0) {
+            fprintf(stderr, "zerocc: error: %s\n", lto.error_msg[0] ? lto.error_msg : "LTO failed");
+            zero_cc_lto_cleanup(&lto);
+            return 1;
+        }
+        ZeroCCCompiler *base = lto.tus[0];
+        for (int i = 1; i < lto.tu_count; i++) {
+            char err[256];
+            if (zero_cc_tu_merge(base, lto.tus[i], err, sizeof(err)) != 0) {
+                fprintf(stderr, "zerocc: error: %s\n", err);
+                zero_cc_lto_cleanup(&lto);
+                return 1;
+            }
+        }
+        ZeroCCFunction *main_fn = zero_cc_find_function(base, "main");
+        if (!main_fn || main_fn->is_prototype) {
+            fprintf(stderr, "zerocc: error: undefined reference to 'main'\n");
+            zero_cc_lto_cleanup(&lto);
+            return 1;
+        }
+        if (opts->profile_opts) {
+            opt_profile_dump(stderr);
+        }
+        int result = zero_cc_execute_jit(base, NULL);
+        if (opts->verbose) {
+            printf("JIT execution result: %d\n", result);
+        }
+        zero_cc_lto_cleanup(&lto);
+        return result;
+    }
+
     ZeroCCCompiler *comp = jit_compile_tu(opts, opts->input_files[0], 0);
     if (!comp) {
         return 1;
@@ -613,6 +729,8 @@ static int compile_object_single(CompileOptions *opts, const char *input,
         return 1;
     }
 
+    char *lto_prep_copy = (opts->lto && !opts->emit_asm) ? strdup(prep) : NULL;
+
     /* Tokenize */
     zero_cc_tokenize_c99(prep, comp);
     free(prep);
@@ -644,6 +762,7 @@ static int compile_object_single(CompileOptions *opts, const char *input,
         comp->asm_out = fopen(out_path, "w");
         if (!comp->asm_out) {
             perror("fopen");
+            free(lto_prep_copy);
             zero_cc_compiler_free(comp);
             return 1;
         }
@@ -659,6 +778,7 @@ static int compile_object_single(CompileOptions *opts, const char *input,
     zero_cc_compile_c99(comp);
     if (comp->had_error) {
         fprintf(stderr, "Compile error: %s\n", comp->error_msg);
+        free(lto_prep_copy);
         zero_cc_compiler_free(comp);
         return 1;
     }
@@ -668,6 +788,14 @@ static int compile_object_single(CompileOptions *opts, const char *input,
         opt_profile_dump(stderr);
     }
 
+    int write_rc = write_compiled_object(comp, opts, output_path, lto_prep_copy);
+    free(lto_prep_copy);
+    zero_cc_compiler_free(comp);
+    return write_rc;
+}
+
+static int write_compiled_object(ZeroCCCompiler *comp, CompileOptions *opts,
+                                 const char *output_path, const char *lto_prep_source) {
     if (opts->verbose) {
         printf("Writing object file: %s\n", output_path);
     }
@@ -703,7 +831,7 @@ static int compile_object_single(CompileOptions *opts, const char *input,
     size_t data_align = 8;
     for (size_t gi = 0; gi < comp->global_var_count; gi++) {
         ZeroCCGlobalVar *gv = &comp->global_vars[gi];
-        if (gv->is_bss || gv->is_tls) continue;
+        if (gv->is_bss || gv->is_tls || gv->lto_eliminated) continue;
         size_t ga = gv->type.align > 0 ? gv->type.align : 8;
         if (ga > data_align) data_align = ga;
     }
@@ -720,7 +848,8 @@ static int compile_object_single(CompileOptions *opts, const char *input,
     size_t bss_total = 0;
     size_t bss_align = 8;
     for (size_t i = 0; i < comp->global_var_count; i++) {
-        if (comp->global_vars[i].is_bss && !comp->global_vars[i].is_tls) {
+        if (comp->global_vars[i].is_bss && !comp->global_vars[i].is_tls &&
+            !comp->global_vars[i].lto_eliminated) {
             size_t end = comp->global_vars[i].data_offset + comp->global_vars[i].size;
             if (end > bss_total) bss_total = end;
             size_t ga = comp->global_vars[i].type.align > 0 ? comp->global_vars[i].type.align : 8;
@@ -780,7 +909,7 @@ static int compile_object_single(CompileOptions *opts, const char *input,
 
         for (size_t i = 0; i < gvn; i++) {
             ZeroCCGlobalVar *gv = &comp->global_vars[i];
-            if (!gv->name[0] || !gv->section[0] || gv->alias_target[0] || gv->is_tls) continue;
+            if (!gv->name[0] || !gv->section[0] || gv->alias_target[0] || gv->is_tls || gv->lto_eliminated) continue;
             int si = -1;
             for (int k = 0; k < ns_count; k++)
                 if (strcmp(ns_names[k], gv->section) == 0) { si = k; break; }
@@ -812,7 +941,7 @@ static int compile_object_single(CompileOptions *opts, const char *input,
                 if (!buf) continue;
                 for (size_t i = 0; i < gvn; i++) {
                     ZeroCCGlobalVar *gv = &comp->global_vars[i];
-                    if (strcmp(gv->section, ns_names[k]) != 0) continue;
+                    if (gv->lto_eliminated || strcmp(gv->section, ns_names[k]) != 0) continue;
                     if (!gv->is_bss && gv->size > 0 &&
                         gv->data_offset + gv->size <= comp->data_section.length) {
                         memcpy(buf + gv->named_sec_off,
@@ -848,7 +977,7 @@ static int compile_object_single(CompileOptions *opts, const char *input,
         size_t nreal = 0;
         for (size_t i = 0; i < fcn; i++) {
             ZeroCCFunction *f = &comp->functions[i];
-            if (f->name[0] && !f->is_prototype && !f->is_external && !f->is_object) {
+            if (f->name[0] && !f->is_prototype && !f->is_external && !f->is_object && !f->lto_eliminated) {
                 order[nreal++] = i;
             }
         }
@@ -942,6 +1071,7 @@ static int compile_object_single(CompileOptions *opts, const char *input,
     /* Add symbols for functions */
     for (size_t i = 0; i < comp->function_count; i++) {
         ZeroCCFunction *fn = &comp->functions[i];
+        if (fn->lto_eliminated) continue;
         /* Nested functions may share source names across enclosing
          * functions; they are emitted (and referenced by call relocs) under
          * their unique mangled name. `__asm`-labeled functions are renamed
@@ -953,6 +1083,7 @@ static int compile_object_single(CompileOptions *opts, const char *input,
                 bool has_def = false;
                 for (size_t k = 0; k < comp->function_count; k++) {
                     if (k != i && !comp->functions[k].is_prototype && !comp->functions[k].is_external &&
+                        !comp->functions[k].lto_eliminated &&
                         strcmp(comp->functions[k].name, fn->name) == 0) {
                         has_def = true;
                         break;
@@ -1018,6 +1149,7 @@ static int compile_object_single(CompileOptions *opts, const char *input,
     int bss_section_idx = bss_idx;
     for (size_t i = 0; i < comp->global_var_count; i++) {
         ZeroCCGlobalVar *gv = &comp->global_vars[i];
+        if (gv->lto_eliminated) continue;
         if (gv->name[0]) {
             /* GNU alias entry: no storage, no ELF symbol (uses resolve to
              * the target's symbol at lowering time). */
@@ -1353,6 +1485,18 @@ static int compile_object_single(CompileOptions *opts, const char *input,
     if (comp->data_section.length > 0) {
         for (size_t i = 0; i < comp->data_reloc_count; i++) {
             ZeroCCDataReloc *dr = &comp->data_relocs[i];
+            bool in_elim_gv = false;
+            for (size_t gi = 0; gi < comp->global_var_count; gi++) {
+                const ZeroCCGlobalVar *egv = &comp->global_vars[gi];
+                if (!egv->lto_eliminated || egv->is_bss || egv->is_tls || egv->alias_target[0]) continue;
+                size_t esz = egv->size ? egv->size : egv->type.size;
+                if (dr->data_patch_offset >= egv->data_offset &&
+                    dr->data_patch_offset < egv->data_offset + esz) {
+                    in_elim_gv = true;
+                    break;
+                }
+            }
+            if (in_elim_gv) continue;
             if (dr->target_kind == 0) {
                 /* .rodata + rodata_offset + target_data_offset: target the .rodata section symbol (idx 1) */
                 if (comp->rodata_section.length > 0) {
@@ -1446,6 +1590,14 @@ static int compile_object_single(CompileOptions *opts, const char *input,
         }
     }
 
+    /* Fat-LTO payload (.zc.lto, non-allocatable preprocessed C source) */
+    if (lto_prep_source && lto_prep_source[0] && !opts->emit_asm) {
+        elf_writer_add_section(&elf_ctx, ".zc.lto",
+                               (const uint8_t *)lto_prep_source,
+                               strlen(lto_prep_source) + 1,
+                               ELF_SHT_PROGBITS, 0, 1);
+    }
+
     /* Emit DWARF debug info (.debug_line, .debug_info, .debug_abbrev, .debug_str) */
     if (comp->debug_info && !opts->emit_asm) {
         zero_cc_dwarf_emit(comp, &elf_ctx);
@@ -1461,7 +1613,6 @@ static int compile_object_single(CompileOptions *opts, const char *input,
     } else if (!elf_writer_write(&elf_ctx, output_path)) {
         fprintf(stderr, "ELF writer error: %s\n", elf_writer_get_error(&elf_ctx));
         elf_writer_cleanup(&elf_ctx);
-        zero_cc_compiler_free(comp);
         return 1;
     } else if (opts->verbose) {
         printf("Object file written successfully\n");
@@ -1469,7 +1620,6 @@ static int compile_object_single(CompileOptions *opts, const char *input,
 
     /* Cleanup */
     elf_writer_cleanup(&elf_ctx);
-    zero_cc_compiler_free(comp);
 
     return 0;
 }
@@ -1558,39 +1708,204 @@ static int compile_and_link(CompileOptions *opts) {
         }
     }
 
-    for (int i = 0; i < opts->input_count; i++) {
-        const char *in = opts->input_files[i];
-        size_t len = strlen(in);
-        /* T2: pass through prebuilt objects and archives to the linker. */
-        if (len >= 2 && strcmp(in + len - 2, ".a") == 0) {
-            if (opts->zerocc_link && arch_count < 64) {
-                arch_paths[arch_count++] = in;
-            } else if (use_text) {
-                fprintf(stderr, "Error: %s: archive input with -S is not "
-                        "supported\n", in);
-                return 1;
-            } else {
-                /* System linker: pass the archive through in the link cmd. */
-                if (arch_count < 64) arch_paths[arch_count++] = in;
+    if (opts->lto && !use_text) {
+        ZeroCCLTOContext lto;
+        zero_cc_lto_init(&lto);
+
+        for (int i = 0; i < opts->input_count; i++) {
+            const char *in = opts->input_files[i];
+            size_t len = strlen(in);
+
+            if (len >= 2 && strcmp(in + len - 2, ".a") == 0) {
+                ZcAr ar;
+                char ar_err[256];
+                if (zc_ar_open(in, &ar, ar_err, sizeof(ar_err)) == 0) {
+                    bool has_lto_member = false;
+                    bool has_non_lto_member = false;
+                    for (size_t m = 0; m < ar.member_count; m++) {
+                        ZcElfObj mobj;
+                        char m_err[256];
+                        const char *mname = ar.members[m].name ? ar.members[m].name : in;
+                        if (zc_elf_obj_load_mem(ar.members[m].data, ar.members[m].size,
+                                                mname, &mobj, m_err, sizeof(m_err)) != 0) {
+                            continue;
+                        }
+                        ZcSection *sec = zc_elf_find_section(&mobj, ".zc.lto");
+                        if (sec && sec->size > 0 && sec->offset + sec->size <= mobj.size) {
+                            has_lto_member = true;
+                            char *lbuf = (char *)malloc(sec->size + 1);
+                            if (lbuf) {
+                                memcpy(lbuf, mobj.data + sec->offset, sec->size);
+                                lbuf[sec->size] = '\0';
+                                ZeroCCCompiler *tu = lto_compile_tu_phase1(opts, mname, lbuf, lto.tu_count);
+                                free(lbuf);
+                                if (!tu || zero_cc_lto_add_tu(&lto, tu) != 0) {
+                                    if (tu) zero_cc_compiler_free(tu);
+                                    if (lto.had_error) fprintf(stderr, "zerocc: error: %s\n", lto.error_msg);
+                                    zc_elf_obj_free(&mobj);
+                                    zc_ar_free(&ar);
+                                    zero_cc_lto_cleanup(&lto);
+                                    for (int k = 0; k < obj_count; k++) if (obj_temp[k]) unlink(obj_paths[k]);
+                                    return 1;
+                                }
+                            }
+                        } else {
+                            has_non_lto_member = true;
+                            const ZcSection *symtab = zc_elf_symtab(&mobj);
+                            if (symtab) {
+                                for (size_t s = 0; s < symtab->sym_count; s++) {
+                                    const ZcSymbol *sym = &symtab->syms[s];
+                                    if (sym->shndx == SHN_UNDEF && sym->name && sym->name[0]) {
+                                        zero_cc_lto_add_ext_root(&lto, sym->name);
+                                    }
+                                }
+                            }
+                        }
+                        zc_elf_obj_free(&mobj);
+                    }
+                    if ((has_non_lto_member || !has_lto_member) && arch_count < 64) {
+                        arch_paths[arch_count++] = in;
+                    }
+                    zc_ar_free(&ar);
+                } else {
+                    if (arch_count < 64) arch_paths[arch_count++] = in;
+                }
+                continue;
             }
-            continue;
+
+            if (len >= 2 && strcmp(in + len - 2, ".o") == 0) {
+                ZcElfObj oobj;
+                char o_err[256];
+                if (zc_elf_obj_load(in, &oobj, o_err, sizeof(o_err)) == 0) {
+                    ZcSection *sec = zc_elf_find_section(&oobj, ".zc.lto");
+                    if (sec && sec->size > 0 && sec->offset + sec->size <= oobj.size) {
+                        char *lbuf = (char *)malloc(sec->size + 1);
+                        if (lbuf) {
+                            memcpy(lbuf, oobj.data + sec->offset, sec->size);
+                            lbuf[sec->size] = '\0';
+                            ZeroCCCompiler *tu = lto_compile_tu_phase1(opts, in, lbuf, lto.tu_count);
+                            free(lbuf);
+                            if (!tu || zero_cc_lto_add_tu(&lto, tu) != 0) {
+                                if (tu) zero_cc_compiler_free(tu);
+                                if (lto.had_error) fprintf(stderr, "zerocc: error: %s\n", lto.error_msg);
+                                zc_elf_obj_free(&oobj);
+                                zero_cc_lto_cleanup(&lto);
+                                for (int k = 0; k < obj_count; k++) if (obj_temp[k]) unlink(obj_paths[k]);
+                                return 1;
+                            }
+                        }
+                    } else {
+                        const ZcSection *symtab = zc_elf_symtab(&oobj);
+                        if (symtab) {
+                            for (size_t s = 0; s < symtab->sym_count; s++) {
+                                const ZcSymbol *sym = &symtab->syms[s];
+                                if (sym->shndx == SHN_UNDEF && sym->name && sym->name[0]) {
+                                    zero_cc_lto_add_ext_root(&lto, sym->name);
+                                }
+                            }
+                        }
+                        if (obj_count < ZERO_CC_MAX_INPUTS) {
+                            snprintf(obj_paths[obj_count], sizeof(obj_paths[0]), "%s", in);
+                            obj_temp[obj_count] = 0;
+                            obj_count++;
+                        }
+                    }
+                    zc_elf_obj_free(&oobj);
+                } else if (obj_count < ZERO_CC_MAX_INPUTS) {
+                    snprintf(obj_paths[obj_count], sizeof(obj_paths[0]), "%s", in);
+                    obj_temp[obj_count] = 0;
+                    obj_count++;
+                }
+                continue;
+            }
+
+            char *source = read_file(in);
+            if (!source) {
+                zero_cc_lto_cleanup(&lto);
+                for (int k = 0; k < obj_count; k++) if (obj_temp[k]) unlink(obj_paths[k]);
+                return 1;
+            }
+            char *prep = preprocess_with_options(source, opts, in, obj_opts.dep_target);
+            free(source);
+            if (!prep) {
+                zero_cc_lto_cleanup(&lto);
+                for (int k = 0; k < obj_count; k++) if (obj_temp[k]) unlink(obj_paths[k]);
+                return 1;
+            }
+            ZeroCCCompiler *tu = lto_compile_tu_phase1(opts, in, prep, lto.tu_count);
+            free(prep);
+            if (!tu || zero_cc_lto_add_tu(&lto, tu) != 0) {
+                if (tu) zero_cc_compiler_free(tu);
+                if (lto.had_error) fprintf(stderr, "zerocc: error: %s\n", lto.error_msg);
+                zero_cc_lto_cleanup(&lto);
+                for (int k = 0; k < obj_count; k++) if (obj_temp[k]) unlink(obj_paths[k]);
+                return 1;
+            }
         }
-        if (len >= 2 && strcmp(in + len - 2, ".o") == 0) {
-            snprintf(obj_paths[obj_count], sizeof(obj_paths[0]), "%s", in);
-            obj_temp[obj_count] = 0;
+
+        if (lto.tu_count > 0) {
+            if (zero_cc_lto_analyze(&lto) != 0 || zero_cc_lto_optimize_and_lower(&lto) != 0) {
+                fprintf(stderr, "zerocc: error: %s\n",
+                        lto.error_msg[0] ? lto.error_msg : "LTO optimization failed");
+                zero_cc_lto_cleanup(&lto);
+                for (int k = 0; k < obj_count; k++) if (obj_temp[k]) unlink(obj_paths[k]);
+                return 1;
+            }
+            for (int t = 0; t < lto.tu_count; t++) {
+                if (obj_count >= ZERO_CC_MAX_INPUTS) {
+                    fprintf(stderr, "zerocc: error: too many object files after LTO\n");
+                    zero_cc_lto_cleanup(&lto);
+                    for (int k = 0; k < obj_count; k++) if (obj_temp[k]) unlink(obj_paths[k]);
+                    return 1;
+                }
+                snprintf(obj_paths[obj_count], sizeof(obj_paths[0]), "/tmp/zerocc_%d_lto_%d.o",
+                         getpid(), t);
+                obj_temp[obj_count] = 1;
+                int wr = write_compiled_object(lto.tus[t], &obj_opts, obj_paths[obj_count], NULL);
+                if (wr != 0) {
+                    zero_cc_lto_cleanup(&lto);
+                    for (int k = 0; k <= obj_count; k++) if (obj_temp[k]) unlink(obj_paths[k]);
+                    return wr;
+                }
+                obj_count++;
+            }
+        }
+        zero_cc_lto_cleanup(&lto);
+    } else {
+        for (int i = 0; i < opts->input_count; i++) {
+            const char *in = opts->input_files[i];
+            size_t len = strlen(in);
+            /* T2: pass through prebuilt objects and archives to the linker. */
+            if (len >= 2 && strcmp(in + len - 2, ".a") == 0) {
+                if (opts->zerocc_link && arch_count < 64) {
+                    arch_paths[arch_count++] = in;
+                } else if (use_text) {
+                    fprintf(stderr, "Error: %s: archive input with -S is not "
+                            "supported\n", in);
+                    return 1;
+                } else {
+                    /* System linker: pass the archive through in the link cmd. */
+                    if (arch_count < 64) arch_paths[arch_count++] = in;
+                }
+                continue;
+            }
+            if (len >= 2 && strcmp(in + len - 2, ".o") == 0) {
+                snprintf(obj_paths[obj_count], sizeof(obj_paths[0]), "%s", in);
+                obj_temp[obj_count] = 0;
+                obj_count++;
+                continue;
+            }
+            snprintf(obj_paths[obj_count], sizeof(obj_paths[0]), "/tmp/zerocc_%d_%d%s",
+                     getpid(), obj_count, use_text ? ".s" : ".o");
+            obj_temp[obj_count] = 1;
+            int r = compile_object_single(&obj_opts, opts->input_files[i],
+                                          obj_paths[obj_count]);
+            if (r != 0) {
+                fprintf(stderr, "Error: Compilation to object file failed\n");
+                return r;
+            }
             obj_count++;
-            continue;
         }
-        snprintf(obj_paths[obj_count], sizeof(obj_paths[0]), "/tmp/zerocc_%d_%d%s",
-                 getpid(), obj_count, use_text ? ".s" : ".o");
-        obj_temp[obj_count] = 1;
-        int r = compile_object_single(&obj_opts, opts->input_files[i],
-                                      obj_paths[obj_count]);
-        if (r != 0) {
-            fprintf(stderr, "Error: Compilation to object file failed\n");
-            return r;
-        }
-        obj_count++;
     }
 
     char all_objs[65536] = "";
@@ -1750,7 +2065,7 @@ static int compile_and_link(CompileOptions *opts) {
         lopts.baremetal = opts->baremetal ? true : false;
         lopts.entry_wrapper = entry_wrapper;
         lopts.pie = opts->zerocc_link_pie ? true : false;
-        lopts.gc_sections = opts->gc_sections ? true : false;
+        lopts.gc_sections = (opts->gc_sections || (opts->lto && !opts->gc_sections_explicit)) ? true : false;
         lopts.print_gc_sections = opts->print_gc_sections ? true : false;
 
         int lr = zero_cc_link_exec_ext(output, objs_ref, obj_count,

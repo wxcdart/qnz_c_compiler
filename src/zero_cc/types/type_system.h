@@ -400,6 +400,24 @@ typedef struct ZeroCCFunction {
     size_t text_size;                        /* Machine code size in bytes */
     ZeroCCDwarfVar *dwarf_vars;              /* Parameter and local variable snapshot */
     size_t dwarf_var_count;                  /* Count of dwarf_vars */
+
+    /* LTO (Link-Time Optimization, -flto) state */
+    uint32_t lto_body;                       /* Cloned ASTRef root in fn->ast_arena */
+    void *perm_arena;                        /* Semantic perm Arena * for TypeInfo resolution */
+    ZeroCCSym *lto_locals;                   /* Captured locals snapshot from Phase 1 */
+    size_t lto_local_count;                  /* Count of lto_locals */
+    int32_t lto_stack_frame;                 /* Saved c->current_stack_frame */
+    int32_t lto_canary_offset;               /* Saved c->canary_stack_offset */
+    int owner_tu;                            /* Owning translation unit index */
+    bool lto_defer;                          /* Phase 1: lowering deferred to LTO Phase 2 */
+    bool lto_lowered;                        /* Phase 2: already lowered & emitted */
+    bool lto_eliminated;                     /* Eliminated as dead code by LTO */
+    bool lto_can_cross_inline;               /* Eligible for cross-TU inlining */
+    bool lto_is_const_ret;                   /* Pure constant return value proven by LTO */
+    int64_t lto_const_ret_val;               /* Proven constant return value */
+    bool lto_param_is_const[16];             /* IPCP: param i constant across all call sites */
+    bool lto_param_const_unsat[16];          /* IPCP: param i had non-const or differing args */
+    int64_t lto_param_const_val[16];         /* IPCP: constant value for param i */
 } ZeroCCFunction;
 
 /* Relocation Record */

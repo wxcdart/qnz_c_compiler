@@ -27,7 +27,9 @@
 
 /* Master Translation Unit Compiler */
 void zero_cc_compile_c99(ZeroCCCompiler *c) {
-    zero_cc_type_pool_free();
+    if (!c->lto_mode) {
+        zero_cc_type_pool_free();
+    }
     /* Fresh memo for this compilation: the perm arena below is new, so any
      * struct/union TypeInfo* cached from a previous TU (same process,
      * multi-file AOT) would dangle.  See jit/type_info.h. */
@@ -2423,11 +2425,17 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
 
     sem_context_destroy(&shared_ctx);
     arena_destroy(tmp);
-    arena_destroy(perm);
+    if (c->lto_mode && c->lto_phase == 1) {
+        c->lto_kept_perm_arena = perm;
+    } else {
+        arena_destroy(perm);
+    }
     /* Struct member arrays must go while the pool is still alive (the
      * pool nodes hold the nested anonymous-struct arrays). */
     zero_cc_free_all_struct_arrays(c);
-    zero_cc_type_pool_free();
+    if (!c->lto_mode) {
+        zero_cc_type_pool_free();
+    }
 }
 
 

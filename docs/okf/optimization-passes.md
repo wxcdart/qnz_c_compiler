@@ -4,7 +4,7 @@ title: Optimization Passes & Safety Invariants
 description: Active IR optimization pipeline (Constant Folding, CopyProp, CSE, GVN, DCE, Mem2Reg, LICM, Auto-Vectorization) and their correctness invariants.
 resource: middleend/optimization-passes
 tags: [optimizations, mem2reg, licm, vectorization, gvn, cse, dce]
-timestamp: 2026-11-18T18:56:04Z
+timestamp: 2026-11-21T19:45:57Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -106,6 +106,11 @@ Optimization passes are registered in `src/zero_cc/opt/opt_pass.c` (`g_opt_passe
     - **Arena rebuild**: two-pass rebuild into a fresh `IRArena` (LICM recipe) with an `old_to_new` index map; the index-keyed `IRCallArgs` and `IRAsmArgs` side tables are remapped through it (no entries exist in a qualifying span — calls/asm are rejected — but the remap is applied unconditionally, matching the arena-rebuild invariant of DCE/LICM/branchless). Fresh temps are not needed (the counter advances in place); fresh labels are allocated by advancing `c->ir_next_label`, which all emitters size at emit time (MC layer and name-based `.L<fn>_<idx>` text labels alike).
     - **Profiling**: `opt_profile_count_loop_unroll()` / `opt_profile_count_loop_partial_unroll()`; `--profile-opts` prints `Loops fully unrolled: N` and `Loops partially unrolled: N`. One loop is unrolled per pipeline invocation; the pipeline's fixed-point iteration (up to 10 rounds) picks up further loops.
     - Verified by `tools/loop_unroll_verifier.py` (`make test-loop-unroll`): 25 `test/jit/unroll_*.c` cases (Phase 1: for/while, break/continue, if/else, unsigned counters, macro/enum/`sizeof` bound forms, trip-count and body-size limits, side effects, structs/pointers, user labels, nested functions + nonlocal gotos; Phase 2 `unroll_part_*`: unsigned/signed/`<=`/64-bit runtime bounds, factor-4 bodies, `break` and `continue` inside peeled loops, mixed full+partial, and rejection cases — bound stored in the body, bound reloaded per trip, loop enclosed by another loop) differential-tested against host gcc at `-O0..-O3` JIT + `-O3` AOT, with both counters checked against `expect-unroll` / `expect-partial` markers. `make test-opt` stays green.
+12. **Whole-Program Link-Time Optimization (`src/zero_cc/core/lto.h`, `-flto`, Sprint 195)**
+    - Operates across translation units (`.c`, Fat-LTO `.o`/`.a`) in two phases before per-function IR passes run:
+      - **Cross-TU inlining (`ast_lowering_call.c`, `type_info.h`)**: enabled at `-O1`+ under `-flto` for non-weak inline candidates without cross-TU local `static` symbol references (`lto_can_cross_inline`); resolves semantic `TypeInfo` entries through `lowering.inlining.perm_arena` and `c->lto_perm_arena` and propagates constant call-site arguments (`inlining.param_is_const`) into inlined bodies.
+      - **Global Constant Propagation & 3-Round Fixpoint**: scalar integer globals that are never modified, address-taken, or relocated in `.data` become `lto_is_const_val`; 3 fixpoint rounds compute pure constant returns (`lto_is_const_ret`) and IPCP constant parameters (`lto_param_is_const`) across live reachable branches.
+      - **Dead Branch & Demand-Driven Elimination (`ast_lowering_{ctrl,expr,stmt,call}.c`, `riscv64.c`, `x86_64.c`)**: constant-condition `if`/`?:` arms and unreachable post-terminator block statements (`lower_stmt_block`, guarding `NODE_LABEL`/`NODE_CASE`/`NODE_DEFAULT`) are skipped prior to IR/relocation emission, and only functions/globals reachable from program roots are lowered; unreached symbols are marked `lto_eliminated`. Note that direct-call emitters (`riscv64_emit_call`, `x86_emit_call`) check `(!fn->lto_defer || fn->lto_lowered)` before early-patching offsets so worklist lowering order stays relocation-safe.
 
 ### `OP_ASM` — the inline-asm barrier contract (Sprint 135)
 

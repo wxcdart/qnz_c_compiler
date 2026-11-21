@@ -149,6 +149,12 @@ static inline ASTRef zero_cc_ast_clone_impl(ZeroCCASTArena *src_arena, ASTRef sr
             dst_n = zero_cc_ast_get(dst_arena, dst_ref);
             if (dst_n) dst_n->aux.alt = ca;
         }
+    } else if (src_copy.tag == NODE_CASE) {
+        if (src_copy.aux.step != AST_NULL) {
+            ASTRef cs = zero_cc_ast_clone_impl(src_arena, src_copy.aux.step, dst_arena, depth + 1);
+            dst_n = zero_cc_ast_get(dst_arena, dst_ref);
+            if (dst_n) dst_n->aux.step = cs;
+        }
     } else if (src_copy.tag == NODE_FOR) {
         if (src_copy.aux.step != AST_NULL) {
             ASTRef cs = zero_cc_ast_clone_impl(src_arena, src_copy.aux.step, dst_arena, depth + 1);

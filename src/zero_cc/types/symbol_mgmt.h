@@ -266,8 +266,10 @@ static inline ZeroCCFunction* zero_cc_find_function(ZeroCCCompiler *c, const cha
             ZeroCCFunction *proto = NULL, *def = NULL;
             size_t guard = 0;
             while (idx >= 0 && guard++ < ZERO_CC_MAX_FUNCTIONS) {
-                if (c->functions[idx].is_prototype) proto = &c->functions[idx];
-                else def = &c->functions[idx];
+                if (!c->functions[idx].lto_eliminated) {
+                    if (c->functions[idx].is_prototype) proto = &c->functions[idx];
+                    else def = &c->functions[idx];
+                }
                 idx = (idx < ZERO_CC_MAX_FUNCTIONS) ? c->fn_hash_next[idx] : -1;
             }
             return def ? def : proto;
@@ -276,7 +278,7 @@ static inline ZeroCCFunction* zero_cc_find_function(ZeroCCCompiler *c, const cha
     }
     ZeroCCFunction *proto = NULL;
     for (size_t i = 0; i < c->function_count; i++) {
-        if (strcmp(c->functions[i].name, name) == 0) {
+        if (!c->functions[i].lto_eliminated && strcmp(c->functions[i].name, name) == 0) {
             if (c->functions[i].is_prototype) {
                 if (!proto) proto = &c->functions[i];
             } else {
@@ -343,7 +345,7 @@ static inline ZeroCCFunction* zero_cc_find_function_by_symbol(ZeroCCCompiler *c,
     if (strncmp(name, "__zf", 4) == 0) {
         for (size_t i = 0; i < c->function_count; i++) {
             const ZeroCCFunction *f = &c->functions[i];
-            if (f->is_nested && f->nested_sym_name[0] &&
+            if (!f->lto_eliminated && f->is_nested && f->nested_sym_name[0] &&
                 strcmp(f->nested_sym_name, name) == 0) {
                 return (ZeroCCFunction *)f;
             }
@@ -357,7 +359,7 @@ static inline ZeroCCFunction* zero_cc_find_function_by_symbol(ZeroCCCompiler *c,
     ZeroCCFunction *asm_match = NULL;
     for (size_t i = 0; i < c->function_count; i++) {
         const ZeroCCFunction *f = &c->functions[i];
-        if (f->asm_name[0] && strcmp(f->asm_name, name) == 0) {
+        if (!f->lto_eliminated && f->asm_name[0] && strcmp(f->asm_name, name) == 0) {
             asm_match = (ZeroCCFunction *)f;
             break;
         }

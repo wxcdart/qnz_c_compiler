@@ -670,6 +670,76 @@ def case_gc_sections_tests():
         check("gc_keep_directive", ok)
 
 
+def case_lto_fat_tests():
+    with tempfile.TemporaryDirectory() as td:
+        m = os.path.join(td, "main.c")
+        l1 = os.path.join(td, "lib1.c")
+        l2 = os.path.join(td, "lib2.c")
+        ext = os.path.join(td, "ext.c")
+
+        with open(m, "w") as f:
+            f.write(
+                "int inline_mul(int x, int y);\n"
+                "int ar_secret(void);\n"
+                "int call_ext(int v);\n"
+                "int main(void) {\n"
+                "    return (inline_mul(4, 5) + ar_secret() + call_ext(3) == 73) ? 0 : 1;\n"
+                "}\n"
+            )
+        with open(l1, "w") as f:
+            f.write(
+                "int dead_obj1_global = 55;\n"
+                "int dead_obj1_fn(void) { return dead_obj1_global; }\n"
+                "int inline_mul(int x, int y) { return x * y; }\n"
+                "int callback_in_lto(int x) { return x + 7; }\n"
+            )
+        with open(l2, "w") as f:
+            f.write(
+                "static const int AR_CONST = 40;\n"
+                "int dead_ar_global = 88;\n"
+                "int dead_ar_fn(void) { return dead_ar_global; }\n"
+                "int ar_secret(void) { return AR_CONST; }\n"
+            )
+        with open(ext, "w") as f:
+            f.write(
+                "int callback_in_lto(int x);\n"
+                "int call_ext(int v) { return callback_in_lto(v + 3); }\n"
+            )
+
+        mo = os.path.join(td, "main.o")
+        l1o = os.path.join(td, "lib1.o")
+        l2o = os.path.join(td, "lib2.o")
+        exto = os.path.join(td, "ext.o")
+        liba = os.path.join(td, "libfat.a")
+        exe = os.path.join(td, "lto_app")
+
+        subprocess.run([BIN, "-flto", "-O1", "-c", m, "-o", mo], check=True)
+        subprocess.run([BIN, "-flto", "-O1", "-c", l1, "-o", l1o], check=True)
+        subprocess.run([BIN, "-flto", "-O1", "-c", l2, "-o", l2o], check=True)
+        subprocess.run([BIN, "-O1", "-c", ext, "-o", exto], check=True)
+
+        sec_p = subprocess.run(["readelf", "-S", l1o], capture_output=True, text=True)
+        has_fat_sec = ".zc.lto" in sec_p.stdout
+        check("lto_fat_section_present", has_fat_sec, sec_p.stdout)
+
+        subprocess.run([BIN, "--ar", "rcs", liba, l2o], check=True)
+        lp = subprocess.run([BIN, "-flto", "-O1", "--zerocc-link", mo, l1o, liba, exto, "-o", exe],
+                            capture_output=True, text=True)
+        run_ok = False
+        syms_ok = False
+        if lp.returncode == 0:
+            rp, _ = run_exe(exe)
+            sp = subprocess.run(["readelf", "-s", exe], capture_output=True, text=True)
+            syms_ok = ("dead_obj1_fn" not in sp.stdout and
+                       "dead_obj1_global" not in sp.stdout and
+                       "dead_ar_fn" not in sp.stdout and
+                       "dead_ar_global" not in sp.stdout and
+                       "inline_mul" not in sp.stdout)
+            run_ok = (rp == 0)
+        check("lto_fat_archive_own_link", lp.returncode == 0 and run_ok and syms_ok,
+              f"rc={lp.returncode} run_ok={run_ok} syms_ok={syms_ok} err={lp.stderr!r}")
+
+
 def main():
     if not os.path.exists(BIN):
         print("build/bin/zerocc missing - run `make build/bin/zerocc` first")
@@ -716,6 +786,9 @@ def main():
 
     print("-- --gc-sections (dead code & data elimination) --")
     case_gc_sections_tests()
+
+    print("-- -flto Fat-LTO objects & archives --")
+    case_lto_fat_tests()
 
     print("-- riscv32 (QEMU differential) --")
     case_riscv32_run("rv32_hi", ["hi_main.c", "hi_impl.c"])

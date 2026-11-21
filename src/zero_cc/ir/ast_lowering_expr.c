@@ -1,6 +1,7 @@
 /* AST Lowering - Expression Lowering (AST to IR) */
 
 #include "zero_cc/ir/ast_lowering_internal.h"
+#include "zero_cc/core/lto.h"
 #include "zero_cc/parser/vla_struct.h"
 #include "zero_cc/isa/isa_backend.h"
 
@@ -426,6 +427,19 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
 
             ZeroCCSym *sym = zero_cc_find_local(c, name);
             if (sym && !sym->is_extern) {
+                if (c->lto_mode && c->lowering.inlining.active_depth == 0 &&
+                    sym->is_param && sym->param_reg_idx >= 0 && sym->param_reg_idx < 16) {
+                    ZeroCCFunction *cur_fn = zero_cc_get_current_fn(c);
+                    if (cur_fn && cur_fn->lto_param_is_const[sym->param_reg_idx] &&
+                        zc_lto_is_scalar_int_type(c, &sym->type)) {
+                        int temp = zc_alloc_temp(c);
+                        ir_emit_mov_imm(c, temp, cur_fn->lto_param_const_val[sym->param_reg_idx]);
+                        c->last_expr_is_float = 0;
+                        c->last_expr_is_128 = 0;
+                        c->last_expr_is_64 = 0;
+                        return temp;
+                    }
+                }
                 if (sym->is_promoted) {
                     c->last_expr_is_float = (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE) ? 1 : 0;
                     return sym->promoted_vreg;
@@ -530,7 +544,19 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                  * op below selects OP_TLS_LEA (AOT) automatically. */
 
                 ZeroCCGlobalVar *gv = find_global_var(c, name);
+                if ((!gv || (!gv->is_static && !gv->has_initializer)) && c->lto_mode && c->lto_ctx) {
+                    ZeroCCGlobalVar *lgv = zero_cc_lto_find_global(c->lto_ctx, name);
+                    if (lgv) gv = lgv;
+                }
                 if (gv) {
+                    if (c->lto_mode && gv->lto_is_const_val) {
+                        int temp = zc_alloc_temp(c);
+                        ir_emit_mov_imm(c, temp, gv->lto_const_val);
+                        c->last_expr_is_float = 0;
+                        c->last_expr_is_128 = 0;
+                        c->last_expr_is_64 = 0;
+                        return temp;
+                    }
 
                     int addr_temp = zc_alloc_temp(c);
                     ir_emit_global_addr(c, addr_temp, gv);
@@ -708,6 +734,37 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
             return lower_expr_assign(c, arena, node);
 
         case NODE_TERNARY: {
+            int64_t tern_const_cond = 0;
+            if (c->lto_mode && zc_ast_const_eval(c, arena, node->left, &tern_const_cond)) {
+                ASTRef chosen = tern_const_cond ? node->right : node->aux.alt;
+                ASTRef untaken = tern_const_cond ? node->aux.alt : node->right;
+                TypeInfo *tern_ti = ast_node_get_typeinfo(c, node);
+                bool is_struct_tern = type_is_struct_or_union(tern_ti);
+                if (!is_struct_tern) {
+                    ZeroCCASTNode *cn = zero_cc_ast_get(arena, chosen);
+                    TypeInfo *cti = cn ? ast_node_get_typeinfo(c, cn) : NULL;
+                    if (type_is_struct_or_union(cti)) is_struct_tern = true;
+                }
+                int other_is_fp = is_struct_tern ? 0 : ast_expr_is_fp(c, arena, untaken);
+                int res_t = is_struct_tern ? zero_cc_lower_lvalue_addr(c, arena, chosen) : TEMP_NONE;
+                if (res_t == TEMP_NONE) res_t = lower_expr(c, arena, chosen);
+                if (!is_struct_tern && other_is_fp && !c->last_expr_is_float) {
+                    int conv = zc_alloc_temp(c);
+                    ir_emit_cvtsi2sd(c, (uint32_t)conv, (uint32_t)res_t);
+                    res_t = conv;
+                    c->last_expr_is_float = 1;
+                }
+                if (!is_struct_tern && tern_ti && !c->last_expr_is_float &&
+                    (c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) &&
+                    (tern_ti->kind == TYPE_KIND_LONG && type_size(tern_ti) == 8) && !c->last_expr_is_64) {
+                    int c64 = zc_alloc_temp(c);
+                    if (tern_ti->modifiers & TYPE_MOD_UNSIGNED) ir_emit_zext32_64(c, c64, res_t);
+                    else ir_emit_sext32_64(c, c64, res_t);
+                    res_t = c64;
+                    c->last_expr_is_64 = 1;
+                }
+                return res_t;
+            }
             /* Ternary (cond ? then : else) using standard IR.
              *
              * FP arms (Sprint 40): the result temp must be XMM-class, so

@@ -153,6 +153,9 @@ typedef struct {
         bool param_is_func_ptr[8];     /* Param is a function pointer (indirect calls through it must stay indirect) */
         bool param_is_128[8];          /* Sprint 110: param is a 128-bit scalar (GPR128 temp) - param substitution must set last_expr_is_128 */
         bool param_is_64[8];           /* Sprint 172: param is a 64-bit scalar on rv32 (GPR64 temp) - param substitution sets last_expr_is_64 */
+        bool param_is_const[8];        /* Param has known compile-time constant value in this inlined frame */
+        int64_t param_const_val[8];    /* Constant value when param_is_const[i] is true */
+        void *perm_arena;              /* Semantic perm Arena * of inlined callee's TU */
     } inlining;
 } LoweringState;
 

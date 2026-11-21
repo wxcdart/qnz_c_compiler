@@ -959,7 +959,7 @@ static void dwarf_generate_info(ZeroCCCompiler *c,
     /* Global variables */
     for (size_t gi = 0; gi < c->global_var_count; gi++) {
         ZeroCCGlobalVar *gv = &c->global_vars[gi];
-        if (!gv->name[0] || gv->alias_target[0] || gv->is_tls) continue;
+        if (!gv->name[0] || gv->alias_target[0] || gv->is_tls || gv->lto_eliminated) continue;
 
         uint32_t gv_name_off = dwarf_str_add(str_buf, gv->name);
         uint32_t type_ref = dwarf_get_type_ref(c, info, str_buf, debug_info_idx,
@@ -994,7 +994,7 @@ static void dwarf_generate_info(ZeroCCCompiler *c,
     /* Functions */
     for (size_t fi = 0; fi < c->function_count; fi++) {
         ZeroCCFunction *fn = &c->functions[fi];
-        if (!fn->name[0] || fn->is_prototype || fn->is_external || fn->is_object) {
+        if (!fn->name[0] || fn->is_prototype || fn->is_external || fn->is_object || fn->lto_eliminated) {
             continue;
         }
 

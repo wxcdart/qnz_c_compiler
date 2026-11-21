@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "zero_cc/ir/ast_lowering_internal.h"
+#include "zero_cc/core/lto.h"
 #include "zero_cc/isa/isa_backend.h"
 #include "zero_cc/semantic/diagnostics.h"
 
@@ -557,11 +558,53 @@ bool zc_objsize_fold(ZeroCCCompiler *c, ZeroCCASTArena *arena,
 
 bool zc_ast_const_eval(ZeroCCCompiler *c, ZeroCCASTArena *arena,
                        ASTRef ref, int64_t *out) {
-    (void)c;
     if (ref == AST_NULL) return false;
     ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
     if (!n) return false;
     switch (n->tag) {
+        case NODE_IDENT: {
+            if (!c || !c->lto_mode || !n->s.str) return false;
+            if (c->lowering.inlining.active_depth == 0) {
+                ZeroCCSym *sym = zero_cc_find_local(c, n->s.str);
+                if (sym) {
+                    ZeroCCFunction *cur_fn = zero_cc_get_current_fn(c);
+                    if (sym->is_param && sym->param_reg_idx >= 0 && sym->param_reg_idx < 16 &&
+                        cur_fn && cur_fn->lto_param_is_const[sym->param_reg_idx] &&
+                        zc_lto_is_scalar_int_type(c, &sym->type)) {
+                        *out = cur_fn->lto_param_const_val[sym->param_reg_idx];
+                        return true;
+                    }
+                    return false;
+                }
+            } else {
+                for (int p = 0; p < c->lowering.inlining.param_count && p < 8; p++) {
+                    if (c->lowering.inlining.param_names[p] &&
+                        strcmp(n->s.str, c->lowering.inlining.param_names[p]) == 0) {
+                        if (c->lowering.inlining.param_is_const[p]) {
+                            *out = c->lowering.inlining.param_const_val[p];
+                            return true;
+                        }
+                        return false;
+                    }
+                }
+                if (zero_cc_find_local(c, n->s.str)) return false;
+            }
+            ZeroCCEnumConst *ec = zero_cc_find_enum_const(c, n->s.str);
+            if (ec) {
+                *out = ec->value;
+                return true;
+            }
+            ZeroCCGlobalVar *gv = find_global_var(c, n->s.str);
+            if ((!gv || (!gv->is_static && !gv->has_initializer)) && c->lto_ctx) {
+                ZeroCCGlobalVar *lgv = zero_cc_lto_find_global(c->lto_ctx, n->s.str);
+                if (lgv) gv = lgv;
+            }
+            if (gv && gv->lto_is_const_val) {
+                *out = gv->lto_const_val;
+                return true;
+            }
+            return false;
+        }
         case NODE_INT:
         case NODE_BOOL:
             *out = n->int_val;
@@ -642,6 +685,18 @@ bool zc_ast_const_eval(ZeroCCCompiler *c, ZeroCCASTArena *arena,
                 int nbits = zc_bitop_width(c, cal->s.str);
                 *out = (int64_t)zc_eval_bitop_const(cal->s.str, (uint64_t)arg_v, nbits);
                 return true;
+            }
+            if (c && c->lto_mode && c->lto_ctx && zero_cc_lto_args_are_pure(arena, n->right)) {
+                ZeroCCFunction *cfn = zero_cc_find_function(c, cal->s.str);
+                if ((!cfn || cfn->is_prototype || cfn->is_external || cfn->is_weak) &&
+                    (!cfn || !cfn->is_static)) {
+                    ZeroCCFunction *lfn = zero_cc_lto_find_function(c->lto_ctx, cal->s.str);
+                    if (lfn) cfn = lfn;
+                }
+                if (cfn && cfn->lto_is_const_ret) {
+                    *out = cfn->lto_const_ret_val;
+                    return true;
+                }
             }
             return false;
         }

@@ -54,9 +54,11 @@ typedef struct {
     int baremetal;          /* --baremetal / -ffreestanding */
     const char *linker_script; /* -T <file> */
     int gc_sections;        /* --gc-sections / -Wl,--gc-sections */
+    int gc_sections_explicit; /* --gc-sections or --no-gc-sections explicitly passed */
     int print_gc_sections;  /* --print-gc-sections / -Wl,--print-gc-sections */
     int function_sections;  /* -ffunction-sections */
     int data_sections;      /* -fdata-sections */
+    int lto;                /* -flto: whole-program link-time optimization */
 } CompileOptions;
 
 static void print_usage(const char *prog) {
@@ -72,6 +74,8 @@ static void print_usage(const char *prog) {
     fprintf(stderr, "  -O2             Standard optimization\n");
     fprintf(stderr, "  -O3             Aggressive optimization\n");
     fprintf(stderr, "  -O / -Os / -Oz / -Ofast  Aliases: 1 / 2 / 3 / 3\n");
+    fprintf(stderr, "  -flto           Enable cross-TU link-time optimization (Fat-LTO in .o/.a)\n");
+    fprintf(stderr, "  -fno-lto        Disable link-time optimization\n");
     fprintf(stderr, "  -fomit-frame-pointer    Omit frame pointers for fixed-frame functions (default at -O1+)\n");
     fprintf(stderr, "  -fno-omit-frame-pointer Keep frame pointers (%%rbp/x29/s0) in every non-leaf function\n");
     fprintf(stderr, "  -fstack-protector       Emit stack canaries for functions with >=8B arrays or VLAs\n");
@@ -249,6 +253,12 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
         else if (strcmp(arg, "-fno-data-sections") == 0) {
             opts->data_sections = 0;
         }
+        else if (strcmp(arg, "-flto") == 0 || strncmp(arg, "-flto=", 6) == 0) {
+            opts->lto = 1;
+        }
+        else if (strcmp(arg, "-fno-lto") == 0) {
+            opts->lto = 0;
+        }
         else if (strcmp(arg, "--target") == 0 && i + 1 < argc) {
             opts->target_arch = argv[++i];
             if (strstr(opts->target_arch, "-none-") ||
@@ -284,10 +294,12 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
         else if (strcmp(arg, "--gc-sections") == 0 || strcmp(arg, "-gc-sections") == 0 ||
                  strcmp(arg, "-Wl,--gc-sections") == 0) {
             opts->gc_sections = 1;
+            opts->gc_sections_explicit = 1;
         }
         else if (strcmp(arg, "--no-gc-sections") == 0 || strcmp(arg, "-no-gc-sections") == 0 ||
                  strcmp(arg, "-Wl,--no-gc-sections") == 0) {
             opts->gc_sections = 0;
+            opts->gc_sections_explicit = 1;
         }
         else if (strcmp(arg, "--print-gc-sections") == 0 || strcmp(arg, "-print-gc-sections") == 0 ||
                  strcmp(arg, "-Wl,--print-gc-sections") == 0) {

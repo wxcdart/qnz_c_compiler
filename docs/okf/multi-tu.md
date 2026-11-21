@@ -4,7 +4,7 @@ title: Multi-Translation-Unit Driver (T1) & JIT Image Merge
 description: How zerocc compiles multiple .c inputs - per-TU compile, the multi-TU JIT image merge (zero_cc_tu_merge), the global-registry snapshot discipline, and the extern-object store/load paths that make cross-TU globals work.
 resource: driver/multi-tu
 tags: [driver, multi-tu, jit, merge, relocations, globals, linker]
-timestamp: 2026-11-08T05:12:20Z
+timestamp: 2026-11-21T19:45:57Z
 generated: pi-agent
 verified: engineering-lead
 status: active
@@ -122,11 +122,16 @@ rejected by the Sprint-42 arity checker (and argument promotion to the param
 type was skipped). `(void)` remains the zero-parameter marker (explicit
 prototype, no param).
 
+## Whole-Program Link-Time Optimization (`-flto`, Sprint 195)
+
+With `-flto`, compilation uses a two-phase pipeline (`src/zero_cc/core/lto.h`) across both AOT (`-o` / `--zerocc-link`) and JIT (`--run`):
+- **Phase 1 (`lto_phase = 1`)**: Each TU runs parsing and semantic analysis into its own `ZeroCCCompiler`, cloning function bodies into `tu_ast_arena` (`fn->lto_body`), snapshotting `c->locals` into `fn->lto_locals`, and keeping the semantic `perm` arena (`lto_kept_perm_arena`) alive until after Phase 2.
+- **Analysis & Phase 2 Lowering**: `zero_cc_lto_analyze` + `zero_cc_lto_optimize_and_lower` resolve weak/tentative symbols across TUs, propagate read-only scalar globals, run a 3-round constant-return & IPCP fixpoint, refine `lto_can_cross_inline`, and demand-lower live functions from `main`, `_start`, custom sections, `.data` relocs, and non-LTO `ext_roots` before marking dead functions/globals `lto_eliminated`.
+- **Static Isolation in `zero_cc_tu_merge`**: For non-0 TUs merged into `base` (`tu->tu_index > 0`), non-eliminated `is_static` functions and globals (plus matching `relocs` and `data_relocs` `target_extern_name` entries) are qualified as `__zc_tu<idx>_<name>` so same-named file-scope `static` symbols across TUs stay isolated in `--run` JIT images. Eliminated functions and globals (`lto_eliminated`) are skipped cleanly.
+
 ## Known limitations (documented, out of T1 scope)
 
-- `static` file-scope **global variables** from different TUs share the bare-name global
-  registry (no per-TU mangling) — same-name statics alias. (`static` functions are
-  different: same-named `static` *functions* may coexist across TUs, Sprint 125.)
+- Non-LTO `-O` merges rely on `zero_cc_tu_merge`'s `__zc_tu<idx>_<name>` isolation on `tu_index > 0` for `is_static` symbols without `__asm` collisions, while `-flto` AOT keeps strict per-TU ELF `STB_LOCAL` isolation.
 - `_Thread_local` storage is per-compiler and not merged.
 - `int *p = &g;` initializers referencing a *cross-TU* global: **fixed
   (Sprint 43, T2)** — the emitter now registers a by-name (kind-2) data

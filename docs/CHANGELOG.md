@@ -1,5 +1,22 @@
 # CHANGELOG
 
+## [Sprint 195] - 2026-11-21 - Cross-Translation-Unit Link-Time Optimization (`-flto`, Fat-LTO Objects & Archives, IPCP & Dead Code Elimination)
+
+Implements Track 3: whole-program cross-translation-unit link-time optimization (`-flto`) across C sources, Fat-LTO objects/archives, JIT (`--run`), AOT (`-o`), and ZeroCC's own linker (`--zerocc-link`):
+- **Two-Phase LTO Architecture (`src/zero_cc/core/lto.h`, `src/zero_cc/jit/compile.c`, `src/zero_cc/jit/compile_unit.c`)**:
+  - Phase 1 (`lto_phase = 1`): parses and semantically validates each TU, captures cloned AST bodies (`lto_body` in `tu_ast_arena`), captured local tables (`lto_locals`), stack frame metadata, VLA dimension arenas, and semantic `perm` arenas (`perm_arena`), deferring IR lowering/codegen (for non-nested functions) while expanding `can_inline` candidates to `(fn_inline || fn_static || (lto_mode && !is_weak))`.
+  - Whole-Program Analysis (`zero_cc_lto_analyze`): performs duplicate & weak/tentative symbol merging, address-taken & write scanning across ASTs and `.data` relocations, scalar constant global propagation (`lto_is_const_val`), cross-TU inline safety refinement (`lto_can_cross_inline`), and a 3-round live-branch fixpoint computing pure constant returns (`lto_is_const_ret`) and inter-procedural constant parameter propagation (`lto_param_is_const`).
+  - Phase 2 (`zero_cc_lto_optimize_and_lower`, `zero_cc_lower_deferred_fn`): demand-driven worklist lowering seeded from `main`, `_start`, custom sections, `.data` relocs, and non-LTO `ext_roots`; marks unreached functions and globals `lto_eliminated` (skipped by ELF object/symbol/reloc/DWARF emitters and `multi_tu.h`).
+- **Lowering & ISA Integration (`ast_lowering_{call,expr,ctrl,stmt,builtin_helpers}.c`, `lowering_state.h`, `type_info.h`, `parser.c`, `riscv64.c`, `x86_64.c`)**:
+  - Cross-TU `TypeInfo` resolution via `inlining.perm_arena` and `c->lto_perm_arena`; added `NODE_CASE` `aux.step` cloning in `zero_cc_ast_clone_impl`.
+  - Cross-TU inlining enabled at `-O1`+ under `-flto`, per-callsite inlined constant-parameter folding (`inlining.param_is_const`), pure constant-return call folding, cross-TU global variable/fn-ptr lookup, constant `if`/`?:` dead-branch pruning, and unreachable post-terminator statement pruning in `lower_stmt_block` (preserving `label`/`case` targets).
+  - Guarded direct-call offset computation in `riscv64_emit_call` and `x86_emit_call` when callees are LTO-deferred and not yet lowered (`!fn->lto_defer || fn->lto_lowered`).
+- **Driver, Fat-LTO `.o`/`.a`, and Static Isolation (`src/main.c`, `src/zero_cc/driver/driver_opts.h`, `src/zero_cc/core/multi_tu.h`, `src/zero_cc/dwarf/dwarf.c`)**:
+  - Added `-flto` / `-fno-lto` flags; auto-enabled `--gc-sections` under `-flto --zerocc-link` unless explicitly overridden.
+  - Emits non-allocatable `.zc.lto` sections under `-flto -c`, extracts `.zc.lto` from `.o` and `.a` archives at link time while preserving `SHN_UNDEF` roots from non-LTO objects, and isolates non-0 TU `static` functions/globals in `zero_cc_tu_merge` (`__zc_tu<idx>_<name>`).
+- **Verification**:
+  - Added [`test/jit/lto_single_tu.c`](../test/jit/lto_single_tu.c), [`tools/verify/driver_tests.py`](../tools/verify/driver_tests.py) cases (`lto_cross_inline`, `lto_ipcp_and_const_global`, `lto_static_isolation`), and [`tools/verify/linker_tests.py`](../tools/verify/linker_tests.py) cases (`lto_fat_section_present`, `lto_fat_archive_own_link`).
+
 ## [Sprint 194] - 2026-11-20 - Known Limitations Burn-Down (`_Alignas(N>16)` Across All 5 ISAs, Inline Aggregate Parameters, Nested `_Generic`)
 
 Closes all three Track 4 known limitations from `README.md` and hardens cross-ISA `-S` assembly emission:

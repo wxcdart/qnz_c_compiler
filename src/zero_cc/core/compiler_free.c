@@ -84,11 +84,27 @@ void zero_cc_compiler_free(ZeroCCCompiler *c) {
     c->temp_type_tags = NULL;
     c->temp_type_tags_hi = 0;
 
-    /* Translation-unit AST arena (inlinable function bodies) */
+    /* Translation-unit AST arena (inlinable function bodies / LTO deferred bodies) */
     if (c->tu_ast_arena) {
         zero_cc_ast_arena_free((ZeroCCASTArena *)c->tu_ast_arena);
         free(c->tu_ast_arena);
         c->tu_ast_arena = NULL;
+    }
+
+    /* Preserved LTO Phase 1 semantic perm arena and captured function locals */
+    if (c->lto_kept_perm_arena) {
+        arena_destroy((Arena *)c->lto_kept_perm_arena);
+        c->lto_kept_perm_arena = NULL;
+    }
+    for (size_t fi = 0; fi < c->function_count; fi++) {
+        free(c->functions[fi].lto_locals);
+        c->functions[fi].lto_locals = NULL;
+        c->functions[fi].lto_local_count = 0;
+        if (c->functions[fi].param_dim_arena) {
+            zero_cc_ast_arena_free((ZeroCCASTArena *)c->functions[fi].param_dim_arena);
+            free(c->functions[fi].param_dim_arena);
+            c->functions[fi].param_dim_arena = NULL;
+        }
     }
 
     /* Interned string pool (chunked) */

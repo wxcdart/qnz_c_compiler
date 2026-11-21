@@ -24,6 +24,11 @@ struct ZeroCCGlobalVar {
     char section[64];         /* __attribute__((section("name"))): named ELF section (AOT -c); empty = default */
     size_t named_sec_off;    /* offset of this object within its named section (AOT -c emission) */
     int is_weak;              /* GNU __attribute__((weak)): STB_WEAK binding at AOT -c */
+    /* LTO (Link-Time Optimization, -flto) state */
+    int owner_tu;             /* Owning translation unit index */
+    bool lto_is_const_val;    /* Cross-TU constant global scalar propagation */
+    int64_t lto_const_val;    /* Constant scalar value */
+    bool lto_eliminated;      /* Eliminated by dead-global pruning */
 };
 
 /* Global variable storage (M2: dynamic table - grows on demand, no fixed cap) */
@@ -143,6 +148,7 @@ static inline int add_global_var(ZeroCCCompiler *c, const char *name, ZeroCCType
         c->global_var_capacity = new_cap;
     }
     ZeroCCGlobalVar *gv = &c->global_vars[c->global_var_count++];
+    memset(gv, 0, sizeof(*gv));
     strncpy(gv->name, name, sizeof(gv->name) - 1);
     gv->name[sizeof(gv->name) - 1] = '\0';
     gv->type = type;
@@ -181,10 +187,10 @@ static inline ZeroCCGlobalVar *find_global_var(const ZeroCCCompiler *c, const ch
             if (t == (size_t)-1) break;
             gv = &c->global_vars[t];
         }
-        return gv;
+        if (!gv->lto_eliminated) return gv;
     }
     for (size_t i = 0; i < c->global_var_count; i++) {
-        if (strcmp(c->global_vars[i].name, name) == 0) {
+        if (!c->global_vars[i].lto_eliminated && strcmp(c->global_vars[i].name, name) == 0) {
             return &c->global_vars[i];
         }
     }

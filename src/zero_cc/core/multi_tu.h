@@ -94,9 +94,9 @@ static inline int zero_cc_tu_merge(ZeroCCCompiler *base, ZeroCCCompiler *tu,
      * first copy - rare, and unobservable in the current corpus.) */
     size_t dup_text_base = zero_cc_align_up(base->text_section.length, 16);
     for (size_t i = 0; i < tu->function_count; i++) {
-        if (tu->functions[i].is_prototype) continue;
+        if (tu->functions[i].is_prototype || tu->functions[i].lto_eliminated) continue;
         ZeroCCFunction *prev = zero_cc_find_function(base, tu->functions[i].name);
-        if (prev && !prev->is_prototype) {
+        if (prev && !prev->is_prototype && !prev->lto_eliminated) {
             if (prev->is_static || tu->functions[i].is_static) {
                 /* Internal linkage on at least one side: no cross-TU
                  * collision (ELF local symbols); keep both copies. */
@@ -151,9 +151,78 @@ static inline int zero_cc_tu_merge(ZeroCCCompiler *base, ZeroCCCompiler *tu,
     zero_cc_buf_put_bytes(&base->rodata_section, tu->rodata_section.data, tu->rodata_section.length);
     zero_cc_buf_put_bytes(&base->data_section, tu->data_section.data, tu->data_section.length);
 
-    /* Functions: re-base text_offset and append. */
+    /* Isolate internal-linkage (static) functions and globals from non-0 TUs
+     * so merged JIT lookup by name never collides with earlier TUs. */
+    if (tu->tu_index > 0) {
+        size_t s_cap = tu->function_count + tu->global_var_count;
+        char (*s_old)[128] = s_cap ? (char (*)[128])malloc(s_cap * 128) : NULL;
+        char (*s_new)[128] = s_cap ? (char (*)[128])malloc(s_cap * 128) : NULL;
+        size_t s_count = 0;
+        if (s_old && s_new) {
+            for (size_t i = 0; i < tu->function_count; i++) {
+                ZeroCCFunction *fn = &tu->functions[i];
+                if (!fn->is_static || fn->lto_eliminated || fn->is_nested || fn->is_tramp_stub) continue;
+                const char *emit = zero_cc_fn_emit_symbol(fn);
+                if (!emit || !emit[0]) continue;
+                size_t k = 0;
+                for (; k < s_count; k++) {
+                    if (strcmp(s_old[k], emit) == 0) break;
+                }
+                if (k == s_count) {
+                    snprintf(s_old[s_count], 128, "%s", emit);
+                    snprintf(s_new[s_count], 128, "__zc_tu%d_%.100s", tu->tu_index, emit);
+                    s_count++;
+                }
+                snprintf(fn->name, sizeof(fn->name), "%s", s_new[k]);
+                if (fn->asm_name[0]) {
+                    snprintf(fn->asm_name, sizeof(fn->asm_name), "%s", s_new[k]);
+                }
+            }
+            for (size_t g = 0; g < tu->global_var_count; g++) {
+                ZeroCCGlobalVar *gv = &tu->global_vars[g];
+                if (!gv->is_static || gv->lto_eliminated || !gv->name[0]) continue;
+                size_t k = 0;
+                for (; k < s_count; k++) {
+                    if (strcmp(s_old[k], gv->name) == 0) break;
+                }
+                if (k == s_count) {
+                    snprintf(s_old[s_count], 128, "%s", gv->name);
+                    snprintf(s_new[s_count], 128, "__zc_tu%d_%.100s", tu->tu_index, gv->name);
+                    s_count++;
+                }
+                snprintf(gv->name, sizeof(gv->name), "%s", s_new[k]);
+            }
+            for (size_t r = 0; r < tu->reloc_count; r++) {
+                for (size_t k = 0; k < s_count; k++) {
+                    if (strcmp(tu->relocs[r].target_symbol, s_old[k]) == 0) {
+                        snprintf(tu->relocs[r].target_symbol,
+                                 sizeof(tu->relocs[r].target_symbol), "%s", s_new[k]);
+                        break;
+                    }
+                }
+            }
+            for (size_t dr = 0; dr < tu->data_reloc_count; dr++) {
+                if (!tu->data_relocs[dr].target_extern_name[0]) continue;
+                for (size_t k = 0; k < s_count; k++) {
+                    if (strcmp(tu->data_relocs[dr].target_extern_name, s_old[k]) == 0) {
+                        snprintf(tu->data_relocs[dr].target_extern_name,
+                                 sizeof(tu->data_relocs[dr].target_extern_name), "%s", s_new[k]);
+                        break;
+                    }
+                }
+            }
+        }
+        free(s_old);
+        free(s_new);
+    }
+
+    /* Functions: re-base text_offset and append (skipping LTO-eliminated entries). */
     for (size_t i = 0; i < tu->function_count; i++) {
+        if (tu->functions[i].lto_eliminated) continue;
         base->functions[base->function_count] = tu->functions[i];
+        base->functions[base->function_count].lto_locals = NULL;
+        base->functions[base->function_count].lto_local_count = 0;
+        base->functions[base->function_count].param_dim_arena = NULL;
         if (tu->functions[i].param_count > 0 && tu->functions[i].param_types) {
             Arena *farena = zero_cc_get_fn_arena(base);
             base->functions[base->function_count].param_names =
@@ -222,7 +291,9 @@ static inline int zero_cc_tu_merge(ZeroCCCompiler *base, ZeroCCCompiler *tu,
             ZeroCCGlobalVar gv = tu->global_vars[g];
             gv.data_offset += data_base;
             base->global_vars[base->global_var_count] = gv;
-            zero_cc_gname_hash_insert(base, gv.name, base->global_var_count, base->global_var_count + 1);
+            if (!gv.lto_eliminated) {
+                zero_cc_gname_hash_insert(base, gv.name, base->global_var_count, base->global_var_count + 1);
+            }
             base->global_var_count++;
         }
     }

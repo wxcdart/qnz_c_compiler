@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "zero_cc/ir/ast_lowering_internal.h"
+#include "zero_cc/core/lto.h"
 
 static int lower_condition_as_int(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef expr_ref) {
     TypeInfo *cond_ti = (expr_ref != AST_NULL) ? ast_node_get_typeinfo(c, zero_cc_ast_get(arena, expr_ref)) : NULL;
@@ -67,6 +68,15 @@ static int lower_condition_as_int(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTR
 
 void lower_stmt_if(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node) {
     if (!node) return;
+    int64_t const_cond = 0;
+    if (c->lto_mode && zc_ast_const_eval(c, arena, node->left, &const_cond)) {
+        ASTRef taken = const_cond ? node->right : node->aux.alt;
+        ASTRef dead = const_cond ? node->aux.alt : node->right;
+        if (dead == AST_NULL || !zero_cc_ast_has_label_goto(arena, dead)) {
+            if (taken != AST_NULL) lower_node(c, arena, taken);
+            return;
+        }
+    }
     int cond_temp = lower_condition_as_int(c, arena, node->left);
     uint16_t else_label = c->ir_next_label++;
     uint16_t end_label = c->ir_next_label++;

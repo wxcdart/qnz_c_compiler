@@ -36,6 +36,9 @@ bool zero_cc_parse_fn_declarator(ZeroCCCompiler *c, SemContext *ctx,
 /* Compile one function (params + body lowering + emission + nested fns). */
 void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm);
 
+/* Lower and emit a previously LTO-deferred function in Phase 2. */
+void zero_cc_lower_deferred_fn(ZeroCCCompiler *c, ZeroCCFunction *fn);
+
 /* File-scope declaration helpers (moved from compile_unit.c). */
 bool zero_cc_struct_def_is_fn(ZeroCCCompiler *c);
 bool zc_constexpr_not_data(ZeroCCCompiler *c);

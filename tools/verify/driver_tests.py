@@ -454,6 +454,109 @@ def main():
                 check(f"dwarf-cross-{tgt}", has_secs, p.stdout)
             else:
                 check(f"dwarf-cross-{tgt}", rc == 0, err)
+
+        # 5. Cross-TU LTO (-flto): cross-TU inlining, IPCP, const globals,
+        # dead branch/function/global elimination, and static isolation.
+        lto_dir = os.path.join(tmp, "lto")
+        os.makedirs(lto_dir, exist_ok=True)
+
+        # 5a. lto_cross_inline
+        ci_lib = os.path.join(lto_dir, "ci_lib.c")
+        ci_main = os.path.join(lto_dir, "ci_main.c")
+        ci_exe = os.path.join(lto_dir, "ci_exe")
+        with open(ci_lib, "w") as f:
+            f.write(
+                "int dead_unused_global = 999;\n"
+                "int dead_unused_helper(int x) { return x * 13 + dead_unused_global; }\n"
+                "int cross_add_mul(int a, int b) { return a * 3 + b; }\n"
+            )
+        with open(ci_main, "w") as f:
+            f.write(
+                "int cross_add_mul(int a, int b);\n"
+                "int main(void) { return cross_add_mul(10, 5) == 35 ? 0 : 1; }\n"
+            )
+        rc, out, err = run_zerocc(["-flto", "-O1", ci_lib, ci_main, "-o", ci_exe])
+        if rc == 0:
+            erc = run_exe(ci_exe).returncode
+            syms_ok = True
+            if readelf:
+                sp = subprocess.run([readelf, "-s", ci_exe], capture_output=True, text=True)
+                syms_ok = ("dead_unused_helper" not in sp.stdout and
+                           "dead_unused_global" not in sp.stdout and
+                           "cross_add_mul" not in sp.stdout)
+            jrc, _, jerr = run_zerocc(["-flto", "-O1", "--run", ci_lib, ci_main])
+            check("lto_cross_inline", erc == 0 and syms_ok and jrc == 0,
+                  f"erc={erc} syms_ok={syms_ok} jrc={jrc} jerr={jerr!r}")
+        else:
+            check("lto_cross_inline", False, f"compile failed: {err}")
+
+        # 5b. lto_ipcp_and_const_global (proves dead branches calling undefined symbols are pruned)
+        ip_cfg = os.path.join(lto_dir, "ip_cfg.c")
+        ip_main = os.path.join(lto_dir, "ip_main.c")
+        ip_exe = os.path.join(lto_dir, "ip_exe")
+        with open(ip_cfg, "w") as f:
+            f.write(
+                "const int LTO_FEATURE_FLAG = 1;\n"
+                "int lto_cfg_mode = 2;\n"
+                "int never_defined_symbol_lto(void);\n"
+                "int pure_key(void) { return 40 + lto_cfg_mode; }\n"
+                "int ipcp_compute(int x, int selector) {\n"
+                "    if (selector == 77) return x + pure_key();\n"
+                "    return never_defined_symbol_lto();\n"
+                "}\n"
+            )
+        with open(ip_main, "w") as f:
+            f.write(
+                "extern const int LTO_FEATURE_FLAG;\n"
+                "extern int lto_cfg_mode;\n"
+                "int ipcp_compute(int x, int selector);\n"
+                "int never_defined_symbol_lto(void);\n"
+                "int main(void) {\n"
+                "    int a = LTO_FEATURE_FLAG ? ipcp_compute(8, 77) : never_defined_symbol_lto();\n"
+                "    if (lto_cfg_mode != 2) return never_defined_symbol_lto();\n"
+                "    return a == 50 ? 0 : 1;\n"
+                "}\n"
+            )
+        rc, out, err = run_zerocc(["-flto", "-O2", ip_cfg, ip_main, "-o", ip_exe])
+        if rc == 0:
+            erc = run_exe(ip_exe).returncode
+            jrc, _, jerr = run_zerocc(["-flto", "-O2", "--run", ip_cfg, ip_main])
+            check("lto_ipcp_and_const_global", erc == 0 and jrc == 0,
+                  f"erc={erc} jrc={jrc} jerr={jerr!r}")
+        else:
+            check("lto_ipcp_and_const_global", False, f"compile failed: {err}")
+
+        # 5c. lto_static_isolation (identical static symbol names across TUs)
+        st_a = os.path.join(lto_dir, "st_a.c")
+        st_b = os.path.join(lto_dir, "st_b.c")
+        st_main = os.path.join(lto_dir, "st_main.c")
+        st_exe = os.path.join(lto_dir, "st_exe")
+        with open(st_a, "w") as f:
+            f.write(
+                "static int secret = 11;\n"
+                "static int helper(void) { return secret + 1; }\n"
+                "int get_a(void) { secret += 2; return helper(); }\n"
+            )
+        with open(st_b, "w") as f:
+            f.write(
+                "static int secret = 100;\n"
+                "static int helper(void) { return secret + 5; }\n"
+                "int get_b(void) { secret += 10; return helper(); }\n"
+            )
+        with open(st_main, "w") as f:
+            f.write(
+                "int get_a(void);\n"
+                "int get_b(void);\n"
+                "int main(void) { return (get_a() + get_b() == 129) ? 0 : 1; }\n"
+            )
+        rc, out, err = run_zerocc(["-flto", st_a, st_b, st_main, "-o", st_exe])
+        if rc == 0:
+            erc = run_exe(st_exe).returncode
+            jrc, _, jerr = run_zerocc(["-flto", "--run", st_a, st_b, st_main])
+            check("lto_static_isolation", erc == 0 and jrc == 0,
+                  f"erc={erc} jrc={jrc} jerr={jerr!r}")
+        else:
+            check("lto_static_isolation", False, f"compile failed: {err}")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
