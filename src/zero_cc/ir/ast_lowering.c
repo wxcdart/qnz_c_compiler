@@ -454,7 +454,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                     }
                     /* Sprint 172 (rv32 i64 ABI): 64-bit parameters consume TWO
                      * GP argument units on rv32/aarch32 - use the frame path (is_64_scalar). */
-                    if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) &&
+                    if (zc_target_is_32bit(c) &&
                         (sym->type.tag == TYPE_INT64 || sym->type.tag == TYPE_UINT64)) {
                         can_promote_params = false; break;
                     }
@@ -616,7 +616,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
              * then hi), exactly the 16-byte struct chunk pattern. */
             bool is_128_scalar = (sym->type.tag == TYPE_INT128 || sym->type.tag == TYPE_UINT128);
             if (is_128_scalar) is_multi_chunk_struct = true;
-            bool is_64_scalar = ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) &&
+            bool is_64_scalar = (zc_target_is_32bit(c) &&
                                  (sym->type.tag == TYPE_INT64 || sym->type.tag == TYPE_UINT64));
 
             if (is_64_scalar) {
@@ -718,7 +718,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                             ir_emit_param_save_fp(c, xmm_idx, chunk_off, 0);
                         } else {
                             if (fpstack_copy_count < 64) {
-                                fpstack_src_off[fpstack_copy_count] = (c->isa == ISA_AARCH32 ? 8 : 16) + 8 * stack_idx;
+                                fpstack_src_off[fpstack_copy_count] = zc_target_caller_arg_offset(c) + 8 * stack_idx;
                                 fpstack_dst_off[fpstack_copy_count] = chunk_off;
                                 fpstack_is_flt[fpstack_copy_count] = 0;
                                 fpstack_copy_count++;
@@ -753,7 +753,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                         ir_emit_param_save_fp(c, xmm_idx, sym->stack_offset, 0);
                     } else {
                         if (fpstack_copy_count < 64) {
-                            fpstack_src_off[fpstack_copy_count] = (c->isa == ISA_AARCH32 ? 8 : 16) + 8 * stack_idx;
+                            fpstack_src_off[fpstack_copy_count] = zc_target_caller_arg_offset(c) + 8 * stack_idx;
                             fpstack_dst_off[fpstack_copy_count] = sym->stack_offset;
                             fpstack_is_flt[fpstack_copy_count] = 0;
                             fpstack_copy_count++;
@@ -770,7 +770,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                             /* Stack half: defer the load until after the
                              * variadic spill (see fpstack_* above). */
                             if (fpstack_copy_count < 64) {
-                                fpstack_src_off[fpstack_copy_count] = (c->isa == ISA_AARCH32 ? 8 : 16) + 8 * stack_idx;
+                                fpstack_src_off[fpstack_copy_count] = zc_target_caller_arg_offset(c) + 8 * stack_idx;
                                 fpstack_dst_off[fpstack_copy_count] = half_off;
                                 fpstack_is_flt[fpstack_copy_count] = is_flt ? 1 : 0;
                                 fpstack_copy_count++;
@@ -805,7 +805,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                  * caller-stack stream in argument order.  Deferred like
                  * the complex stack halves (see fpstack_* above). */
                 if (fpstack_copy_count < 64) {
-                    fpstack_src_off[fpstack_copy_count] = (c->isa == ISA_AARCH32 ? 8 : 16) + 8 * stack_idx;
+                    fpstack_src_off[fpstack_copy_count] = zc_target_caller_arg_offset(c) + 8 * stack_idx;
                     fpstack_dst_off[fpstack_copy_count] = sym->stack_offset;
                     fpstack_is_flt[fpstack_copy_count] = (sym->type.tag == TYPE_FLOAT) ? 1 : 0;
                     fpstack_copy_count++;
@@ -816,7 +816,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                 ir_emit_param_save_int(c, int_idx, sym->stack_offset);
                 int_idx++;
             } else if (!is_fp) {
-                int32_t caller_off = (c->isa == ISA_AARCH32 ? 8 : 16) +
+                int32_t caller_off = zc_target_caller_arg_offset(c) +
                                      zc_target_slot_size(c) * stack_idx;
                 ir_emit_load(c, VREG_0, BE(c)->fp_reg, caller_off);
                 ir_emit_store(c, VREG_0, BE(c)->fp_reg, -sym->stack_offset);
@@ -1306,10 +1306,10 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                                 !c->lowering.has_frame_address);
 
     /* Option 3: x86-64 System V Red Zone optimization:
-     * Leaf functions with <= 128 bytes can use the 128-byte Red Zone below %rsp directly
-     * without adjusting %rsp. */
+     * Leaf functions with <= red_zone_bytes can use the Red Zone below SP directly
+     * without adjusting SP. */
     size_t alloc_frame_size = total_frame_size;
-    if (c->isa == ISA_X86_64 && !c->lowering.has_stack_protector && !c->debug_info && is_leaf && total_frame_size <= 128 && !c->lowering.has_frame_address &&
+    if (zc_target_has_red_zone(c) && !c->lowering.has_stack_protector && !c->debug_info && is_leaf && total_frame_size <= (size_t)zc_target_red_zone_bytes(c) && !c->lowering.has_frame_address &&
         !align_realign) {
         alloc_frame_size = 0;
     }

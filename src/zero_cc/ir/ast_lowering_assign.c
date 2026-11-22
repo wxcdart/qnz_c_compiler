@@ -2214,11 +2214,11 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                         } else {
                             lower_assign_conv_zt(c, right_temp, &sym->type);
                             zc_sym_store(c, sym, 0, right_temp);  /* Sprint 72 */
-                            if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 4 && sym->type.size <= 8 && !is_compound) {
+                            if (zc_target_is_32bit(c) && (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 4 && sym->type.size <= 8 && !is_compound) {
                                 /* RV32 ILP32 / AAPCS32 ABI: second 4-byte chunk returned in a1/r1 (VREG_2) */
                                 zc_sym_store(c, sym, 4, VREG_2);  /* Sprint 72 */
                             } else if ((sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 8 && sym->type.size <= 16 && !is_compound) {
-                                int reg2 = (c->isa == ISA_AARCH64 || c->isa == ISA_RISCV64) ? VREG_1 : VREG_2;
+                                int reg2 = zc_target_ret_vec_hi(c);
                                 size_t rem = sym->type.size - 8;
                                 int32_t tail_off = -(sym->stack_offset - 8);
                                 if (rem >= 8) {

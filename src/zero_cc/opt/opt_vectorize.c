@@ -65,8 +65,7 @@ typedef struct {
  * RISC-V RVV: 4x float32 (fixed for simplicity)
  */
 int vectorization_get_width(int target_isa) {
-    (void)target_isa;
-    return 4;  /* Default: 4x float32 vectors */
+    return (int)zero_cc_get_target_traits((ZeroCCISA)target_isa)->default_vec_width_f32;
 }
 
 /**
@@ -1277,11 +1276,11 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
  * Main auto-vectorization pass
  */
 void opt_auto_vectorize(ZeroCCCompiler *c) {
-    ZeroCCISA isa = (c && c->regalloc.target_isa) ? c->regalloc.target_isa : (c ? c->isa : ISA_X86_64);
     if (!c || !BE(c) || !BE(c)->emit_vload || !BE(c)->emit_vstore ||
-        !BE(c)->emit_vaddps || isa == ISA_AARCH32 || isa == ISA_RISCV32) {
+        !BE(c)->emit_vaddps || !zc_target_has_simd(c)) {
         return;
     }
+    ZeroCCISA isa = c->regalloc.target_isa ? c->regalloc.target_isa : c->isa;
 
     VectorizationStateFull state = {0};
     vectorization_init((VectorizationState *)&state, (int)isa);

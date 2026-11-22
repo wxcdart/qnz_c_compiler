@@ -492,4 +492,40 @@ static inline int zc_target_slot_size(const ZeroCCCompiler *c) {
     return (int)zc_target_traits(c)->slot_size;
 }
 
+static inline bool zc_target_has_red_zone(const ZeroCCCompiler *c) {
+    return zc_target_traits(c)->has_red_zone;
+}
+
+static inline int zc_target_red_zone_bytes(const ZeroCCCompiler *c) {
+    return (int)zc_target_traits(c)->red_zone_bytes;
+}
+
+static inline int zc_target_caller_arg_offset(const ZeroCCCompiler *c) {
+    return (int)zc_target_traits(c)->caller_stack_arg_offset;
+}
+
+static inline bool zc_target_has_simd(const ZeroCCCompiler *c) {
+    return zc_target_traits(c)->has_simd;
+}
+
+static inline int zc_target_default_vec_width(const ZeroCCCompiler *c) {
+    return (int)zc_target_traits(c)->default_vec_width_f32;
+}
+
+static inline int zc_target_ret_vec_hi(const ZeroCCCompiler *c) {
+    return zc_target_traits(c)->ret_vec_hi;
+}
+
+static inline int zc_target_ret_gpr_lo(const ZeroCCCompiler *c) {
+    return zc_target_traits(c)->ret_gpr_lo;
+}
+
+static inline int zc_target_ret_gpr_hi(const ZeroCCCompiler *c) {
+    return zc_target_traits(c)->ret_gpr_hi;
+}
+
+static inline uint8_t zc_target_dwarf_fp_reg(const ZeroCCCompiler *c) {
+    return zc_target_traits(c)->dwarf_fp_reg;
+}
+
 #endif /* ZERO_CC_TYPES_SYMBOLS_H */

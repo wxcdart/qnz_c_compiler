@@ -6,6 +6,7 @@
 #include <stddef.h>
 
 #include "zero_cc/isa/isa_backend.h"
+#include "zero_cc/types/vregs.h"
 
 /*
  * Target Register File & Allocation Descriptor (Phase 2 Refactoring).
@@ -51,9 +52,16 @@ struct TargetTraits {
     uint8_t   stack_align;         /* 16 or 8 (ABI stack boundary alignment) */
     bool      is_32bit;            /* true if ptr_size == 4 */
     bool      has_red_zone;        /* true on x86-64 (128 bytes below rsp) */
+    uint8_t   red_zone_bytes;      /* 128 on x86-64, 0 on others */
+    uint8_t   caller_stack_arg_offset; /* 8 on aarch32, 16 on x86-64/aarch64/riscv64/riscv32 */
     bool      has_flags_register;  /* true on x86-64, aarch64, aarch32 */
+    bool      has_simd;            /* true on x86-64, aarch64, riscv64 */
+    uint8_t   default_vec_width_f32; /* 4 on x86-64/aarch64/riscv64, 0 on 32-bit */
+    uint8_t   max_vec_bytes;       /* 16 on 128-bit, 32 on AVX2 */
     int       ret_gpr_lo;          /* primary integer return GPR (e.g. rax=0, x0=0, a0=10, r0=0) */
     int       ret_gpr_hi;          /* secondary return GPR for 64-bit pair or 9-16B struct (rdx=2, x1=1, a1=11, r1=1) */
+    int       ret_vec_lo;          /* primary vector return register (VREG_0) */
+    int       ret_vec_hi;          /* secondary vector return register (VREG_2 on x86-64, VREG_1 on aarch64/riscv) */
     int       sret_gpr;            /* hidden sret pointer argument register (rdi=5, x8=8, a0=10, r0=0) */
     bool      sret_consumes_arg0;  /* false on aarch64 (dedicated x8), true on x86/RISC-V/ARM */
     bool      vararg_floats_in_gpr;/* true on aarch32, riscv64, riscv32 */
@@ -65,6 +73,7 @@ struct TargetTraits {
     uint32_t  elf_flags;           /* EF_ARM_EABI_VER5, EF_RISCV_FLOAT_ABI_DOUBLE, etc. */
     uint32_t  dwarf_addr_reloc;    /* Target relocation type for pointer/address in DWARF */
     uint32_t  dwarf_sec_reloc;     /* Target relocation type for section offset in DWARF */
+    uint8_t   dwarf_fp_reg;        /* DWARF register number for frame pointer (6 on x86-64, 29 on aarch64, 11 on aarch32, 8 on riscv) */
     TargetRegDesc regs;
 };
 
@@ -105,9 +114,16 @@ static inline const TargetTraits *zero_cc_get_target_traits(ZeroCCISA isa) {
                 .stack_align = 16,
                 .is_32bit = false,
                 .has_red_zone = true,
+                .red_zone_bytes = 128,
+                .caller_stack_arg_offset = 16,
                 .has_flags_register = true,
+                .has_simd = true,
+                .default_vec_width_f32 = 4,
+                .max_vec_bytes = 16,
                 .ret_gpr_lo = 0,    /* RAX */
                 .ret_gpr_hi = 2,    /* RDX */
+                .ret_vec_lo = VREG_0,
+                .ret_vec_hi = VREG_2,
                 .sret_gpr = 5,      /* RDI */
                 .sret_consumes_arg0 = true,
                 .vararg_floats_in_gpr = false,
@@ -119,6 +135,7 @@ static inline const TargetTraits *zero_cc_get_target_traits(ZeroCCISA isa) {
                 .elf_flags = 0,
                 .dwarf_addr_reloc = 1,   /* R_X86_64_64 */
                 .dwarf_sec_reloc = 10,  /* R_X86_64_32 */
+                .dwarf_fp_reg = 6,      /* %rbp */
                 .regs = {
                     .allocatable_gpr_mask = (1u<<0)|(1u<<2)|(1u<<3)|(1u<<6)|(1u<<7)|(1u<<8)|(1u<<9)|(1u<<12)|(1u<<13)|(1u<<14)|(1u<<15),
                     .callee_saved_gpr_mask = (1u<<3)|(1u<<12)|(1u<<13)|(1u<<14)|(1u<<15),
@@ -153,9 +170,16 @@ static inline const TargetTraits *zero_cc_get_target_traits(ZeroCCISA isa) {
                 .stack_align = 16,
                 .is_32bit = false,
                 .has_red_zone = false,
+                .red_zone_bytes = 0,
+                .caller_stack_arg_offset = 16,
                 .has_flags_register = true,
+                .has_simd = true,
+                .default_vec_width_f32 = 4,
+                .max_vec_bytes = 16,
                 .ret_gpr_lo = 0,    /* X0 */
                 .ret_gpr_hi = 1,    /* X1 */
+                .ret_vec_lo = VREG_0,
+                .ret_vec_hi = VREG_1,
                 .sret_gpr = 8,      /* X8 */
                 .sret_consumes_arg0 = false,
                 .vararg_floats_in_gpr = false,
@@ -167,6 +191,7 @@ static inline const TargetTraits *zero_cc_get_target_traits(ZeroCCISA isa) {
                 .elf_flags = 0,
                 .dwarf_addr_reloc = 257, /* R_AARCH64_ABS64 */
                 .dwarf_sec_reloc = 258,  /* R_AARCH64_ABS32 */
+                .dwarf_fp_reg = 29,      /* x29 */
                 .regs = {
                     .allocatable_gpr_mask = 0x1FF878FFu,
                     .callee_saved_gpr_mask = 0x1FF80000u,
@@ -201,9 +226,16 @@ static inline const TargetTraits *zero_cc_get_target_traits(ZeroCCISA isa) {
                 .stack_align = 8,
                 .is_32bit = true,
                 .has_red_zone = false,
+                .red_zone_bytes = 0,
+                .caller_stack_arg_offset = 8,
                 .has_flags_register = true,
+                .has_simd = false,
+                .default_vec_width_f32 = 0,
+                .max_vec_bytes = 0,
                 .ret_gpr_lo = 0,    /* R0 */
                 .ret_gpr_hi = 1,    /* R1 */
+                .ret_vec_lo = VREG_0,
+                .ret_vec_hi = VREG_1,
                 .sret_gpr = 0,      /* R0 */
                 .sret_consumes_arg0 = true,
                 .vararg_floats_in_gpr = true,
@@ -215,6 +247,7 @@ static inline const TargetTraits *zero_cc_get_target_traits(ZeroCCISA isa) {
                 .elf_flags = 0x05000000u, /* ZC_EF_ARM_EABI_VER5 */
                 .dwarf_addr_reloc = 2,   /* R_ARM_ABS32 */
                 .dwarf_sec_reloc = 2,    /* R_ARM_ABS32 */
+                .dwarf_fp_reg = 11,      /* r11 */
                 .regs = {
                     .allocatable_gpr_mask = 0x000000FFu,
                     .callee_saved_gpr_mask = 0x000000F0u,
@@ -249,9 +282,16 @@ static inline const TargetTraits *zero_cc_get_target_traits(ZeroCCISA isa) {
                 .stack_align = 16,
                 .is_32bit = false,
                 .has_red_zone = false,
+                .red_zone_bytes = 0,
+                .caller_stack_arg_offset = 16,
                 .has_flags_register = false,
+                .has_simd = true,
+                .default_vec_width_f32 = 4,
+                .max_vec_bytes = 16,
                 .ret_gpr_lo = 10,   /* A0 */
                 .ret_gpr_hi = 11,   /* A1 */
+                .ret_vec_lo = VREG_0,
+                .ret_vec_hi = VREG_1,
                 .sret_gpr = 10,     /* A0 */
                 .sret_consumes_arg0 = true,
                 .vararg_floats_in_gpr = true,
@@ -263,6 +303,7 @@ static inline const TargetTraits *zero_cc_get_target_traits(ZeroCCISA isa) {
                 .elf_flags = 4,     /* EF_RISCV_FLOAT_ABI_DOUBLE */
                 .dwarf_addr_reloc = 2,   /* R_RISCV_64 */
                 .dwarf_sec_reloc = 1,    /* R_RISCV_32 */
+                .dwarf_fp_reg = 8,       /* s0 / fp */
                 .regs = {
                     .allocatable_gpr_mask = (1u<<7) | (0xFFu<<10) | (1u<<9) | (0x3FFu<<18),
                     .callee_saved_gpr_mask = (1u<<9) | (0x3FFu<<18),
@@ -297,9 +338,16 @@ static inline const TargetTraits *zero_cc_get_target_traits(ZeroCCISA isa) {
                 .stack_align = 16,
                 .is_32bit = true,
                 .has_red_zone = false,
+                .red_zone_bytes = 0,
+                .caller_stack_arg_offset = 16,
                 .has_flags_register = false,
+                .has_simd = false,
+                .default_vec_width_f32 = 0,
+                .max_vec_bytes = 0,
                 .ret_gpr_lo = 10,   /* A0 */
                 .ret_gpr_hi = 11,   /* A1 */
+                .ret_vec_lo = VREG_0,
+                .ret_vec_hi = VREG_1,
                 .sret_gpr = 10,     /* A0 */
                 .sret_consumes_arg0 = true,
                 .vararg_floats_in_gpr = true,
@@ -311,6 +359,7 @@ static inline const TargetTraits *zero_cc_get_target_traits(ZeroCCISA isa) {
                 .elf_flags = 0,
                 .dwarf_addr_reloc = 1,   /* R_RISCV_32 */
                 .dwarf_sec_reloc = 1,    /* R_RISCV_32 */
+                .dwarf_fp_reg = 8,       /* s0 / fp */
                 .regs = {
                     .allocatable_gpr_mask = (1u<<7) | (0xFFu<<10) | (1u<<9) | (0x3FFu<<18),
                     .callee_saved_gpr_mask = (1u<<9) | (0x3FFu<<18),

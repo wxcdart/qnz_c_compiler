@@ -423,7 +423,7 @@ void zero_cc_emit_struct_copy_to_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena,
             int pair0 = zc_alloc_temp(c);
             ir_emit_mov_reg(c, pair0, VREG_0);
             int pair1 = zc_alloc_temp(c);
-            int reg2 = (c->isa == ISA_AARCH64 || c->isa == ISA_RISCV64) ? VREG_1 : VREG_2;
+            int reg2 = zc_target_ret_vec_hi(c);
             ir_emit_mov_reg(c, pair1, reg2);
             if (struct_sz >= 8) ir_emit_store_64(c, pair0, dst_addr);
             else if (struct_sz >= 4) ir_emit_store_32(c, pair0, dst_addr);
@@ -471,7 +471,7 @@ void zero_cc_emit_struct_copy_to_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena,
         } else if (i == 0) {
             ch_val = rhs_temp;
         } else if (i == 1 && struct_sz <= 16) {
-            int reg2 = (c->isa == ISA_AARCH64 || c->isa == ISA_RISCV64) ? VREG_1 : VREG_2;
+            int reg2 = zc_target_ret_vec_hi(c);
             int ch2 = zc_alloc_temp(c);
             ir_emit_mov_reg(c, ch2, reg2);
             ch_val = ch2;

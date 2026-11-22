@@ -1,5 +1,25 @@
 # CHANGELOG
 
+## [Sprint 198] - 2026-11-22 - Multi-ISA Target Architecture Refactoring (Phase 1: `TargetTraits` Consolidation)
+
+Decouples architecture-specific properties across compiler lowering, optimization, and debug stages through unified declarative `TargetTraits` tables and inline query accessors:
+- **Declarative `TargetTraits` Expansion (`src/zero_cc/isa/target_traits.h`)**:
+  - Expanded `TargetTraits` struct with declarative fields: `red_zone_bytes`, `caller_stack_arg_offset`, `has_simd`, `default_vec_width_f32`, `max_vec_bytes`, `ret_vec_lo`, `ret_vec_hi`, `dwarf_fp_reg`.
+  - Populated immutable trait descriptors for all 5 target architectures (`ISA_X86_64`, `ISA_AARCH64`, `ISA_AARCH32`, `ISA_RISCV64`, `ISA_RISCV32`).
+- **Declarative Accessor Helpers (`src/zero_cc/types/symbols.h`)**:
+  - Added inline helpers: `zc_target_has_red_zone`, `zc_target_red_zone_bytes`, `zc_target_caller_arg_offset`, `zc_target_has_simd`, `zc_target_default_vec_width`, `zc_target_ret_vec_hi`, `zc_target_ret_gpr_lo`, `zc_target_ret_gpr_hi`, `zc_target_dwarf_fp_reg`.
+- **Elimination of Ad-Hoc Architecture Checks**:
+  - `src/zero_cc/dwarf/dwarf.c`: Replaced hardcoded switch in `dwarf_frame_base_op` with `zc_target_dwarf_fp_reg(c)`.
+  - `src/zero_cc/opt/opt_vectorize.c`: Replaced hardcoded vector widths and ISA exclusions in `vectorization_get_width` with `zc_target_has_simd(c)` and `zc_target_default_vec_width(c)`.
+  - `src/zero_cc/ir/ast_lowering_builtins.c`: Replaced architecture checks in `zc_simd_has_hw128` with `zc_target_has_simd(c)`.
+  - `src/zero_cc/ir/ast_lowering_lvalue.c` & `ast_lowering_assign.c`: Replaced ternary `(c->isa == ISA_AARCH64 || c->isa == ISA_RISCV64) ? VREG_1 : VREG_2` secondary return register selections with declarative `zc_target_ret_vec_hi(c)`.
+  - `src/zero_cc/ir/ast_lowering.c`: Replaced red-zone check with `zc_target_has_red_zone(c)` and `zc_target_red_zone_bytes(c)`, replaced repeated `(c->isa == ISA_AARCH32 ? 8 : 16)` with `zc_target_caller_arg_offset(c)`, and replaced 32-bit architecture checks with `zc_target_is_32bit(c)`.
+  - `src/zero_cc/ir/ast_lowering_stmt.c` & `ast_lowering_ctrl.c`: Replaced all ad-hoc `(c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32)` checks with `zc_target_is_32bit(c)`.
+- **Verification**:
+  - Full suite verified: `make test` (239/239), `make test-opt` (195/195), `make test-san` (720/720), `make rebuild`, `python3 tools/verify/style_check.py` (0 errors), `python3 tools/verify/type_tag_verifier.py --verify-all` (OK across 170 files).
+  - Cross-ISA QEMU raw-binary gates verified: `python3 tools/verify/isa_qemu_diff.py` clean across AArch64 (16/16), RISC-V 64 (16/16), and RISC-V 32 (16/16).
+
+
 ## [Sprint 197] - 2026-11-22 - Extended 128-bit SIMD Vectorization (Multi-ISA Bitwise MC Emitters, Remainder-Loop Peeling, Extended Arithmetic)
 
 Implements Track 1 Phase 4.5: complete 128-bit vector bitwise operations and auto-vectorizer remainder-loop peeling across x86-64, AArch64, and RISC-V 64:

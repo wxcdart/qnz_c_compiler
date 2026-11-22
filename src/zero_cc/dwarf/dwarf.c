@@ -815,14 +815,8 @@ static uint32_t dwarf_get_type_ref(ZeroCCCompiler *c,
 }
 
 /* Frame base register operation by architecture */
-static uint8_t dwarf_frame_base_op(ZeroCCISA isa) {
-    switch (isa) {
-        case ISA_X86_64:  return DW_OP_reg6;   /* %rbp */
-        case ISA_AARCH64: return DW_OP_reg29;  /* x29 */
-        case ISA_RISCV64:
-        case ISA_RISCV32: return DW_OP_reg8;   /* s0 / fp */
-        default:          return DW_OP_reg6;
-    }
+static uint8_t dwarf_frame_base_op(const ZeroCCCompiler *c) {
+    return (uint8_t)(0x50 + zc_target_dwarf_fp_reg(c));
 }
 
 /* Generate .debug_info section content */
@@ -989,7 +983,7 @@ static void dwarf_generate_info(ZeroCCCompiler *c,
         }
     }
 
-    uint8_t fb_op = dwarf_frame_base_op(c->isa);
+    uint8_t fb_op = dwarf_frame_base_op(c);
 
     /* Functions */
     for (size_t fi = 0; fi < c->function_count; fi++) {

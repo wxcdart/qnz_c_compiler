@@ -36,9 +36,7 @@ static int zc_simd_lane_addr(ZeroCCCompiler *c, int base_addr, size_t byte_off) 
 
 /* True when the active target implements 128-bit hardware vector load/store. */
 static bool zc_simd_has_hw128(const ZeroCCCompiler *c) {
-    ZeroCCISA isa = (c->regalloc.target_isa) ? c->regalloc.target_isa : c->isa;
-    return (isa == ISA_X86_64 || isa == ISA_AARCH64 || isa == ISA_RISCV64) &&
-           BE(c)->emit_vload && BE(c)->emit_vstore;
+    return zc_target_has_simd(c) && BE(c)->emit_vload && BE(c)->emit_vstore;
 }
 
 static inline void zc_simd_emit_vload(ZeroCCCompiler *c, int vt, int addr) {
