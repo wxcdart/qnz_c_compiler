@@ -943,7 +943,8 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name, ZeroCCStdDi
     }
     if (strcmp(name, "immintrin.h") == 0 || strcmp(name, "emmintrin.h") == 0 ||
         strcmp(name, "xmmintrin.h") == 0 || strcmp(name, "pmmintrin.h") == 0 ||
-        strcmp(name, "tmmintrin.h") == 0 || strcmp(name, "smmintrin.h") == 0) {
+        strcmp(name, "tmmintrin.h") == 0 || strcmp(name, "smmintrin.h") == 0 ||
+        strcmp(name, "avxintrin.h") == 0 || strcmp(name, "avx2intrin.h") == 0) {
         static const char k_immintrin_p1[] =
             "#ifndef _ZERO_CC_IMMINTRIN_H\n#define _ZERO_CC_IMMINTRIN_H\n"
             "#include <stdint.h>\n"
@@ -960,6 +961,15 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name, ZeroCCStdDi
             "typedef uint16_t __v8hu __attribute__((__vector_size__(16)));\n"
             "typedef int8_t __v16qi __attribute__((__vector_size__(16)));\n"
             "typedef uint8_t __v16qu __attribute__((__vector_size__(16)));\n"
+            "typedef float __m256 __attribute__((__vector_size__(32)));\n"
+            "typedef double __m256d __attribute__((__vector_size__(32)));\n"
+            "typedef int __m256i __attribute__((__vector_size__(32)));\n"
+            "typedef float __v8sf __attribute__((__vector_size__(32)));\n"
+            "typedef double __v4df __attribute__((__vector_size__(32)));\n"
+            "typedef int32_t __v8si __attribute__((__vector_size__(32)));\n"
+            "typedef uint32_t __v8su __attribute__((__vector_size__(32)));\n"
+            "typedef int64_t __v4di __attribute__((__vector_size__(32)));\n"
+            "typedef uint64_t __v4du __attribute__((__vector_size__(32)));\n"
             "static inline __m128 _mm_set1_ps(float __a) { __m128 __z; return __builtin_zerocc_vset1_ps(__z, __a); }\n"
             "static inline __m128 _mm_set_ps1(float __a) { return _mm_set1_ps(__a); }\n"
             "static inline __m128 _mm_setzero_ps(void) { return _mm_set1_ps(0.0f); }\n"
@@ -1095,11 +1105,52 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name, ZeroCCStdDi
             "static inline __m128i _mm_cvttps_epi32(__m128 __a) { __m128i __r; for (int __i = 0; __i < 4; __i++) __r[__i] = (int)__a[__i]; return __r; }\n"
             "static inline __m128i _mm_cvtps_epi32(__m128 __a) { __m128i __r; for (int __i = 0; __i < 4; __i++) { float __f = __a[__i]; __r[__i] = (int)(__f >= 0.0f ? (__f + 0.5f) : (__f - 0.5f)); } return __r; }\n"
             "static inline __m128i _mm_shuffle_epi32(__m128i __a, int __imm) { __m128i __r; __r[0] = __a[__imm & 3]; __r[1] = __a[(__imm >> 2) & 3]; __r[2] = __a[(__imm >> 4) & 3]; __r[3] = __a[(__imm >> 6) & 3]; return __r; }\n"
-            "static inline __m128 _mm_shuffle_ps(__m128 __a, __m128 __b, int __imm) { __m128 __r; __r[0] = __a[__imm & 3]; __r[1] = __a[(__imm >> 2) & 3]; __r[2] = __b[(__imm >> 4) & 3]; __r[3] = __b[(__imm >> 6) & 3]; return __r; }\n"
+            "static inline __m128 _mm_shuffle_ps(__m128 __a, __m128 __b, int __imm) { __m128 __r; __r[0] = __a[__imm & 3]; __r[1] = __a[(__imm >> 2) & 3]; __r[2] = __b[(__imm >> 4) & 3]; __r[3] = __b[(__imm >> 6) & 3]; return __r; }\n";
+        static const char k_immintrin_p3[] =
+            "/* AVX 256-bit operations */\n"
+            "static inline __m256 _mm256_set1_ps(float __a) { __m256 __z; return __builtin_zerocc_v256_set1_ps(__z, __a); }\n"
+            "static inline __m256 _mm256_set_ps1(float __a) { return _mm256_set1_ps(__a); }\n"
+            "static inline __m256 _mm256_setzero_ps(void) { return _mm256_set1_ps(0.0f); }\n"
+            "static inline __m256d _mm256_set1_pd(double __a) { __m256d __z; return __builtin_zerocc_v256_set1_pd(__z, __a); }\n"
+            "static inline __m256d _mm256_setzero_pd(void) { return _mm256_set1_pd(0.0); }\n"
+            "static inline __m256i _mm256_set1_epi32(int __a) { __m256i __z; return __builtin_zerocc_v256_set1_epi32(__z, __a); }\n"
+            "static inline __m256i _mm256_setzero_si256(void) { return _mm256_set1_epi32(0); }\n"
+            "static inline __m256 _mm256_set_ps(float __e7, float __e6, float __e5, float __e4, float __e3, float __e2, float __e1, float __e0) { __m256 __r; __r[0] = __e0; __r[1] = __e1; __r[2] = __e2; __r[3] = __e3; __r[4] = __e4; __r[5] = __e5; __r[6] = __e6; __r[7] = __e7; return __r; }\n"
+            "static inline __m256 _mm256_setr_ps(float __e0, float __e1, float __e2, float __e3, float __e4, float __e5, float __e6, float __e7) { return _mm256_set_ps(__e7, __e6, __e5, __e4, __e3, __e2, __e1, __e0); }\n"
+            "static inline __m256d _mm256_set_pd(double __e3, double __e2, double __e1, double __e0) { __m256d __r; __r[0] = __e0; __r[1] = __e1; __r[2] = __e2; __r[3] = __e3; return __r; }\n"
+            "static inline __m256d _mm256_setr_pd(double __e0, double __e1, double __e2, double __e3) { return _mm256_set_pd(__e3, __e2, __e1, __e0); }\n"
+            "static inline __m256 _mm256_load_ps(const float *__p) { __m256 __z; return __builtin_zerocc_v256_load256(__z, __p); }\n"
+            "static inline __m256 _mm256_loadu_ps(const float *__p) { __m256 __z; return __builtin_zerocc_v256_load256(__z, __p); }\n"
+            "static inline __m256d _mm256_load_pd(const double *__p) { __m256d __z; return __builtin_zerocc_v256_load256(__z, __p); }\n"
+            "static inline __m256d _mm256_loadu_pd(const double *__p) { __m256d __z; return __builtin_zerocc_v256_load256(__z, __p); }\n"
+            "static inline __m256i _mm256_load_si256(const __m256i *__p) { __m256i __z; return __builtin_zerocc_v256_load256(__z, __p); }\n"
+            "static inline __m256i _mm256_loadu_si256(const __m256i *__p) { __m256i __z; return __builtin_zerocc_v256_load256(__z, __p); }\n"
+            "static inline void _mm256_store_ps(float *__p, __m256 __a) { __builtin_zerocc_v256_store256(__p, __a); }\n"
+            "static inline void _mm256_storeu_ps(float *__p, __m256 __a) { __builtin_zerocc_v256_store256(__p, __a); }\n"
+            "static inline void _mm256_store_pd(double *__p, __m256d __a) { __builtin_zerocc_v256_store256(__p, __a); }\n"
+            "static inline void _mm256_storeu_pd(double *__p, __m256d __a) { __builtin_zerocc_v256_store256(__p, __a); }\n"
+            "static inline void _mm256_store_si256(__m256i *__p, __m256i __a) { __builtin_zerocc_v256_store256(__p, __a); }\n"
+            "static inline void _mm256_storeu_si256(__m256i *__p, __m256i __a) { __builtin_zerocc_v256_store256(__p, __a); }\n"
+            "static inline __m256 _mm256_add_ps(__m256 __a, __m256 __b) { return __builtin_zerocc_v256_addps(__a, __b); }\n"
+            "static inline __m256 _mm256_sub_ps(__m256 __a, __m256 __b) { return __builtin_zerocc_v256_subps(__a, __b); }\n"
+            "static inline __m256 _mm256_mul_ps(__m256 __a, __m256 __b) { return __builtin_zerocc_v256_mulps(__a, __b); }\n"
+            "static inline __m256 _mm256_div_ps(__m256 __a, __m256 __b) { return __builtin_zerocc_v256_divps(__a, __b); }\n"
+            "static inline __m256d _mm256_add_pd(__m256d __a, __m256d __b) { return __builtin_zerocc_v256_addpd(__a, __b); }\n"
+            "static inline __m256d _mm256_sub_pd(__m256d __a, __m256d __b) { return __builtin_zerocc_v256_subpd(__a, __b); }\n"
+            "static inline __m256d _mm256_mul_pd(__m256d __a, __m256d __b) { return __builtin_zerocc_v256_mulpd(__a, __b); }\n"
+            "static inline __m256d _mm256_div_pd(__m256d __a, __m256d __b) { return __builtin_zerocc_v256_divpd(__a, __b); }\n"
+            "static inline __m256 _mm256_and_ps(__m256 __a, __m256 __b) { return __builtin_zerocc_v256_andps(__a, __b); }\n"
+            "static inline __m256 _mm256_or_ps(__m256 __a, __m256 __b) { return __builtin_zerocc_v256_orps(__a, __b); }\n"
+            "static inline __m256 _mm256_xor_ps(__m256 __a, __m256 __b) { return __builtin_zerocc_v256_xorps(__a, __b); }\n"
+            "static inline void _mm256_zeroupper(void) { __builtin_zerocc_v256_zeroupper(); }\n"
             "#endif\n";
-        size_t l1 = sizeof(k_immintrin_p1) - 1, l2 = sizeof(k_immintrin_p2) - 1;
-        char *buf = malloc(l1 + l2 + 1);
-        if (buf) { memcpy(buf, k_immintrin_p1, l1); memcpy(buf + l1, k_immintrin_p2, l2 + 1); }
+        size_t l1 = sizeof(k_immintrin_p1) - 1, l2 = sizeof(k_immintrin_p2) - 1, l3 = sizeof(k_immintrin_p3) - 1;
+        char *buf = malloc(l1 + l2 + l3 + 1);
+        if (buf) {
+            memcpy(buf, k_immintrin_p1, l1);
+            memcpy(buf + l1, k_immintrin_p2, l2);
+            memcpy(buf + l1 + l2, k_immintrin_p3, l3 + 1);
+        }
         return buf;
     }
     if (strcmp(name, "arm_neon.h") == 0) {

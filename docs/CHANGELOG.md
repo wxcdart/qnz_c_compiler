@@ -1,5 +1,35 @@
 # CHANGELOG
 
+## [Sprint 199] - 2026-11-22 - AVX / AVX2 256-bit SIMD Vectorization (VEX Encoding, YMM Registers, 8-Lane Auto-Vectorization)
+
+Implements Option 1: complete AVX / AVX2 wider vector support (256-bit SIMD, `__m256`, 8-lane float, 4-lane double on x86-64, VEX-prefix machine code and text assembly emission, and auto-vectorization width scaling):
+- **CLI & Feature Flags (`src/zero_cc/driver/driver_opts.h`, `src/main.c`)**:
+  - Implemented `-mavx`, `-mavx2`, `-mno-avx`, `-mno-avx2` command-line options.
+  - Defined standard preprocessor macros `__AVX__` (1) and `__AVX2__` (1) when active.
+  - Propagated `has_avx` and `has_avx2` target configuration flags across compiler instances in JIT, LTO, and AOT pipelines.
+- **Target Traits & Vector Width (`src/zero_cc/types/symbols.h`)**:
+  - Scaled `zc_target_default_vec_width` to 8 for single-precision floats and 4 for double-precision floats on x86-64 when `has_avx` is enabled.
+  - Added `zc_target_max_vec_bytes` returning 32 bytes when AVX is enabled.
+- **256-Bit IR Opcodes (`src/zero_cc/ir/ir.h`, `src/zero_cc/ir/ir.c`)**:
+  - Added 14 256-bit opcodes: `OP_V256_LOAD`, `OP_V256_STORE`, `OP_V256_ADDPS`, `OP_V256_SUBPS`, `OP_V256_MULPS`, `OP_V256_DIVPS`, `OP_V256_ADDPD`, `OP_V256_SUBPD`, `OP_V256_MULPD`, `OP_V256_DIVPD`, `OP_V256_ANDPS`, `OP_V256_VORPS`, `OP_V256_VXORPS`, `OP_V256_ZEROUPPER`.
+  - Updated live range analysis (`src/zero_cc/ir/live_range.h`) and optimization passes (DCE, GVN, mem2reg, loop analysis) recognizing 256-bit vector operations and memory side effects.
+- **2-Byte and 3-Byte VEX Prefix Machine Code & Text Assembly Emitters (`src/zero_cc/isa/`)**:
+  - Implemented `x86_vex` in `src/zero_cc/isa/x86_64_common.h` generating compact 2-byte VEX (`0xC5`) and full 3-byte VEX (`0xC4`) prefixes with non-destructive 3-operand inversion (`~v & 0xF`).
+  - Added 14 raw machine code emitters in `src/zero_cc/isa/x86_64.c` emitting VEX-encoded instructions (`L=1`) directly into memory for JIT and AOT binary paths.
+  - Added 14 AT&T text assembly emitters in `src/zero_cc/isa/x86_64_asm.c` emitting `%ymm0`–`%ymm15` instructions (`vmovups`, `vaddps`, `vaddpd`, `vzeroupper`) for `-S` compilation.
+  - Wired dispatch into `src/zero_cc/ir/ast_lowering_mc.c` and `src/zero_cc/ir/asm_emitter.c`.
+- **Intrinsics Virtual Headers & Builtins (`virtual_headers.h`, `ast_lowering_builtins.c`)**:
+  - Virtual headers `<immintrin.h>`, `<avxintrin.h>`, `<avx2intrin.h>` define 256-bit vector types (`__m256`, `__m256d`, `__m256i`, `__v8sf`, `__v4df`, `__v8si`, `__v4di`) and standard intrinsics (`_mm256_loadu_ps`, `_mm256_storeu_ps`, `_mm256_add_ps`, `_mm256_sub_ps`, `_mm256_mul_ps`, `_mm256_div_ps`, `_mm256_add_pd`, `_mm256_sub_pd`, `_mm256_mul_pd`, `_mm256_div_pd`, `_mm256_set1_ps`, `_mm256_setzero_ps`, `_mm256_zeroupper`, etc.).
+  - Implemented `zc_lower_simd_builtin` 256-bit lowering: emits hardware VEX instructions when `-mavx` is active on x86-64, with seamless 8-lane / 4-lane scalar emulation fallback on other ISAs or without AVX.
+- **Auto-Vectorizer Width Scaling (`src/zero_cc/opt/opt_vectorize.c`)**:
+  - When `c->has_avx` is enabled on x86-64, auto-vectorization scales `vector_width = 8` for floats and `vector_width = 4` for doubles.
+  - Emits `OP_V256_LOAD`, `OP_V256_STORE`, and `OP_V256_*` arithmetic opcodes, automatically leveraging remainder-loop peeling for trip counts not divisible by 8 or 4.
+- **Verification**:
+  - Added [`test/jit/avx_intrinsics.c`](../test/jit/avx_intrinsics.c) testing float and double AVX intrinsics in both JIT and AOT.
+  - Added [`test/jit/avx_vectorize.c`](../test/jit/avx_vectorize.c) testing 8-lane float and 4-lane double auto-vectorization with remainder peeling under `-mavx -O3`.
+  - All regression gates green: `make test` (241/241 passed), `make test-opt` (197/197 clean), `make test-san` (720/720 clean), `python3 tools/verify/style_check.py` (0 errors), `python3 tools/verify/type_tag_verifier.py --verify-all` (OK across 172 files).
+
+
 ## [Sprint 198] - 2026-11-22 - Multi-ISA Target Architecture Refactoring (Phase 1: `TargetTraits` Consolidation)
 
 Decouples architecture-specific properties across compiler lowering, optimization, and debug stages through unified declarative `TargetTraits` tables and inline query accessors:

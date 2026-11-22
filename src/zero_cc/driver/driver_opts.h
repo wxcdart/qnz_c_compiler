@@ -59,6 +59,8 @@ typedef struct {
     int function_sections;  /* -ffunction-sections */
     int data_sections;      /* -fdata-sections */
     int lto;                /* -flto: whole-program link-time optimization */
+    int has_avx;            /* -mavx: enable 256-bit AVX vectors */
+    int has_avx2;           /* -mavx2: enable AVX2 instructions */
 } CompileOptions;
 
 static void print_usage(const char *prog) {
@@ -258,6 +260,20 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
         }
         else if (strcmp(arg, "-fno-lto") == 0) {
             opts->lto = 0;
+        }
+        else if (strcmp(arg, "-mavx") == 0) {
+            opts->has_avx = 1;
+        }
+        else if (strcmp(arg, "-mno-avx") == 0) {
+            opts->has_avx = 0;
+            opts->has_avx2 = 0;
+        }
+        else if (strcmp(arg, "-mavx2") == 0) {
+            opts->has_avx = 1;
+            opts->has_avx2 = 1;
+        }
+        else if (strcmp(arg, "-mno-avx2") == 0) {
+            opts->has_avx2 = 0;
         }
         else if (strcmp(arg, "--target") == 0 && i + 1 < argc) {
             opts->target_arch = argv[++i];

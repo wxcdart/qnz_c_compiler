@@ -295,6 +295,9 @@ typedef struct ZeroCCCompiler {
     int debug_info;                        /* 1 = emit DWARF debug info (-g) */
     int function_sections;                 /* -ffunction-sections: emit each function in .text.<name> */
     int data_sections;                     /* -fdata-sections: emit each global var in .data/.bss/.rodata.<name> */
+    bool has_avx;                          /* -mavx: enable 256-bit AVX vectors */
+    bool has_avx2;                         /* -mavx2: enable AVX2 vector integer ops */
+    bool used_avx;                         /* true if any 256-bit AVX instruction was emitted */
     const char *source_filename;           /* Source filename */
     const char *comp_dir;                  /* Current compilation directory */
     uint32_t current_line;                 /* Current source line during lowering */
@@ -509,7 +512,13 @@ static inline bool zc_target_has_simd(const ZeroCCCompiler *c) {
 }
 
 static inline int zc_target_default_vec_width(const ZeroCCCompiler *c) {
+    if (c && c->has_avx && c->isa == ISA_X86_64) return 8;
     return (int)zc_target_traits(c)->default_vec_width_f32;
+}
+
+static inline int zc_target_max_vec_bytes(const ZeroCCCompiler *c) {
+    if (c && c->has_avx && c->isa == ISA_X86_64) return 32;
+    return (int)zc_target_traits(c)->max_vec_bytes;
 }
 
 static inline int zc_target_ret_vec_hi(const ZeroCCCompiler *c) {

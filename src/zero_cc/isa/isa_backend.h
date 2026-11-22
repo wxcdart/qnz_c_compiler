@@ -198,6 +198,21 @@ typedef struct ZeroCCISABackend {
     void (*emit_vandps_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
     void (*emit_vorps_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
     void (*emit_vxorps_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    /* 256-bit AVX vector instruction emission (x86-64 VEX) */
+    void (*emit_v256_load_asm)(ZeroCCCompiler *c, int dst, int base, int32_t offset, FILE *out);
+    void (*emit_v256_store_asm)(ZeroCCCompiler *c, int src, int base, int32_t offset, FILE *out);
+    void (*emit_v256_addps_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_v256_subps_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_v256_mulps_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_v256_divps_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_v256_addpd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_v256_subpd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_v256_mulpd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_v256_divpd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_v256_andps_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_v256_vorps_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_v256_vxorps_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_v256_zeroupper_asm)(ZeroCCCompiler *c, FILE *out);
     void (*emit_vshufps_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int imm, FILE *out);
     void (*emit_vcvt_si2ss_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
     void (*emit_vcvt_ss2si_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
@@ -411,6 +426,21 @@ typedef struct ZeroCCISABackend {
     void (*emit_vandps)(ZeroCCCompiler *c, int dst, int src1, int src2);
     void (*emit_vorps)(ZeroCCCompiler *c, int dst, int src1, int src2);
     void (*emit_vxorps)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    /* 256-bit AVX vector raw binary emission (x86-64 VEX) */
+    void (*emit_v256_load)(ZeroCCCompiler *c, int dst, int base, int32_t offset);
+    void (*emit_v256_store)(ZeroCCCompiler *c, int src, int base, int32_t offset);
+    void (*emit_v256_addps)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_v256_subps)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_v256_mulps)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_v256_divps)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_v256_addpd)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_v256_subpd)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_v256_mulpd)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_v256_divpd)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_v256_andps)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_v256_vorps)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_v256_vxorps)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_v256_zeroupper)(ZeroCCCompiler *c);
     /* Scalar single<->double conversions (GNU vector per-lane lowering),
      * raw byte-emitter form (JIT / raw AOT). */
     void (*emit_cvtss2sd)(ZeroCCCompiler *c, int dst, int src);

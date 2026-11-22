@@ -37,6 +37,18 @@ static const char *x86_get_vec_reg_name(int vec_reg_idx) {
     return x86_vec_names[vec_reg_idx];
 }
 
+/* Get 256-bit YMM vector register name by index (AVX/AVX2) */
+static const char *x86_get_ymm_reg_name(int vec_reg_idx) {
+    static const char *const x86_ymm_names[] = {
+        "ymm0", "ymm1", "ymm2", "ymm3", "ymm4", "ymm5", "ymm6", "ymm7",
+        "ymm8", "ymm9", "ymm10", "ymm11", "ymm12", "ymm13", "ymm14", "ymm15"
+    };
+    if (vec_reg_idx < 0 || vec_reg_idx >= 16) {
+        return "ymm0";
+    }
+    return x86_ymm_names[vec_reg_idx];
+}
+
 /* Prologue: push rbp, mov rbp, rsp, sub rsp, save callee-saved */
 static void x86_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
     if (c->lowering.is_frameless) return;
@@ -1454,6 +1466,78 @@ static void x86_emit_vcmpsd_asm(ZeroCCCompiler *c, int dst, int, int src2, int p
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
     fprintf(out, "\tcmpsd\t$%d,%%%s,%%%s\n", pred, src2_name, dst_name);
+}
+
+/* =========================================================================
+ * 256-bit AVX/AVX2 Instruction Emission (Textual Assembly)
+ * ========================================================================= */
+
+static void x86_emit_v256_load_asm(ZeroCCCompiler *c, int dst, int base, int32_t offset, FILE *out) {
+    fprintf(out, "\tvmovups\t%d(%%%s),%%%s\n", offset, BE(c)->get_hw_reg_name(base), x86_get_ymm_reg_name(dst));
+}
+
+static void x86_emit_v256_store_asm(ZeroCCCompiler *c, int src, int base, int32_t offset, FILE *out) {
+    fprintf(out, "\tvmovups\t%%%s,%d(%%%s)\n", x86_get_ymm_reg_name(src), offset, BE(c)->get_hw_reg_name(base));
+}
+
+static void x86_emit_v256_addps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvaddps\t%%%s,%%%s,%%%s\n", x86_get_ymm_reg_name(src2), x86_get_ymm_reg_name(src1), x86_get_ymm_reg_name(dst));
+}
+
+static void x86_emit_v256_subps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvsubps\t%%%s,%%%s,%%%s\n", x86_get_ymm_reg_name(src2), x86_get_ymm_reg_name(src1), x86_get_ymm_reg_name(dst));
+}
+
+static void x86_emit_v256_mulps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvmulps\t%%%s,%%%s,%%%s\n", x86_get_ymm_reg_name(src2), x86_get_ymm_reg_name(src1), x86_get_ymm_reg_name(dst));
+}
+
+static void x86_emit_v256_divps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvdivps\t%%%s,%%%s,%%%s\n", x86_get_ymm_reg_name(src2), x86_get_ymm_reg_name(src1), x86_get_ymm_reg_name(dst));
+}
+
+static void x86_emit_v256_addpd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvaddpd\t%%%s,%%%s,%%%s\n", x86_get_ymm_reg_name(src2), x86_get_ymm_reg_name(src1), x86_get_ymm_reg_name(dst));
+}
+
+static void x86_emit_v256_subpd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvsubpd\t%%%s,%%%s,%%%s\n", x86_get_ymm_reg_name(src2), x86_get_ymm_reg_name(src1), x86_get_ymm_reg_name(dst));
+}
+
+static void x86_emit_v256_mulpd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvmulpd\t%%%s,%%%s,%%%s\n", x86_get_ymm_reg_name(src2), x86_get_ymm_reg_name(src1), x86_get_ymm_reg_name(dst));
+}
+
+static void x86_emit_v256_divpd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvdivpd\t%%%s,%%%s,%%%s\n", x86_get_ymm_reg_name(src2), x86_get_ymm_reg_name(src1), x86_get_ymm_reg_name(dst));
+}
+
+static void x86_emit_v256_andps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvandps\t%%%s,%%%s,%%%s\n", x86_get_ymm_reg_name(src2), x86_get_ymm_reg_name(src1), x86_get_ymm_reg_name(dst));
+}
+
+static void x86_emit_v256_orps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvorps\t%%%s,%%%s,%%%s\n", x86_get_ymm_reg_name(src2), x86_get_ymm_reg_name(src1), x86_get_ymm_reg_name(dst));
+}
+
+static void x86_emit_v256_vxorps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvxorps\t%%%s,%%%s,%%%s\n", x86_get_ymm_reg_name(src2), x86_get_ymm_reg_name(src1), x86_get_ymm_reg_name(dst));
+}
+
+static void x86_emit_v256_zeroupper_asm(ZeroCCCompiler *c, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvzeroupper\n");
 }
 
 /* =========================================================================

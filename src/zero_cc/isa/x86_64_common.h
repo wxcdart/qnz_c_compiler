@@ -29,6 +29,36 @@ static inline void x86_rex(ZeroCCCompiler *c, int w, int r, int x, int b) {
     }
 }
 
+/* VEX prefix emitter:
+ * mm: 1 = 0F, 2 = 0F 38, 3 = 0F 3A
+ * pp: 0 = none, 1 = 66, 2 = F3, 3 = F2
+ * w:  0 or 1
+ * reg: ModRM.reg (dst or src)
+ * base_rm: ModRM.rm or memory base
+ * vvvv: non-destructive source register (0 if unused)
+ * l: 0 = 128-bit (XMM), 1 = 256-bit (YMM)
+ */
+static inline void x86_vex(ZeroCCCompiler *c, int mm, int pp, int w, int reg, int base_rm, int vvvv, int l) {
+    int r = (reg >> 3) & 1;
+    int b = (base_rm >> 3) & 1;
+    int x = 0;
+    int r_inv = r ? 0 : 1;
+    int b_inv = b ? 0 : 1;
+    int x_inv = 1;
+    int v_inv = (~vvvv) & 0x0F;
+
+    if (mm == 1 && x == 0 && b == 0 && w == 0) {
+        /* 2-byte VEX (0xC5) */
+        me_emit_u8(c, 0xC5);
+        me_emit_u8(c, (uint8_t)((r_inv << 7) | (v_inv << 3) | ((l & 1) << 2) | (pp & 3)));
+    } else {
+        /* 3-byte VEX (0xC4) */
+        me_emit_u8(c, 0xC4);
+        me_emit_u8(c, (uint8_t)((r_inv << 7) | (x_inv << 6) | (b_inv << 5) | (mm & 0x1F)));
+        me_emit_u8(c, (uint8_t)(((w & 1) << 7) | (v_inv << 3) | ((l & 1) << 2) | (pp & 3)));
+    }
+}
+
 /* Emit a 64-bit register-register instruction: REX.W <op...> ModRM(11, reg, rm) */
 static inline void x86_rr(ZeroCCCompiler *c, const uint8_t *op, int oplen, int reg, int rm) {
     x86_rex(c, 1, (reg >> 3) & 1, 0, (rm >> 3) & 1);

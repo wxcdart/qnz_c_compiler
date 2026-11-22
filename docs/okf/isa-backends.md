@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-11-22T16:56:19Z
+timestamp: 2026-11-22T23:23:48Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -213,6 +213,24 @@ When loop vectorization emits packed vector opcodes (`OP_VLOAD`, `OP_VSTORE`, `O
   - Machine code lowering in `ast_lowering_mc.c` wires raw backend calls for `OP_VANDPS`, `OP_VORPS`, `OP_VXORPS`.
 - **Decoupled Vector Register Allocation (`REG_CLASS_VEC`)**:
   - `REG_CLASS_VEC` is decoupled from scalar FP (`REG_CLASS_XMM`): vector registers are caller-saved across function calls (`spans_call -> spill`), vector scratch registers (14 and 15) are reserved from allocation, and 16-byte aligned 2-slot spill slots are allocated on the stack.
+
+### AVX / AVX2 256-Bit SIMD Emission (Sprint 199)
+
+- **CLI & Feature Flags**: `-mavx`, `-mavx2`, `-mno-avx`, `-mno-avx2`, with `#define __AVX__ 1` and `#define __AVX2__ 1` defined during preprocessing when active.
+- **Target Traits & Vector Width**: `zc_target_default_vec_width` scales to 8 for single-precision floats and 4 for double-precision floats on x86-64 when `has_avx` is enabled; `zc_target_max_vec_bytes` reports 32 bytes.
+- **2-Byte and 3-Byte VEX Prefix Encoding**:
+  - `x86_vex` in `src/zero_cc/isa/x86_64_common.h` dynamically formats 2-byte VEX prefixes (`0xC5`) when `map_select == 1` and `X_bit == 1 && B_bit == 1`, falling back to 3-byte VEX prefixes (`0xC4`) when extended registers (`r8`–`r15`, `xmm8`–`xmm15`) or non-0F opcode maps are involved.
+  - Three-operand non-destructive vector instructions: `v_reg` is encoded inverted (`~v & 0x0F`) in bits [6:3] of byte 1 (2-byte VEX) or byte 2 (3-byte VEX). `L=1` designates 256-bit vector operations (`%ymm`).
+- **256-Bit Raw MC and Text Assembly Backend**:
+  - Implemented 14 256-bit operations in `ZeroCCISABackend`: `emit_v256_load`, `emit_v256_store`, `emit_v256_addps`, `emit_v256_subps`, `emit_v256_mulps`, `emit_v256_divps`, `emit_v256_addpd`, `emit_v256_subpd`, `emit_v256_mulpd`, `emit_v256_divpd`, `emit_v256_andps`, `emit_v256_vorps`, `emit_v256_vxorps`, and `emit_v256_zeroupper`.
+  - Machine code emitters in `src/zero_cc/isa/x86_64.c` write VEX-prefixed machine code directly into the JIT/ELF text section.
+  - Text assembly emitters in `src/zero_cc/isa/x86_64_asm.c` emit AT&T syntax instructions with `%ymm0`–`%ymm15` (`vmovups`, `vaddps`, `vaddpd`, etc.) and `vzeroupper`.
+- **Intrinsics Virtual Headers & Builtin Lowering**:
+  - Virtual headers `<immintrin.h>`, `<avxintrin.h>`, `<avx2intrin.h>` define 256-bit vector types (`__m256`, `__m256d`, `__m256i`, `__v8sf`, `__v4df`, `__v8si`, `__v4di`) and standard intrinsics (`_mm256_loadu_ps`, `_mm256_storeu_ps`, `_mm256_add_ps`, `_mm256_sub_ps`, `_mm256_mul_ps`, `_mm256_div_ps`, `_mm256_add_pd`, `_mm256_sub_pd`, `_mm256_mul_pd`, `_mm256_div_pd`, `_mm256_set1_ps`, `_mm256_setzero_ps`, `_mm256_zeroupper`, etc.).
+  - Builtins lower to hardware VEX opcodes on x86-64 when `-mavx` is enabled, and gracefully fall back to 8-lane / 4-lane scalar emulation when AVX is unavailable or targeting other ISAs.
+- **Auto-Vectorizer Scaling**:
+  - `opt_auto_vectorize` sets `vector_width = 8` for floats and `vector_width = 4` for doubles when `has_avx` is enabled on x86-64.
+  - Emits `OP_V256_LOAD`, `OP_V256_STORE`, and `OP_V256_*` arithmetic opcodes, automatically peeling remainder loops when trip counts are not exact multiples of 8 or 4.
   - Machine code lowering (`ast_lowering_mc.c`) and text assembly lowering (`asm_emitter.c`) route vector spill reloads and stores through `emit_vload` / `emit_vstore`.
   - Strict separation between packed vector opcodes (`ir_opcode_is_simd`) and scalar floating-point opcodes (`ir_opcode_is_float`, e.g. `OP_VADDSS`, `OP_VSTORESD`) guarantees scalar float temps never alias or spill as vector registers.
 - **Auto-Vectorizer Induction Classification (`opt_vectorize.c`)**:

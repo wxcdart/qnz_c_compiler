@@ -1325,6 +1325,91 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             }
             return;
 
+        /* SIMD 256-bit AVX Operations */
+        case OP_V256_LOAD:
+            if (BE(c)->emit_v256_load_asm) {
+                BE(c)->emit_v256_load_asm(c, phys_dst, phys_src1, instr->imm, out);
+            }
+            return;
+
+        case OP_V256_STORE:
+            if (BE(c)->emit_v256_store_asm) {
+                BE(c)->emit_v256_store_asm(c, phys_src2, phys_src1, instr->imm, out);
+            }
+            return;
+
+        case OP_V256_ADDPS:
+            if (BE(c)->emit_v256_addps_asm) {
+                BE(c)->emit_v256_addps_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+
+        case OP_V256_SUBPS:
+            if (BE(c)->emit_v256_subps_asm) {
+                BE(c)->emit_v256_subps_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+
+        case OP_V256_MULPS:
+            if (BE(c)->emit_v256_mulps_asm) {
+                BE(c)->emit_v256_mulps_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+
+        case OP_V256_DIVPS:
+            if (BE(c)->emit_v256_divps_asm) {
+                BE(c)->emit_v256_divps_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+
+        case OP_V256_ADDPD:
+            if (BE(c)->emit_v256_addpd_asm) {
+                BE(c)->emit_v256_addpd_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+
+        case OP_V256_SUBPD:
+            if (BE(c)->emit_v256_subpd_asm) {
+                BE(c)->emit_v256_subpd_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+
+        case OP_V256_MULPD:
+            if (BE(c)->emit_v256_mulpd_asm) {
+                BE(c)->emit_v256_mulpd_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+
+        case OP_V256_DIVPD:
+            if (BE(c)->emit_v256_divpd_asm) {
+                BE(c)->emit_v256_divpd_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+
+        case OP_V256_ANDPS:
+            if (BE(c)->emit_v256_andps_asm) {
+                BE(c)->emit_v256_andps_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+
+        case OP_V256_VORPS:
+            if (BE(c)->emit_v256_vorps_asm) {
+                BE(c)->emit_v256_vorps_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+
+        case OP_V256_VXORPS:
+            if (BE(c)->emit_v256_vxorps_asm) {
+                BE(c)->emit_v256_vxorps_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+
+        case OP_V256_ZEROUPPER:
+            if (BE(c)->emit_v256_zeroupper_asm) {
+                BE(c)->emit_v256_zeroupper_asm(c, out);
+            }
+            return;
+
         case OP_VSTORESS: {
             const char *val_name = BE(c)->get_vec_reg_name(phys_src2);
             const char *addr_name = BE(c)->get_hw_reg_name(phys_src1);
