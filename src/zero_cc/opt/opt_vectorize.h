@@ -41,6 +41,11 @@ typedef struct {
     bool inc_use_src2;         /* True if OP_ADD counter is in temp_src2 */
     bool is_aligned;           /* True if all stack array bases are 16-byte aligned */
     int stride_bytes;          /* Detected access stride in bytes (elem_size for unit stride) */
+    bool needs_peel;           /* True if loop trip count requires remainder peel */
+    int64_t v_bound;           /* Upper bound for vectorized loop */
+    int test_instr_idx;        /* Index of loop exit test JE */
+    int cmp_instr_idx;         /* Index of loop exit CMP */
+    bool bound_is_src2;        /* True if bound is cmp operand temp_src2 */
 } VectorizationInfo;
 
 #define MAX_VECTOR_LOOPS 64

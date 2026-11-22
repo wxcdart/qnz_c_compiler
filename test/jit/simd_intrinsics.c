@@ -165,6 +165,16 @@ static int test_sse(void) {
     if (!near_f32(_mm_cvtss_f32(cvtf), -3.0f)) return 29;
     if (_mm_extract_epi32(cvti, 0) != -3 || _mm_extract_epi32(cvti, 1) != 4 ||
         _mm_extract_epi32(cvti, 3) != -6) return 30;
+
+    __m128i band = _mm_and_si128(_mm_set1_epi32(0xFF), _mm_set1_epi32(0x55));
+    __m128i bor  = _mm_or_si128(_mm_set1_epi32(0xF0), _mm_set1_epi32(0x0F));
+    __m128i bxor = _mm_xor_si128(_mm_set1_epi32(0xAA), _mm_set1_epi32(0xFF));
+    if (_mm_extract_epi32(band, 0) != 0x55) return 31;
+    if (_mm_extract_epi32(bor, 0)  != 0xFF) return 32;
+    if (_mm_extract_epi32(bxor, 0) != 0x55) return 33;
+
+    __m128 f_and = _mm_and_ps(_mm_castsi128_ps(_mm_set1_epi32(0xF0)), _mm_castsi128_ps(_mm_set1_epi32(0x30)));
+    if (_mm_extract_epi32(_mm_castps_si128(f_and), 0) != 0x30) return 34;
 #endif
 
     return 0;
@@ -225,31 +235,38 @@ static int test_neon(void) {
     if (vaddvq_s32(isum) != ( -7 + 24 + -25 + 46 )) return 60;
     if (vgetq_lane_s32(imla, 0) != 70 || vgetq_lane_s32(imls, 1) != 80) return 61;
 
+    int32x4_t n_and = vandq_s32(vdupq_n_s32(0xFF), vdupq_n_s32(0x55));
+    int32x4_t n_or  = vorrq_s32(vdupq_n_s32(0xF0), vdupq_n_s32(0x0F));
+    int32x4_t n_xor = veorq_s32(vdupq_n_s32(0xAA), vdupq_n_s32(0xFF));
+    if (vgetq_lane_s32(n_and, 0) != 0x55) return 62;
+    if (vgetq_lane_s32(n_or, 0)  != 0xFF) return 63;
+    if (vgetq_lane_s32(n_xor, 0) != 0x55) return 64;
+
     int32x4_t sabs = vabsq_s32(isa);
-    if (vgetq_lane_s32(sabs, 0) != 10 || vgetq_lane_s32(sabs, 2) != 30) return 62;
+    if (vgetq_lane_s32(sabs, 0) != 10 || vgetq_lane_s32(sabs, 2) != 30) return 65;
 
     uint32x4_t ucmp = vcgtq_s32(isa, vdupq_n_s32(0));
     int32x4_t sel = vbslq_s32(ucmp, isa, vdupq_n_s32(999));
     if (vgetq_lane_s32(sel, 0) != 999 || vgetq_lane_s32(sel, 1) != 20 ||
-        vgetq_lane_s32(sel, 2) != 999 || vgetq_lane_s32(sel, 3) != 40) return 63;
+        vgetq_lane_s32(sel, 2) != 999 || vgetq_lane_s32(sel, 3) != 40) return 66;
 
     uint32x4_t bic = vbicq_u32(vdupq_n_u32(0xFFu), vdupq_n_u32(0x0Fu));
-    if (vgetq_lane_u32(bic, 0) != 0xF0u) return 64;
+    if (vgetq_lane_u32(bic, 0) != 0xF0u) return 67;
 
     int32x4_t shl = vshlq_n_s32(isb, 2);
     int32x4_t shr = vshrq_n_s32(isa, 1);
-    if (vgetq_lane_s32(shl, 0) != 12 || vgetq_lane_s32(shr, 0) != -5) return 65;
+    if (vgetq_lane_s32(shl, 0) != 12 || vgetq_lane_s32(shr, 0) != -5) return 68;
 
     int32x4_t ext = vextq_s32(isa, isb, 2);
     if (vgetq_lane_s32(ext, 0) != -30 || vgetq_lane_s32(ext, 1) != 40 ||
-        vgetq_lane_s32(ext, 2) != 3 || vgetq_lane_s32(ext, 3) != 4) return 66;
+        vgetq_lane_s32(ext, 2) != 3 || vgetq_lane_s32(ext, 3) != 4) return 69;
 
     float32x4_t z1 = vzip1q_f32(va, vb);
     if (!near_f32(vgetq_lane_f32(z1, 0), 1.0f) || !near_f32(vgetq_lane_f32(z1, 1), 3.0f) ||
-        !near_f32(vgetq_lane_f32(z1, 2), -4.5f) || !near_f32(vgetq_lane_f32(z1, 3), 1.5f)) return 67;
+        !near_f32(vgetq_lane_f32(z1, 2), -4.5f) || !near_f32(vgetq_lane_f32(z1, 3), 1.5f)) return 70;
 
     int32x4_t bits = vreinterpretq_s32_f32(vdupq_n_f32(1.0f));
-    if (vgetq_lane_s32(bits, 0) != 0x3F800000) return 68;
+    if (vgetq_lane_s32(bits, 0) != 0x3F800000) return 71;
 
     float64_t da[2] = {2.5, -6.5};
     float64_t db[2] = {1.5, 2.5};
@@ -259,9 +276,9 @@ static int test_neon(void) {
     float64x2_t dmin = vminq_f64(d1, d2);
     float64x2_t dmax = vmaxq_f64(d1, d2);
     if (!near_f64(vgetq_lane_f64(dsum, 0), 4.0) ||
-        !near_f64(vgetq_lane_f64(dsum, 1), -4.0)) return 69;
+        !near_f64(vgetq_lane_f64(dsum, 1), -4.0)) return 72;
     if (!near_f64(vgetq_lane_f64(dmin, 1), -6.5) ||
-        !near_f64(vgetq_lane_f64(dmax, 0), 2.5)) return 70;
+        !near_f64(vgetq_lane_f64(dmax, 0), 2.5)) return 73;
 
     return 0;
 }

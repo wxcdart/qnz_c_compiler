@@ -1622,18 +1622,24 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
             case OP_VANDPS:
                 if (c->emit_asm && BE(c)->emit_vandps_asm) {
                     BE(c)->emit_vandps_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_vandps) {
+                    BE(c)->emit_vandps(c, phys_dst, phys_src1, phys_src2);
                 }
                 break;
 
             case OP_VORPS:
                 if (c->emit_asm && BE(c)->emit_vorps_asm) {
                     BE(c)->emit_vorps_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_vorps) {
+                    BE(c)->emit_vorps(c, phys_dst, phys_src1, phys_src2);
                 }
                 break;
 
             case OP_VXORPS:
                 if (c->emit_asm && BE(c)->emit_vxorps_asm) {
                     BE(c)->emit_vxorps_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_vxorps) {
+                    BE(c)->emit_vxorps(c, phys_dst, phys_src1, phys_src2);
                 }
                 break;
 

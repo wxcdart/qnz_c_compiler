@@ -1369,21 +1369,39 @@ static void x86_emit_vpmulld_asm(ZeroCCCompiler *c, int dst, int src1, int src2,
 }
 
 /* Vector bitwise and - andps */
-static void x86_emit_vandps_asm(ZeroCCCompiler *c, int dst, int, int src2, FILE *out) {
+static void x86_emit_vandps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    if (dst == src2 && dst != src1) {
+        int tmp = src1; src1 = src2; src2 = tmp;
+    }
+    if (dst != src1) {
+        x86_emit_vmovaps_asm(c, dst, src1, out);
+    }
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
     fprintf(out, "\tandps\t%%%s,%%%s\n", src2_name, dst_name);
 }
 
 /* Vector bitwise or - orps */
-static void x86_emit_vorps_asm(ZeroCCCompiler *c, int dst, int, int src2, FILE *out) {
+static void x86_emit_vorps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    if (dst == src2 && dst != src1) {
+        int tmp = src1; src1 = src2; src2 = tmp;
+    }
+    if (dst != src1) {
+        x86_emit_vmovaps_asm(c, dst, src1, out);
+    }
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
     fprintf(out, "\torps\t%%%s,%%%s\n", src2_name, dst_name);
 }
 
 /* Vector bitwise xor - xorps */
-static void x86_emit_vxorps_asm(ZeroCCCompiler *c, int dst, int, int src2, FILE *out) {
+static void x86_emit_vxorps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    if (dst == src2 && dst != src1) {
+        int tmp = src1; src1 = src2; src2 = tmp;
+    }
+    if (dst != src1) {
+        x86_emit_vmovaps_asm(c, dst, src1, out);
+    }
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
     fprintf(out, "\txorps\t%%%s,%%%s\n", src2_name, dst_name);

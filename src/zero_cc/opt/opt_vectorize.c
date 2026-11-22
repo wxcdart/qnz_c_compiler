@@ -25,6 +25,7 @@
 
 #define MAX_VEC_BODY 2048
 #define VEC_LABEL_MAP_CAP 2048
+#define VEC_PEEL_MARKER 0x5E5E
 
 /**
  * Vectorization state for tracking vector temps and mappings
@@ -91,6 +92,11 @@ void vectorization_init(VectorizationState *state, int target_isa) {
         state->loops[i].inc_use_src2 = false;
         state->loops[i].is_aligned = false;
         state->loops[i].stride_bytes = 0;
+        state->loops[i].needs_peel = false;
+        state->loops[i].v_bound = 0;
+        state->loops[i].test_instr_idx = -1;
+        state->loops[i].cmp_instr_idx = -1;
+        state->loops[i].bound_is_src2 = false;
     }
 }
 
@@ -112,9 +118,13 @@ static bool is_vec_arith(Instr *instr) {
         case OP_ADD:
         case OP_SUB:
         case OP_MUL:
+        case OP_AND:
+        case OP_OR:
+        case OP_XOR:
         case OP_FADD:
         case OP_FSUB:
         case OP_FMUL:
+        case OP_FDIV:
             return true;
         default:
             return false;
@@ -145,7 +155,7 @@ static bool is_inplace_ext_on(const Instr *ins, uint32_t t) {
     }
 }
 
-static bool resolve_const(ZeroCCCompiler *c, int from_idx, uint32_t temp, int64_t *out) {
+static bool resolve_const_at(ZeroCCCompiler *c, int from_idx, uint32_t temp, int64_t *out, int *def_idx_out) {
     if (!c || temp == TEMP_NONE || !zc_temp_is_user(temp) || !out) return false;
     uint32_t cur = temp;
     int pos = from_idx;
@@ -160,6 +170,7 @@ static bool resolve_const(ZeroCCCompiler *c, int from_idx, uint32_t temp, int64_
             if (!instr_writes_temp(ins, cur)) continue;
             if (ins->op == OP_MOV_IMM) {
                 *out = ins->imm64;
+                if (def_idx_out) *def_idx_out = i;
                 return true;
             }
             if (ins->op == OP_MOV_REG && ins->temp_src1 != TEMP_NONE) {
@@ -175,12 +186,17 @@ static bool resolve_const(ZeroCCCompiler *c, int from_idx, uint32_t temp, int64_
         if (!traced) {
             if (cur < 65536 && ir_is_constant((int)cur)) {
                 *out = ir_get_constant((int)cur);
+                if (def_idx_out) *def_idx_out = -1;
                 return true;
             }
             return false;
         }
     }
     return false;
+}
+
+static bool resolve_const(ZeroCCCompiler *c, int from_idx, uint32_t temp, int64_t *out) {
+    return resolve_const_at(c, from_idx, temp, out, NULL);
 }
 
 /*
@@ -410,6 +426,7 @@ static bool value_is_vec_chain(ZeroCCCompiler *c, int start, int pos,
     }
 
     bool arith = (d->op == OP_ADD || d->op == OP_SUB || d->op == OP_MUL ||
+                  d->op == OP_AND || d->op == OP_OR || d->op == OP_XOR ||
                   d->op == OP_FADD || d->op == OP_FSUB || d->op == OP_FMUL ||
                   d->op == OP_FDIV);
     if (!arith) return false;
@@ -483,7 +500,14 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
     for (int idx = start; idx <= end; idx++) {
         if (skip_mask[idx - start]) continue;
         Instr *instr = ir_get(c, idx);
-        if (!instr || instr->op == OP_NOP || instr->op == OP_DEAD) continue;
+        if (!instr || instr->op == OP_DEAD) continue;
+        if (instr->op == OP_NOP) {
+            if (instr->imm == VEC_PEEL_MARKER) {
+                has_call = true;
+                break;
+            }
+            continue;
+        }
 
         if (instr->op == OP_CALL || instr->op == OP_CALL_INDIRECT ||
             instr->op == OP_RET || instr->op == OP_SYSCALL ||
@@ -625,10 +649,11 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
             uint32_t o1 = cm->temp_src1;
             uint32_t o2 = cm->temp_src2;
             int64_t cval1 = 0, cval2 = 0;
-            bool c1 = (o1 != TEMP_NONE && resolve_const(c, cmp_idx, o1, &cval1) &&
-                       !temp_redefined_in_span(c, cmp_idx + 1, end, skip_mask, o1));
-            bool c2 = (o2 != TEMP_NONE && resolve_const(c, cmp_idx, o2, &cval2) &&
-                       !temp_redefined_in_span(c, cmp_idx + 1, end, skip_mask, o2));
+            int def_o1 = -1, def_o2 = -1;
+            bool ok1 = (o1 != TEMP_NONE && resolve_const_at(c, cmp_idx, o1, &cval1, &def_o1));
+            bool ok2 = (o2 != TEMP_NONE && resolve_const_at(c, cmp_idx, o2, &cval2, &def_o2));
+            bool c1 = ok1 && (def_o1 >= start || !temp_redefined_in_span(c, start, end, skip_mask, o1));
+            bool c2 = ok2 && (def_o2 >= start || !temp_redefined_in_span(c, start, end, skip_mask, o2));
             if (c1 != c2) {
                 int64_t bound = c1 ? cval1 : cval2;
                 uint32_t ctr_t = c1 ? o2 : o1;
@@ -654,6 +679,7 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
                     loop_var = (int)ctr_t;
                 }
                 /* If counter has an unambiguous constant init right before header, adjust trip */
+                int64_t init = 0;
                 if (counter_slot != 0x7fffffff && trip > 0) {
                     for (int k = start - 1; k >= 0; k--) {
                         const Instr *p = ir_get(c, k);
@@ -668,13 +694,42 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
                             int64_t init_v = 0;
                             if (resolve_const(c, k, p->temp_src1, &init_v)) {
                                 if (init_v < 0) trip = -1;
-                                else trip -= init_v;
+                                else { init = init_v; trip -= init_v; }
                             }
                             break;
                         }
                     }
                 }
-                bound_ok = (trip > 0 && (trip % width) == 0);
+                int64_t v_trip = trip;
+                bool needs_peel = false;
+                if (trip >= width) {
+                    if ((trip % width) == 0) {
+                        bound_ok = true;
+                        v_trip = trip;
+                    } else {
+                        v_trip = trip - (trip % width);
+                        if (v_trip >= width && test_idx < end && ir_get(c, end) && ir_get(c, end)->op == OP_JMP) {
+                            bound_ok = true;
+                            needs_peel = true;
+                        }
+                    }
+                }
+                if (bound_ok) {
+                    int64_t v_bound = 0;
+                    bool bound_is_src2 = (!c1 && c2);
+                    if (bound_is_src2) {
+                        if (cs->cond == CC_LT) v_bound = init + v_trip;
+                        else if (cs->cond == CC_LE) v_bound = init + v_trip - 1;
+                    } else {
+                        if (cs->cond == CC_GT) v_bound = init + v_trip;
+                        else if (cs->cond == CC_GE) v_bound = init + v_trip - 1;
+                    }
+                    vinfo->needs_peel = needs_peel;
+                    vinfo->v_bound = v_bound;
+                    vinfo->test_instr_idx = test_idx;
+                    vinfo->cmp_instr_idx = cmp_idx;
+                    vinfo->bound_is_src2 = bound_is_src2;
+                }
             }
         }
     }
@@ -897,6 +952,9 @@ static int get_vec_op(int scalar_op, bool is_double, bool is_int32) {
             case OP_FMUL: return OP_VMULPD;
             case OP_DIV:
             case OP_FDIV: return OP_VDIVPD;
+            case OP_AND:  return OP_VANDPS;
+            case OP_OR:   return OP_VORPS;
+            case OP_XOR:  return OP_VXORPS;
             default:      return scalar_op;
         }
     } else if (is_int32) {
@@ -904,6 +962,9 @@ static int get_vec_op(int scalar_op, bool is_double, bool is_int32) {
             case OP_ADD:  return OP_VPADDD;
             case OP_SUB:  return OP_VPSUBD;
             case OP_MUL:  return OP_VPMULLD;
+            case OP_AND:  return OP_VANDPS;
+            case OP_OR:   return OP_VORPS;
+            case OP_XOR:  return OP_VXORPS;
             default:      return scalar_op;
         }
     } else {
@@ -916,6 +977,9 @@ static int get_vec_op(int scalar_op, bool is_double, bool is_int32) {
             case OP_FMUL: return OP_VMULPS;
             case OP_DIV:
             case OP_FDIV: return OP_VDIVPS;
+            case OP_AND:  return OP_VANDPS;
+            case OP_OR:   return OP_VORPS;
+            case OP_XOR:  return OP_VXORPS;
             default:      return scalar_op;
         }
     }
@@ -954,6 +1018,98 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
         }
     }
     if (skip_mask != skip_buf) free(skip_mask);
+
+    /* 1.5 If remainder peeling is needed, clone scalar loop after end_idx and retarget vector loop */
+    if (vinfo->needs_peel && vinfo->test_instr_idx >= start_idx && vinfo->test_instr_idx <= end_idx &&
+        vinfo->cmp_instr_idx >= start_idx && vinfo->cmp_instr_idx <= end_idx) {
+        int orig_head_label = (int)ir_get(c, start_idx)->label_idx;
+        int rem_head_label = (int)c->ir_next_label++;
+
+        int rem_label_map[VEC_LABEL_MAP_CAP];
+        for (int i = 0; i < VEC_LABEL_MAP_CAP; i++) rem_label_map[i] = -1;
+        if (orig_head_label < VEC_LABEL_MAP_CAP) rem_label_map[orig_head_label] = rem_head_label;
+
+        for (int k = start_idx + 1; k < end_idx; k++) {
+            const Instr *ins = ir_get(c, k);
+            if (ins && ins->op == OP_LABEL && ins->label_idx < VEC_LABEL_MAP_CAP) {
+                if (rem_label_map[ins->label_idx] < 0) {
+                    rem_label_map[ins->label_idx] = (int)c->ir_next_label++;
+                }
+            }
+        }
+
+        size_t orig_len = (size_t)(end_idx - start_idx + 1);
+        Instr *rem_instrs = (Instr *)malloc(orig_len * sizeof(Instr));
+        if (!rem_instrs) return false;
+
+        for (size_t k = 0; k < orig_len; k++) {
+            Instr ins = *ir_get(c, start_idx + (int)k);
+            if (ins.op == OP_LABEL) {
+                if (ins.label_idx < VEC_LABEL_MAP_CAP && rem_label_map[ins.label_idx] >= 0) {
+                    ins.label_idx = (uint16_t)rem_label_map[ins.label_idx];
+                }
+            } else if (ins.op == OP_JMP || ins.op == OP_JE || ins.op == OP_JNE ||
+                       ins.op == OP_JL || ins.op == OP_JLE || ins.op == OP_JG ||
+                       ins.op == OP_JCOND) {
+                if (ins.label_idx < VEC_LABEL_MAP_CAP && rem_label_map[ins.label_idx] >= 0) {
+                    ins.label_idx = (uint16_t)rem_label_map[ins.label_idx];
+                }
+            }
+            rem_instrs[k] = ins;
+        }
+
+        /* Insert remainder loop instructions right after end_idx */
+        for (size_t k = 0; k < orig_len; k++) {
+            ir_insert_at(c, (size_t)(end_idx + 1 + (int)k), rem_instrs[k]);
+        }
+        free(rem_instrs);
+
+        /* Insert peel marker right after remainder loop header to avoid re-peeling */
+        Instr marker = {
+            .op = OP_NOP,
+            .temp_dest = TEMP_NONE,
+            .temp_src1 = TEMP_NONE,
+            .temp_src2 = TEMP_NONE,
+            .cond = 0,
+            .flags_out = 0xFF,
+            .flags_in = 0xFF,
+            .imm = VEC_PEEL_MARKER,
+            .imm64 = VEC_PEEL_MARKER,
+            .label_idx = 0
+        };
+        ir_insert_at(c, (size_t)(end_idx + 2), marker);
+
+        /* Vector loop exit test jumps to remainder loop header */
+        Instr *test_ins = ir_get(c, vinfo->test_instr_idx);
+        if (test_ins) test_ins->label_idx = (uint16_t)rem_head_label;
+
+        /* Insert v_bound definition right before CMP in vector loop */
+        int v_bound_temp = zc_alloc_temp(c);
+        Instr mov_vbound = {
+            .op = OP_MOV_IMM,
+            .temp_dest = (uint32_t)v_bound_temp,
+            .temp_src1 = TEMP_NONE,
+            .temp_src2 = TEMP_NONE,
+            .cond = 0,
+            .flags_out = 0xFF,
+            .flags_in = 0xFF,
+            .imm = (int16_t)vinfo->v_bound,
+            .imm64 = vinfo->v_bound,
+            .label_idx = 0
+        };
+        ir_insert_at(c, (size_t)vinfo->cmp_instr_idx, mov_vbound);
+        end_idx++;
+        if (vinfo->test_instr_idx >= vinfo->cmp_instr_idx) vinfo->test_instr_idx++;
+        if (vinfo->inc_instr_idx >= vinfo->cmp_instr_idx) vinfo->inc_instr_idx++;
+
+        Instr *cmp_ins = ir_get(c, vinfo->cmp_instr_idx + 1);
+        if (cmp_ins) {
+            if (vinfo->bound_is_src2) cmp_ins->temp_src2 = (uint32_t)v_bound_temp;
+            else cmp_ins->temp_src1 = (uint32_t)v_bound_temp;
+        }
+
+        c->cfg_cache.valid = false;
+    }
 
     /* 2. Rewrite loop increment from i += 1 to i += vec_width */
     {

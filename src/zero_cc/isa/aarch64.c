@@ -1365,6 +1365,21 @@ static void aarch64_emit_vmovaps(ZeroCCCompiler *c, int dst, int src) {
     arm64_emit_u32(c, 0x4EA01C00 | ((src & 0x1F) << 16) | ((src & 0x1F) << 5) | (dst & 0x1F));
 }
 
+static void aarch64_emit_vandps(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* and v<dst>.16b, v<src1>.16b, v<src2>.16b */
+    arm64_emit_u32(c, 0x4E201C00 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5) | (dst & 0x1F));
+}
+
+static void aarch64_emit_vorps(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* orr v<dst>.16b, v<src1>.16b, v<src2>.16b */
+    arm64_emit_u32(c, 0x4EA01C00 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5) | (dst & 0x1F));
+}
+
+static void aarch64_emit_vxorps(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* eor v<dst>.16b, v<src1>.16b, v<src2>.16b */
+    arm64_emit_u32(c, 0x6E201C00 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5) | (dst & 0x1F));
+}
+
 static void aarch64_emit_fp_cmp(ZeroCCCompiler *c, int src1, int src2) {
     /* fcmpe dN, dM - scalar double-precision (signaling NaN compare)
      * fcmpe raises Invalid Operation for QNaN, setting V=1 on unordered.
@@ -2223,6 +2238,9 @@ ZeroCCISABackend aarch64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_vpsubd = aarch64_emit_vpsubd,
     .emit_vpmulld = aarch64_emit_vpmulld,
     .emit_vmovaps = aarch64_emit_vmovaps,
+    .emit_vandps = aarch64_emit_vandps,
+    .emit_vorps = aarch64_emit_vorps,
+    .emit_vxorps = aarch64_emit_vxorps,
     .emit_load_fp_rodata = aarch64_emit_load_fp_rodata,
     .emit_fp_add = aarch64_emit_fp_add,
     .emit_fp_sub = aarch64_emit_fp_sub,

@@ -339,6 +339,13 @@ Goal: no gcc driver, no glibc, no musl, no binutils in the *product path* — so
       - Complete `<immintrin.h>` for x86-64 SSE, SSE2, SSE3, SSSE3, SSE4.1, and FMA (`_mm_add_ps`, `_mm_load_ps`, `_mm_store_ps`, `_mm_set1_ps`, `_mm_add_epi32`, `_mm_mullo_epi32`, `_mm_fmadd_ps`, `_mm_hadd_ps`, etc.).
       - Complete `<arm_neon.h>` supporting NEON vector types (`float32x4_t`, `int32x4_t`, etc.) and builtins (`vaddq_f32`, `vld1q_f32`, `vst1q_f32`, `vaddq_s32`, `vfmaq_f32`, etc.).
       - Lowered via `__builtin_zerocc_v*` in `ast_lowering_builtins.c` with hardware vector lowering across x86-64 SSE, AArch64 NEON, and RISC-V RVV, and scalar emulation fallback on 32-bit platforms. Fully exercised by `test/jit/simd_intrinsics.c`.
+    - **Phase 4.5 — Extended 128-bit Vector Ops, Multi-ISA Raw MC Bitwise Emitters & Remainder-Loop Peeling — SHIPPED (Sprint 197 Track 1)**:
+      - Multi-ISA raw binary machine code emission for packed vector bitwise operations (`OP_VANDPS`, `OP_VORPS`, `OP_VXORPS`) across x86-64 (`andps`/`orps`/`xorps`), AArch64 (`and`/`orr`/`eor v.16b`), and RISC-V 64 (`vand.vv`/`vor.vv`/`vxor.vv`), wired into `ZeroCCISABackend` (`emit_vandps`, `emit_vorps`, `emit_vxorps`) and `ast_lowering_mc.c`.
+      - Added intrinsics `_mm_and_ps`, `_mm_or_ps`, `_mm_xor_ps`, `_mm_and_si128`, `_mm_or_si128`, `_mm_xor_si128` to `<immintrin.h>`, and `vandq_*`, `vorrq_*`, `veorq_*` to `<arm_neon.h>`, routing to `__builtin_zerocc_vandps`, `__builtin_zerocc_vorps`, `__builtin_zerocc_vxorps`.
+      - Extended auto-vectorizer arithmetic in `opt_vectorize.c` to admit floating-point division (`OP_FDIV` → `OP_VDIVPS`/`OP_VDIVPD`) and integer bitwise operations (`OP_AND`, `OP_OR`, `OP_XOR` → `OP_VANDPS`, `OP_VORPS`, `OP_VXORPS`).
+      - Implemented remainder-loop peeling in `opt_vectorize.c`: loops with constant bounds where `(trip % vec_width) != 0` (with `v_trip = trip - (trip % vec_width) >= vec_width`) are transformed into a vector loop bounded by `v_bound = init + v_trip` jumping on exit to a peeled scalar remainder loop that executes the remaining iterations with step 1. Marked with `VEC_PEEL_MARKER` (`0x5E5E`) to avoid re-peeling across optimizer passes.
+      - Position-aware constant bound resolution (`resolve_const_at`) handles loop bounds defined inside the loop header block, avoiding false rejection when bound temps are reused in later loop body instructions.
+      - Verified across JIT and AOT at `-O0..-O3` with new regression suite `test/jit/simd_extended_loops.c`.
     - **Phase 5 — Wider Vectors (AVX / AVX2 / SVE)**:
       - Extend x86-64 backend to support 256-bit AVX / AVX2 (`YMM0`–`YMM15`) and VEX prefix encoding.
       - Add SVE / SVE2 scalable vector support on AArch64.

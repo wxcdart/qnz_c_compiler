@@ -962,6 +962,21 @@ static void riscv64_emit_vmovaps(ZeroCCCompiler *c, int dst, int src) {
     riscv_emit_u32(c, 0x5E008057 | ((RV_REG(src) & 0x1F) << 15) | ((RV_REG(dst) & 0x1F) << 7));  /* vmv.v.v */
 }
 
+static void riscv64_emit_vandps(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    riscv_emit_u32(c, 0xCD027057);  /* vsetivli zero, 4, e32, m1, ta, ma */
+    riscv_emit_u32(c, 0x26000057 | ((RV_REG(src1) & 0x1F) << 20) | ((RV_REG(src2) & 0x1F) << 15) | ((RV_REG(dst) & 0x1F) << 7));  /* vand.vv */
+}
+
+static void riscv64_emit_vorps(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    riscv_emit_u32(c, 0xCD027057);  /* vsetivli zero, 4, e32, m1, ta, ma */
+    riscv_emit_u32(c, 0x2A000057 | ((RV_REG(src1) & 0x1F) << 20) | ((RV_REG(src2) & 0x1F) << 15) | ((RV_REG(dst) & 0x1F) << 7));  /* vor.vv */
+}
+
+static void riscv64_emit_vxorps(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    riscv_emit_u32(c, 0xCD027057);  /* vsetivli zero, 4, e32, m1, ta, ma */
+    riscv_emit_u32(c, 0x2E000057 | ((RV_REG(src1) & 0x1F) << 20) | ((RV_REG(src2) & 0x1F) << 15) | ((RV_REG(dst) & 0x1F) << 7));  /* vxor.vv */
+}
+
 static void riscv_resolve_labels(ZeroCCCompiler *c) {
     (void)c;
 }
@@ -2151,6 +2166,9 @@ ZeroCCISABackend riscv64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_vpsubd = riscv64_emit_vpsubd,
     .emit_vpmulld = riscv64_emit_vpmulld,
     .emit_vmovaps = riscv64_emit_vmovaps,
+    .emit_vandps = riscv64_emit_vandps,
+    .emit_vorps = riscv64_emit_vorps,
+    .emit_vxorps = riscv64_emit_vxorps,
     .emit_cvtss2sd = riscv64_emit_fp_cvtss2sd,
     .emit_cvttsd2ss = riscv64_emit_fp_cvttsd2ss,
     .emit_cvtsi2ss = riscv64_emit_fp_cvtsi2ss,

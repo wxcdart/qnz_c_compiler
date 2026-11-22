@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-11-22T05:42:22Z
+timestamp: 2026-11-22T16:56:19Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -203,8 +203,14 @@ When loop vectorization emits packed vector opcodes (`OP_VLOAD`, `OP_VSTORE`, `O
 - **AArch64 128-bit NEON Raw MC Emission**: `aarch64_emit_vload` and `aarch64_emit_vstore` in `src/zero_cc/isa/aarch64.c` emit authentic 128-bit `ldr q` (`0x3DC00000` / `0x3CC00000`) and `str q` (`0x3D800000` / `0x3C800000`). Handles scaled 12-bit unsigned offsets (multiples of 16), unscaled 9-bit signed offsets, and scratch register `x16` computation for unaligned or large offsets.
 - **RISC-V RVV 1.0 Raw MC & Text Assembly Emission**:
   - `src/zero_cc/isa/riscv64.c` implements authentic RVV 1.0 vector machine code emission with explicit vector configuration: `vsetivli zero, 4, e32, m1, ta, ma` (`0xCD027057`) for 4x32-bit single-precision floats and 32-bit integers, and `vsetivli zero, 2, e64, m1, ta, ma` (`0xCD817057`) for 2x64-bit double-precision floats.
-  - Implements `emit_vload`, `emit_vstore`, `emit_vaddps` (`vfadd.vv`), `emit_vsubps` (`vfsub.vv`), `emit_vmulps` (`vfmul.vv`), `emit_vdivps` (`vfdiv.vv`), `emit_vaddpd`, `emit_vsubpd`, `emit_vmulpd`, `emit_vdivpd`, `emit_vpaddd` (`vadd.vv`), `emit_vpsubd` (`vsub.vv`), `emit_vpmulld` (`vmul.vv`), and `emit_vmovaps` (`vmv.v.v`).
+  - Implements `emit_vload`, `emit_vstore`, `emit_vaddps` (`vfadd.vv`), `emit_vsubps` (`vfsub.vv`), `emit_vmulps` (`vfmul.vv`), `emit_vdivps` (`vfdiv.vv`), `emit_vaddpd`, `emit_vsubpd`, `emit_vmulpd`, `emit_vdivpd`, `emit_vpaddd` (`vadd.vv`), `emit_vpsubd` (`vsub.vv`), `emit_vpmulld` (`vmul.vv`), `emit_vandps` (`vand.vv`), `emit_vorps` (`vor.vv`), `emit_vxorps` (`vxor.vv`), and `emit_vmovaps` (`vmv.v.v`).
   - Text assembly emission in `src/zero_cc/isa/riscv_asm.c` accumulates non-zero offsets into scratch register `t5` before emitting `vle32.v` / `vse32.v`, conforming to GNU assembler syntax which rejects immediate displacements on vector memory instructions.
+- **Multi-ISA Raw MC Vector Bitwise Emission (Sprint 197 Track 1)**:
+  - Added native raw machine code emitters for `OP_VANDPS`, `OP_VORPS`, `OP_VXORPS` to `ZeroCCISABackend` (`emit_vandps`, `emit_vorps`, `emit_vxorps`):
+    - x86-64: `0x0F 0x54` (`andps`), `0x0F 0x56` (`orps`), `0x0F 0x57` (`xorps`) with ModR/M and operand swap/move when `dst != src1`.
+    - AArch64: `and v.16b` (`0x4E201C00`), `orr v.16b` (`0x4EA01C00`), `eor v.16b` (`0x4EA01C00`).
+    - RISC-V 64: `vand.vv` (`0x26000057`), `vor.vv` (`0x2A000057`), `vxor.vv` (`0x2E000057`) with `e32, m1` vector configuration.
+  - Machine code lowering in `ast_lowering_mc.c` wires raw backend calls for `OP_VANDPS`, `OP_VORPS`, `OP_VXORPS`.
 - **Decoupled Vector Register Allocation (`REG_CLASS_VEC`)**:
   - `REG_CLASS_VEC` is decoupled from scalar FP (`REG_CLASS_XMM`): vector registers are caller-saved across function calls (`spans_call -> spill`), vector scratch registers (14 and 15) are reserved from allocation, and 16-byte aligned 2-slot spill slots are allocated on the stack.
   - Machine code lowering (`ast_lowering_mc.c`) and text assembly lowering (`asm_emitter.c`) route vector spill reloads and stores through `emit_vload` / `emit_vstore`.

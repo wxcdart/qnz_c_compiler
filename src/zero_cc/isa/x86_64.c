@@ -548,6 +548,48 @@ static void x86_emit_vpmulld(ZeroCCCompiler *c, int dst, int src1, int src2) {
     x86_modrm(c, 3, dst & 7, src2 & 7);
 }
 
+static void x86_emit_vandps(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* andps xmm_dest, xmm_src - bitwise AND (0F 54 /r) */
+    if (dst == src2 && dst != src1) {
+        int tmp = src1; src1 = src2; src2 = tmp;
+    }
+    if (dst != src1) {
+        x86_emit_vmovaps(c, dst, src1);
+    }
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src2 >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x54);  /* andps */
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_vorps(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* orps xmm_dest, xmm_src - bitwise OR (0F 56 /r) */
+    if (dst == src2 && dst != src1) {
+        int tmp = src1; src1 = src2; src2 = tmp;
+    }
+    if (dst != src1) {
+        x86_emit_vmovaps(c, dst, src1);
+    }
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src2 >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x56);  /* orps */
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_vxorps(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* xorps xmm_dest, xmm_src - bitwise XOR (0F 57 /r) */
+    if (dst == src2 && dst != src1) {
+        int tmp = src1; src1 = src2; src2 = tmp;
+    }
+    if (dst != src1) {
+        x86_emit_vmovaps(c, dst, src1);
+    }
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src2 >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x57);  /* xorps */
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
 static void x86_emit_neg(ZeroCCCompiler *c, int dst, int src);
 
 static void x86_emit_sub(ZeroCCCompiler *c, int dst, int src1, int src2) {
@@ -1832,6 +1874,9 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_vpsubd = x86_emit_vpsubd,
     .emit_vpmulld = x86_emit_vpmulld,
     .emit_vmovaps = x86_emit_vmovaps,
+    .emit_vandps = x86_emit_vandps,
+    .emit_vorps = x86_emit_vorps,
+    .emit_vxorps = x86_emit_vxorps,
     .emit_cvtss2sd = x86_emit_fp_cvtss2sd,
     .emit_cvtsi2ss = x86_emit_fp_cvtsi2ss,
     .emit_cvtsd2ss = x86_emit_fp_cvtsd2ss,

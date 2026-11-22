@@ -106,6 +106,9 @@ static bool zc_lower_simd_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
         {"paddd",  OP_VPADDD,  0, 0, 4},
         {"psubd",  OP_VPSUBD,  1, 0, 4},
         {"pmulld", OP_VPMULLD, 2, 0, 4},
+        {"andps",  OP_VANDPS,  4, 0, 4},
+        {"orps",   OP_VORPS,   5, 0, 4},
+        {"xorps",  OP_VXORPS,  6, 0, 4},
     };
     for (size_t k = 0; k < sizeof(binops) / sizeof(binops[0]); k++) {
         if (strcmp(suf, binops[k].suffix) != 0) continue;
@@ -141,7 +144,10 @@ static bool zc_lower_simd_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
                     ir_emit_load_32(c, vb, lb);
                     if (binops[k].alu == 0)      ir_emit_add(c, vr, va, vb);
                     else if (binops[k].alu == 1) ir_emit_sub(c, vr, va, vb);
-                    else                         ir_emit_mul(c, vr, va, vb);
+                    else if (binops[k].alu == 2) ir_emit_mul(c, vr, va, vb);
+                    else if (binops[k].alu == 4) ir_emit(c, (Instr){.op = OP_AND, .temp_dest = (uint32_t)vr, .temp_src1 = (uint32_t)va, .temp_src2 = (uint32_t)vb, .width = 4, .flags_out = 0xFF, .flags_in = 0xFF});
+                    else if (binops[k].alu == 5) ir_emit(c, (Instr){.op = OP_OR, .temp_dest = (uint32_t)vr, .temp_src1 = (uint32_t)va, .temp_src2 = (uint32_t)vb, .width = 4, .flags_out = 0xFF, .flags_in = 0xFF});
+                    else if (binops[k].alu == 6) ir_emit(c, (Instr){.op = OP_XOR, .temp_dest = (uint32_t)vr, .temp_src1 = (uint32_t)va, .temp_src2 = (uint32_t)vb, .width = 4, .flags_out = 0xFF, .flags_in = 0xFF});
                     ir_emit_store_32(c, vr, lr);
                 }
             }

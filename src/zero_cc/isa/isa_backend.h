@@ -408,6 +408,9 @@ typedef struct ZeroCCISABackend {
     void (*emit_vpsubd)(ZeroCCCompiler *c, int dst, int src1, int src2);
     void (*emit_vpmulld)(ZeroCCCompiler *c, int dst, int src1, int src2);
     void (*emit_vmovaps)(ZeroCCCompiler *c, int dst, int src);
+    void (*emit_vandps)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_vorps)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_vxorps)(ZeroCCCompiler *c, int dst, int src1, int src2);
     /* Scalar single<->double conversions (GNU vector per-lane lowering),
      * raw byte-emitter form (JIT / raw AOT). */
     void (*emit_cvtss2sd)(ZeroCCCompiler *c, int dst, int src);

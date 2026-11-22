@@ -1,5 +1,27 @@
 # CHANGELOG
 
+## [Sprint 197] - 2026-11-22 - Extended 128-bit SIMD Vectorization (Multi-ISA Bitwise MC Emitters, Remainder-Loop Peeling, Extended Arithmetic)
+
+Implements Track 1 Phase 4.5: complete 128-bit vector bitwise operations and auto-vectorizer remainder-loop peeling across x86-64, AArch64, and RISC-V 64:
+- **Multi-ISA Raw MC Vector Bitwise Emitters (`src/zero_cc/isa/`)**:
+  - Added native raw machine code byte emission and text `.s` emission for packed vector bitwise operations (`OP_VANDPS`, `OP_VORPS`, `OP_VXORPS`):
+    - x86-64 (`src/zero_cc/isa/x86_64.c`, `x86_64_asm.c`): `0x0F 0x54` (`andps`), `0x0F 0x56` (`orps`), `0x0F 0x57` (`xorps`) with ModR/M and operand swap/move when `dst != src1`.
+    - AArch64 (`src/zero_cc/isa/aarch64.c`): `and v.16b` (`0x4E201C00`), `orr v.16b` (`0x4EA01C00`), `eor v.16b` (`0x4EA01C00`).
+    - RISC-V 64 (`src/zero_cc/isa/riscv64.c`): `vand.vv` (`0x26000057`), `vor.vv` (`0x2A000057`), `vxor.vv` (`0x2E000057`) with `e32, m1` vector configuration.
+  - Wired `emit_vandps`, `emit_vorps`, `emit_vxorps` slots into `ZeroCCISABackend` and machine code lowering in `src/zero_cc/ir/ast_lowering_mc.c`.
+- **SIMD Intrinsics & Builtins Expansion (`virtual_headers.h`, `ast_lowering_builtins.c`)**:
+  - Implemented `__builtin_zerocc_vandps`, `__builtin_zerocc_vorps`, `__builtin_zerocc_vxorps` in `ast_lowering_builtins.c` with hardware 128-bit SIMD IR lowering and scalar emulation fallback.
+  - Re-routed vector logical operations in `<immintrin.h>` (`_mm_and_ps`, `_mm_or_ps`, `_mm_xor_ps`, `_mm_and_si128`, `_mm_or_si128`, `_mm_xor_si128`) and `<arm_neon.h>` (`vandq_*`, `vorrq_*`, `veorq_*`) to the hardware builtins.
+- **Auto-Vectorizer Arithmetic & Remainder-Loop Peeling (`src/zero_cc/opt/opt_vectorize.c`)**:
+  - Extended `is_vec_arith`, `value_is_vec_chain`, and `get_vec_op` to admit floating-point division (`OP_FDIV` → `OP_VDIVPS`/`OP_VDIVPD`) and integer bitwise loops (`OP_AND` → `OP_VANDPS`, `OP_OR` → `OP_VORPS`, `OP_XOR` → `OP_VXORPS`).
+  - Implemented position-aware constant bound resolution (`resolve_const_at`): allows constant loop bounds defined inside the loop header block, preventing false rejection when bound temps are reused by later instructions in the loop body.
+  - Implemented **remainder-loop peeling**: loops with constant bounds where `(trip % vec_width) != 0` (with `v_trip = trip - (trip % vec_width) >= vec_width`) are transformed into a vector loop running for `v_trip` iterations bounded by `v_bound = init + v_trip` jumping on exit to a peeled scalar remainder loop that executes the remaining iterations with step 1.
+  - Inserted `VEC_PEEL_MARKER` (`0x5E5E`) in the peeled scalar remainder loop header to prevent redundant re-peeling across subsequent optimizer iterations in `opt_run_passes`.
+- **Verification**:
+  - Added [`test/jit/simd_extended_loops.c`](../test/jit/simd_extended_loops.c) testing division loops with peeled remainder (float trip=10, double trip=5) and bitwise loops with exact and peeled remainder (trip=16, trip=11, trip=7).
+  - Extended [`test/jit/simd_intrinsics.c`](../test/jit/simd_intrinsics.c) with SSE and NEON logical intrinsics.
+  - All gates clean: `make test` (239/239), `make test-opt` (195/195), `make test-san` (720/720), `make test-isa-qemu` (80/80 across 5 ISAs), `style_check.py` (0 errors), `type_tag_verifier.py --verify-all` (OK across 170 files).
+
 ## [Sprint 195] - 2026-11-21 - Cross-Translation-Unit Link-Time Optimization (`-flto`, Fat-LTO Objects & Archives, IPCP & Dead Code Elimination)
 
 Implements Track 3: whole-program cross-translation-unit link-time optimization (`-flto`) across C sources, Fat-LTO objects/archives, JIT (`--run`), AOT (`-o`), and ZeroCC's own linker (`--zerocc-link`):
