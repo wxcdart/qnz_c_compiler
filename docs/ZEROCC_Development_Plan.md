@@ -325,19 +325,20 @@ Goal: no gcc driver, no glibc, no musl, no binutils in the *product path* — so
     - *Gates*: `test/unit/dlfcn_dynlink.c`, `test/unit/dlfcn_embedded_test.c`, `test/driver/dlopen_embedded.c`, `test/driver/dlopen_aot_standalone.c` (`tools/verify/driver_tests.py`: 46/46).
 12. **Freestanding & Baremetal Deployment (`zero_rt` BSP) — SHIPPED (Sprint 192)** — Implemented `zero_rt_baremetal.a` (`zero_rt_baremetal_rv32.a`, `zero_rt_baremetal_arm.a`) with `zero_rt/baremetal/startup.c` (`Reset_Handler`/`_start`, Flash LMA to RAM VMA `.data` copy, `.bss` zeroing), `zero_rt/baremetal/uart.{h,c}` (16550 RISC-V UART & ARM PL011 UART MMIO + trace ring buffer), `zero_rt/baremetal/os.c` (physical bump-pointer `brk` bounded by `_ebss`..`_stack_top`, exit halt loop), compact `bm_fmt_float`, and RV32 virtual execution verification (`make test-baremetal`). Also supports baremetal JIT/plugins (`BaremetalSym[]` flash registry and `zero_rt_cache_flush()`). Open Track 2 follow-ons: RV32 raw-binary 4-byte variadic spill and `__attribute__((interrupt))` ISR prologue/epilogue emission.
 13. **Cross-Platform Host Runtime & Portability (macOS, Windows, BSDs)** — Porting the compiler driver and JIT across non-Linux hosts: native `dlopen`/`libSystem.B.dylib` with `pthread_jit_write_protect_np()` (macOS W^X); Win32 `LoadLibraryA`/`GetProcAddress` and `VirtualAlloc` with `FlushInstructionCache` (Windows PE/COFF); and `sysctl(KERN_PROC_PATHNAME)` with `-Wl,-z,wxneeded` (BSDs). OKF: [`host-runtime-and-portability.md`](./okf/host-runtime-and-portability.md).
-14. **Multi-ISA SIMD Vector Architecture & Target Hardening (`simd`)** — Core Phases 1 & 3 SHIPPED (Sprint 191); Phases 2 & 4–5 active in Track 1:
+14. **Multi-ISA SIMD Vector Architecture & Target Hardening (`simd`)** — Core Phases 1–4 SHIPPED (Sprints 191, 196 Track 1); Phase 5 active:
     - **Phase 1 — Backend Bug Fixes & AArch64 NEON — SHIPPED (Sprint 191)**:
       - Fixed AArch64 raw MC vector loads/stores (`src/zero_cc/isa/aarch64.c`): `emit_vload` / `emit_vstore` now emit authentic 128-bit `ldr qX` / `str qX` (with scaled 12-bit, unscaled 9-bit, and `x16` scratch offset calculation).
       - Implemented 128-bit integer and floating-point NEON vector instructions and induction-address extension tracking (`OP_SEXT*`/`OP_ZEXT*`) in `src/zero_cc/opt/opt_vectorize.c`.
-    - **Phase 2 — Optimizer Pipeline & Auto-Vectorizer Inversion (Track 1)**:
-      - Resolve loop-unroll / vectorizer inversion: `loop_unroll` (priority 68) currently runs before `auto_vectorize` (priority 70), dismantling small countable loops (`1..8`) into scalar code before the vectorizer can inspect them. Reorder or preserve candidate vector loops so vectorization precedes scalar unrolling.
-      - Extend auto-vectorizer (`src/zero_cc/opt/opt_vectorize.c`): add basic reduction recognition (`sum += a[i]`), strided access detection, and pointer alignment analysis.
+    - **Phase 2 — Optimizer Pipeline & Auto-Vectorizer Inversion — SHIPPED (Sprint 196 Track 1)**:
+      - Resolved pass ordering inversion: inverted execution priorities so `auto_vectorize` (priority 68) runs before `loop_unroll` (priority 70), ensuring candidate countable vector loops are vectorized prior to scalar unrolling.
+      - Hardened `opt_vectorize.c`: reordered `VectorizationStateFull` to eliminate offset corruption, added backend validation guards, position-aware definition scans (`zc_find_temp_def_before`), sNaN canonicalization stripping, and registered vector stores (`OP_VSTORE*`) in DCE side-effect tables.
     - **Phase 3 — Proper RISC-V Vector Architecture (RVV 1.0) — SHIPPED (Sprint 191)**:
       - Decoupled vector register allocation: introduced independent `REG_CLASS_VEC` in `src/zero_cc/ir/regalloc.h` with caller-saved call-spanning spills and 16-byte stack slots, disambiguating SIMD packed operations from scalar FP.
       - Replaced raw MC scalar stubs in `src/zero_cc/isa/riscv64.c` with true RVV 1.0 binary encodings (`vsetivli`, `vle32.v`, `vse32.v`, `vadd.vv`, `vsub.vv`, `vmul.vv`, `vfadd.vv`, `vfsub.vv`, `vfmul.vv`, `vfdiv.vv`, `vmv.v.v`) and fixed `t5` scratch base calculation in `riscv_asm.c`.
-    - **Phase 4 — Vendor Intrinsics & Virtual Headers (Track 1)**:
-      - Complete `<immintrin.h>` for x86-64 SSE/SSE2 (`_mm_add_ps`, `_mm_load_ps`, `_mm_store_ps`, `_mm_set1_ps`, `_mm_add_epi32`).
-      - Implement `<arm_neon.h>` builtins mapping directly to IR vector opcodes (`vaddq_f32`, `vld1q_f32`, `vst1q_f32`, `vaddq_s32`).
+    - **Phase 4 — Vendor Intrinsics & Virtual Headers — SHIPPED (Sprint 196 Track 1)**:
+      - Complete `<immintrin.h>` for x86-64 SSE, SSE2, SSE3, SSSE3, SSE4.1, and FMA (`_mm_add_ps`, `_mm_load_ps`, `_mm_store_ps`, `_mm_set1_ps`, `_mm_add_epi32`, `_mm_mullo_epi32`, `_mm_fmadd_ps`, `_mm_hadd_ps`, etc.).
+      - Complete `<arm_neon.h>` supporting NEON vector types (`float32x4_t`, `int32x4_t`, etc.) and builtins (`vaddq_f32`, `vld1q_f32`, `vst1q_f32`, `vaddq_s32`, `vfmaq_f32`, etc.).
+      - Lowered via `__builtin_zerocc_v*` in `ast_lowering_builtins.c` with hardware vector lowering across x86-64 SSE, AArch64 NEON, and RISC-V RVV, and scalar emulation fallback on 32-bit platforms. Fully exercised by `test/jit/simd_intrinsics.c`.
     - **Phase 5 — Wider Vectors (AVX / AVX2 / SVE)**:
       - Extend x86-64 backend to support 256-bit AVX / AVX2 (`YMM0`–`YMM15`) and VEX prefix encoding.
       - Add SVE / SVE2 scalable vector support on AArch64.

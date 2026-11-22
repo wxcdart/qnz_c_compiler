@@ -45,8 +45,8 @@ static const OptPass g_opt_passes[] = {
     { "branchless", opt_pass_branchless, 1, 58, OPT_LEVEL_O3 },
     { "strength_reduction", opt_pass_strength_reduction, 1, 60, OPT_LEVEL_O3 },
     { "branch_simplify", opt_pass_branch_simplify, 1, 65, OPT_LEVEL_O3 },
-    { "loop_unroll", opt_pass_loop_unroll, 1, 68, OPT_LEVEL_O3 },
-    { "auto_vectorize", opt_pass_auto_vectorize, 1, 70, OPT_LEVEL_O3 },
+    { "auto_vectorize", opt_pass_auto_vectorize, 1, 68, OPT_LEVEL_O3 },
+    { "loop_unroll", opt_pass_loop_unroll, 1, 70, OPT_LEVEL_O3 },
 };
 
 #define OPT_PASS_COUNT (sizeof(g_opt_passes) / sizeof(g_opt_passes[0]))

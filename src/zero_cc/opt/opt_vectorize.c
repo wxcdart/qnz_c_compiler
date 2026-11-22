@@ -23,7 +23,8 @@
  * 4. Generate tail loop for remainder iterations
  */
 
-#define MAX_VEC_BODY 256
+#define MAX_VEC_BODY 2048
+#define VEC_LABEL_MAP_CAP 2048
 
 /**
  * Vectorization state for tracking vector temps and mappings
@@ -35,15 +36,17 @@ typedef struct {
 } VectorTempMap;
 
 /**
- * Full vectorization state
+ * Full vectorization state (prefix matches VectorizationState layout so
+ * (VectorizationState *)&state casts access identical offsets).
  */
 typedef struct {
-    ZeroCCCompiler *comp;
     VectorizationInfo loops[MAX_VECTOR_LOOPS];
     int loop_count;
     int capacity;  /* Maximum number of loops */
     int vector_width;
     int target_isa;
+
+    ZeroCCCompiler *comp;
 
     /* Vector temp mappings */
     VectorTempMap vec_map[256];
@@ -84,6 +87,10 @@ void vectorization_init(VectorizationState *state, int target_isa) {
         state->loops[i].body_start_idx = -1;
         state->loops[i].body_end_idx = -1;
         state->loops[i].iter_count_temp = -1;
+        state->loops[i].inc_instr_idx = -1;
+        state->loops[i].inc_use_src2 = false;
+        state->loops[i].is_aligned = false;
+        state->loops[i].stride_bytes = 0;
     }
 }
 
@@ -114,176 +121,292 @@ static bool is_vec_arith(Instr *instr) {
     }
 }
 
-/**
- * Resolve a temp to the compile-time constant it holds at the point where
- * it is consumed at instruction position `pos` (from its last definition
- * strictly before `pos`, walking the value-preserving chain back to a
- * MOV_IMM).  The constant-fold map (ir_is_constant) is not guaranteed to
- * cover every constant temp by the time the vectorizer runs (e.g. a shift
- * amount materialized as MOV_IMM), so also walk the MOV_REG / SEXT / ZEXT
- * chain.
- *
- * Position-awareness is mandatory under the liveness renumber (Sprint
- * 151b): a dead id is legally reused, so the same id can be defined by
- * different instructions at different points.  The old whole-function
- * "was this id ever defined by MOV_IMM?" scan could resolve a loop temp to
- * the wrong constant (the value of an unrelated def that shared the
- * compacted id), mis-classifying the affine stride and widening a loop on
- * a bogus scale.
- */
-static int resolve_const(ZeroCCCompiler *c, int pos, int t, int *val_out) {
-    if (t == TEMP_NONE) return 0;
-    if (ir_is_constant(t)) { *val_out = (int)ir_get_constant(t); return 1; }
-    int depth = 0;
-    while (pos > 0 && depth <= 16) {
-        int k = -1;
-        for (int j = pos - 1; j >= 0; j--) {
-            Instr *d = ir_get(c, j);
-            if (d && (int)d->temp_dest == t) { k = j; break; }
-        }
-        if (k < 0) return 0;  /* id not defined before pos */
-        Instr *d = ir_get(c, k);
-        switch (d->op) {
-            case OP_MOV_IMM:
-                *val_out = d->imm;
-                return 1;
-            case OP_MOV_REG:
-                pos = k; t = (int)d->temp_src1; depth++; break;
-            case OP_SEXT8: case OP_SEXT16: case OP_SEXT32:
-            case OP_ZEXT8: case OP_ZEXT16: case OP_ZEXT32:
-                pos = k; t = (int)d->temp_src1; depth++; break;
-            default:
-                return 0;
-        }
+static bool instr_writes_temp(const Instr *ins, uint32_t t) {
+    if (!ins || t == TEMP_NONE) return false;
+    if (ins->op == OP_NOP || ins->op == OP_DEAD ||
+        ins->op == OP_CALL || ins->op == OP_CALL_INDIRECT ||
+        ins->op == OP_CALL_ARG || ins->op == OP_SYSCALL ||
+        ins->op == OP_CLONE || ins->op == OP_ASM ||
+        ins->op == OP_ASM_ARG || ins->op == OP_ASM_LABEL ||
+        ins->op == OP_OVF_TRAP) {
+        return false;
     }
-    return 0;
+    return ins->temp_dest == t;
 }
 
-/**
- * Classify a temp's definition (within the loop span [start, end]) with
- * respect to the loop variable:
- *   0  = loop-invariant (constant, or defined outside the span)
- *   1  = the temp equals loop_var * S (S returned in *scale_out), with
- *        exactly one use of the loop variable (via SHL/MUL/ADD chains)
- *  <0  = not affine (multiple uses, non-constant scale, other ops)
- *
- * The auto-vectorizer widens the induction step (i += vec_width) and turns
- * each scalar load/store into a 16-byte VLOAD/VSTORE at the SAME address;
- * lane j of the widened load is exactly element i+j only when the access is
- * affine with unit element stride:  addr == base + i*elem_size + const.
- * Non-unit strides (v[2*i]) or invariant addresses (c[0] = a[i] + ...) would
- * silently miscompile, so they must reject the loop.
+static bool is_inplace_ext_on(const Instr *ins, uint32_t t) {
+    if (!ins || t == TEMP_NONE) return false;
+    switch (ins->op) {
+        case OP_SEXT8: case OP_SEXT16: case OP_SEXT32:
+        case OP_ZEXT8: case OP_ZEXT16: case OP_ZEXT32:
+            return ins->temp_src1 == t || ins->temp_dest == t;
+        default:
+            return false;
+    }
+}
+
+static bool resolve_const(ZeroCCCompiler *c, int from_idx, uint32_t temp, int64_t *out) {
+    if (!c || temp == TEMP_NONE || !zc_temp_is_user(temp) || !out) return false;
+    uint32_t cur = temp;
+    int pos = from_idx;
+    for (int hop = 0; hop < 16; hop++) {
+        bool killed = false;
+        bool traced = false;
+        int limit = (pos > 512) ? (pos - 512) : 0;
+        for (int i = pos - 1; i >= limit; i--) {
+            const Instr *ins = ir_get(c, i);
+            if (!ins || ins->op == OP_NOP || ins->op == OP_DEAD) continue;
+            if (is_inplace_ext_on(ins, cur)) continue;
+            if (!instr_writes_temp(ins, cur)) continue;
+            if (ins->op == OP_MOV_IMM) {
+                *out = ins->imm64;
+                return true;
+            }
+            if (ins->op == OP_MOV_REG && ins->temp_src1 != TEMP_NONE) {
+                cur = ins->temp_src1;
+                pos = i;
+                traced = true;
+                break;
+            }
+            killed = true;
+            break;
+        }
+        if (killed) return false;
+        if (!traced) {
+            if (cur < 65536 && ir_is_constant((int)cur)) {
+                *out = ir_get_constant((int)cur);
+                return true;
+            }
+            return false;
+        }
+    }
+    return false;
+}
+
+/*
+ * Recognize compiler-generated float sNaN fixup diamonds emitted by
+ * ir_emit_vloadss / ir_emit_vstoress (ast_lowering_builtin_helpers.c):
+ * packed OP_VLOAD / OP_VSTORE + OP_VADDPS operate directly on 32-bit IEEE-754
+ * floats without double widening, so the scalar sNaN bit-fixup sequences are
+ * unnecessary when vectorized and must be ignored during analysis / NOP'd
+ * during transform.
  */
-static int classify_addr_temp(ZeroCCCompiler *c, int start, int end, int t, int loop_var,
-                              int counter_slot, int depth, int *scale_out) {
+static void mark_snan_fixup_ranges(ZeroCCCompiler *c, int start, int end, uint8_t *skip_mask) {
+    int span = end - start + 1;
+    if (!c || !skip_mask || span <= 0) return;
+    memset(skip_mask, 0, (size_t)span);
+    for (int idx = start; idx <= end; idx++) {
+        const Instr *ins = ir_get(c, idx);
+        if (!ins) continue;
+        if (ins->op == OP_VLOADSS) {
+            if (idx >= start + 20 && idx + 8 <= end) {
+                const Instr *ld = ir_get(c, idx - 20);
+                const Instr *je = ir_get(c, idx + 1);
+                const Instr *fs = ir_get(c, idx + 2);
+                const Instr *fl = ir_get(c, idx + 7);
+                const Instr *lb = ir_get(c, idx + 8);
+                if (ld && je && fs && fl && lb &&
+                    ld->op == OP_LOAD_32 && ld->temp_src1 == ins->temp_src1 &&
+                    je->op == OP_JE &&
+                    fs->op == OP_FSTORE && fs->temp_src1 == ins->temp_dest &&
+                    fl->op == OP_FLOAD && fl->temp_dest == ins->temp_dest &&
+                    lb->op == OP_LABEL && lb->label_idx == je->label_idx) {
+                    for (int k = idx - 20; k < idx; k++) skip_mask[k - start] = 1;
+                    for (int k = idx + 1; k <= idx + 8; k++) skip_mask[k - start] = 1;
+                }
+            }
+        } else if (ins->op == OP_VSTORESS) {
+            if (idx + 31 <= end) {
+                const Instr *fs = ir_get(c, idx + 1);
+                const Instr *ld = ir_get(c, idx + 3);
+                const Instr *je = ir_get(c, idx + 25);
+                const Instr *st = ir_get(c, idx + 30);
+                const Instr *lb = ir_get(c, idx + 31);
+                if (fs && ld && je && st && lb &&
+                    fs->op == OP_FSTORE && fs->temp_src1 == ins->temp_src2 &&
+                    ld->op == OP_LOAD_32 && ld->temp_src1 == ins->temp_src1 &&
+                    je->op == OP_JE &&
+                    st->op == OP_STORE_32 && st->temp_src2 == ins->temp_src1 &&
+                    lb->op == OP_LABEL && lb->label_idx == je->label_idx) {
+                    for (int k = idx + 1; k <= idx + 31; k++) skip_mask[k - start] = 1;
+                }
+            }
+        }
+    }
+}
+
+static bool temp_redefined_in_span(ZeroCCCompiler *c, int start, int end,
+                                   const uint8_t *skip_mask, uint32_t t) {
+    for (int k = start; k <= end; k++) {
+        if (skip_mask && skip_mask[k - start]) continue;
+        const Instr *ins = ir_get(c, k);
+        if (!ins || is_inplace_ext_on(ins, t)) continue;
+        if (instr_writes_temp(ins, t)) return true;
+    }
+    return false;
+}
+
+static int find_def_backward_in_loop(ZeroCCCompiler *c, int start, int pos,
+                                     const uint8_t *skip_mask, uint32_t t) {
+    for (int k = pos - 1; k >= start; k--) {
+        if (skip_mask && skip_mask[k - start]) continue;
+        const Instr *ins = ir_get(c, k);
+        if (!ins || ins->op == OP_NOP || ins->op == OP_DEAD) continue;
+        if (is_inplace_ext_on(ins, t)) continue;
+        if (instr_writes_temp(ins, t)) return k;
+    }
+    return -1;
+}
+
+/*
+ * Classify a temp's definition strictly before consumer index `pos`:
+ *   0  = loop-invariant (constant, or invariant pointer/base defined before loop)
+ *   1  = affine loop index expression loop_var * S (*scale_out = S)
+ *  <0  = not affine
+ */
+static int classify_addr_temp(ZeroCCCompiler *c, int start, int end, int pos,
+                              const uint8_t *skip_mask, uint32_t t,
+                              int loop_var, int32_t counter_slot, int depth,
+                              int *scale_out, int32_t *out_base, bool *have_base) {
     if (depth > 8) return -1;
     *scale_out = 0;
     if (t == TEMP_NONE) return -1;
-    if (t == loop_var) { *scale_out = 1; return 1; }
-    if (ir_is_constant(t)) return 0;
 
-    /* Single-def assumption: with no mid-body branches (enforced earlier)
-     * each temp is defined at most once inside the span.  A temp defined
-     * only outside the span is loop-invariant. */
-    int def_idx = -1;
-    for (int k = start; k <= end; k++) {
-        Instr *d = ir_get(c, k);
-        if (d && (int)d->temp_dest == t) { def_idx = k; break; }
-    }
-    if (def_idx < 0) return 0;
-
-    Instr *d = ir_get(c, def_idx);
-    int s1 = (int)d->temp_src1;
-    int s2 = (int)d->temp_src2;
-    int sc1 = 0, sc2 = 0;
-
-    switch (d->op) {
-        case OP_MOV_REG:  /* dest = s1 */
-            return classify_addr_temp(c, start, end, s1, loop_var, counter_slot, depth + 1, scale_out);
-        case OP_MOV:
-            /* A reload of the loop counter's own stack slot is the loop
-             * variable itself: the counter may live in a slot and be
-             * reloaded into a fresh temp at each use (the increment reads
-             * the same slot), so sibling reloads must classify as loop_var. */
-            if (counter_slot != 0x7fffffff && d->imm == counter_slot) {
+    int def_idx = find_def_backward_in_loop(c, start, pos, skip_mask, t);
+    if (def_idx < 0) {
+        if (counter_slot == 0x7fffffff && loop_var >= 0 && (int)t == loop_var) {
+            *scale_out = 1;
+            return 1;
+        }
+        if (temp_redefined_in_span(c, start, end, skip_mask, t)) {
+            if (loop_var >= 0 && (int)t == loop_var) {
                 *scale_out = 1;
                 return 1;
             }
-            return 0;  /* other stack load: invariant */
-        case OP_MOV_IMM:
-        case OP_LEA:
-        case OP_LEA_RIP:
-            return 0;  /* immediate / effective address: invariant */
-        case OP_SHL:     /* dest = s1 << s2 */
-            {
-                int cval = 0;
-                if (!resolve_const(c, def_idx, s2, &cval)) return -1;
-                if (cval < 0 || cval > 30) return -1;
-                int cls = classify_addr_temp(c, start, end, s1, loop_var, counter_slot, depth + 1, &sc1);
-                if (cls == 1) { *scale_out = sc1 << cval; return 1; }
-                if (cls == 0) return 0;
-                return -1;
+            return -1;
+        }
+        if (t < 65536 && ir_is_constant((int)t)) return 0;
+        /* Defined before loop header: allow invariant LEA / param / global / slot load */
+        int start_scan = (start > 256) ? (start - 256) : 0;
+        for (int k = start - 1; k >= start_scan; k--) {
+            const Instr *pre = ir_get(c, k);
+            if (!pre || is_inplace_ext_on(pre, t)) continue;
+            if (!instr_writes_temp(pre, t)) continue;
+            if (pre->op == OP_LEA) {
+                if (out_base) *out_base = (int32_t)pre->imm64;
+                if (have_base) *have_base = true;
+                return 0;
             }
+            if (pre->op == OP_LEA_RIP || pre->op == OP_MOV_GLOBAL ||
+                pre->op == OP_PARAM_LOAD || pre->op == OP_MOV ||
+                pre->op == OP_MOV_IMM || pre->op == OP_MOV_REG) {
+                return 0;
+            }
+            break;
+        }
+        return 0;
+    }
+
+    const Instr *d = ir_get(c, def_idx);
+    uint32_t s1 = d->temp_src1;
+    uint32_t s2 = d->temp_src2;
+    int sc1 = 0, sc2 = 0;
+
+    switch (d->op) {
+        case OP_MOV_REG:
+            return classify_addr_temp(c, start, end, def_idx, skip_mask, s1,
+                                      loop_var, counter_slot, depth + 1, scale_out,
+                                      out_base, have_base);
+        case OP_MOV:
+            if (counter_slot != 0x7fffffff && s1 == TEMP_NONE && d->imm == counter_slot) {
+                *scale_out = 1;
+                return 1;
+            }
+            return 0;  /* loop-invariant local pointer reload */
+        case OP_LEA:
+            if (out_base) *out_base = (int32_t)d->imm64;
+            if (have_base) *have_base = true;
+            return 0;
+        case OP_MOV_IMM:
+        case OP_LEA_RIP:
+        case OP_MOV_GLOBAL:
+            return 0;
+        case OP_SHL: {
+            int64_t cval = 0;
+            if (!resolve_const(c, def_idx, s2, &cval)) return -1;
+            if (cval < 0 || cval > 30) return -1;
+            int cls = classify_addr_temp(c, start, end, def_idx, skip_mask, s1,
+                                         loop_var, counter_slot, depth + 1, &sc1,
+                                         NULL, NULL);
+            if (cls == 1) { *scale_out = sc1 << (int)cval; return 1; }
+            if (cls == 0) return 0;
+            return -1;
+        }
         case OP_MUL: {
-            int cs = -1;
-            int other = TEMP_NONE;
-            int cval = 0;
+            int64_t cs = -1;
+            uint32_t other = TEMP_NONE;
+            int64_t cval = 0;
             if (resolve_const(c, def_idx, s1, &cval)) { cs = cval; other = s2; }
             else if (resolve_const(c, def_idx, s2, &cval)) { cs = cval; other = s1; }
-            if (cs < 0 || other == TEMP_NONE) return -1;
-            int cls = classify_addr_temp(c, start, end, other, loop_var, counter_slot, depth + 1, &sc1);
-            if (cls == 1) { *scale_out = sc1 * cs; return 1; }
+            if (cs < 0 || cs > (1LL << 20) || other == TEMP_NONE) return -1;
+            int cls = classify_addr_temp(c, start, end, def_idx, skip_mask, other,
+                                         loop_var, counter_slot, depth + 1, &sc1,
+                                         NULL, NULL);
+            if (cls == 1) { *scale_out = sc1 * (int)cs; return 1; }
             if (cls == 0) return 0;
             return -1;
         }
         case OP_ADD:
         case OP_ADD_IMM: {
-            int cls1 = classify_addr_temp(c, start, end, s1, loop_var, counter_slot, depth + 1, &sc1);
-            if (s2 == TEMP_NONE) {          /* dest = s1 + imm */
+            uint32_t op1 = (s1 != TEMP_NONE) ? s1 : d->temp_dest;
+            int cls1 = classify_addr_temp(c, start, end, def_idx, skip_mask, op1,
+                                          loop_var, counter_slot, depth + 1, &sc1,
+                                          out_base, have_base);
+            if (s2 == TEMP_NONE) {
                 if (cls1 == 1) { *scale_out = sc1; return 1; }
                 if (cls1 == 0) return 0;
                 return -1;
             }
-            int cls2 = classify_addr_temp(c, start, end, s2, loop_var, counter_slot, depth + 1, &sc2);
+            int cls2 = classify_addr_temp(c, start, end, def_idx, skip_mask, s2,
+                                          loop_var, counter_slot, depth + 1, &sc2,
+                                          out_base, have_base);
             if (cls1 == 1 && cls2 == 0) { *scale_out = sc1; return 1; }
             if (cls2 == 1 && cls1 == 0) { *scale_out = sc2; return 1; }
             return -1;
         }
-        case OP_SEXT8: case OP_SEXT16: case OP_SEXT32:
-        case OP_ZEXT8: case OP_ZEXT16: case OP_ZEXT32:
-            return classify_addr_temp(c, start, end, s1, loop_var, counter_slot, depth + 1, scale_out);
         default:
             return -1;
     }
 }
 
-/**
- * True when the store value `t` is a pure element-wise arithmetic chain
- * (ADD/SUB/MUL, float or double, plus FDIV) built only from the loop's own
- * array loads.  The vectorizer's "skip unmapped ops" behavior is unsound for
- * quartered loops: any scalar side effect (CMP, COND_SET, integer DIV/MOD,
- * shift, invariant value) would run 1/vec_width times while the widened
- * loads/stores run once per vec_width elements - silent miscompilation.
+/*
+ * True when `t` at consumer index `pos` is a pure element-wise arithmetic
+ * chain (ADD/SUB/MUL/FADD/FSUB/FMUL/FDIV) built only from loop array loads.
  */
-static bool value_is_vec_chain(ZeroCCCompiler *c, int start, int end, int t, int depth) {
-    if (depth > 24) return false;
-    if (t == TEMP_NONE) return false;
+static bool value_is_vec_chain(ZeroCCCompiler *c, int start, int pos,
+                               const uint8_t *skip_mask, uint32_t t, int depth) {
+    if (depth > 24 || t == TEMP_NONE) return false;
 
     int def_idx = -1;
-    for (int k = start; k <= end; k++) {
-        Instr *d = ir_get(c, k);
-        if (d && (int)d->temp_dest == t) { def_idx = k; break; }
+    for (int k = pos - 1; k >= start; k--) {
+        if (skip_mask && skip_mask[k - start]) continue;
+        const Instr *d = ir_get(c, k);
+        if (!d || d->op == OP_NOP || d->op == OP_DEAD) continue;
+        if ((d->op == OP_SEXT32 || d->op == OP_ZEXT32) &&
+            (d->temp_src1 == t || d->temp_dest == t)) {
+            continue;
+        }
+        if (instr_writes_temp(d, t)) { def_idx = k; break; }
     }
-    if (def_idx < 0) return false;  /* invariant value: store must stay scalar
-                                       per element - not vectorizable */
+    if (def_idx < 0) return false;
 
-    Instr *d = ir_get(c, def_idx);
-    bool is_load = (d->op == OP_LOAD_32 || d->op == OP_FLOAD ||
-                    d->op == OP_VLOADSS || d->op == OP_VLOADSD);
-    if (is_load) return true;  /* base of the chain: a loop array load */
-
-    if (d->op == OP_CVTSS2SD || d->op == OP_CVTSD2SS) {
-        return value_is_vec_chain(c, start, end, (int)d->temp_src1, depth + 1);
+    const Instr *d = ir_get(c, def_idx);
+    if (d->op == OP_LOAD_32 || d->op == OP_FLOAD ||
+        d->op == OP_VLOADSS || d->op == OP_VLOADSD) {
+        return true;
+    }
+    if (d->op == OP_MOV_REG || d->op == OP_CVTSS2SD || d->op == OP_CVTSD2SS) {
+        return value_is_vec_chain(c, start, def_idx, skip_mask, d->temp_src1, depth + 1);
     }
 
     bool arith = (d->op == OP_ADD || d->op == OP_SUB || d->op == OP_MUL ||
@@ -291,8 +414,30 @@ static bool value_is_vec_chain(ZeroCCCompiler *c, int start, int end, int t, int
                   d->op == OP_FDIV);
     if (!arith) return false;
 
-    return value_is_vec_chain(c, start, end, (int)d->temp_src1, depth + 1) &&
-           value_is_vec_chain(c, start, end, (int)d->temp_src2, depth + 1);
+    return value_is_vec_chain(c, start, def_idx, skip_mask, d->temp_src1, depth + 1) &&
+           value_is_vec_chain(c, start, def_idx, skip_mask, d->temp_src2, depth + 1);
+}
+
+static bool trace_temp_to_slot_load(ZeroCCCompiler *c, int start, int pos,
+                                    const uint8_t *skip_mask, uint32_t t,
+                                    int32_t counter_slot) {
+    uint32_t cur = t;
+    int cur_pos = pos;
+    for (int depth = 0; depth < 8; depth++) {
+        int def_idx = find_def_backward_in_loop(c, start, cur_pos, skip_mask, cur);
+        if (def_idx < 0) return false;
+        const Instr *d = ir_get(c, def_idx);
+        if (d->op == OP_MOV && d->temp_src1 == TEMP_NONE && d->imm == counter_slot) {
+            return true;
+        }
+        if (d->op == OP_MOV_REG && d->temp_src1 != TEMP_NONE) {
+            cur = d->temp_src1;
+            cur_pos = def_idx;
+            continue;
+        }
+        return false;
+    }
+    return false;
 }
 
 /**
@@ -306,102 +451,128 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
     vinfo->is_vectorizable = false;
     vinfo->body_start_idx = loop->header_idx;
     vinfo->body_end_idx = loop->exit_idx;
+    vinfo->inc_instr_idx = -1;
+    vinfo->inc_use_src2 = false;
+    vinfo->is_aligned = false;
+    vinfo->stride_bytes = 0;
 
-    /* Simple heuristic: check if loop body contains array load/store + arithmetic */
+    int start = loop->header_idx;
+    int end = loop->exit_idx;
+    int span = end - start + 1;
+    if (span <= 2) return;
+
+    uint8_t skip_buf[2048];
+    uint8_t *skip_mask = (span <= 2048) ? skip_buf : (uint8_t *)calloc((size_t)span, 1);
+    if (!skip_mask) return;
+    mark_snan_fixup_ranges(c, start, end, skip_mask);
+
     int load_count = 0;
     int store_count = 0;
     int arith_count = 0;
     int base_temp = -1;
     int loop_var = -1;
+    bool has_int32_mem = false;
+    bool has_f32_mem = false;
+    bool has_f64_mem = false;
     bool has_double = false;
     bool has_fp = false;
-    bool has_call = false;   /* C11: calls/returns in the body make it non-vectorizable */
-    bool has_mid_body_cond = false;  /* Vectorizer hardening: conditional branches inside the loop body (not the backedge) make it non-vectorizable */
-    bool has_int_divmod = false;  /* Vectorizer hardening: integer DIV/MOD has no SIMD mapping; the scalar op would run 1/vec_width times on quartered loops */
+    bool has_call = false;
+    bool has_mid_body_cond = false;
+    bool has_int_divmod = false;
 
-    for (int i = 0; i < loop->body_count; i++) {
-        int idx = loop->body_indices[i];
+    for (int idx = start; idx <= end; idx++) {
+        if (skip_mask[idx - start]) continue;
         Instr *instr = ir_get(c, idx);
-        if (!instr) continue;
+        if (!instr || instr->op == OP_NOP || instr->op == OP_DEAD) continue;
 
-        /* C11: a function call (or return) in the loop body is a side effect
-         * that cannot be replicated across vector lanes - the transform
-         * would still widen the induction step (i += 1 -> i += vec_width)
-         * while the scalar body (with the call) ran only once per
-         * vec_width iterations, dropping loop iterations. Reject such loops. */
-        if (instr->op == OP_CALL || instr->op == OP_CALL_INDIRECT || instr->op == OP_RET) {
+        if (instr->op == OP_CALL || instr->op == OP_CALL_INDIRECT ||
+            instr->op == OP_RET || instr->op == OP_SYSCALL ||
+            instr->op == OP_CLONE || instr->op == OP_ASM ||
+            instr->op == OP_SETJMP || instr->op == OP_LONGJMP) {
             has_call = true;
             continue;
         }
 
-        /* Look for array access pattern */
-        if (instr->op == OP_LOAD_32 || instr->op == OP_FLOAD || instr->op == OP_VLOADSS || instr->op == OP_VLOADSD) {
+        if (instr->op == OP_LOAD_32 || instr->op == OP_FLOAD ||
+            instr->op == OP_VLOADSS || instr->op == OP_VLOADSD) {
             load_count++;
-            if (base_temp < 0) {
-                base_temp = instr->temp_src1;
-            }
-            if (instr->op == OP_VLOADSD) {
-                has_double = true;
-                has_fp = true;
-            } else if (instr->op == OP_FLOAD || instr->op == OP_VLOADSS) {
-                has_fp = true;
+            if (base_temp < 0) base_temp = (int)instr->temp_src1;
+            if (instr->op == OP_VLOADSD || instr->op == OP_FLOAD) {
+                has_double = true; has_fp = true; has_f64_mem = true;
+            } else if (instr->op == OP_VLOADSS) {
+                has_fp = true; has_f32_mem = true;
+            } else {
+                has_int32_mem = true;
             }
         }
-        if (instr->op == OP_STORE_32 || instr->op == OP_FSTORE || instr->op == OP_VSTORESS || instr->op == OP_VSTORESD) {
+        if (instr->op == OP_STORE_32 || instr->op == OP_FSTORE ||
+            instr->op == OP_VSTORESS || instr->op == OP_VSTORESD) {
             store_count++;
-            if (instr->op == OP_VSTORESD) {
-                has_double = true;
-                has_fp = true;
-            } else if (instr->op == OP_FSTORE || instr->op == OP_VSTORESS) {
-                has_fp = true;
+            if (instr->op == OP_VSTORESD || instr->op == OP_FSTORE) {
+                has_double = true; has_fp = true; has_f64_mem = true;
+            } else if (instr->op == OP_VSTORESS) {
+                has_fp = true; has_f32_mem = true;
+            } else {
+                has_int32_mem = true;
             }
         }
-        if (instr->op == OP_FADD || instr->op == OP_FSUB || instr->op == OP_FMUL || instr->op == OP_FDIV) {
+        if (instr->op == OP_FADD || instr->op == OP_FSUB ||
+            instr->op == OP_FMUL || instr->op == OP_FDIV) {
             has_fp = true;
         }
-        if (instr->op == OP_DIV || instr->op == OP_MOD) {
+        if (instr->op == OP_DIV || instr->op == OP_MOD ||
+            instr->op == OP_DIV64 || instr->op == OP_MOD64 ||
+            instr->op == OP_UDIV64 || instr->op == OP_UMOD64) {
             has_int_divmod = true;
         }
         if (is_vec_arith(instr)) {
             arith_count++;
         }
-
-        /* Look for loop variable increment */
-        if (instr->op == OP_ADD) {
-            if (instr->imm == 1) {
-                loop_var = instr->temp_src1;
-            } else if (instr->temp_src2!= TEMP_NONE && ir_is_constant(instr->temp_src2) && ir_get_constant(instr->temp_src2) == 1) {
-                loop_var = instr->temp_src1;
-            }
-        }
     }
 
-    /* Vectorizer hardening (Sprint 35 Phase 3): CFG-based mid-body
-     * conditional check.  The legacy per-instruction span scan flagged the
-     * loop's OWN header test (a forward JE-to-exit inside the span) as a
-     * mid-body conditional, so while-style loops were never vectorized.
-     * The CFG check is precise: a conditional jump is permitted only if it
-     * IS the backedge (the block ending at loop->exit_idx) or it is the
-     * header block's loop test whose target lies outside the loop span
-     * [header_idx, exit_idx].  Any other conditional in the span is
-     * data-dependent control flow (e.g. an if/else in the body) and makes
-     * the loop non-vectorizable. */
-    ZeroCCCompiler *comp = state->comp;
-    if (comp && cfg_build(comp)) {
-        ZeroCCCFG *cfg = &comp->cfg_cache;
+    int mem_kind_count = (has_int32_mem ? 1 : 0) + (has_f32_mem ? 1 : 0) + (has_f64_mem ? 1 : 0);
+    if (has_call || has_int_divmod || mem_kind_count != 1 ||
+        load_count < 2 || store_count < 1 || arith_count < 1) {
+        if (skip_mask != skip_buf) free(skip_mask);
+        return;
+    }
+
+    /* Locate loop exit test (header exit JE or conditional backedge) and check
+     * that there are no non-sNaN mid-body conditional branches. */
+    int test_idx = -1;
+    int cmp_idx = -1;
+    int condset_idx = -1;
+    int32_t counter_slot = 0x7fffffff;
+    int inc_idx = -1;
+    bool inc_use_src2 = false;
+    bool bound_ok = false;
+
+    /* Find label positions up front */
+    if (cfg_build(c)) {
+        ZeroCCCFG *cfg = &c->cfg_cache;
         for (int b = 0; b < cfg->block_count && !has_mid_body_cond; b++) {
             ZeroCCBlock *blk = &cfg->blocks[b];
-            if (blk->end <= (size_t)loop->header_idx) continue;  /* before span */
-            if (blk->start > (size_t)loop->exit_idx) break;     /* past span */
+            if (blk->end <= (size_t)start) continue;
+            if (blk->start > (size_t)end) break;
             int last = (int)blk->end - 1;
+            if (last < start || last > end) continue;
+            if (skip_mask[last - start]) continue;
             Instr *t = ir_get(c, last);
             if (!t) continue;
-            if (last == loop->exit_idx) continue;  /* the backedge itself */
+            if (last == end) {
+                int op = (int)t->op;
+                if (op == OP_JE || op == OP_JNE || op == OP_JL ||
+                    op == OP_JLE || op == OP_JG || op == OP_JCOND) {
+                    if (test_idx < 0) test_idx = last;
+                }
+                continue;
+            }
             int op = (int)t->op;
-            if (!(op == OP_JE || op == OP_JNE || op == OP_JL || op == OP_JLE ||
-                  op == OP_JG || op == OP_JCOND)) continue;
-            /* Header block's loop test targeting outside the span: OK. */
-            if ((int)blk->start == loop->header_idx) {
+            if (!(op == OP_JE || op == OP_JNE || op == OP_JL ||
+                  op == OP_JLE || op == OP_JG || op == OP_JCOND)) {
+                continue;
+            }
+            if ((int)blk->start == start) {
                 int lid = (int)t->label_idx;
                 int target_pos = -1;
                 int ic = (int)ir_get_count(c);
@@ -412,172 +583,238 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
                         break;
                     }
                 }
-                if (target_pos >= 0 &&
-                    (target_pos < loop->header_idx || target_pos > loop->exit_idx)) {
+                if (target_pos >= 0 && (target_pos < start || target_pos > end)) {
+                    if (test_idx < 0 && target_pos > end) test_idx = last;
                     continue;
                 }
             }
             has_mid_body_cond = true;
         }
+    } else {
+        has_mid_body_cond = true;
     }
 
-    /* Vectorizer hardening (Sprint 35 Phase 3): loop-bound safety. The
-     * transform widens the induction step (i += 1 -> i += vec_width) and
-     * processes vec_width elements per iteration with NO remainder
-     * handling: if the loop count is not a multiple of vec_width, the
-     * final VLOAD/VSTORE overflows the array (stack OOB read/write).
-     * The loop is only accepted when its bound is a compile-time constant
-     * that is a positive multiple of vec_width. Variable bounds, FP
-     * bounds, and infinite loops (no verifiable test) are not vectorized.
-     * (Identified via the loop test: header block's terminal conditional
-     * targeting the exit, or a conditional backedge; chain
-     * branch -> COND_SET -> CMP -> constant operand.) */
-    bool bound_ok = false;
-    {
-        int test_idx = -1;
-        if (comp && cfg_build(comp)) {
-            ZeroCCCFG *cfg = &comp->cfg_cache;
-            for (int b = 0; b < cfg->block_count && test_idx < 0; b++) {
-                ZeroCCBlock *blk = &cfg->blocks[b];
-                if (blk->end <= (size_t)loop->header_idx) continue;
-                if (blk->start > (size_t)loop->exit_idx) break;
-                int last = (int)blk->end - 1;
-                Instr *t = ir_get(c, last);
-                if (!t) continue;
-                int op = (int)t->op;
-                bool is_cond = (op == OP_JE || op == OP_JNE || op == OP_JL ||
-                                op == OP_JLE || op == OP_JG || op == OP_JCOND);
-                if (!is_cond) continue;
-                if (last == loop->exit_idx) {
-                    test_idx = last;  /* conditional backedge (tail test) */
-                    break;
+    /* Also scan instructions explicitly for any non-skipped mid-body conditional branch */
+    for (int idx = start + 1; idx < end && !has_mid_body_cond; idx++) {
+        if (idx == test_idx || skip_mask[idx - start]) continue;
+        const Instr *ins = ir_get(c, idx);
+        if (!ins) continue;
+        if (ins->op == OP_JE || ins->op == OP_JNE || ins->op == OP_JL ||
+            ins->op == OP_JLE || ins->op == OP_JG || ins->op == OP_JCOND) {
+            has_mid_body_cond = true;
+        }
+    }
+
+    if (!has_mid_body_cond && test_idx > start) {
+        Instr *test_ins = ir_get(c, test_idx);
+        int flag = (int)test_ins->temp_src1;
+        for (int k = test_idx - 1; k > start && condset_idx < 0; k--) {
+            if (skip_mask[k - start]) continue;
+            Instr *cs = ir_get(c, k);
+            if (cs && cs->op == OP_COND_SET && (int)cs->temp_dest == flag) condset_idx = k;
+        }
+        int hi = (condset_idx >= 0) ? condset_idx : test_idx;
+        for (int k = hi - 1; k > start; k--) {
+            if (skip_mask[k - start]) continue;
+            Instr *cm = ir_get(c, k);
+            if (cm && cm->op == OP_CMP) { cmp_idx = k; break; }
+        }
+        if (cmp_idx >= 0 && condset_idx >= 0 && test_ins->op == OP_JE) {
+            Instr *cm = ir_get(c, cmp_idx);
+            Instr *cs = ir_get(c, condset_idx);
+            uint32_t o1 = cm->temp_src1;
+            uint32_t o2 = cm->temp_src2;
+            int64_t cval1 = 0, cval2 = 0;
+            bool c1 = (o1 != TEMP_NONE && resolve_const(c, cmp_idx, o1, &cval1) &&
+                       !temp_redefined_in_span(c, cmp_idx + 1, end, skip_mask, o1));
+            bool c2 = (o2 != TEMP_NONE && resolve_const(c, cmp_idx, o2, &cval2) &&
+                       !temp_redefined_in_span(c, cmp_idx + 1, end, skip_mask, o2));
+            if (c1 != c2) {
+                int64_t bound = c1 ? cval1 : cval2;
+                uint32_t ctr_t = c1 ? o2 : o1;
+                int64_t trip = -1;
+                if (!c1 && c2) {
+                    if (cs->cond == CC_LT) trip = bound;
+                    else if (cs->cond == CC_LE) trip = bound + 1;
+                } else {
+                    if (cs->cond == CC_GT) trip = bound;
+                    else if (cs->cond == CC_GE) trip = bound + 1;
                 }
-                if ((int)blk->start == loop->header_idx) {
-                    int lid = (int)t->label_idx;
-                    int ic = (int)ir_get_count(c);
-                    for (int k = 0; k < ic; k++) {
-                        Instr *l = ir_get(c, k);
-                        if (l && l->op == OP_LABEL && (int)l->label_idx == lid) {
-                            if (k > loop->exit_idx) test_idx = last; /* test -> exit */
+                int width = has_double ? 2 : state->vector_width;
+                /* Identify stack-slot counter (Case 1) or register counter (Case 2) */
+                int def_ctr = find_def_backward_in_loop(c, start, cmp_idx, skip_mask, ctr_t);
+                if (def_ctr >= start) {
+                    const Instr *ld = ir_get(c, def_ctr);
+                    if (ld && ld->op == OP_MOV && ld->temp_src1 == TEMP_NONE && ld->imm < 0) {
+                        counter_slot = ld->imm;
+                        loop_var = (int)ctr_t;
+                    }
+                } else if (zc_temp_is_user(ctr_t)) {
+                    counter_slot = 0x7fffffff;
+                    loop_var = (int)ctr_t;
+                }
+                /* If counter has an unambiguous constant init right before header, adjust trip */
+                if (counter_slot != 0x7fffffff && trip > 0) {
+                    for (int k = start - 1; k >= 0; k--) {
+                        const Instr *p = ir_get(c, k);
+                        if (!p || p->op == OP_NOP || p->op == OP_DEAD) continue;
+                        if (p->op == OP_LABEL || p->op == OP_JMP || p->op == OP_JE ||
+                            p->op == OP_JNE || p->op == OP_JL || p->op == OP_JLE ||
+                            p->op == OP_JG || p->op == OP_JCOND || p->op == OP_CALL ||
+                            p->op == OP_CALL_INDIRECT) {
+                            break;
+                        }
+                        if (p->op == OP_MOV_MEM && p->imm == counter_slot) {
+                            int64_t init_v = 0;
+                            if (resolve_const(c, k, p->temp_src1, &init_v)) {
+                                if (init_v < 0) trip = -1;
+                                else trip -= init_v;
+                            }
                             break;
                         }
                     }
                 }
+                bound_ok = (trip > 0 && (trip % width) == 0);
             }
         }
-        if (test_idx >= 0) {
-            int flag = (int)ir_get(c, test_idx)->temp_src1;
-            int condset_idx = -1;
-            for (int k = test_idx - 1; k > loop->header_idx && condset_idx < 0; k--) {
-                Instr *cs = ir_get(c, k);
-                if (cs && cs->op == OP_COND_SET && (int)cs->temp_dest == flag) condset_idx = k;
+    }
+
+    if (has_mid_body_cond || !bound_ok || loop_var < 0) {
+        if (skip_mask != skip_buf) free(skip_mask);
+        return;
+    }
+
+    /* Locate and validate the loop counter increment instruction */
+    if (counter_slot != 0x7fffffff) {
+        int store_slot_idx = -1;
+        int store_slot_count = 0;
+        for (int k = start; k <= end; k++) {
+            if (skip_mask[k - start]) continue;
+            const Instr *ins = ir_get(c, k);
+            if (ins && ins->op == OP_MOV_MEM && ins->imm == counter_slot) {
+                store_slot_idx = k;
+                store_slot_count++;
             }
-            int hi = (condset_idx >= 0) ? condset_idx : test_idx;
-            int cmp_idx = -1;
-            for (int k = hi - 1; k > loop->header_idx; k--) {
-                Instr *cm = ir_get(c, k);
-                if (cm && cm->op == OP_CMP) { cmp_idx = k; break; }
+        }
+        if (store_slot_count == 1 && store_slot_idx > test_idx) {
+            const Instr *st = ir_get(c, store_slot_idx);
+            int def_inc = find_def_backward_in_loop(c, start, store_slot_idx, skip_mask, st->temp_src1);
+            if (def_inc > test_idx) {
+                const Instr *di = ir_get(c, def_inc);
+                if (di->op == OP_INC && trace_temp_to_slot_load(c, start, def_inc, skip_mask, di->temp_dest, counter_slot)) {
+                    inc_idx = def_inc;
+                    inc_use_src2 = false;
+                } else if (di->op == OP_ADD_IMM && di->imm == 1) {
+                    uint32_t sop = (di->temp_src1 != TEMP_NONE) ? di->temp_src1 : di->temp_dest;
+                    if (trace_temp_to_slot_load(c, start, def_inc, skip_mask, sop, counter_slot)) {
+                        inc_idx = def_inc;
+                        inc_use_src2 = false;
+                    }
+                } else if (di->op == OP_ADD) {
+                    int64_t cv = 0;
+                    if (resolve_const(c, def_inc, di->temp_src2, &cv) && cv == 1 &&
+                        trace_temp_to_slot_load(c, start, def_inc, skip_mask, di->temp_src1, counter_slot)) {
+                        inc_idx = def_inc;
+                        inc_use_src2 = false;
+                    } else if (resolve_const(c, def_inc, di->temp_src1, &cv) && cv == 1 &&
+                               trace_temp_to_slot_load(c, start, def_inc, skip_mask, di->temp_src2, counter_slot)) {
+                        inc_idx = def_inc;
+                        inc_use_src2 = true;
+                    }
+                }
             }
-            if (cmp_idx >= 0) {
-                Instr *cm = ir_get(c, cmp_idx);
-                int o1 = (int)cm->temp_src1;
-                int o2 = (int)cm->temp_src2;
-                bool c1 = (o1 != TEMP_NONE && ir_is_constant(o1));
-                bool c2 = (o2 != TEMP_NONE && ir_is_constant(o2));
-                if (c1 != c2) {
-                    int bound_temp = c1 ? o1 : o2;
-                    int width = has_double ? 2 : state->vector_width;
-                    int bound = (int)ir_get_constant(bound_temp);
-                    bound_ok = (bound > 0 && bound % width == 0);
+        }
+    } else {
+        /* Register counter (Case 2): unique in-loop step of +1 writing loop_var */
+        for (int k = start; k <= end; k++) {
+            if (skip_mask[k - start]) continue;
+            const Instr *ins = ir_get(c, k);
+            if (!ins) continue;
+            if (ins->op == OP_INC && (int)ins->temp_dest == loop_var) {
+                inc_idx = k; inc_use_src2 = false;
+            } else if (ins->op == OP_ADD_IMM && (int)ins->temp_dest == loop_var && ins->imm == 1) {
+                inc_idx = k; inc_use_src2 = false;
+            } else if (ins->op == OP_ADD && (int)ins->temp_dest == loop_var) {
+                int64_t cv = 0;
+                if ((int)ins->temp_src1 == loop_var && resolve_const(c, k, ins->temp_src2, &cv) && cv == 1) {
+                    inc_idx = k; inc_use_src2 = false;
+                } else if ((int)ins->temp_src2 == loop_var && resolve_const(c, k, ins->temp_src1, &cv) && cv == 1) {
+                    inc_idx = k; inc_use_src2 = true;
                 }
             }
         }
     }
 
-    /* Vectorization criteria:
-     * - At least 2 array loads (read operands)
-     * - At least 1 array store (write result inside the loop body)
-     * - At least 1 arithmetic operation
-     * - No function calls or complex side effects (C11: actually enforced via has_call)
-     * - No mid-body conditional branches (vectorizer hardening)
-     */
-    if (!has_call && !has_mid_body_cond && !has_int_divmod && bound_ok && load_count >= 2 && store_count >= 1 && arith_count >= 1) {
-        /* Vectorizer hardening: the transform quarters the iteration count
-         * (i += 1 -> i += vec_width) and widens every scalar access at the
-         * SAME address to a 16-byte VLOAD/VSTORE.  That is sound only when:
-         *   (a) every array access is affine with unit element stride:
-         *       addr == base + i*elem_size + const   (lane j == element i+j)
-         *       Non-unit strides (v[2*i]) or invariant addresses (c[0] = a[i] +...)
-         *       would silently miscompile.
-         *   (b) every stored value is a pure element-wise arithmetic chain
-         *       over the loop's own loads - anything else (CMP, COND_SET,
-         *       integer DIV/MOD, shifts, invariant values) is "skipped" by
-         *       the transform and would run 1/vec_width times on quartered
-         *       loops, silently miscompiling.
-         */
-        int elem_size = has_double ? 8 : 4;
-        /* If the loop counter lives in a stack slot (reloaded into a fresh
-         * temp at each use rather than held in one register), record the
-         * slot so classify_addr_temp recognizes sibling reloads.  The
-         * increment reads the counter from that slot. */
-        int counter_slot = 0x7fffffff;
-        {
-            for (int k2 = loop->header_idx; k2 <= loop->exit_idx; k2++) {
-                Instr *x = ir_get(c, k2);
-                if (x && (int)x->temp_dest == loop_var && x->op == OP_MOV) {
-                    counter_slot = x->imm;
-                    break;
-                }
-            }
-        }
-        bool strides_ok = true;
-        bool chains_ok = true;
-        for (int i = loop->header_idx; i <= loop->exit_idx && (strides_ok || chains_ok); i++) {
-            Instr *a = ir_get(c, i);
-            if (!a) continue;
-            bool is_load = (a->op == OP_LOAD_32 || a->op == OP_FLOAD ||
-                            a->op == OP_VLOADSS || a->op == OP_VLOADSD);
-            bool is_store32 = (a->op == OP_STORE_32);
-            bool is_storef = (a->op == OP_FSTORE || a->op == OP_VSTORESS || a->op == OP_VSTORESD);
-            if (!is_load && !is_store32 && !is_storef) continue;
-            /* Operand layout differs by store class:
-             *   OP_STORE_32:  src1 = value, src2 = address
-             *   FSTORE/...:   src1 = address, src2 = value */
-            int addr = is_store32 ? (int)a->temp_src2
-                       : is_storef ? (int)a->temp_src1
-                       : (int)a->temp_src1;           /* loads: src1 = address */
-            int val  = is_store32 ? (int)a->temp_src1 : (int)a->temp_src2;
-            int scale = 0;
-            int cls = classify_addr_temp(c, loop->header_idx, loop->exit_idx,
-                                         addr, loop_var, counter_slot, 0, &scale);
-            if (cls != 1 || scale != elem_size) {
-                strides_ok = false;
-                continue;
-            }
-            if ((is_store32 || is_storef) &&
-                !value_is_vec_chain(c, loop->header_idx, loop->exit_idx, val, 0)) {
-                chains_ok = false;
-            }
-        }
-        if (!strides_ok || !chains_ok) {
-            return;  /* loop stays scalar: correct, just not vectorized */
-        }
-        vinfo->is_vectorizable = true;
-        vinfo->is_double = has_double;
-        vinfo->is_int32 = !has_fp && !has_double;
-        vinfo->loop_var_temp = loop_var;
-        vinfo->array_base_temp = base_temp;
-        if (has_double) {
-            vinfo->vector_width = 2;  /* 2x 64-bit doubles in 128-bit vector */
-            vinfo->elem_size = 8;
-            vinfo->array_stride = 8;
-        } else {
-            vinfo->vector_width = state->vector_width;  /* 4x 32-bit floats or ints */
-            vinfo->elem_size = 4;
-            vinfo->array_stride = 4;
-        }
-        state->loop_count++;
+    if (inc_idx < 0) {
+        if (skip_mask != skip_buf) free(skip_mask);
+        return;
     }
+
+    int elem_size = has_double ? 8 : 4;
+    bool strides_ok = true;
+    bool chains_ok = true;
+    bool all_aligned = true;
+    bool any_aligned_checked = false;
+
+    for (int i = start; i <= end && (strides_ok || chains_ok); i++) {
+        if (skip_mask[i - start]) continue;
+        Instr *a = ir_get(c, i);
+        if (!a) continue;
+        bool is_load = (a->op == OP_LOAD_32 || a->op == OP_FLOAD ||
+                        a->op == OP_VLOADSS || a->op == OP_VLOADSD);
+        bool is_store32 = (a->op == OP_STORE_32);
+        bool is_storef = (a->op == OP_FSTORE || a->op == OP_VSTORESS || a->op == OP_VSTORESD);
+        if (!is_load && !is_store32 && !is_storef) continue;
+
+        uint32_t addr = is_store32 ? a->temp_src2 : a->temp_src1;
+        uint32_t val  = is_store32 ? a->temp_src1 : a->temp_src2;
+        int scale = 0;
+        int32_t base_off = 0;
+        bool have_base = false;
+        int cls = classify_addr_temp(c, start, end, i, skip_mask, addr,
+                                     loop_var, counter_slot, 0, &scale,
+                                     &base_off, &have_base);
+        if (cls != 1 || scale != elem_size) {
+            strides_ok = false;
+            continue;
+        }
+        if (have_base) {
+            any_aligned_checked = true;
+            if (((-base_off) & 15) != 0) all_aligned = false;
+        } else {
+            all_aligned = false;
+        }
+        if ((is_store32 || is_storef) &&
+            !value_is_vec_chain(c, start, i, skip_mask, val, 0)) {
+            chains_ok = false;
+        }
+    }
+
+    if (skip_mask != skip_buf) free(skip_mask);
+
+    if (!strides_ok || !chains_ok) {
+        return;
+    }
+
+    vinfo->is_vectorizable = true;
+    vinfo->is_double = has_double;
+    vinfo->is_int32 = !has_fp && !has_double;
+    vinfo->loop_var_temp = loop_var;
+    vinfo->array_base_temp = base_temp;
+    vinfo->inc_instr_idx = inc_idx;
+    vinfo->inc_use_src2 = inc_use_src2;
+    vinfo->stride_bytes = elem_size;
+    vinfo->is_aligned = any_aligned_checked && all_aligned;
+    if (has_double) {
+        vinfo->vector_width = 2;
+        vinfo->elem_size = 8;
+        vinfo->array_stride = 8;
+    } else {
+        vinfo->vector_width = state->vector_width;
+        vinfo->elem_size = 4;
+        vinfo->array_stride = 4;
+    }
+    state->loop_count++;
 }
 
 /**
@@ -587,19 +824,17 @@ void vectorization_analyze_full(VectorizationStateFull *state) {
     ZeroCCCompiler *c = state->comp;
     int count = (int)ir_get_count(c);
 
-    /* Build label-to-instruction-index map */
-    int label_to_idx[256];
-    for (int i = 0; i < 256; i++) label_to_idx[i] = -1;
+    int label_to_idx[VEC_LABEL_MAP_CAP];
+    for (int i = 0; i < VEC_LABEL_MAP_CAP; i++) label_to_idx[i] = -1;
 
     for (int i = 0; i < count; i++) {
         Instr *instr = ir_get(c, i);
         if (!instr) continue;
-        if (instr->op == OP_LABEL && instr->label_idx < 256) {
+        if (instr->op == OP_LABEL && instr->label_idx < VEC_LABEL_MAP_CAP) {
             label_to_idx[instr->label_idx] = i;
         }
     }
 
-    /* Collect all backedges first so we can identify innermost loops */
     typedef struct {
         int target;
         int backedge_idx;
@@ -615,7 +850,7 @@ void vectorization_analyze_full(VectorizationStateFull *state) {
             instr->op == OP_JLE || instr->op == OP_JG);
         if (is_jump) {
             int label = instr->label_idx;
-            int target = (label >= 0 && label < 256) ? label_to_idx[label] : -1;
+            int target = (label >= 0 && label < VEC_LABEL_MAP_CAP) ? label_to_idx[label] : -1;
             if (target >= 0 && target < i) {
                 backedges[num_backedges].target = target;
                 backedges[num_backedges].backedge_idx = i;
@@ -624,7 +859,7 @@ void vectorization_analyze_full(VectorizationStateFull *state) {
         }
     }
 
-    /* Only analyze innermost loops (loops that do not contain another loop/backedge inside them) */
+    /* Analyze innermost loops */
     for (int b = 0; b < num_backedges && state->loop_count < state->capacity; b++) {
         int target = backedges[b].target;
         int i = backedges[b].backedge_idx;
@@ -634,34 +869,17 @@ void vectorization_analyze_full(VectorizationStateFull *state) {
             if (ob == b) continue;
             int t2 = backedges[ob].target;
             int i2 = backedges[ob].backedge_idx;
-            /* If another loop (t2..i2) is strictly or partially inside target..i */
             if ((t2 > target && i2 <= i) || (t2 >= target && i2 < i)) {
                 has_inner_backedge = true;
                 break;
             }
         }
-        if (has_inner_backedge) {
-            continue;
-        }
+        if (has_inner_backedge) continue;
 
-        /* Found potential innermost loop */
         LoopInfo loop = {0};
         loop.header_idx = target;
         loop.exit_idx = i;
-        loop.body_count = 0;
-        loop.capacity = MAX_VEC_BODY;
-        loop.body_indices = malloc(sizeof(int) * MAX_VEC_BODY);
-
-        for (int j = target; j <= i; j++) {
-            if (loop.body_count < MAX_VEC_BODY) {
-                loop.body_indices[loop.body_count++] = j;
-            }
-        }
-
-        /* Analyze for vectorization */
         analyze_loop_for_vectorization_full(state, &loop);
-
-        free(loop.body_indices);
     }
 }
 
@@ -690,13 +908,13 @@ static int get_vec_op(int scalar_op, bool is_double, bool is_int32) {
         }
     } else {
         switch (scalar_op) {
-            case OP_ADD:  return OP_VADDPS;
-            case OP_SUB:  return OP_VSUBPS;
-            case OP_MUL:  return OP_VMULPS;
-            case OP_DIV:  return OP_VDIVPS;
+            case OP_ADD:
             case OP_FADD: return OP_VADDPS;
+            case OP_SUB:
             case OP_FSUB: return OP_VSUBPS;
+            case OP_MUL:
             case OP_FMUL: return OP_VMULPS;
+            case OP_DIV:
             case OP_FDIV: return OP_VDIVPS;
             default:      return scalar_op;
         }
@@ -705,197 +923,194 @@ static int get_vec_op(int scalar_op, bool is_double, bool is_int32) {
 
 /**
  * Transform a vectorizable loop to use SIMD instructions
- *
- * Phase 1: Precision Data-Flow & Memory Indexing
- * - Single-pass transformation with proper def-use wiring
- * - Accurate address calculation for VLOAD/VSTORE
  */
 bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int loop_idx) {
-    (void)c; /* transform works purely on the pre-computed state/IR */
-    if (loop_idx < 0 || loop_idx >= state->loop_count) {
+    if (!c || !state || loop_idx < 0 || loop_idx >= state->loop_count) {
         return false;
     }
 
     VectorizationInfo *vinfo = &state->loops[loop_idx];
-    if (!vinfo->is_vectorizable) {
+    if (!vinfo->is_vectorizable || vinfo->inc_instr_idx < 0) {
         return false;
     }
 
     int vec_width = vinfo->vector_width;
-
-    /* Get loop body */
     int start_idx = vinfo->body_start_idx;
     int end_idx = vinfo->body_end_idx;
-
-    /* Guard: Only vectorize if loop has scalar increment (i += 1).
-     * Prefer the loop variable validated by the analysis (the LAST
-     * ADD-of-1 in the body): an independent scan here could disagree with
-     * the analysis on multi-counter loops and rewrite the wrong induction
-     * step, so vinfo->loop_var_temp is authoritative when available. */
-    bool found_scalar_increment = (vinfo->loop_var_temp != TEMP_NONE);
-    int loop_var_temp = (vinfo->loop_var_temp != TEMP_NONE) ? vinfo->loop_var_temp : -1;
-    for (int i = start_idx; i <= end_idx && loop_var_temp < 0; i++) {
-        Instr *instr = ir_get(c, i);
-        if (!instr) continue;
-        if (instr->op == OP_ADD) {
-            if (instr->imm == 1) {
-                found_scalar_increment = true;
-                loop_var_temp = instr->temp_src1;
-                break;
-            } else if (instr->temp_src2!= TEMP_NONE && ir_is_constant(instr->temp_src2) && ir_get_constant(instr->temp_src2) == 1) {
-                found_scalar_increment = true;
-                loop_var_temp = instr->temp_src1;
-                break;
-            }
-        }
-    }
-
-    if (!found_scalar_increment) {
+    int span = end_idx - start_idx + 1;
+    if (span <= 2 || vinfo->inc_instr_idx < start_idx || vinfo->inc_instr_idx > end_idx) {
         return false;
     }
 
-    /* Store the loop variable temp for use in the increment rewrite below */
-    vinfo->loop_var_temp = loop_var_temp;
-
-    /* Change loop increment from i += 1 to i += vec_width (e.g. 4)
-     * Only rewrite the SPECIFIC loop counter increment (matching loop_var_temp),
-     * not any other ADD with constant 1 (which could be a non-counter increment). */
+    /* 1. NOP out any sNaN fixup diamonds on scalar float accesses before transform */
+    uint8_t skip_buf[2048];
+    uint8_t *skip_mask = (span <= 2048) ? skip_buf : (uint8_t *)calloc((size_t)span, 1);
+    if (!skip_mask) return false;
+    mark_snan_fixup_ranges(c, start_idx, end_idx, skip_mask);
     for (int i = start_idx; i <= end_idx; i++) {
-        Instr *instr = ir_get(c, i);
-        if (!instr) continue;
+        if (skip_mask[i - start_idx]) {
+            Instr *sk = ir_get(c, i);
+            if (sk) sk->op = OP_NOP;
+        }
+    }
+    if (skip_mask != skip_buf) free(skip_mask);
 
-        if (instr->op == OP_ADD && instr->temp_src1 == loop_var_temp) {
-            if (instr->imm == 1) {
-                instr->imm = (int16_t)vec_width;  /* Change i += 1 to i += vec_width */
-            } else if (instr->temp_src2!= TEMP_NONE && ir_is_constant(instr->temp_src2) && ir_get_constant(instr->temp_src2) == 1) {
-                /* Update the constant definition to vec_width */
-                for (int j = 0; j < i; j++) {
-                    Instr *prev = ir_get(c, j);
-                    if (prev && prev->op == OP_MOV_IMM && prev->temp_dest == instr->temp_src2) {
-                        prev->imm = (int16_t)vec_width;
-                        prev->imm64 = vec_width;
-                        break;
-                    }
-                }
+    /* 2. Rewrite loop increment from i += 1 to i += vec_width */
+    {
+        int inc_idx = vinfo->inc_instr_idx;
+        Instr *inc = ir_get(c, inc_idx);
+        if (!inc) return false;
+        if (inc->op == OP_INC || inc->op == OP_ADD_IMM) {
+            inc->op = OP_ADD_IMM;
+            inc->temp_src1 = TEMP_NONE;
+            inc->temp_src2 = TEMP_NONE;
+            inc->imm = (int16_t)vec_width;
+            inc->imm64 = vec_width;
+        } else if (inc->op == OP_ADD) {
+            uint32_t counter_src = vinfo->inc_use_src2 ? inc->temp_src2 : inc->temp_src1;
+            if (inc->temp_dest == counter_src) {
+                inc->op = OP_ADD_IMM;
+                inc->temp_src1 = TEMP_NONE;
+                inc->temp_src2 = TEMP_NONE;
+                inc->imm = (int16_t)vec_width;
+                inc->imm64 = vec_width;
+            } else {
+                int step_t = zc_alloc_temp(c);
+                Instr mov_step = {
+                    .op = OP_MOV_IMM,
+                    .temp_dest = (uint32_t)step_t,
+                    .temp_src1 = TEMP_NONE,
+                    .temp_src2 = TEMP_NONE,
+                    .cond = 0,
+                    .flags_out = 0xFF,
+                    .flags_in = 0xFF,
+                    .imm = (int16_t)vec_width,
+                    .imm64 = vec_width,
+                    .label_idx = 0
+                };
+                ir_insert_at(c, (size_t)inc_idx, mov_step);
+                end_idx++;
+                Instr *inc_after = ir_get(c, inc_idx + 1);
+                if (!inc_after) return false;
+                if (vinfo->inc_use_src2) inc_after->temp_src1 = (uint32_t)step_t;
+                else inc_after->temp_src2 = (uint32_t)step_t;
             }
+        } else {
+            return false;
         }
     }
 
-    /* Track scalar temp -> vector temp mapping for data flow.
-     * Sprint 35 P4: full 16-bit temp-id space (static, memset per call).
-     * The old [256] local went OOB for functions with >256 temps. */
-    static int16_t s_scalar_to_vec_map[65536];
-    int16_t *scalar_to_vec_map = s_scalar_to_vec_map;
+    /* 3. Track scalar temp -> fresh untagged vector temp mapping so REG_CLASS_VEC
+     *    never aliases compacted REG_CLASS_GPR / REG_CLASS_XMM temp IDs. */
+    static int32_t s_scalar_to_vec_map[65536];
+    int32_t *scalar_to_vec_map = s_scalar_to_vec_map;
     memset(scalar_to_vec_map, 0xFF, sizeof(s_scalar_to_vec_map));
 
-    /* Transform loads, arithmetic, and stores */
     for (int i = start_idx; i <= end_idx; i++) {
         Instr *instr = ir_get(c, i);
-        if (!instr) continue;
+        if (!instr || instr->op == OP_NOP || instr->op == OP_DEAD) continue;
 
-        /* Handle scalar loads -> VLOAD */
-        if (instr->op == OP_LOAD_32 || instr->op == OP_FLOAD || instr->op == OP_VLOADSS || instr->op == OP_VLOADSD) {
+        /* Scalar loads -> OP_VLOAD into fresh vector temp */
+        if (instr->op == OP_LOAD_32 || instr->op == OP_FLOAD ||
+            instr->op == OP_VLOADSS || instr->op == OP_VLOADSD) {
             if (!zc_temp_is_user(instr->temp_dest) || instr->temp_dest >= 65536) continue;
-            int vec_temp = instr->temp_dest;
+            uint32_t old_dest = instr->temp_dest;
+            int vec_temp = zc_alloc_temp(c);
+            scalar_to_vec_map[old_dest] = vec_temp;
 
-            /* Map scalar dest to vector temp */
-            scalar_to_vec_map[instr->temp_dest] = vec_temp;
-
-            /* Replace with VLOAD */
             instr->op = OP_VLOAD;
-            instr->temp_dest = vec_temp;
-            instr->temp_src2= TEMP_NONE;
-            /* Leave instr->imm unchanged (preserves stack displacement) */
+            instr->temp_dest = (uint32_t)vec_temp;
+            instr->temp_src2 = TEMP_NONE;
             instr->imm64 = 0;
             instr->label_idx = 0;
             instr->cond = 0;
+            instr->width = 0;
             instr->flags_out = 0xFF;
             instr->flags_in = 0xFF;
             continue;
         }
 
-        /* Handle scalar float conversions -> forward mapping */
-        if (instr->op == OP_CVTSS2SD || instr->op == OP_CVTSD2SS) {
-            if (zc_temp_is_user(instr->temp_dest) && instr->temp_dest < 65536 &&
-                zc_temp_is_user(instr->temp_src1) && instr->temp_src1 < 65536) {
+        /* Forward mapped vector values through casts and copies */
+        if (instr->op == OP_CVTSS2SD || instr->op == OP_CVTSD2SS || instr->op == OP_MOV_REG) {
+            if (zc_temp_is_user(instr->temp_src1) && instr->temp_src1 < 65536 &&
+                scalar_to_vec_map[instr->temp_src1] >= 0 &&
+                zc_temp_is_user(instr->temp_dest) && instr->temp_dest < 65536) {
                 scalar_to_vec_map[instr->temp_dest] = scalar_to_vec_map[instr->temp_src1];
                 instr->op = OP_NOP;
                 continue;
             }
+            if (zc_temp_is_user(instr->temp_dest) && instr->temp_dest < 65536) {
+                scalar_to_vec_map[instr->temp_dest] = -1;
+            }
+            continue;
         }
 
-        /* Handle scalar arithmetic -> vector arithmetic */
+        /* Drop redundant scalar width extends on values now held in vector temps */
+        if (instr->op == OP_SEXT8 || instr->op == OP_SEXT16 || instr->op == OP_SEXT32 ||
+            instr->op == OP_ZEXT8 || instr->op == OP_ZEXT16 || instr->op == OP_ZEXT32) {
+            uint32_t t = (instr->temp_src1 != TEMP_NONE) ? instr->temp_src1 : instr->temp_dest;
+            if (zc_temp_is_user(t) && t < 65536 && scalar_to_vec_map[t] >= 0) {
+                instr->op = OP_NOP;
+            }
+            continue;
+        }
+
+        /* Scalar arithmetic -> packed vector arithmetic with fresh vector temp */
         if (is_vec_arith(instr)) {
-            if (!zc_temp_is_user(instr->temp_dest) || instr->temp_dest >= 65536 ||
-                !zc_temp_is_user(instr->temp_src1) || instr->temp_src1 >= 65536 ||
-                !zc_temp_is_user(instr->temp_src2) || instr->temp_src2 >= 65536) {
-                continue;
+            if (zc_temp_is_user(instr->temp_dest) && instr->temp_dest < 65536 &&
+                zc_temp_is_user(instr->temp_src1) && instr->temp_src1 < 65536 &&
+                zc_temp_is_user(instr->temp_src2) && instr->temp_src2 < 65536) {
+                int vec_src1 = scalar_to_vec_map[instr->temp_src1];
+                int vec_src2 = scalar_to_vec_map[instr->temp_src2];
+                if (vec_src1 >= 0 && vec_src2 >= 0) {
+                    int vec_op = get_vec_op(instr->op, vinfo->is_double, vinfo->is_int32);
+                    int vec_dest = zc_alloc_temp(c);
+                    scalar_to_vec_map[instr->temp_dest] = vec_dest;
+
+                    instr->op = (uint8_t)vec_op;
+                    instr->temp_dest = (uint32_t)vec_dest;
+                    instr->temp_src1 = (uint32_t)vec_src1;
+                    instr->temp_src2 = (uint32_t)vec_src2;
+                    instr->imm64 = 0;
+                    instr->label_idx = 0;
+                    instr->cond = 0;
+                    instr->width = 0;
+                    instr->flags_out = 0xFF;
+                    instr->flags_in = 0xFF;
+                    continue;
+                }
             }
-            /* Get vector operation */
-            int vec_op = get_vec_op(instr->op, vinfo->is_double, vinfo->is_int32);
-
-            /* Get source vector temps from map */
-            int vec_src1 = scalar_to_vec_map[instr->temp_src1];
-            int vec_src2 = scalar_to_vec_map[instr->temp_src2];
-
-            /* Skip if sources not mapped (loop invariants) */
-            if (vec_src1 < 0 || vec_src2 < 0) {
-                continue;
+            if (zc_temp_is_user(instr->temp_dest) && instr->temp_dest < 65536) {
+                scalar_to_vec_map[instr->temp_dest] = -1;
             }
+            continue;
+        }
 
-            int vec_dest = instr->temp_dest;
+        /* Scalar stores -> OP_VSTORE */
+        if (instr->op == OP_STORE_32 || instr->op == OP_FSTORE ||
+            instr->op == OP_VSTORESS || instr->op == OP_VSTORESD) {
+            uint32_t scalar_val_temp = (instr->op == OP_STORE_32) ? instr->temp_src1 : instr->temp_src2;
+            uint32_t scalar_addr_temp = (instr->op == OP_STORE_32) ? instr->temp_src2 : instr->temp_src1;
+            int vec_value = (scalar_val_temp < 65536) ? scalar_to_vec_map[scalar_val_temp] : -1;
+            if (vec_value < 0) continue;
 
-            /* Map result to vector temp */
-            scalar_to_vec_map[instr->temp_dest] = vec_dest;
-
-            /* Replace with vector arithmetic */
-            instr->op = vec_op;
-            instr->temp_dest = vec_dest;
-            instr->temp_src1 = vec_src1;
-            instr->temp_src2 = vec_src2;
+            instr->op = OP_VSTORE;
+            instr->temp_dest = TEMP_NONE;
+            instr->temp_src1 = scalar_addr_temp;
+            instr->temp_src2 = (uint32_t)vec_value;
             instr->imm64 = 0;
             instr->label_idx = 0;
             instr->cond = 0;
+            instr->width = 0;
             instr->flags_out = 0xFF;
             instr->flags_in = 0xFF;
             continue;
         }
 
-        /* Handle scalar stores -> VSTORE */
-        if (instr->op == OP_STORE_32 || instr->op == OP_FSTORE || instr->op == OP_VSTORESS || instr->op == OP_VSTORESD) {
-            int scalar_val_temp = -1;
-            int scalar_addr_temp = -1;
-
-            if (instr->op == OP_STORE_32) {
-                /* STORE_32 [src2], src1: src1 is val, src2 is addr */
-                scalar_val_temp = instr->temp_src1;
-                scalar_addr_temp = instr->temp_src2;
-            } else {
-                /* FSTORE/VSTORESS/VSTORESD [src1], src2: src1 is addr, src2 is val */
-                scalar_val_temp = instr->temp_src2;
-                scalar_addr_temp = instr->temp_src1;
-            }
-
-            /* Get vector value from map */
-            int vec_value = (scalar_val_temp >= 0 && scalar_val_temp < 65536) ? scalar_to_vec_map[scalar_val_temp] : -1;
-
-            /* Skip if value not mapped */
-            if (vec_value < 0) {
-                continue;
-            }
-
-            /* Replace with VSTORE [addr], vec_value */
-            instr->op = OP_VSTORE;
-            instr->temp_dest= TEMP_NONE;
-            instr->temp_src1 = scalar_addr_temp;
-            instr->temp_src2 = vec_value;
-            /* Leave instr->imm unchanged */
-            instr->imm64 = 0;
-            instr->label_idx = 0;
-            instr->cond = 0;
-            instr->flags_out = 0xFF;
-            instr->flags_in = 0xFF;
-            continue;
+        /* Any non-vector write invalidates stale scalar->vec mapping for that ID */
+        if (zc_temp_is_user(instr->temp_dest) && instr->temp_dest < 65536 &&
+            instr_writes_temp(instr, instr->temp_dest)) {
+            scalar_to_vec_map[instr->temp_dest] = -1;
         }
     }
 
@@ -906,12 +1121,15 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
  * Main auto-vectorization pass
  */
 void opt_auto_vectorize(ZeroCCCompiler *c) {
+    ZeroCCISA isa = (c && c->regalloc.target_isa) ? c->regalloc.target_isa : (c ? c->isa : ISA_X86_64);
+    if (!c || !BE(c) || !BE(c)->emit_vload || !BE(c)->emit_vstore ||
+        !BE(c)->emit_vaddps || isa == ISA_AARCH32 || isa == ISA_RISCV32) {
+        return;
+    }
+
     VectorizationStateFull state = {0};
+    vectorization_init((VectorizationState *)&state, (int)isa);
     state.comp = c;
-    state.target_isa = c->regalloc.target_isa;
-    state.vector_width = vectorization_get_width(state.target_isa);
-    state.loop_count = 0;
-    state.capacity = MAX_VECTOR_LOOPS;  /* Initialize capacity */
 
     /* Analyze loops for vectorization opportunities */
     vectorization_analyze_full(&state);
@@ -920,13 +1138,25 @@ void opt_auto_vectorize(ZeroCCCompiler *c) {
         return;
     }
 
-    /* Transform vectorizable loops */
-    int transformed = 0;
+    /* Sort loops by ascending body_start_idx and transform in reverse order
+     * so inserting a constant step inside a later loop never invalidates an
+     * earlier loop's recorded instruction indices. */
     for (int i = 0; i < state.loop_count; i++) {
-        if (vectorization_transform(c, (VectorizationState*)&state, i)) {
+        for (int j = i + 1; j < state.loop_count; j++) {
+            if (state.loops[j].body_start_idx < state.loops[i].body_start_idx) {
+                VectorizationInfo tmp = state.loops[i];
+                state.loops[i] = state.loops[j];
+                state.loops[j] = tmp;
+            }
+        }
+    }
+
+    int transformed = 0;
+    for (int i = state.loop_count - 1; i >= 0; i--) {
+        if (vectorization_transform(c, (VectorizationState *)&state, i)) {
             transformed++;
         }
     }
 
-    (void)transformed;  /* Suppress unused warning */
+    (void)transformed;
 }

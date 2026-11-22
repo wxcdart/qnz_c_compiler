@@ -116,6 +116,12 @@ static int instr_has_side_effects(Instr *instr) {
         case OP_STORE_32:
         case OP_STORE_64:
         case OP_FSTORE:
+        case OP_VSTORE:
+        case OP_VSTORESS:
+        case OP_VSTORESD:
+        case OP_VSTORESS_RAW:
+        case OP_STORE128:
+        case OP_STORE64:
         case OP_MOV_MEM:
         case OP_CALL:
         case OP_CALL_INDIRECT:

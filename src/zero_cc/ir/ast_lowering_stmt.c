@@ -1951,15 +1951,9 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
             ZeroCCType fn_ret = zero_cc_get_current_fn_ret_type(c);
             if ((fn_ret.tag == TYPE_USER_0 && zero_cc_type_is_vector(&fn_ret)) &&
                 fn_ret.size <= 16 && !c->last_expr_is_float) {
-                if (ret_expr->tag == NODE_CALL) {
-                    /* Nested call returning a vector: the result is already
-                     * in the VREG_0/VREG_2 register pair. */
-                    ir_emit_jmp(c, c->lowering.epilogue_label);
-                    return;
-                }
-                /* Vector return value (cast / binop / compound literal): the
-                 * expression lowered to the address of a 16/8B stack object;
-                 * load the 8-byte chunks into the register pair. */
+                /* Vector return value (call / builtin / cast / binop / compound
+                 * literal): the expression lowered to the address of a 16/8B
+                 * stack object; load the 8-byte chunks into the register pair. */
                 ir_emit_deref(c, VREG_0, result_temp);
                 if (fn_ret.size > 8) {
                     int off = zc_alloc_temp(c);

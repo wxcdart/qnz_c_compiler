@@ -1181,29 +1181,50 @@ static void x86_emit_vdivss_asm(ZeroCCCompiler *c, int dst, int, int src2, FILE 
     fprintf(out, "\tdivss\t%%%s,%%%s\n", src2_name, dst_name);
 }
 
+static void x86_emit_vmovaps_asm(ZeroCCCompiler *c, int dst, int src, FILE *out);
+static void x86_emit_vmovapd_asm(ZeroCCCompiler *c, int dst, int src, FILE *out);
+
 /* Vector packed single add - addps */
-static void x86_emit_vaddps_asm(ZeroCCCompiler *c, int dst, int, int src2, FILE *out) {
+static void x86_emit_vaddps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    if (dst == src2 && dst != src1) {
+        int tmp = src1; src1 = src2; src2 = tmp;
+    }
+    if (dst != src1) {
+        x86_emit_vmovaps_asm(c, dst, src1, out);
+    }
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
     fprintf(out, "\taddps\t%%%s,%%%s\n", src2_name, dst_name);
 }
 
 /* Vector packed single sub - subps */
-static void x86_emit_vsubps_asm(ZeroCCCompiler *c, int dst, int, int src2, FILE *out) {
+static void x86_emit_vsubps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    if (dst != src1) {
+        x86_emit_vmovaps_asm(c, dst, src1, out);
+    }
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
     fprintf(out, "\tsubps\t%%%s,%%%s\n", src2_name, dst_name);
 }
 
 /* Vector packed single mul - mulps */
-static void x86_emit_vmulps_asm(ZeroCCCompiler *c, int dst, int, int src2, FILE *out) {
+static void x86_emit_vmulps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    if (dst == src2 && dst != src1) {
+        int tmp = src1; src1 = src2; src2 = tmp;
+    }
+    if (dst != src1) {
+        x86_emit_vmovaps_asm(c, dst, src1, out);
+    }
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
     fprintf(out, "\tmulps\t%%%s,%%%s\n", src2_name, dst_name);
 }
 
 /* Vector packed single div - divps */
-static void x86_emit_vdivps_asm(ZeroCCCompiler *c, int dst, int, int src2, FILE *out) {
+static void x86_emit_vdivps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    if (dst != src1) {
+        x86_emit_vmovaps_asm(c, dst, src1, out);
+    }
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
     fprintf(out, "\tdivps\t%%%s,%%%s\n", src2_name, dst_name);
@@ -1238,28 +1259,46 @@ static void x86_emit_vdivsd_asm(ZeroCCCompiler *c, int dst, int, int src2, FILE 
 }
 
 /* Vector packed double add - addpd */
-static void x86_emit_vaddpd_asm(ZeroCCCompiler *c, int dst, int, int src2, FILE *out) {
+static void x86_emit_vaddpd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    if (dst == src2 && dst != src1) {
+        int tmp = src1; src1 = src2; src2 = tmp;
+    }
+    if (dst != src1) {
+        x86_emit_vmovapd_asm(c, dst, src1, out);
+    }
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
     fprintf(out, "\taddpd\t%%%s,%%%s\n", src2_name, dst_name);
 }
 
 /* Vector packed double sub - subpd */
-static void x86_emit_vsubpd_asm(ZeroCCCompiler *c, int dst, int, int src2, FILE *out) {
+static void x86_emit_vsubpd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    if (dst != src1) {
+        x86_emit_vmovapd_asm(c, dst, src1, out);
+    }
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
     fprintf(out, "\tsubpd\t%%%s,%%%s\n", src2_name, dst_name);
 }
 
 /* Vector packed double mul - mulpd */
-static void x86_emit_vmulpd_asm(ZeroCCCompiler *c, int dst, int, int src2, FILE *out) {
+static void x86_emit_vmulpd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    if (dst == src2 && dst != src1) {
+        int tmp = src1; src1 = src2; src2 = tmp;
+    }
+    if (dst != src1) {
+        x86_emit_vmovapd_asm(c, dst, src1, out);
+    }
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
     fprintf(out, "\tmulpd\t%%%s,%%%s\n", src2_name, dst_name);
 }
 
 /* Vector packed double div - divpd */
-static void x86_emit_vdivpd_asm(ZeroCCCompiler *c, int dst, int, int src2, FILE *out) {
+static void x86_emit_vdivpd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    if (dst != src1) {
+        x86_emit_vmovapd_asm(c, dst, src1, out);
+    }
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
     fprintf(out, "\tdivpd\t%%%s,%%%s\n", src2_name, dst_name);

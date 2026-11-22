@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-11-21T04:35:00Z
+timestamp: 2026-11-22T05:42:22Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -213,6 +213,22 @@ When loop vectorization emits packed vector opcodes (`OP_VLOAD`, `OP_VSTORE`, `O
   - Induction address classification supports `OP_SEXT8/16/32` and `OP_ZEXT8/16/32`, enabling vectorization of standard loops indexing arrays with 32-bit `int` variables.
   - Temp-to-vector mapping checks use the complete 16-bit temp space (65536).
 - **x86-64 Width Cap**: Currently capped at 128-bit SSE/SSE2. 256-bit AVX/AVX2 and 512-bit AVX-512 remain roadmap extensions.
+
+### SIMD Vendor Intrinsics & Virtual Headers (Sprint 196 Track 1)
+
+ZeroCC embeds virtual standard vendor headers in `src/zero_cc/core/virtual_headers.h` providing production-grade intrinsic compatibility:
+- `<immintrin.h>` (x86-64 SSE, SSE2, SSE3, SSSE3, SSE4.1, FMA):
+  - Types: `__m128` (float x 4), `__m128d` (double x 2), `__m128i` (integer vector).
+  - Packed single/double arithmetic: `_mm_add_ps`, `_mm_sub_ps`, `_mm_mul_ps`, `_mm_div_ps`, `_mm_add_pd`, `_mm_sub_pd`, `_mm_mul_pd`, `_mm_div_pd`.
+  - Packed integer arithmetic: `_mm_add_epi32`, `_mm_sub_epi32`, `_mm_mullo_epi32`, `_mm_add_epi64`, `_mm_sub_epi64`.
+  - Memory & initialization: `_mm_load_ps`, `_mm_loadu_ps`, `_mm_store_ps`, `_mm_storeu_ps`, `_mm_set1_ps`, `_mm_set_ps`, `_mm_setzero_ps`, `_mm_set1_epi32`.
+  - Extended SSSE3/SSE4.1/FMA: `_mm_hadd_ps`, `_mm_hsub_ps`, `_mm_abs_epi32`, `_mm_fmadd_ps`, `_mm_min_ps`, `_mm_max_ps`.
+- `<arm_neon.h>` (AArch64 NEON & cross-platform emulation):
+  - Types: `float32x4_t`, `float64x2_t`, `int32x4_t`, `uint32x4_t`, `int16x8_t`, `int8x16_t`.
+  - Vector operations: `vld1q_f32`, `vst1q_f32`, `vaddq_f32`, `vsubq_f32`, `vmulq_f32`, `vdupq_n_f32`, `vld1q_s32`, `vst1q_s32`, `vaddq_s32`, `vsubq_s32`, `vmulq_s32`, `vdupq_n_s32`, `vfmaq_f32`, `vmlaq_s32`, `vmlsq_s32`, `vmaxq_f32`, `vminq_f32`, `vabsq_f32`.
+- **Lowering via `__builtin_zerocc_v*` Builtins (`ast_lowering_builtins.c`)**:
+  - Compiler builtins map directly to hardware vector IR instructions on supported 64-bit targets (x86-64 SSE, AArch64 NEON, RISC-V RVV), with automatic scalar fallback on 32-bit platforms.
+  - Return ABI invariant: in `ast_lowering_stmt.c`, function calls returning vector values copy the 16-byte result chunks from stack memory buffers into return registers `(VREG_0, VREG_2)`.
 
 ## Scalar Float / Integer Conversions (`OP_CVTSI2SD` / `OP_CVTTSD2SI`)
 

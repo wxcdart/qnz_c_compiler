@@ -540,11 +540,12 @@ TypeInfo *expr_handle_call(SemContext *ctx, ZeroCCASTNode *node) {
         }
     }
 
-    /* __builtin_shuffle(a, b) selects lanes from a/b by the index vector
-     * b: the result has a's (vector) type, not the implicit int. */
-    if (arg_count == 2 && first_arg_t && type_is_vector(first_arg_t) &&
+    /* __builtin_shuffle(a, b) and __builtin_zerocc_v*(a, ...) yield the
+     * first vector operand's type rather than the implicit int fallback. */
+    if (arg_count >= 1 && first_arg_t && type_is_vector(first_arg_t) &&
         callee && callee->tag == NODE_IDENT && callee->s.str &&
-        strcmp(callee->s.str, "__builtin_shuffle") == 0) {
+        ((arg_count == 2 && strcmp(callee->s.str, "__builtin_shuffle") == 0) ||
+         strncmp(callee->s.str, "__builtin_zerocc_v", 18) == 0)) {
         res = first_arg_t;
     }
 

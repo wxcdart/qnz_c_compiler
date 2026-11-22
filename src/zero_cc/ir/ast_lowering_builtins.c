@@ -13,6 +13,416 @@
 /* Builtin emit helpers (bitops/overflow/atomics/const_eval/objsize) -> ast_lowering_builtin_helpers.c,
  * va_start/va_arg -> ast_lowering_varargs.c (Sprint 114). */
 
+/* Allocate a 16-byte aligned stack slot for a 128-bit SIMD vector result
+ * and emit LEA into a fresh address temp. */
+static int zc_simd_alloc_res128(ZeroCCCompiler *c, int32_t *off_out) {
+    c->current_stack_frame = (c->current_stack_frame + 16 + 15) & ~15;
+    int32_t res_off = c->current_stack_frame;
+    if (off_out) *off_out = res_off;
+    int res_addr = zc_alloc_temp(c);
+    ir_emit_lea(c, res_addr, BE(c)->fp_reg, -res_off);
+    return res_addr;
+}
+
+/* Offset a vector base address temp by `byte_off` bytes. */
+static int zc_simd_lane_addr(ZeroCCCompiler *c, int base_addr, size_t byte_off) {
+    if (byte_off == 0) return base_addr;
+    int off_t = zc_alloc_temp(c);
+    ir_emit_mov_imm(c, off_t, (int64_t)byte_off);
+    int lane_t = zc_alloc_temp(c);
+    ir_emit_add(c, lane_t, base_addr, off_t);
+    return lane_t;
+}
+
+/* True when the active target implements 128-bit hardware vector load/store. */
+static bool zc_simd_has_hw128(const ZeroCCCompiler *c) {
+    ZeroCCISA isa = (c->regalloc.target_isa) ? c->regalloc.target_isa : c->isa;
+    return (isa == ISA_X86_64 || isa == ISA_AARCH64 || isa == ISA_RISCV64) &&
+           BE(c)->emit_vload && BE(c)->emit_vstore;
+}
+
+static inline void zc_simd_emit_vload(ZeroCCCompiler *c, int vt, int addr) {
+    ir_emit(c, (Instr){.op = OP_VLOAD, .temp_dest = (uint32_t)vt,
+                       .temp_src1 = (uint32_t)addr, .temp_src2 = TEMP_NONE,
+                       .flags_out = 0xFF, .flags_in = 0xFF});
+}
+
+static inline void zc_simd_emit_vstore(ZeroCCCompiler *c, int addr, int vt) {
+    ir_emit(c, (Instr){.op = OP_VSTORE, .temp_dest = TEMP_NONE,
+                       .temp_src1 = (uint32_t)addr, .temp_src2 = (uint32_t)vt,
+                       .flags_out = 0xFF, .flags_in = 0xFF});
+}
+
+static inline void zc_simd_emit_vbin(ZeroCCCompiler *c, Opcode op, int vr, int va, int vb) {
+    ir_emit(c, (Instr){.op = op, .temp_dest = (uint32_t)vr,
+                       .temp_src1 = (uint32_t)va, .temp_src2 = (uint32_t)vb,
+                       .flags_out = 0xFF, .flags_in = 0xFF});
+}
+
+/* Copy 16 bytes between vector addresses (hardware SIMD when available, else 4x32-bit). */
+static void zc_simd_copy128(ZeroCCCompiler *c, int dst_addr, int src_addr) {
+    if (zc_simd_has_hw128(c)) {
+        int vt = zc_alloc_temp(c);
+        zc_simd_emit_vload(c, vt, src_addr);
+        zc_simd_emit_vstore(c, dst_addr, vt);
+        return;
+    }
+    for (size_t i = 0; i < 4; i++) {
+        int sa = zc_simd_lane_addr(c, src_addr, i * 4);
+        int da = zc_simd_lane_addr(c, dst_addr, i * 4);
+        int tmp = zc_alloc_temp(c);
+        ir_emit_load_32(c, tmp, sa);
+        ir_emit_store_32(c, tmp, da);
+    }
+}
+
+/* Lower `__builtin_zerocc_v*` SIMD vendor intrinsic helpers. */
+static bool zc_lower_simd_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
+                                  ZeroCCASTNode *node, const char *name,
+                                  int *out_temp) {
+    const char *suf = name + 18; /* skip "__builtin_zerocc_v" */
+    ASTRef arg0_ref = node->right;
+    ZeroCCASTNode *arg0 = arg0_ref ? zero_cc_ast_get(arena, arg0_ref) : NULL;
+    ASTRef arg1_ref = arg0 ? arg0->next : AST_NULL;
+    ZeroCCASTNode *arg1 = arg1_ref ? zero_cc_ast_get(arena, arg1_ref) : NULL;
+    ASTRef arg2_ref = arg1 ? arg1->next : AST_NULL;
+
+    /* 1. Packed binary hardware SIMD operations (+ 32-bit scalar fallback). */
+    static const struct {
+        const char *suffix;
+        Opcode vop;
+        uint8_t alu;   /* 0=add, 1=sub, 2=mul, 3=div */
+        uint8_t is_fp; /* 1=float/double, 0=int32 */
+        uint8_t esz;   /* 4 or 8 */
+    } binops[] = {
+        {"addps",  OP_VADDPS,  0, 1, 4},
+        {"subps",  OP_VSUBPS,  1, 1, 4},
+        {"mulps",  OP_VMULPS,  2, 1, 4},
+        {"divps",  OP_VDIVPS,  3, 1, 4},
+        {"addpd",  OP_VADDPD,  0, 1, 8},
+        {"subpd",  OP_VSUBPD,  1, 1, 8},
+        {"mulpd",  OP_VMULPD,  2, 1, 8},
+        {"divpd",  OP_VDIVPD,  3, 1, 8},
+        {"paddd",  OP_VPADDD,  0, 0, 4},
+        {"psubd",  OP_VPSUBD,  1, 0, 4},
+        {"pmulld", OP_VPMULLD, 2, 0, 4},
+    };
+    for (size_t k = 0; k < sizeof(binops) / sizeof(binops[0]); k++) {
+        if (strcmp(suf, binops[k].suffix) != 0) continue;
+        if (!arg0_ref || !arg1_ref) return false;
+        int a_addr = lower_expr(c, arena, arg0_ref);
+        int b_addr = lower_expr(c, arena, arg1_ref);
+        int res_addr = zc_simd_alloc_res128(c, NULL);
+        if (zc_simd_has_hw128(c)) {
+            int va = zc_alloc_temp(c), vb = zc_alloc_temp(c), vr = zc_alloc_temp(c);
+            zc_simd_emit_vload(c, va, a_addr);
+            zc_simd_emit_vload(c, vb, b_addr);
+            zc_simd_emit_vbin(c, binops[k].vop, vr, va, vb);
+            zc_simd_emit_vstore(c, res_addr, vr);
+        } else {
+            size_t esz = binops[k].esz;
+            size_t lanes = 16 / esz;
+            for (size_t i = 0; i < lanes; i++) {
+                int la = zc_simd_lane_addr(c, a_addr, i * esz);
+                int lb = zc_simd_lane_addr(c, b_addr, i * esz);
+                int lr = zc_simd_lane_addr(c, res_addr, i * esz);
+                int va = zc_alloc_temp(c), vb = zc_alloc_temp(c), vr = zc_alloc_temp(c);
+                if (binops[k].is_fp) {
+                    if (esz == 4) { ir_emit_vloadss(c, (uint32_t)va, (uint32_t)la); ir_emit_vloadss(c, (uint32_t)vb, (uint32_t)lb); }
+                    else          { ir_emit_vloadsd(c, (uint32_t)va, (uint32_t)la); ir_emit_vloadsd(c, (uint32_t)vb, (uint32_t)lb); }
+                    if (binops[k].alu == 0)      ir_emit_fadd(c, (uint32_t)vr, (uint32_t)va, (uint32_t)vb);
+                    else if (binops[k].alu == 1) ir_emit_fsub(c, (uint32_t)vr, (uint32_t)va, (uint32_t)vb);
+                    else if (binops[k].alu == 2) ir_emit_fmul(c, (uint32_t)vr, (uint32_t)va, (uint32_t)vb);
+                    else                         ir_emit_fdiv(c, (uint32_t)vr, (uint32_t)va, (uint32_t)vb);
+                    if (esz == 4) ir_emit_vstoress(c, (uint32_t)lr, (uint32_t)vr);
+                    else          ir_emit_vstoresd(c, (uint32_t)lr, (uint32_t)vr);
+                } else {
+                    ir_emit_load_32(c, va, la);
+                    ir_emit_load_32(c, vb, lb);
+                    if (binops[k].alu == 0)      ir_emit_add(c, vr, va, vb);
+                    else if (binops[k].alu == 1) ir_emit_sub(c, vr, va, vb);
+                    else                         ir_emit_mul(c, vr, va, vb);
+                    ir_emit_store_32(c, vr, lr);
+                }
+            }
+        }
+        c->last_expr_is_float = 0;
+        *out_temp = res_addr;
+        return true;
+    }
+
+    /* 2. Unaligned 128-bit load & store:
+     *    vload128(proto_unused, ptr) -> vector value
+     *    vstore128(ptr, vec)         -> 0 */
+    if (strcmp(suf, "load128") == 0) {
+        if (!arg1_ref) return false;
+        int ptr_temp = lower_expr(c, arena, arg1_ref);
+        int res_addr = zc_simd_alloc_res128(c, NULL);
+        zc_simd_copy128(c, res_addr, ptr_temp);
+        c->last_expr_is_float = 0;
+        *out_temp = res_addr;
+        return true;
+    }
+    if (strcmp(suf, "store128") == 0) {
+        if (!arg0_ref || !arg1_ref) return false;
+        int ptr_temp = lower_expr(c, arena, arg0_ref);
+        int vec_addr = lower_expr(c, arena, arg1_ref);
+        zc_simd_copy128(c, ptr_temp, vec_addr);
+        int z = zc_alloc_temp(c);
+        ir_emit_mov_imm(c, z, 0);
+        c->last_expr_is_float = 0;
+        *out_temp = z;
+        return true;
+    }
+
+    /* 3. Scalar-to-vector broadcasts: vset1_*(proto_unused, scalar) */
+    if (strncmp(suf, "set1_", 5) == 0) {
+        if (!arg1_ref) return false;
+        const char *ts = suf + 5;
+        bool is_fp = (strcmp(ts, "ps") == 0 || strcmp(ts, "pd") == 0);
+        size_t esz = 4;
+        if (strcmp(ts, "pd") == 0 || strcmp(ts, "epi64") == 0) esz = 8;
+        else if (strcmp(ts, "epi16") == 0) esz = 2;
+        else if (strcmp(ts, "epi8") == 0) esz = 1;
+        else if (strcmp(ts, "ps") != 0 && strcmp(ts, "epi32") != 0) return false;
+
+        c->last_expr_is_float = 0;
+        int val = lower_expr(c, arena, arg1_ref);
+        bool val_flt = (c->last_expr_is_float != 0);
+        if (is_fp && !val_flt) {
+            int tf = zc_alloc_temp(c);
+            ir_emit_cvtsi2sd(c, (uint32_t)tf, (uint32_t)val);
+            val = tf;
+        } else if (!is_fp && val_flt) {
+            int ti = zc_alloc_temp(c);
+            ir_emit_cvttsd2si(c, (uint32_t)ti, (uint32_t)val);
+            val = ti;
+        }
+        int res_addr = zc_simd_alloc_res128(c, NULL);
+        size_t lanes = 16 / esz;
+        for (size_t i = 0; i < lanes; i++) {
+            int la = zc_simd_lane_addr(c, res_addr, i * esz);
+            if (is_fp) {
+                if (esz == 4) ir_emit_vstoress(c, (uint32_t)la, (uint32_t)val);
+                else          ir_emit_vstoresd(c, (uint32_t)la, (uint32_t)val);
+            } else if (esz == 1) {
+                ir_emit_store_byte(c, val, la);
+            } else if (esz == 2) {
+                ir_emit_store_16(c, val, la);
+            } else if (esz == 4) {
+                ir_emit_store_32(c, val, la);
+            } else {
+                ir_emit_store_64(c, val, la);
+            }
+        }
+        c->last_expr_is_float = 0;
+        *out_temp = res_addr;
+        return true;
+    }
+
+    /* 4. Per-lane min/max: vmin/vmax_{ps,pd,epi32,epu32} */
+    if (strncmp(suf, "min_", 4) == 0 || strncmp(suf, "max_", 4) == 0) {
+        if (!arg0_ref || !arg1_ref) return false;
+        bool is_max = (suf[1] == 'a');
+        const char *ts = suf + 4;
+        bool is_fp = (strcmp(ts, "ps") == 0 || strcmp(ts, "pd") == 0);
+        bool is_u32 = (strcmp(ts, "epu32") == 0);
+        if (!is_fp && !is_u32 && strcmp(ts, "epi32") != 0) return false;
+        size_t esz = (strcmp(ts, "pd") == 0) ? 8 : 4;
+        size_t lanes = 16 / esz;
+        int cond = (is_fp || !is_u32) ? (is_max ? CC_GT : CC_LT)
+                                      : (is_max ? CC_FLT_GT : CC_FLT_LT);
+        int a_addr = lower_expr(c, arena, arg0_ref);
+        int b_addr = lower_expr(c, arena, arg1_ref);
+        int res_addr = zc_simd_alloc_res128(c, NULL);
+        for (size_t i = 0; i < lanes; i++) {
+            int la = zc_simd_lane_addr(c, a_addr, i * esz);
+            int lb = zc_simd_lane_addr(c, b_addr, i * esz);
+            int lr = zc_simd_lane_addr(c, res_addr, i * esz);
+            int va = zc_alloc_temp(c), vb = zc_alloc_temp(c);
+            if (is_fp) {
+                if (esz == 4) { ir_emit_vloadss(c, (uint32_t)va, (uint32_t)la); ir_emit_vloadss(c, (uint32_t)vb, (uint32_t)lb); }
+                else          { ir_emit_vloadsd(c, (uint32_t)va, (uint32_t)la); ir_emit_vloadsd(c, (uint32_t)vb, (uint32_t)lb); }
+            } else {
+                ir_emit_load_32(c, va, la);
+                ir_emit_load_32(c, vb, lb);
+                if (is_u32) { ir_emit_zext(c, va, 4); ir_emit_zext(c, vb, 4); }
+                else        { ir_emit_sext(c, va, 4); ir_emit_sext(c, vb, 4); }
+            }
+            ir_emit_cmp(c, (uint32_t)va, (uint32_t)vb);
+            int cc = zc_alloc_temp(c);
+            ir_emit_cond_set(c, (uint32_t)cc, cond);
+            uint16_t l_sel_b = (uint16_t)c->ir_next_label++;
+            uint16_t l_done = (uint16_t)c->ir_next_label++;
+            int vr = zc_alloc_temp(c);
+            ir_emit_je(c, (uint32_t)cc, l_sel_b);
+            if (is_fp) ir_emit_fmov(c, (uint32_t)vr, (uint32_t)va);
+            else       ir_emit_mov_reg(c, vr, va);
+            ir_emit_jmp(c, l_done);
+            ir_emit_label(c, l_sel_b);
+            if (is_fp) ir_emit_fmov(c, (uint32_t)vr, (uint32_t)vb);
+            else       ir_emit_mov_reg(c, vr, vb);
+            ir_emit_label(c, l_done);
+            if (is_fp) {
+                if (esz == 4) ir_emit_vstoress(c, (uint32_t)lr, (uint32_t)vr);
+                else          ir_emit_vstoresd(c, (uint32_t)lr, (uint32_t)vr);
+            } else {
+                ir_emit_store_32(c, vr, lr);
+            }
+        }
+        c->last_expr_is_float = 0;
+        *out_temp = res_addr;
+        return true;
+    }
+
+    /* 5. Packed float/int32 absolute value: vabs_ps / vabs_epi32 */
+    if (strcmp(suf, "abs_ps") == 0 || strcmp(suf, "abs_epi32") == 0) {
+        if (!arg0_ref) return false;
+        bool is_fp = (strcmp(suf, "abs_ps") == 0);
+        int a_addr = lower_expr(c, arena, arg0_ref);
+        int res_addr = zc_simd_alloc_res128(c, NULL);
+        for (size_t i = 0; i < 4; i++) {
+            int la = zc_simd_lane_addr(c, a_addr, i * 4);
+            int lr = zc_simd_lane_addr(c, res_addr, i * 4);
+            int va = zc_alloc_temp(c), vr = zc_alloc_temp(c);
+            ir_emit_load_32(c, va, la);
+            if (is_fp) {
+                int mask = zc_alloc_temp(c);
+                ir_emit_mov_imm(c, mask, 0x7FFFFFFF);
+                ir_emit_and(c, vr, va, mask);
+            } else {
+                ir_emit_sext(c, va, 4);
+                int zero = zc_alloc_temp(c);
+                ir_emit_mov_imm(c, zero, 0);
+                ir_emit_cmp(c, va, zero);
+                int cc = zc_alloc_temp(c);
+                ir_emit_cond_set(c, (uint32_t)cc, CC_LT);
+                uint16_t l_pos = (uint16_t)c->ir_next_label++;
+                uint16_t l_done = (uint16_t)c->ir_next_label++;
+                ir_emit_je(c, (uint32_t)cc, l_pos);
+                ir_emit_neg(c, vr, va);
+                ir_emit_jmp(c, l_done);
+                ir_emit_label(c, l_pos);
+                ir_emit_mov_reg(c, vr, va);
+                ir_emit_label(c, l_done);
+            }
+            ir_emit_store_32(c, vr, lr);
+        }
+        c->last_expr_is_float = 0;
+        *out_temp = res_addr;
+        return true;
+    }
+
+    /* 6. Fused/packed multiply-accumulate & subtract: vmla/vmls_{ps,epi32}(acc, a, b) */
+    if (strcmp(suf, "mla_ps") == 0 || strcmp(suf, "mls_ps") == 0 ||
+        strcmp(suf, "mla_epi32") == 0 || strcmp(suf, "mls_epi32") == 0) {
+        if (!arg0_ref || !arg1_ref || !arg2_ref) return false;
+        bool is_sub = (suf[2] == 's');
+        bool is_int = (strstr(suf, "epi32") != NULL);
+        int acc_addr = lower_expr(c, arena, arg0_ref);
+        int a_addr = lower_expr(c, arena, arg1_ref);
+        int b_addr = lower_expr(c, arena, arg2_ref);
+        int res_addr = zc_simd_alloc_res128(c, NULL);
+        if (zc_simd_has_hw128(c)) {
+            int vacc = zc_alloc_temp(c), va = zc_alloc_temp(c), vb = zc_alloc_temp(c);
+            int vp = zc_alloc_temp(c), vr = zc_alloc_temp(c);
+            zc_simd_emit_vload(c, vacc, acc_addr);
+            zc_simd_emit_vload(c, va, a_addr);
+            zc_simd_emit_vload(c, vb, b_addr);
+            zc_simd_emit_vbin(c, is_int ? OP_VPMULLD : OP_VMULPS, vp, va, vb);
+            Opcode aop = is_int ? (is_sub ? OP_VPSUBD : OP_VPADDD)
+                                : (is_sub ? OP_VSUBPS : OP_VADDPS);
+            zc_simd_emit_vbin(c, aop, vr, vacc, vp);
+            zc_simd_emit_vstore(c, res_addr, vr);
+        } else {
+            for (size_t i = 0; i < 4; i++) {
+                int lacc = zc_simd_lane_addr(c, acc_addr, i * 4);
+                int la = zc_simd_lane_addr(c, a_addr, i * 4);
+                int lb = zc_simd_lane_addr(c, b_addr, i * 4);
+                int lr = zc_simd_lane_addr(c, res_addr, i * 4);
+                int vacc = zc_alloc_temp(c), va = zc_alloc_temp(c), vb = zc_alloc_temp(c);
+                int vp = zc_alloc_temp(c), vr = zc_alloc_temp(c);
+                if (is_int) {
+                    ir_emit_load_32(c, vacc, lacc);
+                    ir_emit_load_32(c, va, la);
+                    ir_emit_load_32(c, vb, lb);
+                    ir_emit_mul(c, vp, va, vb);
+                    if (is_sub) ir_emit_sub(c, vr, vacc, vp);
+                    else        ir_emit_add(c, vr, vacc, vp);
+                    ir_emit_store_32(c, vr, lr);
+                } else {
+                    ir_emit_vloadss(c, (uint32_t)vacc, (uint32_t)lacc);
+                    ir_emit_vloadss(c, (uint32_t)va, (uint32_t)la);
+                    ir_emit_vloadss(c, (uint32_t)vb, (uint32_t)lb);
+                    ir_emit_fmul(c, (uint32_t)vp, (uint32_t)va, (uint32_t)vb);
+                    if (is_sub) ir_emit_fsub(c, (uint32_t)vr, (uint32_t)vacc, (uint32_t)vp);
+                    else        ir_emit_fadd(c, (uint32_t)vr, (uint32_t)vacc, (uint32_t)vp);
+                    ir_emit_vstoress(c, (uint32_t)lr, (uint32_t)vr);
+                }
+            }
+        }
+        c->last_expr_is_float = 0;
+        *out_temp = res_addr;
+        return true;
+    }
+
+    /* 7. Lane insertion: vset_lane_{f32,f64,epi32}(vec, val, idx) */
+    if (strncmp(suf, "set_lane_", 9) == 0) {
+        if (!arg0_ref || !arg1_ref || !arg2_ref) return false;
+        const char *ts = suf + 9;
+        bool is_fp = (strcmp(ts, "f32") == 0 || strcmp(ts, "f64") == 0);
+        if (!is_fp && strcmp(ts, "epi32") != 0) return false;
+        size_t esz = (strcmp(ts, "f64") == 0) ? 8 : 4;
+        size_t lanes = 16 / esz;
+
+        int vec_addr = lower_expr(c, arena, arg0_ref);
+        c->last_expr_is_float = 0;
+        int val = lower_expr(c, arena, arg1_ref);
+        bool val_flt = (c->last_expr_is_float != 0);
+        if (is_fp && !val_flt) {
+            int tf = zc_alloc_temp(c);
+            ir_emit_cvtsi2sd(c, (uint32_t)tf, (uint32_t)val);
+            val = tf;
+        } else if (!is_fp && val_flt) {
+            int ti = zc_alloc_temp(c);
+            ir_emit_cvttsd2si(c, (uint32_t)ti, (uint32_t)val);
+            val = ti;
+        }
+
+        int res_addr = zc_simd_alloc_res128(c, NULL);
+        zc_simd_copy128(c, res_addr, vec_addr);
+
+        int64_t idx_const = 0;
+        int dst_lane;
+        if (zc_ast_const_eval(c, arena, arg2_ref, &idx_const)) {
+            size_t lane = (size_t)idx_const & (lanes - 1);
+            dst_lane = zc_simd_lane_addr(c, res_addr, lane * esz);
+        } else {
+            int idx_t = lower_expr(c, arena, arg2_ref);
+            int mask = zc_alloc_temp(c), masked = zc_alloc_temp(c);
+            ir_emit_mov_imm(c, mask, (int64_t)(lanes - 1));
+            ir_emit_and(c, masked, idx_t, mask);
+            int sz_t = zc_alloc_temp(c), off_t = zc_alloc_temp(c);
+            ir_emit_mov_imm(c, sz_t, (int64_t)esz);
+            ir_emit_mul(c, off_t, masked, sz_t);
+            dst_lane = zc_alloc_temp(c);
+            ir_emit_add(c, dst_lane, res_addr, off_t);
+        }
+
+        if (is_fp) {
+            if (esz == 4) ir_emit_vstoress(c, (uint32_t)dst_lane, (uint32_t)val);
+            else          ir_emit_vstoresd(c, (uint32_t)dst_lane, (uint32_t)val);
+        } else {
+            ir_emit_store_32(c, val, dst_lane);
+        }
+        c->last_expr_is_float = 0;
+        *out_temp = res_addr;
+        return true;
+    }
+
+    return false;
+}
+
 bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
                         ZeroCCASTNode *node, const char *name,
                         int *out_temp) {
@@ -2220,6 +2630,11 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
                 return true;
             }
         }
+
+    if (strncmp(name, "__builtin_zerocc_v", 18) == 0 &&
+        zc_lower_simd_builtin(c, arena, node, name, out_temp)) {
+        return true;
+    }
 
     return false;
 }

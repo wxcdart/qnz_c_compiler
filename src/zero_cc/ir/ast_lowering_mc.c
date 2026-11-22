@@ -1510,26 +1510,34 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 break;
 
             case OP_VADDSD:
-                if (BE(c)->emit_vaddsd_asm) {
+                if (c->emit_asm && BE(c)->emit_vaddsd_asm) {
                     BE(c)->emit_vaddsd_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_fp_add) {
+                    BE(c)->emit_fp_add(c, phys_dst, phys_src1, phys_src2);
                 }
                 break;
 
             case OP_VSUBSD:
-                if (BE(c)->emit_vsubsd_asm) {
+                if (c->emit_asm && BE(c)->emit_vsubsd_asm) {
                     BE(c)->emit_vsubsd_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_fp_sub) {
+                    BE(c)->emit_fp_sub(c, phys_dst, phys_src1, phys_src2);
                 }
                 break;
 
             case OP_VMULSD:
-                if (BE(c)->emit_vmulsd_asm) {
+                if (c->emit_asm && BE(c)->emit_vmulsd_asm) {
                     BE(c)->emit_vmulsd_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_fp_mul) {
+                    BE(c)->emit_fp_mul(c, phys_dst, phys_src1, phys_src2);
                 }
                 break;
 
             case OP_VDIVSD:
-                if (BE(c)->emit_vdivsd_asm) {
+                if (c->emit_asm && BE(c)->emit_vdivsd_asm) {
                     BE(c)->emit_vdivsd_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_fp_div) {
+                    BE(c)->emit_fp_div(c, phys_dst, phys_src1, phys_src2);
                 }
                 break;
 
@@ -1590,7 +1598,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 break;
 
             case OP_VMOVSS:
-                if (BE(c)->emit_vmovss_asm) {
+                if (c->emit_asm && BE(c)->emit_vmovss_asm) {
                     BE(c)->emit_vmovss_asm(c, phys_dst, phys_src1, c->asm_out);
                 }
                 break;
@@ -1604,31 +1612,33 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 break;
 
             case OP_VMOVAPD:
-                if (BE(c)->emit_vmovapd_asm) {
+                if (c->emit_asm && BE(c)->emit_vmovapd_asm) {
                     BE(c)->emit_vmovapd_asm(c, phys_dst, phys_src1, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_vmovaps) {
+                    BE(c)->emit_vmovaps(c, phys_dst, phys_src1);
                 }
                 break;
 
             case OP_VANDPS:
-                if (BE(c)->emit_vandps_asm) {
+                if (c->emit_asm && BE(c)->emit_vandps_asm) {
                     BE(c)->emit_vandps_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
                 }
                 break;
 
             case OP_VORPS:
-                if (BE(c)->emit_vorps_asm) {
+                if (c->emit_asm && BE(c)->emit_vorps_asm) {
                     BE(c)->emit_vorps_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
                 }
                 break;
 
             case OP_VXORPS:
-                if (BE(c)->emit_vxorps_asm) {
+                if (c->emit_asm && BE(c)->emit_vxorps_asm) {
                     BE(c)->emit_vxorps_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
                 }
                 break;
 
             case OP_VSHUFPS:
-                if (BE(c)->emit_vshufps_asm) {
+                if (c->emit_asm && BE(c)->emit_vshufps_asm) {
                     BE(c)->emit_vshufps_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, c->asm_out);
                 }
                 break;
@@ -1642,7 +1652,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 break;
 
             case OP_VCVT_SS2SI:
-                if (BE(c)->emit_vcvt_ss2si_asm) {
+                if (c->emit_asm && BE(c)->emit_vcvt_ss2si_asm) {
                     BE(c)->emit_vcvt_ss2si_asm(c, phys_dst, phys_src1, c->asm_out);
                 }
                 break;
