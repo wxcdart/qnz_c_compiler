@@ -1871,6 +1871,110 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 }
                 break;
 
+            case OP_KMOVW_TO_K1:
+                if (c->emit_asm && BE(c)->emit_kmov_to_k1_asm) {
+                    BE(c)->emit_kmov_to_k1_asm(c, phys_src1, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_kmov_to_k1) {
+                    BE(c)->emit_kmov_to_k1(c, phys_src1);
+                }
+                break;
+
+            case OP_KMOVW_FROM_K1:
+                if (c->emit_asm && BE(c)->emit_kmov_from_k1_asm) {
+                    BE(c)->emit_kmov_from_k1_asm(c, phys_dst, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_kmov_from_k1) {
+                    BE(c)->emit_kmov_from_k1(c, phys_dst);
+                }
+                break;
+
+            case OP_V512_MASK_LOAD:
+                if (c->emit_asm && BE(c)->emit_v512_mask_load_asm) {
+                    BE(c)->emit_v512_mask_load_asm(c, phys_dst, phys_src1, instr->imm, (int)instr->cond, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v512_mask_load) {
+                    BE(c)->emit_v512_mask_load(c, phys_dst, phys_src1, instr->imm, (int)instr->cond);
+                }
+                break;
+
+            case OP_V512_MASK_STORE:
+                if (c->emit_asm && BE(c)->emit_v512_mask_store_asm) {
+                    BE(c)->emit_v512_mask_store_asm(c, phys_src2, phys_src1, instr->imm, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v512_mask_store) {
+                    BE(c)->emit_v512_mask_store(c, phys_src2, phys_src1, instr->imm);
+                }
+                break;
+
+            case OP_V512_MASK_ADDPS:
+                if (c->emit_asm && BE(c)->emit_v512_mask_addps_asm) {
+                    BE(c)->emit_v512_mask_addps_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v512_mask_addps) {
+                    BE(c)->emit_v512_mask_addps(c, phys_dst, phys_src1, phys_src2, instr->imm);
+                }
+                break;
+
+            case OP_V512_MASK_SUBPS:
+                if (c->emit_asm && BE(c)->emit_v512_mask_subps_asm) {
+                    BE(c)->emit_v512_mask_subps_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v512_mask_subps) {
+                    BE(c)->emit_v512_mask_subps(c, phys_dst, phys_src1, phys_src2, instr->imm);
+                }
+                break;
+
+            case OP_V512_MASK_MULPS:
+                if (c->emit_asm && BE(c)->emit_v512_mask_mulps_asm) {
+                    BE(c)->emit_v512_mask_mulps_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v512_mask_mulps) {
+                    BE(c)->emit_v512_mask_mulps(c, phys_dst, phys_src1, phys_src2, instr->imm);
+                }
+                break;
+
+            case OP_V512_MASK_DIVPS:
+                if (c->emit_asm && BE(c)->emit_v512_mask_divps_asm) {
+                    BE(c)->emit_v512_mask_divps_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v512_mask_divps) {
+                    BE(c)->emit_v512_mask_divps(c, phys_dst, phys_src1, phys_src2, instr->imm);
+                }
+                break;
+
+            case OP_V512_MASK_ADDPD:
+                if (c->emit_asm && BE(c)->emit_v512_mask_addpd_asm) {
+                    BE(c)->emit_v512_mask_addpd_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v512_mask_addpd) {
+                    BE(c)->emit_v512_mask_addpd(c, phys_dst, phys_src1, phys_src2, instr->imm);
+                }
+                break;
+
+            case OP_V512_MASK_SUBPD:
+                if (c->emit_asm && BE(c)->emit_v512_mask_subpd_asm) {
+                    BE(c)->emit_v512_mask_subpd_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v512_mask_subpd) {
+                    BE(c)->emit_v512_mask_subpd(c, phys_dst, phys_src1, phys_src2, instr->imm);
+                }
+                break;
+
+            case OP_V512_MASK_MULPD:
+                if (c->emit_asm && BE(c)->emit_v512_mask_mulpd_asm) {
+                    BE(c)->emit_v512_mask_mulpd_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v512_mask_mulpd) {
+                    BE(c)->emit_v512_mask_mulpd(c, phys_dst, phys_src1, phys_src2, instr->imm);
+                }
+                break;
+
+            case OP_V512_MASK_DIVPD:
+                if (c->emit_asm && BE(c)->emit_v512_mask_divpd_asm) {
+                    BE(c)->emit_v512_mask_divpd_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v512_mask_divpd) {
+                    BE(c)->emit_v512_mask_divpd(c, phys_dst, phys_src1, phys_src2, instr->imm);
+                }
+                break;
+
+            case OP_V512_CMP_MASK:
+                if (c->emit_asm && BE(c)->emit_v512_cmp_mask_asm) {
+                    BE(c)->emit_v512_cmp_mask_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, (int)instr->cond, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v512_cmp_mask) {
+                    BE(c)->emit_v512_cmp_mask(c, phys_dst, phys_src1, phys_src2, instr->imm, (int)instr->cond);
+                }
+                break;
+
             case OP_VCVT_SI2SS:
                 if (c->emit_asm && BE(c)->emit_vcvt_si2ss_asm) {
                     BE(c)->emit_vcvt_si2ss_asm(c, phys_dst, phys_src1, c->asm_out);

@@ -411,12 +411,22 @@ void ir_dump(const ZeroCCCompiler *c, FILE *f) {
                                break;
             case OP_V512_LOAD: fprintf(f, "V512_LOAD zmm%u, [r%u]", instr->temp_dest, instr->temp_src1);
                                break;
+            case OP_V512_MASK_LOAD: fprintf(f, "V512_MASK_LOAD zmm%u, [r%u]{k1}%s", instr->temp_dest, instr->temp_src1, instr->imm ? "{z}" : "");
+                               break;
             case OP_VSTORE: fprintf(f, "VSTORE [r%u], xmm%u", instr->temp_src1, instr->temp_src2);
                             break;
             case OP_V256_STORE: fprintf(f, "V256_STORE [r%u], ymm%u", instr->temp_src1, instr->temp_src2);
                                 break;
             case OP_V512_STORE: fprintf(f, "V512_STORE [r%u], zmm%u", instr->temp_src1, instr->temp_src2);
                                 break;
+            case OP_V512_MASK_STORE: fprintf(f, "V512_MASK_STORE [r%u], zmm%u{k1}", instr->temp_src1, instr->temp_src2);
+                                break;
+            case OP_KMOVW_TO_K1: fprintf(f, "KMOVW_TO_K1 k1, r%u", instr->temp_src1);
+                                break;
+            case OP_KMOVW_FROM_K1: fprintf(f, "KMOVW_FROM_K1 r%u, k1", instr->temp_dest);
+                                  break;
+            case OP_V512_CMP_MASK: fprintf(f, "V512_CMP_MASK r%u, zmm%u, zmm%u, imm=%u", instr->temp_dest, instr->temp_src1, instr->temp_src2, instr->imm);
+                                  break;
             case OP_VLOADSS: fprintf(f, "VLOADSS xmm%u, [r%u]", instr->temp_dest, instr->temp_src1);
                              break;
             case OP_VLOADSD: fprintf(f, "VLOADSD xmm%u, [r%u]", instr->temp_dest, instr->temp_src1);
@@ -504,6 +514,10 @@ void ir_dump(const ZeroCCCompiler *c, FILE *f) {
                                 break;
             case OP_V512_VXORPS: fprintf(f, "V512_VXORPS zmm%u, zmm%u, zmm%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);
                                  break;
+            case OP_V512_MASK_ADDPS: case OP_V512_MASK_SUBPS: case OP_V512_MASK_MULPS: case OP_V512_MASK_DIVPS:
+            case OP_V512_MASK_ADDPD: case OP_V512_MASK_SUBPD: case OP_V512_MASK_MULPD: case OP_V512_MASK_DIVPD:
+                fprintf(f, "%s zmm%u, zmm%u, zmm%u{k1}%s", ir_opcode_name(instr->op), instr->temp_dest, instr->temp_src1, instr->temp_src2, instr->imm ? "{z}" : "");
+                break;
             case OP_VDIVPS: fprintf(f, "VDIVPS xmm%u, xmm%u, xmm%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);
                             break;
             case OP_VADDPD: fprintf(f, "VADDPD xmm%u, xmm%u, xmm%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);

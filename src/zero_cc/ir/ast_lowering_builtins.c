@@ -256,6 +256,260 @@ static bool zc_lower_simd_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
             return true;
         }
 
+        /* AVX-512 Masked Binary Operations (Sprint 201) */
+        static const struct {
+            const char *suffix;
+            Opcode vop;
+            uint8_t alu;
+            uint8_t esz;
+        } mask_binops512[] = {
+            {"addps", OP_V512_MASK_ADDPS, 0, 4},
+            {"subps", OP_V512_MASK_SUBPS, 1, 4},
+            {"mulps", OP_V512_MASK_MULPS, 2, 4},
+            {"divps", OP_V512_MASK_DIVPS, 3, 4},
+            {"addpd", OP_V512_MASK_ADDPD, 0, 8},
+            {"subpd", OP_V512_MASK_SUBPD, 1, 8},
+            {"mulpd", OP_V512_MASK_MULPD, 2, 8},
+            {"divpd", OP_V512_MASK_DIVPD, 3, 8},
+        };
+        for (size_t k = 0; k < sizeof(mask_binops512) / sizeof(mask_binops512[0]); k++) {
+            bool is_mask = (strncmp(s512, "mask_", 5) == 0 && strcmp(s512 + 5, mask_binops512[k].suffix) == 0);
+            bool is_maskz = (strncmp(s512, "maskz_", 6) == 0 && strcmp(s512 + 6, mask_binops512[k].suffix) == 0);
+            if (!is_mask && !is_maskz) continue;
+
+            int z = is_maskz ? 1 : 0;
+            ASTRef src_ref = is_mask ? arg0_ref : AST_NULL;
+            ASTRef k_ref   = is_mask ? arg1_ref : arg2_ref;
+            ASTRef a_ref   = is_mask ? arg2_ref : arg0_ref;
+            ASTRef b_ref   = AST_NULL;
+            if (is_mask) {
+                ZeroCCASTNode *a_node = arg2_ref ? zero_cc_ast_get(arena, arg2_ref) : NULL;
+                b_ref = a_node ? a_node->next : AST_NULL;
+            } else {
+                b_ref = arg1_ref;
+            }
+            if (!k_ref || !a_ref || !b_ref) return false;
+
+            int k_val = lower_expr(c, arena, k_ref);
+            int a_addr = lower_expr(c, arena, a_ref);
+            int b_addr = lower_expr(c, arena, b_ref);
+            int res_addr = zc_simd_alloc_res512(c, NULL);
+
+            if (zc_simd_has_hw512(c)) {
+                c->used_avx512 = true;
+                c->used_avx = true;
+                ir_emit(c, (Instr){.op = OP_KMOVW_TO_K1, .temp_dest = TEMP_NONE, .temp_src1 = (uint32_t)k_val, .flags_out = 0xFF, .flags_in = 0xFF});
+                int vr = zc_alloc_temp(c), va = zc_alloc_temp(c), vb = zc_alloc_temp(c);
+                if (!z && src_ref) {
+                    int src_addr = lower_expr(c, arena, src_ref);
+                    zc_simd_emit_v512_load(c, vr, src_addr);
+                }
+                zc_simd_emit_v512_load(c, va, a_addr);
+                zc_simd_emit_v512_load(c, vb, b_addr);
+                ir_emit(c, (Instr){.op = mask_binops512[k].vop, .temp_dest = (uint32_t)vr, .temp_src1 = (uint32_t)va, .temp_src2 = (uint32_t)vb, .imm = (int32_t)z, .flags_out = 0xFF, .flags_in = 0xFF});
+                zc_simd_emit_v512_store(c, res_addr, vr);
+            } else {
+                size_t esz = mask_binops512[k].esz;
+                size_t lanes = 64 / esz;
+                if (!z && src_ref) {
+                    int src_addr = lower_expr(c, arena, src_ref);
+                    zc_simd_copy512(c, res_addr, src_addr);
+                } else {
+                    int zt = zc_alloc_temp(c);
+                    ir_emit_mov_imm(c, zt, 0);
+                    for (size_t i = 0; i < 16; i++) {
+                        int da = zc_simd_lane_addr(c, res_addr, i * 4);
+                        ir_emit_store_32(c, zt, da);
+                    }
+                }
+                for (size_t i = 0; i < lanes; i++) {
+                    int t_mask = zc_alloc_temp(c);
+                    ir_emit_mov_imm(c, t_mask, (int64_t)1 << i);
+                    int t_bit = zc_alloc_temp(c);
+                    ir_emit_and(c, t_bit, k_val, t_mask);
+                    uint16_t l_skip = (uint16_t)c->ir_next_label++;
+                    ir_emit_je(c, (uint32_t)t_bit, l_skip);
+
+                    int la = zc_simd_lane_addr(c, a_addr, i * esz);
+                    int lb = zc_simd_lane_addr(c, b_addr, i * esz);
+                    int lr = zc_simd_lane_addr(c, res_addr, i * esz);
+                    int va = zc_alloc_temp(c), vb = zc_alloc_temp(c), vr = zc_alloc_temp(c);
+                    if (esz == 4) { ir_emit_vloadss(c, (uint32_t)va, (uint32_t)la); ir_emit_vloadss(c, (uint32_t)vb, (uint32_t)lb); }
+                    else          { ir_emit_vloadsd(c, (uint32_t)va, (uint32_t)la); ir_emit_vloadsd(c, (uint32_t)vb, (uint32_t)lb); }
+                    if (mask_binops512[k].alu == 0)      ir_emit_fadd(c, (uint32_t)vr, (uint32_t)va, (uint32_t)vb);
+                    else if (mask_binops512[k].alu == 1) ir_emit_fsub(c, (uint32_t)vr, (uint32_t)va, (uint32_t)vb);
+                    else if (mask_binops512[k].alu == 2) ir_emit_fmul(c, (uint32_t)vr, (uint32_t)va, (uint32_t)vb);
+                    else                                 ir_emit_fdiv(c, (uint32_t)vr, (uint32_t)va, (uint32_t)vb);
+                    if (esz == 4) ir_emit_vstoress(c, (uint32_t)lr, (uint32_t)vr);
+                    else          ir_emit_vstoresd(c, (uint32_t)lr, (uint32_t)vr);
+
+                    ir_emit_label(c, l_skip);
+                }
+            }
+            c->last_expr_is_float = 0;
+            *out_temp = res_addr;
+            return true;
+        }
+
+        /* AVX-512 Masked Load Operations (Sprint 201) */
+        if (strncmp(s512, "mask", 4) == 0 && strstr(s512, "load512")) {
+            bool is_z = (strncmp(s512, "maskz_", 6) == 0);
+            bool is_pd = (strstr(s512, "_pd") != NULL);
+            size_t esz = is_pd ? 8 : 4;
+            size_t lanes = 64 / esz;
+            ASTRef src_ref = is_z ? AST_NULL : arg0_ref;
+            ASTRef k_ref   = arg1_ref;
+            ASTRef ptr_ref = arg2_ref;
+            if (!k_ref || !ptr_ref) return false;
+
+            int k_val = lower_expr(c, arena, k_ref);
+            int ptr_val = lower_expr(c, arena, ptr_ref);
+            int res_addr = zc_simd_alloc_res512(c, NULL);
+
+            if (zc_simd_has_hw512(c)) {
+                c->used_avx512 = true;
+                c->used_avx = true;
+                ir_emit(c, (Instr){.op = OP_KMOVW_TO_K1, .temp_dest = TEMP_NONE, .temp_src1 = (uint32_t)k_val, .flags_out = 0xFF, .flags_in = 0xFF});
+                int vr = zc_alloc_temp(c);
+                if (!is_z && src_ref) {
+                    int src_addr = lower_expr(c, arena, src_ref);
+                    zc_simd_emit_v512_load(c, vr, src_addr);
+                }
+                ir_emit(c, (Instr){.op = OP_V512_MASK_LOAD, .temp_dest = (uint32_t)vr, .temp_src1 = (uint32_t)ptr_val, .imm = 0, .cond = (uint8_t)(is_z ? 1 : 0), .flags_out = 0xFF, .flags_in = 0xFF});
+                zc_simd_emit_v512_store(c, res_addr, vr);
+            } else {
+                if (!is_z && src_ref) {
+                    int src_addr = lower_expr(c, arena, src_ref);
+                    zc_simd_copy512(c, res_addr, src_addr);
+                } else {
+                    int zt = zc_alloc_temp(c);
+                    ir_emit_mov_imm(c, zt, 0);
+                    for (size_t i = 0; i < 16; i++) {
+                        int da = zc_simd_lane_addr(c, res_addr, i * 4);
+                        ir_emit_store_32(c, zt, da);
+                    }
+                }
+                for (size_t i = 0; i < lanes; i++) {
+                    int t_mask = zc_alloc_temp(c);
+                    ir_emit_mov_imm(c, t_mask, (int64_t)1 << i);
+                    int t_bit = zc_alloc_temp(c);
+                    ir_emit_and(c, t_bit, k_val, t_mask);
+                    uint16_t l_skip = (uint16_t)c->ir_next_label++;
+                    ir_emit_je(c, (uint32_t)t_bit, l_skip);
+
+                    int pa = zc_simd_lane_addr(c, ptr_val, i * esz);
+                    int lr = zc_simd_lane_addr(c, res_addr, i * esz);
+                    int tmp = zc_alloc_temp(c);
+                    if (esz == 4) {
+                        ir_emit_vloadss(c, (uint32_t)tmp, (uint32_t)pa);
+                        ir_emit_vstoress(c, (uint32_t)lr, (uint32_t)tmp);
+                    } else {
+                        ir_emit_vloadsd(c, (uint32_t)tmp, (uint32_t)pa);
+                        ir_emit_vstoresd(c, (uint32_t)lr, (uint32_t)tmp);
+                    }
+                    ir_emit_label(c, l_skip);
+                }
+            }
+            c->last_expr_is_float = 0;
+            *out_temp = res_addr;
+            return true;
+        }
+
+        /* AVX-512 Masked Store Operations (Sprint 201) */
+        if (strncmp(s512, "mask_store512", 13) == 0) {
+            bool is_pd = (strstr(s512, "_pd") != NULL);
+            size_t esz = is_pd ? 8 : 4;
+            size_t lanes = 64 / esz;
+            if (!arg0_ref || !arg1_ref || !arg2_ref) return false;
+
+            int ptr_val = lower_expr(c, arena, arg0_ref);
+            int k_val = lower_expr(c, arena, arg1_ref);
+            int vec_addr = lower_expr(c, arena, arg2_ref);
+
+            if (zc_simd_has_hw512(c)) {
+                c->used_avx512 = true;
+                c->used_avx = true;
+                ir_emit(c, (Instr){.op = OP_KMOVW_TO_K1, .temp_dest = TEMP_NONE, .temp_src1 = (uint32_t)k_val, .flags_out = 0xFF, .flags_in = 0xFF});
+                int vt = zc_alloc_temp(c);
+                zc_simd_emit_v512_load(c, vt, vec_addr);
+                ir_emit(c, (Instr){.op = OP_V512_MASK_STORE, .temp_dest = TEMP_NONE, .temp_src1 = (uint32_t)ptr_val, .temp_src2 = (uint32_t)vt, .imm = 0, .flags_out = 0xFF, .flags_in = 0xFF});
+            } else {
+                for (size_t i = 0; i < lanes; i++) {
+                    int t_mask = zc_alloc_temp(c);
+                    ir_emit_mov_imm(c, t_mask, (int64_t)1 << i);
+                    int t_bit = zc_alloc_temp(c);
+                    ir_emit_and(c, t_bit, k_val, t_mask);
+                    uint16_t l_skip = (uint16_t)c->ir_next_label++;
+                    ir_emit_je(c, (uint32_t)t_bit, l_skip);
+
+                    int pa = zc_simd_lane_addr(c, ptr_val, i * esz);
+                    int va = zc_simd_lane_addr(c, vec_addr, i * esz);
+                    int tmp = zc_alloc_temp(c);
+                    if (esz == 4) {
+                        ir_emit_vloadss(c, (uint32_t)tmp, (uint32_t)va);
+                        ir_emit_vstoress(c, (uint32_t)pa, (uint32_t)tmp);
+                    } else {
+                        ir_emit_vloadsd(c, (uint32_t)tmp, (uint32_t)va);
+                        ir_emit_vstoresd(c, (uint32_t)pa, (uint32_t)tmp);
+                    }
+                    ir_emit_label(c, l_skip);
+                }
+            }
+            int z = zc_alloc_temp(c);
+            ir_emit_mov_imm(c, z, 0);
+            c->last_expr_is_float = 0;
+            *out_temp = z;
+            return true;
+        }
+
+        /* AVX-512 Vector Comparisons Producing Masks (Sprint 201) */
+        if (strncmp(s512, "cmp", 3) == 0 && strstr(s512, "_mask") != NULL) {
+            bool is_pd = (strstr(s512, "_pd_") != NULL);
+            bool is_lt = (strstr(s512, "cmplt_") != NULL);
+            size_t esz = is_pd ? 8 : 4;
+            size_t lanes = 64 / esz;
+            int imm_pred = is_lt ? 1 : 0;
+            uint8_t cond = is_lt ? CC_LT : CC_EQ;
+
+            if (!arg0_ref || !arg1_ref) return false;
+            int a_addr = lower_expr(c, arena, arg0_ref);
+            int b_addr = lower_expr(c, arena, arg1_ref);
+
+            int res_mask = zc_alloc_temp(c);
+
+            if (zc_simd_has_hw512(c)) {
+                c->used_avx512 = true;
+                c->used_avx = true;
+                int va = zc_alloc_temp(c), vb = zc_alloc_temp(c);
+                zc_simd_emit_v512_load(c, va, a_addr);
+                zc_simd_emit_v512_load(c, vb, b_addr);
+                ir_emit(c, (Instr){.op = OP_V512_CMP_MASK, .temp_dest = (uint32_t)res_mask, .temp_src1 = (uint32_t)va, .temp_src2 = (uint32_t)vb, .imm = imm_pred, .cond = (uint8_t)(is_pd ? 1 : 0), .flags_out = 0xFF, .flags_in = 0xFF});
+            } else {
+                ir_emit_mov_imm(c, res_mask, 0);
+                for (size_t i = 0; i < lanes; i++) {
+                    int la = zc_simd_lane_addr(c, a_addr, i * esz);
+                    int lb = zc_simd_lane_addr(c, b_addr, i * esz);
+                    int va = zc_alloc_temp(c), vb = zc_alloc_temp(c);
+                    if (esz == 4) { ir_emit_vloadss(c, (uint32_t)va, (uint32_t)la); ir_emit_vloadss(c, (uint32_t)vb, (uint32_t)lb); }
+                    else          { ir_emit_vloadsd(c, (uint32_t)va, (uint32_t)la); ir_emit_vloadsd(c, (uint32_t)vb, (uint32_t)lb); }
+                    ir_emit_cmp(c, (uint32_t)va, (uint32_t)vb);
+                    int cc = zc_alloc_temp(c);
+                    ir_emit_cond_set(c, (uint32_t)cc, cond);
+                    if (i > 0) {
+                        int t_cnt = zc_alloc_temp(c);
+                        ir_emit_mov_imm(c, t_cnt, (int32_t)i);
+                        int t_sh = zc_alloc_temp(c);
+                        ir_emit_shl(c, t_sh, cc, t_cnt);
+                        cc = t_sh;
+                    }
+                    ir_emit_or(c, res_mask, res_mask, cc);
+                }
+            }
+            c->last_expr_is_float = 0;
+            *out_temp = res_mask;
+            return true;
+        }
+
         if (strcmp(s512, "load512") == 0) {
             if (!arg1_ref) return false;
             int ptr_temp = lower_expr(c, arena, arg1_ref);

@@ -707,6 +707,8 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
                             (conv && ai >= 0 && ai < conv->int_arg_reg_count)
                             ? conv->int_arg_regs[ai] : -1;
                     }
+                } else if (instr->op == OP_KMOVW_FROM_K1 || instr->op == OP_V512_CMP_MASK) {
+                    lra->temp_reg_class[instr->temp_dest] = REG_CLASS_GPR;
                 } else if (ir_opcode_is_float(instr->op)) {
                     lra->temp_reg_class[instr->temp_dest] = REG_CLASS_XMM;
                 } else if (ir_opcode_is_simd(instr->op)) {
@@ -742,7 +744,9 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
             if (zc_temp_is_user(instr->temp_src1) && (size_t)instr->temp_src1 < lra->temp_capacity) {
                 if (instr->op == OP_CVTSI2SD || instr->op == OP_VCVT_SI2SS || instr->op == OP_VCVT_SI2SD ||
                     instr->op == OP_VLOAD || instr->op == OP_V256_LOAD || instr->op == OP_V512_LOAD ||
+                    instr->op == OP_V512_MASK_LOAD ||
                     instr->op == OP_VSTORE || instr->op == OP_V256_STORE || instr->op == OP_V512_STORE ||
+                    instr->op == OP_V512_MASK_STORE || instr->op == OP_KMOVW_TO_K1 ||
                     instr->op == OP_VLOADSS || instr->op == OP_VLOADSD ||
                     instr->op == OP_VSTORESS || instr->op == OP_VSTORESD ||
                     instr->op == OP_VLOADSS_RAW || instr->op == OP_VSTORESS_RAW) {
@@ -754,7 +758,7 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
                     instr->op == OP_VADDSD || instr->op == OP_VSUBSD || instr->op == OP_VMULSD || instr->op == OP_VDIVSD ||
                     instr->op == OP_VMOVSS || instr->op == OP_VMOVSD || instr->op == OP_VCMPSS || instr->op == OP_VCMPSD) {
                     lra->temp_reg_class[instr->temp_src1] = REG_CLASS_XMM;
-                } else if (ir_opcode_is_simd(instr->op)) {
+                } else if (ir_opcode_is_simd(instr->op) || instr->op == OP_V512_CMP_MASK) {
                     /* SIMD instructions consume vector registers for sources */
                     lra->temp_reg_class[instr->temp_src1] = REG_CLASS_VEC;
                 } else if (instr->op == OP_ADD128 || instr->op == OP_SUB128 || instr->op == OP_MUL128 ||
@@ -783,7 +787,7 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
             if (zc_temp_is_user(instr->temp_src2) && (size_t)instr->temp_src2 < lra->temp_capacity) {
                 if (instr->op == OP_FSTORE) {
                     lra->temp_reg_class[instr->temp_src2] = REG_CLASS_GPR; /* base pointer */
-                } else if (instr->op == OP_VSTORE || instr->op == OP_V256_STORE || instr->op == OP_V512_STORE) {
+                } else if (instr->op == OP_VSTORE || instr->op == OP_V256_STORE || instr->op == OP_V512_STORE || instr->op == OP_V512_MASK_STORE) {
                     lra->temp_reg_class[instr->temp_src2] = REG_CLASS_VEC; /* vector value to store */
                 } else if (instr->op == OP_VSTORESS || instr->op == OP_VSTORESD || instr->op == OP_VSTORESS_RAW) {
                     lra->temp_reg_class[instr->temp_src2] = REG_CLASS_XMM; /* scalar float/double value to store */
@@ -792,7 +796,7 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
                            instr->op == OP_VADDSD || instr->op == OP_VSUBSD || instr->op == OP_VMULSD || instr->op == OP_VDIVSD ||
                            instr->op == OP_VCMPSS || instr->op == OP_VCMPSD) {
                     lra->temp_reg_class[instr->temp_src2] = REG_CLASS_XMM;
-                } else if (ir_opcode_is_simd(instr->op)) {
+                } else if (ir_opcode_is_simd(instr->op) || instr->op == OP_V512_CMP_MASK) {
                     /* SIMD instructions consume vector registers for sources */
                     lra->temp_reg_class[instr->temp_src2] = REG_CLASS_VEC;
                 } else if (instr->op == OP_ADD128 || instr->op == OP_SUB128 || instr->op == OP_MUL128 ||

@@ -643,7 +643,8 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
                 ZeroCCASTNode *cn = sem_get_node(ctx, node->left);
                 if (cn && cn->tag == NODE_IDENT && cn->s.str &&
                     ((arg_count == 2 && strcmp(cn->s.str, "__builtin_shuffle") == 0) ||
-                     strncmp(cn->s.str, "__builtin_zerocc_v", 18) == 0)) {
+                     (strncmp(cn->s.str, "__builtin_zerocc_v", 18) == 0 &&
+                      !(strlen(cn->s.str) >= 5 && strcmp(cn->s.str + strlen(cn->s.str) - 5, "_mask") == 0)))) {
                     res = first_arg_t;
                     expr_node_set_type(ctx, node, res);
                 }

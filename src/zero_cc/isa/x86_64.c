@@ -832,6 +832,147 @@ static void x86_emit_v512_vxorps(ZeroCCCompiler *c, int dst, int src1, int src2)
     x86_modrm(c, 3, dst & 7, src2 & 7);
 }
 
+/* AVX-512 Opmask / Predication (Sprint 201) */
+static void x86_emit_kmov_to_k1(ZeroCCCompiler *c, int src_gpr) {
+    c->used_avx512 = true;
+    c->used_avx = true;
+    x86_vex(c, 1, 0, 0, 1, src_gpr, 0, 0);
+    me_emit_u8(c, 0x92);
+    x86_modrm(c, 3, 1, src_gpr & 7);
+}
+
+static void x86_emit_kmov_from_k1(ZeroCCCompiler *c, int dst_gpr) {
+    c->used_avx512 = true;
+    c->used_avx = true;
+    x86_vex(c, 1, 0, 0, dst_gpr, 1, 0, 0);
+    me_emit_u8(c, 0x93);
+    x86_modrm(c, 3, dst_gpr & 7, 1);
+}
+
+static void x86_emit_v512_mask_load(ZeroCCCompiler *c, int dst, int base, int32_t offset, int z) {
+    c->used_avx512 = true;
+    c->used_avx = true;
+    x86_evex(c, 1, 0, 0, dst, base, 0, 2, 1, z ? 1 : 0);
+    me_emit_u8(c, 0x10);
+    int mod;
+    if (offset == 0 && (base & 7) != X86_RBP) {
+        mod = 0;
+    } else if ((offset % 64 == 0) && (offset / 64 >= -128) && (offset / 64 <= 127)) {
+        mod = 1;
+    } else {
+        mod = 2;
+    }
+    x86_modrm(c, mod, dst & 7, base & 7);
+    if ((base & 7) == X86_RSP) me_emit_u8(c, 0x24);
+    if (mod == 1) me_emit_u8(c, (uint8_t)(int8_t)(offset / 64));
+    else if (mod == 2) me_emit_u32(c, (uint32_t)offset);
+}
+
+static void x86_emit_v512_mask_store(ZeroCCCompiler *c, int src, int base, int32_t offset) {
+    c->used_avx512 = true;
+    c->used_avx = true;
+    x86_evex(c, 1, 0, 0, src, base, 0, 2, 1, 0);
+    me_emit_u8(c, 0x11);
+    int mod;
+    if (offset == 0 && (base & 7) != X86_RBP) {
+        mod = 0;
+    } else if ((offset % 64 == 0) && (offset / 64 >= -128) && (offset / 64 <= 127)) {
+        mod = 1;
+    } else {
+        mod = 2;
+    }
+    x86_modrm(c, mod, src & 7, base & 7);
+    if ((base & 7) == X86_RSP) me_emit_u8(c, 0x24);
+    if (mod == 1) me_emit_u8(c, (uint8_t)(int8_t)(offset / 64));
+    else if (mod == 2) me_emit_u32(c, (uint32_t)offset);
+}
+
+static void x86_emit_v512_mask_addps(ZeroCCCompiler *c, int dst, int src1, int src2, int z) {
+    c->used_avx512 = true;
+    c->used_avx = true;
+    x86_evex(c, 1, 0, 0, dst, src2, src1, 2, 1, z ? 1 : 0);
+    me_emit_u8(c, 0x58);
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_v512_mask_subps(ZeroCCCompiler *c, int dst, int src1, int src2, int z) {
+    c->used_avx512 = true;
+    c->used_avx = true;
+    x86_evex(c, 1, 0, 0, dst, src2, src1, 2, 1, z ? 1 : 0);
+    me_emit_u8(c, 0x5C);
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_v512_mask_mulps(ZeroCCCompiler *c, int dst, int src1, int src2, int z) {
+    c->used_avx512 = true;
+    c->used_avx = true;
+    x86_evex(c, 1, 0, 0, dst, src2, src1, 2, 1, z ? 1 : 0);
+    me_emit_u8(c, 0x59);
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_v512_mask_divps(ZeroCCCompiler *c, int dst, int src1, int src2, int z) {
+    c->used_avx512 = true;
+    c->used_avx = true;
+    x86_evex(c, 1, 0, 0, dst, src2, src1, 2, 1, z ? 1 : 0);
+    me_emit_u8(c, 0x5E);
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_v512_mask_addpd(ZeroCCCompiler *c, int dst, int src1, int src2, int z) {
+    c->used_avx512 = true;
+    c->used_avx = true;
+    x86_evex(c, 1, 1, 1, dst, src2, src1, 2, 1, z ? 1 : 0);
+    me_emit_u8(c, 0x58);
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_v512_mask_subpd(ZeroCCCompiler *c, int dst, int src1, int src2, int z) {
+    c->used_avx512 = true;
+    c->used_avx = true;
+    x86_evex(c, 1, 1, 1, dst, src2, src1, 2, 1, z ? 1 : 0);
+    me_emit_u8(c, 0x5C);
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_v512_mask_mulpd(ZeroCCCompiler *c, int dst, int src1, int src2, int z) {
+    c->used_avx512 = true;
+    c->used_avx = true;
+    x86_evex(c, 1, 1, 1, dst, src2, src1, 2, 1, z ? 1 : 0);
+    me_emit_u8(c, 0x59);
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_v512_mask_divpd(ZeroCCCompiler *c, int dst, int src1, int src2, int z) {
+    c->used_avx512 = true;
+    c->used_avx = true;
+    x86_evex(c, 1, 1, 1, dst, src2, src1, 2, 1, z ? 1 : 0);
+    me_emit_u8(c, 0x5E);
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_v512_cmp_mask(ZeroCCCompiler *c, int dst_gpr, int src1, int src2, int imm_predicate, int is_pd) {
+    c->used_avx512 = true;
+    c->used_avx = true;
+    if (is_pd) {
+        x86_evex(c, 1, 1, 1, 1, src2, src1, 2, 0, 0);
+        me_emit_u8(c, 0xC2);
+        x86_modrm(c, 3, 1, src2 & 7);
+        me_emit_u8(c, (uint8_t)imm_predicate);
+        x86_vex(c, 1, 1, 0, dst_gpr, 1, 0, 0);
+        me_emit_u8(c, 0x93);
+        x86_modrm(c, 3, dst_gpr & 7, 1);
+    } else {
+        x86_evex(c, 1, 0, 0, 1, src2, src1, 2, 0, 0);
+        me_emit_u8(c, 0xC2);
+        x86_modrm(c, 3, 1, src2 & 7);
+        me_emit_u8(c, (uint8_t)imm_predicate);
+        x86_vex(c, 1, 0, 0, dst_gpr, 1, 0, 0);
+        me_emit_u8(c, 0x93);
+        x86_modrm(c, 3, dst_gpr & 7, 1);
+    }
+}
+
 static void x86_emit_neg(ZeroCCCompiler *c, int dst, int src);
 
 static void x86_emit_sub(ZeroCCCompiler *c, int dst, int src1, int src2) {
@@ -2146,6 +2287,19 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_v512_andps = x86_emit_v512_andps,
     .emit_v512_vorps = x86_emit_v512_orps,
     .emit_v512_vxorps = x86_emit_v512_vxorps,
+    .emit_kmov_to_k1 = x86_emit_kmov_to_k1,
+    .emit_kmov_from_k1 = x86_emit_kmov_from_k1,
+    .emit_v512_mask_load = x86_emit_v512_mask_load,
+    .emit_v512_mask_store = x86_emit_v512_mask_store,
+    .emit_v512_mask_addps = x86_emit_v512_mask_addps,
+    .emit_v512_mask_subps = x86_emit_v512_mask_subps,
+    .emit_v512_mask_mulps = x86_emit_v512_mask_mulps,
+    .emit_v512_mask_divps = x86_emit_v512_mask_divps,
+    .emit_v512_mask_addpd = x86_emit_v512_mask_addpd,
+    .emit_v512_mask_subpd = x86_emit_v512_mask_subpd,
+    .emit_v512_mask_mulpd = x86_emit_v512_mask_mulpd,
+    .emit_v512_mask_divpd = x86_emit_v512_mask_divpd,
+    .emit_v512_cmp_mask = x86_emit_v512_cmp_mask,
     .emit_cvtss2sd = x86_emit_fp_cvtss2sd,
     .emit_cvtsi2ss = x86_emit_fp_cvtsi2ss,
     .emit_cvtsd2ss = x86_emit_fp_cvtsd2ss,
@@ -2343,6 +2497,19 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_v512_andps_asm = x86_emit_v512_andps_asm,
     .emit_v512_vorps_asm = x86_emit_v512_orps_asm,
     .emit_v512_vxorps_asm = x86_emit_v512_vxorps_asm,
+    .emit_kmov_to_k1_asm = x86_emit_kmov_to_k1_asm,
+    .emit_kmov_from_k1_asm = x86_emit_kmov_from_k1_asm,
+    .emit_v512_mask_load_asm = x86_emit_v512_mask_load_asm,
+    .emit_v512_mask_store_asm = x86_emit_v512_mask_store_asm,
+    .emit_v512_mask_addps_asm = x86_emit_v512_mask_addps_asm,
+    .emit_v512_mask_subps_asm = x86_emit_v512_mask_subps_asm,
+    .emit_v512_mask_mulps_asm = x86_emit_v512_mask_mulps_asm,
+    .emit_v512_mask_divps_asm = x86_emit_v512_mask_divps_asm,
+    .emit_v512_mask_addpd_asm = x86_emit_v512_mask_addpd_asm,
+    .emit_v512_mask_subpd_asm = x86_emit_v512_mask_subpd_asm,
+    .emit_v512_mask_mulpd_asm = x86_emit_v512_mask_mulpd_asm,
+    .emit_v512_mask_divpd_asm = x86_emit_v512_mask_divpd_asm,
+    .emit_v512_cmp_mask_asm = x86_emit_v512_cmp_mask_asm,
     };
 
 /* NOTE (Sprint 114): the global ISA backend registry (zero_cc_get_backend,

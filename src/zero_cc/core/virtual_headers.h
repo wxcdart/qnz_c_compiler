@@ -979,6 +979,10 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name, ZeroCCStdDi
             "typedef uint32_t __v16su __attribute__((__vector_size__(64)));\n"
             "typedef int64_t __v8di __attribute__((__vector_size__(64)));\n"
             "typedef uint64_t __v8du __attribute__((__vector_size__(64)));\n"
+            "typedef uint8_t __mmask8;\n"
+            "typedef uint16_t __mmask16;\n"
+            "typedef uint32_t __mmask32;\n"
+            "typedef uint64_t __mmask64;\n"
             "static inline __m128 _mm_set1_ps(float __a) { __m128 __z; return __builtin_zerocc_vset1_ps(__z, __a); }\n"
             "static inline __m128 _mm_set_ps1(float __a) { return _mm_set1_ps(__a); }\n"
             "static inline __m128 _mm_setzero_ps(void) { return _mm_set1_ps(0.0f); }\n"
@@ -1183,15 +1187,64 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name, ZeroCCStdDi
             "static inline __m512d _mm512_div_pd(__m512d __a, __m512d __b) { return __builtin_zerocc_v512_divpd(__a, __b); }\n"
             "static inline __m512 _mm512_and_ps(__m512 __a, __m512 __b) { return __builtin_zerocc_v512_andps(__a, __b); }\n"
             "static inline __m512 _mm512_or_ps(__m512 __a, __m512 __b) { return __builtin_zerocc_v512_orps(__a, __b); }\n"
-            "static inline __m512 _mm512_xor_ps(__m512 __a, __m512 __b) { return __builtin_zerocc_v512_xorps(__a, __b); }\n"
+            "static inline __m512 _mm512_xor_ps(__m512 __a, __m512 __b) { return __builtin_zerocc_v512_xorps(__a, __b); }\n";
+        static const char k_immintrin_p5[] =
+            "/* AVX-512 Opmask and Predication */\n"
+            "static inline __mmask16 _cvtu32_mask16(unsigned int __a) { return (__mmask16)__a; }\n"
+            "static inline unsigned int _cvtmask16_u32(__mmask16 __a) { return (unsigned int)__a; }\n"
+            "static inline __mmask8 _cvtu32_mask8(unsigned int __a) { return (__mmask8)__a; }\n"
+            "static inline unsigned int _cvtmask8_u32(__mmask8 __a) { return (unsigned int)__a; }\n"
+            "static inline __mmask16 _kand_mask16(__mmask16 __a, __mmask16 __b) { return __a & __b; }\n"
+            "static inline __mmask16 _kor_mask16(__mmask16 __a, __mmask16 __b) { return __a | __b; }\n"
+            "static inline __mmask16 _kxor_mask16(__mmask16 __a, __mmask16 __b) { return __a ^ __b; }\n"
+            "static inline __mmask16 _knot_mask16(__mmask16 __a) { return (__mmask16)(~__a); }\n"
+            "static inline __mmask8 _kand_mask8(__mmask8 __a, __mmask8 __b) { return __a & __b; }\n"
+            "static inline __mmask8 _kor_mask8(__mmask8 __a, __mmask8 __b) { return __a | __b; }\n"
+            "static inline __mmask8 _kxor_mask8(__mmask8 __a, __mmask8 __b) { return __a ^ __b; }\n"
+            "static inline __mmask8 _knot_mask8(__mmask8 __a) { return (__mmask8)(~__a); }\n"
+            "static inline __m512 _mm512_mask_loadu_ps(__m512 __src, __mmask16 __k, const void *__p) { return __builtin_zerocc_v512_mask_load512(__src, __k, __p); }\n"
+            "static inline __m512 _mm512_maskz_loadu_ps(__mmask16 __k, const void *__p) { __m512 __z; return __builtin_zerocc_v512_maskz_load512(__z, __k, __p); }\n"
+            "static inline void _mm512_mask_storeu_ps(void *__p, __mmask16 __k, __m512 __a) { __builtin_zerocc_v512_mask_store512(__p, __k, __a); }\n"
+            "static inline __m512d _mm512_mask_loadu_pd(__m512d __src, __mmask8 __k, const void *__p) { return __builtin_zerocc_v512_mask_load512_pd(__src, __k, __p); }\n"
+            "static inline __m512d _mm512_maskz_loadu_pd(__mmask8 __k, const void *__p) { __m512d __z; return __builtin_zerocc_v512_maskz_load512_pd(__z, __k, __p); }\n"
+            "static inline void _mm512_mask_storeu_pd(void *__p, __mmask8 __k, __m512d __a) { __builtin_zerocc_v512_mask_store512_pd(__p, __k, __a); }\n"
+            "static inline __m512 _mm512_mask_add_ps(__m512 __src, __mmask16 __k, __m512 __a, __m512 __b) { return __builtin_zerocc_v512_mask_addps(__src, __k, __a, __b); }\n"
+            "static inline __m512 _mm512_maskz_add_ps(__mmask16 __k, __m512 __a, __m512 __b) { return __builtin_zerocc_v512_maskz_addps(__a, __b, __k); }\n"
+            "static inline __m512 _mm512_mask_sub_ps(__m512 __src, __mmask16 __k, __m512 __a, __m512 __b) { return __builtin_zerocc_v512_mask_subps(__src, __k, __a, __b); }\n"
+            "static inline __m512 _mm512_maskz_sub_ps(__mmask16 __k, __m512 __a, __m512 __b) { return __builtin_zerocc_v512_maskz_subps(__a, __b, __k); }\n"
+            "static inline __m512 _mm512_mask_mul_ps(__m512 __src, __mmask16 __k, __m512 __a, __m512 __b) { return __builtin_zerocc_v512_mask_mulps(__src, __k, __a, __b); }\n"
+            "static inline __m512 _mm512_maskz_mul_ps(__mmask16 __k, __m512 __a, __m512 __b) { return __builtin_zerocc_v512_maskz_mulps(__a, __b, __k); }\n"
+            "static inline __m512 _mm512_mask_div_ps(__m512 __src, __mmask16 __k, __m512 __a, __m512 __b) { return __builtin_zerocc_v512_mask_divps(__src, __k, __a, __b); }\n"
+            "static inline __m512 _mm512_maskz_div_ps(__mmask16 __k, __m512 __a, __m512 __b) { return __builtin_zerocc_v512_maskz_divps(__a, __b, __k); }\n"
+            "static inline __m512d _mm512_mask_add_pd(__m512d __src, __mmask8 __k, __m512d __a, __m512d __b) { return __builtin_zerocc_v512_mask_addpd(__src, __k, __a, __b); }\n"
+            "static inline __m512d _mm512_maskz_add_pd(__mmask8 __k, __m512d __a, __m512d __b) { return __builtin_zerocc_v512_maskz_addpd(__a, __b, __k); }\n"
+            "static inline __m512d _mm512_mask_sub_pd(__m512d __src, __mmask8 __k, __m512d __a, __m512d __b) { return __builtin_zerocc_v512_mask_subpd(__src, __k, __a, __b); }\n"
+            "static inline __m512d _mm512_maskz_sub_pd(__mmask8 __k, __m512d __a, __m512d __b) { return __builtin_zerocc_v512_maskz_subpd(__a, __b, __k); }\n"
+            "static inline __m512d _mm512_mask_mul_pd(__m512d __src, __mmask8 __k, __m512d __a, __m512d __b) { return __builtin_zerocc_v512_mask_mulpd(__src, __k, __a, __b); }\n"
+            "static inline __m512d _mm512_maskz_mul_pd(__mmask8 __k, __m512d __a, __m512d __b) { return __builtin_zerocc_v512_maskz_mulpd(__a, __b, __k); }\n"
+            "static inline __m512d _mm512_mask_div_pd(__m512d __src, __mmask8 __k, __m512d __a, __m512d __b) { return __builtin_zerocc_v512_mask_divpd(__src, __k, __a, __b); }\n"
+            "static inline __m512d _mm512_maskz_div_pd(__mmask8 __k, __m512d __a, __m512d __b) { return __builtin_zerocc_v512_maskz_divpd(__a, __b, __k); }\n"
+            "static inline __m512 _mm512_mask_mov_ps(__m512 __src, __mmask16 __k, __m512 __a) { return _mm512_mask_add_ps(__src, __k, __a, _mm512_setzero_ps()); }\n"
+            "static inline __m512 _mm512_maskz_mov_ps(__mmask16 __k, __m512 __a) { return _mm512_maskz_add_ps(__k, __a, _mm512_setzero_ps()); }\n"
+            "static inline __m512d _mm512_mask_mov_pd(__m512d __src, __mmask8 __k, __m512d __a) { return _mm512_mask_add_pd(__src, __k, __a, _mm512_setzero_pd()); }\n"
+            "static inline __m512d _mm512_maskz_mov_pd(__mmask8 __k, __m512d __a) { return _mm512_maskz_add_pd(__k, __a, _mm512_setzero_pd()); }\n"
+            "static inline __mmask16 _mm512_cmpeq_ps_mask(__m512 __a, __m512 __b) { return (__mmask16)__builtin_zerocc_v512_cmpeq_ps_mask(__a, __b); }\n"
+            "static inline __mmask16 _mm512_cmplt_ps_mask(__m512 __a, __m512 __b) { return (__mmask16)__builtin_zerocc_v512_cmplt_ps_mask(__a, __b); }\n"
+            "static inline __mmask8 _mm512_cmpeq_pd_mask(__m512d __a, __m512d __b) { return (__mmask8)__builtin_zerocc_v512_cmpeq_pd_mask(__a, __b); }\n"
+            "static inline __mmask8 _mm512_cmplt_pd_mask(__m512d __a, __m512d __b) { return (__mmask8)__builtin_zerocc_v512_cmplt_pd_mask(__a, __b); }\n"
+            "static inline __mmask16 _mm512_mask_cmpeq_ps_mask(__mmask16 __k, __m512 __a, __m512 __b) { return _mm512_cmpeq_ps_mask(__a, __b) & __k; }\n"
+            "static inline __mmask16 _mm512_mask_cmplt_ps_mask(__mmask16 __k, __m512 __a, __m512 __b) { return _mm512_cmplt_ps_mask(__a, __b) & __k; }\n"
+            "static inline __mmask8 _mm512_mask_cmpeq_pd_mask(__mmask8 __k, __m512d __a, __m512d __b) { return _mm512_cmpeq_pd_mask(__a, __b) & __k; }\n"
+            "static inline __mmask8 _mm512_mask_cmplt_pd_mask(__mmask8 __k, __m512d __a, __m512d __b) { return _mm512_cmplt_pd_mask(__a, __b) & __k; }\n"
             "#endif\n";
-        size_t l1 = sizeof(k_immintrin_p1) - 1, l2 = sizeof(k_immintrin_p2) - 1, l3 = sizeof(k_immintrin_p3) - 1, l4 = sizeof(k_immintrin_p4) - 1;
-        char *buf = malloc(l1 + l2 + l3 + l4 + 1);
+        size_t l1 = sizeof(k_immintrin_p1) - 1, l2 = sizeof(k_immintrin_p2) - 1, l3 = sizeof(k_immintrin_p3) - 1, l4 = sizeof(k_immintrin_p4) - 1, l5 = sizeof(k_immintrin_p5) - 1;
+        char *buf = malloc(l1 + l2 + l3 + l4 + l5 + 1);
         if (buf) {
             memcpy(buf, k_immintrin_p1, l1);
             memcpy(buf + l1, k_immintrin_p2, l2);
             memcpy(buf + l1 + l2, k_immintrin_p3, l3);
-            memcpy(buf + l1 + l2 + l3, k_immintrin_p4, l4 + 1);
+            memcpy(buf + l1 + l2 + l3, k_immintrin_p4, l4);
+            memcpy(buf + l1 + l2 + l3 + l4, k_immintrin_p5, l5 + 1);
         }
         return buf;
     }

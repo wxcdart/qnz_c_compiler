@@ -1489,6 +1489,84 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             }
             return;
 
+        case OP_KMOVW_TO_K1:
+            if (BE(c)->emit_kmov_to_k1_asm) {
+                BE(c)->emit_kmov_to_k1_asm(c, phys_src1, out);
+            }
+            return;
+
+        case OP_KMOVW_FROM_K1:
+            if (BE(c)->emit_kmov_from_k1_asm) {
+                BE(c)->emit_kmov_from_k1_asm(c, phys_dst, out);
+            }
+            return;
+
+        case OP_V512_MASK_LOAD:
+            if (BE(c)->emit_v512_mask_load_asm) {
+                BE(c)->emit_v512_mask_load_asm(c, phys_dst, phys_src1, instr->imm, (int)instr->cond, out);
+            }
+            return;
+
+        case OP_V512_MASK_STORE:
+            if (BE(c)->emit_v512_mask_store_asm) {
+                BE(c)->emit_v512_mask_store_asm(c, phys_src2, phys_src1, instr->imm, out);
+            }
+            return;
+
+        case OP_V512_MASK_ADDPS:
+            if (BE(c)->emit_v512_mask_addps_asm) {
+                BE(c)->emit_v512_mask_addps_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, out);
+            }
+            return;
+
+        case OP_V512_MASK_SUBPS:
+            if (BE(c)->emit_v512_mask_subps_asm) {
+                BE(c)->emit_v512_mask_subps_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, out);
+            }
+            return;
+
+        case OP_V512_MASK_MULPS:
+            if (BE(c)->emit_v512_mask_mulps_asm) {
+                BE(c)->emit_v512_mask_mulps_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, out);
+            }
+            return;
+
+        case OP_V512_MASK_DIVPS:
+            if (BE(c)->emit_v512_mask_divps_asm) {
+                BE(c)->emit_v512_mask_divps_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, out);
+            }
+            return;
+
+        case OP_V512_MASK_ADDPD:
+            if (BE(c)->emit_v512_mask_addpd_asm) {
+                BE(c)->emit_v512_mask_addpd_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, out);
+            }
+            return;
+
+        case OP_V512_MASK_SUBPD:
+            if (BE(c)->emit_v512_mask_subpd_asm) {
+                BE(c)->emit_v512_mask_subpd_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, out);
+            }
+            return;
+
+        case OP_V512_MASK_MULPD:
+            if (BE(c)->emit_v512_mask_mulpd_asm) {
+                BE(c)->emit_v512_mask_mulpd_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, out);
+            }
+            return;
+
+        case OP_V512_MASK_DIVPD:
+            if (BE(c)->emit_v512_mask_divpd_asm) {
+                BE(c)->emit_v512_mask_divpd_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, out);
+            }
+            return;
+
+        case OP_V512_CMP_MASK:
+            if (BE(c)->emit_v512_cmp_mask_asm) {
+                BE(c)->emit_v512_cmp_mask_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, (int)instr->cond, out);
+            }
+            return;
+
         case OP_VSTORESS: {
             const char *val_name = BE(c)->get_vec_reg_name(phys_src2);
             const char *addr_name = BE(c)->get_hw_reg_name(phys_src1);

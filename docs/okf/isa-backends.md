@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-11-23T04:30:03Z
+timestamp: 2026-11-23T07:39:59Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -253,6 +253,21 @@ When loop vectorization emits packed vector opcodes (`OP_VLOAD`, `OP_VSTORE`, `O
 - **Auto-Vectorizer Scaling**:
   - `opt_auto_vectorize` sets `vector_width = 16` for floats and `vector_width = 8` for doubles when `has_avx512f` is enabled on x86-64.
   - Emits `OP_V512_LOAD`, `OP_V512_STORE`, and `OP_V512_*` arithmetic opcodes, automatically peeling remainder loops when trip counts are not exact multiples of 16 or 8.
+
+### AVX-512 Opmask & Predication (Sprint 201)
+
+- **Opmask Register & Type Abstraction**:
+  - Mask types `__mmask8`, `__mmask16`, `__mmask32`, `__mmask64` defined in `<immintrin.h>`.
+  - Bitwise mask intrinsics (`_kand_mask8/16/32/64`, `_kor_mask*`, `_kxor_mask*`, `_knot_mask*`) and scalar conversion intrinsics (`_cvtu32_mask8/16`, `_cvtmask8/16_u32`, `_cvtu64_mask32/64`, `_cvtmask32/64_u64`).
+  - GPR-to-opmask transfer instructions: `kmovw` (16-bit) and `kmovb` (8-bit) between scalar GPRs and hardware opmask register `k1` (`OP_KMOVW_TO_K1` and `OP_KMOVW_FROM_K1`). GNU `as` AT&T syntax requires 32-bit register operands (e.g. `kmovw %edi, %k1`).
+- **EVEX Write-Masking & Zeroing ({k1}, {k1}{z})**:
+  - Machine code emitters configure EVEX byte 3 mask bits `aaa = 001` (k1) and zeroing bit `z` (0 for merging write-masking, 1 for zeroing-masking `{z}`).
+  - Assembly emitters append `{k1}` or `{k1}{z}` EVEX operands (e.g., `vmovups (%rsi), %zmm0{%k1}`, `vaddps %zmm2, %zmm1, %zmm0{%k1}{z}`).
+- **Masked Vector Load, Store, Arithmetic & Comparison**:
+  - Masked memory operations: `_mm512_mask_loadu_ps`, `_mm512_maskz_loadu_ps`, `_mm512_mask_storeu_ps`, `_mm512_mask_loadu_pd`, `_mm512_maskz_loadu_pd`, `_mm512_mask_storeu_pd`.
+  - Masked arithmetic: `_mm512_mask_add_ps` / `_mm512_maskz_add_ps`, `sub_ps`, `mul_ps`, `div_ps`, `add_pd`, `sub_pd`, `mul_pd`, `div_pd`, `mov_ps`, `mov_pd`.
+  - Mask-producing comparisons: `_mm512_cmpeq_ps_mask`, `_mm512_cmplt_ps_mask`, `_mm512_cmpeq_pd_mask`, `_mm512_cmplt_pd_mask`, plus their masked counterparts `_mm512_mask_cmpeq_ps_mask`, etc.
+  - IR lowering emits hardware EVEX instructions on x86-64 when `-mavx512f` is active; falls back to bitwise lane-predicated scalar emulation in JIT / non-AVX-512 environments.
 
 ### SIMD Vendor Intrinsics & Virtual Headers (Sprint 196 Track 1)
 

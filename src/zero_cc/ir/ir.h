@@ -297,6 +297,20 @@ typedef enum {
     OP_V512_ANDPS,     /* 512-bit packed bitwise AND */
     OP_V512_VORPS,     /* 512-bit packed bitwise OR */
     OP_V512_VXORPS,    /* 512-bit packed bitwise XOR */
+    /* AVX-512 Opmask / Predication operations */
+    OP_KMOVW_TO_K1,    /* move scalar mask to %k1 */
+    OP_KMOVW_FROM_K1,  /* move %k1 to scalar mask */
+    OP_V512_MASK_LOAD, /* 512-bit masked vector load */
+    OP_V512_MASK_STORE,/* 512-bit masked vector store */
+    OP_V512_MASK_ADDPS,/* 512-bit masked single add */
+    OP_V512_MASK_SUBPS,/* 512-bit masked single sub */
+    OP_V512_MASK_MULPS,/* 512-bit masked single mul */
+    OP_V512_MASK_DIVPS,/* 512-bit masked single div */
+    OP_V512_MASK_ADDPD,/* 512-bit masked double add */
+    OP_V512_MASK_SUBPD,/* 512-bit masked double sub */
+    OP_V512_MASK_MULPD,/* 512-bit masked double mul */
+    OP_V512_MASK_DIVPD,/* 512-bit masked double div */
+    OP_V512_CMP_MASK,  /* 512-bit compare producing mask */
     /* Floating-point operations (8) */
     OP_FMOV_IMM,       /* load floating-point literal */
     OP_FLOAD,          /* load float from stack slot */
@@ -632,6 +646,19 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_V512_ANDPS: return "V512_ANDPS";
         case OP_V512_VORPS: return "V512_VORPS";
         case OP_V512_VXORPS: return "V512_VXORPS";
+        case OP_KMOVW_TO_K1: return "KMOVW_TO_K1";
+        case OP_KMOVW_FROM_K1: return "KMOVW_FROM_K1";
+        case OP_V512_MASK_LOAD: return "V512_MASK_LOAD";
+        case OP_V512_MASK_STORE: return "V512_MASK_STORE";
+        case OP_V512_MASK_ADDPS: return "V512_MASK_ADDPS";
+        case OP_V512_MASK_SUBPS: return "V512_MASK_SUBPS";
+        case OP_V512_MASK_MULPS: return "V512_MASK_MULPS";
+        case OP_V512_MASK_DIVPS: return "V512_MASK_DIVPS";
+        case OP_V512_MASK_ADDPD: return "V512_MASK_ADDPD";
+        case OP_V512_MASK_SUBPD: return "V512_MASK_SUBPD";
+        case OP_V512_MASK_MULPD: return "V512_MASK_MULPD";
+        case OP_V512_MASK_DIVPD: return "V512_MASK_DIVPD";
+        case OP_V512_CMP_MASK: return "V512_CMP_MASK";
         case OP_LEA_RIP: return "LEA_RIP";
         case OP_MOV_GLOBAL: return "MOV_GLOBAL";
         case OP_JMP_INDIRECT: return "JMP_INDIRECT";
@@ -749,6 +776,9 @@ static inline bool ir_opcode_is_simd(Opcode op) {
         case OP_V512_ADDPS: case OP_V512_SUBPS: case OP_V512_MULPS: case OP_V512_DIVPS:
         case OP_V512_ADDPD: case OP_V512_SUBPD: case OP_V512_MULPD: case OP_V512_DIVPD:
         case OP_V512_ANDPS: case OP_V512_VORPS: case OP_V512_VXORPS:
+        case OP_V512_MASK_LOAD: case OP_V512_MASK_STORE:
+        case OP_V512_MASK_ADDPS: case OP_V512_MASK_SUBPS: case OP_V512_MASK_MULPS: case OP_V512_MASK_DIVPS:
+        case OP_V512_MASK_ADDPD: case OP_V512_MASK_SUBPD: case OP_V512_MASK_MULPD: case OP_V512_MASK_DIVPD:
             return true;
         default:
             return false;

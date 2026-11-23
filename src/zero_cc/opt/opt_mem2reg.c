@@ -145,6 +145,7 @@ static int instr_invalidates_slots(Instr *instr, const bool *label_targeted, int
         case OP_VSTORE:
         case OP_V256_STORE:
         case OP_V512_STORE:
+        case OP_V512_MASK_STORE:
         case OP_VSTORESS:
         case OP_VSTORESD:
         case OP_ATOMIC_XADD:

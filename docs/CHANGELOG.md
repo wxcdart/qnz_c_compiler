@@ -1,5 +1,29 @@
 # CHANGELOG
 
+## [Sprint 201] - 2026-11-23 - AVX-512 Opmask / Predication (AVX-512F k0–k7 Mask Registers, Merging & Zeroing Masking, Masked Loads/Stores/Arithmetic/Comparisons)
+
+Implements Option 1: AVX-512 Opmask / Predication (AVX-512F / Mask Registers `k0`–`k7`):
+- **Opmask Types & Bitwise Helpers (`virtual_headers.h`)**:
+  - Added mask typedefs `__mmask8`, `__mmask16`, `__mmask32`, `__mmask64` in `<immintrin.h>`.
+  - Added bitwise mask intrinsics (`_kand_mask8/16/32/64`, `_kor_mask*`, `_kxor_mask*`, `_knot_mask*`).
+  - Added mask-to-scalar and scalar-to-mask conversion intrinsics (`_cvtu32_mask8/16`, `_cvtmask8/16_u32`, `_cvtu64_mask32/64`, `_cvtmask32/64_u64`).
+- **Hardware Opmask Emitters & Transfers (`src/zero_cc/isa/`)**:
+  - Implemented `kmovw` (16-bit) and `kmovb` (8-bit) between scalar GPRs and hardware opmask register `k1` (`OP_KMOVW_TO_K1` and `OP_KMOVW_FROM_K1`). Uses 32-bit register operands for GAS compatibility.
+  - EVEX machine code emission with opmask `aaa = 001` (`k1`) and zeroing control `z = 0` (merging) or `z = 1` (zeroing `{z}`).
+  - AT&T text assembly emission with EVEX mask suffixes (`{%k1}` and `{%k1}{z}`).
+- **Masked Vector Load, Store, Arithmetic & Comparison Opcodes**:
+  - Added IR opcodes: `OP_KMOVW_TO_K1`, `OP_KMOVW_FROM_K1`, `OP_V512_MASK_LOAD`, `OP_V512_MASK_STORE`, `OP_V512_MASK_ADDPS`, `OP_V512_MASK_SUBPS`, `OP_V512_MASK_MULPS`, `OP_V512_MASK_DIVPS`, `OP_V512_MASK_ADDPD`, `OP_V512_MASK_SUBPD`, `OP_V512_MASK_MULPD`, `OP_V512_MASK_DIVPD`, `OP_V512_CMP_MASK`.
+  - Added backend vtable callbacks in `ZeroCCISABackend` and implemented both raw MC (`x86_64.c`) and text ASM (`x86_64_asm.c`) emitters.
+  - Implemented masking builtins lowering in `ast_lowering_builtins.c` for:
+    - `_mm512_mask_loadu_ps`, `_mm512_maskz_loadu_ps`, `_mm512_mask_storeu_ps`, `_mm512_mask_loadu_pd`, `_mm512_maskz_loadu_pd`, `_mm512_mask_storeu_pd`.
+    - `_mm512_mask_add_ps` / `_mm512_maskz_add_ps`, `sub_ps`, `mul_ps`, `div_ps`, `add_pd`, `sub_pd`, `mul_pd`, `div_pd`, `mov_ps`, `mov_pd`.
+    - `_mm512_cmpeq_ps_mask`, `_mm512_cmplt_ps_mask`, `_mm512_cmpeq_pd_mask`, `_mm512_cmplt_pd_mask`, and masked comparisons `_mm512_mask_cmpeq_ps_mask`, etc.
+  - Scalar emulation fallback: generates bit-level lane-predication for JIT execution on hosts without AVX-512 hardware support.
+- **Verification**:
+  - Added [`test/jit/avx512_mask_test.c`](../test/jit/avx512_mask_test.c) with 18 comprehensive tests covering mask bitwise operations, scalar conversions, masked loads/stores, masked arithmetic, zeroing masking, and vector comparisons.
+  - Verified across JIT (`--run`) and AOT (`-O0`, `-O2`), as well as `-mavx512f -S` assembly via GNU `as`.
+  - All regression gates green: `make test` (244/244 passed), `make test-opt` (142 passed, 0 failed), `make test-san` (720 passed, 0 failed), `python3 tools/verify/style_check.py` (0 errors), `python3 tools/verify/type_tag_verifier.py --verify-all` (OK).
+
 ## [Sprint 200] - 2026-11-23 - AVX-512 Foundation (512-bit ZMM, EVEX Prefix Encoding, 16-Lane Auto-Vectorization)
 
 Implements Option 3: AVX-512 Foundation with 512-bit vector support (`__m512`, `__m512d`, `__m512i`, 16-lane float / 8-lane double on x86-64, 4-byte EVEX-prefix machine code and text assembly emission, intrinsics in `<immintrin.h>`, and auto-vectorization width scaling):

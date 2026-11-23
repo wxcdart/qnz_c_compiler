@@ -545,7 +545,8 @@ TypeInfo *expr_handle_call(SemContext *ctx, ZeroCCASTNode *node) {
     if (arg_count >= 1 && first_arg_t && type_is_vector(first_arg_t) &&
         callee && callee->tag == NODE_IDENT && callee->s.str &&
         ((arg_count == 2 && strcmp(callee->s.str, "__builtin_shuffle") == 0) ||
-         strncmp(callee->s.str, "__builtin_zerocc_v", 18) == 0)) {
+         (strncmp(callee->s.str, "__builtin_zerocc_v", 18) == 0 &&
+          !(strlen(callee->s.str) >= 5 && strcmp(callee->s.str + strlen(callee->s.str) - 5, "_mask") == 0)))) {
         res = first_arg_t;
     }
 

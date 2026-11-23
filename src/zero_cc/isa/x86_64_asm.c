@@ -1618,6 +1618,71 @@ static void x86_emit_v512_vxorps_asm(ZeroCCCompiler *c, int dst, int src1, int s
     fprintf(out, "\tvxorps\t%%%s,%%%s,%%%s\n", x86_get_zmm_reg_name(src2), x86_get_zmm_reg_name(src1), x86_get_zmm_reg_name(dst));
 }
 
+/* AVX-512 Opmask / Predication (Sprint 201) */
+static void x86_emit_kmov_to_k1_asm(ZeroCCCompiler *c, int src_gpr, FILE *out) {
+    (void)c;
+    fprintf(out, "\tkmovw\t%%%s,%%k1\n", x86_reg32_name(src_gpr));
+}
+
+static void x86_emit_kmov_from_k1_asm(ZeroCCCompiler *c, int dst_gpr, FILE *out) {
+    (void)c;
+    fprintf(out, "\tkmovw\t%%k1,%%%s\n", x86_reg32_name(dst_gpr));
+}
+
+static void x86_emit_v512_mask_load_asm(ZeroCCCompiler *c, int dst, int base, int32_t offset, int z, FILE *out) {
+    fprintf(out, "\tvmovups\t%d(%%%s),%%%s{%%k1}%s\n", offset, BE(c)->get_hw_reg_name(base), x86_get_zmm_reg_name(dst), z ? "{z}" : "");
+}
+
+static void x86_emit_v512_mask_store_asm(ZeroCCCompiler *c, int src, int base, int32_t offset, FILE *out) {
+    fprintf(out, "\tvmovups\t%%%s,%d(%%%s){%%k1}\n", x86_get_zmm_reg_name(src), offset, BE(c)->get_hw_reg_name(base));
+}
+
+static void x86_emit_v512_mask_addps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int z, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvaddps\t%%%s,%%%s,%%%s{%%k1}%s\n", x86_get_zmm_reg_name(src2), x86_get_zmm_reg_name(src1), x86_get_zmm_reg_name(dst), z ? "{z}" : "");
+}
+
+static void x86_emit_v512_mask_subps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int z, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvsubps\t%%%s,%%%s,%%%s{%%k1}%s\n", x86_get_zmm_reg_name(src2), x86_get_zmm_reg_name(src1), x86_get_zmm_reg_name(dst), z ? "{z}" : "");
+}
+
+static void x86_emit_v512_mask_mulps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int z, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvmulps\t%%%s,%%%s,%%%s{%%k1}%s\n", x86_get_zmm_reg_name(src2), x86_get_zmm_reg_name(src1), x86_get_zmm_reg_name(dst), z ? "{z}" : "");
+}
+
+static void x86_emit_v512_mask_divps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int z, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvdivps\t%%%s,%%%s,%%%s{%%k1}%s\n", x86_get_zmm_reg_name(src2), x86_get_zmm_reg_name(src1), x86_get_zmm_reg_name(dst), z ? "{z}" : "");
+}
+
+static void x86_emit_v512_mask_addpd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int z, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvaddpd\t%%%s,%%%s,%%%s{%%k1}%s\n", x86_get_zmm_reg_name(src2), x86_get_zmm_reg_name(src1), x86_get_zmm_reg_name(dst), z ? "{z}" : "");
+}
+
+static void x86_emit_v512_mask_subpd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int z, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvsubpd\t%%%s,%%%s,%%%s{%%k1}%s\n", x86_get_zmm_reg_name(src2), x86_get_zmm_reg_name(src1), x86_get_zmm_reg_name(dst), z ? "{z}" : "");
+}
+
+static void x86_emit_v512_mask_mulpd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int z, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvmulpd\t%%%s,%%%s,%%%s{%%k1}%s\n", x86_get_zmm_reg_name(src2), x86_get_zmm_reg_name(src1), x86_get_zmm_reg_name(dst), z ? "{z}" : "");
+}
+
+static void x86_emit_v512_mask_divpd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int z, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvdivpd\t%%%s,%%%s,%%%s{%%k1}%s\n", x86_get_zmm_reg_name(src2), x86_get_zmm_reg_name(src1), x86_get_zmm_reg_name(dst), z ? "{z}" : "");
+}
+
+static void x86_emit_v512_cmp_mask_asm(ZeroCCCompiler *c, int dst_gpr, int src1, int src2, int imm_predicate, int is_pd, FILE *out) {
+    (void)c;
+    fprintf(out, "\t%s\t$%d,%%%s,%%%s,%%k1\n", is_pd ? "vcmppd" : "vcmpps", imm_predicate, x86_get_zmm_reg_name(src2), x86_get_zmm_reg_name(src1));
+    fprintf(out, "\t%s\t%%k1,%%%s\n", is_pd ? "kmovb" : "kmovw", x86_reg32_name(dst_gpr));
+}
+
 /* =========================================================================
  * GNU __int128 (Sprint 109): 128-bit ops, GAS text forms. Mirrors the raw
  * emitters in x86_64.c (same carry/borrow chains, rax/rdx mul scratch).

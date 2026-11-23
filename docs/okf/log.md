@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-23T04:30:03Z
+timestamp: 2026-11-23T07:39:59Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1620,3 +1620,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-23 — Updated `isa-backends.md`
 - Sprint 200: AVX-512 foundation with 512-bit ZMM registers, EVEX encoding, and 16-lane auto-vectorization
+
+## 2026-11-23 — Updated `isa-backends.md`
+- Document Sprint 201 AVX-512 Opmask / Predication (k0-k7, masked load/store/arith/cmp)
