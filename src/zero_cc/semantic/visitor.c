@@ -566,12 +566,14 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
             TypeInfo *fn_t = sem_analyze_ref(ctx, node->left);
             size_t arg_count = 0;
             TypeInfo *first_arg_t = NULL;
+            TypeInfo *vec_arg_t = NULL;
             ASTRef arg_ref = node->right;
             while (arg_ref != AST_NULL) {
                 ZeroCCASTNode *arg_node = sem_get_node(ctx, arg_ref);
                 if (arg_node) {
                     TypeInfo *at = sem_analyze_node(ctx, arg_node);
                     if (arg_count == 0) first_arg_t = at;
+                    if (at && type_is_vector(at)) vec_arg_t = at;
                     arg_count++;
                     arg_ref = arg_node->next;
                 } else {
@@ -647,6 +649,32 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
                       !(strlen(cn->s.str) >= 5 && strcmp(cn->s.str + strlen(cn->s.str) - 5, "_mask") == 0)))) {
                     res = first_arg_t;
                     expr_node_set_type(ctx, node, res);
+                }
+            }
+            {
+                ZeroCCASTNode *cn = sem_get_node(ctx, node->left);
+                if (cn && cn->tag == NODE_IDENT && cn->s.str &&
+                    strncmp(cn->s.str, "__builtin_zerocc_sve_", 21) == 0) {
+                    if (strcmp(cn->s.str, "__builtin_zerocc_sve_addv_f32") == 0) {
+                        res = type_float(ctx->perm_arena);
+                        expr_node_set_type(ctx, node, res);
+                    } else if (strcmp(cn->s.str, "__builtin_zerocc_sve_st1") == 0) {
+                        res = type_void(ctx->perm_arena);
+                        expr_node_set_type(ctx, node, res);
+                    } else if (strcmp(cn->s.str, "__builtin_zerocc_sve_ptrue") != 0 &&
+                               strcmp(cn->s.str, "__builtin_zerocc_sve_pfalse") != 0 &&
+                               strcmp(cn->s.str, "__builtin_zerocc_sve_whilelt") != 0 &&
+                               strcmp(cn->s.str, "__builtin_zerocc_sve_cmp") != 0 &&
+                               strcmp(cn->s.str, "__builtin_zerocc_sve_cnt") != 0 &&
+                               strcmp(cn->s.str, "__builtin_zerocc_sve_addv") != 0) {
+                        if (ctx->current_fn_ret_type && type_is_vector(ctx->current_fn_ret_type)) {
+                            res = ctx->current_fn_ret_type;
+                            expr_node_set_type(ctx, node, res);
+                        } else if (vec_arg_t) {
+                            res = vec_arg_t;
+                            expr_node_set_type(ctx, node, res);
+                        }
+                    }
                 }
             }
             break;

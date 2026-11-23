@@ -1306,7 +1306,7 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
                     int vec_dest = zc_alloc_temp(c);
                     scalar_to_vec_map[instr->temp_dest] = vec_dest;
 
-                    instr->op = (uint8_t)vec_op;
+                    instr->op = (uint16_t)vec_op;
                     instr->temp_dest = (uint32_t)vec_dest;
                     instr->temp_src1 = (uint32_t)vec_src1;
                     instr->temp_src2 = (uint32_t)vec_src2;
@@ -1370,6 +1370,11 @@ void opt_auto_vectorize(ZeroCCCompiler *c) {
     vectorization_init((VectorizationState *)&state, (int)isa);
     state.comp = c;
     if (c->has_avx512f && isa == ISA_X86_64) {
+        state.vector_width = 16;
+        for (int i = 0; i < MAX_VECTOR_LOOPS; i++) {
+            state.loops[i].vector_width = 16;
+        }
+    } else if (c->has_sve && isa == ISA_AARCH64) {
         state.vector_width = 16;
         for (int i = 0; i < MAX_VECTOR_LOOPS; i++) {
             state.loops[i].vector_width = 16;

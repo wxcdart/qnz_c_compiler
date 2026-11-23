@@ -207,6 +207,16 @@ static char *preprocess_with_options(const char *source, const CompileOptions *o
         defines.defs[defines.count].value = strdup("1");
         defines.undef[defines.count++] = 0;
     }
+    if (opts->has_sve) {
+        defines.defs[defines.count].name = strdup("__ARM_FEATURE_SVE");
+        defines.defs[defines.count].value = strdup("1");
+        defines.undef[defines.count++] = 0;
+    }
+    if (opts->has_sve2) {
+        defines.defs[defines.count].name = strdup("__ARM_FEATURE_SVE2");
+        defines.defs[defines.count].value = strdup("1");
+        defines.undef[defines.count++] = 0;
+    }
 
     for (int d = 0; d < opts->macro_opt_count; d++) {
         if (defines.count >= 128) break;
@@ -360,6 +370,8 @@ static ZeroCCCompiler *jit_compile_tu(CompileOptions *opts, const char *input, i
     comp->has_avx512f = opts->has_avx512f != 0;
     comp->has_avx512bw = opts->has_avx512bw != 0;
     comp->has_avx512dq = opts->has_avx512dq != 0;
+    comp->has_sve = opts->has_sve != 0;
+    comp->has_sve2 = opts->has_sve2 != 0;
     comp->source_filename = input;
     static char cwd_buf[1024];
     if (getcwd(cwd_buf, sizeof(cwd_buf))) {
@@ -429,6 +441,8 @@ static ZeroCCCompiler *lto_compile_tu_phase1(CompileOptions *opts, const char *s
     comp->has_avx512f = opts->has_avx512f != 0;
     comp->has_avx512bw = opts->has_avx512bw != 0;
     comp->has_avx512dq = opts->has_avx512dq != 0;
+    comp->has_sve = opts->has_sve != 0;
+    comp->has_sve2 = opts->has_sve2 != 0;
     comp->source_filename = zero_cc_intern_string(comp, source_name ? source_name : "<lto>");
     static char cwd_buf[1024];
     if (getcwd(cwd_buf, sizeof(cwd_buf))) {
@@ -752,6 +766,8 @@ static int compile_object_single(CompileOptions *opts, const char *input,
     comp->has_avx512f = opts->has_avx512f != 0;
     comp->has_avx512bw = opts->has_avx512bw != 0;
     comp->has_avx512dq = opts->has_avx512dq != 0;
+    comp->has_sve = opts->has_sve != 0;
+    comp->has_sve2 = opts->has_sve2 != 0;
     comp->source_filename = input;
     static char cwd_buf[1024];
     if (getcwd(cwd_buf, sizeof(cwd_buf))) {

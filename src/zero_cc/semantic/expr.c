@@ -470,6 +470,7 @@ TypeInfo *expr_handle_call(SemContext *ctx, ZeroCCASTNode *node) {
     /* Analyze and count arguments */
     size_t arg_count = 0;
     TypeInfo *first_arg_t = NULL;
+    TypeInfo *vec_arg_t = NULL;
     ASTRef arg_ref = node->right;
     while (arg_ref != AST_NULL) {
         ZeroCCASTNode *arg_node = expr_get_node(ctx, arg_ref);
@@ -481,6 +482,9 @@ TypeInfo *expr_handle_call(SemContext *ctx, ZeroCCASTNode *node) {
         }
         if (arg_count == 0) {
             first_arg_t = arg_t;
+        }
+        if (type_is_vector(arg_t)) {
+            vec_arg_t = arg_t;
         }
 
         /* Check parameter type match if within declared parameter count */
@@ -548,6 +552,26 @@ TypeInfo *expr_handle_call(SemContext *ctx, ZeroCCASTNode *node) {
          (strncmp(callee->s.str, "__builtin_zerocc_v", 18) == 0 &&
           !(strlen(callee->s.str) >= 5 && strcmp(callee->s.str + strlen(callee->s.str) - 5, "_mask") == 0)))) {
         res = first_arg_t;
+    }
+
+    if (callee && callee->tag == NODE_IDENT && callee->s.str &&
+        strncmp(callee->s.str, "__builtin_zerocc_sve_", 21) == 0) {
+        if (strcmp(callee->s.str, "__builtin_zerocc_sve_addv_f32") == 0) {
+            res = type_float(ctx->perm_arena);
+        } else if (strcmp(callee->s.str, "__builtin_zerocc_sve_st1") == 0) {
+            res = type_void(ctx->perm_arena);
+        } else if (strcmp(callee->s.str, "__builtin_zerocc_sve_ptrue") != 0 &&
+                   strcmp(callee->s.str, "__builtin_zerocc_sve_pfalse") != 0 &&
+                   strcmp(callee->s.str, "__builtin_zerocc_sve_whilelt") != 0 &&
+                   strcmp(callee->s.str, "__builtin_zerocc_sve_cmp") != 0 &&
+                   strcmp(callee->s.str, "__builtin_zerocc_sve_cnt") != 0 &&
+                   strcmp(callee->s.str, "__builtin_zerocc_sve_addv") != 0) {
+            if (ctx->current_fn_ret_type && type_is_vector(ctx->current_fn_ret_type)) {
+                res = ctx->current_fn_ret_type;
+            } else if (vec_arg_t) {
+                res = vec_arg_t;
+            }
+        }
     }
 
     expr_node_set_type(ctx, node, res);

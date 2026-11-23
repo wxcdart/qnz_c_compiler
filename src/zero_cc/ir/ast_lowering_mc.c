@@ -2001,6 +2001,143 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
             LOWER_V512_BINOP(OP_V512_PMULLW, v512_pmullw)
 #undef LOWER_V512_BINOP
 
+            /* ARM SVE Scalable Vector Extension (Sprint 203) */
+            case OP_SVE_PTRUE:
+                if (c->emit_asm && BE(c)->emit_sve_ptrue_asm) {
+                    BE(c)->emit_sve_ptrue_asm(c, phys_dst, instr->imm, (int)instr->imm64, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_sve_ptrue) {
+                    BE(c)->emit_sve_ptrue(c, phys_dst, instr->imm, (int)instr->imm64);
+                }
+                break;
+
+            case OP_SVE_PFALSE:
+                if (c->emit_asm && BE(c)->emit_sve_pfalse_asm) {
+                    BE(c)->emit_sve_pfalse_asm(c, phys_dst, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_sve_pfalse) {
+                    BE(c)->emit_sve_pfalse(c, phys_dst);
+                }
+                break;
+
+            case OP_SVE_WHILELT:
+                if (c->emit_asm && BE(c)->emit_sve_whilelt_asm) {
+                    BE(c)->emit_sve_whilelt_asm(c, phys_dst, instr->imm, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_sve_whilelt) {
+                    BE(c)->emit_sve_whilelt(c, phys_dst, instr->imm, phys_src1, phys_src2);
+                }
+                break;
+
+            case OP_SVE_CNT:
+                if (c->emit_asm && BE(c)->emit_sve_cnt_asm) {
+                    BE(c)->emit_sve_cnt_asm(c, phys_dst, instr->imm, (int)instr->imm64, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_sve_cnt) {
+                    BE(c)->emit_sve_cnt(c, phys_dst, instr->imm, (int)instr->imm64);
+                }
+                break;
+
+            case OP_SVE_LD1:
+                if (c->emit_asm && BE(c)->emit_sve_ld1_asm) {
+                    BE(c)->emit_sve_ld1_asm(c, phys_dst, 0, phys_src1, 0, instr->imm, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_sve_ld1) {
+                    BE(c)->emit_sve_ld1(c, phys_dst, 0, phys_src1, 0, instr->imm);
+                }
+                break;
+
+            case OP_SVE_ST1:
+                if (c->emit_asm && BE(c)->emit_sve_st1_asm) {
+                    BE(c)->emit_sve_st1_asm(c, phys_src2, 0, phys_src1, 0, instr->imm, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_sve_st1) {
+                    BE(c)->emit_sve_st1(c, phys_src2, 0, phys_src1, 0, instr->imm);
+                }
+                break;
+
+            case OP_SVE_ADD:
+                if (c->emit_asm && BE(c)->emit_sve_add_asm) {
+                    BE(c)->emit_sve_add_asm(c, phys_dst, 0, phys_src1, phys_src2, instr->imm, (int)instr->imm64, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_sve_add) {
+                    BE(c)->emit_sve_add(c, phys_dst, 0, phys_src1, phys_src2, instr->imm, (int)instr->imm64);
+                }
+                break;
+
+            case OP_SVE_SUB:
+                if (c->emit_asm && BE(c)->emit_sve_sub_asm) {
+                    BE(c)->emit_sve_sub_asm(c, phys_dst, 0, phys_src1, phys_src2, instr->imm, (int)instr->imm64, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_sve_sub) {
+                    BE(c)->emit_sve_sub(c, phys_dst, 0, phys_src1, phys_src2, instr->imm, (int)instr->imm64);
+                }
+                break;
+
+            case OP_SVE_MUL:
+                if (c->emit_asm && BE(c)->emit_sve_mul_asm) {
+                    BE(c)->emit_sve_mul_asm(c, phys_dst, 0, phys_src1, phys_src2, instr->imm, (int)instr->imm64, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_sve_mul) {
+                    BE(c)->emit_sve_mul(c, phys_dst, 0, phys_src1, phys_src2, instr->imm, (int)instr->imm64);
+                }
+                break;
+
+            case OP_SVE_DIV:
+                if (c->emit_asm && BE(c)->emit_sve_div_asm) {
+                    BE(c)->emit_sve_div_asm(c, phys_dst, 0, phys_src1, phys_src2, instr->imm, (int)instr->imm64, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_sve_div) {
+                    BE(c)->emit_sve_div(c, phys_dst, 0, phys_src1, phys_src2, instr->imm, (int)instr->imm64);
+                }
+                break;
+
+            case OP_SVE_AND:
+                if (c->emit_asm && BE(c)->emit_sve_and_asm) {
+                    BE(c)->emit_sve_and_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_sve_and) {
+                    BE(c)->emit_sve_and(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
+            case OP_SVE_ORR:
+                if (c->emit_asm && BE(c)->emit_sve_orr_asm) {
+                    BE(c)->emit_sve_orr_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_sve_orr) {
+                    BE(c)->emit_sve_orr(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
+            case OP_SVE_EOR:
+                if (c->emit_asm && BE(c)->emit_sve_eor_asm) {
+                    BE(c)->emit_sve_eor_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_sve_eor) {
+                    BE(c)->emit_sve_eor(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
+            case OP_SVE_CMP:
+                if (c->emit_asm && BE(c)->emit_sve_cmp_asm) {
+                    BE(c)->emit_sve_cmp_asm(c, phys_dst, 0, phys_src1, phys_src2, instr->imm, (int)(instr->imm64 & 0xFF), (int)((instr->imm64 >> 8) & 1), c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_sve_cmp) {
+                    BE(c)->emit_sve_cmp(c, phys_dst, 0, phys_src1, phys_src2, instr->imm, (int)(instr->imm64 & 0xFF), (int)((instr->imm64 >> 8) & 1));
+                }
+                break;
+
+            case OP_SVE_ADDV:
+                if (c->emit_asm && BE(c)->emit_sve_addv_asm) {
+                    BE(c)->emit_sve_addv_asm(c, phys_dst, 0, phys_src1, instr->imm, (int)instr->imm64, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_sve_addv) {
+                    BE(c)->emit_sve_addv(c, phys_dst, 0, phys_src1, instr->imm, (int)instr->imm64);
+                }
+                break;
+
+            case OP_SVE_QADD:
+                if (c->emit_asm && BE(c)->emit_sve_qadd_asm) {
+                    BE(c)->emit_sve_qadd_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_sve_qadd) {
+                    BE(c)->emit_sve_qadd(c, phys_dst, phys_src1, phys_src2, instr->imm);
+                }
+                break;
+
+            case OP_SVE_QSUB:
+                if (c->emit_asm && BE(c)->emit_sve_qsub_asm) {
+                    BE(c)->emit_sve_qsub_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_sve_qsub) {
+                    BE(c)->emit_sve_qsub(c, phys_dst, phys_src1, phys_src2, instr->imm);
+                }
+                break;
+
             case OP_VCVT_SI2SS:
                 if (c->emit_asm && BE(c)->emit_vcvt_si2ss_asm) {
                     BE(c)->emit_vcvt_si2ss_asm(c, phys_dst, phys_src1, c->asm_out);

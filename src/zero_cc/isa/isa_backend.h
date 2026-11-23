@@ -257,6 +257,24 @@ typedef struct ZeroCCISABackend {
     void (*emit_v512_paddw_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out);
     void (*emit_v512_psubw_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out);
     void (*emit_v512_pmullw_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out);
+    /* ARM SVE Scalable Vector Extension (Sprint 203) */
+    void (*emit_sve_ptrue_asm)(ZeroCCCompiler *c, int pd, int esz, int pat, FILE *out);
+    void (*emit_sve_pfalse_asm)(ZeroCCCompiler *c, int pd, FILE *out);
+    void (*emit_sve_whilelt_asm)(ZeroCCCompiler *c, int pd, int esz, int r1, int r2, FILE *out);
+    void (*emit_sve_cnt_asm)(ZeroCCCompiler *c, int rd, int esz, int pat, FILE *out);
+    void (*emit_sve_ld1_asm)(ZeroCCCompiler *c, int zt, int pg, int base, int32_t offset, int esz, FILE *out);
+    void (*emit_sve_st1_asm)(ZeroCCCompiler *c, int zt, int pg, int base, int32_t offset, int esz, FILE *out);
+    void (*emit_sve_add_asm)(ZeroCCCompiler *c, int zd, int pg, int zn, int zm, int esz, int is_fp, FILE *out);
+    void (*emit_sve_sub_asm)(ZeroCCCompiler *c, int zd, int pg, int zn, int zm, int esz, int is_fp, FILE *out);
+    void (*emit_sve_mul_asm)(ZeroCCCompiler *c, int zd, int pg, int zn, int zm, int esz, int is_fp, FILE *out);
+    void (*emit_sve_div_asm)(ZeroCCCompiler *c, int zd, int pg, int zn, int zm, int esz, int is_fp, FILE *out);
+    void (*emit_sve_and_asm)(ZeroCCCompiler *c, int zd, int zn, int zm, FILE *out);
+    void (*emit_sve_orr_asm)(ZeroCCCompiler *c, int zd, int zn, int zm, FILE *out);
+    void (*emit_sve_eor_asm)(ZeroCCCompiler *c, int zd, int zn, int zm, FILE *out);
+    void (*emit_sve_cmp_asm)(ZeroCCCompiler *c, int pd, int pg, int zn, int zm, int esz, int cond, int is_fp, FILE *out);
+    void (*emit_sve_addv_asm)(ZeroCCCompiler *c, int zd, int pg, int zn, int esz, int is_fp, FILE *out);
+    void (*emit_sve_qadd_asm)(ZeroCCCompiler *c, int zd, int zn, int zm, int esz, FILE *out);
+    void (*emit_sve_qsub_asm)(ZeroCCCompiler *c, int zd, int zn, int zm, int esz, FILE *out);
     void (*emit_vshufps_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int imm, FILE *out);
     void (*emit_vcvt_si2ss_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
     void (*emit_vcvt_ss2si_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
@@ -529,6 +547,24 @@ typedef struct ZeroCCISABackend {
     void (*emit_v512_paddw)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode);
     void (*emit_v512_psubw)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode);
     void (*emit_v512_pmullw)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode);
+    /* ARM SVE Scalable Vector Extension (Sprint 203) */
+    void (*emit_sve_ptrue)(ZeroCCCompiler *c, int pd, int esz, int pat);
+    void (*emit_sve_pfalse)(ZeroCCCompiler *c, int pd);
+    void (*emit_sve_whilelt)(ZeroCCCompiler *c, int pd, int esz, int r1, int r2);
+    void (*emit_sve_cnt)(ZeroCCCompiler *c, int rd, int esz, int pat);
+    void (*emit_sve_ld1)(ZeroCCCompiler *c, int zt, int pg, int base, int32_t offset, int esz);
+    void (*emit_sve_st1)(ZeroCCCompiler *c, int zt, int pg, int base, int32_t offset, int esz);
+    void (*emit_sve_add)(ZeroCCCompiler *c, int zd, int pg, int zn, int zm, int esz, int is_fp);
+    void (*emit_sve_sub)(ZeroCCCompiler *c, int zd, int pg, int zn, int zm, int esz, int is_fp);
+    void (*emit_sve_mul)(ZeroCCCompiler *c, int zd, int pg, int zn, int zm, int esz, int is_fp);
+    void (*emit_sve_div)(ZeroCCCompiler *c, int zd, int pg, int zn, int zm, int esz, int is_fp);
+    void (*emit_sve_and)(ZeroCCCompiler *c, int zd, int zn, int zm);
+    void (*emit_sve_orr)(ZeroCCCompiler *c, int zd, int zn, int zm);
+    void (*emit_sve_eor)(ZeroCCCompiler *c, int zd, int zn, int zm);
+    void (*emit_sve_cmp)(ZeroCCCompiler *c, int pd, int pg, int zn, int zm, int esz, int cond, int is_fp);
+    void (*emit_sve_addv)(ZeroCCCompiler *c, int zd, int pg, int zn, int esz, int is_fp);
+    void (*emit_sve_qadd)(ZeroCCCompiler *c, int zd, int zn, int zm, int esz);
+    void (*emit_sve_qsub)(ZeroCCCompiler *c, int zd, int zn, int zm, int esz);
     /* Scalar single<->double conversions (GNU vector per-lane lowering),
      * raw byte-emitter form (JIT / raw AOT). */
     void (*emit_cvtss2sd)(ZeroCCCompiler *c, int dst, int src);

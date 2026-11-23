@@ -95,7 +95,10 @@ static void aarch64_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
          * to keep SP 16-byte aligned); slots are addressed from SP with a
          * delta of `aligned_sz`. */
         fprintf(out, "\tstr\tx30, [sp, #-16]!\n");
-        if (aligned_sz > 0) {
+        if (aligned_sz > 4095) {
+            fprintf(out, "\tmov\tx16, #0x%zX\n", aligned_sz);
+            fprintf(out, "\tsub\tsp, sp, x16\n");
+        } else if (aligned_sz > 0) {
             fprintf(out, "\tsub\tsp, sp, #%zu\n", aligned_sz);
         }
 
@@ -204,7 +207,10 @@ static void aarch64_emit_epilogue_asm(ZeroCCCompiler *c) {
             aarch64_emit_load_asm(c, reg, BE(c)->sp_reg, zero_cc_frame_disp(c, -offset), out);
         }
 
-        if (aligned_sz > 0) {
+        if (aligned_sz > 4095) {
+            fprintf(out, "\tmov\tx16, #0x%zX\n", aligned_sz);
+            fprintf(out, "\tadd\tsp, sp, x16\n");
+        } else if (aligned_sz > 0) {
             fprintf(out, "\tadd\tsp, sp, #%zu\n", aligned_sz);
         }
         fprintf(out, "\tldr\tx30, [sp], #16\n");
@@ -266,10 +272,17 @@ static void aarch64_emit_load_asm(ZeroCCCompiler *c, int dst, int base, int32_t 
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
     const char *base_name = BE(c)->get_hw_reg_name(base);
     if (offset < -256 || (offset > 255 && (offset % 8 != 0 || offset > 32760))) {
-        if (offset < 0) {
-            fprintf(out, "\tsub\tx16, %s, #%d\n", base_name, -offset);
+        int32_t abs_off = offset < 0 ? -offset : offset;
+        if (abs_off > 4095) {
+            fprintf(out, "\tmov\tx16, #0x%X\n", (unsigned int)abs_off);
+            if (offset < 0) fprintf(out, "\tsub\tx16, %s, x16\n", base_name);
+            else fprintf(out, "\tadd\tx16, %s, x16\n", base_name);
         } else {
-            fprintf(out, "\tadd\tx16, %s, #%d\n", base_name, offset);
+            if (offset < 0) {
+                fprintf(out, "\tsub\tx16, %s, #%d\n", base_name, -offset);
+            } else {
+                fprintf(out, "\tadd\tx16, %s, #%d\n", base_name, offset);
+            }
         }
         fprintf(out, "\tldr\t%s, [x16]\n", dst_name);
     } else {
@@ -282,10 +295,17 @@ static void aarch64_emit_store_asm(ZeroCCCompiler *c, int src, int base, int32_t
     const char *src_name = BE(c)->get_hw_reg_name(src);
     const char *base_name = BE(c)->get_hw_reg_name(base);
     if (offset < -256 || (offset > 255 && (offset % 8 != 0 || offset > 32760))) {
-        if (offset < 0) {
-            fprintf(out, "\tsub\tx16, %s, #%d\n", base_name, -offset);
+        int32_t abs_off = offset < 0 ? -offset : offset;
+        if (abs_off > 4095) {
+            fprintf(out, "\tmov\tx16, #0x%X\n", (unsigned int)abs_off);
+            if (offset < 0) fprintf(out, "\tsub\tx16, %s, x16\n", base_name);
+            else fprintf(out, "\tadd\tx16, %s, x16\n", base_name);
         } else {
-            fprintf(out, "\tadd\tx16, %s, #%d\n", base_name, offset);
+            if (offset < 0) {
+                fprintf(out, "\tsub\tx16, %s, #%d\n", base_name, -offset);
+            } else {
+                fprintf(out, "\tadd\tx16, %s, #%d\n", base_name, offset);
+            }
         }
         fprintf(out, "\tstr\t%s, [x16]\n", src_name);
     } else {
@@ -474,10 +494,20 @@ static void aarch64_emit_not_asm(ZeroCCCompiler *c, int dst, int src, FILE *out)
 static void aarch64_emit_lea_asm(ZeroCCCompiler *c, int dst, int base, int32_t offset, FILE *out) {
     const char *dst_name = BE(c)->get_hw_reg_name(dst);
     const char *base_name = BE(c)->get_hw_reg_name(base);
-    if (offset < 0) {
-        fprintf(out, "\tsub\t%s, %s, #%d\n", dst_name, base_name, -offset);
+    int32_t abs_off = (offset < 0) ? -offset : offset;
+    if (abs_off > 4095) {
+        fprintf(out, "\tmov\tx16, #0x%X\n", (unsigned int)abs_off);
+        if (offset < 0) {
+            fprintf(out, "\tsub\t%s, %s, x16\n", dst_name, base_name);
+        } else {
+            fprintf(out, "\tadd\t%s, %s, x16\n", dst_name, base_name);
+        }
     } else {
-        fprintf(out, "\tadd\t%s, %s, #%d\n", dst_name, base_name, offset);
+        if (offset < 0) {
+            fprintf(out, "\tsub\t%s, %s, #%d\n", dst_name, base_name, -offset);
+        } else {
+            fprintf(out, "\tadd\t%s, %s, #%d\n", dst_name, base_name, offset);
+        }
     }
 }
 
@@ -921,10 +951,17 @@ static void aarch64_emit_load_fp_asm(ZeroCCCompiler *c, int dst, int base, int32
     const char *dst_name = BE(c)->regs->fp_regs[dst];
     const char *base_name = BE(c)->get_hw_reg_name(base);
     if (offset < -256 || (offset > 255 && (offset % 8 != 0 || offset > 32760))) {
-        if (offset < 0) {
-            fprintf(out, "\tsub\tx16, %s, #%d\n", base_name, -offset);
+        int32_t abs_off = (offset < 0) ? -offset : offset;
+        if (abs_off > 4095) {
+            fprintf(out, "\tmov\tx16, #0x%X\n", (unsigned int)abs_off);
+            if (offset < 0) fprintf(out, "\tsub\tx16, %s, x16\n", base_name);
+            else fprintf(out, "\tadd\tx16, %s, x16\n", base_name);
         } else {
-            fprintf(out, "\tadd\tx16, %s, #%d\n", base_name, offset);
+            if (offset < 0) {
+                fprintf(out, "\tsub\tx16, %s, #%d\n", base_name, -offset);
+            } else {
+                fprintf(out, "\tadd\tx16, %s, #%d\n", base_name, offset);
+            }
         }
         fprintf(out, "\tldr\td%s, [x16]\n", dst_name + 1);
     } else {
@@ -937,10 +974,17 @@ static void aarch64_emit_store_fp_asm(ZeroCCCompiler *c, int src, int base, int3
     const char *src_name = BE(c)->regs->fp_regs[src];
     const char *base_name = BE(c)->get_hw_reg_name(base);
     if (offset < -256 || (offset > 255 && (offset % 8 != 0 || offset > 32760))) {
-        if (offset < 0) {
-            fprintf(out, "\tsub\tx16, %s, #%d\n", base_name, -offset);
+        int32_t abs_off = (offset < 0) ? -offset : offset;
+        if (abs_off > 4095) {
+            fprintf(out, "\tmov\tx16, #0x%X\n", (unsigned int)abs_off);
+            if (offset < 0) fprintf(out, "\tsub\tx16, %s, x16\n", base_name);
+            else fprintf(out, "\tadd\tx16, %s, x16\n", base_name);
         } else {
-            fprintf(out, "\tadd\tx16, %s, #%d\n", base_name, offset);
+            if (offset < 0) {
+                fprintf(out, "\tsub\tx16, %s, #%d\n", base_name, -offset);
+            } else {
+                fprintf(out, "\tadd\tx16, %s, #%d\n", base_name, offset);
+            }
         }
         fprintf(out, "\tstr\td%s, [x16]\n", src_name + 1);
     } else {
@@ -1313,6 +1357,223 @@ static void aarch64_emit_vcmpsd_asm(ZeroCCCompiler *c, int dst, int src1, int sr
     const char *src1_name = BE(c)->get_vec_reg_name(src1);
     const char *src2_name = BE(c)->get_vec_reg_name(src2);
     fprintf(out, "\tfcmp\td%s, d%s\n", src1_name + 1, src2_name + 1);
+}
+
+/* =========================================================================
+ * ARM SVE Scalable Vector Extension Text Emitters (Sprint 203)
+ * ========================================================================= */
+
+static void aarch64_emit_sve_ptrue_asm(ZeroCCCompiler *c, int pd, int esz, int pat, FILE *out) {
+    (void)c; (void)pd;
+    static const char *const sz_suf[] = {".b", ".h", ".s", ".d"};
+    const char *suf = sz_suf[esz & 3];
+    if (pat == 31 || pat == 0) {
+        fprintf(out, "\tptrue\tp0%s, all\n", suf);
+    } else {
+        fprintf(out, "\tptrue\tp0%s\n", suf);
+    }
+}
+
+static void aarch64_emit_sve_pfalse_asm(ZeroCCCompiler *c, int pd, FILE *out) {
+    (void)c; (void)pd;
+    fprintf(out, "\tpfalse\tp0.b\n");
+}
+
+static void aarch64_emit_sve_whilelt_asm(ZeroCCCompiler *c, int pd, int esz, int r1, int r2, FILE *out) {
+    (void)pd;
+    static const char *const sz_suf[] = {".b", ".h", ".s", ".d"};
+    const char *r1_name = BE(c)->get_hw_reg_name(r1);
+    const char *r2_name = BE(c)->get_hw_reg_name(r2);
+    fprintf(out, "\twhilelt\tp0%s, %s, %s\n", sz_suf[esz & 3], r1_name, r2_name);
+}
+
+static void aarch64_emit_sve_cnt_asm(ZeroCCCompiler *c, int rd, int esz, int pat, FILE *out) {
+    static const char *const cnt_ops[] = {"cntb", "cnth", "cntw", "cntd"};
+    const char *rd_name = BE(c)->get_hw_reg_name(rd);
+    (void)pat;
+    fprintf(out, "\t%s\t%s\n", cnt_ops[esz & 3], rd_name);
+}
+
+static void aarch64_emit_sve_ld1_asm(ZeroCCCompiler *c, int zt, int pg, int base, int32_t offset, int esz, FILE *out) {
+    (void)pg;
+    static const char *const ld_ops[] = {"ld1b", "ld1h", "ld1w", "ld1d"};
+    static const char *const sz_suf[] = {".b", ".h", ".s", ".d"};
+    const char *zt_name = BE(c)->get_vec_reg_name(zt);
+    const char *base_name = BE(c)->get_hw_reg_name(base);
+    if (offset != 0) {
+        fprintf(out, "\t%s\t{z%s%s}, p0/z, [%s, #%d, mul vl]\n",
+                ld_ops[esz & 3], zt_name + 1, sz_suf[esz & 3], base_name, offset);
+    } else {
+        fprintf(out, "\t%s\t{z%s%s}, p0/z, [%s]\n",
+                ld_ops[esz & 3], zt_name + 1, sz_suf[esz & 3], base_name);
+    }
+}
+
+static void aarch64_emit_sve_st1_asm(ZeroCCCompiler *c, int zt, int pg, int base, int32_t offset, int esz, FILE *out) {
+    (void)pg;
+    static const char *const st_ops[] = {"st1b", "st1h", "st1w", "st1d"};
+    static const char *const sz_suf[] = {".b", ".h", ".s", ".d"};
+    const char *zt_name = BE(c)->get_vec_reg_name(zt);
+    const char *base_name = BE(c)->get_hw_reg_name(base);
+    if (offset != 0) {
+        fprintf(out, "\t%s\t{z%s%s}, p0, [%s, #%d, mul vl]\n",
+                st_ops[esz & 3], zt_name + 1, sz_suf[esz & 3], base_name, offset);
+    } else {
+        fprintf(out, "\t%s\t{z%s%s}, p0, [%s]\n",
+                st_ops[esz & 3], zt_name + 1, sz_suf[esz & 3], base_name);
+    }
+}
+
+static void aarch64_emit_sve_add_asm(ZeroCCCompiler *c, int zd, int pg, int zn, int zm, int esz, int is_fp, FILE *out) {
+    static const char *const sz_suf[] = {".b", ".h", ".s", ".d"};
+    const char *zd_name = BE(c)->get_vec_reg_name(zd);
+    const char *zn_name = BE(c)->get_vec_reg_name(zn);
+    const char *zm_name = BE(c)->get_vec_reg_name(zm);
+    if (strcmp(zd_name, zn_name) != 0) {
+        fprintf(out, "\tmov\tz%s.d, z%s.d\n", zd_name + 1, zn_name + 1);
+    }
+    if (is_fp) {
+        fprintf(out, "\tfadd\tz%s%s, p%d/m, z%s%s, z%s%s\n",
+                zd_name + 1, sz_suf[esz & 3], pg & 0xF,
+                zd_name + 1, sz_suf[esz & 3],
+                zm_name + 1, sz_suf[esz & 3]);
+    } else {
+        fprintf(out, "\tadd\tz%s%s, p%d/m, z%s%s, z%s%s\n",
+                zd_name + 1, sz_suf[esz & 3], pg & 0xF,
+                zd_name + 1, sz_suf[esz & 3],
+                zm_name + 1, sz_suf[esz & 3]);
+    }
+}
+
+static void aarch64_emit_sve_sub_asm(ZeroCCCompiler *c, int zd, int pg, int zn, int zm, int esz, int is_fp, FILE *out) {
+    static const char *const sz_suf[] = {".b", ".h", ".s", ".d"};
+    const char *zd_name = BE(c)->get_vec_reg_name(zd);
+    const char *zn_name = BE(c)->get_vec_reg_name(zn);
+    const char *zm_name = BE(c)->get_vec_reg_name(zm);
+    if (strcmp(zd_name, zn_name) != 0) {
+        fprintf(out, "\tmov\tz%s.d, z%s.d\n", zd_name + 1, zn_name + 1);
+    }
+    if (is_fp) {
+        fprintf(out, "\tfsub\tz%s%s, p%d/m, z%s%s, z%s%s\n",
+                zd_name + 1, sz_suf[esz & 3], pg & 0xF,
+                zd_name + 1, sz_suf[esz & 3],
+                zm_name + 1, sz_suf[esz & 3]);
+    } else {
+        fprintf(out, "\tsub\tz%s%s, p%d/m, z%s%s, z%s%s\n",
+                zd_name + 1, sz_suf[esz & 3], pg & 0xF,
+                zd_name + 1, sz_suf[esz & 3],
+                zm_name + 1, sz_suf[esz & 3]);
+    }
+}
+
+static void aarch64_emit_sve_mul_asm(ZeroCCCompiler *c, int zd, int pg, int zn, int zm, int esz, int is_fp, FILE *out) {
+    static const char *const sz_suf[] = {".b", ".h", ".s", ".d"};
+    const char *zd_name = BE(c)->get_vec_reg_name(zd);
+    const char *zn_name = BE(c)->get_vec_reg_name(zn);
+    const char *zm_name = BE(c)->get_vec_reg_name(zm);
+    if (strcmp(zd_name, zn_name) != 0) {
+        fprintf(out, "\tmov\tz%s.d, z%s.d\n", zd_name + 1, zn_name + 1);
+    }
+    if (is_fp) {
+        fprintf(out, "\tfmul\tz%s%s, p%d/m, z%s%s, z%s%s\n",
+                zd_name + 1, sz_suf[esz & 3], pg & 0xF,
+                zd_name + 1, sz_suf[esz & 3],
+                zm_name + 1, sz_suf[esz & 3]);
+    } else {
+        fprintf(out, "\tmul\tz%s%s, p%d/m, z%s%s, z%s%s\n",
+                zd_name + 1, sz_suf[esz & 3], pg & 0xF,
+                zd_name + 1, sz_suf[esz & 3],
+                zm_name + 1, sz_suf[esz & 3]);
+    }
+}
+
+static void aarch64_emit_sve_div_asm(ZeroCCCompiler *c, int zd, int pg, int zn, int zm, int esz, int is_fp, FILE *out) {
+    (void)is_fp;
+    static const char *const sz_suf[] = {".b", ".h", ".s", ".d"};
+    const char *zd_name = BE(c)->get_vec_reg_name(zd);
+    const char *zn_name = BE(c)->get_vec_reg_name(zn);
+    const char *zm_name = BE(c)->get_vec_reg_name(zm);
+    if (strcmp(zd_name, zn_name) != 0) {
+        fprintf(out, "\tmov\tz%s.d, z%s.d\n", zd_name + 1, zn_name + 1);
+    }
+    fprintf(out, "\tfdiv\tz%s%s, p%d/m, z%s%s, z%s%s\n",
+            zd_name + 1, sz_suf[esz & 3], pg & 0xF,
+            zd_name + 1, sz_suf[esz & 3],
+            zm_name + 1, sz_suf[esz & 3]);
+}
+
+static void aarch64_emit_sve_and_asm(ZeroCCCompiler *c, int zd, int zn, int zm, FILE *out) {
+    const char *zd_name = BE(c)->get_vec_reg_name(zd);
+    const char *zn_name = BE(c)->get_vec_reg_name(zn);
+    const char *zm_name = BE(c)->get_vec_reg_name(zm);
+    fprintf(out, "\tand\tz%s.d, z%s.d, z%s.d\n", zd_name + 1, zn_name + 1, zm_name + 1);
+}
+
+static void aarch64_emit_sve_orr_asm(ZeroCCCompiler *c, int zd, int zn, int zm, FILE *out) {
+    const char *zd_name = BE(c)->get_vec_reg_name(zd);
+    const char *zn_name = BE(c)->get_vec_reg_name(zn);
+    const char *zm_name = BE(c)->get_vec_reg_name(zm);
+    fprintf(out, "\torr\tz%s.d, z%s.d, z%s.d\n", zd_name + 1, zn_name + 1, zm_name + 1);
+}
+
+static void aarch64_emit_sve_eor_asm(ZeroCCCompiler *c, int zd, int zn, int zm, FILE *out) {
+    const char *zd_name = BE(c)->get_vec_reg_name(zd);
+    const char *zn_name = BE(c)->get_vec_reg_name(zn);
+    const char *zm_name = BE(c)->get_vec_reg_name(zm);
+    fprintf(out, "\teor\tz%s.d, z%s.d, z%s.d\n", zd_name + 1, zn_name + 1, zm_name + 1);
+}
+
+static void aarch64_emit_sve_cmp_asm(ZeroCCCompiler *c, int pd, int pg, int zn, int zm, int esz, int cond, int is_fp, FILE *out) {
+    (void)pd; (void)pg;
+    static const char *const sz_suf[] = {".b", ".h", ".s", ".d"};
+    const char *zn_name = BE(c)->get_vec_reg_name(zn);
+    const char *zm_name = BE(c)->get_vec_reg_name(zm);
+    const char *suf = sz_suf[esz & 3];
+    if (is_fp) {
+        const char *op = (cond == 1) ? "fcmgt" : "fcmeq";
+        fprintf(out, "\t%s\tp0%s, p0/z, z%s%s, z%s%s\n",
+                op, suf, zn_name + 1, suf, zm_name + 1, suf);
+    } else {
+        const char *op = (cond == 1) ? "cmpgt" : "cmpeq";
+        fprintf(out, "\t%s\tp0%s, p0/z, z%s%s, z%s%s\n",
+                op, suf, zn_name + 1, suf, zm_name + 1, suf);
+    }
+}
+
+static void aarch64_emit_sve_addv_asm(ZeroCCCompiler *c, int zd, int pg, int zn, int esz, int is_fp, FILE *out) {
+    (void)pg;
+    static const char *const sz_suf[] = {".b", ".h", ".s", ".d"};
+    const char *zd_name = BE(c)->get_vec_reg_name(zd);
+    const char *zn_name = BE(c)->get_vec_reg_name(zn);
+    if (is_fp) {
+        char reg_char = (esz == 3) ? 'd' : 's';
+        fprintf(out, "\tfaddv\t%c%s, p0, z%s%s\n",
+                reg_char, zd_name + 1, zn_name + 1, sz_suf[esz & 3]);
+        if (esz != 3) {
+            fprintf(out, "\tfcvt\td%s, s%s\n", zd_name + 1, zd_name + 1);
+        }
+    } else {
+        fprintf(out, "\tuaddv\td%s, p0, z%s%s\n",
+                zd_name + 1, zn_name + 1, sz_suf[esz & 3]);
+    }
+}
+
+static void aarch64_emit_sve_qadd_asm(ZeroCCCompiler *c, int zd, int zn, int zm, int esz, FILE *out) {
+    static const char *const sz_suf[] = {".b", ".h", ".s", ".d"};
+    const char *zd_name = BE(c)->get_vec_reg_name(zd);
+    const char *zn_name = BE(c)->get_vec_reg_name(zn);
+    const char *zm_name = BE(c)->get_vec_reg_name(zm);
+    fprintf(out, "\tsqadd\tz%s%s, z%s%s, z%s%s\n",
+            zd_name + 1, sz_suf[esz & 3], zn_name + 1, sz_suf[esz & 3], zm_name + 1, sz_suf[esz & 3]);
+}
+
+static void aarch64_emit_sve_qsub_asm(ZeroCCCompiler *c, int zd, int zn, int zm, int esz, FILE *out) {
+    static const char *const sz_suf[] = {".b", ".h", ".s", ".d"};
+    const char *zd_name = BE(c)->get_vec_reg_name(zd);
+    const char *zn_name = BE(c)->get_vec_reg_name(zn);
+    const char *zm_name = BE(c)->get_vec_reg_name(zm);
+    fprintf(out, "\tsqsub\tz%s%s, z%s%s, z%s%s\n",
+            zd_name + 1, sz_suf[esz & 3], zn_name + 1, sz_suf[esz & 3], zm_name + 1, sz_suf[esz & 3]);
 }
 
 /* =========================================================================
@@ -1713,4 +1974,23 @@ void aarch64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_cvtsd2ss_asm = aarch64_emit_cvtsd2ss_asm;
     be->emit_vcmpss_asm = aarch64_emit_vcmpss_asm;
     be->emit_vcmpsd_asm = aarch64_emit_vcmpsd_asm;
+
+    /* SVE */
+    be->emit_sve_ptrue_asm = aarch64_emit_sve_ptrue_asm;
+    be->emit_sve_pfalse_asm = aarch64_emit_sve_pfalse_asm;
+    be->emit_sve_whilelt_asm = aarch64_emit_sve_whilelt_asm;
+    be->emit_sve_cnt_asm = aarch64_emit_sve_cnt_asm;
+    be->emit_sve_ld1_asm = aarch64_emit_sve_ld1_asm;
+    be->emit_sve_st1_asm = aarch64_emit_sve_st1_asm;
+    be->emit_sve_add_asm = aarch64_emit_sve_add_asm;
+    be->emit_sve_sub_asm = aarch64_emit_sve_sub_asm;
+    be->emit_sve_mul_asm = aarch64_emit_sve_mul_asm;
+    be->emit_sve_div_asm = aarch64_emit_sve_div_asm;
+    be->emit_sve_and_asm = aarch64_emit_sve_and_asm;
+    be->emit_sve_orr_asm = aarch64_emit_sve_orr_asm;
+    be->emit_sve_eor_asm = aarch64_emit_sve_eor_asm;
+    be->emit_sve_cmp_asm = aarch64_emit_sve_cmp_asm;
+    be->emit_sve_addv_asm = aarch64_emit_sve_addv_asm;
+    be->emit_sve_qadd_asm = aarch64_emit_sve_qadd_asm;
+    be->emit_sve_qsub_asm = aarch64_emit_sve_qsub_asm;
 }

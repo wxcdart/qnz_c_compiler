@@ -55,7 +55,7 @@ typedef struct {
 /* Small helpers                                                       */
 /* ------------------------------------------------------------------ */
 
-static int lu_is_jump(uint8_t op) {
+static int lu_is_jump(uint16_t op) {
     switch (op) {
         case OP_JMP: case OP_JE: case OP_JNE: case OP_JL: case OP_JLE:
         case OP_JG: case OP_JCOND: case OP_JMP_LABEL: case OP_JMP_INDIRECT:
@@ -67,7 +67,7 @@ static int lu_is_jump(uint8_t op) {
 
 /* Side-effecting opcodes that must never be silently deleted (header
  * purity) or replicated (span gate). */
-static int lu_has_side_effect(uint8_t op) {
+static int lu_has_side_effect(uint16_t op) {
     switch (op) {
         case OP_MOV_MEM:
         case OP_STORE_BYTE: case OP_STORE_16: case OP_STORE_32: case OP_STORE_64:
@@ -1055,7 +1055,7 @@ static void lu_emit_label(IRArena *a, int label) {
     ir_arena_emit(a, x);
 }
 
-static void lu_emit_jump(IRArena *a, uint8_t op, int flag, int label) {
+static void lu_emit_jump(IRArena *a, uint16_t op, int flag, int label) {
     /* flag is the branch-condition temp for JE/JNE/JCOND; pass TEMP_NONE
      * for the unconditional OP_JMP. */
     Instr x; memset(&x, 0, sizeof(x));
@@ -1071,14 +1071,14 @@ static void lu_emit_mov_imm(IRArena *a, int d, int64_t v) {
     ir_arena_emit(a, x);
 }
 
-static void lu_emit_binop(IRArena *a, uint8_t op, int d, int s1, int s2) {
+static void lu_emit_binop(IRArena *a, uint16_t op, int d, int s1, int s2) {
     Instr x; memset(&x, 0, sizeof(x));
     x.op = op; x.temp_dest = (uint32_t)d;
     x.temp_src1 = (uint32_t)s1; x.temp_src2 = (uint32_t)s2;
     ir_arena_emit(a, x);
 }
 
-static void lu_emit_imm_alu(IRArena *a, uint8_t op, int d, int64_t imm) {
+static void lu_emit_imm_alu(IRArena *a, uint16_t op, int d, int64_t imm) {
     /* in-place dest = dest +/- imm (OP_ADD_IMM / OP_SUB_IMM) */
     Instr x; memset(&x, 0, sizeof(x));
     x.op = op; x.temp_dest = (uint32_t)d; x.imm = (int16_t)imm;

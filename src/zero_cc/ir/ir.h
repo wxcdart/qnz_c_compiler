@@ -327,6 +327,24 @@ typedef enum {
     OP_V512_PADDW,     /* 512-bit packed 16-bit int add */
     OP_V512_PSUBW,     /* 512-bit packed 16-bit int sub */
     OP_V512_PMULLW,    /* 512-bit packed 16-bit int mul */
+    /* ARM SVE Scalable Vector Extension Opcodes (Sprint 203) */
+    OP_SVE_PTRUE,      /* sve ptrue predicate */
+    OP_SVE_PFALSE,     /* sve pfalse predicate */
+    OP_SVE_WHILELT,    /* sve whilelt predicate */
+    OP_SVE_CNT,        /* sve cnt element count */
+    OP_SVE_LD1,        /* sve predicated load */
+    OP_SVE_ST1,        /* sve predicated store */
+    OP_SVE_ADD,        /* sve vector add (int or fp) */
+    OP_SVE_SUB,        /* sve vector sub (int or fp) */
+    OP_SVE_MUL,        /* sve vector mul (int or fp) */
+    OP_SVE_DIV,        /* sve vector div (fp) */
+    OP_SVE_AND,        /* sve vector bitwise and */
+    OP_SVE_ORR,        /* sve vector bitwise orr */
+    OP_SVE_EOR,        /* sve vector bitwise eor */
+    OP_SVE_CMP,        /* sve vector compare to predicate */
+    OP_SVE_ADDV,       /* sve reduction across vector */
+    OP_SVE_QADD,       /* sve2 saturating add */
+    OP_SVE_QSUB,       /* sve2 saturating sub */
     /* Floating-point operations (8) */
     OP_FMOV_IMM,       /* load floating-point literal */
     OP_FLOAD,          /* load float from stack slot */
@@ -690,6 +708,23 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_V512_PADDW: return "V512_PADDW";
         case OP_V512_PSUBW: return "V512_PSUBW";
         case OP_V512_PMULLW: return "V512_PMULLW";
+        case OP_SVE_PTRUE: return "SVE_PTRUE";
+        case OP_SVE_PFALSE: return "SVE_PFALSE";
+        case OP_SVE_WHILELT: return "SVE_WHILELT";
+        case OP_SVE_CNT: return "SVE_CNT";
+        case OP_SVE_LD1: return "SVE_LD1";
+        case OP_SVE_ST1: return "SVE_ST1";
+        case OP_SVE_ADD: return "SVE_ADD";
+        case OP_SVE_SUB: return "SVE_SUB";
+        case OP_SVE_MUL: return "SVE_MUL";
+        case OP_SVE_DIV: return "SVE_DIV";
+        case OP_SVE_AND: return "SVE_AND";
+        case OP_SVE_ORR: return "SVE_ORR";
+        case OP_SVE_EOR: return "SVE_EOR";
+        case OP_SVE_CMP: return "SVE_CMP";
+        case OP_SVE_ADDV: return "SVE_ADDV";
+        case OP_SVE_QADD: return "SVE_QADD";
+        case OP_SVE_QSUB: return "SVE_QSUB";
         case OP_LEA_RIP: return "LEA_RIP";
         case OP_MOV_GLOBAL: return "MOV_GLOBAL";
         case OP_JMP_INDIRECT: return "JMP_INDIRECT";
@@ -815,6 +850,11 @@ static inline bool ir_opcode_is_simd(Opcode op) {
         case OP_V512_PANDD: case OP_V512_PORD: case OP_V512_PXORD: case OP_V512_PANDND:
         case OP_V512_PADDB: case OP_V512_PSUBB:
         case OP_V512_PADDW: case OP_V512_PSUBW: case OP_V512_PMULLW:
+        case OP_SVE_LD1: case OP_SVE_ST1:
+        case OP_SVE_ADD: case OP_SVE_SUB: case OP_SVE_MUL: case OP_SVE_DIV:
+        case OP_SVE_AND: case OP_SVE_ORR: case OP_SVE_EOR:
+        case OP_SVE_CMP: case OP_SVE_ADDV:
+        case OP_SVE_QADD: case OP_SVE_QSUB:
             return true;
         default:
             return false;
@@ -826,7 +866,7 @@ static inline bool ir_opcode_is_simd(Opcode op) {
  * lowering/optimization; opt_temp_renumber compacts them back to <=65534
  * before register allocation) */
 typedef struct __attribute__((packed)) {
-    uint8_t  op;          /* Operation code (0-255) */
+    uint16_t op;          /* Operation code */
     uint32_t temp_dest;   /* Destination temp (TEMP_NONE if none) */
     uint32_t temp_src1;   /* Source temp 1 (TEMP_NONE if none) */
     uint32_t temp_src2;   /* Source temp 2 (TEMP_NONE if none) */
@@ -1008,7 +1048,7 @@ void zc_temp_tags_reset(ZeroCCCompiler *c);
  * canonicalized (sign/zero-extended) to the dest's width. Copy,
  * address, compare, COND_SET (0/1), already-canonizing ops (LOAD_16/
  * 32/BYTE, LNOT, SEXTn/ZEXTn) and FP/128 ops are excluded. */
-static inline int zc_op_can_define_narrow_int(uint8_t op) {
+static inline int zc_op_can_define_narrow_int(uint16_t op) {
     switch (op) {
         case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV: case OP_MOD:
         case OP_AND: case OP_OR: case OP_XOR: case OP_NOT: case OP_NEG:

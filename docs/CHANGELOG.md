@@ -1,5 +1,27 @@
 # CHANGELOG
 
+## [Sprint 203] - 2026-11-23 - ARM SVE / SVE2 Scalable Vector Extension (AArch64 Predicate Registers p0-p15, Vector Registers z0-z31, Predicated Loads/Stores, Arithmetic & Reductions)
+
+Implements Option 1: ARM SVE / SVE2 Scalable Vector Extension for AArch64:
+- **CLI & Target Feature Flags (`driver_opts.h`, `symbols.h`, `main.c`)**:
+  - Added `-msve`, `-mno-sve`, `-msve2`, `-mno-sve2` CLI flags.
+  - Defined standard preprocessor feature macros `__ARM_FEATURE_SVE` (1) and `__ARM_FEATURE_SVE2` (1) when SVE is enabled targeting AArch64.
+  - Added `has_sve` and `has_sve2` fields to compiler instance.
+- **SVE IR Opcodes & Register Allocator Integration (`ir.h`, `live_range.h`, `isa_backend.h`)**:
+  - Added 17 SVE opcodes: `OP_SVE_PTRUE`, `OP_SVE_PFALSE`, `OP_SVE_WHILELT`, `OP_SVE_CNT`, `OP_SVE_LD1`, `OP_SVE_ST1`, `OP_SVE_ADD`, `OP_SVE_SUB`, `OP_SVE_MUL`, `OP_SVE_DIV`, `OP_SVE_AND`, `OP_SVE_ORR`, `OP_SVE_EOR`, `OP_SVE_CMP`, `OP_SVE_ADDV`, `OP_SVE_QADD`, `OP_SVE_QSUB`.
+  - Configured `live_range.h` so that `OP_SVE_LD1` and `OP_SVE_ST1` base addresses are assigned `REG_CLASS_GPR` while vector payloads use `REG_CLASS_VEC`.
+- **Backend Machine Code & Assembly Emitters (`aarch64.c`, `aarch64_asm.c`)**:
+  - Implemented raw machine code emitters in `src/zero_cc/isa/aarch64.c` for SVE instructions.
+  - Implemented text assembly emitters in `src/zero_cc/isa/aarch64_asm.c` adhering to AArch64 GNU assembler syntax (`ptrue`, `pfalse`, `whilelt`, `cntb/w/d`, `ld1b/w/d`, `st1b/w/d`, `add`, `sub`, `mul`, `fdiv`, `and`, `orr`, `eor`, `cmpeq/cmpgt`, `uaddv/faddv`, `sqadd/sqsub`).
+  - Added large stack frame immediate (>4095) handling using scratch register `x16` in `aarch64_emit_load_asm`, `aarch64_emit_store_asm`, `aarch64_emit_lea_asm`, and prologue/epilogue frames.
+  - Added automatic widening `fcvt dD, sD` after `faddv` to conform to ZeroCC's double-precision internal scalar floating-point model.
+- **Virtual Header (`<arm_sve.h>`) & Builtin Lowering (`virtual_headers.h`, `ast_lowering_builtins.c`, `visitor.c`, `expr.c`)**:
+  - Added `<arm_sve.h>` virtual header defining ACLE types (`svint8_t`..`svint64_t`, `svuint8_t`..`svuint64_t`, `svfloat32_t`, `svfloat64_t`, `svbool_t`), vector length helpers, predicate builders, predicated memory operations, arithmetic, bitwise logic, reductions, and saturating arithmetic.
+  - Implemented `zc_lower_sve_builtin` with software emulation fallback for non-SVE/JIT hosts and direct SVE hardware emission on AArch64.
+- **Verification**:
+  - Created [`test/jit/sve_test.c`](../test/jit/sve_test.c) testing predicates, broadcasts, vector arithmetic, predicated loads/stores, floating-point arithmetic, reductions, and SVE2 saturating arithmetic.
+  - Verified across JIT (`--run`), native AOT, and cross-compilation under QEMU (`qemu-aarch64-static -cpu max`) across all optimization levels (`-O0`, `-O1`, `-O2`, `-O3`).
+
 ## [Sprint 202] - 2026-11-23 - AVX-512 Integer SIMD (__m512i, AVX-512BW / AVX-512DQ Intrinsics, 15 Integer Opcodes, Integer Masked Arithmetic & Comparisons)
 
 Implements Option 2: AVX-512 Integer SIMD (`AVX-512BW` / `AVX-512DQ` / `__m512i`):

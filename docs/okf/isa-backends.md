@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-11-23T12:31:51Z
+timestamp: 2026-11-23T15:24:08Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -603,6 +603,16 @@ Extend ZeroCC for microcontrollers and embedded cores (Cortex-M, RV32E, Xtensa):
 - **LMA vs. VMA Section Mapping**: Support linker scripts (`-T script.ld`) in `linker.c` allowing `.text` and initial `.data` to be loaded in Flash (LMA) while executing from SRAM (VMA).
 - **Baremetal Runtime (`zero_rt_baremetal.a`)**: Provide an OS-free `crt0` (reset handler, vector table, BSS zeroing, Flash-to-RAM data copying) and stubbed I/O without Linux syscall dependencies.
 - **Reduced Register Sets**: Support 16-register embedded targets (e.g. RV32E) in `TargetRegDesc`.
+
+### 6. ARM SVE / SVE2 Scalable Vector Extension (Sprint 203)
+ZeroCC implements scalable vector length support for AArch64 via ARM SVE and SVE2:
+- **CLI & Feature Flags**: `-msve`, `-mno-sve`, `-msve2`, `-mno-sve2`. Preprocessor flags define `__ARM_FEATURE_SVE` and `__ARM_FEATURE_SVE2` when targeting AArch64 with `-msve`/`-msve2`.
+- **ACLE Header (`<arm_sve.h>`)**: Virtual header in `src/zero_cc/core/virtual_headers.h` providing ACLE vector types (`svint8_t`..`svint64_t`, `svuint8_t`..`svuint64_t`, `svfloat32_t`, `svfloat64_t`, `svbool_t`), vector length helpers (`svcntb`, `svcnth`, `svcntw`, `svcntd`), predication constructors (`svptrue_b*`, `svpfalse_b`, `svwhilelt_b*`), predicate-driven memory access (`svld1_*`, `svst1_*`), arithmetic (`svadd_*`, `svsub_*`, `svmul_*`, `svdiv_*`), bitwise logic (`svand_*`, `svorr_*`, `sveor_*`), comparisons (`svcmpeq_*`, `svcmpgt_*`), reductions (`svaddv_*`), and SVE2 saturating arithmetic (`svqadd_*`, `svqsub_*`).
+- **Software Emulation Fallback & JIT**: On x86-64 native and targets without hardware SVE, builtins lower to 512-bit vector simulation (16 lanes of 32-bit elements, 8 lanes of 64-bit elements, etc.) with predication masking.
+- **AArch64 Hardware Emission**:
+  - `src/zero_cc/isa/aarch64_asm.c`: Formats textual SVE instructions (`ptrue`, `pfalse`, `whilelt`, `cntb/w/d`, `ld1b/w/d`, `st1b/w/d`, `add`, `sub`, `mul`, `fdiv`, `and`, `orr`, `eor`, `cmpeq/cmpgt`, `uaddv/faddv`, `sqadd/sqsub`).
+  - `src/zero_cc/isa/aarch64.c`: Emits raw machine code for SVE instructions.
+  - Active predicate registers bind to `p0`, and predicate bitmasks compute into GPRs for standard C logic and control flow.
 
 ---
 

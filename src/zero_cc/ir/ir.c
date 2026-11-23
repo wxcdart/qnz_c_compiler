@@ -525,6 +525,12 @@ void ir_dump(const ZeroCCCompiler *c, FILE *f) {
             case OP_V512_PADDW: case OP_V512_PSUBW: case OP_V512_PMULLW:
                 fprintf(f, "%s zmm%u, zmm%u, zmm%u%s", ir_opcode_name(instr->op), instr->temp_dest, instr->temp_src1, instr->temp_src2, instr->cond == 2 ? "{k1}{z}" : (instr->cond == 1 ? "{k1}" : ""));
                 break;
+            case OP_SVE_PTRUE: case OP_SVE_PFALSE: case OP_SVE_WHILELT: case OP_SVE_CNT:
+            case OP_SVE_LD1: case OP_SVE_ST1: case OP_SVE_ADD: case OP_SVE_SUB:
+            case OP_SVE_MUL: case OP_SVE_DIV: case OP_SVE_AND: case OP_SVE_ORR:
+            case OP_SVE_EOR: case OP_SVE_CMP: case OP_SVE_ADDV: case OP_SVE_QADD: case OP_SVE_QSUB:
+                fprintf(f, "%s d=%u, s1=%u, s2=%u, imm=%u", ir_opcode_name(instr->op), instr->temp_dest, instr->temp_src1, instr->temp_src2, instr->imm);
+                break;
             case OP_VDIVPS: fprintf(f, "VDIVPS xmm%u, xmm%u, xmm%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);
                             break;
             case OP_VADDPD: fprintf(f, "VADDPD xmm%u, xmm%u, xmm%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);

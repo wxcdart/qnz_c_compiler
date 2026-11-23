@@ -29,11 +29,13 @@ TEST_BIN_DIR ?= $(BUILD_DIR)/test
 # test-opt sweep instead.  test/jit/unroll_nonlocal_goto.c uses a goto
 # from a nested function to an enclosing label (Sprint 99), which host
 # gcc rejects - exercised by tools/verify/loop_unroll_verifier.py instead.
+# test/jit/sve_test.c exercises ARM SVE intrinsics (<arm_sve.h>) which host
+# x86-64 gcc does not provide; exercised by zerocc directly and QEMU.
 #  test/san/*.c is the zero_san (-fsanitize=undefined)
 # corpus: san_trap_* tests DIE with SIGILL by design, so they cannot run
 # through the host-gcc suite; tools/verify/san_sweep.py (make test-san) drives them
 # with zerocc directly at -O0..-O3 in JIT + AOT.
-TEST_SRCS = $(filter-out test/diag/% test/driver/% test/linker/% test/baremetal/% test/san/% test/abi_interop/% test/preproc/% test/jit/builtin_apply.c test/jit/unroll_nonlocal_goto.c,$(wildcard test/*/*.c))
+TEST_SRCS = $(filter-out test/diag/% test/driver/% test/linker/% test/baremetal/% test/san/% test/abi_interop/% test/preproc/% test/jit/builtin_apply.c test/jit/unroll_nonlocal_goto.c test/jit/sve_test.c,$(wildcard test/*/*.c))
 TESTS = $(patsubst test/%.c,$(TEST_BIN_DIR)/%,$(TEST_SRCS))
 
 # Category-scoped test lists (Fix stale-build Root Cause 3: avoid relinking

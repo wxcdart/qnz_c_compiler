@@ -64,6 +64,8 @@ typedef struct {
     int has_avx512f;        /* -mavx512f: enable 512-bit AVX-512 foundation */
     int has_avx512bw;       /* -mavx512bw: enable AVX-512 byte and word instructions */
     int has_avx512dq;       /* -mavx512dq: enable AVX-512 doubleword and quadword instructions */
+    int has_sve;            /* -msve: enable ARM Scalable Vector Extension */
+    int has_sve2;           /* -msve2: enable ARM SVE2 */
 } CompileOptions;
 
 static void print_usage(const char *prog) {
@@ -305,6 +307,28 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
         }
         else if (strcmp(arg, "-mno-avx512dq") == 0) {
             opts->has_avx512dq = 0;
+        }
+        else if (strcmp(arg, "-msve") == 0) {
+            opts->has_sve = 1;
+        }
+        else if (strcmp(arg, "-mno-sve") == 0) {
+            opts->has_sve = 0;
+            opts->has_sve2 = 0;
+        }
+        else if (strcmp(arg, "-msve2") == 0) {
+            opts->has_sve = 1;
+            opts->has_sve2 = 1;
+        }
+        else if (strcmp(arg, "-mno-sve2") == 0) {
+            opts->has_sve2 = 0;
+        }
+        else if (strncmp(arg, "-march=", 7) == 0) {
+            if (strstr(arg, "+sve2")) {
+                opts->has_sve = 1;
+                opts->has_sve2 = 1;
+            } else if (strstr(arg, "+sve")) {
+                opts->has_sve = 1;
+            }
         }
         else if (strcmp(arg, "--target") == 0 && i + 1 < argc) {
             opts->target_arch = argv[++i];

@@ -1500,6 +1500,132 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name, ZeroCCStdDi
         if (buf) { memcpy(buf, k_arm_neon_p1, l1); memcpy(buf + l1, k_arm_neon_p2, l2 + 1); }
         return buf;
     }
+    if (strcmp(name, "arm_sve.h") == 0) {
+        static const char k_arm_sve_p1[] =
+            "#ifndef _ZERO_CC_ARM_SVE_H\n#define _ZERO_CC_ARM_SVE_H\n"
+            "#include <stdint.h>\n"
+            "typedef float float32_t;\n"
+            "typedef double float64_t;\n"
+            "typedef uint64_t svbool_t;\n"
+            "enum svpattern { SV_POW2 = 0, SV_VL1 = 1, SV_VL2 = 2, SV_VL3 = 3, SV_VL4 = 4, SV_VL5 = 5, SV_VL6 = 6, SV_VL7 = 7, SV_VL8 = 8, SV_VL16 = 9, SV_VL32 = 10, SV_VL64 = 11, SV_VL128 = 12, SV_VL256 = 13, SV_MUL4 = 29, SV_MUL3 = 30, SV_ALL = 31 };\n"
+            "typedef int8_t svint8_t __attribute__((__vector_size__(64)));\n"
+            "typedef uint8_t svuint8_t __attribute__((__vector_size__(64)));\n"
+            "typedef int16_t svint16_t __attribute__((__vector_size__(64)));\n"
+            "typedef uint16_t svuint16_t __attribute__((__vector_size__(64)));\n"
+            "typedef int32_t svint32_t __attribute__((__vector_size__(64)));\n"
+            "typedef uint32_t svuint32_t __attribute__((__vector_size__(64)));\n"
+            "typedef int64_t svint64_t __attribute__((__vector_size__(64)));\n"
+            "typedef uint64_t svuint64_t __attribute__((__vector_size__(64)));\n"
+            "typedef float svfloat32_t __attribute__((__vector_size__(64)));\n"
+            "typedef double svfloat64_t __attribute__((__vector_size__(64)));\n"
+            "static inline svbool_t svptrue_b8(void) { return (svbool_t)__builtin_zerocc_sve_ptrue(0, 31); }\n"
+            "static inline svbool_t svptrue_b16(void) { return (svbool_t)__builtin_zerocc_sve_ptrue(1, 31); }\n"
+            "static inline svbool_t svptrue_b32(void) { return (svbool_t)__builtin_zerocc_sve_ptrue(2, 31); }\n"
+            "static inline svbool_t svptrue_b64(void) { return (svbool_t)__builtin_zerocc_sve_ptrue(3, 31); }\n"
+            "static inline svbool_t svptrue_pat_b8(enum svpattern __pat) { return (svbool_t)__builtin_zerocc_sve_ptrue(0, (int)__pat); }\n"
+            "static inline svbool_t svptrue_pat_b16(enum svpattern __pat) { return (svbool_t)__builtin_zerocc_sve_ptrue(1, (int)__pat); }\n"
+            "static inline svbool_t svptrue_pat_b32(enum svpattern __pat) { return (svbool_t)__builtin_zerocc_sve_ptrue(2, (int)__pat); }\n"
+            "static inline svbool_t svptrue_pat_b64(enum svpattern __pat) { return (svbool_t)__builtin_zerocc_sve_ptrue(3, (int)__pat); }\n"
+            "static inline svbool_t svpfalse_b(void) { return (svbool_t)__builtin_zerocc_sve_pfalse(); }\n"
+            "static inline uint64_t svcntb(void) { return (uint64_t)__builtin_zerocc_sve_cnt(0); }\n"
+            "static inline uint64_t svcnth(void) { return (uint64_t)__builtin_zerocc_sve_cnt(1); }\n"
+            "static inline uint64_t svcntw(void) { return (uint64_t)__builtin_zerocc_sve_cnt(2); }\n"
+            "static inline uint64_t svcntd(void) { return (uint64_t)__builtin_zerocc_sve_cnt(3); }\n"
+            "static inline svbool_t svwhilelt_b8(int8_t __op1, int8_t __op2) { return (svbool_t)__builtin_zerocc_sve_whilelt(0, (int64_t)__op1, (int64_t)__op2); }\n"
+            "static inline svbool_t svwhilelt_b16(int16_t __op1, int16_t __op2) { return (svbool_t)__builtin_zerocc_sve_whilelt(1, (int64_t)__op1, (int64_t)__op2); }\n"
+            "static inline svbool_t svwhilelt_b32(int32_t __op1, int32_t __op2) { return (svbool_t)__builtin_zerocc_sve_whilelt(2, (int64_t)__op1, (int64_t)__op2); }\n"
+            "static inline svbool_t svwhilelt_b64(int64_t __op1, int64_t __op2) { return (svbool_t)__builtin_zerocc_sve_whilelt(3, __op1, __op2); }\n";
+        static const char k_arm_sve_p2[] =
+            "static inline svint32_t svld1_s32(svbool_t __pg, const int32_t *__p) { return __builtin_zerocc_sve_ld1(2, __pg, __p); }\n"
+            "static inline svuint32_t svld1_u32(svbool_t __pg, const uint32_t *__p) { return __builtin_zerocc_sve_ld1(2, __pg, __p); }\n"
+            "static inline svfloat32_t svld1_f32(svbool_t __pg, const float32_t *__p) { return __builtin_zerocc_sve_ld1(2, __pg, __p); }\n"
+            "static inline svint64_t svld1_s64(svbool_t __pg, const int64_t *__p) { return __builtin_zerocc_sve_ld1(3, __pg, __p); }\n"
+            "static inline svuint64_t svld1_u64(svbool_t __pg, const uint64_t *__p) { return __builtin_zerocc_sve_ld1(3, __pg, __p); }\n"
+            "static inline svfloat64_t svld1_f64(svbool_t __pg, const float64_t *__p) { return __builtin_zerocc_sve_ld1(3, __pg, __p); }\n"
+            "static inline svint16_t svld1_s16(svbool_t __pg, const int16_t *__p) { return __builtin_zerocc_sve_ld1(1, __pg, __p); }\n"
+            "static inline svuint16_t svld1_u16(svbool_t __pg, const uint16_t *__p) { return __builtin_zerocc_sve_ld1(1, __pg, __p); }\n"
+            "static inline svint8_t svld1_s8(svbool_t __pg, const int8_t *__p) { return __builtin_zerocc_sve_ld1(0, __pg, __p); }\n"
+            "static inline svuint8_t svld1_u8(svbool_t __pg, const uint8_t *__p) { return __builtin_zerocc_sve_ld1(0, __pg, __p); }\n"
+            "static inline void svst1_s32(svbool_t __pg, int32_t *__p, svint32_t __d) { __builtin_zerocc_sve_st1(2, __pg, __p, __d); }\n"
+            "static inline void svst1_u32(svbool_t __pg, uint32_t *__p, svuint32_t __d) { __builtin_zerocc_sve_st1(2, __pg, __p, __d); }\n"
+            "static inline void svst1_f32(svbool_t __pg, float32_t *__p, svfloat32_t __d) { __builtin_zerocc_sve_st1(2, __pg, __p, __d); }\n"
+            "static inline void svst1_s64(svbool_t __pg, int64_t *__p, svint64_t __d) { __builtin_zerocc_sve_st1(3, __pg, __p, __d); }\n"
+            "static inline void svst1_u64(svbool_t __pg, uint64_t *__p, svuint64_t __d) { __builtin_zerocc_sve_st1(3, __pg, __p, __d); }\n"
+            "static inline void svst1_f64(svbool_t __pg, float64_t *__p, svfloat64_t __d) { __builtin_zerocc_sve_st1(3, __pg, __p, __d); }\n"
+            "static inline void svst1_s16(svbool_t __pg, int16_t *__p, svint16_t __d) { __builtin_zerocc_sve_st1(1, __pg, __p, __d); }\n"
+            "static inline void svst1_u16(svbool_t __pg, uint16_t *__p, svuint16_t __d) { __builtin_zerocc_sve_st1(1, __pg, __p, __d); }\n"
+            "static inline void svst1_s8(svbool_t __pg, int8_t *__p, svint8_t __d) { __builtin_zerocc_sve_st1(0, __pg, __p, __d); }\n"
+            "static inline void svst1_u8(svbool_t __pg, uint8_t *__p, svuint8_t __d) { __builtin_zerocc_sve_st1(0, __pg, __p, __d); }\n";
+        static const char k_arm_sve_p3[] =
+            "static inline svint32_t svdup_n_s32(int32_t __v) { return __builtin_zerocc_sve_dup(2, 0, (int64_t)__v); }\n"
+            "static inline svuint32_t svdup_n_u32(uint32_t __v) { return __builtin_zerocc_sve_dup(2, 0, (int64_t)__v); }\n"
+            "static inline svfloat32_t svdup_n_f32(float32_t __v) { return __builtin_zerocc_sve_dup_f32(__v); }\n"
+            "static inline svint64_t svdup_n_s64(int64_t __v) { return __builtin_zerocc_sve_dup(3, 0, __v); }\n"
+            "static inline svuint64_t svdup_n_u64(uint64_t __v) { return __builtin_zerocc_sve_dup(3, 0, (int64_t)__v); }\n"
+            "static inline svfloat64_t svdup_n_f64(float64_t __v) { return __builtin_zerocc_sve_dup_f64(__v); }\n"
+            "static inline svint16_t svdup_n_s16(int16_t __v) { return __builtin_zerocc_sve_dup(1, 0, (int64_t)__v); }\n"
+            "static inline svuint16_t svdup_n_u16(uint16_t __v) { return __builtin_zerocc_sve_dup(1, 0, (int64_t)__v); }\n"
+            "static inline svint8_t svdup_n_s8(int8_t __v) { return __builtin_zerocc_sve_dup(0, 0, (int64_t)__v); }\n"
+            "static inline svuint8_t svdup_n_u8(uint8_t __v) { return __builtin_zerocc_sve_dup(0, 0, (int64_t)__v); }\n"
+            "static inline svint32_t svadd_s32_z(svbool_t __pg, svint32_t __a, svint32_t __b) { return __builtin_zerocc_sve_add(2, 0, 0, __pg, __a, __b); }\n"
+            "static inline svint32_t svadd_s32_m(svbool_t __pg, svint32_t __a, svint32_t __b) { return __builtin_zerocc_sve_add(2, 0, 1, __pg, __a, __b); }\n"
+            "static inline svint32_t svadd_s32_x(svbool_t __pg, svint32_t __a, svint32_t __b) { return __builtin_zerocc_sve_add(2, 0, 2, __pg, __a, __b); }\n"
+            "static inline svint32_t svsub_s32_z(svbool_t __pg, svint32_t __a, svint32_t __b) { return __builtin_zerocc_sve_sub(2, 0, 0, __pg, __a, __b); }\n"
+            "static inline svint32_t svsub_s32_m(svbool_t __pg, svint32_t __a, svint32_t __b) { return __builtin_zerocc_sve_sub(2, 0, 1, __pg, __a, __b); }\n"
+            "static inline svint32_t svsub_s32_x(svbool_t __pg, svint32_t __a, svint32_t __b) { return __builtin_zerocc_sve_sub(2, 0, 2, __pg, __a, __b); }\n"
+            "static inline svint32_t svmul_s32_z(svbool_t __pg, svint32_t __a, svint32_t __b) { return __builtin_zerocc_sve_mul(2, 0, 0, __pg, __a, __b); }\n"
+            "static inline svint32_t svmul_s32_m(svbool_t __pg, svint32_t __a, svint32_t __b) { return __builtin_zerocc_sve_mul(2, 0, 1, __pg, __a, __b); }\n"
+            "static inline svint32_t svmul_s32_x(svbool_t __pg, svint32_t __a, svint32_t __b) { return __builtin_zerocc_sve_mul(2, 0, 2, __pg, __a, __b); }\n"
+            "static inline svfloat32_t svadd_f32_z(svbool_t __pg, svfloat32_t __a, svfloat32_t __b) { return __builtin_zerocc_sve_add(2, 1, 0, __pg, __a, __b); }\n"
+            "static inline svfloat32_t svadd_f32_m(svbool_t __pg, svfloat32_t __a, svfloat32_t __b) { return __builtin_zerocc_sve_add(2, 1, 1, __pg, __a, __b); }\n"
+            "static inline svfloat32_t svadd_f32_x(svbool_t __pg, svfloat32_t __a, svfloat32_t __b) { return __builtin_zerocc_sve_add(2, 1, 2, __pg, __a, __b); }\n"
+            "static inline svfloat32_t svsub_f32_z(svbool_t __pg, svfloat32_t __a, svfloat32_t __b) { return __builtin_zerocc_sve_sub(2, 1, 0, __pg, __a, __b); }\n"
+            "static inline svfloat32_t svsub_f32_m(svbool_t __pg, svfloat32_t __a, svfloat32_t __b) { return __builtin_zerocc_sve_sub(2, 1, 1, __pg, __a, __b); }\n"
+            "static inline svfloat32_t svsub_f32_x(svbool_t __pg, svfloat32_t __a, svfloat32_t __b) { return __builtin_zerocc_sve_sub(2, 1, 2, __pg, __a, __b); }\n"
+            "static inline svfloat32_t svmul_f32_z(svbool_t __pg, svfloat32_t __a, svfloat32_t __b) { return __builtin_zerocc_sve_mul(2, 1, 0, __pg, __a, __b); }\n"
+            "static inline svfloat32_t svmul_f32_m(svbool_t __pg, svfloat32_t __a, svfloat32_t __b) { return __builtin_zerocc_sve_mul(2, 1, 1, __pg, __a, __b); }\n"
+            "static inline svfloat32_t svmul_f32_x(svbool_t __pg, svfloat32_t __a, svfloat32_t __b) { return __builtin_zerocc_sve_mul(2, 1, 2, __pg, __a, __b); }\n"
+            "static inline svfloat32_t svdiv_f32_z(svbool_t __pg, svfloat32_t __a, svfloat32_t __b) { return __builtin_zerocc_sve_div(2, 1, 0, __pg, __a, __b); }\n"
+            "static inline svfloat32_t svdiv_f32_m(svbool_t __pg, svfloat32_t __a, svfloat32_t __b) { return __builtin_zerocc_sve_div(2, 1, 1, __pg, __a, __b); }\n"
+            "static inline svfloat32_t svdiv_f32_x(svbool_t __pg, svfloat32_t __a, svfloat32_t __b) { return __builtin_zerocc_sve_div(2, 1, 2, __pg, __a, __b); }\n";
+        static const char k_arm_sve_p4[] =
+            "static inline svint64_t svadd_s64_z(svbool_t __pg, svint64_t __a, svint64_t __b) { return __builtin_zerocc_sve_add(3, 0, 0, __pg, __a, __b); }\n"
+            "static inline svint64_t svadd_s64_m(svbool_t __pg, svint64_t __a, svint64_t __b) { return __builtin_zerocc_sve_add(3, 0, 1, __pg, __a, __b); }\n"
+            "static inline svint64_t svsub_s64_z(svbool_t __pg, svint64_t __a, svint64_t __b) { return __builtin_zerocc_sve_sub(3, 0, 0, __pg, __a, __b); }\n"
+            "static inline svint64_t svsub_s64_m(svbool_t __pg, svint64_t __a, svint64_t __b) { return __builtin_zerocc_sve_sub(3, 0, 1, __pg, __a, __b); }\n"
+            "static inline svint64_t svmul_s64_z(svbool_t __pg, svint64_t __a, svint64_t __b) { return __builtin_zerocc_sve_mul(3, 0, 0, __pg, __a, __b); }\n"
+            "static inline svint64_t svmul_s64_m(svbool_t __pg, svint64_t __a, svint64_t __b) { return __builtin_zerocc_sve_mul(3, 0, 1, __pg, __a, __b); }\n"
+            "static inline svfloat64_t svadd_f64_z(svbool_t __pg, svfloat64_t __a, svfloat64_t __b) { return __builtin_zerocc_sve_add(3, 1, 0, __pg, __a, __b); }\n"
+            "static inline svfloat64_t svadd_f64_m(svbool_t __pg, svfloat64_t __a, svfloat64_t __b) { return __builtin_zerocc_sve_add(3, 1, 1, __pg, __a, __b); }\n"
+            "static inline svfloat64_t svsub_f64_z(svbool_t __pg, svfloat64_t __a, svfloat64_t __b) { return __builtin_zerocc_sve_sub(3, 1, 0, __pg, __a, __b); }\n"
+            "static inline svfloat64_t svsub_f64_m(svbool_t __pg, svfloat64_t __a, svfloat64_t __b) { return __builtin_zerocc_sve_sub(3, 1, 1, __pg, __a, __b); }\n"
+            "static inline svfloat64_t svmul_f64_z(svbool_t __pg, svfloat64_t __a, svfloat64_t __b) { return __builtin_zerocc_sve_mul(3, 1, 0, __pg, __a, __b); }\n"
+            "static inline svfloat64_t svmul_f64_m(svbool_t __pg, svfloat64_t __a, svfloat64_t __b) { return __builtin_zerocc_sve_mul(3, 1, 1, __pg, __a, __b); }\n"
+            "static inline svfloat64_t svdiv_f64_z(svbool_t __pg, svfloat64_t __a, svfloat64_t __b) { return __builtin_zerocc_sve_div(3, 1, 0, __pg, __a, __b); }\n"
+            "static inline svfloat64_t svdiv_f64_m(svbool_t __pg, svfloat64_t __a, svfloat64_t __b) { return __builtin_zerocc_sve_div(3, 1, 1, __pg, __a, __b); }\n"
+            "static inline svint32_t svand_s32_z(svbool_t __pg, svint32_t __a, svint32_t __b) { (void)__pg; return __builtin_zerocc_sve_and(__a, __b); }\n"
+            "static inline svint32_t svorr_s32_z(svbool_t __pg, svint32_t __a, svint32_t __b) { (void)__pg; return __builtin_zerocc_sve_orr(__a, __b); }\n"
+            "static inline svint32_t sveor_s32_z(svbool_t __pg, svint32_t __a, svint32_t __b) { (void)__pg; return __builtin_zerocc_sve_eor(__a, __b); }\n"
+            "static inline svbool_t svcmpeq_s32(svbool_t __pg, svint32_t __a, svint32_t __b) { return (svbool_t)__builtin_zerocc_sve_cmp(2, 0, 0, __pg, __a, __b); }\n"
+            "static inline svbool_t svcmpgt_s32(svbool_t __pg, svint32_t __a, svint32_t __b) { return (svbool_t)__builtin_zerocc_sve_cmp(2, 1, 0, __pg, __a, __b); }\n"
+            "static inline svbool_t svcmpeq_f32(svbool_t __pg, svfloat32_t __a, svfloat32_t __b) { return (svbool_t)__builtin_zerocc_sve_cmp(2, 0, 1, __pg, __a, __b); }\n"
+            "static inline svbool_t svcmpgt_f32(svbool_t __pg, svfloat32_t __a, svfloat32_t __b) { return (svbool_t)__builtin_zerocc_sve_cmp(2, 1, 1, __pg, __a, __b); }\n"
+            "static inline int32_t svaddv_s32(svbool_t __pg, svint32_t __a) { return (int32_t)__builtin_zerocc_sve_addv(2, 0, __pg, __a); }\n"
+            "static inline float32_t svaddv_f32(svbool_t __pg, svfloat32_t __a) { return (float32_t)__builtin_zerocc_sve_addv_f32(__pg, __a); }\n"
+            "static inline svint32_t svqadd_s32(svint32_t __a, svint32_t __b) { return __builtin_zerocc_sve_qadd(2, __a, __b); }\n"
+            "static inline svint32_t svqsub_s32(svint32_t __a, svint32_t __b) { return __builtin_zerocc_sve_qsub(2, __a, __b); }\n"
+            "#endif\n";
+        size_t l1 = sizeof(k_arm_sve_p1) - 1, l2 = sizeof(k_arm_sve_p2) - 1;
+        size_t l3 = sizeof(k_arm_sve_p3) - 1, l4 = sizeof(k_arm_sve_p4) - 1;
+        char *buf = malloc(l1 + l2 + l3 + l4 + 1);
+        if (buf) {
+            memcpy(buf, k_arm_sve_p1, l1);
+            memcpy(buf + l1, k_arm_sve_p2, l2);
+            memcpy(buf + l1 + l2, k_arm_sve_p3, l3);
+            memcpy(buf + l1 + l2 + l3, k_arm_sve_p4, l4 + 1);
+        }
+        return buf;
+    }
     return NULL;
 }
 

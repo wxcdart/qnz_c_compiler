@@ -96,7 +96,7 @@ static int frame_load_is_gpr(ZeroCCCompiler *c, int32_t off) {
 }
 
 /* True for opcodes that provably produce a GPR-class value. */
-static int op_defines_gpr(uint8_t op) {
+static int op_defines_gpr(uint16_t op) {
     switch (op) {
         case OP_MOV_IMM:
         case OP_ADD: case OP_SUB: case OP_MUL:

@@ -1259,7 +1259,7 @@ static void aarch64_emit_fp_neg(ZeroCCCompiler *c, int dst, int src) {
 
 static void aarch64_emit_fp_cvtss2sd(ZeroCCCompiler *c, int dst, int src) {
     /* fcvt d<dst>, s<src> - widen single to double (GNU vector per-lane) */
-    arm64_emit_u32(c, 0x1E22C000 | ((dst & 0x1F) << 5) | (src & 0x1F));
+    arm64_emit_u32(c, 0x1E22C000 | ((src & 0x1F) << 5) | (dst & 0x1F));
 }
 
 static void aarch64_emit_fp_cvtsd2ss(ZeroCCCompiler *c, int dst, int src) {
@@ -1378,6 +1378,134 @@ static void aarch64_emit_vorps(ZeroCCCompiler *c, int dst, int src1, int src2) {
 static void aarch64_emit_vxorps(ZeroCCCompiler *c, int dst, int src1, int src2) {
     /* eor v<dst>.16b, v<src1>.16b, v<src2>.16b */
     arm64_emit_u32(c, 0x6E201C00 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5) | (dst & 0x1F));
+}
+
+/* =========================================================================
+ * ARM SVE Scalable Vector Extension Raw Machine Code Emitters (Sprint 203)
+ * ========================================================================= */
+
+static void aarch64_emit_sve_ptrue(ZeroCCCompiler *c, int pd, int esz, int pat) {
+    (void)pd;
+    uint32_t p = (pat ? pat : 31) & 0x1F;
+    arm64_emit_u32(c, 0x2518e3e0 | ((esz & 3) << 22) | (p << 5) | 0);
+}
+
+static void aarch64_emit_sve_pfalse(ZeroCCCompiler *c, int pd) {
+    (void)pd;
+    arm64_emit_u32(c, 0x2518e400 | 0);
+}
+
+static void aarch64_emit_sve_whilelt(ZeroCCCompiler *c, int pd, int esz, int r1, int r2) {
+    (void)pd;
+    arm64_emit_u32(c, 0x25201400 | ((esz & 3) << 22) | ((r2 & 0x1F) << 16) | ((r1 & 0x1F) << 5) | 0);
+}
+
+static void aarch64_emit_sve_cnt(ZeroCCCompiler *c, int rd, int esz, int pat) {
+    uint32_t p = (pat ? pat : 31) & 0x1F;
+    arm64_emit_u32(c, 0x0420e3e0 | ((esz & 3) << 22) | (p << 5) | (rd & 0x1F));
+}
+
+static void aarch64_emit_sve_ld1(ZeroCCCompiler *c, int zt, int pg, int base, int32_t offset, int esz) {
+    (void)pg;
+    (void)offset;
+    uint32_t base_enc = (esz == 0) ? 0xa400a000 : (esz == 1 ? 0xa440a000 : (esz == 2 ? 0xa540a000 : 0xa5e0a000));
+    arm64_emit_u32(c, base_enc | ((base & 0x1F) << 5) | (zt & 0x1F));
+}
+
+static void aarch64_emit_sve_st1(ZeroCCCompiler *c, int zt, int pg, int base, int32_t offset, int esz) {
+    (void)pg;
+    (void)offset;
+    uint32_t base_enc = (esz == 0) ? 0xe400e000 : (esz == 1 ? 0xe440e000 : (esz == 2 ? 0xe540e000 : 0xe5e0e000));
+    arm64_emit_u32(c, base_enc | ((base & 0x1F) << 5) | (zt & 0x1F));
+}
+
+static void aarch64_emit_sve_add(ZeroCCCompiler *c, int zd, int pg, int zn, int zm, int esz, int is_fp) {
+    (void)pg;
+    if (zd != zn) {
+        arm64_emit_u32(c, 0x04a03000 | ((zn & 0x1F) << 16) | ((zn & 0x1F) << 5) | (zd & 0x1F));
+    }
+    if (is_fp) {
+        arm64_emit_u32(c, 0x65008000 | ((esz & 3) << 22) | ((zm & 0x1F) << 16) | ((zd & 0x1F) << 5) | (zd & 0x1F));
+    } else {
+        arm64_emit_u32(c, 0x04000000 | ((esz & 3) << 22) | ((zm & 0x1F) << 16) | ((zd & 0x1F) << 5) | (zd & 0x1F));
+    }
+}
+
+static void aarch64_emit_sve_sub(ZeroCCCompiler *c, int zd, int pg, int zn, int zm, int esz, int is_fp) {
+    (void)pg;
+    if (zd != zn) {
+        arm64_emit_u32(c, 0x04a03000 | ((zn & 0x1F) << 16) | ((zn & 0x1F) << 5) | (zd & 0x1F));
+    }
+    if (is_fp) {
+        arm64_emit_u32(c, 0x65018000 | ((esz & 3) << 22) | ((zm & 0x1F) << 16) | ((zd & 0x1F) << 5) | (zd & 0x1F));
+    } else {
+        arm64_emit_u32(c, 0x04010000 | ((esz & 3) << 22) | ((zm & 0x1F) << 16) | ((zd & 0x1F) << 5) | (zd & 0x1F));
+    }
+}
+
+static void aarch64_emit_sve_mul(ZeroCCCompiler *c, int zd, int pg, int zn, int zm, int esz, int is_fp) {
+    (void)pg;
+    if (zd != zn) {
+        arm64_emit_u32(c, 0x04a03000 | ((zn & 0x1F) << 16) | ((zn & 0x1F) << 5) | (zd & 0x1F));
+    }
+    if (is_fp) {
+        arm64_emit_u32(c, 0x65028000 | ((esz & 3) << 22) | ((zm & 0x1F) << 16) | ((zd & 0x1F) << 5) | (zd & 0x1F));
+    } else {
+        arm64_emit_u32(c, 0x04100000 | ((esz & 3) << 22) | ((zm & 0x1F) << 16) | ((zd & 0x1F) << 5) | (zd & 0x1F));
+    }
+}
+
+static void aarch64_emit_sve_div(ZeroCCCompiler *c, int zd, int pg, int zn, int zm, int esz, int is_fp) {
+    (void)pg;
+    (void)is_fp;
+    if (zd != zn) {
+        arm64_emit_u32(c, 0x04a03000 | ((zn & 0x1F) << 16) | ((zn & 0x1F) << 5) | (zd & 0x1F));
+    }
+    arm64_emit_u32(c, 0x650d8000 | ((esz & 3) << 22) | ((zm & 0x1F) << 16) | ((zd & 0x1F) << 5) | (zd & 0x1F));
+}
+
+static void aarch64_emit_sve_and(ZeroCCCompiler *c, int zd, int zn, int zm) {
+    arm64_emit_u32(c, 0x04203000 | ((zm & 0x1F) << 16) | ((zn & 0x1F) << 5) | (zd & 0x1F));
+}
+
+static void aarch64_emit_sve_orr(ZeroCCCompiler *c, int zd, int zn, int zm) {
+    arm64_emit_u32(c, 0x04603000 | ((zm & 0x1F) << 16) | ((zn & 0x1F) << 5) | (zd & 0x1F));
+}
+
+static void aarch64_emit_sve_eor(ZeroCCCompiler *c, int zd, int zn, int zm) {
+    arm64_emit_u32(c, 0x04a03000 | ((zm & 0x1F) << 16) | ((zn & 0x1F) << 5) | (zd & 0x1F));
+}
+
+static void aarch64_emit_sve_cmp(ZeroCCCompiler *c, int pd, int pg, int zn, int zm, int esz, int cond, int is_fp) {
+    (void)pd;
+    (void)pg;
+    if (is_fp) {
+        uint32_t op = (cond == 1) ? 0x65804410 : 0x65806400;
+        arm64_emit_u32(c, op | ((esz == 3 ? 1 : 0) << 22) | ((zm & 0x1F) << 16) | ((zn & 0x1F) << 5) | 0);
+    } else {
+        uint32_t op = (cond == 1) ? 0x24808410 : 0x2480a400;
+        arm64_emit_u32(c, op | ((esz & 3) << 22) | ((zm & 0x1F) << 16) | ((zn & 0x1F) << 5) | 0);
+    }
+}
+
+static void aarch64_emit_sve_addv(ZeroCCCompiler *c, int zd, int pg, int zn, int esz, int is_fp) {
+    (void)pg;
+    if (is_fp) {
+        arm64_emit_u32(c, 0x65802000 | ((esz == 3 ? 1 : 0) << 22) | ((zn & 0x1F) << 5) | (zd & 0x1F));
+        if (esz != 3) {
+            arm64_emit_u32(c, 0x1E22C000 | ((zd & 0x1F) << 5) | (zd & 0x1F));
+        }
+    } else {
+        arm64_emit_u32(c, 0x04802000 | ((esz & 3) << 22) | ((zn & 0x1F) << 5) | (zd & 0x1F));
+    }
+}
+
+static void aarch64_emit_sve_qadd(ZeroCCCompiler *c, int zd, int zn, int zm, int esz) {
+    arm64_emit_u32(c, 0x04a01000 | ((esz & 3) << 22) | ((zm & 0x1F) << 16) | ((zn & 0x1F) << 5) | (zd & 0x1F));
+}
+
+static void aarch64_emit_sve_qsub(ZeroCCCompiler *c, int zd, int zn, int zm, int esz) {
+    arm64_emit_u32(c, 0x04a01800 | ((esz & 3) << 22) | ((zm & 0x1F) << 16) | ((zn & 0x1F) << 5) | (zd & 0x1F));
 }
 
 static void aarch64_emit_fp_cmp(ZeroCCCompiler *c, int src1, int src2) {
@@ -2241,6 +2369,25 @@ ZeroCCISABackend aarch64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_vandps = aarch64_emit_vandps,
     .emit_vorps = aarch64_emit_vorps,
     .emit_vxorps = aarch64_emit_vxorps,
+
+    /* ARM SVE Scalable Vector Extension (Sprint 203) */
+    .emit_sve_ptrue = aarch64_emit_sve_ptrue,
+    .emit_sve_pfalse = aarch64_emit_sve_pfalse,
+    .emit_sve_whilelt = aarch64_emit_sve_whilelt,
+    .emit_sve_cnt = aarch64_emit_sve_cnt,
+    .emit_sve_ld1 = aarch64_emit_sve_ld1,
+    .emit_sve_st1 = aarch64_emit_sve_st1,
+    .emit_sve_add = aarch64_emit_sve_add,
+    .emit_sve_sub = aarch64_emit_sve_sub,
+    .emit_sve_mul = aarch64_emit_sve_mul,
+    .emit_sve_div = aarch64_emit_sve_div,
+    .emit_sve_and = aarch64_emit_sve_and,
+    .emit_sve_orr = aarch64_emit_sve_orr,
+    .emit_sve_eor = aarch64_emit_sve_eor,
+    .emit_sve_cmp = aarch64_emit_sve_cmp,
+    .emit_sve_addv = aarch64_emit_sve_addv,
+    .emit_sve_qadd = aarch64_emit_sve_qadd,
+    .emit_sve_qsub = aarch64_emit_sve_qsub,
     .emit_load_fp_rodata = aarch64_emit_load_fp_rodata,
     .emit_fp_add = aarch64_emit_fp_add,
     .emit_fp_sub = aarch64_emit_fp_sub,

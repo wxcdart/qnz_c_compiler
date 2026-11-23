@@ -300,6 +300,8 @@ typedef struct ZeroCCCompiler {
     bool has_avx512f;                      /* -mavx512f: enable 512-bit AVX-512 foundation */
     bool has_avx512bw;                     /* -mavx512bw: enable AVX-512 byte and word instructions */
     bool has_avx512dq;                     /* -mavx512dq: enable AVX-512 doubleword and quadword instructions */
+    bool has_sve;                          /* -msve: enable ARM Scalable Vector Extension */
+    bool has_sve2;                         /* -msve2: enable ARM SVE2 */
     bool used_avx;                         /* true if any 256-bit AVX instruction was emitted */
     bool used_avx512;                      /* true if any 512-bit AVX-512 instruction was emitted */
     const char *source_filename;           /* Source filename */
@@ -516,12 +518,14 @@ static inline bool zc_target_has_simd(const ZeroCCCompiler *c) {
 }
 
 static inline int zc_target_default_vec_width(const ZeroCCCompiler *c) {
+    if (c && c->has_sve && c->isa == ISA_AARCH64) return 16;
     if (c && c->has_avx512f && c->isa == ISA_X86_64) return 16;
     if (c && c->has_avx && c->isa == ISA_X86_64) return 8;
     return (int)zc_target_traits(c)->default_vec_width_f32;
 }
 
 static inline int zc_target_max_vec_bytes(const ZeroCCCompiler *c) {
+    if (c && c->has_sve && c->isa == ISA_AARCH64) return 64;
     if (c && c->has_avx512f && c->isa == ISA_X86_64) return 64;
     if (c && c->has_avx && c->isa == ISA_X86_64) return 32;
     return (int)zc_target_traits(c)->max_vec_bytes;

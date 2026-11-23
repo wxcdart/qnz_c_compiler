@@ -1283,7 +1283,7 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
                 if (instr->imm != 0) fprintf(out, "\tldr\ts%s, [%s, #%d]\n", dst_name + 1, addr_name, instr->imm);
                 else fprintf(out, "\tldr\ts%s, [%s]\n", dst_name + 1, addr_name);
                 /* widen into the 64-bit double lane (FP model) */
-                fprintf(out, "\tfmov\td%s, s%s\n", dst_name + 1, dst_name + 1);
+                fprintf(out, "\tfcvt\td%s, s%s\n", dst_name + 1, dst_name + 1);
             } else if (c->isa == ISA_AARCH32) {
                 if (instr->imm != 0) fprintf(out, "\tvldr\ts%d, [%s, #%d]\n", phys_dst * 2, addr_name, instr->imm);
                 else fprintf(out, "\tvldr\ts%d, [%s]\n", phys_dst * 2, addr_name);
@@ -1590,6 +1590,59 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
         LOWER_V512_ASM(OP_V512_PSUBW, v512_psubw)
         LOWER_V512_ASM(OP_V512_PMULLW, v512_pmullw)
 #undef LOWER_V512_ASM
+
+        /* ARM SVE Scalable Vector Extension (Sprint 203) */
+        case OP_SVE_PTRUE:
+            if (BE(c)->emit_sve_ptrue_asm) BE(c)->emit_sve_ptrue_asm(c, phys_dst, instr->imm, (int)instr->imm64, out);
+            return;
+        case OP_SVE_PFALSE:
+            if (BE(c)->emit_sve_pfalse_asm) BE(c)->emit_sve_pfalse_asm(c, phys_dst, out);
+            return;
+        case OP_SVE_WHILELT:
+            if (BE(c)->emit_sve_whilelt_asm) BE(c)->emit_sve_whilelt_asm(c, phys_dst, instr->imm, phys_src1, phys_src2, out);
+            return;
+        case OP_SVE_CNT:
+            if (BE(c)->emit_sve_cnt_asm) BE(c)->emit_sve_cnt_asm(c, phys_dst, instr->imm, (int)instr->imm64, out);
+            return;
+        case OP_SVE_LD1:
+            if (BE(c)->emit_sve_ld1_asm) BE(c)->emit_sve_ld1_asm(c, phys_dst, 0, phys_src1, 0, instr->imm, out);
+            return;
+        case OP_SVE_ST1:
+            if (BE(c)->emit_sve_st1_asm) BE(c)->emit_sve_st1_asm(c, phys_src2, 0, phys_src1, 0, instr->imm, out);
+            return;
+        case OP_SVE_ADD:
+            if (BE(c)->emit_sve_add_asm) BE(c)->emit_sve_add_asm(c, phys_dst, 0, phys_src1, phys_src2, instr->imm, (int)instr->imm64, out);
+            return;
+        case OP_SVE_SUB:
+            if (BE(c)->emit_sve_sub_asm) BE(c)->emit_sve_sub_asm(c, phys_dst, 0, phys_src1, phys_src2, instr->imm, (int)instr->imm64, out);
+            return;
+        case OP_SVE_MUL:
+            if (BE(c)->emit_sve_mul_asm) BE(c)->emit_sve_mul_asm(c, phys_dst, 0, phys_src1, phys_src2, instr->imm, (int)instr->imm64, out);
+            return;
+        case OP_SVE_DIV:
+            if (BE(c)->emit_sve_div_asm) BE(c)->emit_sve_div_asm(c, phys_dst, 0, phys_src1, phys_src2, instr->imm, (int)instr->imm64, out);
+            return;
+        case OP_SVE_AND:
+            if (BE(c)->emit_sve_and_asm) BE(c)->emit_sve_and_asm(c, phys_dst, phys_src1, phys_src2, out);
+            return;
+        case OP_SVE_ORR:
+            if (BE(c)->emit_sve_orr_asm) BE(c)->emit_sve_orr_asm(c, phys_dst, phys_src1, phys_src2, out);
+            return;
+        case OP_SVE_EOR:
+            if (BE(c)->emit_sve_eor_asm) BE(c)->emit_sve_eor_asm(c, phys_dst, phys_src1, phys_src2, out);
+            return;
+        case OP_SVE_CMP:
+            if (BE(c)->emit_sve_cmp_asm) BE(c)->emit_sve_cmp_asm(c, phys_dst, 0, phys_src1, phys_src2, instr->imm, (int)(instr->imm64 & 0xFF), (int)((instr->imm64 >> 8) & 1), out);
+            return;
+        case OP_SVE_ADDV:
+            if (BE(c)->emit_sve_addv_asm) BE(c)->emit_sve_addv_asm(c, phys_dst, 0, phys_src1, instr->imm, (int)instr->imm64, out);
+            return;
+        case OP_SVE_QADD:
+            if (BE(c)->emit_sve_qadd_asm) BE(c)->emit_sve_qadd_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, out);
+            return;
+        case OP_SVE_QSUB:
+            if (BE(c)->emit_sve_qsub_asm) BE(c)->emit_sve_qsub_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, out);
+            return;
 
         case OP_VSTORESS: {
             const char *val_name = BE(c)->get_vec_reg_name(phys_src2);

@@ -18,7 +18,7 @@
 
 /* Value number table */
 typedef struct {
-    uint8_t op;
+    uint16_t op;
     uint32_t src1;
     uint32_t src2;
     int16_t imm;
@@ -162,7 +162,7 @@ static void replace_with_gvn_copy(ZeroCCCompiler *c, int instr_idx, uint32_t src
 #define MF_MAX_SLOTS   64
 
 typedef struct {
-    uint8_t op;       /* load opcode this entry satisfies */
+    uint16_t op;       /* load opcode this entry satisfies */
     uint16_t addr;    /* canonical address temp (Sprint 35 P4: 16-bit) */
     uint16_t val;     /* temp holding the value at addr (Sprint 35 P4: 16-bit) */
     uint8_t group;    /* restrict alias group (0 = unconstrained) */
@@ -235,7 +235,7 @@ static void mf_invalidate_slots_near(int16_t off) {
     g_slot_n = w;
 }
 
-static int mf_is_load(uint8_t op) {
+static int mf_is_load(uint16_t op) {
     return op == OP_DEREF || op == OP_LOAD_BYTE || op == OP_LOAD_16 || op == OP_LOAD_32;
 }
 
