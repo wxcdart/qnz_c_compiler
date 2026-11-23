@@ -125,6 +125,57 @@ static void zc_simd_copy256(ZeroCCCompiler *c, int dst_addr, int src_addr) {
     }
 }
 
+static int zc_simd_alloc_res512(ZeroCCCompiler *c, int32_t *off_out) {
+    c->current_stack_frame = (c->current_stack_frame + 64 + 63) & ~63;
+    int32_t res_off = c->current_stack_frame;
+    if (off_out) *off_out = res_off;
+    int res_addr = zc_alloc_temp(c);
+    ir_emit_lea(c, res_addr, BE(c)->fp_reg, -res_off);
+    return res_addr;
+}
+
+/* True when the active target implements 512-bit hardware vector load/store. */
+static bool zc_simd_has_hw512(const ZeroCCCompiler *c) {
+    return c->has_avx512f && c->isa == ISA_X86_64 && BE(c)->emit_v512_load && BE(c)->emit_v512_store;
+}
+
+static inline void zc_simd_emit_v512_load(ZeroCCCompiler *c, int vt, int addr) {
+    ir_emit(c, (Instr){.op = OP_V512_LOAD, .temp_dest = (uint32_t)vt,
+                       .temp_src1 = (uint32_t)addr, .temp_src2 = TEMP_NONE,
+                       .flags_out = 0xFF, .flags_in = 0xFF});
+}
+
+static inline void zc_simd_emit_v512_store(ZeroCCCompiler *c, int addr, int vt) {
+    ir_emit(c, (Instr){.op = OP_V512_STORE, .temp_dest = TEMP_NONE,
+                       .temp_src1 = (uint32_t)addr, .temp_src2 = (uint32_t)vt,
+                       .flags_out = 0xFF, .flags_in = 0xFF});
+}
+
+static inline void zc_simd_emit_v512_bin(ZeroCCCompiler *c, Opcode op, int vr, int va, int vb) {
+    ir_emit(c, (Instr){.op = op, .temp_dest = (uint32_t)vr,
+                       .temp_src1 = (uint32_t)va, .temp_src2 = (uint32_t)vb,
+                       .flags_out = 0xFF, .flags_in = 0xFF});
+}
+
+/* Copy 64 bytes between vector addresses (hardware AVX-512 when available, else 16x32-bit). */
+static void zc_simd_copy512(ZeroCCCompiler *c, int dst_addr, int src_addr) {
+    if (zc_simd_has_hw512(c)) {
+        c->used_avx512 = true;
+        c->used_avx = true;
+        int vt = zc_alloc_temp(c);
+        zc_simd_emit_v512_load(c, vt, src_addr);
+        zc_simd_emit_v512_store(c, dst_addr, vt);
+        return;
+    }
+    for (size_t i = 0; i < 16; i++) {
+        int sa = zc_simd_lane_addr(c, src_addr, i * 4);
+        int da = zc_simd_lane_addr(c, dst_addr, i * 4);
+        int tmp = zc_alloc_temp(c);
+        ir_emit_load_32(c, tmp, sa);
+        ir_emit_store_32(c, tmp, da);
+    }
+}
+
 /* Lower `__builtin_zerocc_v*` SIMD vendor intrinsic helpers. */
 static bool zc_lower_simd_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
                                   ZeroCCASTNode *node, const char *name,
@@ -135,6 +186,138 @@ static bool zc_lower_simd_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
     ASTRef arg1_ref = arg0 ? arg0->next : AST_NULL;
     ZeroCCASTNode *arg1 = arg1_ref ? zero_cc_ast_get(arena, arg1_ref) : NULL;
     ASTRef arg2_ref = arg1 ? arg1->next : AST_NULL;
+
+    /* 0. 512-bit AVX-512 Operations (hardware EVEX encoding on x86-64 when -mavx512f, else 16-lane/8-lane scalar fallback) */
+    if (strncmp(suf, "512_", 4) == 0) {
+        const char *s512 = suf + 4;
+
+        static const struct {
+            const char *suffix;
+            Opcode vop;
+            uint8_t alu;   /* 0=add, 1=sub, 2=mul, 3=div, 4=and, 5=or, 6=xor */
+            uint8_t is_fp; /* 1=float/double, 0=int32/bits */
+            uint8_t esz;   /* 4 or 8 */
+        } binops512[] = {
+            {"addps", OP_V512_ADDPS,  0, 1, 4},
+            {"subps", OP_V512_SUBPS,  1, 1, 4},
+            {"mulps", OP_V512_MULPS,  2, 1, 4},
+            {"divps", OP_V512_DIVPS,  3, 1, 4},
+            {"addpd", OP_V512_ADDPD,  0, 1, 8},
+            {"subpd", OP_V512_SUBPD,  1, 1, 8},
+            {"mulpd", OP_V512_MULPD,  2, 1, 8},
+            {"divpd", OP_V512_DIVPD,  3, 1, 8},
+            {"andps", OP_V512_ANDPS,  4, 0, 4},
+            {"orps",  OP_V512_VORPS,  5, 0, 4},
+            {"xorps", OP_V512_VXORPS, 6, 0, 4},
+        };
+        for (size_t k = 0; k < sizeof(binops512) / sizeof(binops512[0]); k++) {
+            if (strcmp(s512, binops512[k].suffix) != 0) continue;
+            if (!arg0_ref || !arg1_ref) return false;
+            int a_addr = lower_expr(c, arena, arg0_ref);
+            int b_addr = lower_expr(c, arena, arg1_ref);
+            int res_addr = zc_simd_alloc_res512(c, NULL);
+            if (zc_simd_has_hw512(c)) {
+                c->used_avx512 = true;
+                c->used_avx = true;
+                int va = zc_alloc_temp(c), vb = zc_alloc_temp(c), vr = zc_alloc_temp(c);
+                zc_simd_emit_v512_load(c, va, a_addr);
+                zc_simd_emit_v512_load(c, vb, b_addr);
+                zc_simd_emit_v512_bin(c, binops512[k].vop, vr, va, vb);
+                zc_simd_emit_v512_store(c, res_addr, vr);
+            } else {
+                size_t esz = binops512[k].esz;
+                size_t lanes = 64 / esz;
+                for (size_t i = 0; i < lanes; i++) {
+                    int la = zc_simd_lane_addr(c, a_addr, i * esz);
+                    int lb = zc_simd_lane_addr(c, b_addr, i * esz);
+                    int lr = zc_simd_lane_addr(c, res_addr, i * esz);
+                    int va = zc_alloc_temp(c), vb = zc_alloc_temp(c), vr = zc_alloc_temp(c);
+                    if (binops512[k].is_fp) {
+                        if (esz == 4) { ir_emit_vloadss(c, (uint32_t)va, (uint32_t)la); ir_emit_vloadss(c, (uint32_t)vb, (uint32_t)lb); }
+                        else          { ir_emit_vloadsd(c, (uint32_t)va, (uint32_t)la); ir_emit_vloadsd(c, (uint32_t)vb, (uint32_t)lb); }
+                        if (binops512[k].alu == 0)      ir_emit_fadd(c, (uint32_t)vr, (uint32_t)va, (uint32_t)vb);
+                        else if (binops512[k].alu == 1) ir_emit_fsub(c, (uint32_t)vr, (uint32_t)va, (uint32_t)vb);
+                        else if (binops512[k].alu == 2) ir_emit_fmul(c, (uint32_t)vr, (uint32_t)va, (uint32_t)vb);
+                        else                            ir_emit_fdiv(c, (uint32_t)vr, (uint32_t)va, (uint32_t)vb);
+                        if (esz == 4) ir_emit_vstoress(c, (uint32_t)lr, (uint32_t)vr);
+                        else          ir_emit_vstoresd(c, (uint32_t)lr, (uint32_t)vr);
+                    } else {
+                        ir_emit_load_32(c, va, la);
+                        ir_emit_load_32(c, vb, lb);
+                        if (binops512[k].alu == 4) ir_emit(c, (Instr){.op = OP_AND, .temp_dest = (uint32_t)vr, .temp_src1 = (uint32_t)va, .temp_src2 = (uint32_t)vb, .width = 4, .flags_out = 0xFF, .flags_in = 0xFF});
+                        else if (binops512[k].alu == 5) ir_emit(c, (Instr){.op = OP_OR, .temp_dest = (uint32_t)vr, .temp_src1 = (uint32_t)va, .temp_src2 = (uint32_t)vb, .width = 4, .flags_out = 0xFF, .flags_in = 0xFF});
+                        else if (binops512[k].alu == 6) ir_emit(c, (Instr){.op = OP_XOR, .temp_dest = (uint32_t)vr, .temp_src1 = (uint32_t)va, .temp_src2 = (uint32_t)vb, .width = 4, .flags_out = 0xFF, .flags_in = 0xFF});
+                        ir_emit_store_32(c, vr, lr);
+                    }
+                }
+            }
+            c->last_expr_is_float = 0;
+            *out_temp = res_addr;
+            return true;
+        }
+
+        if (strcmp(s512, "load512") == 0) {
+            if (!arg1_ref) return false;
+            int ptr_temp = lower_expr(c, arena, arg1_ref);
+            int res_addr = zc_simd_alloc_res512(c, NULL);
+            zc_simd_copy512(c, res_addr, ptr_temp);
+            c->last_expr_is_float = 0;
+            *out_temp = res_addr;
+            return true;
+        }
+
+        if (strcmp(s512, "store512") == 0) {
+            if (!arg0_ref || !arg1_ref) return false;
+            int ptr_temp = lower_expr(c, arena, arg0_ref);
+            int vec_addr = lower_expr(c, arena, arg1_ref);
+            zc_simd_copy512(c, ptr_temp, vec_addr);
+            int z = zc_alloc_temp(c);
+            ir_emit_mov_imm(c, z, 0);
+            c->last_expr_is_float = 0;
+            *out_temp = z;
+            return true;
+        }
+
+        if (strncmp(s512, "set1_", 5) == 0) {
+            if (!arg1_ref) return false;
+            const char *ts = s512 + 5;
+            bool is_fp = (strcmp(ts, "ps") == 0 || strcmp(ts, "pd") == 0);
+            size_t esz = 4;
+            if (strcmp(ts, "pd") == 0 || strcmp(ts, "epi64") == 0) esz = 8;
+            else if (strcmp(ts, "ps") != 0 && strcmp(ts, "epi32") != 0) return false;
+
+            c->last_expr_is_float = 0;
+            int val = lower_expr(c, arena, arg1_ref);
+            bool val_flt = (c->last_expr_is_float != 0);
+            if (is_fp && !val_flt) {
+                int tf = zc_alloc_temp(c);
+                ir_emit_cvtsi2sd(c, (uint32_t)tf, (uint32_t)val);
+                val = tf;
+            } else if (!is_fp && val_flt) {
+                int ti = zc_alloc_temp(c);
+                ir_emit_cvttsd2si(c, (uint32_t)ti, (uint32_t)val);
+                val = ti;
+            }
+            int res_addr = zc_simd_alloc_res512(c, NULL);
+            size_t lanes = 64 / esz;
+            for (size_t i = 0; i < lanes; i++) {
+                int la = zc_simd_lane_addr(c, res_addr, i * esz);
+                if (is_fp) {
+                    if (esz == 4) ir_emit_vstoress(c, (uint32_t)la, (uint32_t)val);
+                    else          ir_emit_vstoresd(c, (uint32_t)la, (uint32_t)val);
+                } else if (esz == 4) {
+                    ir_emit_store_32(c, val, la);
+                } else {
+                    ir_emit_store_64(c, val, la);
+                }
+            }
+            c->last_expr_is_float = 0;
+            *out_temp = res_addr;
+            return true;
+        }
+
+        return false;
+    }
 
     /* 0. 256-bit AVX Operations (hardware VEX encoding on x86-64 when -mavx, else 8-lane/4-lane scalar fallback) */
     if (strncmp(suf, "256_", 4) == 0) {

@@ -1410,6 +1410,85 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             }
             return;
 
+        /* AVX-512 512-bit vector assembly emission */
+        case OP_V512_LOAD:
+            if (BE(c)->emit_v512_load_asm) {
+                BE(c)->emit_v512_load_asm(c, phys_dst, phys_src1, instr->imm, out);
+            }
+            return;
+
+        case OP_V512_STORE:
+            if (BE(c)->emit_v512_store_asm) {
+                BE(c)->emit_v512_store_asm(c, phys_src2, phys_src1, instr->imm, out);
+            }
+            return;
+
+        case OP_V512_ADDPS:
+            if (BE(c)->emit_v512_addps_asm) {
+                BE(c)->emit_v512_addps_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+
+        case OP_V512_SUBPS:
+            if (BE(c)->emit_v512_subps_asm) {
+                BE(c)->emit_v512_subps_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+
+        case OP_V512_MULPS:
+            if (BE(c)->emit_v512_mulps_asm) {
+                BE(c)->emit_v512_mulps_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+
+        case OP_V512_DIVPS:
+            if (BE(c)->emit_v512_divps_asm) {
+                BE(c)->emit_v512_divps_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+
+        case OP_V512_ADDPD:
+            if (BE(c)->emit_v512_addpd_asm) {
+                BE(c)->emit_v512_addpd_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+
+        case OP_V512_SUBPD:
+            if (BE(c)->emit_v512_subpd_asm) {
+                BE(c)->emit_v512_subpd_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+
+        case OP_V512_MULPD:
+            if (BE(c)->emit_v512_mulpd_asm) {
+                BE(c)->emit_v512_mulpd_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+
+        case OP_V512_DIVPD:
+            if (BE(c)->emit_v512_divpd_asm) {
+                BE(c)->emit_v512_divpd_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+
+        case OP_V512_ANDPS:
+            if (BE(c)->emit_v512_andps_asm) {
+                BE(c)->emit_v512_andps_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+
+        case OP_V512_VORPS:
+            if (BE(c)->emit_v512_vorps_asm) {
+                BE(c)->emit_v512_vorps_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+
+        case OP_V512_VXORPS:
+            if (BE(c)->emit_v512_vxorps_asm) {
+                BE(c)->emit_v512_vxorps_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+
         case OP_VSTORESS: {
             const char *val_name = BE(c)->get_vec_reg_name(phys_src2);
             const char *addr_name = BE(c)->get_hw_reg_name(phys_src1);

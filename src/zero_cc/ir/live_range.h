@@ -741,8 +741,8 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
             live_range_add_use(lra, i, instr->temp_src1, false);
             if (zc_temp_is_user(instr->temp_src1) && (size_t)instr->temp_src1 < lra->temp_capacity) {
                 if (instr->op == OP_CVTSI2SD || instr->op == OP_VCVT_SI2SS || instr->op == OP_VCVT_SI2SD ||
-                    instr->op == OP_VLOAD || instr->op == OP_V256_LOAD ||
-                    instr->op == OP_VSTORE || instr->op == OP_V256_STORE ||
+                    instr->op == OP_VLOAD || instr->op == OP_V256_LOAD || instr->op == OP_V512_LOAD ||
+                    instr->op == OP_VSTORE || instr->op == OP_V256_STORE || instr->op == OP_V512_STORE ||
                     instr->op == OP_VLOADSS || instr->op == OP_VLOADSD ||
                     instr->op == OP_VSTORESS || instr->op == OP_VSTORESD ||
                     instr->op == OP_VLOADSS_RAW || instr->op == OP_VSTORESS_RAW) {
@@ -783,7 +783,7 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
             if (zc_temp_is_user(instr->temp_src2) && (size_t)instr->temp_src2 < lra->temp_capacity) {
                 if (instr->op == OP_FSTORE) {
                     lra->temp_reg_class[instr->temp_src2] = REG_CLASS_GPR; /* base pointer */
-                } else if (instr->op == OP_VSTORE || instr->op == OP_V256_STORE) {
+                } else if (instr->op == OP_VSTORE || instr->op == OP_V256_STORE || instr->op == OP_V512_STORE) {
                     lra->temp_reg_class[instr->temp_src2] = REG_CLASS_VEC; /* vector value to store */
                 } else if (instr->op == OP_VSTORESS || instr->op == OP_VSTORESD || instr->op == OP_VSTORESS_RAW) {
                     lra->temp_reg_class[instr->temp_src2] = REG_CLASS_XMM; /* scalar float/double value to store */

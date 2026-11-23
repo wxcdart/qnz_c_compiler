@@ -1764,6 +1764,113 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 }
                 break;
 
+            /* =========================================================================
+             * 512-bit AVX-512 Instruction Emission
+             * ========================================================================= */
+            case OP_V512_LOAD:
+                if (c->emit_asm && BE(c)->emit_v512_load_asm) {
+                    BE(c)->emit_v512_load_asm(c, phys_dst, phys_src1, instr->imm, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v512_load) {
+                    BE(c)->emit_v512_load(c, phys_dst, phys_src1, instr->imm);
+                }
+                break;
+
+            case OP_V512_STORE:
+                if (c->emit_asm && BE(c)->emit_v512_store_asm) {
+                    BE(c)->emit_v512_store_asm(c, phys_src2, phys_src1, instr->imm, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v512_store) {
+                    BE(c)->emit_v512_store(c, phys_src2, phys_src1, instr->imm);
+                }
+                break;
+
+            case OP_V512_ADDPS:
+                if (c->emit_asm && BE(c)->emit_v512_addps_asm) {
+                    BE(c)->emit_v512_addps_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v512_addps) {
+                    BE(c)->emit_v512_addps(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
+            case OP_V512_SUBPS:
+                if (c->emit_asm && BE(c)->emit_v512_subps_asm) {
+                    BE(c)->emit_v512_subps_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v512_subps) {
+                    BE(c)->emit_v512_subps(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
+            case OP_V512_MULPS:
+                if (c->emit_asm && BE(c)->emit_v512_mulps_asm) {
+                    BE(c)->emit_v512_mulps_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v512_mulps) {
+                    BE(c)->emit_v512_mulps(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
+            case OP_V512_DIVPS:
+                if (c->emit_asm && BE(c)->emit_v512_divps_asm) {
+                    BE(c)->emit_v512_divps_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v512_divps) {
+                    BE(c)->emit_v512_divps(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
+            case OP_V512_ADDPD:
+                if (c->emit_asm && BE(c)->emit_v512_addpd_asm) {
+                    BE(c)->emit_v512_addpd_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v512_addpd) {
+                    BE(c)->emit_v512_addpd(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
+            case OP_V512_SUBPD:
+                if (c->emit_asm && BE(c)->emit_v512_subpd_asm) {
+                    BE(c)->emit_v512_subpd_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v512_subpd) {
+                    BE(c)->emit_v512_subpd(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
+            case OP_V512_MULPD:
+                if (c->emit_asm && BE(c)->emit_v512_mulpd_asm) {
+                    BE(c)->emit_v512_mulpd_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v512_mulpd) {
+                    BE(c)->emit_v512_mulpd(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
+            case OP_V512_DIVPD:
+                if (c->emit_asm && BE(c)->emit_v512_divpd_asm) {
+                    BE(c)->emit_v512_divpd_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v512_divpd) {
+                    BE(c)->emit_v512_divpd(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
+            case OP_V512_ANDPS:
+                if (c->emit_asm && BE(c)->emit_v512_andps_asm) {
+                    BE(c)->emit_v512_andps_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v512_andps) {
+                    BE(c)->emit_v512_andps(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
+            case OP_V512_VORPS:
+                if (c->emit_asm && BE(c)->emit_v512_vorps_asm) {
+                    BE(c)->emit_v512_vorps_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v512_vorps) {
+                    BE(c)->emit_v512_vorps(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
+            case OP_V512_VXORPS:
+                if (c->emit_asm && BE(c)->emit_v512_vxorps_asm) {
+                    BE(c)->emit_v512_vxorps_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v512_vxorps) {
+                    BE(c)->emit_v512_vxorps(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
             case OP_VCVT_SI2SS:
                 if (c->emit_asm && BE(c)->emit_vcvt_si2ss_asm) {
                     BE(c)->emit_vcvt_si2ss_asm(c, phys_dst, phys_src1, c->asm_out);

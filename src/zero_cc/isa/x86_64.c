@@ -703,6 +703,135 @@ static void x86_emit_v256_zeroupper(ZeroCCCompiler *c) {
     me_emit_u8(c, 0x77);
 }
 
+/* =========================================================================
+ * AVX-512 Raw Binary Emitters (512-bit ZMM, EVEX prefix)
+ * ========================================================================= */
+static void x86_emit_v512_load(ZeroCCCompiler *c, int dst, int base, int32_t offset) {
+    c->used_avx512 = true;
+    c->used_avx = true;
+    x86_evex(c, 1, 0, 0, dst, base, 0, 2, 0, 0);
+    me_emit_u8(c, 0x10);  /* vmovups zmm_dst, [base + offset] */
+    int mod;
+    if (offset == 0 && (base & 7) != X86_RBP) {
+        mod = 0;
+    } else if ((offset % 64 == 0) && (offset / 64 >= -128) && (offset / 64 <= 127)) {
+        mod = 1;
+    } else {
+        mod = 2;
+    }
+    x86_modrm(c, mod, dst & 7, base & 7);
+    if ((base & 7) == X86_RSP) me_emit_u8(c, 0x24);
+    if (mod == 1) me_emit_u8(c, (uint8_t)(int8_t)(offset / 64));
+    else if (mod == 2) me_emit_u32(c, (uint32_t)offset);
+}
+
+static void x86_emit_v512_store(ZeroCCCompiler *c, int src, int base, int32_t offset) {
+    c->used_avx512 = true;
+    c->used_avx = true;
+    x86_evex(c, 1, 0, 0, src, base, 0, 2, 0, 0);
+    me_emit_u8(c, 0x11);  /* vmovups [base + offset], zmm_src */
+    int mod;
+    if (offset == 0 && (base & 7) != X86_RBP) {
+        mod = 0;
+    } else if ((offset % 64 == 0) && (offset / 64 >= -128) && (offset / 64 <= 127)) {
+        mod = 1;
+    } else {
+        mod = 2;
+    }
+    x86_modrm(c, mod, src & 7, base & 7);
+    if ((base & 7) == X86_RSP) me_emit_u8(c, 0x24);
+    if (mod == 1) me_emit_u8(c, (uint8_t)(int8_t)(offset / 64));
+    else if (mod == 2) me_emit_u32(c, (uint32_t)offset);
+}
+
+static void x86_emit_v512_addps(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    c->used_avx512 = true;
+    c->used_avx = true;
+    x86_evex(c, 1, 0, 0, dst, src2, src1, 2, 0, 0);
+    me_emit_u8(c, 0x58);
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_v512_subps(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    c->used_avx512 = true;
+    c->used_avx = true;
+    x86_evex(c, 1, 0, 0, dst, src2, src1, 2, 0, 0);
+    me_emit_u8(c, 0x5C);
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_v512_mulps(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    c->used_avx512 = true;
+    c->used_avx = true;
+    x86_evex(c, 1, 0, 0, dst, src2, src1, 2, 0, 0);
+    me_emit_u8(c, 0x59);
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_v512_divps(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    c->used_avx512 = true;
+    c->used_avx = true;
+    x86_evex(c, 1, 0, 0, dst, src2, src1, 2, 0, 0);
+    me_emit_u8(c, 0x5E);
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_v512_addpd(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    c->used_avx512 = true;
+    c->used_avx = true;
+    x86_evex(c, 1, 1, 1, dst, src2, src1, 2, 0, 0);
+    me_emit_u8(c, 0x58);
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_v512_subpd(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    c->used_avx512 = true;
+    c->used_avx = true;
+    x86_evex(c, 1, 1, 1, dst, src2, src1, 2, 0, 0);
+    me_emit_u8(c, 0x5C);
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_v512_mulpd(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    c->used_avx512 = true;
+    c->used_avx = true;
+    x86_evex(c, 1, 1, 1, dst, src2, src1, 2, 0, 0);
+    me_emit_u8(c, 0x59);
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_v512_divpd(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    c->used_avx512 = true;
+    c->used_avx = true;
+    x86_evex(c, 1, 1, 1, dst, src2, src1, 2, 0, 0);
+    me_emit_u8(c, 0x5E);
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_v512_andps(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    c->used_avx512 = true;
+    c->used_avx = true;
+    x86_evex(c, 1, 0, 0, dst, src2, src1, 2, 0, 0);
+    me_emit_u8(c, 0x54);
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_v512_orps(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    c->used_avx512 = true;
+    c->used_avx = true;
+    x86_evex(c, 1, 0, 0, dst, src2, src1, 2, 0, 0);
+    me_emit_u8(c, 0x56);
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_v512_vxorps(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    c->used_avx512 = true;
+    c->used_avx = true;
+    x86_evex(c, 1, 0, 0, dst, src2, src1, 2, 0, 0);
+    me_emit_u8(c, 0x57);
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
 static void x86_emit_neg(ZeroCCCompiler *c, int dst, int src);
 
 static void x86_emit_sub(ZeroCCCompiler *c, int dst, int src1, int src2) {
@@ -2004,6 +2133,19 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_v256_vorps = x86_emit_v256_orps,
     .emit_v256_vxorps = x86_emit_v256_vxorps,
     .emit_v256_zeroupper = x86_emit_v256_zeroupper,
+    .emit_v512_load = x86_emit_v512_load,
+    .emit_v512_store = x86_emit_v512_store,
+    .emit_v512_addps = x86_emit_v512_addps,
+    .emit_v512_subps = x86_emit_v512_subps,
+    .emit_v512_mulps = x86_emit_v512_mulps,
+    .emit_v512_divps = x86_emit_v512_divps,
+    .emit_v512_addpd = x86_emit_v512_addpd,
+    .emit_v512_subpd = x86_emit_v512_subpd,
+    .emit_v512_mulpd = x86_emit_v512_mulpd,
+    .emit_v512_divpd = x86_emit_v512_divpd,
+    .emit_v512_andps = x86_emit_v512_andps,
+    .emit_v512_vorps = x86_emit_v512_orps,
+    .emit_v512_vxorps = x86_emit_v512_vxorps,
     .emit_cvtss2sd = x86_emit_fp_cvtss2sd,
     .emit_cvtsi2ss = x86_emit_fp_cvtsi2ss,
     .emit_cvtsd2ss = x86_emit_fp_cvtsd2ss,
@@ -2188,6 +2330,19 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_v256_vorps_asm = x86_emit_v256_orps_asm,
     .emit_v256_vxorps_asm = x86_emit_v256_vxorps_asm,
     .emit_v256_zeroupper_asm = x86_emit_v256_zeroupper_asm,
+    .emit_v512_load_asm = x86_emit_v512_load_asm,
+    .emit_v512_store_asm = x86_emit_v512_store_asm,
+    .emit_v512_addps_asm = x86_emit_v512_addps_asm,
+    .emit_v512_subps_asm = x86_emit_v512_subps_asm,
+    .emit_v512_mulps_asm = x86_emit_v512_mulps_asm,
+    .emit_v512_divps_asm = x86_emit_v512_divps_asm,
+    .emit_v512_addpd_asm = x86_emit_v512_addpd_asm,
+    .emit_v512_subpd_asm = x86_emit_v512_subpd_asm,
+    .emit_v512_mulpd_asm = x86_emit_v512_mulpd_asm,
+    .emit_v512_divpd_asm = x86_emit_v512_divpd_asm,
+    .emit_v512_andps_asm = x86_emit_v512_andps_asm,
+    .emit_v512_vorps_asm = x86_emit_v512_orps_asm,
+    .emit_v512_vxorps_asm = x86_emit_v512_vxorps_asm,
     };
 
 /* NOTE (Sprint 114): the global ISA backend registry (zero_cc_get_backend,

@@ -1,6 +1,33 @@
 # CHANGELOG
 
-## [Sprint 199] - 2026-11-22 - AVX / AVX2 256-bit SIMD Vectorization (VEX Encoding, YMM Registers, 8-Lane Auto-Vectorization)
+## [Sprint 200] - 2026-11-23 - AVX-512 Foundation (512-bit ZMM, EVEX Prefix Encoding, 16-Lane Auto-Vectorization)
+
+Implements Option 3: AVX-512 Foundation with 512-bit vector support (`__m512`, `__m512d`, `__m512i`, 16-lane float / 8-lane double on x86-64, 4-byte EVEX-prefix machine code and text assembly emission, intrinsics in `<immintrin.h>`, and auto-vectorization width scaling):
+- **CLI & Feature Flags (`src/zero_cc/driver/driver_opts.h`, `src/main.c`)**:
+  - Implemented `-mavx512f` and `-mno-avx512f` command-line options (with `-mavx512f` implying AVX and AVX2).
+  - Defined standard preprocessor macro `__AVX512F__` (1) when active.
+  - Propagated `has_avx512f` and `used_avx512` compiler state flags across compilation instances.
+- **Target Traits & Vector Width (`src/zero_cc/types/symbols.h`)**:
+  - Scaled `zc_target_default_vec_width` to 16 for single-precision floats and 8 for double-precision floats on x86-64 when `has_avx512f` is enabled.
+  - Added `zc_target_max_vec_bytes` returning 64 bytes when AVX-512 is enabled.
+- **512-Bit IR Opcodes (`src/zero_cc/ir/ir.h`, `src/zero_cc/ir/ir.c`)**:
+  - Added 13 512-bit opcodes: `OP_V512_LOAD`, `OP_V512_STORE`, `OP_V512_ADDPS`, `OP_V512_SUBPS`, `OP_V512_MULPS`, `OP_V512_DIVPS`, `OP_V512_ADDPD`, `OP_V512_SUBPD`, `OP_V512_MULPD`, `OP_V512_DIVPD`, `OP_V512_ANDPS`, `OP_V512_VORPS`, `OP_V512_VXORPS`.
+  - Updated live range analysis (`src/zero_cc/ir/live_range.h`) and optimization passes (DCE, GVN, mem2reg, loop unrolling/peeling) recognizing 512-bit vector operations and memory side effects.
+- **4-Byte EVEX Prefix Machine Code & Text Assembly Emitters (`src/zero_cc/isa/`)**:
+  - Implemented `x86_evex` in `src/zero_cc/isa/x86_64_common.h` generating the standard 4-byte EVEX (`0x62`) prefix supporting 32 ZMM registers (`%zmm0`–`%zmm31`), non-destructive 3-operand inversion (`~v & 0xF`), `L'L = 10` (512-bit), opmask `aaa = 000` (k0), and compressed displacement tuple scaling for disp8.
+  - Added 13 raw machine code emitters in `src/zero_cc/isa/x86_64.c` emitting EVEX-encoded instructions directly into memory for JIT and AOT binary paths.
+  - Added 13 AT&T text assembly emitters in `src/zero_cc/isa/x86_64_asm.c` emitting `%zmm0`–`%zmm31` instructions (`vmovups`, `vaddps`, `vsubps`, `vmulps`, `vdivps`, `vaddpd`, `vsubpd`, `vmulpd`, `vdivpd`, `vandps`, `vorps`, `vxorps`) for `-S` compilation.
+  - Wired dispatch into `src/zero_cc/ir/ast_lowering_mc.c` and `src/zero_cc/ir/asm_emitter.c`.
+- **Intrinsics Virtual Headers & Builtins (`virtual_headers.h`, `ast_lowering_builtins.c`)**:
+  - Virtual header `<immintrin.h>` defines 512-bit vector types (`__m512`, `__m512d`, `__m512i`, `__v16sf`, `__v8df`, `__v16si`, `__v8di`) and standard intrinsics (`_mm512_loadu_ps`, `_mm512_storeu_ps`, `_mm512_add_ps`, `_mm512_sub_ps`, `_mm512_mul_ps`, `_mm512_div_ps`, `_mm512_add_pd`, `_mm512_sub_pd`, `_mm512_mul_pd`, `_mm512_div_pd`, `_mm512_and_ps`, `_mm512_or_ps`, `_mm512_xor_ps`, `_mm512_set1_ps`, `_mm512_setzero_ps`, etc.).
+  - Implemented `zc_lower_simd_builtin` 512-bit lowering: emits hardware EVEX instructions when `-mavx512f` is active on x86-64, with seamless 16-lane / 8-lane scalar emulation fallback on other ISAs or in non-AVX-512 execution environments.
+- **Auto-Vectorizer Width Scaling (`src/zero_cc/opt/opt_vectorize.c`)**:
+  - When `c->has_avx512f` is enabled on x86-64, auto-vectorization scales `vector_width = 16` for floats and `vector_width = 8` for doubles.
+  - Emits `OP_V512_LOAD`, `OP_V512_STORE`, and `OP_V512_*` arithmetic opcodes, automatically leveraging remainder-loop peeling for trip counts not divisible by 16 or 8.
+- **Verification**:
+  - Added [`test/jit/avx512_intrinsics.c`](../test/jit/avx512_intrinsics.c) testing float and double AVX-512 intrinsics in both JIT and AOT.
+  - Added [`test/jit/avx512_vectorize.c`](../test/jit/avx512_vectorize.c) testing 16-lane float and 8-lane double auto-vectorization with remainder peeling under `-mavx512f -O3`, verified with GNU `as` disassembly.
+  - All regression gates green: `style_check.py` (0 errors), `type_tag_verifier.py --verify-all` (OK across 174 files).
 
 Implements Option 1: complete AVX / AVX2 wider vector support (256-bit SIMD, `__m256`, 8-lane float, 4-lane double on x86-64, VEX-prefix machine code and text assembly emission, and auto-vectorization width scaling):
 - **CLI & Feature Flags (`src/zero_cc/driver/driver_opts.h`, `src/main.c`)**:

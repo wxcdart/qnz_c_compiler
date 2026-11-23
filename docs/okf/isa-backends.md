@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-11-22T23:23:48Z
+timestamp: 2026-11-23T04:30:03Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -236,7 +236,23 @@ When loop vectorization emits packed vector opcodes (`OP_VLOAD`, `OP_VSTORE`, `O
 - **Auto-Vectorizer Induction Classification (`opt_vectorize.c`)**:
   - Induction address classification supports `OP_SEXT8/16/32` and `OP_ZEXT8/16/32`, enabling vectorization of standard loops indexing arrays with 32-bit `int` variables.
   - Temp-to-vector mapping checks use the complete 16-bit temp space (65536).
-- **x86-64 Width Cap**: Currently capped at 128-bit SSE/SSE2. 256-bit AVX/AVX2 and 512-bit AVX-512 remain roadmap extensions.
+### AVX-512 512-Bit SIMD Emission (Sprint 200)
+
+- **CLI & Feature Flags**: `-mavx512f`, `-mno-avx512f` (with `-mavx512f` implying AVX and AVX2), with `#define __AVX512F__ 1` defined during preprocessing when active.
+- **Target Traits & Vector Width**: `zc_target_default_vec_width` scales to 16 for single-precision floats and 8 for double-precision floats on x86-64 when `has_avx512f` is enabled; `zc_target_max_vec_bytes` reports 64 bytes.
+- **4-Byte EVEX Prefix Encoding**:
+  - `x86_evex` in `src/zero_cc/isa/x86_64_common.h` formats standard 4-byte EVEX prefixes (`0x62`) with inverted field encoding: `R`, `X`, `B`, `R'`, `mm[1:0]` in Byte 1; `W`, `vvvv[3:0]`, fixed bit 2, `pp[1:0]` in Byte 2; and `z`, `L'L = 10` (512-bit vector length), `b = 0`, `V' = 1`, `aaa = 000` (k0 mask) in Byte 3.
+  - Supports 32 ZMM registers (`%zmm0`–`%zmm31`), non-destructive 3-operand vector instructions, and compressed displacement scaling (`disp8 * 64`) for memory operations.
+- **512-Bit Raw MC and Text Assembly Backend**:
+  - Implemented 13 512-bit operations in `ZeroCCISABackend`: `emit_v512_load`, `emit_v512_store`, `emit_v512_addps`, `emit_v512_subps`, `emit_v512_mulps`, `emit_v512_divps`, `emit_v512_addpd`, `emit_v512_subpd`, `emit_v512_mulpd`, `emit_v512_divpd`, `emit_v512_andps`, `emit_v512_vorps`, `emit_v512_vxorps`.
+  - Machine code emitters in `src/zero_cc/isa/x86_64.c` write EVEX-prefixed machine code directly into the JIT/ELF text section.
+  - Text assembly emitters in `src/zero_cc/isa/x86_64_asm.c` emit AT&T syntax instructions with `%zmm0`–`%zmm31` (`vmovups`, `vaddps`, `vsubps`, `vmulps`, `vdivps`, `vaddpd`, `vsubpd`, `vmulpd`, `vdivpd`, etc.).
+- **Intrinsics Virtual Headers & Builtin Lowering**:
+  - Virtual header `<immintrin.h>` defines 512-bit vector types (`__m512`, `__m512d`, `__m512i`, `__v16sf`, `__v8df`, `__v16si`, `__v8di`) and standard intrinsics (`_mm512_loadu_ps`, `_mm512_storeu_ps`, `_mm512_add_ps`, `_mm512_sub_ps`, `_mm512_mul_ps`, `_mm512_div_ps`, `_mm512_add_pd`, `_mm512_sub_pd`, `_mm512_mul_pd`, `_mm512_div_pd`, `_mm512_and_ps`, `_mm512_or_ps`, `_mm512_xor_ps`, `_mm512_set1_ps`, `_mm512_setzero_ps`, etc.).
+  - Builtins lower to hardware EVEX opcodes on x86-64 when `-mavx512f` is enabled, and gracefully fall back to 16-lane / 8-lane scalar emulation when AVX-512 is unavailable or targeting other ISAs.
+- **Auto-Vectorizer Scaling**:
+  - `opt_auto_vectorize` sets `vector_width = 16` for floats and `vector_width = 8` for doubles when `has_avx512f` is enabled on x86-64.
+  - Emits `OP_V512_LOAD`, `OP_V512_STORE`, and `OP_V512_*` arithmetic opcodes, automatically peeling remainder loops when trip counts are not exact multiples of 16 or 8.
 
 ### SIMD Vendor Intrinsics & Virtual Headers (Sprint 196 Track 1)
 

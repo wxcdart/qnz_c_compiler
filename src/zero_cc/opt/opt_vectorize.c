@@ -665,7 +665,8 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
                     else if (cs->cond == CC_GE) trip = bound + 1;
                 }
                 bool has_avx = state->comp && state->comp->has_avx && (state->target_isa == ISA_X86_64);
-                int width = has_double ? (has_avx ? 4 : 2) : state->vector_width;
+                bool has_avx512 = state->comp && state->comp->has_avx512f && (state->target_isa == ISA_X86_64);
+                int width = has_double ? (has_avx512 ? 8 : (has_avx ? 4 : 2)) : state->vector_width;
                 /* Identify stack-slot counter (Case 1) or register counter (Case 2) */
                 int def_ctr = find_def_backward_in_loop(c, start, cmp_idx, skip_mask, ctr_t);
                 if (def_ctr >= start) {
@@ -861,8 +862,9 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
     vinfo->stride_bytes = elem_size;
     vinfo->is_aligned = any_aligned_checked && all_aligned;
     bool has_avx = state->comp && state->comp->has_avx && (state->target_isa == ISA_X86_64);
+    bool has_avx512 = state->comp && state->comp->has_avx512f && (state->target_isa == ISA_X86_64);
     if (has_double) {
-        vinfo->vector_width = has_avx ? 4 : 2;
+        vinfo->vector_width = has_avx512 ? 8 : (has_avx ? 4 : 2);
         vinfo->elem_size = 8;
         vinfo->array_stride = 8;
     } else {
@@ -942,7 +944,40 @@ void vectorization_analyze_full(VectorizationStateFull *state) {
 /**
  * Get vector operation for scalar operation
  */
-static int get_vec_op(int scalar_op, bool is_double, bool is_int32, bool is_256) {
+static int get_vec_op(int scalar_op, bool is_double, bool is_int32, bool is_256, bool is_512) {
+    if (is_512) {
+        if (is_double) {
+            switch (scalar_op) {
+                case OP_ADD:
+                case OP_FADD: return OP_V512_ADDPD;
+                case OP_SUB:
+                case OP_FSUB: return OP_V512_SUBPD;
+                case OP_MUL:
+                case OP_FMUL: return OP_V512_MULPD;
+                case OP_DIV:
+                case OP_FDIV: return OP_V512_DIVPD;
+                case OP_AND:  return OP_V512_ANDPS;
+                case OP_OR:   return OP_V512_VORPS;
+                case OP_XOR:  return OP_V512_VXORPS;
+                default:      return scalar_op;
+            }
+        } else {
+            switch (scalar_op) {
+                case OP_ADD:
+                case OP_FADD: return OP_V512_ADDPS;
+                case OP_SUB:
+                case OP_FSUB: return OP_V512_SUBPS;
+                case OP_MUL:
+                case OP_FMUL: return OP_V512_MULPS;
+                case OP_DIV:
+                case OP_FDIV: return OP_V512_DIVPS;
+                case OP_AND:  return OP_V512_ANDPS;
+                case OP_OR:   return OP_V512_VORPS;
+                case OP_XOR:  return OP_V512_VXORPS;
+                default:      return scalar_op;
+            }
+        }
+    }
     if (is_256) {
         if (is_double) {
             switch (scalar_op) {
@@ -1033,8 +1068,10 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
     }
 
     int vec_width = vinfo->vector_width;
-    bool is_256 = (vec_width >= 8 || (vinfo->is_double && vec_width >= 4));
-    if (is_256 && c) c->used_avx = true;
+    bool is_512 = (vec_width >= 16 || (vinfo->is_double && vec_width >= 8));
+    bool is_256 = !is_512 && (vec_width >= 8 || (vinfo->is_double && vec_width >= 4));
+    if (is_512 && c) { c->used_avx512 = true; c->used_avx = true; }
+    else if (is_256 && c) c->used_avx = true;
     int start_idx = vinfo->body_start_idx;
     int end_idx = vinfo->body_end_idx;
     int span = end_idx - start_idx + 1;
@@ -1210,7 +1247,7 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
             int vec_temp = zc_alloc_temp(c);
             scalar_to_vec_map[old_dest] = vec_temp;
 
-            instr->op = is_256 ? OP_V256_LOAD : OP_VLOAD;
+            instr->op = is_512 ? OP_V512_LOAD : (is_256 ? OP_V256_LOAD : OP_VLOAD);
             instr->temp_dest = (uint32_t)vec_temp;
             instr->temp_src2 = TEMP_NONE;
             instr->imm64 = 0;
@@ -1255,7 +1292,7 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
                 int vec_src1 = scalar_to_vec_map[instr->temp_src1];
                 int vec_src2 = scalar_to_vec_map[instr->temp_src2];
                 if (vec_src1 >= 0 && vec_src2 >= 0) {
-                    int vec_op = get_vec_op(instr->op, vinfo->is_double, vinfo->is_int32, is_256);
+                    int vec_op = get_vec_op(instr->op, vinfo->is_double, vinfo->is_int32, is_256, is_512);
                     int vec_dest = zc_alloc_temp(c);
                     scalar_to_vec_map[instr->temp_dest] = vec_dest;
 
@@ -1286,7 +1323,7 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
             int vec_value = (scalar_val_temp < 65536) ? scalar_to_vec_map[scalar_val_temp] : -1;
             if (vec_value < 0) continue;
 
-            instr->op = is_256 ? OP_V256_STORE : OP_VSTORE;
+            instr->op = is_512 ? OP_V512_STORE : (is_256 ? OP_V256_STORE : OP_VSTORE);
             instr->temp_dest = TEMP_NONE;
             instr->temp_src1 = scalar_addr_temp;
             instr->temp_src2 = (uint32_t)vec_value;
@@ -1322,7 +1359,12 @@ void opt_auto_vectorize(ZeroCCCompiler *c) {
     VectorizationStateFull state = {0};
     vectorization_init((VectorizationState *)&state, (int)isa);
     state.comp = c;
-    if (c->has_avx && isa == ISA_X86_64) {
+    if (c->has_avx512f && isa == ISA_X86_64) {
+        state.vector_width = 16;
+        for (int i = 0; i < MAX_VECTOR_LOOPS; i++) {
+            state.loops[i].vector_width = 16;
+        }
+    } else if (c->has_avx && isa == ISA_X86_64) {
         state.vector_width = 8;
         for (int i = 0; i < MAX_VECTOR_LOOPS; i++) {
             state.loops[i].vector_width = 8;

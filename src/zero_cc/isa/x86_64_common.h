@@ -59,6 +59,36 @@ static inline void x86_vex(ZeroCCCompiler *c, int mm, int pp, int w, int reg, in
     }
 }
 
+/* EVEX prefix emitter:
+ * mm: 1 = 0F, 2 = 0F 38, 3 = 0F 3A
+ * pp: 0 = none, 1 = 66, 2 = F3, 3 = F2
+ * w:  0 or 1
+ * reg: ModRM.reg (dst or src)
+ * base_rm: ModRM.rm or memory base
+ * vvvv: non-destructive source register (0 if unused)
+ * l_prime_l: 0 = 128-bit, 1 = 256-bit, 2 = 512-bit
+ * mask: opmask register k0-k7 (0 = k0 / no mask)
+ * z: zeroing-masking (0 = merge, 1 = zero)
+ */
+static inline void x86_evex(ZeroCCCompiler *c, int mm, int pp, int w, int reg, int base_rm, int vvvv, int l_prime_l, int mask, int z) {
+    int r = (reg >> 3) & 1;
+    int b = (base_rm >> 3) & 1;
+    int x = 0;
+    int r_prime = (reg >> 4) & 1;
+    int v_prime = (vvvv >> 4) & 1;
+    int r_inv = r ? 0 : 1;
+    int b_inv = b ? 0 : 1;
+    int x_inv = x ? 0 : 1;
+    int r_prime_inv = r_prime ? 0 : 1;
+    int v_prime_inv = v_prime ? 0 : 1;
+    int v_inv = (~vvvv) & 0x0F;
+
+    me_emit_u8(c, 0x62);
+    me_emit_u8(c, (uint8_t)((r_inv << 7) | (x_inv << 6) | (b_inv << 5) | (r_prime_inv << 4) | (mm & 3)));
+    me_emit_u8(c, (uint8_t)(((w & 1) << 7) | (v_inv << 3) | (1 << 2) | (pp & 3)));
+    me_emit_u8(c, (uint8_t)(((z & 1) << 7) | ((l_prime_l & 3) << 5) | (v_prime_inv << 3) | (mask & 7)));
+}
+
 /* Emit a 64-bit register-register instruction: REX.W <op...> ModRM(11, reg, rm) */
 static inline void x86_rr(ZeroCCCompiler *c, const uint8_t *op, int oplen, int reg, int rm) {
     x86_rex(c, 1, (reg >> 3) & 1, 0, (rm >> 3) & 1);

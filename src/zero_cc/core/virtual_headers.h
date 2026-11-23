@@ -25,7 +25,7 @@ static inline const char *zc_builtin_math_h(void) {
         "double exp(double);\ndouble exp2(double);\ndouble expm1(double);\n"
         "double log(double);\ndouble log10(double);\ndouble log2(double);\ndouble log1p(double);\n"
         "double floor(double);\ndouble ceil(double);\ndouble round(double);\n"
-        "double fabs(double);\n"
+        "double fabs(double);\nfloat fabsf(float);\n"
         "double nearbyint(double);\ndouble rint(double);\ndouble trunc(double);\n"
         "double fmod(double, double);\ndouble remainder(double, double);\n"
         "double fdim(double, double);\ndouble fmin(double, double);\ndouble fmax(double, double);\n"
@@ -970,6 +970,15 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name, ZeroCCStdDi
             "typedef uint32_t __v8su __attribute__((__vector_size__(32)));\n"
             "typedef int64_t __v4di __attribute__((__vector_size__(32)));\n"
             "typedef uint64_t __v4du __attribute__((__vector_size__(32)));\n"
+            "typedef float __m512 __attribute__((__vector_size__(64)));\n"
+            "typedef double __m512d __attribute__((__vector_size__(64)));\n"
+            "typedef int __m512i __attribute__((__vector_size__(64)));\n"
+            "typedef float __v16sf __attribute__((__vector_size__(64)));\n"
+            "typedef double __v8df __attribute__((__vector_size__(64)));\n"
+            "typedef int32_t __v16si __attribute__((__vector_size__(64)));\n"
+            "typedef uint32_t __v16su __attribute__((__vector_size__(64)));\n"
+            "typedef int64_t __v8di __attribute__((__vector_size__(64)));\n"
+            "typedef uint64_t __v8du __attribute__((__vector_size__(64)));\n"
             "static inline __m128 _mm_set1_ps(float __a) { __m128 __z; return __builtin_zerocc_vset1_ps(__z, __a); }\n"
             "static inline __m128 _mm_set_ps1(float __a) { return _mm_set1_ps(__a); }\n"
             "static inline __m128 _mm_setzero_ps(void) { return _mm_set1_ps(0.0f); }\n"
@@ -1142,14 +1151,47 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name, ZeroCCStdDi
             "static inline __m256 _mm256_and_ps(__m256 __a, __m256 __b) { return __builtin_zerocc_v256_andps(__a, __b); }\n"
             "static inline __m256 _mm256_or_ps(__m256 __a, __m256 __b) { return __builtin_zerocc_v256_orps(__a, __b); }\n"
             "static inline __m256 _mm256_xor_ps(__m256 __a, __m256 __b) { return __builtin_zerocc_v256_xorps(__a, __b); }\n"
-            "static inline void _mm256_zeroupper(void) { __builtin_zerocc_v256_zeroupper(); }\n"
+            "static inline void _mm256_zeroupper(void) { __builtin_zerocc_v256_zeroupper(); }\n";
+        static const char k_immintrin_p4[] =
+            "/* AVX-512 512-bit operations */\n"
+            "static inline __m512 _mm512_set1_ps(float __a) { __m512 __z; return __builtin_zerocc_v512_set1_ps(__z, __a); }\n"
+            "static inline __m512 _mm512_set_ps1(float __a) { return _mm512_set1_ps(__a); }\n"
+            "static inline __m512 _mm512_setzero_ps(void) { return _mm512_set1_ps(0.0f); }\n"
+            "static inline __m512d _mm512_set1_pd(double __a) { __m512d __z; return __builtin_zerocc_v512_set1_pd(__z, __a); }\n"
+            "static inline __m512d _mm512_setzero_pd(void) { return _mm512_set1_pd(0.0); }\n"
+            "static inline __m512i _mm512_set1_epi32(int __a) { __m512i __z; return __builtin_zerocc_v512_set1_epi32(__z, __a); }\n"
+            "static inline __m512i _mm512_setzero_si512(void) { return _mm512_set1_epi32(0); }\n"
+            "static inline __m512 _mm512_load_ps(const float *__p) { __m512 __z; return __builtin_zerocc_v512_load512(__z, __p); }\n"
+            "static inline __m512 _mm512_loadu_ps(const float *__p) { __m512 __z; return __builtin_zerocc_v512_load512(__z, __p); }\n"
+            "static inline __m512d _mm512_load_pd(const double *__p) { __m512d __z; return __builtin_zerocc_v512_load512(__z, __p); }\n"
+            "static inline __m512d _mm512_loadu_pd(const double *__p) { __m512d __z; return __builtin_zerocc_v512_load512(__z, __p); }\n"
+            "static inline __m512i _mm512_load_si512(const __m512i *__p) { __m512i __z; return __builtin_zerocc_v512_load512(__z, __p); }\n"
+            "static inline __m512i _mm512_loadu_si512(const __m512i *__p) { __m512i __z; return __builtin_zerocc_v512_load512(__z, __p); }\n"
+            "static inline void _mm512_store_ps(float *__p, __m512 __a) { __builtin_zerocc_v512_store512(__p, __a); }\n"
+            "static inline void _mm512_storeu_ps(float *__p, __m512 __a) { __builtin_zerocc_v512_store512(__p, __a); }\n"
+            "static inline void _mm512_store_pd(double *__p, __m512d __a) { __builtin_zerocc_v512_store512(__p, __a); }\n"
+            "static inline void _mm512_storeu_pd(double *__p, __m512d __a) { __builtin_zerocc_v512_store512(__p, __a); }\n"
+            "static inline void _mm512_store_si512(__m512i *__p, __m512i __a) { __builtin_zerocc_v512_store512(__p, __a); }\n"
+            "static inline void _mm512_storeu_si512(__m512i *__p, __m512i __a) { __builtin_zerocc_v512_store512(__p, __a); }\n"
+            "static inline __m512 _mm512_add_ps(__m512 __a, __m512 __b) { return __builtin_zerocc_v512_addps(__a, __b); }\n"
+            "static inline __m512 _mm512_sub_ps(__m512 __a, __m512 __b) { return __builtin_zerocc_v512_subps(__a, __b); }\n"
+            "static inline __m512 _mm512_mul_ps(__m512 __a, __m512 __b) { return __builtin_zerocc_v512_mulps(__a, __b); }\n"
+            "static inline __m512 _mm512_div_ps(__m512 __a, __m512 __b) { return __builtin_zerocc_v512_divps(__a, __b); }\n"
+            "static inline __m512d _mm512_add_pd(__m512d __a, __m512d __b) { return __builtin_zerocc_v512_addpd(__a, __b); }\n"
+            "static inline __m512d _mm512_sub_pd(__m512d __a, __m512d __b) { return __builtin_zerocc_v512_subpd(__a, __b); }\n"
+            "static inline __m512d _mm512_mul_pd(__m512d __a, __m512d __b) { return __builtin_zerocc_v512_mulpd(__a, __b); }\n"
+            "static inline __m512d _mm512_div_pd(__m512d __a, __m512d __b) { return __builtin_zerocc_v512_divpd(__a, __b); }\n"
+            "static inline __m512 _mm512_and_ps(__m512 __a, __m512 __b) { return __builtin_zerocc_v512_andps(__a, __b); }\n"
+            "static inline __m512 _mm512_or_ps(__m512 __a, __m512 __b) { return __builtin_zerocc_v512_orps(__a, __b); }\n"
+            "static inline __m512 _mm512_xor_ps(__m512 __a, __m512 __b) { return __builtin_zerocc_v512_xorps(__a, __b); }\n"
             "#endif\n";
-        size_t l1 = sizeof(k_immintrin_p1) - 1, l2 = sizeof(k_immintrin_p2) - 1, l3 = sizeof(k_immintrin_p3) - 1;
-        char *buf = malloc(l1 + l2 + l3 + 1);
+        size_t l1 = sizeof(k_immintrin_p1) - 1, l2 = sizeof(k_immintrin_p2) - 1, l3 = sizeof(k_immintrin_p3) - 1, l4 = sizeof(k_immintrin_p4) - 1;
+        char *buf = malloc(l1 + l2 + l3 + l4 + 1);
         if (buf) {
             memcpy(buf, k_immintrin_p1, l1);
             memcpy(buf + l1, k_immintrin_p2, l2);
-            memcpy(buf + l1 + l2, k_immintrin_p3, l3 + 1);
+            memcpy(buf + l1 + l2, k_immintrin_p3, l3);
+            memcpy(buf + l1 + l2 + l3, k_immintrin_p4, l4 + 1);
         }
         return buf;
     }

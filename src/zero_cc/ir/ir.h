@@ -283,6 +283,20 @@ typedef enum {
     OP_V256_VORPS,     /* 256-bit packed bitwise OR */
     OP_V256_VXORPS,    /* 256-bit packed bitwise XOR */
     OP_V256_ZEROUPPER, /* vzeroupper (clear upper 128 bits) */
+    /* 512-bit AVX-512 vector operations */
+    OP_V512_LOAD,      /* 512-bit vector load */
+    OP_V512_STORE,     /* 512-bit vector store */
+    OP_V512_ADDPS,     /* 512-bit packed single add */
+    OP_V512_SUBPS,     /* 512-bit packed single sub */
+    OP_V512_MULPS,     /* 512-bit packed single mul */
+    OP_V512_DIVPS,     /* 512-bit packed single div */
+    OP_V512_ADDPD,     /* 512-bit packed double add */
+    OP_V512_SUBPD,     /* 512-bit packed double sub */
+    OP_V512_MULPD,     /* 512-bit packed double mul */
+    OP_V512_DIVPD,     /* 512-bit packed double div */
+    OP_V512_ANDPS,     /* 512-bit packed bitwise AND */
+    OP_V512_VORPS,     /* 512-bit packed bitwise OR */
+    OP_V512_VXORPS,    /* 512-bit packed bitwise XOR */
     /* Floating-point operations (8) */
     OP_FMOV_IMM,       /* load floating-point literal */
     OP_FLOAD,          /* load float from stack slot */
@@ -605,6 +619,19 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_V256_VORPS: return "V256_VORPS";
         case OP_V256_VXORPS: return "V256_VXORPS";
         case OP_V256_ZEROUPPER: return "V256_ZEROUPPER";
+        case OP_V512_LOAD: return "V512_LOAD";
+        case OP_V512_STORE: return "V512_STORE";
+        case OP_V512_ADDPS: return "V512_ADDPS";
+        case OP_V512_SUBPS: return "V512_SUBPS";
+        case OP_V512_MULPS: return "V512_MULPS";
+        case OP_V512_DIVPS: return "V512_DIVPS";
+        case OP_V512_ADDPD: return "V512_ADDPD";
+        case OP_V512_SUBPD: return "V512_SUBPD";
+        case OP_V512_MULPD: return "V512_MULPD";
+        case OP_V512_DIVPD: return "V512_DIVPD";
+        case OP_V512_ANDPS: return "V512_ANDPS";
+        case OP_V512_VORPS: return "V512_VORPS";
+        case OP_V512_VXORPS: return "V512_VXORPS";
         case OP_LEA_RIP: return "LEA_RIP";
         case OP_MOV_GLOBAL: return "MOV_GLOBAL";
         case OP_JMP_INDIRECT: return "JMP_INDIRECT";
@@ -718,6 +745,10 @@ static inline bool ir_opcode_is_simd(Opcode op) {
         case OP_V256_ADDPS: case OP_V256_SUBPS: case OP_V256_MULPS: case OP_V256_DIVPS:
         case OP_V256_ADDPD: case OP_V256_SUBPD: case OP_V256_MULPD: case OP_V256_DIVPD:
         case OP_V256_ANDPS: case OP_V256_VORPS: case OP_V256_VXORPS: case OP_V256_ZEROUPPER:
+        case OP_V512_LOAD: case OP_V512_STORE:
+        case OP_V512_ADDPS: case OP_V512_SUBPS: case OP_V512_MULPS: case OP_V512_DIVPS:
+        case OP_V512_ADDPD: case OP_V512_SUBPD: case OP_V512_MULPD: case OP_V512_DIVPD:
+        case OP_V512_ANDPS: case OP_V512_VORPS: case OP_V512_VXORPS:
             return true;
         default:
             return false;

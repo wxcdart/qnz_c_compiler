@@ -49,6 +49,20 @@ static const char *x86_get_ymm_reg_name(int vec_reg_idx) {
     return x86_ymm_names[vec_reg_idx];
 }
 
+/* Get 512-bit ZMM vector register name by index (AVX-512) */
+static const char *x86_get_zmm_reg_name(int vec_reg_idx) {
+    static const char *const x86_zmm_names[] = {
+        "zmm0", "zmm1", "zmm2", "zmm3", "zmm4", "zmm5", "zmm6", "zmm7",
+        "zmm8", "zmm9", "zmm10", "zmm11", "zmm12", "zmm13", "zmm14", "zmm15",
+        "zmm16", "zmm17", "zmm18", "zmm19", "zmm20", "zmm21", "zmm22", "zmm23",
+        "zmm24", "zmm25", "zmm26", "zmm27", "zmm28", "zmm29", "zmm30", "zmm31"
+    };
+    if (vec_reg_idx < 0 || vec_reg_idx >= 32) {
+        return "zmm0";
+    }
+    return x86_zmm_names[vec_reg_idx];
+}
+
 /* Prologue: push rbp, mov rbp, rsp, sub rsp, save callee-saved */
 static void x86_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
     if (c->lowering.is_frameless) return;
@@ -1538,6 +1552,70 @@ static void x86_emit_v256_vxorps_asm(ZeroCCCompiler *c, int dst, int src1, int s
 static void x86_emit_v256_zeroupper_asm(ZeroCCCompiler *c, FILE *out) {
     (void)c;
     fprintf(out, "\tvzeroupper\n");
+}
+
+/* AVX-512 512-bit vector assembly emitters */
+static void x86_emit_v512_load_asm(ZeroCCCompiler *c, int dst, int base, int32_t offset, FILE *out) {
+    fprintf(out, "\tvmovups\t%d(%%%s),%%%s\n", offset, BE(c)->get_hw_reg_name(base), x86_get_zmm_reg_name(dst));
+}
+
+static void x86_emit_v512_store_asm(ZeroCCCompiler *c, int src, int base, int32_t offset, FILE *out) {
+    fprintf(out, "\tvmovups\t%%%s,%d(%%%s)\n", x86_get_zmm_reg_name(src), offset, BE(c)->get_hw_reg_name(base));
+}
+
+static void x86_emit_v512_addps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvaddps\t%%%s,%%%s,%%%s\n", x86_get_zmm_reg_name(src2), x86_get_zmm_reg_name(src1), x86_get_zmm_reg_name(dst));
+}
+
+static void x86_emit_v512_subps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvsubps\t%%%s,%%%s,%%%s\n", x86_get_zmm_reg_name(src2), x86_get_zmm_reg_name(src1), x86_get_zmm_reg_name(dst));
+}
+
+static void x86_emit_v512_mulps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvmulps\t%%%s,%%%s,%%%s\n", x86_get_zmm_reg_name(src2), x86_get_zmm_reg_name(src1), x86_get_zmm_reg_name(dst));
+}
+
+static void x86_emit_v512_divps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvdivps\t%%%s,%%%s,%%%s\n", x86_get_zmm_reg_name(src2), x86_get_zmm_reg_name(src1), x86_get_zmm_reg_name(dst));
+}
+
+static void x86_emit_v512_addpd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvaddpd\t%%%s,%%%s,%%%s\n", x86_get_zmm_reg_name(src2), x86_get_zmm_reg_name(src1), x86_get_zmm_reg_name(dst));
+}
+
+static void x86_emit_v512_subpd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvsubpd\t%%%s,%%%s,%%%s\n", x86_get_zmm_reg_name(src2), x86_get_zmm_reg_name(src1), x86_get_zmm_reg_name(dst));
+}
+
+static void x86_emit_v512_mulpd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvmulpd\t%%%s,%%%s,%%%s\n", x86_get_zmm_reg_name(src2), x86_get_zmm_reg_name(src1), x86_get_zmm_reg_name(dst));
+}
+
+static void x86_emit_v512_divpd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvdivpd\t%%%s,%%%s,%%%s\n", x86_get_zmm_reg_name(src2), x86_get_zmm_reg_name(src1), x86_get_zmm_reg_name(dst));
+}
+
+static void x86_emit_v512_andps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvandps\t%%%s,%%%s,%%%s\n", x86_get_zmm_reg_name(src2), x86_get_zmm_reg_name(src1), x86_get_zmm_reg_name(dst));
+}
+
+static void x86_emit_v512_orps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvorps\t%%%s,%%%s,%%%s\n", x86_get_zmm_reg_name(src2), x86_get_zmm_reg_name(src1), x86_get_zmm_reg_name(dst));
+}
+
+static void x86_emit_v512_vxorps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvxorps\t%%%s,%%%s,%%%s\n", x86_get_zmm_reg_name(src2), x86_get_zmm_reg_name(src1), x86_get_zmm_reg_name(dst));
 }
 
 /* =========================================================================
