@@ -298,6 +298,8 @@ typedef struct ZeroCCCompiler {
     bool has_avx;                          /* -mavx: enable 256-bit AVX vectors */
     bool has_avx2;                         /* -mavx2: enable AVX2 vector integer ops */
     bool has_avx512f;                      /* -mavx512f: enable 512-bit AVX-512 foundation */
+    bool has_avx512bw;                     /* -mavx512bw: enable AVX-512 byte and word instructions */
+    bool has_avx512dq;                     /* -mavx512dq: enable AVX-512 doubleword and quadword instructions */
     bool used_avx;                         /* true if any 256-bit AVX instruction was emitted */
     bool used_avx512;                      /* true if any 512-bit AVX-512 instruction was emitted */
     const char *source_filename;           /* Source filename */

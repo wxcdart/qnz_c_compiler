@@ -1567,6 +1567,30 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             }
             return;
 
+#define LOWER_V512_ASM(OPCODE, FN) \
+        case OPCODE: \
+            if (BE(c)->emit_##FN##_asm) { \
+                BE(c)->emit_##FN##_asm(c, phys_dst, phys_src1, phys_src2, (int)instr->cond, out); \
+            } \
+            return;
+
+        LOWER_V512_ASM(OP_V512_PADDD, v512_paddd)
+        LOWER_V512_ASM(OP_V512_PSUBD, v512_psubd)
+        LOWER_V512_ASM(OP_V512_PMULLD, v512_pmulld)
+        LOWER_V512_ASM(OP_V512_PADDQ, v512_paddq)
+        LOWER_V512_ASM(OP_V512_PSUBQ, v512_psubq)
+        LOWER_V512_ASM(OP_V512_PMULLQ, v512_pmullq)
+        LOWER_V512_ASM(OP_V512_PANDD, v512_pandd)
+        LOWER_V512_ASM(OP_V512_PORD, v512_pord)
+        LOWER_V512_ASM(OP_V512_PXORD, v512_pxord)
+        LOWER_V512_ASM(OP_V512_PANDND, v512_pandnd)
+        LOWER_V512_ASM(OP_V512_PADDB, v512_paddb)
+        LOWER_V512_ASM(OP_V512_PSUBB, v512_psubb)
+        LOWER_V512_ASM(OP_V512_PADDW, v512_paddw)
+        LOWER_V512_ASM(OP_V512_PSUBW, v512_psubw)
+        LOWER_V512_ASM(OP_V512_PMULLW, v512_pmullw)
+#undef LOWER_V512_ASM
+
         case OP_VSTORESS: {
             const char *val_name = BE(c)->get_vec_reg_name(phys_src2);
             const char *addr_name = BE(c)->get_hw_reg_name(phys_src1);

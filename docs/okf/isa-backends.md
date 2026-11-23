@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-11-23T07:39:59Z
+timestamp: 2026-11-23T12:31:51Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -268,6 +268,29 @@ When loop vectorization emits packed vector opcodes (`OP_VLOAD`, `OP_VSTORE`, `O
   - Masked arithmetic: `_mm512_mask_add_ps` / `_mm512_maskz_add_ps`, `sub_ps`, `mul_ps`, `div_ps`, `add_pd`, `sub_pd`, `mul_pd`, `div_pd`, `mov_ps`, `mov_pd`.
   - Mask-producing comparisons: `_mm512_cmpeq_ps_mask`, `_mm512_cmplt_ps_mask`, `_mm512_cmpeq_pd_mask`, `_mm512_cmplt_pd_mask`, plus their masked counterparts `_mm512_mask_cmpeq_ps_mask`, etc.
   - IR lowering emits hardware EVEX instructions on x86-64 when `-mavx512f` is active; falls back to bitwise lane-predicated scalar emulation in JIT / non-AVX-512 environments.
+
+### AVX-512 Integer SIMD & AVX-512BW / AVX-512DQ (Sprint 202)
+
+- **CLI & Feature Flags**: `-mavx512bw`, `-mno-avx512bw`, `-mavx512dq`, `-mno-avx512dq` (with `-mavx512bw` and `-mavx512dq` implying AVX, AVX2, and AVX-512F); `#define __AVX512BW__ 1` and `#define __AVX512DQ__ 1` defined during preprocessing when active.
+- **512-Bit Integer IR Opcodes & Emitters**:
+  - Implemented 15 512-bit integer arithmetic and bitwise opcodes in `ZeroCCISABackend`:
+    - 32-bit & 64-bit element operations (AVX-512F / AVX-512DQ): `OP_V512_PADDD` (`vpaddd`), `OP_V512_PSUBD` (`vpsubd`), `OP_V512_PMULLD` (`vpmulld`), `OP_V512_PADDQ` (`vpaddq`), `OP_V512_PSUBQ` (`vpsubq`), `OP_V512_PMULLQ` (`vpmullq`).
+    - Bitwise logic (AVX-512F): `OP_V512_PANDD` (`vpandd`), `OP_V512_PORD` (`vpord`), `OP_V512_PXORD` (`vpxord`), `OP_V512_PANDND` (`vpandnd`).
+    - Byte & Word element operations (AVX-512BW): `OP_V512_PADDB` (`vpaddb`), `OP_V512_PSUBB` (`vpsubb`), `OP_V512_PADDW` (`vpaddw`), `OP_V512_PSUBW` (`vpsubw`), `OP_V512_PMULLW` (`vpmullw`).
+  - Condition code multiplexing: `cond = 0` (unmasked EVEX), `cond = 1` (masked `{k1}` write-masking), `cond = 2` (masked zeroing `{k1}{z}`).
+  - Integer vector comparisons (`OP_V512_CMP_MASK`): unified emitter supporting `cmp_type` 2 (`vpcmpd`), 3 (`vpcmpud`), 4 (`vpcmpq`), 5 (`vpcmpuq`), emitting condition codes directly into opmask registers `k1` and transferring to scalar GPRs via `kmovw`/`kmovb`.
+- **Intrinsics Virtual Headers & Builtin Lowering**:
+  - Added vector types to `<immintrin.h>`: `__v32hi`, `__v32hu`, `__v64qi`, `__v64qu`.
+  - Added comprehensive AVX-512 integer intrinsics:
+    - Arithmetic: `_mm512_add_epi32`, `_mm512_sub_epi32`, `_mm512_mullo_epi32`, `_mm512_add_epi64`, `_mm512_sub_epi64`, `_mm512_mullo_epi64`, `_mm512_add_epi8`, `_mm512_sub_epi8`, `_mm512_add_epi16`, `_mm512_sub_epi16`, `_mm512_mullo_epi16`.
+    - Bitwise logic: `_mm512_and_si512`, `_mm512_or_si512`, `_mm512_xor_si512`, `_mm512_andnot_si512`.
+    - Broadcast & set: `_mm512_set1_epi64`, `_mm512_set1_epi64x`, `_mm512_set1_epi32`, `_mm512_set1_epi16`, `_mm512_set1_epi8`, `_mm512_set_epi32`, `_mm512_set_epi64`, `_mm512_setr_epi32`, `_mm512_setr_epi64`.
+    - Masked variants: `_mm512_mask_*`, `_mm512_maskz_*` for all integer arithmetic and bitwise intrinsics.
+    - Comparisons: `_mm512_cmpeq_epi32_mask`, `_mm512_cmplt_epi32_mask`, `_mm512_cmpgt_epi32_mask`, etc.
+    - Masked moves: `_mm512_mask_mov_epi32`, `_mm512_maskz_mov_epi32`, `_mm512_mask_mov_epi64`, `_mm512_maskz_mov_epi64`.
+  - Fallback emulation: bit-level scalar loops handling full 512-bit integer arithmetic, masking, and comparisons on hosts lacking AVX-512 hardware.
+- **Auto-Vectorizer Scaling**:
+  - `opt_auto_vectorize` maps 32-bit integer loop operations to `OP_V512_PADDD`, `OP_V512_PSUBD`, `OP_V512_PMULLD`, `OP_V512_PANDD`, `OP_V512_PORD`, `OP_V512_PXORD` when `has_avx512f` is active.
 
 ### SIMD Vendor Intrinsics & Virtual Headers (Sprint 196 Track 1)
 

@@ -1,5 +1,38 @@
 # CHANGELOG
 
+## [Sprint 202] - 2026-11-23 - AVX-512 Integer SIMD (__m512i, AVX-512BW / AVX-512DQ Intrinsics, 15 Integer Opcodes, Integer Masked Arithmetic & Comparisons)
+
+Implements Option 2: AVX-512 Integer SIMD (`AVX-512BW` / `AVX-512DQ` / `__m512i`):
+- **CLI & Feature Flags (`driver_opts.h`, `symbols.h`, `main.c`)**:
+  - Added `-mavx512bw`, `-mno-avx512bw`, `-mavx512dq`, `-mno-avx512dq` CLI flags (with `-mavx512bw` and `-mavx512dq` implying AVX, AVX2, and AVX-512F).
+  - Defined standard preprocessor macros `__AVX512BW__` (1) and `__AVX512DQ__` (1) when active.
+  - Added `has_avx512bw` and `has_avx512dq` fields to compiler instance.
+- **512-Bit Integer IR Opcodes & Backend Emitters (`src/zero_cc/ir/`, `src/zero_cc/isa/`)**:
+  - Added 15 integer SIMD opcodes in `ir.h` / `ir.c` / `isa_backend.h`:
+    - 32-bit / 64-bit integer arithmetic: `OP_V512_PADDD` (`vpaddd`), `OP_V512_PSUBD` (`vpsubd`), `OP_V512_PMULLD` (`vpmulld`), `OP_V512_PADDQ` (`vpaddq`), `OP_V512_PSUBQ` (`vpsubq`), `OP_V512_PMULLQ` (`vpmullq`).
+    - Bitwise logic: `OP_V512_PANDD` (`vpandd`), `OP_V512_PORD` (`vpord`), `OP_V512_PXORD` (`vpxord`), `OP_V512_PANDND` (`vpandnd`).
+    - Byte / Word integer arithmetic: `OP_V512_PADDB` (`vpaddb`), `OP_V512_PSUBB` (`vpsubb`), `OP_V512_PADDW` (`vpaddw`), `OP_V512_PSUBW` (`vpsubw`), `OP_V512_PMULLW` (`vpmullw`).
+  - Added EVEX machine code emitters (`x86_64.c`) and text assembly emitters (`x86_64_asm.c`) supporting unmasked (`cond=0`), write-masking `{k1}` (`cond=1`), and zeroing-masking `{k1}{z}` (`cond=2`).
+  - Extended unified `OP_V512_CMP_MASK` (`emit_v512_cmp_mask` and `emit_v512_cmp_mask_asm`) to support integer vector comparisons: `vpcmpd`, `vpcmpud`, `vpcmpq`, `vpcmpuq` with immediate comparison predicate byte.
+- **Virtual Headers & Builtin Lowering (`virtual_headers.h`, `ast_lowering_builtins.c`, `ast_lowering_binop.c`)**:
+  - Added 512-bit integer vector typedefs: `__v32hi` (32 x 16-bit short), `__v32hu` (32 x 16-bit unsigned short), `__v64qi` (64 x 8-bit char), `__v64qu` (64 x 8-bit unsigned char).
+  - Increased binary operator maximum vector lane capacity to 64 lanes.
+  - Added full suite of AVX-512 integer intrinsics to `<immintrin.h>`:
+    - Arithmetic: `_mm512_add_epi32`, `_mm512_sub_epi32`, `_mm512_mullo_epi32`, `_mm512_add_epi64`, `_mm512_sub_epi64`, `_mm512_mullo_epi64`, `_mm512_add_epi8`, `_mm512_sub_epi8`, `_mm512_add_epi16`, `_mm512_sub_epi16`, `_mm512_mullo_epi16`.
+    - Bitwise logic: `_mm512_and_si512`, `_mm512_or_si512`, `_mm512_xor_si512`, `_mm512_andnot_si512`.
+    - Broadcast & set: `_mm512_set1_epi64`, `_mm512_set1_epi64x`, `_mm512_set1_epi32`, `_mm512_set1_epi16`, `_mm512_set1_epi8`, `_mm512_set_epi32`, `_mm512_set_epi64`, `_mm512_setr_epi32`, `_mm512_setr_epi64`.
+    - Masked variants: `_mm512_mask_*` and `_mm512_maskz_*` for all integer operations.
+    - Comparisons & moves: `_mm512_cmpeq_epi32_mask`, `_mm512_cmplt_epi32_mask`, `_mm512_cmpgt_epi32_mask`, `_mm512_mask_mov_epi32`, `_mm512_maskz_mov_epi32`, `_mm512_mask_mov_epi64`, `_mm512_maskz_mov_epi64`.
+  - Implemented software scalar emulation in JIT mode for systems without native AVX-512 hardware.
+- **Auto-Vectorizer Scaling (`opt_vectorize.c`)**:
+  - Mapped 32-bit integer loops to 512-bit SIMD integer opcodes (`OP_V512_PADDD`, `PSUBD`, `PMULLD`, `PANDD`, `PORD`, `PXORD`) when `has_avx512f` is active.
+- **Verification**:
+  - Created [`test/jit/avx512_int_test.c`](../test/jit/avx512_int_test.c) with tests covering 32/64/16/8-bit integer arithmetic, bitwise logic, masked ops, integer comparisons, broadcast/set, and masked moves.
+  - Verified across JIT (`--run`) and AOT (`-O0`, `-O2`), as well as `-mavx512f -mavx512bw -mavx512dq -S` text assembly verified via GNU `as`.
+  - All regression gates green: `make test` (245/245 passed), `make test-opt` (143 passed, 0 failed), `make test-san` (720 passed, 0 failed), `python3 tools/verify/style_check.py` (0 errors), `python3 tools/verify/type_tag_verifier.py --verify-all` (OK).
+
+# CHANGELOG
+
 ## [Sprint 201] - 2026-11-23 - AVX-512 Opmask / Predication (AVX-512F k0–k7 Mask Registers, Merging & Zeroing Masking, Masked Loads/Stores/Arithmetic/Comparisons)
 
 Implements Option 1: AVX-512 Opmask / Predication (AVX-512F / Mask Registers `k0`–`k7`):

@@ -311,6 +311,22 @@ typedef enum {
     OP_V512_MASK_MULPD,/* 512-bit masked double mul */
     OP_V512_MASK_DIVPD,/* 512-bit masked double div */
     OP_V512_CMP_MASK,  /* 512-bit compare producing mask */
+    /* AVX-512 Integer SIMD operations (Sprint 202) */
+    OP_V512_PADDD,     /* 512-bit packed 32-bit int add */
+    OP_V512_PSUBD,     /* 512-bit packed 32-bit int sub */
+    OP_V512_PMULLD,    /* 512-bit packed 32-bit int mul */
+    OP_V512_PADDQ,     /* 512-bit packed 64-bit int add */
+    OP_V512_PSUBQ,     /* 512-bit packed 64-bit int sub */
+    OP_V512_PMULLQ,    /* 512-bit packed 64-bit int mul */
+    OP_V512_PANDD,     /* 512-bit packed bitwise AND */
+    OP_V512_PORD,      /* 512-bit packed bitwise OR */
+    OP_V512_PXORD,     /* 512-bit packed bitwise XOR */
+    OP_V512_PANDND,    /* 512-bit packed bitwise AND NOT */
+    OP_V512_PADDB,     /* 512-bit packed 8-bit int add */
+    OP_V512_PSUBB,     /* 512-bit packed 8-bit int sub */
+    OP_V512_PADDW,     /* 512-bit packed 16-bit int add */
+    OP_V512_PSUBW,     /* 512-bit packed 16-bit int sub */
+    OP_V512_PMULLW,    /* 512-bit packed 16-bit int mul */
     /* Floating-point operations (8) */
     OP_FMOV_IMM,       /* load floating-point literal */
     OP_FLOAD,          /* load float from stack slot */
@@ -659,6 +675,21 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_V512_MASK_MULPD: return "V512_MASK_MULPD";
         case OP_V512_MASK_DIVPD: return "V512_MASK_DIVPD";
         case OP_V512_CMP_MASK: return "V512_CMP_MASK";
+        case OP_V512_PADDD: return "V512_PADDD";
+        case OP_V512_PSUBD: return "V512_PSUBD";
+        case OP_V512_PMULLD: return "V512_PMULLD";
+        case OP_V512_PADDQ: return "V512_PADDQ";
+        case OP_V512_PSUBQ: return "V512_PSUBQ";
+        case OP_V512_PMULLQ: return "V512_PMULLQ";
+        case OP_V512_PANDD: return "V512_PANDD";
+        case OP_V512_PORD: return "V512_PORD";
+        case OP_V512_PXORD: return "V512_PXORD";
+        case OP_V512_PANDND: return "V512_PANDND";
+        case OP_V512_PADDB: return "V512_PADDB";
+        case OP_V512_PSUBB: return "V512_PSUBB";
+        case OP_V512_PADDW: return "V512_PADDW";
+        case OP_V512_PSUBW: return "V512_PSUBW";
+        case OP_V512_PMULLW: return "V512_PMULLW";
         case OP_LEA_RIP: return "LEA_RIP";
         case OP_MOV_GLOBAL: return "MOV_GLOBAL";
         case OP_JMP_INDIRECT: return "JMP_INDIRECT";
@@ -779,6 +810,11 @@ static inline bool ir_opcode_is_simd(Opcode op) {
         case OP_V512_MASK_LOAD: case OP_V512_MASK_STORE:
         case OP_V512_MASK_ADDPS: case OP_V512_MASK_SUBPS: case OP_V512_MASK_MULPS: case OP_V512_MASK_DIVPS:
         case OP_V512_MASK_ADDPD: case OP_V512_MASK_SUBPD: case OP_V512_MASK_MULPD: case OP_V512_MASK_DIVPD:
+        case OP_V512_PADDD: case OP_V512_PSUBD: case OP_V512_PMULLD:
+        case OP_V512_PADDQ: case OP_V512_PSUBQ: case OP_V512_PMULLQ:
+        case OP_V512_PANDD: case OP_V512_PORD: case OP_V512_PXORD: case OP_V512_PANDND:
+        case OP_V512_PADDB: case OP_V512_PSUBB:
+        case OP_V512_PADDW: case OP_V512_PSUBW: case OP_V512_PMULLW:
             return true;
         default:
             return false;

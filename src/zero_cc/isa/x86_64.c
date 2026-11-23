@@ -951,26 +951,100 @@ static void x86_emit_v512_mask_divpd(ZeroCCCompiler *c, int dst, int src1, int s
     x86_modrm(c, 3, dst & 7, src2 & 7);
 }
 
-static void x86_emit_v512_cmp_mask(ZeroCCCompiler *c, int dst_gpr, int src1, int src2, int imm_predicate, int is_pd) {
+static void x86_emit_v512_cmp_mask(ZeroCCCompiler *c, int dst_gpr, int src1, int src2, int imm_predicate, int cmp_type) {
     c->used_avx512 = true;
     c->used_avx = true;
-    if (is_pd) {
-        x86_evex(c, 1, 1, 1, 1, src2, src1, 2, 0, 0);
-        me_emit_u8(c, 0xC2);
-        x86_modrm(c, 3, 1, src2 & 7);
-        me_emit_u8(c, (uint8_t)imm_predicate);
-        x86_vex(c, 1, 1, 0, dst_gpr, 1, 0, 0);
-        me_emit_u8(c, 0x93);
-        x86_modrm(c, 3, dst_gpr & 7, 1);
-    } else {
-        x86_evex(c, 1, 0, 0, 1, src2, src1, 2, 0, 0);
-        me_emit_u8(c, 0xC2);
-        x86_modrm(c, 3, 1, src2 & 7);
-        me_emit_u8(c, (uint8_t)imm_predicate);
-        x86_vex(c, 1, 0, 0, dst_gpr, 1, 0, 0);
-        me_emit_u8(c, 0x93);
-        x86_modrm(c, 3, dst_gpr & 7, 1);
+    int mm = 1, pp = 0, w = 0, is_64 = 0;
+    uint8_t op = 0xC2;
+    if (cmp_type == 1) { /* pd */
+        pp = 1; w = 1; is_64 = 1; op = 0xC2;
+    } else if (cmp_type == 2) { /* epi32 */
+        mm = 3; pp = 1; w = 0; op = 0x1F;
+    } else if (cmp_type == 3) { /* epu32 */
+        mm = 3; pp = 1; w = 0; op = 0x1E;
+    } else if (cmp_type == 4) { /* epi64 */
+        mm = 3; pp = 1; w = 1; is_64 = 1; op = 0x1F;
+    } else if (cmp_type == 5) { /* epu64 */
+        mm = 3; pp = 1; w = 1; is_64 = 1; op = 0x1E;
     }
+    x86_evex(c, mm, pp, w, 1, src2, src1, 2, 0, 0);
+    me_emit_u8(c, op);
+    x86_modrm(c, 3, 1, src2 & 7);
+    me_emit_u8(c, (uint8_t)imm_predicate);
+    x86_vex(c, 1, is_64 ? 1 : 0, 0, dst_gpr, 1, 0, 0);
+    me_emit_u8(c, 0x93);
+    x86_modrm(c, 3, dst_gpr & 7, 1);
+}
+
+/* AVX-512 Integer SIMD Raw Binary Emitters (Sprint 202) */
+static void x86_emit_v512_int_binop(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, int mm, int pp, int w, uint8_t op) {
+    c->used_avx512 = true;
+    c->used_avx = true;
+    int mask = (mask_mode > 0) ? 1 : 0;
+    int z = (mask_mode == 2) ? 1 : 0;
+    x86_evex(c, mm, pp, w, dst, src2, src1, 2, mask, z);
+    me_emit_u8(c, op);
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_v512_paddd(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode) {
+    x86_emit_v512_int_binop(c, dst, src1, src2, mask_mode, 1, 1, 0, 0xFE);
+}
+
+static void x86_emit_v512_psubd(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode) {
+    x86_emit_v512_int_binop(c, dst, src1, src2, mask_mode, 1, 1, 0, 0xFA);
+}
+
+static void x86_emit_v512_pmulld(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode) {
+    x86_emit_v512_int_binop(c, dst, src1, src2, mask_mode, 2, 1, 0, 0x40);
+}
+
+static void x86_emit_v512_paddq(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode) {
+    x86_emit_v512_int_binop(c, dst, src1, src2, mask_mode, 1, 1, 1, 0xD4);
+}
+
+static void x86_emit_v512_psubq(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode) {
+    x86_emit_v512_int_binop(c, dst, src1, src2, mask_mode, 1, 1, 1, 0xFB);
+}
+
+static void x86_emit_v512_pmullq(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode) {
+    x86_emit_v512_int_binop(c, dst, src1, src2, mask_mode, 2, 1, 1, 0x40);
+}
+
+static void x86_emit_v512_pandd(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode) {
+    x86_emit_v512_int_binop(c, dst, src1, src2, mask_mode, 1, 1, 0, 0xDB);
+}
+
+static void x86_emit_v512_pord(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode) {
+    x86_emit_v512_int_binop(c, dst, src1, src2, mask_mode, 1, 1, 0, 0xEB);
+}
+
+static void x86_emit_v512_pxord(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode) {
+    x86_emit_v512_int_binop(c, dst, src1, src2, mask_mode, 1, 1, 0, 0xEF);
+}
+
+static void x86_emit_v512_pandnd(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode) {
+    x86_emit_v512_int_binop(c, dst, src1, src2, mask_mode, 1, 1, 0, 0xDF);
+}
+
+static void x86_emit_v512_paddb(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode) {
+    x86_emit_v512_int_binop(c, dst, src1, src2, mask_mode, 1, 1, 0, 0xFC);
+}
+
+static void x86_emit_v512_psubb(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode) {
+    x86_emit_v512_int_binop(c, dst, src1, src2, mask_mode, 1, 1, 0, 0xF8);
+}
+
+static void x86_emit_v512_paddw(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode) {
+    x86_emit_v512_int_binop(c, dst, src1, src2, mask_mode, 1, 1, 0, 0xFD);
+}
+
+static void x86_emit_v512_psubw(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode) {
+    x86_emit_v512_int_binop(c, dst, src1, src2, mask_mode, 1, 1, 0, 0xF9);
+}
+
+static void x86_emit_v512_pmullw(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode) {
+    x86_emit_v512_int_binop(c, dst, src1, src2, mask_mode, 1, 1, 0, 0xD5);
 }
 
 static void x86_emit_neg(ZeroCCCompiler *c, int dst, int src);
@@ -2300,6 +2374,21 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_v512_mask_mulpd = x86_emit_v512_mask_mulpd,
     .emit_v512_mask_divpd = x86_emit_v512_mask_divpd,
     .emit_v512_cmp_mask = x86_emit_v512_cmp_mask,
+    .emit_v512_paddd = x86_emit_v512_paddd,
+    .emit_v512_psubd = x86_emit_v512_psubd,
+    .emit_v512_pmulld = x86_emit_v512_pmulld,
+    .emit_v512_paddq = x86_emit_v512_paddq,
+    .emit_v512_psubq = x86_emit_v512_psubq,
+    .emit_v512_pmullq = x86_emit_v512_pmullq,
+    .emit_v512_pandd = x86_emit_v512_pandd,
+    .emit_v512_pord = x86_emit_v512_pord,
+    .emit_v512_pxord = x86_emit_v512_pxord,
+    .emit_v512_pandnd = x86_emit_v512_pandnd,
+    .emit_v512_paddb = x86_emit_v512_paddb,
+    .emit_v512_psubb = x86_emit_v512_psubb,
+    .emit_v512_paddw = x86_emit_v512_paddw,
+    .emit_v512_psubw = x86_emit_v512_psubw,
+    .emit_v512_pmullw = x86_emit_v512_pmullw,
     .emit_cvtss2sd = x86_emit_fp_cvtss2sd,
     .emit_cvtsi2ss = x86_emit_fp_cvtsi2ss,
     .emit_cvtsd2ss = x86_emit_fp_cvtsd2ss,
@@ -2510,6 +2599,21 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_v512_mask_mulpd_asm = x86_emit_v512_mask_mulpd_asm,
     .emit_v512_mask_divpd_asm = x86_emit_v512_mask_divpd_asm,
     .emit_v512_cmp_mask_asm = x86_emit_v512_cmp_mask_asm,
+    .emit_v512_paddd_asm = x86_emit_v512_paddd_asm,
+    .emit_v512_psubd_asm = x86_emit_v512_psubd_asm,
+    .emit_v512_pmulld_asm = x86_emit_v512_pmulld_asm,
+    .emit_v512_paddq_asm = x86_emit_v512_paddq_asm,
+    .emit_v512_psubq_asm = x86_emit_v512_psubq_asm,
+    .emit_v512_pmullq_asm = x86_emit_v512_pmullq_asm,
+    .emit_v512_pandd_asm = x86_emit_v512_pandd_asm,
+    .emit_v512_pord_asm = x86_emit_v512_pord_asm,
+    .emit_v512_pxord_asm = x86_emit_v512_pxord_asm,
+    .emit_v512_pandnd_asm = x86_emit_v512_pandnd_asm,
+    .emit_v512_paddb_asm = x86_emit_v512_paddb_asm,
+    .emit_v512_psubb_asm = x86_emit_v512_psubb_asm,
+    .emit_v512_paddw_asm = x86_emit_v512_paddw_asm,
+    .emit_v512_psubw_asm = x86_emit_v512_psubw_asm,
+    .emit_v512_pmullw_asm = x86_emit_v512_pmullw_asm,
     };
 
 /* NOTE (Sprint 114): the global ISA backend registry (zero_cc_get_backend,

@@ -518,6 +518,13 @@ void ir_dump(const ZeroCCCompiler *c, FILE *f) {
             case OP_V512_MASK_ADDPD: case OP_V512_MASK_SUBPD: case OP_V512_MASK_MULPD: case OP_V512_MASK_DIVPD:
                 fprintf(f, "%s zmm%u, zmm%u, zmm%u{k1}%s", ir_opcode_name(instr->op), instr->temp_dest, instr->temp_src1, instr->temp_src2, instr->imm ? "{z}" : "");
                 break;
+            case OP_V512_PADDD: case OP_V512_PSUBD: case OP_V512_PMULLD:
+            case OP_V512_PADDQ: case OP_V512_PSUBQ: case OP_V512_PMULLQ:
+            case OP_V512_PANDD: case OP_V512_PORD: case OP_V512_PXORD: case OP_V512_PANDND:
+            case OP_V512_PADDB: case OP_V512_PSUBB:
+            case OP_V512_PADDW: case OP_V512_PSUBW: case OP_V512_PMULLW:
+                fprintf(f, "%s zmm%u, zmm%u, zmm%u%s", ir_opcode_name(instr->op), instr->temp_dest, instr->temp_src1, instr->temp_src2, instr->cond == 2 ? "{k1}{z}" : (instr->cond == 1 ? "{k1}" : ""));
+                break;
             case OP_VDIVPS: fprintf(f, "VDIVPS xmm%u, xmm%u, xmm%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);
                             break;
             case OP_VADDPD: fprintf(f, "VADDPD xmm%u, xmm%u, xmm%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);

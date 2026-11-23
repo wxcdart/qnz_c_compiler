@@ -62,6 +62,8 @@ typedef struct {
     int has_avx;            /* -mavx: enable 256-bit AVX vectors */
     int has_avx2;           /* -mavx2: enable AVX2 instructions */
     int has_avx512f;        /* -mavx512f: enable 512-bit AVX-512 foundation */
+    int has_avx512bw;       /* -mavx512bw: enable AVX-512 byte and word instructions */
+    int has_avx512dq;       /* -mavx512dq: enable AVX-512 doubleword and quadword instructions */
 } CompileOptions;
 
 static void print_usage(const char *prog) {
@@ -283,6 +285,26 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
         }
         else if (strcmp(arg, "-mno-avx512f") == 0) {
             opts->has_avx512f = 0;
+            opts->has_avx512bw = 0;
+            opts->has_avx512dq = 0;
+        }
+        else if (strcmp(arg, "-mavx512bw") == 0) {
+            opts->has_avx = 1;
+            opts->has_avx2 = 1;
+            opts->has_avx512f = 1;
+            opts->has_avx512bw = 1;
+        }
+        else if (strcmp(arg, "-mno-avx512bw") == 0) {
+            opts->has_avx512bw = 0;
+        }
+        else if (strcmp(arg, "-mavx512dq") == 0) {
+            opts->has_avx = 1;
+            opts->has_avx2 = 1;
+            opts->has_avx512f = 1;
+            opts->has_avx512dq = 1;
+        }
+        else if (strcmp(arg, "-mno-avx512dq") == 0) {
+            opts->has_avx512dq = 0;
         }
         else if (strcmp(arg, "--target") == 0 && i + 1 < argc) {
             opts->target_arch = argv[++i];

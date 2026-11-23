@@ -961,6 +961,16 @@ static int get_vec_op(int scalar_op, bool is_double, bool is_int32, bool is_256,
                 case OP_XOR:  return OP_V512_VXORPS;
                 default:      return scalar_op;
             }
+        } else if (is_int32) {
+            switch (scalar_op) {
+                case OP_ADD:  return OP_V512_PADDD;
+                case OP_SUB:  return OP_V512_PSUBD;
+                case OP_MUL:  return OP_V512_PMULLD;
+                case OP_AND:  return OP_V512_PANDD;
+                case OP_OR:   return OP_V512_PORD;
+                case OP_XOR:  return OP_V512_PXORD;
+                default:      return scalar_op;
+            }
         } else {
             switch (scalar_op) {
                 case OP_ADD:

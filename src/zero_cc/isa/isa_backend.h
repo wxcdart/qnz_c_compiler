@@ -240,7 +240,23 @@ typedef struct ZeroCCISABackend {
     void (*emit_v512_mask_subpd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int z, FILE *out);
     void (*emit_v512_mask_mulpd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int z, FILE *out);
     void (*emit_v512_mask_divpd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int z, FILE *out);
-    void (*emit_v512_cmp_mask_asm)(ZeroCCCompiler *c, int dst_gpr, int src1, int src2, int imm_predicate, int is_pd, FILE *out);
+    void (*emit_v512_cmp_mask_asm)(ZeroCCCompiler *c, int dst_gpr, int src1, int src2, int imm_predicate, int cmp_type, FILE *out);
+    /* AVX-512 Integer SIMD Assembly (Sprint 202) */
+    void (*emit_v512_paddd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out);
+    void (*emit_v512_psubd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out);
+    void (*emit_v512_pmulld_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out);
+    void (*emit_v512_paddq_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out);
+    void (*emit_v512_psubq_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out);
+    void (*emit_v512_pmullq_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out);
+    void (*emit_v512_pandd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out);
+    void (*emit_v512_pord_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out);
+    void (*emit_v512_pxord_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out);
+    void (*emit_v512_pandnd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out);
+    void (*emit_v512_paddb_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out);
+    void (*emit_v512_psubb_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out);
+    void (*emit_v512_paddw_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out);
+    void (*emit_v512_psubw_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out);
+    void (*emit_v512_pmullw_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out);
     void (*emit_vshufps_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int imm, FILE *out);
     void (*emit_vcvt_si2ss_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
     void (*emit_vcvt_ss2si_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
@@ -496,7 +512,23 @@ typedef struct ZeroCCISABackend {
     void (*emit_v512_mask_subpd)(ZeroCCCompiler *c, int dst, int src1, int src2, int z);
     void (*emit_v512_mask_mulpd)(ZeroCCCompiler *c, int dst, int src1, int src2, int z);
     void (*emit_v512_mask_divpd)(ZeroCCCompiler *c, int dst, int src1, int src2, int z);
-    void (*emit_v512_cmp_mask)(ZeroCCCompiler *c, int dst_gpr, int src1, int src2, int imm_predicate, int is_pd);
+    void (*emit_v512_cmp_mask)(ZeroCCCompiler *c, int dst_gpr, int src1, int src2, int imm_predicate, int cmp_type);
+    /* AVX-512 Integer SIMD Raw Binary Emission (Sprint 202) */
+    void (*emit_v512_paddd)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode);
+    void (*emit_v512_psubd)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode);
+    void (*emit_v512_pmulld)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode);
+    void (*emit_v512_paddq)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode);
+    void (*emit_v512_psubq)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode);
+    void (*emit_v512_pmullq)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode);
+    void (*emit_v512_pandd)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode);
+    void (*emit_v512_pord)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode);
+    void (*emit_v512_pxord)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode);
+    void (*emit_v512_pandnd)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode);
+    void (*emit_v512_paddb)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode);
+    void (*emit_v512_psubb)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode);
+    void (*emit_v512_paddw)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode);
+    void (*emit_v512_psubw)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode);
+    void (*emit_v512_pmullw)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode);
     /* Scalar single<->double conversions (GNU vector per-lane lowering),
      * raw byte-emitter form (JIT / raw AOT). */
     void (*emit_cvtss2sd)(ZeroCCCompiler *c, int dst, int src);

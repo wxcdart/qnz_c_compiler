@@ -1975,6 +1975,32 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 }
                 break;
 
+#define LOWER_V512_BINOP(OPCODE, FN) \
+            case OPCODE: \
+                if (c->emit_asm && BE(c)->emit_##FN##_asm) { \
+                    BE(c)->emit_##FN##_asm(c, phys_dst, phys_src1, phys_src2, (int)instr->cond, c->asm_out); \
+                } else if (!c->emit_asm && BE(c)->emit_##FN) { \
+                    BE(c)->emit_##FN(c, phys_dst, phys_src1, phys_src2, (int)instr->cond); \
+                } \
+                break;
+
+            LOWER_V512_BINOP(OP_V512_PADDD, v512_paddd)
+            LOWER_V512_BINOP(OP_V512_PSUBD, v512_psubd)
+            LOWER_V512_BINOP(OP_V512_PMULLD, v512_pmulld)
+            LOWER_V512_BINOP(OP_V512_PADDQ, v512_paddq)
+            LOWER_V512_BINOP(OP_V512_PSUBQ, v512_psubq)
+            LOWER_V512_BINOP(OP_V512_PMULLQ, v512_pmullq)
+            LOWER_V512_BINOP(OP_V512_PANDD, v512_pandd)
+            LOWER_V512_BINOP(OP_V512_PORD, v512_pord)
+            LOWER_V512_BINOP(OP_V512_PXORD, v512_pxord)
+            LOWER_V512_BINOP(OP_V512_PANDND, v512_pandnd)
+            LOWER_V512_BINOP(OP_V512_PADDB, v512_paddb)
+            LOWER_V512_BINOP(OP_V512_PSUBB, v512_psubb)
+            LOWER_V512_BINOP(OP_V512_PADDW, v512_paddw)
+            LOWER_V512_BINOP(OP_V512_PSUBW, v512_psubw)
+            LOWER_V512_BINOP(OP_V512_PMULLW, v512_pmullw)
+#undef LOWER_V512_BINOP
+
             case OP_VCVT_SI2SS:
                 if (c->emit_asm && BE(c)->emit_vcvt_si2ss_asm) {
                     BE(c)->emit_vcvt_si2ss_asm(c, phys_dst, phys_src1, c->asm_out);

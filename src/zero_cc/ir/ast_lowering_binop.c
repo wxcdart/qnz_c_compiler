@@ -1435,8 +1435,9 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                 size_t esz = el_ti ? type_size(el_ti) : 0;
                 size_t lanes = (esz > 0 && type_size(vec_ti) > 0) ? type_size(vec_ti) / esz : 0;
                 /* Sprint 113: 16-byte (128-bit) integer lanes are supported
-                 * via the GPR128 op set (c-torture compile/pr70355, v2ti). */
-                if (esz < 1 || esz > 16 || lanes < 1 || lanes > 32) {
+                 * via the GPR128 op set (c-torture compile/pr70355, v2ti).
+                 * Sprint 202: 64 lanes supported for 512-bit byte vectors (v64qi). */
+                if (esz < 1 || esz > 16 || lanes < 1 || lanes > 64) {
                     diag_report_error_at_token(c, "unsupported vector operand size");
                     int zt = zc_alloc_temp(c);
                     ir_emit_mov_imm(c, zt, 0);

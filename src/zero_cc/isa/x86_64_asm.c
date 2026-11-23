@@ -1677,10 +1677,70 @@ static void x86_emit_v512_mask_divpd_asm(ZeroCCCompiler *c, int dst, int src1, i
     fprintf(out, "\tvdivpd\t%%%s,%%%s,%%%s{%%k1}%s\n", x86_get_zmm_reg_name(src2), x86_get_zmm_reg_name(src1), x86_get_zmm_reg_name(dst), z ? "{z}" : "");
 }
 
-static void x86_emit_v512_cmp_mask_asm(ZeroCCCompiler *c, int dst_gpr, int src1, int src2, int imm_predicate, int is_pd, FILE *out) {
+static void x86_emit_v512_cmp_mask_asm(ZeroCCCompiler *c, int dst_gpr, int src1, int src2, int imm_predicate, int cmp_type, FILE *out) {
     (void)c;
-    fprintf(out, "\t%s\t$%d,%%%s,%%%s,%%k1\n", is_pd ? "vcmppd" : "vcmpps", imm_predicate, x86_get_zmm_reg_name(src2), x86_get_zmm_reg_name(src1));
-    fprintf(out, "\t%s\t%%k1,%%%s\n", is_pd ? "kmovb" : "kmovw", x86_reg32_name(dst_gpr));
+    const char *insn = "vcmpps";
+    bool is_64 = false;
+    if (cmp_type == 1) { insn = "vcmppd"; is_64 = true; }
+    else if (cmp_type == 2) { insn = "vpcmpd"; }
+    else if (cmp_type == 3) { insn = "vpcmpud"; }
+    else if (cmp_type == 4) { insn = "vpcmpq"; is_64 = true; }
+    else if (cmp_type == 5) { insn = "vpcmpuq"; is_64 = true; }
+    fprintf(out, "\t%s\t$%d,%%%s,%%%s,%%k1\n", insn, imm_predicate, x86_get_zmm_reg_name(src2), x86_get_zmm_reg_name(src1));
+    fprintf(out, "\t%s\t%%k1,%%%s\n", is_64 ? "kmovb" : "kmovw", x86_reg32_name(dst_gpr));
+}
+
+/* AVX-512 Integer SIMD Assembly (Sprint 202) */
+static void x86_emit_v512_int_binop_asm(ZeroCCCompiler *c, const char *mnem, int dst, int src1, int src2, int mask_mode, FILE *out) {
+    (void)c;
+    const char *mstr = (mask_mode == 2) ? "{%k1}{z}" : ((mask_mode == 1) ? "{%k1}" : "");
+    fprintf(out, "\t%s\t%%%s,%%%s,%%%s%s\n", mnem, x86_get_zmm_reg_name(src2), x86_get_zmm_reg_name(src1), x86_get_zmm_reg_name(dst), mstr);
+}
+
+static void x86_emit_v512_paddd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out) {
+    x86_emit_v512_int_binop_asm(c, "vpaddd", dst, src1, src2, mask_mode, out);
+}
+static void x86_emit_v512_psubd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out) {
+    x86_emit_v512_int_binop_asm(c, "vpsubd", dst, src1, src2, mask_mode, out);
+}
+static void x86_emit_v512_pmulld_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out) {
+    x86_emit_v512_int_binop_asm(c, "vpmulld", dst, src1, src2, mask_mode, out);
+}
+static void x86_emit_v512_paddq_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out) {
+    x86_emit_v512_int_binop_asm(c, "vpaddq", dst, src1, src2, mask_mode, out);
+}
+static void x86_emit_v512_psubq_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out) {
+    x86_emit_v512_int_binop_asm(c, "vpsubq", dst, src1, src2, mask_mode, out);
+}
+static void x86_emit_v512_pmullq_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out) {
+    x86_emit_v512_int_binop_asm(c, "vpmullq", dst, src1, src2, mask_mode, out);
+}
+static void x86_emit_v512_pandd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out) {
+    x86_emit_v512_int_binop_asm(c, "vpandd", dst, src1, src2, mask_mode, out);
+}
+static void x86_emit_v512_pord_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out) {
+    x86_emit_v512_int_binop_asm(c, "vpord", dst, src1, src2, mask_mode, out);
+}
+static void x86_emit_v512_pxord_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out) {
+    x86_emit_v512_int_binop_asm(c, "vpxord", dst, src1, src2, mask_mode, out);
+}
+static void x86_emit_v512_pandnd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out) {
+    x86_emit_v512_int_binop_asm(c, "vpandnd", dst, src1, src2, mask_mode, out);
+}
+static void x86_emit_v512_paddb_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out) {
+    x86_emit_v512_int_binop_asm(c, "vpaddb", dst, src1, src2, mask_mode, out);
+}
+static void x86_emit_v512_psubb_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out) {
+    x86_emit_v512_int_binop_asm(c, "vpsubb", dst, src1, src2, mask_mode, out);
+}
+static void x86_emit_v512_paddw_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out) {
+    x86_emit_v512_int_binop_asm(c, "vpaddw", dst, src1, src2, mask_mode, out);
+}
+static void x86_emit_v512_psubw_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out) {
+    x86_emit_v512_int_binop_asm(c, "vpsubw", dst, src1, src2, mask_mode, out);
+}
+static void x86_emit_v512_pmullw_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out) {
+    x86_emit_v512_int_binop_asm(c, "vpmullw", dst, src1, src2, mask_mode, out);
 }
 
 /* =========================================================================
