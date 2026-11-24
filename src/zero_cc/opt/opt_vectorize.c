@@ -96,6 +96,12 @@ void vectorization_init(VectorizationState *state, int target_isa) {
         state->loops[i].test_instr_idx = -1;
         state->loops[i].cmp_instr_idx = -1;
         state->loops[i].bound_is_src2 = false;
+        state->loops[i].is_scalable = false;
+        state->loops[i].is_rvv = false;
+        state->loops[i].is_sve = false;
+        state->loops[i].bound_temp = TEMP_NONE;
+        state->loops[i].bound_slot = 0x7fffffff;
+        state->loops[i].counter_slot = 0x7fffffff;
     }
 }
 
@@ -271,6 +277,37 @@ static int find_def_backward_in_loop(ZeroCCCompiler *c, int start, int pos,
         if (instr_writes_temp(ins, t)) return k;
     }
     return -1;
+}
+
+static bool is_temp_or_slot_invariant_bound(ZeroCCCompiler *c, int start, int end, int cmp_idx,
+                                            const uint8_t *skip_mask, uint32_t t,
+                                            int32_t *out_slot) {
+    if (t == TEMP_NONE) return false;
+    if (out_slot) *out_slot = 0x7fffffff;
+    if (!temp_redefined_in_span(c, start, end, skip_mask, t)) {
+        return true;
+    }
+    int def_idx = find_def_backward_in_loop(c, start, cmp_idx, skip_mask, t);
+    if (def_idx >= start) {
+        const Instr *ld = ir_get(c, def_idx);
+        if (ld && ld->op == OP_MOV && ld->temp_src1 == TEMP_NONE && ld->imm < 0) {
+            int32_t slot = ld->imm;
+            bool written = false;
+            for (int k = start; k <= end; k++) {
+                if (skip_mask && skip_mask[k - start]) continue;
+                const Instr *ins = ir_get(c, k);
+                if (ins && ins->op == OP_MOV_MEM && ins->imm == slot) {
+                    written = true;
+                    break;
+                }
+            }
+            if (!written) {
+                if (out_slot) *out_slot = slot;
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 /*
@@ -471,6 +508,12 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
     vinfo->inc_use_src2 = false;
     vinfo->is_aligned = false;
     vinfo->stride_bytes = 0;
+    vinfo->is_scalable = false;
+    vinfo->is_rvv = false;
+    vinfo->is_sve = false;
+    vinfo->bound_temp = TEMP_NONE;
+    vinfo->bound_slot = 0x7fffffff;
+    vinfo->counter_slot = 0x7fffffff;
 
     int start = loop->header_idx;
     int end = loop->exit_idx;
@@ -653,6 +696,9 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
             bool ok2 = (o2 != TEMP_NONE && resolve_const_at(c, cmp_idx, o2, &cval2, &def_o2));
             bool c1 = ok1 && (def_o1 >= start || !temp_redefined_in_span(c, start, end, skip_mask, o1));
             bool c2 = ok2 && (def_o2 >= start || !temp_redefined_in_span(c, start, end, skip_mask, o2));
+            bool has_sve = state->comp && state->comp->has_sve && (state->target_isa == ISA_AARCH64);
+            bool has_rvv = state->comp && state->comp->has_rvv && (state->target_isa == ISA_RISCV64 || state->target_isa == ISA_RISCV32);
+            bool target_supports_scalable = has_rvv || has_sve;
             if (c1 != c2) {
                 int64_t bound = c1 ? cval1 : cval2;
                 uint32_t ctr_t = c1 ? o2 : o1;
@@ -664,9 +710,6 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
                     if (cs->cond == CC_GT) trip = bound;
                     else if (cs->cond == CC_GE) trip = bound + 1;
                 }
-                bool has_avx = state->comp && state->comp->has_avx && (state->target_isa == ISA_X86_64);
-                bool has_avx512 = state->comp && state->comp->has_avx512f && (state->target_isa == ISA_X86_64);
-                int width = has_double ? (has_avx512 ? 8 : (has_avx ? 4 : 2)) : state->vector_width;
                 /* Identify stack-slot counter (Case 1) or register counter (Case 2) */
                 int def_ctr = find_def_backward_in_loop(c, start, cmp_idx, skip_mask, ctr_t);
                 if (def_ctr >= start) {
@@ -701,35 +744,108 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
                         }
                     }
                 }
-                int64_t v_trip = trip;
-                bool needs_peel = false;
-                if (trip >= width) {
-                    if ((trip % width) == 0) {
-                        bound_ok = true;
-                        v_trip = trip;
-                    } else {
-                        v_trip = trip - (trip % width);
-                        if (v_trip >= width && test_idx < end && ir_get(c, end) && ir_get(c, end)->op == OP_JMP) {
-                            bound_ok = true;
-                            needs_peel = true;
-                        }
-                    }
-                }
-                if (bound_ok) {
-                    int64_t v_bound = 0;
-                    bool bound_is_src2 = (!c1 && c2);
-                    if (bound_is_src2) {
-                        if (cs->cond == CC_LT) v_bound = init + v_trip;
-                        else if (cs->cond == CC_LE) v_bound = init + v_trip - 1;
-                    } else {
-                        if (cs->cond == CC_GT) v_bound = init + v_trip;
-                        else if (cs->cond == CC_GE) v_bound = init + v_trip - 1;
-                    }
-                    vinfo->needs_peel = needs_peel;
-                    vinfo->v_bound = v_bound;
+                if (target_supports_scalable && trip > 0) {
+                    bound_ok = true;
+                    vinfo->is_scalable = true;
+                    vinfo->is_rvv = has_rvv;
+                    vinfo->is_sve = has_sve;
+                    vinfo->needs_peel = false;
+                    vinfo->v_bound = bound;
                     vinfo->test_instr_idx = test_idx;
                     vinfo->cmp_instr_idx = cmp_idx;
-                    vinfo->bound_is_src2 = bound_is_src2;
+                    vinfo->bound_is_src2 = (!c1 && c2);
+                    vinfo->bound_temp = TEMP_NONE;
+                } else {
+                    bool has_avx = state->comp && state->comp->has_avx && (state->target_isa == ISA_X86_64);
+                    bool has_avx512 = state->comp && state->comp->has_avx512f && (state->target_isa == ISA_X86_64);
+                    int width = has_double ? (has_avx512 ? 8 : (has_avx ? 4 : 2)) : state->vector_width;
+                    int64_t v_trip = trip;
+                    bool needs_peel = false;
+                    if (trip >= width) {
+                        if ((trip % width) == 0) {
+                            bound_ok = true;
+                            v_trip = trip;
+                        } else {
+                            v_trip = trip - (trip % width);
+                            if (v_trip >= width && test_idx < end && ir_get(c, end) && ir_get(c, end)->op == OP_JMP) {
+                                bound_ok = true;
+                                needs_peel = true;
+                            }
+                        }
+                    }
+                    if (bound_ok) {
+                        int64_t v_bound = 0;
+                        bool bound_is_src2 = (!c1 && c2);
+                        if (bound_is_src2) {
+                            if (cs->cond == CC_LT) v_bound = init + v_trip;
+                            else if (cs->cond == CC_LE) v_bound = init + v_trip - 1;
+                        } else {
+                            if (cs->cond == CC_GT) v_bound = init + v_trip;
+                            else if (cs->cond == CC_GE) v_bound = init + v_trip - 1;
+                        }
+                        vinfo->needs_peel = needs_peel;
+                        vinfo->v_bound = v_bound;
+                        vinfo->test_instr_idx = test_idx;
+                        vinfo->cmp_instr_idx = cmp_idx;
+                        vinfo->bound_is_src2 = bound_is_src2;
+                    }
+                }
+            } else if (!c1 && !c2 && target_supports_scalable) {
+                int32_t slot1 = 0x7fffffff, slot2 = 0x7fffffff;
+                bool o1_inv = is_temp_or_slot_invariant_bound(c, start, end, cmp_idx, skip_mask, o1, &slot1);
+                bool o2_inv = is_temp_or_slot_invariant_bound(c, start, end, cmp_idx, skip_mask, o2, &slot2);
+                if (!o1_inv && o2_inv && (cs->cond == CC_LT || cs->cond == CC_LE)) {
+                    uint32_t ctr_t = o1;
+                    uint32_t bound_t = o2;
+                    int def_ctr = find_def_backward_in_loop(c, start, cmp_idx, skip_mask, ctr_t);
+                    if (def_ctr >= start) {
+                        const Instr *ld = ir_get(c, def_ctr);
+                        if (ld && ld->op == OP_MOV && ld->temp_src1 == TEMP_NONE && ld->imm < 0) {
+                            counter_slot = ld->imm;
+                            loop_var = (int)ctr_t;
+                        }
+                    } else if (zc_temp_is_user(ctr_t)) {
+                        counter_slot = 0x7fffffff;
+                        loop_var = (int)ctr_t;
+                    }
+                    if (loop_var >= 0) {
+                        bound_ok = true;
+                        vinfo->is_scalable = true;
+                        vinfo->is_rvv = has_rvv;
+                        vinfo->is_sve = has_sve;
+                        vinfo->needs_peel = false;
+                        vinfo->bound_temp = bound_t;
+                        vinfo->bound_slot = slot2;
+                        vinfo->test_instr_idx = test_idx;
+                        vinfo->cmp_instr_idx = cmp_idx;
+                        vinfo->bound_is_src2 = true;
+                    }
+                } else if (o1_inv && !o2_inv && (cs->cond == CC_GT || cs->cond == CC_GE)) {
+                    uint32_t ctr_t = o2;
+                    uint32_t bound_t = o1;
+                    int def_ctr = find_def_backward_in_loop(c, start, cmp_idx, skip_mask, ctr_t);
+                    if (def_ctr >= start) {
+                        const Instr *ld = ir_get(c, def_ctr);
+                        if (ld && ld->op == OP_MOV && ld->temp_src1 == TEMP_NONE && ld->imm < 0) {
+                            counter_slot = ld->imm;
+                            loop_var = (int)ctr_t;
+                        }
+                    } else if (zc_temp_is_user(ctr_t)) {
+                        counter_slot = 0x7fffffff;
+                        loop_var = (int)ctr_t;
+                    }
+                    if (loop_var >= 0) {
+                        bound_ok = true;
+                        vinfo->is_scalable = true;
+                        vinfo->is_rvv = has_rvv;
+                        vinfo->is_sve = has_sve;
+                        vinfo->needs_peel = false;
+                        vinfo->bound_temp = bound_t;
+                        vinfo->bound_slot = slot1;
+                        vinfo->test_instr_idx = test_idx;
+                        vinfo->cmp_instr_idx = cmp_idx;
+                        vinfo->bound_is_src2 = false;
+                    }
                 }
             }
         }
@@ -859,18 +975,25 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
     vinfo->array_base_temp = base_temp;
     vinfo->inc_instr_idx = inc_idx;
     vinfo->inc_use_src2 = inc_use_src2;
+    vinfo->counter_slot = counter_slot;
     vinfo->stride_bytes = elem_size;
     vinfo->is_aligned = any_aligned_checked && all_aligned;
-    bool has_avx = state->comp && state->comp->has_avx && (state->target_isa == ISA_X86_64);
-    bool has_avx512 = state->comp && state->comp->has_avx512f && (state->target_isa == ISA_X86_64);
-    if (has_double) {
-        vinfo->vector_width = has_avx512 ? 8 : (has_avx ? 4 : 2);
-        vinfo->elem_size = 8;
-        vinfo->array_stride = 8;
+    if (vinfo->is_scalable) {
+        vinfo->vector_width = has_double ? 2 : 4;
+        vinfo->elem_size = elem_size;
+        vinfo->array_stride = elem_size;
     } else {
-        vinfo->vector_width = state->vector_width;
-        vinfo->elem_size = 4;
-        vinfo->array_stride = 4;
+        bool has_avx = state->comp && state->comp->has_avx && (state->target_isa == ISA_X86_64);
+        bool has_avx512 = state->comp && state->comp->has_avx512f && (state->target_isa == ISA_X86_64);
+        if (has_double) {
+            vinfo->vector_width = has_avx512 ? 8 : (has_avx ? 4 : 2);
+            vinfo->elem_size = 8;
+            vinfo->array_stride = 8;
+        } else {
+            vinfo->vector_width = state->vector_width;
+            vinfo->elem_size = 4;
+            vinfo->array_stride = 4;
+        }
     }
     state->loop_count++;
 }
@@ -938,6 +1061,32 @@ void vectorization_analyze_full(VectorizationStateFull *state) {
         loop.header_idx = target;
         loop.exit_idx = i;
         analyze_loop_for_vectorization_full(state, &loop);
+    }
+}
+
+static int get_rvv_op(int scalar_op) {
+    switch (scalar_op) {
+        case OP_ADD:  case OP_FADD: return OP_RVV_VADD;
+        case OP_SUB:  case OP_FSUB: return OP_RVV_VSUB;
+        case OP_MUL:  case OP_FMUL: return OP_RVV_VMUL;
+        case OP_DIV:  case OP_FDIV: return OP_RVV_VDIV;
+        case OP_AND:  return OP_RVV_VAND;
+        case OP_OR:   return OP_RVV_VOR;
+        case OP_XOR:  return OP_RVV_VXOR;
+        default:      return scalar_op;
+    }
+}
+
+static int get_sve_op(int scalar_op) {
+    switch (scalar_op) {
+        case OP_ADD:  case OP_FADD: return OP_SVE_ADD;
+        case OP_SUB:  case OP_FSUB: return OP_SVE_SUB;
+        case OP_MUL:  case OP_FMUL: return OP_SVE_MUL;
+        case OP_DIV:  case OP_FDIV: return OP_SVE_DIV;
+        case OP_AND:  return OP_SVE_AND;
+        case OP_OR:   return OP_SVE_ORR;
+        case OP_XOR:  return OP_SVE_EOR;
+        default:      return scalar_op;
     }
 }
 
@@ -1078,10 +1227,14 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
     }
 
     int vec_width = vinfo->vector_width;
-    bool is_512 = (vec_width >= 16 || (vinfo->is_double && vec_width >= 8));
-    bool is_256 = !is_512 && (vec_width >= 8 || (vinfo->is_double && vec_width >= 4));
-    if (is_512 && c) { c->used_avx512 = true; c->used_avx = true; }
-    else if (is_256 && c) c->used_avx = true;
+    bool is_512 = !vinfo->is_scalable && (vec_width >= 16 || (vinfo->is_double && vec_width >= 8));
+    bool is_256 = !vinfo->is_scalable && !is_512 && (vec_width >= 8 || (vinfo->is_double && vec_width >= 4));
+    if (vinfo->is_scalable) {
+        if (vinfo->is_rvv && c) c->rvv_dynamic_vl = true;
+    } else {
+        if (is_512 && c) { c->used_avx512 = true; c->used_avx = true; }
+        else if (is_256 && c) c->used_avx = true;
+    }
     int start_idx = vinfo->body_start_idx;
     int end_idx = vinfo->body_end_idx;
     int span = end_idx - start_idx + 1;
@@ -1103,7 +1256,7 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
     if (skip_mask != skip_buf) free(skip_mask);
 
     /* 1.5 If remainder peeling is needed, clone scalar loop after end_idx and retarget vector loop */
-    if (vinfo->needs_peel && vinfo->test_instr_idx >= start_idx && vinfo->test_instr_idx <= end_idx &&
+    if (!vinfo->is_scalable && vinfo->needs_peel && vinfo->test_instr_idx >= start_idx && vinfo->test_instr_idx <= end_idx &&
         vinfo->cmp_instr_idx >= start_idx && vinfo->cmp_instr_idx <= end_idx) {
         int orig_head_label = (int)ir_get(c, start_idx)->label_idx;
         int rem_head_label = (int)c->ir_next_label++;
@@ -1194,8 +1347,163 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
         c->cfg_cache.valid = false;
     }
 
-    /* 2. Rewrite loop increment from i += 1 to i += vec_width */
-    {
+    /* 2. Rewrite loop increment */
+    if (vinfo->is_scalable) {
+        uint32_t bound_t = vinfo->bound_temp;
+        int insert_pos = vinfo->test_instr_idx + 1;
+        if (bound_t == TEMP_NONE) {
+            int bt = zc_alloc_temp(c);
+            Instr mov_b = {
+                .op = OP_MOV_IMM,
+                .temp_dest = (uint32_t)bt,
+                .temp_src1 = TEMP_NONE,
+                .temp_src2 = TEMP_NONE,
+                .cond = 0,
+                .flags_out = 0xFF,
+                .flags_in = 0xFF,
+                .imm = (int16_t)vinfo->v_bound,
+                .imm64 = vinfo->v_bound,
+                .label_idx = 0
+            };
+            ir_insert_at(c, (size_t)vinfo->cmp_instr_idx, mov_b);
+            end_idx++;
+            if (vinfo->test_instr_idx >= vinfo->cmp_instr_idx) vinfo->test_instr_idx++;
+            if (vinfo->inc_instr_idx >= vinfo->cmp_instr_idx) vinfo->inc_instr_idx++;
+            bound_t = (uint32_t)bt;
+
+            Instr *cmp_ins = ir_get(c, vinfo->cmp_instr_idx + 1);
+            if (cmp_ins) {
+                if (vinfo->bound_is_src2) cmp_ins->temp_src2 = bound_t;
+                else cmp_ins->temp_src1 = bound_t;
+            }
+            insert_pos = vinfo->test_instr_idx + 1;
+        } else if (vinfo->bound_slot != 0x7fffffff) {
+            int bt = zc_alloc_temp(c);
+            Instr mov_b = {
+                .op = OP_MOV,
+                .temp_dest = (uint32_t)bt,
+                .temp_src1 = TEMP_NONE,
+                .temp_src2 = TEMP_NONE,
+                .cond = 0,
+                .flags_out = 0xFF,
+                .flags_in = 0xFF,
+                .imm = (int16_t)vinfo->bound_slot,
+                .imm64 = vinfo->bound_slot,
+                .label_idx = 0
+            };
+            ir_insert_at(c, (size_t)insert_pos, mov_b);
+            insert_pos++;
+            end_idx++;
+            if (vinfo->inc_instr_idx >= insert_pos - 1) vinfo->inc_instr_idx++;
+            bound_t = (uint32_t)bt;
+        }
+
+        int cur_var_t = vinfo->loop_var_temp;
+        if (vinfo->counter_slot != 0x7fffffff) {
+            int ct = zc_alloc_temp(c);
+            Instr mov_c = {
+                .op = OP_MOV,
+                .temp_dest = (uint32_t)ct,
+                .temp_src1 = TEMP_NONE,
+                .temp_src2 = TEMP_NONE,
+                .cond = 0,
+                .flags_out = 0xFF,
+                .flags_in = 0xFF,
+                .imm = (int16_t)vinfo->counter_slot,
+                .imm64 = vinfo->counter_slot,
+                .label_idx = 0
+            };
+            ir_insert_at(c, (size_t)insert_pos, mov_c);
+            insert_pos++;
+            end_idx++;
+            if (vinfo->inc_instr_idx >= insert_pos - 1) vinfo->inc_instr_idx++;
+            cur_var_t = ct;
+        }
+
+        int esz = vinfo->is_double ? 3 : 2;
+        int step_t = -1;
+
+        if (vinfo->is_rvv) {
+            int rem_t = zc_alloc_temp(c);
+            int vl_t = zc_alloc_temp(c);
+            Instr sub_rem = {
+                .op = OP_SUB,
+                .temp_dest = (uint32_t)rem_t,
+                .temp_src1 = bound_t,
+                .temp_src2 = (uint32_t)cur_var_t,
+                .cond = 0,
+                .flags_out = 0xFF,
+                .flags_in = 0xFF,
+                .imm = 0,
+                .imm64 = 0,
+                .label_idx = 0
+            };
+            Instr setvl = {
+                .op = OP_RVV_VSETVLI,
+                .temp_dest = (uint32_t)vl_t,
+                .temp_src1 = (uint32_t)rem_t,
+                .temp_src2 = TEMP_NONE,
+                .cond = 0,
+                .flags_out = 0xFF,
+                .flags_in = 0xFF,
+                .imm = (int16_t)esz,
+                .imm64 = 0,
+                .label_idx = 0
+            };
+            ir_insert_at(c, (size_t)insert_pos, sub_rem);
+            ir_insert_at(c, (size_t)(insert_pos + 1), setvl);
+            end_idx += 2;
+            if (vinfo->inc_instr_idx >= insert_pos) vinfo->inc_instr_idx += 2;
+            step_t = vl_t;
+        } else if (vinfo->is_sve) {
+            int cnt_t = zc_alloc_temp(c);
+            Instr whilelt = {
+                .op = OP_SVE_WHILELT,
+                .temp_dest = TEMP_NONE,
+                .temp_src1 = (uint32_t)cur_var_t,
+                .temp_src2 = bound_t,
+                .cond = 0,
+                .flags_out = 0xFF,
+                .flags_in = 0xFF,
+                .imm = (int16_t)esz,
+                .imm64 = 0,
+                .label_idx = 0
+            };
+            Instr get_cnt = {
+                .op = OP_SVE_CNT,
+                .temp_dest = (uint32_t)cnt_t,
+                .temp_src1 = TEMP_NONE,
+                .temp_src2 = TEMP_NONE,
+                .cond = 0,
+                .flags_out = 0xFF,
+                .flags_in = 0xFF,
+                .imm = (int16_t)esz,
+                .imm64 = 31,
+                .label_idx = 0
+            };
+            ir_insert_at(c, (size_t)insert_pos, whilelt);
+            ir_insert_at(c, (size_t)(insert_pos + 1), get_cnt);
+            end_idx += 2;
+            if (vinfo->inc_instr_idx >= insert_pos) vinfo->inc_instr_idx += 2;
+            step_t = cnt_t;
+        }
+
+        int inc_idx = vinfo->inc_instr_idx;
+        Instr *inc = ir_get(c, inc_idx);
+        if (!inc) return false;
+        if (inc->op == OP_INC || inc->op == OP_ADD_IMM) {
+            inc->op = OP_ADD;
+            inc->temp_src1 = (inc->temp_dest != TEMP_NONE) ? inc->temp_dest : (uint32_t)vinfo->loop_var_temp;
+            inc->temp_src2 = (uint32_t)step_t;
+            inc->imm = 0;
+            inc->imm64 = 0;
+        } else if (inc->op == OP_ADD) {
+            if (vinfo->inc_use_src2) inc->temp_src1 = (uint32_t)step_t;
+            else inc->temp_src2 = (uint32_t)step_t;
+        } else {
+            return false;
+        }
+    } else {
         int inc_idx = vinfo->inc_instr_idx;
         Instr *inc = ir_get(c, inc_idx);
         if (!inc) return false;
@@ -1245,11 +1553,13 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
     int32_t *scalar_to_vec_map = s_scalar_to_vec_map;
     memset(scalar_to_vec_map, 0xFF, sizeof(s_scalar_to_vec_map));
 
+    int esz = vinfo->is_double ? 3 : 2;
+
     for (int i = start_idx; i <= end_idx; i++) {
         Instr *instr = ir_get(c, i);
         if (!instr || instr->op == OP_NOP || instr->op == OP_DEAD) continue;
 
-        /* Scalar loads -> OP_VLOAD into fresh vector temp */
+        /* Scalar loads -> vector load into fresh vector temp */
         if (instr->op == OP_LOAD_32 || instr->op == OP_FLOAD ||
             instr->op == OP_VLOADSS || instr->op == OP_VLOADSD) {
             if (!zc_temp_is_user(instr->temp_dest) || instr->temp_dest >= 65536) continue;
@@ -1257,10 +1567,18 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
             int vec_temp = zc_alloc_temp(c);
             scalar_to_vec_map[old_dest] = vec_temp;
 
-            instr->op = is_512 ? OP_V512_LOAD : (is_256 ? OP_V256_LOAD : OP_VLOAD);
-            instr->temp_dest = (uint32_t)vec_temp;
-            instr->temp_src2 = TEMP_NONE;
-            instr->imm64 = 0;
+            if (vinfo->is_scalable) {
+                instr->op = vinfo->is_rvv ? OP_RVV_VLE : OP_SVE_LD1;
+                instr->temp_dest = (uint32_t)vec_temp;
+                instr->temp_src2 = TEMP_NONE;
+                instr->imm = (int16_t)esz;
+                instr->imm64 = 0;
+            } else {
+                instr->op = is_512 ? OP_V512_LOAD : (is_256 ? OP_V256_LOAD : OP_VLOAD);
+                instr->temp_dest = (uint32_t)vec_temp;
+                instr->temp_src2 = TEMP_NONE;
+                instr->imm64 = 0;
+            }
             instr->label_idx = 0;
             instr->cond = 0;
             instr->width = 0;
@@ -1302,7 +1620,13 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
                 int vec_src1 = scalar_to_vec_map[instr->temp_src1];
                 int vec_src2 = scalar_to_vec_map[instr->temp_src2];
                 if (vec_src1 >= 0 && vec_src2 >= 0) {
-                    int vec_op = get_vec_op(instr->op, vinfo->is_double, vinfo->is_int32, is_256, is_512);
+                    bool is_fp = (instr->op == OP_FADD || instr->op == OP_FSUB || instr->op == OP_FMUL || instr->op == OP_FDIV);
+                    int vec_op;
+                    if (vinfo->is_scalable) {
+                        vec_op = vinfo->is_rvv ? get_rvv_op(instr->op) : get_sve_op(instr->op);
+                    } else {
+                        vec_op = get_vec_op(instr->op, vinfo->is_double, vinfo->is_int32, is_256, is_512);
+                    }
                     int vec_dest = zc_alloc_temp(c);
                     scalar_to_vec_map[instr->temp_dest] = vec_dest;
 
@@ -1310,7 +1634,8 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
                     instr->temp_dest = (uint32_t)vec_dest;
                     instr->temp_src1 = (uint32_t)vec_src1;
                     instr->temp_src2 = (uint32_t)vec_src2;
-                    instr->imm64 = 0;
+                    instr->imm = vinfo->is_scalable ? (int16_t)esz : 0;
+                    instr->imm64 = vinfo->is_scalable ? (is_fp ? 1 : 0) : 0;
                     instr->label_idx = 0;
                     instr->cond = 0;
                     instr->width = 0;
@@ -1333,11 +1658,20 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
             int vec_value = (scalar_val_temp < 65536) ? scalar_to_vec_map[scalar_val_temp] : -1;
             if (vec_value < 0) continue;
 
-            instr->op = is_512 ? OP_V512_STORE : (is_256 ? OP_V256_STORE : OP_VSTORE);
-            instr->temp_dest = TEMP_NONE;
-            instr->temp_src1 = scalar_addr_temp;
-            instr->temp_src2 = (uint32_t)vec_value;
-            instr->imm64 = 0;
+            if (vinfo->is_scalable) {
+                instr->op = vinfo->is_rvv ? OP_RVV_VSE : OP_SVE_ST1;
+                instr->temp_dest = TEMP_NONE;
+                instr->temp_src1 = scalar_addr_temp;
+                instr->temp_src2 = (uint32_t)vec_value;
+                instr->imm = (int16_t)esz;
+                instr->imm64 = 0;
+            } else {
+                instr->op = is_512 ? OP_V512_STORE : (is_256 ? OP_V256_STORE : OP_VSTORE);
+                instr->temp_dest = TEMP_NONE;
+                instr->temp_src1 = scalar_addr_temp;
+                instr->temp_src2 = (uint32_t)vec_value;
+                instr->imm64 = 0;
+            }
             instr->label_idx = 0;
             instr->cond = 0;
             instr->width = 0;

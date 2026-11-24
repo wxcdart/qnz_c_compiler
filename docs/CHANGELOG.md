@@ -1,5 +1,26 @@
 # CHANGELOG
 
+## [Sprint 207] - 2026-11-23 - Scalable Loop Auto-Vectorization (Phase 13 — RVV 1.0 Dynamic vsetvli & ARM SVE whilelt / cnt)
+
+Implements Phase 13: Scalable Loop Auto-Vectorization:
+- **Dynamic Scalable Vectorization Engine (`opt_vectorize.h`, `opt_vectorize.c`)**:
+  - Extended loop analyzer to recognize dynamic scalable loop candidates when bounds are non-constant but invariant across loop iterations (`is_temp_or_slot_invariant_bound`).
+  - Added detection of stack slot induction bounds (`bound_slot`, `counter_slot`) for ABI parameter/variable forms.
+  - Automatically identifies whether the target architecture supports scalable vectors: RISC-V RVV 1.0 (`target_supports_rvv`) or ARM SVE (`target_supports_sve`).
+  - Emits scalable dynamic loop step and AVL configuration:
+    - **RISC-V RVV 1.0**: Emits AVL computation `avl = bound - counter`, followed by `OP_RVV_VSETVLI` configuring vector length dynamically to `vl`, and advances loop counter by `vl`.
+    - **ARM SVE / SVE2**: Emits predicate setup `OP_SVE_WHILELT` matching element size, `OP_SVE_CNT` to determine active lane count, and increments induction variable by `cnt`.
+  - Transforms scalar loop body loads (`OP_MOV`/`OP_FLOAD`), stores (`OP_MOV_MEM`/`OP_FSTORE`), and arithmetic (`+`, `-`, `*`, `&`, `/`) to scalable vector instructions without needing remainder loop peeling (`needs_peel = false`).
+- **Backend Architecture & Emitters (`riscv64.c`, `riscv_asm.c`, `aarch64.c`, `live_range.h`, `driver_opts.h`)**:
+  - RISC-V: Enabled dynamic vector length tracking `c->rvv_dynamic_vl` to bypass static default `vsetivli` when explicit `vsetvli` is emitted in vectorized loops.
+  - AArch64 SVE: Corrected raw machine code bit encodings for predicated arithmetic (`add`, `sub`, `mul`, `div`), ensuring register indices (`zd`, `zm`, `pg`) and opcode masks conform to ARM SVE specifications.
+  - Register Allocator: Classified `OP_SVE_CNT` destination temporary as general-purpose register (`REG_CLASS_GPR`).
+  - CLI Driver: Supported both `--target <arch>` and `--target=<arch>` command line argument syntax.
+- **Verification**:
+  - Added comprehensive test suite [`test/jit/simd_scalable_loop_test.c`](../test/jit/simd_scalable_loop_test.c) covering integer, float, and double dynamic vector loops with arbitrary trip counts (1, 3, 4, 7, 16, 25, 35, 64).
+  - Verified across JIT (`--run`), native x86-64 AOT, QEMU RISC-V RVV across multiple vector lengths (`vlen=128`, `vlen=256`, `vlen=512`), and QEMU AArch64 SVE across multiple vector lengths (`sve128`, `sve256`, `sve512`).
+  - All regression gates passed: `python3 tools/verify/style_check.py` (193/193 clean), `make test` (246/246 passing).
+
 ## [Sprint 206] - 2026-11-23 - RISC-V Vector Strided & Indexed Operations (Phase 12 — RVV 1.0 vlse / vsse / vluxei / vsuxei Gather & Scatter)
 
 Implements Phase 12: RISC-V Vector Strided & Indexed Operations (RVV 1.0 Gather & Scatter):

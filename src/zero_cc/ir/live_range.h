@@ -726,7 +726,8 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
                     }
                 } else if (instr->op == OP_KMOVW_FROM_K1 || instr->op == OP_KMOVW_FROM_K ||
                            instr->op == OP_KORTESTW || instr->op == OP_V512_CMP_MASK ||
-                           instr->op == OP_RVV_VSETVLI || instr->op == OP_RVV_VMV_X_S) {
+                           instr->op == OP_RVV_VSETVLI || instr->op == OP_RVV_VMV_X_S ||
+                           instr->op == OP_SVE_CNT) {
                     lra->temp_reg_class[instr->temp_dest] = REG_CLASS_GPR;
                 } else if (instr->op == OP_RVV_VFMV_F_S) {
                     lra->temp_reg_class[instr->temp_dest] = REG_CLASS_XMM;

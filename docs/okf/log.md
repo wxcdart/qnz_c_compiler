@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-24T04:03:04Z
+timestamp: 2026-11-24T04:43:39Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1638,3 +1638,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-24 — Updated `isa-backends.md`
 - Phase 12: RISC-V Vector Strided & Indexed Operations (RVV 1.0 vlse/vsse/vluxei/vsuxei)
+
+## 2026-11-24 — Updated `optimization-passes.md`
+- Sprint 207: Phase 13 Scalable Loop Auto-Vectorization (RVV vsetvli and SVE whilelt)
+
+## 2026-11-24 — Updated `isa-backends.md`
+- Sprint 207: RVV dynamic vl bypass and SVE encoding fixes

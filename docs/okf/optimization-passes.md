@@ -4,7 +4,7 @@ title: Optimization Passes & Safety Invariants
 description: Active IR optimization pipeline (Constant Folding, CopyProp, CSE, GVN, DCE, Mem2Reg, LICM, Auto-Vectorization) and their correctness invariants.
 resource: middleend/optimization-passes
 tags: [optimizations, mem2reg, licm, vectorization, gvn, cse, dce]
-timestamp: 2026-11-22T16:56:19Z
+timestamp: 2026-11-24T04:43:39Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -123,6 +123,19 @@ Optimization passes are registered in `src/zero_cc/opt/opt_pass.c` (`g_opt_passe
       - **Cross-TU inlining (`ast_lowering_call.c`, `type_info.h`)**: enabled at `-O1`+ under `-flto` for non-weak inline candidates without cross-TU local `static` symbol references (`lto_can_cross_inline`); resolves semantic `TypeInfo` entries through `lowering.inlining.perm_arena` and `c->lto_perm_arena` and propagates constant call-site arguments (`inlining.param_is_const`) into inlined bodies.
       - **Global Constant Propagation & 3-Round Fixpoint**: scalar integer globals that are never modified, address-taken, or relocated in `.data` become `lto_is_const_val`; 3 fixpoint rounds compute pure constant returns (`lto_is_const_ret`) and IPCP constant parameters (`lto_param_is_const`) across live reachable branches.
       - **Dead Branch & Demand-Driven Elimination (`ast_lowering_{ctrl,expr,stmt,call}.c`, `riscv64.c`, `x86_64.c`)**: constant-condition `if`/`?:` arms and unreachable post-terminator block statements (`lower_stmt_block`, guarding `NODE_LABEL`/`NODE_CASE`/`NODE_DEFAULT`) are skipped prior to IR/relocation emission, and only functions/globals reachable from program roots are lowered; unreached symbols are marked `lto_eliminated`. Note that direct-call emitters (`riscv64_emit_call`, `x86_emit_call`) check `(!fn->lto_defer || fn->lto_lowered)` before early-patching offsets so worklist lowering order stays relocation-safe.
+13. **Auto-Vectorization (`src/zero_cc/opt/opt_vectorize.c`, Sprint 174; Scalable Loop Auto-Vectorization Sprint 207)**
+    - `-O3` only (priority 75: after loop unrolling). Transforms countable loops into SIMD vector operations.
+    - **Fixed-Width Vectorization with Remainder Peeling**:
+      - Targets 128-bit SSE/NEON/RVV, 256-bit AVX2, and 512-bit AVX-512.
+      - Loops with constant bounds `trip` where `(trip % vec_width) != 0` (with `v_trip = trip - (trip % vec_width) >= vec_width`) are transformed into a vector loop bounded by `v_bound = init + v_trip` followed by a peeled scalar remainder loop that executes the remaining iterations with step 1.
+      - Remainder loop headers are stamped with `VEC_PEEL_MARKER` (`0x5E5E`) to avoid re-peeling across optimizer passes.
+    - **Scalable Loop Auto-Vectorization (Phase 13, Sprint 207)**:
+      - Automatically vectorizes dynamic loops where bounds are not compile-time constants (e.g. function parameter `n` or dynamic loop limit) on architectures supporting scalable vectors (RISC-V RVV 1.0 and ARM SVE).
+      - Recognizes loop-invariant bounds even across stack frame slot storage (`is_temp_or_slot_invariant_bound`).
+      - Emits dynamic vector length control without needing scalar remainder loop peeling:
+        - **RISC-V RVV 1.0**: Emits AVL computation `avl = bound - counter`, followed by `OP_RVV_VSETVLI` configuring vector length dynamically to `vl`, advancing loop counter by `vl` each iteration.
+        - **ARM SVE**: Emits predicate setup `OP_SVE_WHILELT` matching element size, followed by `OP_SVE_CNT` to determine active lane count, incrementing counter by `cnt` each iteration.
+      - Vectorizes contiguous array loads/stores (`OP_RVV_VLE`/`OP_RVV_VSE` or `OP_SVE_LD1`/`OP_SVE_ST1`) and arithmetic (`+`, `-`, `*`, `&`, `/`).
 
 ### `OP_ASM` — the inline-asm barrier contract (Sprint 135)
 

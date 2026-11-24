@@ -46,6 +46,12 @@ typedef struct {
     int test_instr_idx;        /* Index of loop exit test JE */
     int cmp_instr_idx;         /* Index of loop exit CMP */
     bool bound_is_src2;        /* True if bound is cmp operand temp_src2 */
+    bool is_scalable;          /* True if scalable loop (RVV vsetvli or SVE whilelt) */
+    bool is_rvv;               /* True if RVV scalable loop */
+    bool is_sve;               /* True if SVE scalable loop */
+    uint32_t bound_temp;       /* Temporary holding upper bound n */
+    int32_t bound_slot;        /* Stack slot holding upper bound n, or 0x7fffffff */
+    int32_t counter_slot;      /* Stack slot holding counter i, or 0x7fffffff */
 } VectorizationInfo;
 
 #define MAX_VECTOR_LOOPS 64

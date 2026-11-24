@@ -1009,6 +1009,7 @@ static void riscv64_emit_label(ZeroCCCompiler *c, const char *name) {
  * RISC-V Vector Extension (RVV 1.0 - Sprint 204)
  * ========================================================================= */
 static void riscv64_emit_rvv_vsetivli_default(ZeroCCCompiler *c, int esz) {
+    if (c && c->rvv_dynamic_vl) return;
     if (esz == 0)      riscv_emit_u32(c, 0xcc087057u);
     else if (esz == 1) riscv_emit_u32(c, 0xcc847057u);
     else if (esz == 2) riscv_emit_u32(c, 0xcd027057u);
@@ -1017,6 +1018,7 @@ static void riscv64_emit_rvv_vsetivli_default(ZeroCCCompiler *c, int esz) {
 
 static void riscv64_emit_rvv_vsetvli(ZeroCCCompiler *c, int rd, int rs1, int esz, int lmul) {
     (void)lmul;
+    if (c) c->rvv_dynamic_vl = true;
     uint32_t zimm = 0xC0u | (uint32_t)((esz & 3) << 3);
     uint32_t insn = (zimm << 20) | ((RV_REG(rs1) & 0x1Fu) << 15) | (7u << 12) | ((RV_REG(rd) & 0x1Fu) << 7) | 0x57u;
     riscv_emit_u32(c, insn);

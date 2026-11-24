@@ -340,8 +340,12 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
                 opts->has_rvv = 1;
             }
         }
-        else if (strcmp(arg, "--target") == 0 && i + 1 < argc) {
-            opts->target_arch = argv[++i];
+        else if ((strcmp(arg, "--target") == 0 && i + 1 < argc) || strncmp(arg, "--target=", 9) == 0) {
+            if (strncmp(arg, "--target=", 9) == 0) {
+                opts->target_arch = arg + 9;
+            } else {
+                opts->target_arch = argv[++i];
+            }
             if (strstr(opts->target_arch, "-none-") ||
                 strstr(opts->target_arch, "-elf") ||
                 strstr(opts->target_arch, "-baremetal")) {

@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-11-24T04:03:04Z
+timestamp: 2026-11-24T04:43:39Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -623,8 +623,8 @@ ZeroCC implements scalable vector length support for AArch64 via ARM SVE and SVE
 - **Software Emulation Fallback & JIT**: On x86-64 native and targets without hardware SVE, builtins lower to 512-bit vector simulation (16 lanes of 32-bit elements, 8 lanes of 64-bit elements, etc.) with predication masking.
 - **AArch64 Hardware Emission**:
   - `src/zero_cc/isa/aarch64_asm.c`: Formats textual SVE instructions (`ptrue`, `pfalse`, `whilelt`, `cntb/w/d`, `ld1b/w/d`, `st1b/w/d`, `add`, `sub`, `mul`, `fdiv`, `and`, `orr`, `eor`, `cmpeq/cmpgt`, `uaddv/faddv`, `sqadd/sqsub`).
-  - `src/zero_cc/isa/aarch64.c`: Emits raw machine code for SVE instructions.
-  - Active predicate registers bind to `p0`, and predicate bitmasks compute into GPRs for standard C logic and control flow.
+  - `src/zero_cc/isa/aarch64.c`: Emits raw machine code for SVE instructions. Predicated arithmetic operations (`add`, `sub`, `mul`, `div`) use exact SVE encodings with `(pg & 7) << 10`, `(zm & 0x1F) << 5`, and `zd & 0x1F`, and register copy via `0x04603000` (ORR).
+  - Active predicate registers bind to `p0`, and predicate bitmasks compute into GPRs for standard C logic and control flow. `OP_SVE_CNT` destination temporary is classified as `REG_CLASS_GPR`.
 
 ### 7. RISC-V Vector Extension (RVV 1.0 - Sprint 204 & Phase 12)
 ZeroCC implements the standard RISC-V Vector Extension (RVV 1.0 — `Zve32x` / `Zve64d` / `V`):
@@ -638,7 +638,7 @@ ZeroCC implements the standard RISC-V Vector Extension (RVV 1.0 — `Zve32x` / `
     - Indexed: `vluxei<eew>.v` (`0x06000007`), `vsuxei<eew>.v` (`0x06000027`)
   - `src/zero_cc/isa/riscv_asm.c`: Textual assembly emission using standard GNU as RVV syntax (`vlse32.v vd, (rs1), rs2`, `vsse32.v vs3, (rs1), rs2`, `vluxei32.v vd, (rs1), vs2`, `vsuxei32.v vs3, (rs1), vs2`).
   - Store instruction liveness invariant: `OP_RVV_VSSE` and `OP_RVV_VSUXEI` treat `temp_dest` as vector value USE (not definition), preventing incorrect SSA def tracking and clobbers.
-  - Default `vsetivli zero, <lanes>, e<esz>, m1, ta, ma` insertion ensures active `vtype.sew` and `vl` state before vector operations.
+  - Default `vsetivli zero, <lanes>, e<esz>, m1, ta, ma` insertion ensures active `vtype.sew` and `vl` state before vector operations; bypassed when `c->rvv_dynamic_vl` is active (set on dynamic `OP_RVV_VSETVLI` in scalable vector loops).
   - Scalar float conversion: `fcvt.s.d` ensures single-precision values are NaN-boxed into 64-bit FP registers before `vfmv.v.f`, and `fcvt.d.s` restores extracted scalars to double precision.
 
 ---

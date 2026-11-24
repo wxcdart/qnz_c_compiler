@@ -303,6 +303,7 @@ typedef struct ZeroCCCompiler {
     bool has_sve;                          /* -msve: enable ARM Scalable Vector Extension */
     bool has_sve2;                         /* -msve2: enable ARM SVE2 */
     bool has_rvv;                          /* -mrvv: enable RISC-V Vector Extension (RVV 1.0) */
+    bool rvv_dynamic_vl;                   /* true when dynamic vector length is in effect via vsetvli */
     bool used_avx;                         /* true if any 256-bit AVX instruction was emitted */
     bool used_avx512;                      /* true if any 512-bit AVX-512 instruction was emitted */
     const char *source_filename;           /* Source filename */
