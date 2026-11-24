@@ -227,9 +227,19 @@ typedef struct ZeroCCISABackend {
     void (*emit_v512_andps_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
     void (*emit_v512_vorps_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
     void (*emit_v512_vxorps_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
-    /* AVX-512 Opmask and Predication (Sprint 201) */
+    /* AVX-512 Opmask and Predication (Sprint 201 & Sprint 205) */
     void (*emit_kmov_to_k1_asm)(ZeroCCCompiler *c, int src_gpr, FILE *out);
     void (*emit_kmov_from_k1_asm)(ZeroCCCompiler *c, int dst_gpr, FILE *out);
+    void (*emit_kmov_to_k_asm)(ZeroCCCompiler *c, int k_dst, int src_gpr, FILE *out);
+    void (*emit_kmov_from_k_asm)(ZeroCCCompiler *c, int dst_gpr, int k_src, FILE *out);
+    void (*emit_kmov_kk_asm)(ZeroCCCompiler *c, int k_dst, int k_src, FILE *out);
+    void (*emit_kand_asm)(ZeroCCCompiler *c, int k_dst, int k_src1, int k_src2, FILE *out);
+    void (*emit_kor_asm)(ZeroCCCompiler *c, int k_dst, int k_src1, int k_src2, FILE *out);
+    void (*emit_kxor_asm)(ZeroCCCompiler *c, int k_dst, int k_src1, int k_src2, FILE *out);
+    void (*emit_knot_asm)(ZeroCCCompiler *c, int k_dst, int k_src, FILE *out);
+    void (*emit_kortest_asm)(ZeroCCCompiler *c, int dst_gpr, int k_src1, int k_src2, int test_type, FILE *out);
+    void (*emit_v512_blendps_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int k_mask, FILE *out);
+    void (*emit_v512_blendpd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int k_mask, FILE *out);
     void (*emit_v512_mask_load_asm)(ZeroCCCompiler *c, int dst, int base, int32_t offset, int z, FILE *out);
     void (*emit_v512_mask_store_asm)(ZeroCCCompiler *c, int src, int base, int32_t offset, FILE *out);
     void (*emit_v512_mask_addps_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int z, FILE *out);
@@ -534,9 +544,19 @@ typedef struct ZeroCCISABackend {
     void (*emit_v512_andps)(ZeroCCCompiler *c, int dst, int src1, int src2);
     void (*emit_v512_vorps)(ZeroCCCompiler *c, int dst, int src1, int src2);
     void (*emit_v512_vxorps)(ZeroCCCompiler *c, int dst, int src1, int src2);
-    /* AVX-512 Opmask and Predication (Sprint 201) */
+    /* AVX-512 Opmask and Predication (Sprint 201 & Sprint 205) */
     void (*emit_kmov_to_k1)(ZeroCCCompiler *c, int src_gpr);
     void (*emit_kmov_from_k1)(ZeroCCCompiler *c, int dst_gpr);
+    void (*emit_kmov_to_k)(ZeroCCCompiler *c, int k_dst, int src_gpr);
+    void (*emit_kmov_from_k)(ZeroCCCompiler *c, int dst_gpr, int k_src);
+    void (*emit_kmov_kk)(ZeroCCCompiler *c, int k_dst, int k_src);
+    void (*emit_kand)(ZeroCCCompiler *c, int k_dst, int k_src1, int k_src2);
+    void (*emit_kor)(ZeroCCCompiler *c, int k_dst, int k_src1, int k_src2);
+    void (*emit_kxor)(ZeroCCCompiler *c, int k_dst, int k_src1, int k_src2);
+    void (*emit_knot)(ZeroCCCompiler *c, int k_dst, int k_src);
+    void (*emit_kortest)(ZeroCCCompiler *c, int dst_gpr, int k_src1, int k_src2, int test_type);
+    void (*emit_v512_blendps)(ZeroCCCompiler *c, int dst, int src1, int src2, int k_mask);
+    void (*emit_v512_blendpd)(ZeroCCCompiler *c, int dst, int src1, int src2, int k_mask);
     void (*emit_v512_mask_load)(ZeroCCCompiler *c, int dst, int base, int32_t offset, int z);
     void (*emit_v512_mask_store)(ZeroCCCompiler *c, int src, int base, int32_t offset);
     void (*emit_v512_mask_addps)(ZeroCCCompiler *c, int dst, int src1, int src2, int z);

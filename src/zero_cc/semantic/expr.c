@@ -546,12 +546,16 @@ TypeInfo *expr_handle_call(SemContext *ctx, ZeroCCASTNode *node) {
 
     /* __builtin_shuffle(a, b) and __builtin_zerocc_v*(a, ...) yield the
      * first vector operand's type rather than the implicit int fallback. */
-    if (arg_count >= 1 && first_arg_t && type_is_vector(first_arg_t) &&
+    if (arg_count >= 1 &&
         callee && callee->tag == NODE_IDENT && callee->s.str &&
         ((arg_count == 2 && strcmp(callee->s.str, "__builtin_shuffle") == 0) ||
          (strncmp(callee->s.str, "__builtin_zerocc_v", 18) == 0 &&
           !(strlen(callee->s.str) >= 5 && strcmp(callee->s.str + strlen(callee->s.str) - 5, "_mask") == 0)))) {
-        res = first_arg_t;
+        if (first_arg_t && type_is_vector(first_arg_t)) {
+            res = first_arg_t;
+        } else if (vec_arg_t) {
+            res = vec_arg_t;
+        }
     }
 
     if (callee && callee->tag == NODE_IDENT && callee->s.str &&

@@ -707,7 +707,8 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
                             (conv && ai >= 0 && ai < conv->int_arg_reg_count)
                             ? conv->int_arg_regs[ai] : -1;
                     }
-                } else if (instr->op == OP_KMOVW_FROM_K1 || instr->op == OP_V512_CMP_MASK ||
+                } else if (instr->op == OP_KMOVW_FROM_K1 || instr->op == OP_KMOVW_FROM_K ||
+                           instr->op == OP_KORTESTW || instr->op == OP_V512_CMP_MASK ||
                            instr->op == OP_RVV_VSETVLI || instr->op == OP_RVV_VMV_X_S) {
                     lra->temp_reg_class[instr->temp_dest] = REG_CLASS_GPR;
                 } else if (instr->op == OP_RVV_VFMV_F_S) {
@@ -750,6 +751,7 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
                     instr->op == OP_V512_MASK_LOAD ||
                     instr->op == OP_VSTORE || instr->op == OP_V256_STORE || instr->op == OP_V512_STORE ||
                     instr->op == OP_V512_MASK_STORE || instr->op == OP_KMOVW_TO_K1 ||
+                    instr->op == OP_KMOVW_TO_K ||
                     instr->op == OP_SVE_LD1 || instr->op == OP_SVE_ST1 ||
                     instr->op == OP_RVV_VLE || instr->op == OP_RVV_VSE ||
                     instr->op == OP_RVV_VSETVLI || instr->op == OP_RVV_VMV_V_X ||

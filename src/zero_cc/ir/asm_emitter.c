@@ -1501,6 +1501,66 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             }
             return;
 
+        case OP_KMOVW_TO_K:
+            if (BE(c)->emit_kmov_to_k_asm) {
+                BE(c)->emit_kmov_to_k_asm(c, (int)(instr->imm & 7), phys_src1, out);
+            }
+            return;
+
+        case OP_KMOVW_FROM_K:
+            if (BE(c)->emit_kmov_from_k_asm) {
+                BE(c)->emit_kmov_from_k_asm(c, phys_dst, (int)(instr->imm & 7), out);
+            }
+            return;
+
+        case OP_KMOVW_KK:
+            if (BE(c)->emit_kmov_kk_asm) {
+                BE(c)->emit_kmov_kk_asm(c, (int)(instr->imm & 7), (int)((instr->imm >> 4) & 7), out);
+            }
+            return;
+
+        case OP_KANDW:
+            if (BE(c)->emit_kand_asm) {
+                BE(c)->emit_kand_asm(c, (int)(instr->imm & 7), (int)((instr->imm >> 4) & 7), (int)((instr->imm >> 8) & 7), out);
+            }
+            return;
+
+        case OP_KORW:
+            if (BE(c)->emit_kor_asm) {
+                BE(c)->emit_kor_asm(c, (int)(instr->imm & 7), (int)((instr->imm >> 4) & 7), (int)((instr->imm >> 8) & 7), out);
+            }
+            return;
+
+        case OP_KXORW:
+            if (BE(c)->emit_kxor_asm) {
+                BE(c)->emit_kxor_asm(c, (int)(instr->imm & 7), (int)((instr->imm >> 4) & 7), (int)((instr->imm >> 8) & 7), out);
+            }
+            return;
+
+        case OP_KNOTW:
+            if (BE(c)->emit_knot_asm) {
+                BE(c)->emit_knot_asm(c, (int)(instr->imm & 7), (int)((instr->imm >> 4) & 7), out);
+            }
+            return;
+
+        case OP_KORTESTW:
+            if (BE(c)->emit_kortest_asm) {
+                BE(c)->emit_kortest_asm(c, phys_dst, (int)(instr->imm & 7), (int)((instr->imm >> 4) & 7), (int)((instr->imm >> 8) & 1), out);
+            }
+            return;
+
+        case OP_V512_BLENDPS:
+            if (BE(c)->emit_v512_blendps_asm) {
+                BE(c)->emit_v512_blendps_asm(c, phys_dst, phys_src1, phys_src2, (int)instr->imm, out);
+            }
+            return;
+
+        case OP_V512_BLENDPD:
+            if (BE(c)->emit_v512_blendpd_asm) {
+                BE(c)->emit_v512_blendpd_asm(c, phys_dst, phys_src1, phys_src2, (int)instr->imm, out);
+            }
+            return;
+
         case OP_V512_MASK_LOAD:
             if (BE(c)->emit_v512_mask_load_asm) {
                 BE(c)->emit_v512_mask_load_asm(c, phys_dst, phys_src1, instr->imm, (int)instr->cond, out);

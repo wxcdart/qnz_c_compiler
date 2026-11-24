@@ -300,6 +300,16 @@ typedef enum {
     /* AVX-512 Opmask / Predication operations */
     OP_KMOVW_TO_K1,    /* move scalar mask to %k1 */
     OP_KMOVW_FROM_K1,  /* move %k1 to scalar mask */
+    OP_KMOVW_TO_K,     /* move scalar mask to %k<imm> */
+    OP_KMOVW_FROM_K,   /* move %k<src1> to scalar mask */
+    OP_KMOVW_KK,       /* move %k<src1> to %k<dest> */
+    OP_KANDW,          /* bitwise AND of k registers */
+    OP_KORW,           /* bitwise OR of k registers */
+    OP_KXORW,          /* bitwise XOR of k registers */
+    OP_KNOTW,          /* bitwise NOT of k register */
+    OP_KORTESTW,       /* kortestw test of k registers */
+    OP_V512_BLENDPS,   /* 512-bit masked blend float */
+    OP_V512_BLENDPD,   /* 512-bit masked blend double */
     OP_V512_MASK_LOAD, /* 512-bit masked vector load */
     OP_V512_MASK_STORE,/* 512-bit masked vector store */
     OP_V512_MASK_ADDPS,/* 512-bit masked single add */
@@ -699,6 +709,16 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_V512_VXORPS: return "V512_VXORPS";
         case OP_KMOVW_TO_K1: return "KMOVW_TO_K1";
         case OP_KMOVW_FROM_K1: return "KMOVW_FROM_K1";
+        case OP_KMOVW_TO_K: return "KMOVW_TO_K";
+        case OP_KMOVW_FROM_K: return "KMOVW_FROM_K";
+        case OP_KMOVW_KK: return "KMOVW_KK";
+        case OP_KANDW: return "KANDW";
+        case OP_KORW: return "KORW";
+        case OP_KXORW: return "KXORW";
+        case OP_KNOTW: return "KNOTW";
+        case OP_KORTESTW: return "KORTESTW";
+        case OP_V512_BLENDPS: return "V512_BLENDPS";
+        case OP_V512_BLENDPD: return "V512_BLENDPD";
         case OP_V512_MASK_LOAD: return "V512_MASK_LOAD";
         case OP_V512_MASK_STORE: return "V512_MASK_STORE";
         case OP_V512_MASK_ADDPS: return "V512_MASK_ADDPS";
@@ -876,6 +896,7 @@ static inline bool ir_opcode_is_simd(Opcode op) {
         case OP_V512_ADDPD: case OP_V512_SUBPD: case OP_V512_MULPD: case OP_V512_DIVPD:
         case OP_V512_ANDPS: case OP_V512_VORPS: case OP_V512_VXORPS:
         case OP_V512_MASK_LOAD: case OP_V512_MASK_STORE:
+        case OP_V512_BLENDPS: case OP_V512_BLENDPD:
         case OP_V512_MASK_ADDPS: case OP_V512_MASK_SUBPS: case OP_V512_MASK_MULPS: case OP_V512_MASK_DIVPS:
         case OP_V512_MASK_ADDPD: case OP_V512_MASK_SUBPD: case OP_V512_MASK_MULPD: case OP_V512_MASK_DIVPD:
         case OP_V512_PADDD: case OP_V512_PSUBD: case OP_V512_PMULLD:

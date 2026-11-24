@@ -1618,7 +1618,7 @@ static void x86_emit_v512_vxorps_asm(ZeroCCCompiler *c, int dst, int src1, int s
     fprintf(out, "\tvxorps\t%%%s,%%%s,%%%s\n", x86_get_zmm_reg_name(src2), x86_get_zmm_reg_name(src1), x86_get_zmm_reg_name(dst));
 }
 
-/* AVX-512 Opmask / Predication (Sprint 201) */
+/* AVX-512 Opmask / Predication (Sprint 201 & Sprint 205) */
 static void x86_emit_kmov_to_k1_asm(ZeroCCCompiler *c, int src_gpr, FILE *out) {
     (void)c;
     fprintf(out, "\tkmovw\t%%%s,%%k1\n", x86_reg32_name(src_gpr));
@@ -1627,6 +1627,68 @@ static void x86_emit_kmov_to_k1_asm(ZeroCCCompiler *c, int src_gpr, FILE *out) {
 static void x86_emit_kmov_from_k1_asm(ZeroCCCompiler *c, int dst_gpr, FILE *out) {
     (void)c;
     fprintf(out, "\tkmovw\t%%k1,%%%s\n", x86_reg32_name(dst_gpr));
+}
+
+static void x86_emit_kmov_to_k_asm(ZeroCCCompiler *c, int k_dst, int src_gpr, FILE *out) {
+    (void)c;
+    fprintf(out, "\tkmovw\t%%%s,%%k%d\n", x86_reg32_name(src_gpr), k_dst & 7);
+}
+
+static void x86_emit_kmov_from_k_asm(ZeroCCCompiler *c, int dst_gpr, int k_src, FILE *out) {
+    (void)c;
+    fprintf(out, "\tkmovw\t%%k%d,%%%s\n", k_src & 7, x86_reg32_name(dst_gpr));
+}
+
+static void x86_emit_kmov_kk_asm(ZeroCCCompiler *c, int k_dst, int k_src, FILE *out) {
+    (void)c;
+    fprintf(out, "\tkmovw\t%%k%d,%%k%d\n", k_src & 7, k_dst & 7);
+}
+
+static void x86_emit_kand_asm(ZeroCCCompiler *c, int k_dst, int k_src1, int k_src2, FILE *out) {
+    (void)c;
+    fprintf(out, "\tkandw\t%%k%d,%%k%d,%%k%d\n", k_src2 & 7, k_src1 & 7, k_dst & 7);
+}
+
+static void x86_emit_kor_asm(ZeroCCCompiler *c, int k_dst, int k_src1, int k_src2, FILE *out) {
+    (void)c;
+    fprintf(out, "\tkorw\t%%k%d,%%k%d,%%k%d\n", k_src2 & 7, k_src1 & 7, k_dst & 7);
+}
+
+static void x86_emit_kxor_asm(ZeroCCCompiler *c, int k_dst, int k_src1, int k_src2, FILE *out) {
+    (void)c;
+    fprintf(out, "\tkxorw\t%%k%d,%%k%d,%%k%d\n", k_src2 & 7, k_src1 & 7, k_dst & 7);
+}
+
+static void x86_emit_knot_asm(ZeroCCCompiler *c, int k_dst, int k_src, FILE *out) {
+    (void)c;
+    fprintf(out, "\tknotw\t%%k%d,%%k%d\n", k_src & 7, k_dst & 7);
+}
+
+static void x86_emit_kortest_asm(ZeroCCCompiler *c, int dst_gpr, int k_src1, int k_src2, int test_type, FILE *out) {
+    (void)c;
+    fprintf(out, "\tkortestw\t%%k%d,%%k%d\n", k_src2 & 7, k_src1 & 7);
+    const char *rname = x86_reg32_name(dst_gpr);
+    const char *bname = x86_reg8_name(dst_gpr);
+    if (test_type == 0) {
+        fprintf(out, "\tsete\t%%%s\n", bname);
+    } else {
+        fprintf(out, "\tsetc\t%%%s\n", bname);
+    }
+    fprintf(out, "\tmovzbl\t%%%s,%%%s\n", bname, rname);
+}
+
+static void x86_emit_v512_blendps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int k_mask, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvblendmps\t%%%s,%%%s,%%%s{%%k%d}\n",
+            x86_get_zmm_reg_name(src2), x86_get_zmm_reg_name(src1),
+            x86_get_zmm_reg_name(dst), k_mask & 7);
+}
+
+static void x86_emit_v512_blendpd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int k_mask, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvblendmpd\t%%%s,%%%s,%%%s{%%k%d}\n",
+            x86_get_zmm_reg_name(src2), x86_get_zmm_reg_name(src1),
+            x86_get_zmm_reg_name(dst), k_mask & 7);
 }
 
 static void x86_emit_v512_mask_load_asm(ZeroCCCompiler *c, int dst, int base, int32_t offset, int z, FILE *out) {

@@ -832,7 +832,7 @@ static void x86_emit_v512_vxorps(ZeroCCCompiler *c, int dst, int src1, int src2)
     x86_modrm(c, 3, dst & 7, src2 & 7);
 }
 
-/* AVX-512 Opmask / Predication (Sprint 201) */
+/* AVX-512 Opmask / Predication (Sprint 201 & Sprint 205) */
 static void x86_emit_kmov_to_k1(ZeroCCCompiler *c, int src_gpr) {
     c->used_avx512 = true;
     c->used_avx = true;
@@ -847,6 +847,89 @@ static void x86_emit_kmov_from_k1(ZeroCCCompiler *c, int dst_gpr) {
     x86_vex(c, 1, 0, 0, dst_gpr, 1, 0, 0);
     me_emit_u8(c, 0x93);
     x86_modrm(c, 3, dst_gpr & 7, 1);
+}
+
+static void x86_emit_kmov_to_k(ZeroCCCompiler *c, int k_dst, int src_gpr) {
+    c->used_avx512 = true;
+    c->used_avx = true;
+    x86_vex(c, 1, 0, 0, k_dst & 7, src_gpr, 0, 0);
+    me_emit_u8(c, 0x92);
+    x86_modrm(c, 3, k_dst & 7, src_gpr & 7);
+}
+
+static void x86_emit_kmov_from_k(ZeroCCCompiler *c, int dst_gpr, int k_src) {
+    c->used_avx512 = true;
+    c->used_avx = true;
+    x86_vex(c, 1, 0, 0, dst_gpr, k_src & 7, 0, 0);
+    me_emit_u8(c, 0x93);
+    x86_modrm(c, 3, dst_gpr & 7, k_src & 7);
+}
+
+static void x86_emit_kmov_kk(ZeroCCCompiler *c, int k_dst, int k_src) {
+    c->used_avx512 = true;
+    c->used_avx = true;
+    x86_vex(c, 1, 0, 0, k_dst & 7, k_src & 7, 0, 0);
+    me_emit_u8(c, 0x90);
+    x86_modrm(c, 3, k_dst & 7, k_src & 7);
+}
+
+static void x86_emit_kand(ZeroCCCompiler *c, int k_dst, int k_src1, int k_src2) {
+    c->used_avx512 = true;
+    c->used_avx = true;
+    x86_vex(c, 1, 0, 0, k_dst & 7, k_src2 & 7, k_src1 & 7, 1);
+    me_emit_u8(c, 0x41);
+    x86_modrm(c, 3, k_dst & 7, k_src2 & 7);
+}
+
+static void x86_emit_kor(ZeroCCCompiler *c, int k_dst, int k_src1, int k_src2) {
+    c->used_avx512 = true;
+    c->used_avx = true;
+    x86_vex(c, 1, 0, 0, k_dst & 7, k_src2 & 7, k_src1 & 7, 1);
+    me_emit_u8(c, 0x45);
+    x86_modrm(c, 3, k_dst & 7, k_src2 & 7);
+}
+
+static void x86_emit_kxor(ZeroCCCompiler *c, int k_dst, int k_src1, int k_src2) {
+    c->used_avx512 = true;
+    c->used_avx = true;
+    x86_vex(c, 1, 0, 0, k_dst & 7, k_src2 & 7, k_src1 & 7, 1);
+    me_emit_u8(c, 0x47);
+    x86_modrm(c, 3, k_dst & 7, k_src2 & 7);
+}
+
+static void x86_emit_knot(ZeroCCCompiler *c, int k_dst, int k_src) {
+    c->used_avx512 = true;
+    c->used_avx = true;
+    x86_vex(c, 1, 0, 0, k_dst & 7, k_src & 7, 0, 0);
+    me_emit_u8(c, 0x44);
+    x86_modrm(c, 3, k_dst & 7, k_src & 7);
+}
+
+static void x86_emit_cond_set(ZeroCCCompiler *c, int dst, int cond);
+
+static void x86_emit_kortest(ZeroCCCompiler *c, int dst_gpr, int k_src1, int k_src2, int test_type) {
+    c->used_avx512 = true;
+    c->used_avx = true;
+    x86_vex(c, 1, 0, 0, k_src1 & 7, k_src2 & 7, 0, 0);
+    me_emit_u8(c, 0x98);
+    x86_modrm(c, 3, k_src1 & 7, k_src2 & 7);
+    x86_emit_cond_set(c, dst_gpr, (test_type == 0) ? 4 /* CC_EQ */ : 6 /* CC_ULT */);
+}
+
+static void x86_emit_v512_blendps(ZeroCCCompiler *c, int dst, int src1, int src2, int k_mask) {
+    c->used_avx512 = true;
+    c->used_avx = true;
+    x86_evex(c, 2, 1, 0, dst, src2, src1, 2, k_mask & 7, 0);
+    me_emit_u8(c, 0x65);
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_v512_blendpd(ZeroCCCompiler *c, int dst, int src1, int src2, int k_mask) {
+    c->used_avx512 = true;
+    c->used_avx = true;
+    x86_evex(c, 2, 1, 1, dst, src2, src1, 2, k_mask & 7, 0);
+    me_emit_u8(c, 0x65);
+    x86_modrm(c, 3, dst & 7, src2 & 7);
 }
 
 static void x86_emit_v512_mask_load(ZeroCCCompiler *c, int dst, int base, int32_t offset, int z) {
@@ -2363,6 +2446,16 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_v512_vxorps = x86_emit_v512_vxorps,
     .emit_kmov_to_k1 = x86_emit_kmov_to_k1,
     .emit_kmov_from_k1 = x86_emit_kmov_from_k1,
+    .emit_kmov_to_k = x86_emit_kmov_to_k,
+    .emit_kmov_from_k = x86_emit_kmov_from_k,
+    .emit_kmov_kk = x86_emit_kmov_kk,
+    .emit_kand = x86_emit_kand,
+    .emit_kor = x86_emit_kor,
+    .emit_kxor = x86_emit_kxor,
+    .emit_knot = x86_emit_knot,
+    .emit_kortest = x86_emit_kortest,
+    .emit_v512_blendps = x86_emit_v512_blendps,
+    .emit_v512_blendpd = x86_emit_v512_blendpd,
     .emit_v512_mask_load = x86_emit_v512_mask_load,
     .emit_v512_mask_store = x86_emit_v512_mask_store,
     .emit_v512_mask_addps = x86_emit_v512_mask_addps,
@@ -2588,6 +2681,16 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_v512_vxorps_asm = x86_emit_v512_vxorps_asm,
     .emit_kmov_to_k1_asm = x86_emit_kmov_to_k1_asm,
     .emit_kmov_from_k1_asm = x86_emit_kmov_from_k1_asm,
+    .emit_kmov_to_k_asm = x86_emit_kmov_to_k_asm,
+    .emit_kmov_from_k_asm = x86_emit_kmov_from_k_asm,
+    .emit_kmov_kk_asm = x86_emit_kmov_kk_asm,
+    .emit_kand_asm = x86_emit_kand_asm,
+    .emit_kor_asm = x86_emit_kor_asm,
+    .emit_kxor_asm = x86_emit_kxor_asm,
+    .emit_knot_asm = x86_emit_knot_asm,
+    .emit_kortest_asm = x86_emit_kortest_asm,
+    .emit_v512_blendps_asm = x86_emit_v512_blendps_asm,
+    .emit_v512_blendpd_asm = x86_emit_v512_blendpd_asm,
     .emit_v512_mask_load_asm = x86_emit_v512_mask_load_asm,
     .emit_v512_mask_store_asm = x86_emit_v512_mask_store_asm,
     .emit_v512_mask_addps_asm = x86_emit_v512_mask_addps_asm,

@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## [Sprint 205] - 2026-11-23 - AVX-512 Opmask / Predication (Phase 11 — Dedicated Mask Registers k0–k7, Mask Manipulation, Masked Blend)
+
+Implements Phase 11: AVX-512 Dedicated Mask Register File & Predication Operations:
+- **AVX-512 Mask Manipulation Instructions (`ir.h`, `x86_64.c`, `x86_64_asm.c`)**:
+  - Implemented raw machine code (VEX/EVEX) and textual assembly emitters for `kmovw` (reg-to-k, k-to-reg, k-to-k), `kandw`, `korw`, `kxorw`, `knotw`, and `kortestw` (with condition code evaluation via `sete` / `setc`).
+  - Added 10 new IR opcodes: `OP_KMOVW_TO_K`, `OP_KMOVW_FROM_K`, `OP_KMOVW_KK`, `OP_KANDW`, `OP_KORW`, `OP_KXORW`, `OP_KNOTW`, `OP_KORTESTW`, `OP_V512_BLENDPS`, `OP_V512_BLENDPD`.
+- **Masked Vector Blend (`ast_lowering_builtins.c`, `x86_64.c`, `x86_64_asm.c`)**:
+  - Implemented `vblendmps` and `vblendmpd` with EVEX opmask write-masking (`{k1}`).
+  - Built scalar fallback simulation loops in AST lowering for architectures without AVX-512 hardware support.
+- **Virtual Header (`<immintrin.h>`) & Builtin Lowering**:
+  - Added mask intrinsics: `_kand_mask16`, `_kor_mask16`, `_kxor_mask16`, `_knot_mask16`, `_kand_mask8`, `_kor_mask8`, `_kxor_mask8`, `_knot_mask8`, `_kortestz_mask16_u8`, `_kortestc_mask16_u8`, `_kortestz_mask8_u8`, `_kortestc_mask8_u8`, `_load_mask16`, `_store_mask16`, `_load_mask8`, `_store_mask8`, `_cvtu32_mask16`, `_cvtmask16_u32`, `_cvtu32_mask8`, `_cvtmask8_u32`.
+  - Added masked blend intrinsics: `_mm512_mask_blend_ps`, `_mm512_mask_blend_pd`, `_mm512_mask_blend_epi32`, `_mm512_mask_blend_epi64`.
+- **Verification**:
+  - Extended unit test suite [`test/jit/avx512_mask_test.c`](../test/jit/avx512_mask_test.c) covering all conversions, loads/stores, logical operations, test operations, and masked blend.
+  - Verified across JIT (`--run`), native AOT, and verified gas assembly emission with `-mavx512f -S`.
+
 ## [Sprint 204] - 2026-11-23 - RISC-V Vector Extension (RVV 1.0 — Zve32x / Zve64d / V, 16 IR Opcodes, Virtual <riscv_vector.h>, MC & ASM Emitters)
 
 Implements Option 1: RISC-V Vector Extension (RVV 1.0):

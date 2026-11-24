@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-24T01:20:12Z
+timestamp: 2026-11-24T03:45:03Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1632,3 +1632,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-24 — Updated `isa-backends.md`
 - Document Sprint 204 RISC-V Vector Extension (RVV 1.0)
+
+## 2026-11-24 — Updated `isa-backends.md`
+- Implement AVX-512 dedicated mask registers and instructions (Sprint 205 - Phase 11)

@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-11-24T01:20:12Z
+timestamp: 2026-11-24T03:45:03Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -291,6 +291,18 @@ When loop vectorization emits packed vector opcodes (`OP_VLOAD`, `OP_VSTORE`, `O
   - Fallback emulation: bit-level scalar loops handling full 512-bit integer arithmetic, masking, and comparisons on hosts lacking AVX-512 hardware.
 - **Auto-Vectorizer Scaling**:
   - `opt_auto_vectorize` maps 32-bit integer loop operations to `OP_V512_PADDD`, `OP_V512_PSUBD`, `OP_V512_PMULLD`, `OP_V512_PANDD`, `OP_V512_PORD`, `OP_V512_PXORD` when `has_avx512f` is active.
+
+### AVX-512 Dedicated Mask Register File & Mask Instructions (Sprint 205 - Phase 11)
+
+- **Dedicated Mask Registers (`k0..k7`) & Instructions**:
+  - Implemented raw VEX/EVEX and AT&T assembly emitters for dedicated mask register instructions: `kmovw` (register-to-mask, mask-to-register, mask-to-mask), `kandw`, `korw`, `kxorw`, `knotw`, and `kortestw`.
+  - Added 10 IR opcodes: `OP_KMOVW_TO_K`, `OP_KMOVW_FROM_K`, `OP_KMOVW_KK`, `OP_KANDW`, `OP_KORW`, `OP_KXORW`, `OP_KNOTW`, `OP_KORTESTW`, `OP_V512_BLENDPS`, `OP_V512_BLENDPD`.
+  - `kortestw` tests `(ks1 | ks2) == 0` (setting ZF, extracted via `sete`) and `(ks1 | ks2) == 0xFFFF` (setting CF, extracted via `setc`).
+- **Masked Vector Blend (`vblendmps` / `vblendmpd`)**:
+  - Encoded with EVEX opmask write-masking (`vblendmps %zmm2, %zmm1, %zmm0{%k1}`), selecting lanes from src2 when the mask bit is 1, and src1 when the mask bit is 0.
+- **Intrinsics Virtual Headers & Builtin Lowering**:
+  - Added mask manipulation intrinsics (`_kand_mask*`, `_kor_mask*`, `_kxor_mask*`, `_knot_mask*`, `_kortestz_mask*`, `_kortestc_mask*`, `_load_mask*`, `_store_mask*`) and blend intrinsics (`_mm512_mask_blend_ps`, `_mm512_mask_blend_pd`, `_mm512_mask_blend_epi32`, `_mm512_mask_blend_epi64`) to `<immintrin.h>`.
+  - Built fallback scalar simulation loops ensuring correct execution in JIT mode and on CPUs lacking AVX-512 hardware.
 
 ### SIMD Vendor Intrinsics & Virtual Headers (Sprint 196 Track 1)
 
