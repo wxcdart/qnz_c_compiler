@@ -423,7 +423,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     bool can_promote_params = false;
     if (!needs_protect && lowering_fn && !c->debug_info) {
         ZeroCCFunction *fn = lowering_fn;
-        int max_int_params = (c->isa == ISA_X86_64) ? 3 : BE(c)->conv->int_arg_reg_count;
+        int max_int_params = zc_target_traits(c)->max_promoted_int_params;
         if (!fn->is_variadic && fn->ret_struct_sz <= 16 &&
             c->local_count == fn->param_count &&
             !zero_cc_ast_has_call(arena, root, NULL) &&
@@ -658,7 +658,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                 }
             } else if (is_multi_chunk_struct && sym->type.size > 16 &&
                 !(sym->type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&sym->type))) {
-                if (c->isa == ISA_X86_64) {
+                if (zc_target_traits(c)->pass_large_struct_by_value_on_stack) {
                     /* Sprint 158 (x86-64): a >16B struct/union parameter is
                      * a System V MEMORY argument - the caller placed the
                      * value in the CALLER STACK at this argument's order
@@ -710,7 +710,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                      * caller-stack FP stream), the other units ride the GPR
                      * stream. Matches the caller-side placement in
                      * ast_lowering_call.c (s03_struct16 interop). */
-                    bool unit_fp = (c->isa == ISA_X86_64 &&
+                    bool unit_fp = (zc_target_traits(c)->struct_units_split_fp &&
                                     (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) &&
                                     zc_struct_unit_is_fp(&sym->type, ch));
                     if (unit_fp) {

@@ -8,6 +8,42 @@
 #include <stdbool.h>
 #include "zero_cc/isa/isa_backend.h"
 #include "zero_cc/isa/target_traits.h"
+#include "zero_cc/ir/abi_classify.h"
+
+static ABIStructClassification x86_64_classify_arg(const ZeroCCType *type) {
+    return abi_classify_arg(ISA_X86_64, type);
+}
+static ABIStructClassification x86_64_classify_return(const ZeroCCType *type) {
+    return abi_classify_return(ISA_X86_64, type);
+}
+
+static ABIStructClassification aarch64_classify_arg(const ZeroCCType *type) {
+    return abi_classify_arg(ISA_AARCH64, type);
+}
+static ABIStructClassification aarch64_classify_return(const ZeroCCType *type) {
+    return abi_classify_return(ISA_AARCH64, type);
+}
+
+static ABIStructClassification aarch32_classify_arg(const ZeroCCType *type) {
+    return abi_classify_arg(ISA_AARCH32, type);
+}
+static ABIStructClassification aarch32_classify_return(const ZeroCCType *type) {
+    return abi_classify_return(ISA_AARCH32, type);
+}
+
+static ABIStructClassification riscv64_classify_arg(const ZeroCCType *type) {
+    return abi_classify_arg(ISA_RISCV64, type);
+}
+static ABIStructClassification riscv64_classify_return(const ZeroCCType *type) {
+    return abi_classify_return(ISA_RISCV64, type);
+}
+
+static ABIStructClassification riscv32_classify_arg(const ZeroCCType *type) {
+    return abi_classify_arg(ISA_RISCV32, type);
+}
+static ABIStructClassification riscv32_classify_return(const ZeroCCType *type) {
+    return abi_classify_return(ISA_RISCV32, type);
+}
 
 /* Fill in ASM-emission function pointers once. The backend tables are
  * writable statics (not .rodata), so no const cast is needed; callers only
@@ -22,6 +58,23 @@ static void zero_cc_init_backends_once(void) {
     aarch32_backend.traits = zero_cc_get_target_traits(ISA_AARCH32);
     riscv64_backend.traits = zero_cc_get_target_traits(ISA_RISCV64);
     riscv32_backend.traits = zero_cc_get_target_traits(ISA_RISCV32);
+
+    x86_64_backend.classify_arg = x86_64_classify_arg;
+    x86_64_backend.classify_return = x86_64_classify_return;
+    aarch64_backend.classify_arg = aarch64_classify_arg;
+    aarch64_backend.classify_return = aarch64_classify_return;
+    aarch32_backend.classify_arg = aarch32_classify_arg;
+    aarch32_backend.classify_return = aarch32_classify_return;
+    riscv64_backend.classify_arg = riscv64_classify_arg;
+    riscv64_backend.classify_return = riscv64_classify_return;
+    riscv32_backend.classify_arg = riscv32_classify_arg;
+    riscv32_backend.classify_return = riscv32_classify_return;
+
+    ((ISARegInfo *)x86_64_backend.regs)->desc = &x86_64_backend.traits->regs;
+    ((ISARegInfo *)aarch64_backend.regs)->desc = &aarch64_backend.traits->regs;
+    ((ISARegInfo *)aarch32_backend.regs)->desc = &aarch32_backend.traits->regs;
+    ((ISARegInfo *)riscv64_backend.regs)->desc = &riscv64_backend.traits->regs;
+    ((ISARegInfo *)riscv32_backend.regs)->desc = &riscv32_backend.traits->regs;
     x86_init_asm_emission(&x86_64_backend);
     aarch64_init_asm_emission(&aarch64_backend);
     /* AArch32 asm emitters are set in aarch32_init_backend; do NOT call

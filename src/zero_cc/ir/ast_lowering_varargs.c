@@ -54,7 +54,7 @@ int lower_expr_va_start(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode 
                 bool phidden = (ps->type.tag == TYPE_STRUCT || ps->type.tag == TYPE_UNION) && ps->type.size > 16;
                 bool pmulti = (ps->type.tag == TYPE_STRUCT || ps->type.tag == TYPE_UNION) && ps->type.size > 8 && !phidden;
                 if (phidden) {
-                    if (c->isa == ISA_X86_64) {
+                    if (zc_target_traits(c)->pass_large_struct_by_value_on_stack) {
                         /* Sprint 158 (System V): a >16B named struct
                          * param is a MEMORY argument - it consumes NO
                          * register and occupies ceil(size/8) caller-stack
@@ -73,8 +73,7 @@ int lower_expr_va_start(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode 
                          * 9-16B unit holding an FP member rides the SSE
                          * stream, the rest ride the GPR stream (mirrors
                          * the prologue param-save loop). */
-                        bool unit_fp = (c->isa == ISA_X86_64 &&
-                                        zc_struct_unit_is_fp(&ps->type, ch));
+                        bool unit_fp = zc_abi_struct_unit_is_fp(c, &ps->type, ch);
                         if (unit_fp) { if (fp_idx < fp_regs) fp_idx++; else stack_named++; }
                         else { if (gp_idx < gp_regs) gp_idx++; else stack_named++; }
                     }
@@ -85,7 +84,7 @@ int lower_expr_va_start(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode 
                 }
             }
 
-            if (c->isa == ISA_AARCH32) {
+            if (zc_target_traits(c)->va_layout == VA_LIST_LAYOUT_ARM32) {
                 int t = zc_alloc_temp(c);
                 ir_emit_lea(c, t, TEMP_NONE, -(save_base + 16 - gp_idx * 4));
                 ir_emit_store_32(c, t, ap_addr);             /* +0 gp */
@@ -240,7 +239,7 @@ int lower_expr_va_arg(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
         }
 
         bool is_fp = t_t && (t_t->kind == TYPE_KIND_FLOAT || t_t->kind == TYPE_KIND_DOUBLE);
-        if (c->isa == ISA_AARCH32) {
+        if (zc_target_traits(c)->va_layout == VA_LIST_LAYOUT_ARM32) {
             int result_temp = zc_alloc_temp(c);
             int ap_addr = zero_cc_lower_lvalue_addr(c, arena, node->left);
             bool is_8byte = (is_fp && t_t->kind == TYPE_KIND_DOUBLE) ||
@@ -419,7 +418,7 @@ int lower_expr_va_arg(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
             bool is_struct_hidden = (!is_fp && struct_sz > 16);
             bool is_struct2 = (!is_fp && struct_sz > 8 && struct_sz <= 16);
             if (is_struct_hidden) {
-                if (c->isa == ISA_X86_64) {
+                if (zc_target_traits(c)->pass_large_struct_by_value_on_stack) {
                     /* Sprint 158 (System V): a >16B variadic struct
                      * argument lives in the OVERFLOW (stack) area as its
                      * value - never in the register streams. va_arg
@@ -488,8 +487,7 @@ int lower_expr_va_arg(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                      * the GP slots (ap+0/ap+8) - mirroring the caller's
                      * per-unit chunk placement (c-torture stdarg-3 f6: S2
                      * = {double, long}). */
-                    bool ch_fp = (c->isa == ISA_X86_64 &&
-                                  zc_typeinfo_unit_is_fp(t_t, ch));
+                    bool ch_fp = zc_abi_unit_is_fp(c, t_t, ch);
                     int c_pf = zc_alloc_temp(c);
                     ir_emit_mov_imm(c, c_pf, ch_fp ? 16 : 0);
                     int c_ptr_field = zc_alloc_temp(c);

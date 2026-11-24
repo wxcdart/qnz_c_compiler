@@ -1179,7 +1179,7 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                     bool big_mem_range = false; /* > inline chunk cap: one range entry */
                     int big_src_addr = TEMP_NONE;
                     if (arg_struct_sz > 16 && arg_is_struct_u) {
-                        if (c->isa == ISA_X86_64) {
+                        if (zc_target_traits(c)->pass_large_struct_by_value_on_stack) {
                             /* System V AMD64: a by-value struct/union LARGER than
                              * 16 bytes is a MEMORY-class argument - the CALLER lays
                              * the value on the stack (first such arg at RSP+0, packed
@@ -1250,7 +1250,7 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                                       strcmp(vati->details.record.tag, "va_list") == 0 &&
                                       vati->details.record.size > 16);
                     bool callee_extern_vl = (callee_fn != NULL && callee_fn->is_prototype);
-                    bool emit_vl_shadow = (arg_is_vl && callee_extern_vl && c->isa == ISA_X86_64);
+                    bool emit_vl_shadow = (arg_is_vl && callee_extern_vl && zc_target_traits(c)->has_sysv_va_list);
                     bool mem_arg_range_done = false;  /* range entry covers all chunks */
                     int mem_arg_chunk_src = TEMP_NONE; /* per-chunk source address (x86-64 mem arg) */
                     if (big_struct_ptr_conv || (big_mem_arg && emit_vl_shadow)) {
@@ -1613,10 +1613,10 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                                 int_arg_idx++;
                             }
                         }
-                    } else if (c->isa == ISA_X86_64 && arg_is_struct_u &&
+                    } else if (zc_abi_unit_is_fp(c, ast_node_get_typeinfo(c, arg_node), 0) &&
+                               arg_is_struct_u &&
                                arg_struct_sz > 8 && arg_struct_sz <= 16 &&
-                               !big_mem_arg &&
-                               zc_typeinfo_unit_is_fp(ast_node_get_typeinfo(c, arg_node), 0)) {
+                               !big_mem_arg) {
                         /* Sprint 158: 9-16B struct unit 0 that holds a
                          * float/double member travels in the SSE stream
                          * (XMM register / FP stack stream), not the GPR
@@ -1709,8 +1709,8 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                              * past XMM7), not the GPR chunk stream - the
                              * pre-158 all-GPR model broke gcc interop for
                              * {double,double} & co (s03_struct16). */
-                            if (c->isa == ISA_X86_64 && !big_mem_arg && arg_is_struct_u &&
-                                zc_typeinfo_unit_is_fp(ast_node_get_typeinfo(c, arg_node), ch)) {
+                            if (zc_abi_unit_is_fp(c, ast_node_get_typeinfo(c, arg_node), ch) &&
+                                !big_mem_arg && arg_is_struct_u) {
                                 int ch_addr = TEMP_NONE;
                                 if (arg_node && arg_node->tag == NODE_IDENT && arg_struct_sym) {
                                     ch_addr = zc_alloc_temp(c);
@@ -1796,7 +1796,7 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
 
                 if (all_arg_count < IR_CALL_MAX_ARGS) {
                     all_arg_temps[all_arg_count] = sret_buf_temp;
-                    all_arg_is_fp[all_arg_count] = (c->isa == ISA_AARCH64) ? 3 : 0;
+                    all_arg_is_fp[all_arg_count] = zc_target_traits(c)->sret_consumes_arg0 ? 0 : 3;
                     all_arg_count++;
                 }
             }
@@ -2153,7 +2153,7 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                 TypeInfo *ret_unit_ti = ast_node_get_typeinfo(c, node);
                 bool u0fp = zc_typeinfo_unit_is_fp(ret_unit_ti, 0);
                 bool u1fp = zc_typeinfo_unit_is_fp(ret_unit_ti, 1);
-                if (c->isa == ISA_X86_64 && (u0fp || u1fp)) {
+                if (zc_target_traits(c)->struct_units_split_fp && (u0fp || u1fp)) {
                     /* Sprint 158 (x86-64): an SSE/SSEup 9-16B struct return
                      * arrives in the class register pair - SSE class
                      * (both units FP): XMM0+XMM1; SSEup: the single FP
@@ -2213,8 +2213,8 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
             /* If function returns >16 byte struct, return pointer to allocated buffer */
             if (callee_uses_sret) {
                 int call_res_temp = zc_alloc_temp(c);
-                if (c->isa == ISA_AARCH64) {
-                    /* AAPCS64 does not require callee to preserve x8 or return the address in x0;
+                if (!zc_target_traits(c)->sret_consumes_arg0) {
+                    /* Dedicated sret register (e.g. AAPCS64 x8): callee is not required to return address in arg0;
                      * recompute the caller's sret buffer address directly from -buf_stack_off */
                     ir_emit_lea(c, call_res_temp, BE(c)->fp_reg, -buf_stack_off);
                 } else {

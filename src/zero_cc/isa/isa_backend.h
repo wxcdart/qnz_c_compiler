@@ -10,6 +10,7 @@ typedef struct ZeroCCCompiler ZeroCCCompiler;
 typedef struct ZeroCCType ZeroCCType;
 typedef struct ZeroCCFunction ZeroCCFunction;
 typedef struct TargetTraits TargetTraits;
+typedef struct TargetRegDesc TargetRegDesc;
 
 typedef enum {
     ISA_X86_64,
@@ -19,6 +20,19 @@ typedef enum {
     ISA_RISCV64,
     ISA_XTENSA,
 } ZeroCCISA;
+
+/* ABI Eightbyte Classification (System V AMD64 / AAPCS / psABI) */
+typedef enum {
+    ABI_CLASS_NO_CLASS = 0,
+    ABI_CLASS_INTEGER,
+    ABI_CLASS_SSE,
+    ABI_CLASS_MEMORY
+} ABIClass;
+
+typedef struct {
+    ABIClass classes[2];
+    int count; /* Number of eightbytes (1 or 2), or 0 if MEMORY */
+} ABIStructClassification;
 
 /* Condition codes for OP_CMP_BRANCH */
 #define CC_LT  0  /* signed less than */
@@ -40,6 +54,7 @@ typedef struct {
     int num_fp_regs;
     const char *vec_regs[32];      /* Vector registers (xmm/v/vr) */
     int num_vec_regs;              /* Number of vector registers */
+    const TargetRegDesc *desc;     /* Declarative register allocation descriptor (Phase 2) */
 } ISARegInfo;
 
 /* Calling convention tables - ISA-specific */
@@ -92,6 +107,10 @@ typedef struct ZeroCCISABackend {
     void (*emit_stack_guard_check_asm)(ZeroCCCompiler *c, int32_t slot_off, FILE *out);
     const char *(*get_hw_reg_name)(int phys_reg);  /* Get register name by hardware number */
     const char *(*get_vec_reg_name)(int vec_reg_idx);  /* Get vector register name */
+
+    /* ABI classification hooks (Item #16 Phase 3) */
+    ABIStructClassification (*classify_arg)(const ZeroCCType *type);
+    ABIStructClassification (*classify_return)(const ZeroCCType *type);
 
     /* Assembly emission for IR instructions */
     void (*emit_mov_imm_asm)(ZeroCCCompiler *c, int dst, int64_t imm, FILE *out);

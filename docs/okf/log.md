@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-24T12:49:31Z
+timestamp: 2026-11-24T13:11:46Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1647,3 +1647,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-24 — Updated `target-abstraction-roadmap.md`
 - Sprint 208: Consolidate target metrics into TargetTraits and clean up ad-hoc ISA checks
+
+## 2026-11-24 — Updated `target-abstraction-roadmap.md`
+- Complete Phase 2 table-driven regalloc and Phase 3 decoupled ABI lowering hooks

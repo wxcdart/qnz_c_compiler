@@ -59,30 +59,6 @@ static const char *xmm_registers[] __attribute__((unused)) = {
 #define REGALLOC_FP_SCRATCH1 15
 #define REGALLOC_FP_SCRATCH2 14
 
-/* Vector registers (ISA-specific) */
-/* x86-64: 16 XMM registers, AArch64: 32 NEON registers, RISC-V: 32 RVV registers */
-static const char *vec_registers_x86[] __attribute__((unused)) = {
-    "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7",
-    "xmm8", "xmm9", "xmm10", "xmm11", "xmm12", "xmm13", "xmm14", "xmm15"
-};
-#define VEC_COUNT_X86 16
-
-static const char *vec_registers_aarch64[] __attribute__((unused)) = {
-    "v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7",
-    "v8", "v9", "v10", "v11", "v12", "v13", "v14", "v15",
-    "v16", "v17", "v18", "v19", "v20", "v21", "v22", "v23",
-    "v24", "v25", "v26", "v27", "v28", "v29", "v30", "v31"
-};
-#define VEC_COUNT_AARCH64 32
-
-static const char *vec_registers_riscv[] __attribute__((unused)) = {
-    "v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7",
-    "v8", "v9", "v10", "v11", "v12", "v13", "v14", "v15",
-    "v16", "v17", "v18", "v19", "v20", "v21", "v22", "v23",
-    "v24", "v25", "v26", "v27", "v28", "v29", "v30", "v31"
-};
-#define VEC_COUNT_RISCV 32
-
 /* Vector register count macro (ISA-specific) */
 #define VEC_COUNT(ra) (zero_cc_get_target_traits((ra)->target_isa)->regs.num_vec_regs)
 
@@ -189,9 +165,7 @@ static void regalloc_set_isa(RegAllocator *ra, ZeroCCISA isa) {
     for (int i = 0; i < GPR_COUNT; i++) {
         ra->gpr_free[i] = (traits->regs.allocatable_gpr_mask & (1u << i)) != 0;
     }
-    if (isa == ISA_AARCH32) {
-        ra->used_callee_saved_gpr_mask |= (1u << 8) | (1u << 10);
-    }
+    ra->used_callee_saved_gpr_mask |= traits->regs.initial_used_callee_saved_mask;
 }
 
 /* Initialize register allocator */
@@ -483,7 +457,7 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
 
         for (int pool_idx = 0; pool_idx < regs->alloc_pool_count; pool_idx++) {
             int phys_reg = regs->alloc_pool[pool_idx];
-            if (phys_reg == regs->op_scratch_gpr && ra->target_isa == ISA_RISCV32) continue;
+            if (regs->op_scratch_gpr >= 0 && phys_reg == regs->op_scratch_gpr) continue;
             if (interval->forbidden_mask && (interval->forbidden_mask & (1u << phys_reg))) continue;
             if (ra->gpr_free[phys_reg] && !regalloc_reg_conflicts_fixed(ra, phys_reg, interval)) {
                 ra->gpr_free[phys_reg] = false;
@@ -990,8 +964,7 @@ static int regalloc_get_reg_for_temp(RegAllocator *ra, int temp_id) {
     }
 
     if (temp_id == VREG_1 || temp_id == VREG_F1) {
-        if (ra->target_isa == ISA_RISCV64 || ra->target_isa == ISA_RISCV32) return 11; /* a1 / fa1 */
-        return 1;
+        return traits->regs.vreg1_hw_reg;
     }
 
     /* VREG_2 (rdx / x1 / a1 / r1) is a fixed register for 9-16 byte struct returns */
@@ -1078,17 +1051,11 @@ static size_t regalloc_get_interval_count(RegAllocator *ra) {
 static const char *regalloc_get_vec_reg_name(ZeroCCISA isa, int reg_idx) __attribute__((unused));
 static const char *regalloc_get_vec_reg_name(ZeroCCISA isa, int reg_idx) {
     if (reg_idx < 0) return "none";
-
-    if (isa == ISA_AARCH64) {
-        if (reg_idx >= VEC_COUNT_AARCH64) return "invalid";
-        return vec_registers_aarch64[reg_idx];
-    } else if (isa == ISA_RISCV64) {
-        if (reg_idx >= VEC_COUNT_RISCV) return "invalid";
-        return vec_registers_riscv[reg_idx];
-    } else {  /* x86_64 */
-        if (reg_idx >= VEC_COUNT_X86) return "invalid";
-        return vec_registers_x86[reg_idx];
+    const TargetTraits *traits = zero_cc_get_target_traits(isa);
+    if (!traits->regs.vec_reg_names || reg_idx >= traits->regs.num_vec_regs) {
+        return "invalid";
     }
+    return traits->regs.vec_reg_names[reg_idx];
 }
 
 /* Get the number of vector registers for a given ISA */

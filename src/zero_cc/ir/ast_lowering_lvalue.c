@@ -416,7 +416,7 @@ void zero_cc_emit_struct_copy_to_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena,
         TypeInfo *c_ti = ast_node_get_typeinfo(c, rnode);
         bool struct_ret_call = rnode && rnode->tag == NODE_CALL && c_ti &&
             (c_ti->kind == TYPE_KIND_STRUCT || c_ti->kind == TYPE_KIND_UNION);
-        bool sse_class_ret = (c->isa == ISA_X86_64 &&
+        bool sse_class_ret = (zc_target_traits(c)->struct_units_split_fp &&
             (zc_typeinfo_unit_is_fp(c_ti, 0) || zc_typeinfo_unit_is_fp(c_ti, 1)));
         if (struct_ret_call && struct_sz > 8 && struct_sz <= 16 && !src_sym &&
             !sse_class_ret) {

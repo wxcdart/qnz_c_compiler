@@ -1710,7 +1710,7 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                 /* System V AMD64 ABI: 9-16 byte struct returned across rax and rdx
                  * Canonical secondary value register: VREG_2 maps to rdx/x1/a1
                  * via regalloc_get_reg_for_temp. */
-                if (c->isa == ISA_X86_64 &&
+                if (zc_target_traits(c)->struct_units_split_fp &&
                     (zc_struct_unit_is_fp(&sym->type, 0) || zc_struct_unit_is_fp(&sym->type, 1))) {
                     /* Sprint 158: SSE/SSEup 9-16B struct return (System V
                      * return rule): SSE class (both units FP) -> XMM0+XMM1;
@@ -1821,7 +1821,7 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
             if (gsym->is_tls && !c->jit_mode) ir_emit_tls_lea(c, gaddr, gsym->name);
             else ir_emit_mov_global(c, gaddr, gsym->name);
             if (gsym->type.size <= 16) {
-                if (c->isa == ISA_X86_64 &&
+                if (zc_target_traits(c)->struct_units_split_fp &&
                     (zc_struct_unit_is_fp(&gsym->type, 0) || zc_struct_unit_is_fp(&gsym->type, 1))) {
                     /* Sprint 158: class-merged 9-16B global struct return
                      * (SSE/SSEup) - same register mapping as the local

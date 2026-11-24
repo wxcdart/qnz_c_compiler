@@ -167,7 +167,7 @@ static inline void arm32_emit_u32(ZeroCCCompiler *c, uint32_t insn) {
 /* =========================================================================
  * Register info for AArch32
  * ========================================================================= */
-static const ISARegInfo aarch32_regs = {
+static ISARegInfo aarch32_regs = {
     .int_regs = {
         "r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7",
         "r8", "r9", "r10", "r11", "r12", "sp", "lr", "pc",

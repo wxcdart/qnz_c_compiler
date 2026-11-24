@@ -328,6 +328,17 @@ static inline bool zc_typeinfo_unit_is_fp(const TypeInfo *t, int u) {
     return false;
 }
 
+/* Decoupled ABI query: check if an 8B unit of a struct/union is an FP/SSE class unit */
+static inline bool zc_abi_unit_is_fp(ZeroCCCompiler *c, const TypeInfo *t, int u) {
+    if (!zc_target_traits(c)->struct_units_split_fp) return false;
+    return zc_typeinfo_unit_is_fp(t, u);
+}
+
+static inline bool zc_abi_struct_unit_is_fp(ZeroCCCompiler *c, const ZeroCCType *t, int u) {
+    if (!zc_target_traits(c)->struct_units_split_fp) return false;
+    return zc_struct_unit_is_fp(t, u);
+}
+
 /* Check if an AST reference evaluates to a struct/union in memory (an address temp) */
 static inline bool ast_expr_is_struct_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
     if (ref == AST_NULL) return false;
@@ -341,7 +352,7 @@ static inline bool ast_expr_is_struct_addr(ZeroCCCompiler *c, ZeroCCASTArena *ar
          * the call lowering (the value travels XMM0/XMM1 or the SSEup
          * RAX+XMM0 pair, not the VREG_0/VREG_2 GPR pair) - consumers
          * see the object's ADDRESS, like the >16B sret form. */
-        if (c->isa == ISA_X86_64 && type_is_struct_or_union(ti) &&
+        if (zc_target_traits(c)->struct_units_split_fp && type_is_struct_or_union(ti) &&
             type_size(ti) > 8 && type_size(ti) <= 16 &&
             (zc_typeinfo_unit_is_fp(ti, 0) || zc_typeinfo_unit_is_fp(ti, 1)))
             return true;

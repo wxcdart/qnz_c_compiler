@@ -1,6 +1,42 @@
 # CHANGELOG
 
-## [Sprint 208] - 2026-11-24 - TargetTraits Architecture Metric Consolidation (Item #16 Phase 1 — Multi-ISA Backend Abstraction)
+## [Sprint 209] - 2026-11-24 - Table-Driven Register Allocation & Decoupled ABI Lowering Hooks (Item #16 Phases 2 & 3 — Multi-ISA Backend Abstraction)
+
+Implements Item #16 Phase 2 (Table-Driven Register Allocation) and Phase 3 (Decoupled ABI Lowering Hooks):
+- **Phase 2 — Table-Driven Register Allocation (`target_traits.h`, `regalloc.h`, `isa_backend.h`)**:
+  - Extended `TargetRegDesc` in `src/zero_cc/isa/target_traits.h`:
+    - Added `initial_used_callee_saved_mask`: declarative bitmask initialized at function entry (e.g. `(1u << 8) | (1u << 10)` on AArch32 for r8 and r10).
+    - Added `vreg1_hw_reg`: maps `VREG_1` / `VREG_F1` to hardware register numbers (1 on x86-64/AArch64/AArch32, 11 on RISC-V 64/32).
+    - Added declarative vector register naming tables (`s_vec_regs_x86`, `s_vec_regs_aarch64`, `s_vec_regs_riscv`) referenced via `vec_reg_names`.
+  - Added `const TargetRegDesc *desc;` to `ISARegInfo` in `isa_backend.h`, populated dynamically per backend in `backend_registry.c`.
+  - Decoupled `src/zero_cc/ir/regalloc.h`:
+    - Eliminated hardcoded architecture branches in `regalloc_set_isa`, `regalloc_alloc_gpr` (scratch check via `regs->op_scratch_gpr >= 0`), `regalloc_get_reg_for_temp` (`vreg1_hw_reg`), and `regalloc_get_vec_reg_name`.
+    - Removed redundant statically-embedded `vec_registers_*` and `VEC_COUNT_*` macros from `regalloc.h`.
+- **Phase 3 — Decoupled ABI Calling Conventions & Lowering Hooks (`target_traits.h`, `symbols.h`, `abi_classify.h`, `backend_registry.c`, `ast_lowering_*.c`)**:
+  - Unified `ABIClass` and `ABIStructClassification` into `src/zero_cc/isa/isa_backend.h`.
+  - Added first-class backend vtable hooks on `ZeroCCISABackend`:
+    - `classify_arg(const ZeroCCType *type)`
+    - `classify_return(const ZeroCCType *type)`
+    - Wrapped via `zero_cc_classify_arg(c, type)` and `zero_cc_classify_return(c, type)` in `abi_classify.h`.
+  - Added target ABI traits in `TargetTraits`:
+    - `pass_large_struct_by_value_on_stack`: true on System V x86-64 (memory arguments); false on psABI/AAPCS targets (implicit reference).
+    - `struct_units_split_fp`: true on System V x86-64 (unit-wise SSE/GPR classification); false on psABI/AAPCS.
+    - `has_sysv_va_list`: true for 4-field `__va_list_tag` on x86-64.
+    - `va_layout`: `VA_LIST_LAYOUT_STANDARD` vs `VA_LIST_LAYOUT_ARM32`.
+    - `max_promoted_int_params`: maximum parameters eligible for frameless leaf register promotion (3 on x86-64, else all GPR argument registers).
+  - Added semantic helpers in `ast_lowering_internal.h`: `zc_abi_unit_is_fp(c, t, u)` and `zc_abi_struct_unit_is_fp(c, t, u)`.
+  - Replaced all residual `c->isa == ...` checks in AST lowering:
+    - `ast_lowering_call.c`: completely eliminated all 7 residual `c->isa` checks (memory arguments, va_list shadowing, 9-16B FP units, sret register assignment, and dedicated sret return address preservation).
+    - `ast_lowering_varargs.c`: eliminated all residual `c->isa` checks (memory argument sizing, unit FP splitting, ARM32 stream offsets).
+    - `ast_lowering.c`: parameter promotion cap and incoming memory argument copying driven by traits.
+    - `ast_lowering_stmt.c` and `ast_lowering_lvalue.c`: 9-16B struct return unit splitting driven by `zc_target_traits(c)->struct_units_split_fp`.
+- **Verification**:
+  - Style checker: `python3 tools/verify/style_check.py` (193/193 clean, 0 errors, 0 warnings).
+  - Native regression suite: `make test` (246/246 tests passing).
+  - Cross-ISA raw-binary QEMU gate: `make test-isa-qemu` (80/80 tests passing across x86-64, aarch64, aarch32, riscv64, riscv32).
+  - Sret calling convention verifier: `python3 tools/verify/sret_verifier.py --verify-all` (6/6 passing).
+  - Type-tag verifier: `python3 tools/verify/type_tag_verifier.py --verify-all` (179 files checked, OK).
+  - OKF graph lint: `python3 tools/okf/okf.py lint` (23/23 reachable, 0 errors).
 
 Implements Item #16 Phase 1: TargetTraits / TargetConfig Extraction & Ad-Hoc Target Checks Cleanup:
 - **TargetTraits Metric Extension (`target_traits.h`, `symbols.h`)**:

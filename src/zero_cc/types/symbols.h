@@ -579,4 +579,24 @@ static inline bool zc_target_complex_float_in_single_fp_reg(const ZeroCCCompiler
     return zc_target_traits(c)->complex_float_in_single_fp_reg;
 }
 
+static inline bool zc_target_pass_large_struct_by_value_on_stack(const ZeroCCCompiler *c) {
+    return zc_target_traits(c)->pass_large_struct_by_value_on_stack;
+}
+
+static inline bool zc_target_struct_units_split_fp(const ZeroCCCompiler *c) {
+    return zc_target_traits(c)->struct_units_split_fp;
+}
+
+static inline bool zc_target_has_sysv_va_list(const ZeroCCCompiler *c) {
+    return zc_target_traits(c)->has_sysv_va_list;
+}
+
+static inline VAListLayout zc_target_va_layout(const ZeroCCCompiler *c) {
+    return zc_target_traits(c)->va_layout;
+}
+
+static inline int zc_target_max_promoted_int_params(const ZeroCCCompiler *c) {
+    return (int)zc_target_traits(c)->max_promoted_int_params;
+}
+
 #endif /* ZERO_CC_TYPES_SYMBOLS_H */

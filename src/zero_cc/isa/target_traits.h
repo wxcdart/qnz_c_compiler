@@ -15,15 +15,18 @@ typedef struct TargetRegDesc {
     uint32_t allocatable_gpr_mask;       /* Bitmask of all registers that can be allocated */
     uint32_t callee_saved_gpr_mask;      /* Bitmask of callee-saved registers */
     uint32_t reserved_gpr_mask;          /* Bitmask of permanently reserved registers */
+    uint32_t initial_used_callee_saved_mask; /* Callee-saved mask initialized at entry (e.g. r8|r10 on AArch32) */
     int      scratch_gpr1;               /* Primary backend scratch register */
     int      scratch_gpr2;               /* Secondary backend scratch register */
     int      op_scratch_gpr;             /* Extra operation scratch register (-1 if none, 7 on rv32) */
     int      fp_gpr;                     /* Frame pointer register */
     int      sp_gpr;                     /* Stack pointer register */
     int      lr_gpr;                     /* Link register (-1 if none) */
+    int      vreg1_hw_reg;               /* Hardware register for VREG_1 / VREG_F1 (1 on x86/arm, 11 on riscv) */
     int      num_gprs;                   /* Number of general purpose registers */
     int      num_vec_regs;               /* Number of vector registers */
     bool     vec_aliases_xmm;            /* True if vector registers share physical register file with FP */
+    const char * const *vec_reg_names;   /* Vector register names table (or NULL if no vector unit) */
 
     /* GPR allocation order pool */
     const int *alloc_pool;
@@ -36,6 +39,12 @@ typedef struct TargetRegDesc {
     const int *pair_gp_pool;
     int        pair_gp_pool_count;
 } TargetRegDesc;
+
+/* Variadic argument stream layout convention */
+typedef enum {
+    VA_LIST_LAYOUT_STANDARD = 0, /* 5 x 8-byte pointer streams (gp, gp_end, fp, fp_end, ovf) */
+    VA_LIST_LAYOUT_ARM32,        /* AAPCS32 32-bit streams (gp, gp_end, ovf) */
+} VAListLayout;
 
 /*
  * Declarative Architecture & Platform Metrics (Phase 1-3 Refactoring).
@@ -68,6 +77,11 @@ struct TargetTraits {
     uint8_t   num_int_arg_regs;    /* 6 on x86-64, 8 on aarch64/riscv, 4 on aarch32 */
     uint8_t   num_fp_arg_regs;     /* 8 on x86/aarch64/riscv, 16 on aarch32 */
     int       ret_struct_max_regs_size; /* max bytes for struct return in registers (16, 8, or 4) */
+    bool      pass_large_struct_by_value_on_stack; /* true on x86-64 (System V MEMORY arg), false on psABI/AAPCS (pointer) */
+    bool      struct_units_split_fp;               /* true on x86-64 (each 8B unit classified as SSE/GPR independently) */
+    bool      has_sysv_va_list;                    /* true on x86-64 (__va_list_tag 4-field struct) */
+    VAListLayout va_layout;                        /* va_list stream layout convention */
+    uint8_t   max_promoted_int_params;             /* max integer parameters eligible for register promotion (3 on x86-64, else int_arg_regs) */
     uint16_t  elf_machine;         /* EM_X86_64(62), EM_AARCH64(183), EM_ARM(40), EM_RISCV(243) */
     uint8_t   elf_class;           /* 1 = ELFCLASS32, 2 = ELFCLASS64 */
     uint32_t  elf_flags;           /* EF_ARM_EABI_VER5, EF_RISCV_FLOAT_ABI_DOUBLE, etc. */
@@ -103,6 +117,26 @@ static const int s_riscv_alloc_pool[] = {
 static const int s_riscv64_pair_cs_pool[] = {18, 19, 20, 21, 22, 23, 24, 25, 26, 27};
 static const int s_riscv32_pair_cs_pool[] = {9, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27};
 
+/* Vector register names tables */
+static const char * const s_vec_regs_x86[16] = {
+    "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7",
+    "xmm8", "xmm9", "xmm10", "xmm11", "xmm12", "xmm13", "xmm14", "xmm15"
+};
+
+static const char * const s_vec_regs_aarch64[32] = {
+    "v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7",
+    "v8", "v9", "v10", "v11", "v12", "v13", "v14", "v15",
+    "v16", "v17", "v18", "v19", "v20", "v21", "v22", "v23",
+    "v24", "v25", "v26", "v27", "v28", "v29", "v30", "v31"
+};
+
+static const char * const s_vec_regs_riscv[32] = {
+    "v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7",
+    "v8", "v9", "v10", "v11", "v12", "v13", "v14", "v15",
+    "v16", "v17", "v18", "v19", "v20", "v21", "v22", "v23",
+    "v24", "v25", "v26", "v27", "v28", "v29", "v30", "v31"
+};
+
 /* Get immutable target traits for a given ISA */
 static inline const TargetTraits *zero_cc_get_target_traits(ZeroCCISA isa) {
     switch (isa) {
@@ -132,6 +166,11 @@ static inline const TargetTraits *zero_cc_get_target_traits(ZeroCCISA isa) {
                 .num_int_arg_regs = 6,
                 .num_fp_arg_regs = 8,
                 .ret_struct_max_regs_size = 16,
+                .pass_large_struct_by_value_on_stack = true,
+                .struct_units_split_fp = true,
+                .has_sysv_va_list = true,
+                .va_layout = VA_LIST_LAYOUT_STANDARD,
+                .max_promoted_int_params = 3,
                 .elf_machine = 62,  /* ELF_MACHINE_X86_64 */
                 .elf_class = 2,    /* ELF_CLASS_64 */
                 .elf_flags = 0,
@@ -144,15 +183,18 @@ static inline const TargetTraits *zero_cc_get_target_traits(ZeroCCISA isa) {
                     .allocatable_gpr_mask = (1u<<0)|(1u<<2)|(1u<<3)|(1u<<6)|(1u<<7)|(1u<<8)|(1u<<9)|(1u<<12)|(1u<<13)|(1u<<14)|(1u<<15),
                     .callee_saved_gpr_mask = (1u<<3)|(1u<<12)|(1u<<13)|(1u<<14)|(1u<<15),
                     .reserved_gpr_mask = (1u<<1)|(1u<<4)|(1u<<5)|(1u<<10)|(1u<<11),
+                    .initial_used_callee_saved_mask = 0,
                     .scratch_gpr1 = 10,
                     .scratch_gpr2 = 11,
                     .op_scratch_gpr = -1,
                     .fp_gpr = 5,
                     .sp_gpr = 4,
                     .lr_gpr = -1,
+                    .vreg1_hw_reg = 1,
                     .num_gprs = 16,
                     .num_vec_regs = 16,
                     .vec_aliases_xmm = true,
+                    .vec_reg_names = s_vec_regs_x86,
                     .alloc_pool = s_x86_alloc_pool,
                     .alloc_pool_count = sizeof(s_x86_alloc_pool) / sizeof(s_x86_alloc_pool[0]),
                     .pair_cs_pool = s_x86_pair_cs_pool,
@@ -190,6 +232,11 @@ static inline const TargetTraits *zero_cc_get_target_traits(ZeroCCISA isa) {
                 .num_int_arg_regs = 8,
                 .num_fp_arg_regs = 8,
                 .ret_struct_max_regs_size = 16,
+                .pass_large_struct_by_value_on_stack = false,
+                .struct_units_split_fp = false,
+                .has_sysv_va_list = false,
+                .va_layout = VA_LIST_LAYOUT_STANDARD,
+                .max_promoted_int_params = 8,
                 .elf_machine = 183, /* ELF_MACHINE_AARCH64 */
                 .elf_class = 2,    /* ELF_CLASS_64 */
                 .elf_flags = 0,
@@ -202,15 +249,18 @@ static inline const TargetTraits *zero_cc_get_target_traits(ZeroCCISA isa) {
                     .allocatable_gpr_mask = 0x1FF878FFu,
                     .callee_saved_gpr_mask = 0x1FF80000u,
                     .reserved_gpr_mask = 0xE0078700u,
+                    .initial_used_callee_saved_mask = 0,
                     .scratch_gpr1 = 9,
                     .scratch_gpr2 = 10,
                     .op_scratch_gpr = -1,
                     .fp_gpr = 29,
                     .sp_gpr = 31,
                     .lr_gpr = 30,
+                    .vreg1_hw_reg = 1,
                     .num_gprs = 32,
                     .num_vec_regs = 32,
                     .vec_aliases_xmm = true,
+                    .vec_reg_names = s_vec_regs_aarch64,
                     .alloc_pool = s_aarch64_alloc_pool,
                     .alloc_pool_count = sizeof(s_aarch64_alloc_pool) / sizeof(s_aarch64_alloc_pool[0]),
                     .pair_cs_pool = s_aarch64_pair_cs_pool,
@@ -248,6 +298,11 @@ static inline const TargetTraits *zero_cc_get_target_traits(ZeroCCISA isa) {
                 .num_int_arg_regs = 4,
                 .num_fp_arg_regs = 16,
                 .ret_struct_max_regs_size = 4,
+                .pass_large_struct_by_value_on_stack = false,
+                .struct_units_split_fp = false,
+                .has_sysv_va_list = false,
+                .va_layout = VA_LIST_LAYOUT_ARM32,
+                .max_promoted_int_params = 4,
                 .elf_machine = 40,  /* ELF_MACHINE_ARM */
                 .elf_class = 1,    /* ELF_CLASS_32 */
                 .elf_flags = 0x05000000u, /* ZC_EF_ARM_EABI_VER5 */
@@ -260,15 +315,18 @@ static inline const TargetTraits *zero_cc_get_target_traits(ZeroCCISA isa) {
                     .allocatable_gpr_mask = 0x000000FFu,
                     .callee_saved_gpr_mask = 0x000000F0u,
                     .reserved_gpr_mask = 0xFFFFFF00u,
+                    .initial_used_callee_saved_mask = (1u << 8) | (1u << 10),
                     .scratch_gpr1 = 12,
                     .scratch_gpr2 = 9,
                     .op_scratch_gpr = -1,
                     .fp_gpr = 11,
                     .sp_gpr = 13,
                     .lr_gpr = 14,
+                    .vreg1_hw_reg = 1,
                     .num_gprs = 16,
                     .num_vec_regs = 16,
                     .vec_aliases_xmm = true,
+                    .vec_reg_names = NULL,
                     .alloc_pool = s_aarch32_alloc_pool,
                     .alloc_pool_count = sizeof(s_aarch32_alloc_pool) / sizeof(s_aarch32_alloc_pool[0]),
                     .pair_cs_pool = s_aarch32_pair_cs_pool,
@@ -306,6 +364,11 @@ static inline const TargetTraits *zero_cc_get_target_traits(ZeroCCISA isa) {
                 .num_int_arg_regs = 8,
                 .num_fp_arg_regs = 8,
                 .ret_struct_max_regs_size = 16,
+                .pass_large_struct_by_value_on_stack = false,
+                .struct_units_split_fp = false,
+                .has_sysv_va_list = false,
+                .va_layout = VA_LIST_LAYOUT_STANDARD,
+                .max_promoted_int_params = 8,
                 .elf_machine = 243, /* ELF_MACHINE_RISCV */
                 .elf_class = 2,    /* ELF_CLASS_64 */
                 .elf_flags = 4,     /* EF_RISCV_FLOAT_ABI_DOUBLE */
@@ -318,15 +381,18 @@ static inline const TargetTraits *zero_cc_get_target_traits(ZeroCCISA isa) {
                     .allocatable_gpr_mask = (1u<<7) | (0xFFu<<10) | (1u<<9) | (0x3FFu<<18),
                     .callee_saved_gpr_mask = (1u<<9) | (0x3FFu<<18),
                     .reserved_gpr_mask = (1u<<0)|(1u<<1)|(1u<<2)|(1u<<3)|(1u<<4)|(1u<<5)|(1u<<6)|(1u<<8)|(1u<<30),
+                    .initial_used_callee_saved_mask = 0,
                     .scratch_gpr1 = 5,
                     .scratch_gpr2 = 6,
                     .op_scratch_gpr = -1,
                     .fp_gpr = 8,
                     .sp_gpr = 2,
                     .lr_gpr = 1,
+                    .vreg1_hw_reg = 11,
                     .num_gprs = 32,
                     .num_vec_regs = 32,
                     .vec_aliases_xmm = false,
+                    .vec_reg_names = s_vec_regs_riscv,
                     .alloc_pool = s_riscv_alloc_pool,
                     .alloc_pool_count = sizeof(s_riscv_alloc_pool) / sizeof(s_riscv_alloc_pool[0]),
                     .pair_cs_pool = s_riscv64_pair_cs_pool,
@@ -364,6 +430,11 @@ static inline const TargetTraits *zero_cc_get_target_traits(ZeroCCISA isa) {
                 .num_int_arg_regs = 8,
                 .num_fp_arg_regs = 8,
                 .ret_struct_max_regs_size = 8,
+                .pass_large_struct_by_value_on_stack = false,
+                .struct_units_split_fp = false,
+                .has_sysv_va_list = false,
+                .va_layout = VA_LIST_LAYOUT_STANDARD,
+                .max_promoted_int_params = 8,
                 .elf_machine = 243, /* ELF_MACHINE_RISCV */
                 .elf_class = 1,    /* ELF_CLASS_32 */
                 .elf_flags = 0,
@@ -376,15 +447,18 @@ static inline const TargetTraits *zero_cc_get_target_traits(ZeroCCISA isa) {
                     .allocatable_gpr_mask = (1u<<7) | (0xFFu<<10) | (1u<<9) | (0x3FFu<<18),
                     .callee_saved_gpr_mask = (1u<<9) | (0x3FFu<<18),
                     .reserved_gpr_mask = (1u<<0)|(1u<<1)|(1u<<2)|(1u<<3)|(1u<<4)|(1u<<5)|(1u<<6)|(1u<<8)|(1u<<30),
+                    .initial_used_callee_saved_mask = 0,
                     .scratch_gpr1 = 5,
                     .scratch_gpr2 = 6,
                     .op_scratch_gpr = 7,
                     .fp_gpr = 8,
                     .sp_gpr = 2,
                     .lr_gpr = 1,
+                    .vreg1_hw_reg = 11,
                     .num_gprs = 32,
                     .num_vec_regs = 32,
                     .vec_aliases_xmm = false,
+                    .vec_reg_names = NULL,
                     .alloc_pool = s_riscv_alloc_pool,
                     .alloc_pool_count = sizeof(s_riscv_alloc_pool) / sizeof(s_riscv_alloc_pool[0]),
                     .pair_cs_pool = s_riscv32_pair_cs_pool,

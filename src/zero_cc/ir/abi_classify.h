@@ -7,18 +7,7 @@
 #include <stddef.h>
 #include "zero_cc/types/type_system.h"
 #include "zero_cc/isa/target_traits.h"
-
-typedef enum {
-    ABI_CLASS_NO_CLASS = 0,
-    ABI_CLASS_INTEGER,
-    ABI_CLASS_SSE,
-    ABI_CLASS_MEMORY
-} ABIClass;
-
-typedef struct {
-    ABIClass classes[2];
-    int count; /* Number of eightbytes (1 or 2), or 0 if MEMORY */
-} ABIStructClassification;
+#include "zero_cc/types/symbols.h"
 
 /*
  * Classify a struct/union or scalar type according to System V AMD64 ABI §3.2.3.
@@ -139,6 +128,23 @@ static inline ABIStructClassification abi_classify_arg(ZeroCCISA isa, const Zero
 
 static inline ABIStructClassification abi_classify_return(ZeroCCISA isa, const ZeroCCType *type) {
     return abi_classify_arg(isa, type);
+}
+
+/*
+ * Decoupled ABI lowering classification query via backend vtable hooks (Phase 3).
+ */
+static inline ABIStructClassification zero_cc_classify_arg(const ZeroCCCompiler *c, const ZeroCCType *type) {
+    if (c && c->isa_backend && c->isa_backend->classify_arg) {
+        return c->isa_backend->classify_arg(type);
+    }
+    return abi_classify_arg(c ? c->isa : ISA_X86_64, type);
+}
+
+static inline ABIStructClassification zero_cc_classify_return(const ZeroCCCompiler *c, const ZeroCCType *type) {
+    if (c && c->isa_backend && c->isa_backend->classify_return) {
+        return c->isa_backend->classify_return(type);
+    }
+    return abi_classify_return(c ? c->isa : ISA_X86_64, type);
 }
 
 #endif /* ZERO_CC_ABI_CLASSIFY_H */

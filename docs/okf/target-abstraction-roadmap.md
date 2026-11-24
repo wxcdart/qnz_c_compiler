@@ -4,7 +4,7 @@ title: Multi-ISA Target Architecture & Modular Backend Roadmap
 description: Architectural roadmap for decoupling ZeroCC's multi-ISA backends via TargetTraits, table-driven regalloc, modular linker ops, baremetal CPU support, and separate zero_gpu repository boundary.
 resource: backend/target-abstraction-roadmap
 tags: [multi-isa, target-traits, architecture, roadmap, baremetal, modularity, refactoring]
-timestamp: 2026-11-24T12:49:31Z
+timestamp: 2026-11-24T13:11:46Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -76,10 +76,10 @@ const TargetTraits *zero_cc_get_target_traits(ZeroCCISA isa);
 ```
 
 ### Phase 2: Table-Driven Register Allocator (`TargetRegDesc`)
-Decouples `regalloc.h` by initializing register availability from declarative target bitmasks (`allocatable_gpr_mask`, `callee_saved_gpr_mask`, `reserved_gpr_mask`, scratch registers, vector register counts).
+Decouples `regalloc.h` by initializing register availability, reservations, and vector names from declarative target tables (`allocatable_gpr_mask`, `callee_saved_gpr_mask`, `reserved_gpr_mask`, `initial_used_callee_saved_mask`, `vreg1_hw_reg`, `vec_reg_names`, scratch registers, vector register counts). Eliminates all remaining ISA branches in `regalloc.h` (`op_scratch_gpr`, `aarch32` callee-saved initial mask, `vreg1_hw_reg`, and vector register string lookups), with `ISARegInfo` directly referencing `TargetRegDesc`.
 
-### Phase 3: Decoupled ABI Calling Conventions (`TargetABIOps`)
-Introduces clean ABI hooks (`classify_arg`, `classify_return`) to separate platform calling convention rules from AST lowering.
+### Phase 3: Decoupled ABI Calling Conventions (`classify_arg`, `classify_return`)
+Introduces clean backend vtable hooks (`classify_arg`, `classify_return`) in `ZeroCCISABackend` and declarative traits (`pass_large_struct_by_value_on_stack`, `struct_units_split_fp`, `has_sysv_va_list`, `va_layout`, `max_promoted_int_params`, `sret_consumes_arg0`) in `TargetTraits` and `abi_classify.h`. Completely eliminates residual ISA branching across `ast_lowering_call.c`, `ast_lowering_varargs.c`, `ast_lowering_lvalue.c`, `ast_lowering_stmt.c`, and `ast_lowering.c`.
 
 ### Phase 4: Modular Linker Relocation Ops (`TargetLinkerOps`)
 Refactors `apply_relocations()` and PLT generation out of `linker.c` into target-specific relocation engines (`src/zero_cc/linker/arch_*.c`).
