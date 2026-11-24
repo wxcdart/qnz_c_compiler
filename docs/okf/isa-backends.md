@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-11-24T04:43:39Z
+timestamp: 2026-11-24T22:48:36Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -707,6 +707,21 @@ Use this checklist when introducing a new target ISA:
   - JIT mode (`--run`) if host-supported, or QEMU user-mode runner.
   - AOT mode with host assembler/linker.
   - AOT mode with ZeroCC's own linker (`--zerocc-link`).
+
+## Decoupled ABI Lowering & Target Traits (Sprint 214 — Item #16 Phase 2 & 3)
+
+Sprint 214 refactored residual architecture checks in register allocation and AST lowering into declarative `TargetTraits` tables and backend vtable hooks:
+- **Declarative Register Pool & Scratch (`TargetRegDesc`)**:
+  - `num_fp_regs`, `fp_scratch_reg1`, and `fp_scratch_reg2` defined per-target in `target_traits.h`.
+  - Replaces hardcoded macros (`REGALLOC_FP_SCRATCH1/2`) with dynamic initialization of `ra->xmm_free` and `ra->vec_free`.
+  - Callee-saved register initial masks (e.g. AArch32 r8-r10 frame scratch reservation) defined declaratively via `initial_used_callee_saved_mask`.
+- **Decoupled Sret & Return Classification (`zero_cc_abi_type_uses_sret`)**:
+  - Replaced hardcoded `ret_struct_sz > 16` and `call_ret_type.size > 16` checks in AST lowering with `zero_cc_abi_type_uses_sret(c, type)` in `abi_classify.h`.
+  - Queries `c->isa_backend->classify_return(type)`, handling ABI-specific struct return thresholds across targets (e.g. 16B on x86-64/AArch64/RV64, 8B on RV32, 4B on AArch32).
+  - Sret incoming parameter save is decoupled via `traits->sret_consumes_arg0` and `traits->sret_gpr`.
+- **Variadic Setup Hook (`emit_variadic_setup`)**:
+  - Added `.emit_variadic_setup` to `ZeroCCISABackend`.
+  - Extracted architecture-specific `va_start` stream initialization from `ast_lowering_varargs.c` into backend registry implementations (`generic_emit_variadic_setup` and `aarch32_emit_variadic_setup`).
 
 ---
 

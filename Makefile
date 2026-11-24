@@ -105,6 +105,7 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	src/zero_cc/opt/opt_loop_unroll.o \
 	src/zero_cc/opt/opt_temp_renumber.o \
 	src/zero_cc/opt/opt_vectorize.o \
+	src/zero_cc/opt/opt_slp.o \
 	src/zero_cc/opt/cfg.o \
 	src/zero_cc/core/pragma_state.o \
 	src/zero_cc/isa/backend_registry.o \

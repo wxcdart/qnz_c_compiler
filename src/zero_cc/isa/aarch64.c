@@ -1504,6 +1504,106 @@ static void aarch64_emit_sve_qsub(ZeroCCCompiler *c, int zd, int zn, int zm, int
     arm64_emit_u32(c, 0x04a01800 | ((esz & 3) << 22) | ((zm & 0x1F) << 16) | ((zn & 0x1F) << 5) | (zd & 0x1F));
 }
 
+/* Horizontal SIMD Vector Reductions (Sprint 210) */
+static void aarch64_emit_v128_hadd(ZeroCCCompiler *c, int dst, int src, int esz, int is_fp) {
+    if (is_fp) {
+        if (esz == 3) {
+            /* faddp d<dst>, v<src>.2d */
+            arm64_emit_u32(c, 0x7E70D800 | ((src & 0x1F) << 5) | (dst & 0x1F));
+        } else {
+            /* faddp v<dst>.4s, v<src>.4s, v<src>.4s */
+            arm64_emit_u32(c, 0x6E20D400 | ((src & 0x1F) << 16) | ((src & 0x1F) << 5) | (dst & 0x1F));
+            /* faddp v<dst>.4s, v<dst>.4s, v<dst>.4s */
+            arm64_emit_u32(c, 0x6E20D400 | ((dst & 0x1F) << 16) | ((dst & 0x1F) << 5) | (dst & 0x1F));
+            /* fcvt d<dst>, s<dst> */
+            arm64_emit_u32(c, 0x1E22C000 | ((dst & 0x1F) << 5) | (dst & 0x1F));
+        }
+    } else {
+        /* addv s16, v<src>.4s */
+        arm64_emit_u32(c, 0x4EB1B800 | ((src & 0x1F) << 5) | 16);
+        /* fmov w<dst>, s16 */
+        arm64_emit_u32(c, 0x1E260000 | (16 << 5) | (dst & 0x1F));
+    }
+}
+
+static void aarch64_emit_v128_hmin(ZeroCCCompiler *c, int dst, int src, int esz, int is_fp) {
+    if (is_fp) {
+        if (esz == 3) {
+            /* fminnmv d<dst>, v<src>.2d */
+            arm64_emit_u32(c, 0x6EE0C800 | ((src & 0x1F) << 5) | (dst & 0x1F));
+        } else {
+            /* fminnmv s<dst>, v<src>.4s */
+            arm64_emit_u32(c, 0x6EA0C800 | ((src & 0x1F) << 5) | (dst & 0x1F));
+            /* fcvt d<dst>, s<dst> */
+            arm64_emit_u32(c, 0x1E22C000 | ((dst & 0x1F) << 5) | (dst & 0x1F));
+        }
+    } else {
+        /* sminv s16, v<src>.4s */
+        arm64_emit_u32(c, 0x4EB1A800 | ((src & 0x1F) << 5) | 16);
+        /* fmov w<dst>, s16 */
+        arm64_emit_u32(c, 0x1E260000 | (16 << 5) | (dst & 0x1F));
+    }
+}
+
+static void aarch64_emit_v128_hmax(ZeroCCCompiler *c, int dst, int src, int esz, int is_fp) {
+    if (is_fp) {
+        if (esz == 3) {
+            /* fmaxnmv d<dst>, v<src>.2d */
+            arm64_emit_u32(c, 0x6EE0F800 | ((src & 0x1F) << 5) | (dst & 0x1F));
+        } else {
+            /* fmaxnmv s<dst>, v<src>.4s */
+            arm64_emit_u32(c, 0x6EA0F800 | ((src & 0x1F) << 5) | (dst & 0x1F));
+            /* fcvt d<dst>, s<dst> */
+            arm64_emit_u32(c, 0x1E22C000 | ((dst & 0x1F) << 5) | (dst & 0x1F));
+        }
+    } else {
+        /* smaxv s16, v<src>.4s */
+        arm64_emit_u32(c, 0x4EB16800 | ((src & 0x1F) << 5) | 16);
+        /* fmov w<dst>, s16 */
+        arm64_emit_u32(c, 0x1E260000 | (16 << 5) | (dst & 0x1F));
+    }
+}
+
+static void aarch64_emit_v128_load_strided(ZeroCCCompiler *c, int dst, int base, int stride, int esz) {
+    if (esz == 8) {
+        /* ld1 {v<dst>.d}[0], [x<base>] */
+        arm64_emit_u32(c, 0x0D408400u | ((base & 0x1F) << 5) | (dst & 0x1F));
+        /* add x16, x<base>, #stride */
+        arm64_emit_u32(c, 0x91000000u | (((uint32_t)stride & 0xFFF) << 10) | ((base & 0x1F) << 5) | 16);
+        /* ld1 {v<dst>.d}[1], [x16] */
+        arm64_emit_u32(c, 0x4D408400u | (16 << 5) | (dst & 0x1F));
+    } else {
+        static const uint32_t ld1_opcodes[4] = { 0x0D408000u, 0x0D409000u, 0x4D408000u, 0x4D409000u };
+        /* ld1 {v<dst>.s}[0], [x<base>] */
+        arm64_emit_u32(c, ld1_opcodes[0] | ((base & 0x1F) << 5) | (dst & 0x1F));
+        for (int lane = 1; lane < 4; lane++) {
+            uint32_t off = (uint32_t)(lane * stride);
+            arm64_emit_u32(c, 0x91000000u | ((off & 0xFFF) << 10) | ((base & 0x1F) << 5) | 16);
+            arm64_emit_u32(c, ld1_opcodes[lane] | (16 << 5) | (dst & 0x1F));
+        }
+    }
+}
+
+static void aarch64_emit_v128_store_strided(ZeroCCCompiler *c, int src, int base, int stride, int esz) {
+    if (esz == 8) {
+        /* st1 {v<src>.d}[0], [x<base>] */
+        arm64_emit_u32(c, 0x0D008400u | ((base & 0x1F) << 5) | (src & 0x1F));
+        /* add x16, x<base>, #stride */
+        arm64_emit_u32(c, 0x91000000u | (((uint32_t)stride & 0xFFF) << 10) | ((base & 0x1F) << 5) | 16);
+        /* st1 {v<src>.d}[1], [x16] */
+        arm64_emit_u32(c, 0x4D008400u | (16 << 5) | (src & 0x1F));
+    } else {
+        static const uint32_t st1_opcodes[4] = { 0x0D008000u, 0x0D009000u, 0x4D008000u, 0x4D009000u };
+        /* st1 {v<src>.s}[0], [x<base>] */
+        arm64_emit_u32(c, st1_opcodes[0] | ((base & 0x1F) << 5) | (src & 0x1F));
+        for (int lane = 1; lane < 4; lane++) {
+            uint32_t off = (uint32_t)(lane * stride);
+            arm64_emit_u32(c, 0x91000000u | ((off & 0xFFF) << 10) | ((base & 0x1F) << 5) | 16);
+            arm64_emit_u32(c, st1_opcodes[lane] | (16 << 5) | (src & 0x1F));
+        }
+    }
+}
+
 static void aarch64_emit_fp_cmp(ZeroCCCompiler *c, int src1, int src2) {
     /* fcmpe dN, dM - scalar double-precision (signaling NaN compare)
      * fcmpe raises Invalid Operation for QNaN, setting V=1 on unordered.
@@ -2231,8 +2331,8 @@ ZeroCCISABackend aarch64_backend = {  /* writable: ASM emit pointers are filled 
     .sp_reg = 31,  /* sp */
     .scratch_reg1 = 9,                         /* x9 (non-argument/return) */
     .scratch_reg2 = 10,                        /* x10 (non-argument/return) */
-    .fp_scratch_reg1 = REGALLOC_FP_SCRATCH1,  /* d15 - outside XMM pool 0-7 */
-    .fp_scratch_reg2 = REGALLOC_FP_SCRATCH2,   /* d14 - outside XMM pool 0-7 */
+    .fp_scratch_reg1 = 15,                     /* d15 - outside XMM pool 0-7 */
+    .fp_scratch_reg2 = 14,                     /* d14 - outside XMM pool 0-7 */
     /* 128-bit spill scratch (reserved; not in the 64-bit or GPR128 pools, and
      * NOT x9/x10 which the AArch64 mul128 uses as internal scratch, and NOT
      * x16 which is the dedicated large-offset address scratch):
@@ -2384,6 +2484,14 @@ ZeroCCISABackend aarch64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_sve_addv = aarch64_emit_sve_addv,
     .emit_sve_qadd = aarch64_emit_sve_qadd,
     .emit_sve_qsub = aarch64_emit_sve_qsub,
+    .emit_v128_hadd = aarch64_emit_v128_hadd,
+    .emit_v128_hmin = aarch64_emit_v128_hmin,
+    .emit_v128_hmax = aarch64_emit_v128_hmax,
+    .emit_v128_load_strided = aarch64_emit_v128_load_strided,
+    .emit_v128_store_strided = aarch64_emit_v128_store_strided,
+    .emit_v128_hadd_asm = aarch64_emit_v128_hadd_asm,
+    .emit_v128_hmin_asm = aarch64_emit_v128_hmin_asm,
+    .emit_v128_hmax_asm = aarch64_emit_v128_hmax_asm,
     .emit_load_fp_rodata = aarch64_emit_load_fp_rodata,
     .emit_fp_add = aarch64_emit_fp_add,
     .emit_fp_sub = aarch64_emit_fp_sub,

@@ -698,9 +698,7 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
             int mem_arg_range_pos = 0;
             int mem_arg_range_count = 0;
             bool mem_arg_range_pending = false;
-            bool callee_uses_sret = ((call_ret_type.tag == TYPE_STRUCT || call_ret_type.tag == TYPE_UNION) ||
-                (call_ret_type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&call_ret_type))) &&
-                (call_ret_type.size > 16);
+            bool callee_uses_sret = zero_cc_abi_type_uses_sret(c, &call_ret_type);
             if (callee_uses_sret && zc_target_traits(c)->sret_consumes_arg0) gp_stream = 1;  /* hidden sret ptr takes GP slot 0 */
 
             while (arg != AST_NULL) {

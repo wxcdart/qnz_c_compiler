@@ -157,6 +157,9 @@ typedef struct ZcLink {
     bool baremetal;
     bool gc_sections;
     bool print_gc_sections;
+    const char *entry_symbol;
+    const char *const *undefined_syms;
+    int undefined_sym_count;
     uint8_t *sec_live[ZC_MAX_INPUTS];
     ZcLinkScript script;
     bool has_script;
@@ -678,6 +681,9 @@ static int gc_mark_and_sweep(ZcLink *L, char *err, size_t errsz) {
     } while (0)
 
     /* 1. Mark entry points */
+    if (L->entry_symbol) {
+        GC_ROOT_SYM(L->entry_symbol);
+    }
     if (L->has_script && L->script.has_entry) {
         GC_ROOT_SYM(L->script.entry);
     }
@@ -689,6 +695,11 @@ static int gc_mark_and_sweep(ZcLink *L, char *err, size_t errsz) {
     }
     GC_ROOT_SYM(RT_ENTRY_WRAPPER);
     GC_ROOT_SYM("zeroc_leak_main_wrapper");
+    for (int u = 0; u < L->undefined_sym_count; u++) {
+        if (L->undefined_syms[u]) {
+            GC_ROOT_SYM(L->undefined_syms[u]);
+        }
+    }
 
     /* 2. Mark non-discardable / KEEP sections */
     for (int oi = 0; oi < L->obj_count; oi++) {
@@ -836,7 +847,8 @@ static int layout_sections(ZcLink *L, char *err, size_t errsz) {
     bool have_start = false;
     for (size_t i = 0; i < L->sym_count; i++) {
         if (L->syms[i].obj >= 0) {
-            if (strcmp(L->syms[i].name, "_start") == 0 ||
+            if ((L->entry_symbol && strcmp(L->syms[i].name, L->entry_symbol) == 0) ||
+                strcmp(L->syms[i].name, "_start") == 0 ||
                 strcmp(L->syms[i].name, "Reset_Handler") == 0 ||
                 (L->has_script && L->script.has_entry &&
                  strcmp(L->syms[i].name, L->script.entry) == 0)) {
@@ -2265,6 +2277,9 @@ int zero_cc_link_exec_ext(const char *out_path,
     L->baremetal = baremetal;
     L->gc_sections = opts ? opts->gc_sections : false;
     L->print_gc_sections = opts ? opts->print_gc_sections : false;
+    L->entry_symbol = opts ? opts->entry_symbol : NULL;
+    L->undefined_syms = opts ? opts->undefined_syms : NULL;
+    L->undefined_sym_count = opts ? opts->undefined_sym_count : 0;
 
     if (linker_script) {
         if (zero_cc_parse_linker_script_file(linker_script, &L->script, err, errsz) != 0) {
@@ -2312,9 +2327,12 @@ int zero_cc_link_exec_ext(const char *out_path,
      * (a CRT object), else Reset_Handler (baremetal), else the linker's _start
      * stub, which calls main (ZeroCC programs use the no-argument main). */
     uint64_t entry = 0, main_vma = 0;
-    const ZcLinkSym *custom_entry = NULL, *start = NULL, *reset_handler = NULL, *main = NULL;
+    const ZcLinkSym *custom_entry = NULL, *start = NULL, *reset_handler = NULL, *main = NULL, *entry_override = NULL;
     for (size_t i = 0; i < L->sym_count; i++) {
         if (L->syms[i].obj < 0) continue;
+        if (L->entry_symbol && strcmp(L->syms[i].name, L->entry_symbol) == 0) {
+            entry_override = &L->syms[i];
+        }
         if (L->has_script && L->script.has_entry &&
             strcmp(L->syms[i].name, L->script.entry) == 0) {
             custom_entry = &L->syms[i];
@@ -2323,7 +2341,9 @@ int zero_cc_link_exec_ext(const char *out_path,
         if (strcmp(L->syms[i].name, "Reset_Handler") == 0) reset_handler = &L->syms[i];
         if (strcmp(L->syms[i].name, "main") == 0) main = &L->syms[i];
     }
-    if (custom_entry) {
+    if (entry_override) {
+        entry = entry_override->vma;
+    } else if (custom_entry) {
         entry = custom_entry->vma;
     } else if (start) {
         entry = start->vma;

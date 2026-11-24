@@ -1155,6 +1155,27 @@ static void riscv64_emit_rvv_vfmv_f_s(ZeroCCCompiler *c, int fd, int vs2, int es
     }
 }
 
+static void riscv64_emit_v128_hadd(ZeroCCCompiler *c, int dst, int src, int esz, int is_fp) {
+    riscv64_emit_rvv_vsetivli_default(c, esz);
+    int v_scratch = 16;
+    riscv64_emit_rvv_vredsum(c, v_scratch, src, src, esz, is_fp);
+    if (is_fp) {
+        riscv64_emit_rvv_vfmv_f_s(c, dst, v_scratch, esz);
+    } else {
+        riscv64_emit_rvv_vmv_x_s(c, dst, v_scratch, esz);
+    }
+}
+
+static void riscv64_emit_v128_load_strided(ZeroCCCompiler *c, int dst, int base, int stride, int esz) {
+    riscv64_emit_mov_imm(c, 30, stride);  /* x30 = t5 */
+    riscv64_emit_rvv_vlse(c, dst, base, 30, (esz == 8 ? 3 : 2));
+}
+
+static void riscv64_emit_v128_store_strided(ZeroCCCompiler *c, int src, int base, int stride, int esz) {
+    riscv64_emit_mov_imm(c, 30, stride);  /* x30 = t5 */
+    riscv64_emit_rvv_vsse(c, src, base, 30, (esz == 8 ? 3 : 2));
+}
+
 
 
 static size_t riscv64_patch_jmp(ZeroCCCompiler *c, size_t patch_offset, size_t target_offset) {
@@ -2227,8 +2248,8 @@ ZeroCCISABackend riscv64_backend = {  /* writable: ASM emit pointers are filled 
     .sp_reg = 2,   /* sp */
     .scratch_reg1 = 5,                         /* t0 */
     .scratch_reg2 = 6,                         /* t1 */
-    .fp_scratch_reg1 = REGALLOC_FP_SCRATCH1,   /* f15 - outside XMM pool 0-7 */
-    .fp_scratch_reg2 = REGALLOC_FP_SCRATCH2,     /* f14 - outside XMM pool 0-7 */
+    .fp_scratch_reg1 = 15,                     /* f15 - outside XMM pool 0-7 */
+    .fp_scratch_reg2 = 14,                     /* f14 - outside XMM pool 0-7 */
     /* 128-bit spill scratch (reserved; excluded from the 64-bit pool, and NOT t0
      * (5) which RISC-V add128/sub128/neg128/mul128 use as carry/intermediate
      * scratch): pair0 = (t1, t3), pair1 = (t4, t5). */
@@ -2341,6 +2362,10 @@ ZeroCCISABackend riscv64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_rvv_vsse = riscv64_emit_rvv_vsse,
     .emit_rvv_vluxei = riscv64_emit_rvv_vluxei,
     .emit_rvv_vsuxei = riscv64_emit_rvv_vsuxei,
+    .emit_v128_hadd = riscv64_emit_v128_hadd,
+    .emit_v128_load_strided = riscv64_emit_v128_load_strided,
+    .emit_v128_store_strided = riscv64_emit_v128_store_strided,
+    .emit_v128_hadd_asm = riscv_emit_v128_hadd_asm,
     .emit_cvtss2sd = riscv64_emit_fp_cvtss2sd,
     .emit_cvttsd2ss = riscv64_emit_fp_cvttsd2ss,
     .emit_cvtsi2ss = riscv64_emit_fp_cvtsi2ss,

@@ -4,7 +4,7 @@ title: Optimization Passes & Safety Invariants
 description: Active IR optimization pipeline (Constant Folding, CopyProp, CSE, GVN, DCE, Mem2Reg, LICM, Auto-Vectorization) and their correctness invariants.
 resource: middleend/optimization-passes
 tags: [optimizations, mem2reg, licm, vectorization, gvn, cse, dce]
-timestamp: 2026-11-24T04:43:39Z
+timestamp: 2026-11-24T17:30:59Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -129,8 +129,29 @@ Optimization passes are registered in `src/zero_cc/opt/opt_pass.c` (`g_opt_passe
       - Targets 128-bit SSE/NEON/RVV, 256-bit AVX2, and 512-bit AVX-512.
       - Loops with constant bounds `trip` where `(trip % vec_width) != 0` (with `v_trip = trip - (trip % vec_width) >= vec_width`) are transformed into a vector loop bounded by `v_bound = init + v_trip` followed by a peeled scalar remainder loop that executes the remaining iterations with step 1.
       - Remainder loop headers are stamped with `VEC_PEEL_MARKER` (`0x5E5E`) to avoid re-peeling across optimizer passes.
+    - **Advanced Horizontal Vector Reductions (Sprint 208)**:
+      - Automatically vectorizes horizontal reduction loops (`sum += a[i]`, `sum -= a[i]`, min/max) for 32-bit integers, single-precision floats, and double-precision floats.
+      - Recognizes accumulator load/store patterns from stack frame slots or scalar temporaries (`detect_loop_reduction`), tracking the reduction variable through loop body mutations.
+      - Allocates a vector accumulator initialized prior to the loop (`OP_VXORPS`), accumulates in packed vector lanes (`OP_VPADDD`, `OP_VADDPS`, `OP_VADDPD`, etc.), and extracts the final scalar value at the loop exit block using horizontal reduction instructions:
+        - Generic 128-bit SIMD: `OP_V128_HADD`, `OP_V128_HMIN`, `OP_V128_HMAX` across x86-64 (SSE3/SSSE3 `haddps`, `pshufd`, `movhlps`), AArch64 (NEON `addv`, `faddp`), and RISC-V RVV (`vsetivli`, `vfmv.s.f`, `vfredusum.vs`).
+        - RISC-V RVV: `OP_RVV_VREDSUM`, `OP_RVV_VREDMIN`, `OP_RVV_VREDMAX` + scalar extraction (`vmv.x.s` / `vfmv.f.s`).
+        - ARM SVE: `OP_SVE_UADDV` / `OP_SVE_ADDV`, `OP_SVE_SMINV`, `OP_SVE_SMAXV`, `OP_SVE_FMINV`, `OP_SVE_FMAXV`.
+    - **Strided & Non-Unit Stride SIMD Auto-Vectorization (Sprint 211)**:
+      - Expands `opt_vectorize.c` beyond unit-stride contiguous accesses (`a[i]`) to handle arbitrary constant non-unit induction strides (`stride != 1`), including interleaved data and Array-of-Structures (AoS) memory layouts (`a[2*i]`, `points[i].x`).
+      - Added IR instructions `OP_V128_LOAD_STRIDED` and `OP_V128_STORE_STRIDED` with operand format `dst/src, base_addr_temp, byte_stride_imm`.
+      - Lowered across all target ISA backends:
+        - x86-64: SSE/AVX scalar element insertion and extraction sequences using `pinsrd`/`pextrd` (32-bit integer and float) and `pinsrq`/`pextrq` (64-bit double/integer).
+        - AArch64: NEON structured lane memory operations using `ld1 {v.s}[k]` / `st1 {v.s}[k]` and `ld1 {v.d}[k]` / `st1 {v.d}[k]`.
+        - RISC-V RVV: Hardware constant strided vector loads and stores via `vlse32.v` / `vsse32.v` (32-bit) and `vlse64.v` / `vsse64.v` (64-bit).
+      - Integrates with both vector arithmetic loops and horizontal reduction loops (`sum += a[2*i]`), supporting peeled remainder loops when iteration counts are not multiples of the vector width.
+    - **SLP (Superword-Level Parallelism) Vectorization (Sprint 212)**:
+      - Implements straight-line basic block SIMD auto-vectorization without requiring loops (`src/zero_cc/opt/opt_slp.c`).
+      - Scans basic blocks for isomorphic operation groups across 128-bit vector lanes: 4x32-bit integer/float operations or 2x64-bit double operations.
+      - Discovers contiguous memory store groups by resolving address base and monotonic offsets (`resolve_ptr_addr`), tracking through local frame slots and pointer arithmetic.
+      - Supports vector memory copies (consecutive loads stored to consecutive addresses) and packed vector arithmetic (`OP_VPADDD`, `OP_VPSUBD`, `OP_VPMULLD`, `OP_VADDPS`, `OP_VSUBPS`, `OP_VMULPS`, `OP_VDIVPS`, `OP_VADDPD`, `OP_VSUBPD`, `OP_VMULPD`, `OP_VDIVPD`, `OP_VANDPS`, `OP_VORPS`, `OP_VXORPS`).
+      - Supports scalar broadcasts (`OP_V128_LOAD_STRIDED` with stride 0) for operations with uniform scalar operands.
+      - Employs in-place replacement of scalar instructions with vector loads, vector ALUs, and vector stores, NOPing out obsolete scalar loads, sign-extensions, and stores.
     - **Scalable Loop Auto-Vectorization (Phase 13, Sprint 207)**:
-      - Automatically vectorizes dynamic loops where bounds are not compile-time constants (e.g. function parameter `n` or dynamic loop limit) on architectures supporting scalable vectors (RISC-V RVV 1.0 and ARM SVE).
       - Recognizes loop-invariant bounds even across stack frame slot storage (`is_temp_or_slot_invariant_bound`).
       - Emits dynamic vector length control without needing scalar remainder loop peeling:
         - **RISC-V RVV 1.0**: Emits AVL computation `avl = bound - counter`, followed by `OP_RVV_VSETVLI` configuring vector length dynamically to `vl`, advancing loop counter by `vl` each iteration.

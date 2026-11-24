@@ -1,5 +1,103 @@
 # CHANGELOG
 
+## [Sprint 214] - 2026-11-24 - Multi-ISA Backend Architecture (Item #16 Phase 2 & 3) — Table-Driven Regalloc & Decoupled ABI Hooks
+
+Implements Item #16 Phase 2 & Phase 3 (Table-Driven Regalloc & Decoupled ABI Lowering Hooks):
+- **Phase 2: Table-Driven Register Allocation (`target_traits.h`, `regalloc.h`, `isa_backend.h`, `backend_registry.c`, `x86_64.c`, `aarch64.c`, `riscv64.c`, `aarch32.c`)**:
+  - Declarative FP Register Configuration: Extended `TargetRegDesc` with `num_fp_regs`, `fp_scratch_reg1`, and `fp_scratch_reg2` across all 5 target ISAs (x86-64, AArch64, AArch32, RISC-V 64, RISC-V 32).
+  - Dynamic FP/Vector Allocation: Replaced hardcoded `REGALLOC_FP_SCRATCH1/2` macros in `regalloc.h` with table-driven initialization from `traits->regs`. Expanded `XMM_COUNT` from 8 to 32 to dynamically configure register pools and scratch reservation per target ISA.
+  - Initial Callee-Saved Register Mask: Driven declaratively via `traits->regs.initial_used_callee_saved_mask`, replacing hardcoded `c->isa == ISA_AARCH32` checks in `ast_lowering.c`.
+  - Cleaned up dead structures (`rax_clobbered`, `rdx_clobbered`, `clobber_capacity`) and dead helpers (`regalloc_idx_to_vreg`).
+- **Phase 3: Decoupled ABI Lowering Hooks (`abi_classify.h`, `isa_backend.h`, `backend_registry.c`, `ast_lowering_call.c`, `ast_lowering_varargs.c`, `ast_lowering.c`, `ast_lowering_stmt.c`, `jit/compile.c`)**:
+  - Hidden Return (`sret`) Hooks: Added `zero_cc_abi_type_uses_sret(c, type)` and `zero_cc_abi_arg_is_memory(c, type)` in `abi_classify.h` delegating classification directly to target vtables (`classify_return`, `classify_arg`).
+  - Replaced hardcoded `ret_struct_sz > 16` and `call_ret_type.size > 16` threshold checks in AST lowering (`ast_lowering_call.c`, `ast_lowering_varargs.c`, `ast_lowering.c`, `ast_lowering_stmt.c`, and `jit/compile.c`).
+  - Sret Calling Convention Decoupling: Lowered incoming sret parameter saves using `traits->sret_consumes_arg0` and `traits->sret_gpr` instead of branching on `c->isa == ISA_AARCH64`.
+  - Variadic Setup Hook: Added `emit_variadic_setup` hook to `ZeroCCISABackend` vtable; extracted 70-line target-specific `va_start` stream setup from `ast_lowering_varargs.c` into backend registry implementations (`generic_emit_variadic_setup` and `aarch32_emit_variadic_setup`).
+- **Verification**:
+  - All 249 unit tests in `make test` pass cleanly.
+  - All 57 own-linker tests in `linker_tests.py` pass.
+  - All baremetal CPU tests in `make test-baremetal` pass.
+  - Cross-ISA raw emitter QEMU gates pass across x86-64, AArch64, AArch32, RISC-V 64, and RISC-V 32.
+  - Sret verifier (`tools/verify/sret_verifier.py`) and type tag verifier (`tools/verify/type_tag_verifier.py`) pass 100%.
+  - Style check: 195 files, 0 errors, 0 warnings.
+
+
+## [Sprint 213] - 2026-11-24 - Direct ELF Object -ffunction-sections / -fdata-sections & Extended Linker GC (`--gc-sections`, `-e`, `-u`)
+
+Implements Option 3 (Linker Dead Code & Data Elimination with Direct ELF Sections):
+- **Direct ELF Object Section Emission (`src/main.c`, `src/zero_cc/jit/elf_writer.h`)**:
+  - Expanded `ELF_MAX_SECTIONS` from 32 to 4096 in `elf_writer.h` to allow high section counts in translation units compiled with function/data sections.
+  - Implemented direct ELF object mode (`-c`) section generation:
+    - `-ffunction-sections`: creates separate `.text.<fn_sym>` sections per function using `zero_cc_fn_emit_symbol`.
+    - `-fdata-sections`: creates separate `.data.<name>` (initialized), `.bss.<name>` (uninitialized `NOBITS`), and `.rodata.<name>` (const) sections per global variable.
+    - Resolves relocation section targeting and patch offsets dynamically: code relocations (`relocs`, `str_relocs`, `nl_goto_relocs`) route into `.rela.text.<func>`, and data relocations (`data_relocs`) route into `.rela.data.<var>`.
+- **Text Assembly & Symbol Renaming Parity (`src/zero_cc/ir/asm_emitter.c`, `src/zero_cc/driver/driver_asm.h`, `src/zero_cc/types/type_system.h`)**:
+  - Moved `zero_cc_fn_emit_symbol` to `type_system.h` as a shared inline helper for function symbol resolution (supporting GNU `__asm("sym")` and nested function mangling).
+  - Emits `.section .text.<sym>,"ax",@progbits` in text assembly emission when `-ffunction-sections` is enabled.
+  - Emits `.section .rodata.<name>,"a",@progbits` for `is_const` globals under `-fdata-sections`.
+- **Linker GC Extension & Entry/Undefined Roots (`src/zero_cc/linker/linker.c`, `src/zero_cc/linker/linker.h`, `src/zero_cc/driver/driver_opts.h`)**:
+  - Added `-e <sym>` / `--entry <sym>` / `--entry=<sym>` / `-Wl,-e,<sym>` / `-Wl,--entry=<sym>` CLI options to define custom entry roots for `--gc-sections` and resolve ELF entry address.
+  - Added `-u <sym>` / `--undefined <sym>` / `--undefined=<sym>` / `-Wl,-u,<sym>` CLI options to force symbol retention as GC roots.
+  - Forwarded `--gc-sections`, `--print-gc-sections`, `-e`, and `-u` to both ZeroCC own-linker and system linker invocations.
+- **Verification (`tools/verify/linker_tests.py`)**:
+  - Added test cases `gc_direct_elf_func`, `gc_direct_elf_data`, and `gc_entry_and_undefined` to verify direct ELF `-c` compilation, dead function/data elimination, and root preservation under `--zerocc-link`.
+  - All 57 own-linker tests pass cleanly; baremetal test suite and main test suite pass 100%.
+
+## [Sprint 212] - 2026-11-24 - SLP (Superword-Level Parallelism) Vectorization (Option 2)
+
+Implements Option 2 (SLP Auto-Vectorization):
+- **Basic Block Straight-Line SLP Engine (`opt_slp.h`, `opt_slp.c`)**:
+  - Implemented `opt_slp_vectorize` pass registered at `-O3` in `opt_pass.c`.
+  - Scans straight-line basic block regions between control-flow boundaries (`OP_LABEL`, `OP_JMP`, `OP_JE`, `OP_RET`, `OP_CALL`, etc.).
+  - Resolves base addresses and byte offsets (`resolve_ptr_addr`) through local stack frame slots (`[fp + offset]`) and pointer arithmetic (`OP_ADD`, `OP_ADD_IMM`, `OP_LEA`).
+  - Groups isomorphic contiguous stores for 4x32-bit (integers and floats) and 2x64-bit (doubles).
+  - Detects straight-line vector copies and packs them into single `OP_VLOAD` and `OP_VSTORE` instructions.
+  - Detects isomorphic binary arithmetic operations (`OP_ADD`, `OP_SUB`, `OP_MUL`, `OP_AND`, `OP_OR`, `OP_XOR`, `OP_FADD`, `OP_FSUB`, `OP_FMUL`, `OP_FDIV`).
+  - Supports operand vector loads from contiguous memory and uniform scalar broadcasts (`OP_V128_LOAD_STRIDED` with stride 0).
+  - Performs in-place IR replacement and NOPs out redundant scalar instructions and sign extensions.
+- **Verification (`test/jit/simd_slp_test.c`)**:
+  - Verified across 32-bit integer, single-precision float, and double-precision float struct fields (`Vec4i`, `Vec4f`, `Vec2d`), array additions, vector copies, and scalar broadcast operations.
+  - Verified across `-O0..-O3` in both JIT (`--run`) and AOT (`-o`) modes; full unit test suite (249 tests) and full optimizer sweep (207 tests) pass cleanly.
+
+## [Sprint 211] - 2026-11-24 - Strided & Non-Unit Stride SIMD Auto-Vectorization (Option 1)
+
+Implements Option 1 (Strided & Non-Unit Stride SIMD Auto-Vectorization):
+- **Strided Access Analysis & Transformation (`opt_vectorize.h`, `opt_vectorize.c`)**:
+  - Generalized loop vectorizer stride analysis: relaxed unit-stride requirement (`scale == esz`) to detect arbitrary non-unit constant induction strides (`scale > 0 && (scale % esz == 0)`).
+  - Handles Array-of-Structures (AoS) field accesses (`points[i].x`, `points[i].y`) and interleaved strided array accesses (`a[2*i]`, `b[2*i]`).
+  - Added `has_strided_access` tracking in `VectorizationInfo`.
+  - Transforms strided array loads and stores into `OP_V128_LOAD_STRIDED` and `OP_V128_STORE_STRIDED` with the exact byte stride stored as the third operand (immediate value).
+  - Integrates with horizontal vector reductions (`sum += a[2*i]`) and remainder loop peeling (`trip % vector_width != 0`).
+- **Strided Memory IR & Multi-ISA Backend Lowering (`ir.h`, `live_range.h`, `isa_backend.h`, `x86_64.c`, `x86_64_asm.c`, `aarch64.c`, `aarch64_asm.c`, `riscv64.c`, `riscv_asm.c`, `asm_emitter.c`, `ast_lowering_mc.c`)**:
+  - Added intermediate representation opcodes `OP_V128_LOAD_STRIDED` and `OP_V128_STORE_STRIDED`.
+  - Backend implementations:
+    - x86-64: Raw MC and assembly using `pinsrd`/`pextrd` (for 32-bit elements) and `pinsrq`/`pextrq` (for 64-bit elements).
+    - AArch64: NEON structured lane memory operations using `ld1 {v.s}[k]` / `st1 {v.s}[k]` (32-bit) and `ld1 {v.d}[k]` / `st1 {v.d}[k]` (64-bit).
+    - RISC-V RVV: Native hardware strided vector memory operations using `vlse32.v` / `vsse32.v` and `vlse64.v` / `vsse64.v`.
+- **Verification (`test/jit/simd_strided_test.c`)**:
+  - Validated integer, single-precision float, and double-precision float strided loads, stores, AoS access, and strided reductions across exact and peeled trip counts.
+  - Verified across `-O0..-O3` in both JIT (`--run`) and AOT (`-o`) modes; full test suite and optimizer sweep pass cleanly.
+
+## [Sprint 210] - 2026-11-24 - Advanced SIMD Vector Reductions (Horizontal Reductions: Generic SIMD, RVV & SVE)
+
+Implements Item #3 (Advanced SIMD Vector Reductions):
+- **Horizontal Reduction Detection & Transformation (`opt_vectorize.h`, `opt_vectorize.c`)**:
+  - Implemented `detect_loop_reduction`: detects horizontal reduction loops (`sum += a[i]`, `sum -= a[i]`, min/max) over 32-bit integer, single-precision float (`float`), and double-precision float (`double`) arrays.
+  - Supports accumulators loaded from stack frame slots or scalar temporaries, tracking through loop-carried induction/reduction dependencies.
+  - Zero-initializes vector accumulators using `OP_VXORPS` prior to the loop.
+  - Accumulates vector lanes using packed arithmetic (`OP_VPADDD`, `OP_VADDPS`, `OP_VADDPD`, etc.) and NOPs out scalar accumulator loads/stores within the vector loop body.
+  - Emits exit reduction block using horizontal vector reduction instructions and updates the scalar accumulator before branching to the remainder loop or exit.
+- **Horizontal Reduction IR & ISA Backend Lowering (`ir.h`, `ir.c`, `live_range.h`, `isa_backend.h`, `x86_64.c`, `aarch64.c`, `riscv64.c`, `*_asm.c`, `asm_emitter.c`, `ast_lowering_mc.c`)**:
+  - Added intermediate representation opcodes:
+    - Generic 128-bit: `OP_V128_HADD`, `OP_V128_HMIN`, `OP_V128_HMAX`.
+    - RVV: `OP_RVV_VREDSUM`, `OP_RVV_VREDMIN`, `OP_RVV_VREDMAX` + scalar extraction.
+    - SVE: `OP_SVE_UADDV`, `OP_SVE_SMINV`, `OP_SVE_SMAXV`, `OP_SVE_FMINV`, `OP_SVE_FMAXV`.
+  - Implemented raw byte emission and assembly emission across x86-64 (SSE3/SSSE3 `haddps`, `pshufd`, `movhlps`), AArch64 (NEON `addv.4s`, `faddp.4s`/`faddp.2d`), and RISC-V RVV (`vfredusum.vs`, `vsetivli`, `vmv.x.s`/`vfmv.f.s`).
+  - Correctly promotes single-precision float reductions to 64-bit double XMM representations to maintain calling convention and scalar FP invariants.
+- **Verification (`test/jit/simd_reduction_test.c`)**:
+  - Validated int, float, and double horizontal sum reductions across exact trip counts and peeled remainder loops with non-zero initial accumulator values.
+  - Verified across `-O0..-O3` in both JIT and AOT modes; all 247 unit tests and 205 optimizer tests pass cleanly.
+
 ## [Sprint 209] - 2026-11-24 - Table-Driven Register Allocation & Decoupled ABI Lowering Hooks (Item #16 Phases 2 & 3 — Multi-ISA Backend Abstraction)
 
 Implements Item #16 Phase 2 (Table-Driven Register Allocation) and Phase 3 (Decoupled ABI Lowering Hooks):
@@ -199,6 +297,104 @@ Implements Option 2: AVX-512 Integer SIMD (`AVX-512BW` / `AVX-512DQ` / `__m512i`
   - All regression gates green: `make test` (245/245 passed), `make test-opt` (143 passed, 0 failed), `make test-san` (720 passed, 0 failed), `python3 tools/verify/style_check.py` (0 errors), `python3 tools/verify/type_tag_verifier.py --verify-all` (OK).
 
 # CHANGELOG
+
+## [Sprint 214] - 2026-11-24 - Multi-ISA Backend Architecture (Item #16 Phase 2 & 3) — Table-Driven Regalloc & Decoupled ABI Hooks
+
+Implements Item #16 Phase 2 & Phase 3 (Table-Driven Regalloc & Decoupled ABI Lowering Hooks):
+- **Phase 2: Table-Driven Register Allocation (`target_traits.h`, `regalloc.h`, `isa_backend.h`, `backend_registry.c`, `x86_64.c`, `aarch64.c`, `riscv64.c`, `aarch32.c`)**:
+  - Declarative FP Register Configuration: Extended `TargetRegDesc` with `num_fp_regs`, `fp_scratch_reg1`, and `fp_scratch_reg2` across all 5 target ISAs (x86-64, AArch64, AArch32, RISC-V 64, RISC-V 32).
+  - Dynamic FP/Vector Allocation: Replaced hardcoded `REGALLOC_FP_SCRATCH1/2` macros in `regalloc.h` with table-driven initialization from `traits->regs`. Expanded `XMM_COUNT` from 8 to 32 to dynamically configure register pools and scratch reservation per target ISA.
+  - Initial Callee-Saved Register Mask: Driven declaratively via `traits->regs.initial_used_callee_saved_mask`, replacing hardcoded `c->isa == ISA_AARCH32` checks in `ast_lowering.c`.
+  - Cleaned up dead structures (`rax_clobbered`, `rdx_clobbered`, `clobber_capacity`) and dead helpers (`regalloc_idx_to_vreg`).
+- **Phase 3: Decoupled ABI Lowering Hooks (`abi_classify.h`, `isa_backend.h`, `backend_registry.c`, `ast_lowering_call.c`, `ast_lowering_varargs.c`, `ast_lowering.c`, `ast_lowering_stmt.c`, `jit/compile.c`)**:
+  - Hidden Return (`sret`) Hooks: Added `zero_cc_abi_type_uses_sret(c, type)` and `zero_cc_abi_arg_is_memory(c, type)` in `abi_classify.h` delegating classification directly to target vtables (`classify_return`, `classify_arg`).
+  - Replaced hardcoded `ret_struct_sz > 16` and `call_ret_type.size > 16` threshold checks in AST lowering (`ast_lowering_call.c`, `ast_lowering_varargs.c`, `ast_lowering.c`, `ast_lowering_stmt.c`, and `jit/compile.c`).
+  - Sret Calling Convention Decoupling: Lowered incoming sret parameter saves using `traits->sret_consumes_arg0` and `traits->sret_gpr` instead of branching on `c->isa == ISA_AARCH64`.
+  - Variadic Setup Hook: Added `emit_variadic_setup` hook to `ZeroCCISABackend` vtable; extracted 70-line target-specific `va_start` stream setup from `ast_lowering_varargs.c` into backend registry implementations (`generic_emit_variadic_setup` and `aarch32_emit_variadic_setup`).
+- **Verification**:
+  - All 249 unit tests in `make test` pass cleanly.
+  - All 57 own-linker tests in `linker_tests.py` pass.
+  - All baremetal CPU tests in `make test-baremetal` pass.
+  - Cross-ISA raw emitter QEMU gates pass across x86-64, AArch64, AArch32, RISC-V 64, and RISC-V 32.
+  - Sret verifier (`tools/verify/sret_verifier.py`) and type tag verifier (`tools/verify/type_tag_verifier.py`) pass 100%.
+  - Style check: 195 files, 0 errors, 0 warnings.
+
+
+## [Sprint 213] - 2026-11-24 - Direct ELF Object -ffunction-sections / -fdata-sections & Extended Linker GC (`--gc-sections`, `-e`, `-u`)
+
+Implements Option 3 (Linker Dead Code & Data Elimination with Direct ELF Sections):
+- **Direct ELF Object Section Emission (`src/main.c`, `src/zero_cc/jit/elf_writer.h`)**:
+  - Expanded `ELF_MAX_SECTIONS` from 32 to 4096 in `elf_writer.h` to allow high section counts in translation units compiled with function/data sections.
+  - Implemented direct ELF object mode (`-c`) section generation:
+    - `-ffunction-sections`: creates separate `.text.<fn_sym>` sections per function using `zero_cc_fn_emit_symbol`.
+    - `-fdata-sections`: creates separate `.data.<name>` (initialized), `.bss.<name>` (uninitialized `NOBITS`), and `.rodata.<name>` (const) sections per global variable.
+    - Resolves relocation section targeting and patch offsets dynamically: code relocations (`relocs`, `str_relocs`, `nl_goto_relocs`) route into `.rela.text.<func>`, and data relocations (`data_relocs`) route into `.rela.data.<var>`.
+- **Text Assembly & Symbol Renaming Parity (`src/zero_cc/ir/asm_emitter.c`, `src/zero_cc/driver/driver_asm.h`, `src/zero_cc/types/type_system.h`)**:
+  - Moved `zero_cc_fn_emit_symbol` to `type_system.h` as a shared inline helper for function symbol resolution (supporting GNU `__asm("sym")` and nested function mangling).
+  - Emits `.section .text.<sym>,"ax",@progbits` in text assembly emission when `-ffunction-sections` is enabled.
+  - Emits `.section .rodata.<name>,"a",@progbits` for `is_const` globals under `-fdata-sections`.
+- **Linker GC Extension & Entry/Undefined Roots (`src/zero_cc/linker/linker.c`, `src/zero_cc/linker/linker.h`, `src/zero_cc/driver/driver_opts.h`)**:
+  - Added `-e <sym>` / `--entry <sym>` / `--entry=<sym>` / `-Wl,-e,<sym>` / `-Wl,--entry=<sym>` CLI options to define custom entry roots for `--gc-sections` and resolve ELF entry address.
+  - Added `-u <sym>` / `--undefined <sym>` / `--undefined=<sym>` / `-Wl,-u,<sym>` CLI options to force symbol retention as GC roots.
+  - Forwarded `--gc-sections`, `--print-gc-sections`, `-e`, and `-u` to both ZeroCC own-linker and system linker invocations.
+- **Verification (`tools/verify/linker_tests.py`)**:
+  - Added test cases `gc_direct_elf_func`, `gc_direct_elf_data`, and `gc_entry_and_undefined` to verify direct ELF `-c` compilation, dead function/data elimination, and root preservation under `--zerocc-link`.
+  - All 57 own-linker tests pass cleanly; baremetal test suite and main test suite pass 100%.
+
+## [Sprint 212] - 2026-11-24 - SLP (Superword-Level Parallelism) Vectorization (Option 2)
+
+Implements Option 2 (SLP Auto-Vectorization):
+- **Basic Block Straight-Line SLP Engine (`opt_slp.h`, `opt_slp.c`)**:
+  - Implemented `opt_slp_vectorize` pass registered at `-O3` in `opt_pass.c`.
+  - Scans straight-line basic block regions between control-flow boundaries (`OP_LABEL`, `OP_JMP`, `OP_JE`, `OP_RET`, `OP_CALL`, etc.).
+  - Resolves base addresses and byte offsets (`resolve_ptr_addr`) through local stack frame slots (`[fp + offset]`) and pointer arithmetic (`OP_ADD`, `OP_ADD_IMM`, `OP_LEA`).
+  - Groups isomorphic contiguous stores for 4x32-bit (integers and floats) and 2x64-bit (doubles).
+  - Detects straight-line vector copies and packs them into single `OP_VLOAD` and `OP_VSTORE` instructions.
+  - Detects isomorphic binary arithmetic operations (`OP_ADD`, `OP_SUB`, `OP_MUL`, `OP_AND`, `OP_OR`, `OP_XOR`, `OP_FADD`, `OP_FSUB`, `OP_FMUL`, `OP_FDIV`).
+  - Supports operand vector loads from contiguous memory and uniform scalar broadcasts (`OP_V128_LOAD_STRIDED` with stride 0).
+  - Performs in-place IR replacement and NOPs out redundant scalar instructions and sign extensions.
+- **Verification (`test/jit/simd_slp_test.c`)**:
+  - Verified across 32-bit integer, single-precision float, and double-precision float struct fields (`Vec4i`, `Vec4f`, `Vec2d`), array additions, vector copies, and scalar broadcast operations.
+  - Verified across `-O0..-O3` in both JIT (`--run`) and AOT (`-o`) modes; full unit test suite (249 tests) and full optimizer sweep (207 tests) pass cleanly.
+
+## [Sprint 211] - 2026-11-24 - Strided & Non-Unit Stride SIMD Auto-Vectorization (Option 1)
+
+Implements Option 1 (Strided & Non-Unit Stride SIMD Auto-Vectorization):
+- **Strided Access Analysis & Transformation (`opt_vectorize.h`, `opt_vectorize.c`)**:
+  - Generalized loop vectorizer stride analysis: relaxed unit-stride requirement (`scale == esz`) to detect arbitrary non-unit constant induction strides (`scale > 0 && (scale % esz == 0)`).
+  - Handles Array-of-Structures (AoS) field accesses (`points[i].x`, `points[i].y`) and interleaved strided array accesses (`a[2*i]`, `b[2*i]`).
+  - Added `has_strided_access` tracking in `VectorizationInfo`.
+  - Transforms strided array loads and stores into `OP_V128_LOAD_STRIDED` and `OP_V128_STORE_STRIDED` with the exact byte stride stored as the third operand (immediate value).
+  - Integrates with horizontal vector reductions (`sum += a[2*i]`) and remainder loop peeling (`trip % vector_width != 0`).
+- **Strided Memory IR & Multi-ISA Backend Lowering (`ir.h`, `live_range.h`, `isa_backend.h`, `x86_64.c`, `x86_64_asm.c`, `aarch64.c`, `aarch64_asm.c`, `riscv64.c`, `riscv_asm.c`, `asm_emitter.c`, `ast_lowering_mc.c`)**:
+  - Added intermediate representation opcodes `OP_V128_LOAD_STRIDED` and `OP_V128_STORE_STRIDED`.
+  - Backend implementations:
+    - x86-64: Raw MC and assembly using `pinsrd`/`pextrd` (for 32-bit elements) and `pinsrq`/`pextrq` (for 64-bit elements).
+    - AArch64: NEON structured lane memory operations using `ld1 {v.s}[k]` / `st1 {v.s}[k]` (32-bit) and `ld1 {v.d}[k]` / `st1 {v.d}[k]` (64-bit).
+    - RISC-V RVV: Native hardware strided vector memory operations using `vlse32.v` / `vsse32.v` and `vlse64.v` / `vsse64.v`.
+- **Verification (`test/jit/simd_strided_test.c`)**:
+  - Validated integer, single-precision float, and double-precision float strided loads, stores, AoS access, and strided reductions across exact and peeled trip counts.
+  - Verified across `-O0..-O3` in both JIT (`--run`) and AOT (`-o`) modes; full test suite and optimizer sweep pass cleanly.
+
+## [Sprint 210] - 2026-11-24 - Advanced SIMD Vector Reductions (Horizontal Reductions: Generic SIMD, RVV & SVE)
+
+Implements Item #3 (Advanced SIMD Vector Reductions):
+- **Horizontal Reduction Detection & Transformation (`opt_vectorize.h`, `opt_vectorize.c`)**:
+  - Implemented `detect_loop_reduction`: detects horizontal reduction loops (`sum += a[i]`, `sum -= a[i]`, min/max) over 32-bit integer, single-precision float (`float`), and double-precision float (`double`) arrays.
+  - Supports accumulators loaded from stack frame slots or scalar temporaries, tracking through loop-carried induction/reduction dependencies.
+  - Zero-initializes vector accumulators using `OP_VXORPS` prior to the loop.
+  - Accumulates vector lanes using packed arithmetic (`OP_VPADDD`, `OP_VADDPS`, `OP_VADDPD`, etc.) and NOPs out scalar accumulator loads/stores within the vector loop body.
+  - Emits exit reduction block using horizontal vector reduction instructions and updates the scalar accumulator before branching to the remainder loop or exit.
+- **Horizontal Reduction IR & ISA Backend Lowering (`ir.h`, `ir.c`, `live_range.h`, `isa_backend.h`, `x86_64.c`, `aarch64.c`, `riscv64.c`, `*_asm.c`, `asm_emitter.c`, `ast_lowering_mc.c`)**:
+  - Added intermediate representation opcodes:
+    - Generic 128-bit: `OP_V128_HADD`, `OP_V128_HMIN`, `OP_V128_HMAX`.
+    - RVV: `OP_RVV_VREDSUM`, `OP_RVV_VREDMIN`, `OP_RVV_VREDMAX` + scalar extraction.
+    - SVE: `OP_SVE_UADDV`, `OP_SVE_SMINV`, `OP_SVE_SMAXV`, `OP_SVE_FMINV`, `OP_SVE_FMAXV`.
+  - Implemented raw byte emission and assembly emission across x86-64 (SSE3/SSSE3 `haddps`, `pshufd`, `movhlps`), AArch64 (NEON `addv.4s`, `faddp.4s`/`faddp.2d`), and RISC-V RVV (`vfredusum.vs`, `vsetivli`, `vmv.x.s`/`vfmv.f.s`).
+  - Correctly promotes single-precision float reductions to 64-bit double XMM representations to maintain calling convention and scalar FP invariants.
+- **Verification (`test/jit/simd_reduction_test.c`)**:
+  - Validated int, float, and double horizontal sum reductions across exact trip counts and peeled remainder loops with non-zero initial accumulator values.
+  - Verified across `-O0..-O3` in both JIT and AOT modes; all 247 unit tests and 205 optimizer tests pass cleanly.
 
 ## [Sprint 201] - 2026-11-23 - AVX-512 Opmask / Predication (AVX-512F k0–k7 Mask Registers, Merging & Zeroing Masking, Masked Loads/Stores/Arithmetic/Comparisons)
 

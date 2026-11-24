@@ -679,6 +679,69 @@ static int compile_preprocess(CompileOptions *opts) {
     return rc;
 }
 
+static inline ZeroCCFunction *find_fn_for_text_offset(ZeroCCCompiler *comp,
+                                                      const size_t *order,
+                                                      const size_t *extent_end,
+                                                      size_t nreal,
+                                                      size_t offset) {
+    for (size_t i = 0; i < nreal; i++) {
+        size_t fi = order[i];
+        ZeroCCFunction *f = &comp->functions[fi];
+        if (offset >= f->text_offset && offset < extent_end[fi]) {
+            return f;
+        }
+    }
+    return NULL;
+}
+
+static inline void resolve_text_reloc_loc(ZeroCCCompiler *comp,
+                                          ElfWriterCtx *elf_ctx,
+                                          const size_t *order,
+                                          const size_t *extent_end,
+                                          size_t nreal,
+                                          uint16_t text_idx,
+                                          size_t patch_offset,
+                                          uint16_t *out_sec_idx,
+                                          uint64_t *out_sec_offset) {
+    ZeroCCFunction *f = find_fn_for_text_offset(comp, order, extent_end, nreal, patch_offset);
+    if (f && f->section[0]) {
+        uint16_t sidx = elf_writer_section_index(elf_ctx, f->section);
+        if (sidx != 0) {
+            *out_sec_idx = sidx;
+            *out_sec_offset = patch_offset - f->text_offset + f->named_text_sec_off;
+            return;
+        }
+    }
+    *out_sec_idx = text_idx;
+    *out_sec_offset = patch_offset;
+}
+
+static inline void resolve_data_reloc_loc(ZeroCCCompiler *comp,
+                                          ElfWriterCtx *elf_ctx,
+                                          uint16_t data_section_idx,
+                                          size_t patch_offset,
+                                          uint16_t *out_sec_idx,
+                                          uint64_t *out_sec_offset) {
+    for (size_t i = 0; i < comp->global_var_count; i++) {
+        ZeroCCGlobalVar *gv = &comp->global_vars[i];
+        if (!gv->name[0] || gv->alias_target[0] || gv->is_tls || gv->lto_eliminated) continue;
+        size_t sz = gv->size ? gv->size : gv->type.size;
+        if (patch_offset >= gv->data_offset && patch_offset < gv->data_offset + sz) {
+            if (gv->section[0]) {
+                uint16_t sidx = elf_writer_section_index(elf_ctx, gv->section);
+                if (sidx != 0) {
+                    *out_sec_idx = sidx;
+                    *out_sec_offset = patch_offset - gv->data_offset + gv->named_sec_off;
+                    return;
+                }
+            }
+            break;
+        }
+    }
+    *out_sec_idx = data_section_idx;
+    *out_sec_offset = patch_offset;
+}
+
 static int compile_object(CompileOptions *opts) {
     if (opts->output_file && opts->input_count > 1) {
         fprintf(stderr, "zerocc: error: cannot specify -o with -c/-S and multiple input files\n");
@@ -873,8 +936,46 @@ static int write_compiled_object(ZeroCCCompiler *comp, CompileOptions *opts,
     ElfWriterCtx elf_ctx;
     elf_writer_init(&elf_ctx, (ElfMachineType)traits->elf_machine, traits->is_32bit);
 
-    /* Add .text section */
-    if (comp->text_section.length > 0) {
+    /* If -ffunction-sections is enabled, assign each function to its own section .text.<name> */
+    if (comp->function_sections) {
+        for (size_t i = 0; i < comp->function_count; i++) {
+            ZeroCCFunction *f = &comp->functions[i];
+            if (f->name[0] && !f->is_prototype && !f->is_external && !f->is_object && !f->lto_eliminated) {
+                if (!f->section[0]) {
+                    const char *fn_sym = zero_cc_fn_emit_symbol(f);
+                    snprintf(f->section, sizeof(f->section), ".text.%s", fn_sym);
+                }
+            }
+        }
+    }
+
+    /* If -fdata-sections is enabled, assign each global variable to .bss.<name>, .rodata.<name>, or .data.<name> */
+    if (comp->data_sections) {
+        for (size_t i = 0; i < comp->global_var_count; i++) {
+            ZeroCCGlobalVar *gv = &comp->global_vars[i];
+            if (gv->name[0] && !gv->alias_target[0] && !gv->is_tls && !gv->lto_eliminated) {
+                if (!gv->section[0]) {
+                    if (gv->is_bss) {
+                        snprintf(gv->section, sizeof(gv->section), ".bss.%s", gv->name);
+                    } else if (gv->type.is_const) {
+                        snprintf(gv->section, sizeof(gv->section), ".rodata.%s", gv->name);
+                    } else {
+                        snprintf(gv->section, sizeof(gv->section), ".data.%s", gv->name);
+                    }
+                }
+            }
+        }
+    }
+
+    /* Add .text section (if any functions remain in default .text) */
+    bool has_default_text = false;
+    for (size_t i = 0; i < comp->function_count; i++) {
+        ZeroCCFunction *f = &comp->functions[i];
+        if (f->name[0] && !f->is_prototype && !f->is_external && !f->is_object && !f->lto_eliminated) {
+            if (!f->section[0]) { has_default_text = true; break; }
+        }
+    }
+    if (has_default_text && comp->text_section.length > 0) {
         elf_writer_add_section(&elf_ctx, ".text",
                                (uint8_t*)comp->text_section.data,
                                comp->text_section.length,
@@ -897,13 +998,15 @@ static int write_compiled_object(ZeroCCCompiler *comp, CompileOptions *opts,
      * maximum alignment of any object it holds, or the linker places
      * the section (and its _Alignas(N) objects) too low (C11 6.7.5). */
     size_t data_align = 8;
+    bool has_default_data = false;
     for (size_t gi = 0; gi < comp->global_var_count; gi++) {
         ZeroCCGlobalVar *gv = &comp->global_vars[gi];
         if (gv->is_bss || gv->is_tls || gv->lto_eliminated) continue;
+        if (!gv->section[0]) has_default_data = true;
         size_t ga = gv->type.align > 0 ? gv->type.align : 8;
         if (ga > data_align) data_align = ga;
     }
-    if (comp->data_section.length > 0) {
+    if (has_default_data && comp->data_section.length > 0) {
         elf_writer_add_section(&elf_ctx, ".data",
                                (uint8_t*)comp->data_section.data,
                                comp->data_section.length,
@@ -915,16 +1018,18 @@ static int write_compiled_object(ZeroCCCompiler *comp, CompileOptions *opts,
     /* Add .bss section (zero-initialized globals above threshold) */
     size_t bss_total = 0;
     size_t bss_align = 8;
+    bool has_default_bss = false;
     for (size_t i = 0; i < comp->global_var_count; i++) {
         if (comp->global_vars[i].is_bss && !comp->global_vars[i].is_tls &&
             !comp->global_vars[i].lto_eliminated) {
+            if (!comp->global_vars[i].section[0]) has_default_bss = true;
             size_t end = comp->global_vars[i].data_offset + comp->global_vars[i].size;
             if (end > bss_total) bss_total = end;
             size_t ga = comp->global_vars[i].type.align > 0 ? comp->global_vars[i].type.align : 8;
             if (ga > bss_align) bss_align = ga;
         }
     }
-    if (bss_total > 0) {
+    if (has_default_bss && bss_total > 0) {
         /* NOBITS section - no file payload, just zero-filled at load */
         elf_writer_add_section(&elf_ctx, ".bss",
                                NULL, bss_total,
@@ -958,112 +1063,119 @@ static int write_compiled_object(ZeroCCCompiler *comp, CompileOptions *opts,
         }
     }
 
-    /* ---- Named sections: GNU __attribute__((section("name"))) ----
+    /* ---- Named sections: GNU __attribute__((section("name"))) & -fdata-sections ----
      * Objects placed in a named ELF section.  Their bytes are copied out of
      * data_section into a dedicated PROGBITS section (NOBITS for BSS-like),
      * and each object's symbol is emitted in that named section (below).
      * Relocations target the symbol, so every reference resolves to the named
-     * section.  The .data copy of the bytes is left in place (dead, and no
-     * symbol points to it).  Function-section routing is not supported. */
+     * section. */
     {
         size_t gvn = comp->global_var_count;
-        enum { MAX_NS = 16 };
-        char ns_names[MAX_NS][64];
-        size_t ns_size[MAX_NS];
-        size_t ns_align[MAX_NS];
-        bool ns_bss[MAX_NS];
+        size_t max_ns = gvn + 16;
+        char (*ns_names)[64] = calloc(max_ns, 64);
+        size_t *ns_size = calloc(max_ns, sizeof(size_t));
+        size_t *ns_align = calloc(max_ns, sizeof(size_t));
+        bool *ns_bss = calloc(max_ns, sizeof(bool));
+        bool *ns_rodata = calloc(max_ns, sizeof(bool));
         int ns_count = 0;
-        for (int k = 0; k < MAX_NS; k++) { ns_size[k] = 0; ns_align[k] = 8; ns_bss[k] = false; }
+        if (ns_names && ns_size && ns_align && ns_bss && ns_rodata) {
+            for (size_t k = 0; k < max_ns; k++) { ns_size[k] = 0; ns_align[k] = 8; ns_bss[k] = false; ns_rodata[k] = false; }
 
-        for (size_t i = 0; i < gvn; i++) {
-            ZeroCCGlobalVar *gv = &comp->global_vars[i];
-            if (!gv->name[0] || !gv->section[0] || gv->alias_target[0] || gv->is_tls || gv->lto_eliminated) continue;
-            int si = -1;
-            for (int k = 0; k < ns_count; k++)
-                if (strcmp(ns_names[k], gv->section) == 0) { si = k; break; }
-            if (si < 0) {
-                if (ns_count >= MAX_NS) { gv->section[0] = '\0'; continue; } /* degrade to .data */
-                si = ns_count++;
-                strncpy(ns_names[si], gv->section, 63);
-                ns_names[si][63] = '\0';
-                ns_size[si] = 0; ns_align[si] = 8; ns_bss[si] = false;
-            }
-            size_t al = gv->type.align > 0 ? gv->type.align : 8;
-            if (al > ns_align[si]) ns_align[si] = al;
-            size_t cur = ns_size[si] + ((al - (ns_size[si] % al)) % al);
-            gv->named_sec_off = cur;
-            cur += gv->size;
-            if (cur > ns_size[si]) ns_size[si] = cur;
-            if (gv->is_bss) ns_bss[si] = true;
-        }
-
-        for (int k = 0; k < ns_count; k++) {
-            size_t total = ns_size[k];
-            if (total == 0) continue;
-            if (ns_bss[k]) {
-                elf_writer_add_section(&elf_ctx, ns_names[k], NULL, total,
-                                       ELF_SHT_NOBITS, ELF_SHF_ALLOC | ELF_SHF_WRITE,
-                                       ns_align[k]);
-            } else {
-                uint8_t *buf = (uint8_t *)calloc(total, 1);
-                if (!buf) continue;
-                for (size_t i = 0; i < gvn; i++) {
-                    ZeroCCGlobalVar *gv = &comp->global_vars[i];
-                    if (gv->lto_eliminated || strcmp(gv->section, ns_names[k]) != 0) continue;
-                    if (!gv->is_bss && gv->size > 0 &&
-                        gv->data_offset + gv->size <= comp->data_section.length) {
-                        memcpy(buf + gv->named_sec_off,
-                               comp->data_section.data + gv->data_offset, gv->size);
-                    }
+            for (size_t i = 0; i < gvn; i++) {
+                ZeroCCGlobalVar *gv = &comp->global_vars[i];
+                if (!gv->name[0] || !gv->section[0] || gv->alias_target[0] || gv->is_tls || gv->lto_eliminated) continue;
+                int si = -1;
+                for (int k = 0; k < ns_count; k++)
+                    if (strcmp(ns_names[k], gv->section) == 0) { si = k; break; }
+                if (si < 0) {
+                    if (ns_count >= (int)max_ns) { gv->section[0] = '\0'; continue; } /* degrade to .data */
+                    si = ns_count++;
+                    strncpy(ns_names[si], gv->section, 63);
+                    ns_names[si][63] = '\0';
+                    ns_size[si] = 0; ns_align[si] = 8; ns_bss[si] = false; ns_rodata[si] = false;
                 }
-                elf_writer_add_section(&elf_ctx, ns_names[k], buf, total,
-                                       ELF_SHT_PROGBITS, ELF_SHF_ALLOC | ELF_SHF_WRITE,
-                                       ns_align[k]);
-                free(buf); /* copied into the writer */
+                size_t al = gv->type.align > 0 ? gv->type.align : 8;
+                if (al > ns_align[si]) ns_align[si] = al;
+                size_t cur = ns_size[si] + ((al - (ns_size[si] % al)) % al);
+                gv->named_sec_off = cur;
+                cur += gv->size;
+                if (cur > ns_size[si]) ns_size[si] = cur;
+                if (gv->is_bss) ns_bss[si] = true;
+                if (strncmp(ns_names[si], ".rodata", 7) == 0) ns_rodata[si] = true;
+            }
+
+            for (int k = 0; k < ns_count; k++) {
+                size_t total = ns_size[k];
+                if (total == 0) continue;
+                if (ns_bss[k]) {
+                    elf_writer_add_section(&elf_ctx, ns_names[k], NULL, total,
+                                           ELF_SHT_NOBITS, ELF_SHF_ALLOC | ELF_SHF_WRITE,
+                                           ns_align[k]);
+                } else {
+                    uint8_t *buf = (uint8_t *)calloc(total, 1);
+                    if (!buf) continue;
+                    for (size_t i = 0; i < gvn; i++) {
+                        ZeroCCGlobalVar *gv = &comp->global_vars[i];
+                        if (gv->lto_eliminated || strcmp(gv->section, ns_names[k]) != 0) continue;
+                        if (!gv->is_bss && gv->size > 0 &&
+                            gv->data_offset + gv->size <= comp->data_section.length) {
+                            memcpy(buf + gv->named_sec_off,
+                                   comp->data_section.data + gv->data_offset, gv->size);
+                        }
+                    }
+                    uint64_t sflags = ns_rodata[k] ? ELF_SHF_ALLOC : (ELF_SHF_ALLOC | ELF_SHF_WRITE);
+                    elf_writer_add_section(&elf_ctx, ns_names[k], buf, total,
+                                           ELF_SHT_PROGBITS, sflags,
+                                           ns_align[k]);
+                    free(buf); /* copied into the writer */
+                }
             }
         }
+        free(ns_names);
+        free(ns_size);
+        free(ns_align);
+        free(ns_bss);
+        free(ns_rodata);
     }
 
-    /* ---- Named text sections: GNU __attribute__((section("name"))) on functions ----
+    /* ---- Named text sections: GNU __attribute__((section("name"))) & -ffunction-sections ----
      * A function's code is emitted into text_section as usual (JIT-safe).  At -c
      * emission, each function with a section is copied out of text_section into a
      * dedicated PROGBITS|EXECINSTR section and its symbol is emitted there (below).
-     * The .text copy is left in place (dead, and no symbol points to it).  A
-     * function's extent in text_section is [text_offset, next-function-text_offset)
+     * The function's extent in text_section is [text_offset, next-function-text_offset)
      * (or to the end of the section for the last one); a contiguous copy preserves
      * the function's internal relative offsets. */
-    {
-        size_t fcn = comp->function_count;
-        enum { MAX_NTS = 16 };
-        char nts_names[MAX_NTS][64];
-        size_t nts_size[MAX_NTS];
-        int nts_count = 0;
-        for (int k = 0; k < MAX_NTS; k++) { nts_size[k] = 0; }
+    size_t fcn = comp->function_count;
+    size_t max_nts = fcn + 16;
+    char (*nts_names)[64] = calloc(max_nts, 64);
+    size_t *nts_size = calloc(max_nts, sizeof(size_t));
+    int nts_count = 0;
 
-        size_t *extent_end = (size_t *)calloc(fcn ? fcn : 1, sizeof(size_t));
-        size_t *order = (size_t *)calloc(fcn ? fcn : 1, sizeof(size_t));
-        size_t nreal = 0;
-        for (size_t i = 0; i < fcn; i++) {
-            ZeroCCFunction *f = &comp->functions[i];
-            if (f->name[0] && !f->is_prototype && !f->is_external && !f->is_object && !f->lto_eliminated) {
-                order[nreal++] = i;
-            }
+    size_t *extent_end = (size_t *)calloc(fcn ? fcn : 1, sizeof(size_t));
+    size_t *order = (size_t *)calloc(fcn ? fcn : 1, sizeof(size_t));
+    size_t nreal = 0;
+    for (size_t i = 0; i < fcn; i++) {
+        ZeroCCFunction *f = &comp->functions[i];
+        if (f->name[0] && !f->is_prototype && !f->is_external && !f->is_object && !f->lto_eliminated) {
+            order[nreal++] = i;
         }
-        /* insertion sort by text_offset (n is small) */
-        for (size_t i = 1; i < nreal; i++) {
-            size_t key = order[i]; size_t j = i;
-            while (j > 0 && comp->functions[order[j - 1]].text_offset > comp->functions[key].text_offset) {
-                order[j] = order[j - 1]; j--;
-            }
-            order[j] = key;
+    }
+    /* insertion sort by text_offset (n is small) */
+    for (size_t i = 1; i < nreal; i++) {
+        size_t key = order[i]; size_t j = i;
+        while (j > 0 && comp->functions[order[j - 1]].text_offset > comp->functions[key].text_offset) {
+            order[j] = order[j - 1]; j--;
         }
-        for (size_t i = 0; i < nreal; i++) {
-            size_t fi = order[i];
-            size_t end = (i + 1 < nreal) ? comp->functions[order[i + 1]].text_offset
-                                         : comp->text_section.length;
-            extent_end[fi] = end;
-        }
+        order[j] = key;
+    }
+    for (size_t i = 0; i < nreal; i++) {
+        size_t fi = order[i];
+        size_t end = (i + 1 < nreal) ? comp->functions[order[i + 1]].text_offset
+                                     : comp->text_section.length;
+        extent_end[fi] = end;
+    }
 
+    if (nts_names && nts_size) {
         /* lay out sectioned functions in named sections (in text_offset order) */
         for (size_t i = 0; i < nreal; i++) {
             size_t fi = order[i];
@@ -1073,7 +1185,7 @@ static int write_compiled_object(ZeroCCCompiler *comp, CompileOptions *opts,
             for (int k = 0; k < nts_count; k++)
                 if (strcmp(nts_names[k], f->section) == 0) { si = k; break; }
             if (si < 0) {
-                if (nts_count >= MAX_NTS) { f->section[0] = '\0'; continue; } /* degrade to .text */
+                if (nts_count >= (int)max_nts) { f->section[0] = '\0'; continue; } /* degrade to .text */
                 si = nts_count++;
                 strncpy(nts_names[si], f->section, 63);
                 nts_names[si][63] = '\0';
@@ -1102,9 +1214,9 @@ static int write_compiled_object(ZeroCCCompiler *comp, CompileOptions *opts,
                                    ELF_SHT_PROGBITS, ELF_SHF_ALLOC | ELF_SHF_EXECINSTR, 16);
             free(buf); /* copied into the writer */
         }
-        free(extent_end);
-        free(order);
     }
+    free(nts_names);
+    free(nts_size);
 
     /* Resolve real section indices: empty sections are not emitted, so the
      * positions of later sections shift (a no-.text object has .data at 1). */
@@ -1117,19 +1229,21 @@ static int write_compiled_object(ZeroCCCompiler *comp, CompileOptions *opts,
 
     /* Add .rodata section symbol first (needed for string literal relocations) */
     /* Section symbols must come before global symbols for correct sh_info calculation */
-    if (comp->rodata_section.length > 0) {
+    int rodata_symbol_idx = 0;
+    if (comp->rodata_section.length > 0 && rodata_idx != 0) {
         elf_writer_add_symbol(&elf_ctx, ".rodata",
                               ELF_STB_LOCAL, ELF_STT_SECTION,
                               rodata_idx,  /* .rodata section index */
                               0, 0);
+        rodata_symbol_idx = elf_ctx.symbol_count;
     }
-    if (comp->data_section.length > 0) {
+    if (comp->data_section.length > 0 && data_idx != 0) {
         elf_writer_add_symbol(&elf_ctx, ".data",
                               ELF_STB_LOCAL, ELF_STT_SECTION,
                               data_idx,  /* .data section index */
                               0, 0);
     }
-    if (comp->text_section.length > 0) {
+    if (comp->text_section.length > 0 && text_idx != 0) {
         elf_writer_add_symbol(&elf_ctx, ".text",
                               ELF_STB_LOCAL, ELF_STT_SECTION,
                               text_idx,  /* .text section index */
@@ -1350,9 +1464,13 @@ static int write_compiled_object(ZeroCCCompiler *comp, CompileOptions *opts,
                                   sym_type, SHN_UNDEF, 0, 0);
             symbol_idx = (int)elf_ctx.symbol_count;
         }
+        uint16_t cur_sec = text_idx;
+        uint64_t cur_off = r->text_patch_offset;
+        resolve_text_reloc_loc(comp, &elf_ctx, order, extent_end, nreal, text_idx, r->text_patch_offset, &cur_sec, &cur_off);
+
         if (r->is_call) {
-            elf_writer_add_relocation(&elf_ctx, text_idx,  /* .text section */
-                                      r->text_patch_offset,
+            elf_writer_add_relocation(&elf_ctx, cur_sec,
+                                      cur_off,
                                       symbol_idx,
                                       reloc_type_call,
                                       addend_call);
@@ -1360,14 +1478,16 @@ static int write_compiled_object(ZeroCCCompiler *comp, CompileOptions *opts,
             /* Static TLS (initial-exec, x86-64): the 32-bit displacement of
              * lea reg, [fs+disp32] gets R_X86_64_TPOFF32 against the
              * variable's .tdata/.tbss symbol. */
-            elf_writer_add_relocation(&elf_ctx, text_idx,
-                                      r->text_patch_offset,
+            elf_writer_add_relocation(&elf_ctx, cur_sec,
+                                      cur_off,
                                       symbol_idx,
                                       0x17 /* R_X86_64_TPOFF32 */,
                                       0);
         } else if (symbol_idx > 0) {
             if ((comp->isa == ISA_RISCV64 || comp->isa == ISA_RISCV32) &&
                 r->text_patch_offset >= 4) {
+                uint16_t hi_sec = text_idx; uint64_t hi_off = r->text_patch_offset - 4;
+                resolve_text_reloc_loc(comp, &elf_ctx, order, extent_end, nreal, text_idx, r->text_patch_offset - 4, &hi_sec, &hi_off);
                 /* RISC-V psABI: The auipc instruction at (patch_offset - 4) gets
                  * R_RISCV_PCREL_HI20 targeting symbol_idx (with addend 0).
                  * The following instruction at patch_offset gets R_RISCV_PCREL_LO12_I
@@ -1376,51 +1496,55 @@ static int write_compiled_object(ZeroCCCompiler *comp, CompileOptions *opts,
                 snprintf(lbl, sizeof(lbl), ".Lpcrel_sym_%zu", i);
                 elf_writer_add_symbol(&elf_ctx, lbl,
                                       ELF_STB_LOCAL, ELF_STT_NOTYPE,
-                                      text_idx /* .text */,
-                                      r->text_patch_offset - 4,
+                                      hi_sec,
+                                      hi_off,
                                       0);
                 int label_sym_idx = elf_ctx.symbol_count;
 
-                elf_writer_add_relocation(&elf_ctx, text_idx,
-                                          r->text_patch_offset - 4,
+                elf_writer_add_relocation(&elf_ctx, hi_sec,
+                                          hi_off,
                                           symbol_idx,
                                           reloc_type_hi20,
                                           0);
-                elf_writer_add_relocation(&elf_ctx, text_idx,
-                                          r->text_patch_offset,
+                elf_writer_add_relocation(&elf_ctx, cur_sec,
+                                          cur_off,
                                           label_sym_idx,
                                           reloc_type_rodata, /* R_RISCV_PCREL_LO12_I (24) */
                                           0);
             } else if (comp->isa == ISA_AARCH64 && r->text_patch_offset >= 4) {
+                uint16_t hi_sec = text_idx; uint64_t hi_off = r->text_patch_offset - 4;
+                resolve_text_reloc_loc(comp, &elf_ctx, order, extent_end, nreal, text_idx, r->text_patch_offset - 4, &hi_sec, &hi_off);
                 /* AArch64: adrp at (patch_offset - 4) gets R_AARCH64_ADR_PREL_PG_HI21 (275),
                  * add at patch_offset gets R_AARCH64_ADD_ABS_LO12_NC (277). */
-                elf_writer_add_relocation(&elf_ctx, text_idx,
-                                          r->text_patch_offset - 4,
+                elf_writer_add_relocation(&elf_ctx, hi_sec,
+                                          hi_off,
                                           symbol_idx,
                                           275 /* R_AARCH64_ADR_PREL_PG_HI21 */,
                                           0);
-                elf_writer_add_relocation(&elf_ctx, text_idx,
-                                          r->text_patch_offset,
+                elf_writer_add_relocation(&elf_ctx, cur_sec,
+                                          cur_off,
                                           symbol_idx,
                                           277 /* R_AARCH64_ADD_ABS_LO12_NC */,
                                           0);
             } else if (comp->isa == ISA_AARCH32 && r->text_patch_offset >= 4) {
+                uint16_t hi_sec = text_idx; uint64_t hi_off = r->text_patch_offset - 4;
+                resolve_text_reloc_loc(comp, &elf_ctx, order, extent_end, nreal, text_idx, r->text_patch_offset - 4, &hi_sec, &hi_off);
                 /* AArch32: movw at (patch_offset - 4) gets R_ARM_MOVW_ABS_NC (43),
                  * movt at patch_offset gets R_ARM_MOVT_ABS (44). */
-                elf_writer_add_relocation(&elf_ctx, text_idx,
-                                          r->text_patch_offset - 4,
+                elf_writer_add_relocation(&elf_ctx, hi_sec,
+                                          hi_off,
                                           symbol_idx,
                                           43 /* R_ARM_MOVW_ABS_NC */,
                                           0);
-                elf_writer_add_relocation(&elf_ctx, text_idx,
-                                          r->text_patch_offset,
+                elf_writer_add_relocation(&elf_ctx, cur_sec,
+                                          cur_off,
                                           symbol_idx,
                                           44 /* R_ARM_MOVT_ABS */,
                                           0);
             } else {
                 int reloc_type_abs64 = (comp->isa == ISA_X86_64) ? 1 /* R_X86_64_64 */ : reloc_type_rodata;
-                elf_writer_add_relocation(&elf_ctx, text_idx,
-                                          r->text_patch_offset,
+                elf_writer_add_relocation(&elf_ctx, cur_sec,
+                                          cur_off,
                                           symbol_idx,
                                           reloc_type_abs64,
                                           0);
@@ -1429,12 +1553,18 @@ static int write_compiled_object(ZeroCCCompiler *comp, CompileOptions *opts,
     }
 
     /* Add relocation entries for string literals (.rodata references) */
-    int rodata_symbol_idx = 1;
+    if (rodata_symbol_idx == 0) rodata_symbol_idx = 1;
 
     for (size_t i = 0; i < comp->str_reloc_count; i++) {
         ZeroCCStringReloc *sr = &comp->str_relocs[i];
+        uint16_t cur_sec = text_idx;
+        uint64_t cur_off = sr->text_patch_offset;
+        resolve_text_reloc_loc(comp, &elf_ctx, order, extent_end, nreal, text_idx, sr->text_patch_offset, &cur_sec, &cur_off);
+
         if ((comp->isa == ISA_RISCV64 || comp->isa == ISA_RISCV32) &&
             sr->text_patch_offset >= 4) {
+            uint16_t hi_sec = text_idx; uint64_t hi_off = sr->text_patch_offset - 4;
+            resolve_text_reloc_loc(comp, &elf_ctx, order, extent_end, nreal, text_idx, sr->text_patch_offset - 4, &hi_sec, &hi_off);
             /* RISC-V psABI: The auipc instruction at (patch_offset - 4) gets
              * R_RISCV_PCREL_HI20 targeting .rodata section symbol with rodata_offset.
              * The following instruction (addi/fld) at patch_offset gets
@@ -1443,50 +1573,54 @@ static int write_compiled_object(ZeroCCCompiler *comp, CompileOptions *opts,
             snprintf(lbl, sizeof(lbl), ".Lpcrel_str_%zu", i);
             elf_writer_add_symbol(&elf_ctx, lbl,
                                   ELF_STB_LOCAL, ELF_STT_NOTYPE,
-                                  text_idx /* .text */,
-                                  sr->text_patch_offset - 4,
+                                  hi_sec,
+                                  hi_off,
                                   0);
             int label_sym_idx = elf_ctx.symbol_count;
 
-            elf_writer_add_relocation(&elf_ctx, text_idx,
-                                      sr->text_patch_offset - 4,
+            elf_writer_add_relocation(&elf_ctx, hi_sec,
+                                      hi_off,
                                       rodata_symbol_idx,
                                       reloc_type_hi20,
                                       (int64_t)sr->rodata_offset + addend_rodata);
-            elf_writer_add_relocation(&elf_ctx, text_idx,
-                                      sr->text_patch_offset,
+            elf_writer_add_relocation(&elf_ctx, cur_sec,
+                                      cur_off,
                                       label_sym_idx,
                                       reloc_type_rodata, /* R_RISCV_PCREL_LO12_I (24) */
                                       0);
         } else if (comp->isa == ISA_AARCH64 && sr->text_patch_offset >= 4) {
+            uint16_t hi_sec = text_idx; uint64_t hi_off = sr->text_patch_offset - 4;
+            resolve_text_reloc_loc(comp, &elf_ctx, order, extent_end, nreal, text_idx, sr->text_patch_offset - 4, &hi_sec, &hi_off);
             /* AArch64: adrp at (patch_offset - 4) gets R_AARCH64_ADR_PREL_PG_HI21 (275),
              * add at patch_offset gets R_AARCH64_ADD_ABS_LO12_NC (277). */
-            elf_writer_add_relocation(&elf_ctx, text_idx,
-                                      sr->text_patch_offset - 4,
+            elf_writer_add_relocation(&elf_ctx, hi_sec,
+                                      hi_off,
                                       rodata_symbol_idx,
                                       275 /* R_AARCH64_ADR_PREL_PG_HI21 */,
                                       (int64_t)sr->rodata_offset);
-            elf_writer_add_relocation(&elf_ctx, text_idx,
-                                      sr->text_patch_offset,
+            elf_writer_add_relocation(&elf_ctx, cur_sec,
+                                      cur_off,
                                       rodata_symbol_idx,
                                       277 /* R_AARCH64_ADD_ABS_LO12_NC */,
                                       (int64_t)sr->rodata_offset);
         } else if (comp->isa == ISA_AARCH32 && sr->text_patch_offset >= 4) {
+            uint16_t hi_sec = text_idx; uint64_t hi_off = sr->text_patch_offset - 4;
+            resolve_text_reloc_loc(comp, &elf_ctx, order, extent_end, nreal, text_idx, sr->text_patch_offset - 4, &hi_sec, &hi_off);
             /* AArch32: movw at (patch_offset - 4) gets R_ARM_MOVW_ABS_NC (43),
              * movt at patch_offset gets R_ARM_MOVT_ABS (44). */
-            elf_writer_add_relocation(&elf_ctx, text_idx,
-                                      sr->text_patch_offset - 4,
+            elf_writer_add_relocation(&elf_ctx, hi_sec,
+                                      hi_off,
                                       rodata_symbol_idx,
                                       43 /* R_ARM_MOVW_ABS_NC */,
                                       (int64_t)sr->rodata_offset);
-            elf_writer_add_relocation(&elf_ctx, text_idx,
-                                      sr->text_patch_offset,
+            elf_writer_add_relocation(&elf_ctx, cur_sec,
+                                      cur_off,
                                       rodata_symbol_idx,
                                       44 /* R_ARM_MOVT_ABS */,
                                       (int64_t)sr->rodata_offset);
         } else {
-            elf_writer_add_relocation(&elf_ctx, text_idx,
-                                      sr->text_patch_offset,
+            elf_writer_add_relocation(&elf_ctx, cur_sec,
+                                      cur_off,
                                       rodata_symbol_idx,
                                       reloc_type_rodata,
                                       (int64_t)sr->rodata_offset + addend_rodata);
@@ -1498,41 +1632,53 @@ static int write_compiled_object(ZeroCCCompiler *comp, CompileOptions *opts,
      * label symbol at the target offset in .text; the ISA pair relocations
      * carry addend 0 (the label symbol IS the exact target). */
     for (size_t i = 0; i < comp->nl_goto_reloc_count; i++) {
+        uint16_t tgt_sec = text_idx; uint64_t tgt_off = comp->nl_goto_relocs[i].text_target_offset;
+        resolve_text_reloc_loc(comp, &elf_ctx, order, extent_end, nreal, text_idx, comp->nl_goto_relocs[i].text_target_offset, &tgt_sec, &tgt_off);
+
         char lbl[64];
         snprintf(lbl, sizeof(lbl), ".Lnl_goto_%zu", i);
         elf_writer_add_symbol(&elf_ctx, lbl,
                               ELF_STB_LOCAL, ELF_STT_NOTYPE,
-                              text_idx /* .text */,
-                              comp->nl_goto_relocs[i].text_target_offset,
+                              tgt_sec,
+                              tgt_off,
                               0);
         int label_sym_idx = elf_ctx.symbol_count;
+
+        uint16_t cur_sec = text_idx; uint64_t cur_off = comp->nl_goto_relocs[i].text_patch_offset;
+        resolve_text_reloc_loc(comp, &elf_ctx, order, extent_end, nreal, text_idx, comp->nl_goto_relocs[i].text_patch_offset, &cur_sec, &cur_off);
+
         if (comp->isa == ISA_RISCV64 || comp->isa == ISA_RISCV32) {
+            uint16_t hi_sec = text_idx; uint64_t hi_off = comp->nl_goto_relocs[i].text_patch_offset - 4;
+            resolve_text_reloc_loc(comp, &elf_ctx, order, extent_end, nreal, text_idx, comp->nl_goto_relocs[i].text_patch_offset - 4, &hi_sec, &hi_off);
+
             char auipc_lbl[64];
             snprintf(auipc_lbl, sizeof(auipc_lbl), ".Lnl_goto_auipc_%zu", i);
             elf_writer_add_symbol(&elf_ctx, auipc_lbl,
                                   ELF_STB_LOCAL, ELF_STT_NOTYPE,
-                                  text_idx,
-                                  comp->nl_goto_relocs[i].text_patch_offset - 4,
+                                  hi_sec,
+                                  hi_off,
                                   0);
             int auipc_sym_idx = elf_ctx.symbol_count;
-            elf_writer_add_relocation(&elf_ctx, text_idx,
-                                      comp->nl_goto_relocs[i].text_patch_offset - 4,
+            elf_writer_add_relocation(&elf_ctx, hi_sec,
+                                      hi_off,
                                       label_sym_idx,
                                       reloc_type_hi20, /* R_RISCV_PCREL_HI20 (23) */
                                       0);
-            elf_writer_add_relocation(&elf_ctx, text_idx,
-                                      comp->nl_goto_relocs[i].text_patch_offset,
+            elf_writer_add_relocation(&elf_ctx, cur_sec,
+                                      cur_off,
                                       auipc_sym_idx,
                                       reloc_type_rodata, /* R_RISCV_PCREL_LO12_I (24) */
                                       0);
         } else if (comp->isa == ISA_AARCH64) {
-            elf_writer_add_relocation(&elf_ctx, text_idx,
-                                      comp->nl_goto_relocs[i].text_patch_offset - 4,
+            uint16_t hi_sec = text_idx; uint64_t hi_off = comp->nl_goto_relocs[i].text_patch_offset - 4;
+            resolve_text_reloc_loc(comp, &elf_ctx, order, extent_end, nreal, text_idx, comp->nl_goto_relocs[i].text_patch_offset - 4, &hi_sec, &hi_off);
+            elf_writer_add_relocation(&elf_ctx, hi_sec,
+                                      hi_off,
                                       label_sym_idx,
                                       275 /* R_AARCH64_ADR_PREL_PG_HI21 */,
                                       0);
-            elf_writer_add_relocation(&elf_ctx, text_idx,
-                                      comp->nl_goto_relocs[i].text_patch_offset,
+            elf_writer_add_relocation(&elf_ctx, cur_sec,
+                                      cur_off,
                                       label_sym_idx,
                                       277 /* R_AARCH64_ADD_ABS_LO12_NC */,
                                       0);
@@ -1565,11 +1711,16 @@ static int write_compiled_object(ZeroCCCompiler *comp, CompileOptions *opts,
                 }
             }
             if (in_elim_gv) continue;
+
+            uint16_t d_sec = data_section_idx;
+            uint64_t d_off = dr->data_patch_offset;
+            resolve_data_reloc_loc(comp, &elf_ctx, data_section_idx, dr->data_patch_offset, &d_sec, &d_off);
+
             if (dr->target_kind == 0) {
                 /* .rodata + rodata_offset + target_data_offset: target the .rodata section symbol (idx 1) */
                 if (comp->rodata_section.length > 0) {
-                    elf_writer_add_relocation(&elf_ctx, data_section_idx, dr->data_patch_offset,
-                                              1, reloc_type_data_abs,
+                    elf_writer_add_relocation(&elf_ctx, d_sec, d_off,
+                                              rodata_symbol_idx, reloc_type_data_abs,
                                               (int64_t)dr->rodata_offset + (int64_t)dr->target_data_offset);
                 }
             } else if (dr->target_kind == 1 && dr->target_global_idx >= 0 &&
@@ -1586,7 +1737,7 @@ static int write_compiled_object(ZeroCCCompiler *comp, CompileOptions *opts,
                     int64_t extra = (dr->target_data_offset == (size_t)-1) ? 0 :
                                     (int64_t)dr->target_data_offset -
                                     (int64_t)comp->global_vars[dr->target_global_idx].data_offset;
-                    elf_writer_add_relocation(&elf_ctx, data_section_idx, dr->data_patch_offset,
+                    elf_writer_add_relocation(&elf_ctx, d_sec, d_off,
                                               sym_idx, reloc_type_data_abs, extra);
                 }
             } else if (dr->target_kind == 2 && dr->target_extern_name[0]) {
@@ -1604,7 +1755,7 @@ static int write_compiled_object(ZeroCCCompiler *comp, CompileOptions *opts,
                                           SHN_UNDEF, 0, 0);
                     sym_idx = elf_ctx.symbol_count;
                 }
-                elf_writer_add_relocation(&elf_ctx, data_section_idx, dr->data_patch_offset,
+                elf_writer_add_relocation(&elf_ctx, d_sec, d_off,
                                           sym_idx, reloc_type_data_abs, (int64_t)dr->target_data_offset);
             } else if (dr->target_kind == 3 && dr->target_extern_name[0]) {
                 /* Function pointer initializer: reloc against the function
@@ -1620,7 +1771,7 @@ static int write_compiled_object(ZeroCCCompiler *comp, CompileOptions *opts,
                                           SHN_UNDEF, 0, 0);
                     sym_idx = elf_ctx.symbol_count;
                 }
-                elf_writer_add_relocation(&elf_ctx, data_section_idx, dr->data_patch_offset,
+                elf_writer_add_relocation(&elf_ctx, d_sec, d_off,
                                           sym_idx, reloc_type_data_abs, (int64_t)dr->target_data_offset);
             } else if (dr->target_kind == 4) {
                 /* Absolute .data offset: address of an in-TU static local.
@@ -1636,7 +1787,7 @@ static int write_compiled_object(ZeroCCCompiler *comp, CompileOptions *opts,
                                           data_section_idx, 0, 0);
                     dsym = elf_ctx.symbol_count;
                 }
-                elf_writer_add_relocation(&elf_ctx, data_section_idx, dr->data_patch_offset,
+                elf_writer_add_relocation(&elf_ctx, d_sec, d_off,
                                           dsym, reloc_type_data_abs,
                                           (int64_t)dr->target_data_offset);
             } else if (dr->target_kind == 5) {
@@ -1651,12 +1802,15 @@ static int write_compiled_object(ZeroCCCompiler *comp, CompileOptions *opts,
                                           text_idx, 0, 0);
                     tsym = elf_ctx.symbol_count;
                 }
-                elf_writer_add_relocation(&elf_ctx, data_section_idx, dr->data_patch_offset,
+                elf_writer_add_relocation(&elf_ctx, d_sec, d_off,
                                           tsym, reloc_type_data_abs,
                                           (int64_t)dr->target_data_offset);
             }
         }
     }
+
+    free(extent_end);
+    free(order);
 
     /* Fat-LTO payload (.zc.lto, non-allocatable preprocessed C source) */
     if (lto_prep_source && lto_prep_source[0] && !opts->emit_asm) {
@@ -2135,6 +2289,9 @@ static int compile_and_link(CompileOptions *opts) {
         lopts.pie = opts->zerocc_link_pie ? true : false;
         lopts.gc_sections = (opts->gc_sections || (opts->lto && !opts->gc_sections_explicit)) ? true : false;
         lopts.print_gc_sections = opts->print_gc_sections ? true : false;
+        lopts.entry_symbol = opts->entry_symbol;
+        lopts.undefined_syms = opts->undefined_syms;
+        lopts.undefined_sym_count = opts->undefined_sym_count;
 
         int lr = zero_cc_link_exec_ext(output, objs_ref, obj_count,
                                        arch_paths, arch_count,
@@ -2184,6 +2341,24 @@ static int compile_and_link(CompileOptions *opts) {
         strncat(lib_args, opts->libs[i], sizeof(lib_args) - strlen(lib_args) - 1);
     }
 
+    char gc_args[1024] = "";
+    if (opts->gc_sections || (opts->lto && !opts->gc_sections_explicit)) {
+        strncat(gc_args, " -Wl,--gc-sections", sizeof(gc_args) - strlen(gc_args) - 1);
+    }
+    if (opts->print_gc_sections) {
+        strncat(gc_args, " -Wl,--print-gc-sections", sizeof(gc_args) - strlen(gc_args) - 1);
+    }
+    if (opts->entry_symbol) {
+        char e_buf[256];
+        snprintf(e_buf, sizeof(e_buf), " -Wl,-e,%s", opts->entry_symbol);
+        strncat(gc_args, e_buf, sizeof(gc_args) - strlen(gc_args) - 1);
+    }
+    for (int i = 0; i < opts->undefined_sym_count; i++) {
+        char u_buf[256];
+        snprintf(u_buf, sizeof(u_buf), " -Wl,-u,%s", opts->undefined_syms[i]);
+        strncat(gc_args, u_buf, sizeof(gc_args) - strlen(gc_args) - 1);
+    }
+
     if (target_isa == ISA_RISCV32) {
         char musl_prefix[512];
         if (!find_rv32_musl_prefix(musl_prefix, sizeof musl_prefix)) {
@@ -2209,19 +2384,19 @@ static int compile_and_link(CompileOptions *opts) {
                  "%s/lib/crt1.o %s/lib/crti.o "
                  "%s "
                  "%s/lib/libc.a %s/lib/libgcc.a%s %s/lib/crtn.o "
-                 "-o %s%s 2>&1",
+                 "-o %s%s%s 2>&1",
                  musl_prefix, musl_prefix,
                  all_objs,
                  musl_prefix, musl_prefix, rt_arg, musl_prefix,
-                 output, lib_args);
+                 output, lib_args, gc_args);
     } else {
         char rt_arg[2100] = "";
         if (!opts->no_zerocc_rt && rt_path[0] && access(rt_path, R_OK) == 0) {
             snprintf(rt_arg, sizeof(rt_arg), " %s", rt_path);
         }
         snprintf(cmd, sizeof(cmd),
-                 "%s %s %s -Wl,--defsym=link_error=0 -o %s %s -lc -lm%s%s 2>&1",
-                 linker, abi_flags, static_flag, output, all_objs, rt_arg, lib_args);
+                 "%s %s %s -Wl,--defsym=link_error=0 -o %s %s -lc -lm%s%s%s 2>&1",
+                 linker, abi_flags, static_flag, output, all_objs, rt_arg, lib_args, gc_args);
     }
 
     if (opts->verbose) {

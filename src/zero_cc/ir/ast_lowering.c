@@ -424,7 +424,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     if (!needs_protect && lowering_fn && !c->debug_info) {
         ZeroCCFunction *fn = lowering_fn;
         int max_int_params = zc_target_traits(c)->max_promoted_int_params;
-        if (!fn->is_variadic && fn->ret_struct_sz <= 16 &&
+        if (!fn->is_variadic && !zero_cc_abi_type_uses_sret(c, &fn->return_type) &&
             c->local_count == fn->param_count &&
             !zero_cc_ast_has_call(arena, root, NULL) &&
             !zero_cc_ast_has_asm(arena, root) &&
@@ -569,11 +569,11 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         int int_idx = 0;
         int stack_idx = 0;
 
-        /* >16 byte struct returns use hidden sret pointer:
+        /* Struct returns that use hidden sret pointer:
          * - System V AMD64 ABI (x86-64): RDI (param_idx=0), real params start at RSI (int_idx=1)
          * - RISC-V LP64D ABI: a0 (param_idx=0), real params start at a1 (int_idx=1)
          * - AArch64 AAPCS64 ABI: x8 (Indirect Result Location Register, param_idx=8), real params start at x0 (int_idx=0) */
-        bool uses_sret = fn->ret_struct_sz > 16;
+        bool uses_sret = zero_cc_abi_type_uses_sret(c, &fn->return_type);
         /* >16B struct/union params: pending hidden-pointer copies to run
          * after ALL param saves (see the branch below for why). */
         int32_t big_param_pt_off[64];
@@ -591,8 +591,8 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         uint8_t fpstack_is_flt[64];
         int fpstack_copy_count = 0;
         if (uses_sret) {
-            if (c->isa == ISA_AARCH64) {
-                ir_emit_param_save_int(c, 8, fn->sret_stack_offset);  /* param_idx=8 means x8 on AArch64 */
+            if (!zc_target_traits(c)->sret_consumes_arg0) {
+                ir_emit_param_save_int(c, zc_target_traits(c)->sret_gpr, fn->sret_stack_offset);
                 int_idx = 0;  /* Real params still start at x0 */
             } else {
                 ir_emit_param_save_int(c, 0, fn->sret_stack_offset);  /* param_idx=0 means RDI / a0 */
@@ -1133,8 +1133,9 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         }
     }
 
-    if (c->isa == ISA_AARCH32 && (c->regalloc.next_spill_slot > 0 || c->regalloc.used_callee_saved_gpr_mask != 0)) {
-        c->regalloc.used_callee_saved_gpr_mask |= (1u << 8) | (1u << 9) | (1u << 10);
+    if (zc_target_traits(c)->regs.initial_used_callee_saved_mask &&
+        (c->regalloc.next_spill_slot > 0 || c->regalloc.used_callee_saved_gpr_mask != 0)) {
+        c->regalloc.used_callee_saved_gpr_mask |= zc_target_traits(c)->regs.initial_used_callee_saved_mask;
     }
 
     if (c->dump_ir) {

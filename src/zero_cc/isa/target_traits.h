@@ -24,9 +24,12 @@ typedef struct TargetRegDesc {
     int      lr_gpr;                     /* Link register (-1 if none) */
     int      vreg1_hw_reg;               /* Hardware register for VREG_1 / VREG_F1 (1 on x86/arm, 11 on riscv) */
     int      num_gprs;                   /* Number of general purpose registers */
+    int      num_fp_regs;                /* Number of floating point registers */
     int      num_vec_regs;               /* Number of vector registers */
     bool     vec_aliases_xmm;            /* True if vector registers share physical register file with FP */
     const char * const *vec_reg_names;   /* Vector register names table (or NULL if no vector unit) */
+    int      fp_scratch_reg1;            /* Primary FP scratch register */
+    int      fp_scratch_reg2;            /* Secondary FP scratch register */
 
     /* GPR allocation order pool */
     const int *alloc_pool;
@@ -192,9 +195,12 @@ static inline const TargetTraits *zero_cc_get_target_traits(ZeroCCISA isa) {
                     .lr_gpr = -1,
                     .vreg1_hw_reg = 1,
                     .num_gprs = 16,
+                    .num_fp_regs = 8,
                     .num_vec_regs = 16,
                     .vec_aliases_xmm = true,
                     .vec_reg_names = s_vec_regs_x86,
+                    .fp_scratch_reg1 = 15,
+                    .fp_scratch_reg2 = 14,
                     .alloc_pool = s_x86_alloc_pool,
                     .alloc_pool_count = sizeof(s_x86_alloc_pool) / sizeof(s_x86_alloc_pool[0]),
                     .pair_cs_pool = s_x86_pair_cs_pool,
@@ -258,9 +264,12 @@ static inline const TargetTraits *zero_cc_get_target_traits(ZeroCCISA isa) {
                     .lr_gpr = 30,
                     .vreg1_hw_reg = 1,
                     .num_gprs = 32,
+                    .num_fp_regs = 32,
                     .num_vec_regs = 32,
                     .vec_aliases_xmm = true,
                     .vec_reg_names = s_vec_regs_aarch64,
+                    .fp_scratch_reg1 = 15,
+                    .fp_scratch_reg2 = 14,
                     .alloc_pool = s_aarch64_alloc_pool,
                     .alloc_pool_count = sizeof(s_aarch64_alloc_pool) / sizeof(s_aarch64_alloc_pool[0]),
                     .pair_cs_pool = s_aarch64_pair_cs_pool,
@@ -324,9 +333,12 @@ static inline const TargetTraits *zero_cc_get_target_traits(ZeroCCISA isa) {
                     .lr_gpr = 14,
                     .vreg1_hw_reg = 1,
                     .num_gprs = 16,
+                    .num_fp_regs = 16,
                     .num_vec_regs = 16,
                     .vec_aliases_xmm = true,
                     .vec_reg_names = NULL,
+                    .fp_scratch_reg1 = 15,
+                    .fp_scratch_reg2 = 14,
                     .alloc_pool = s_aarch32_alloc_pool,
                     .alloc_pool_count = sizeof(s_aarch32_alloc_pool) / sizeof(s_aarch32_alloc_pool[0]),
                     .pair_cs_pool = s_aarch32_pair_cs_pool,
@@ -390,9 +402,12 @@ static inline const TargetTraits *zero_cc_get_target_traits(ZeroCCISA isa) {
                     .lr_gpr = 1,
                     .vreg1_hw_reg = 11,
                     .num_gprs = 32,
+                    .num_fp_regs = 32,
                     .num_vec_regs = 32,
                     .vec_aliases_xmm = false,
                     .vec_reg_names = s_vec_regs_riscv,
+                    .fp_scratch_reg1 = 15,
+                    .fp_scratch_reg2 = 14,
                     .alloc_pool = s_riscv_alloc_pool,
                     .alloc_pool_count = sizeof(s_riscv_alloc_pool) / sizeof(s_riscv_alloc_pool[0]),
                     .pair_cs_pool = s_riscv64_pair_cs_pool,
@@ -456,9 +471,12 @@ static inline const TargetTraits *zero_cc_get_target_traits(ZeroCCISA isa) {
                     .lr_gpr = 1,
                     .vreg1_hw_reg = 11,
                     .num_gprs = 32,
+                    .num_fp_regs = 32,
                     .num_vec_regs = 32,
                     .vec_aliases_xmm = false,
                     .vec_reg_names = NULL,
+                    .fp_scratch_reg1 = 15,
+                    .fp_scratch_reg2 = 14,
                     .alloc_pool = s_riscv_alloc_pool,
                     .alloc_pool_count = sizeof(s_riscv_alloc_pool) / sizeof(s_riscv_alloc_pool[0]),
                     .pair_cs_pool = s_riscv32_pair_cs_pool,

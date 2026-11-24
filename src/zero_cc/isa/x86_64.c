@@ -1910,6 +1910,308 @@ static void x86_emit_fp_cvtsd2ss(ZeroCCCompiler *c, int fp_dst, int fp_src) {
     x86_modrm(c, 3, fp_dst & 7, fp_src & 7);
 }
 
+/* Horizontal SIMD Vector Reductions (Sprint 210) */
+static void x86_emit_haddps_rr(ZeroCCCompiler *c, int dst, int src) {
+    me_emit_u8(c, 0xF2);
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x7C);
+    x86_modrm(c, 3, dst & 7, src & 7);
+}
+
+static void x86_emit_haddpd_rr(ZeroCCCompiler *c, int dst, int src) {
+    me_emit_u8(c, 0x66);
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x7C);
+    x86_modrm(c, 3, dst & 7, src & 7);
+}
+
+static void x86_emit_phaddd_rr(ZeroCCCompiler *c, int dst, int src) {
+    me_emit_u8(c, 0x66);
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x38);
+    me_emit_u8(c, 0x02);
+    x86_modrm(c, 3, dst & 7, src & 7);
+}
+
+static void x86_emit_movd_xmm_to_gpr(ZeroCCCompiler *c, int dst_gpr, int src_xmm) {
+    me_emit_u8(c, 0x66);
+    x86_rex(c, 0, (src_xmm >> 3) & 1, 0, (dst_gpr >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x7E);
+    x86_modrm(c, 3, src_xmm & 7, dst_gpr & 7);
+}
+
+static void x86_emit_movhlps_rr(ZeroCCCompiler *c, int dst, int src) {
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x12);
+    x86_modrm(c, 3, dst & 7, src & 7);
+}
+
+static void x86_emit_minps_rr(ZeroCCCompiler *c, int dst, int src) {
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x5D);
+    x86_modrm(c, 3, dst & 7, src & 7);
+}
+
+static void x86_emit_maxps_rr(ZeroCCCompiler *c, int dst, int src) {
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x5F);
+    x86_modrm(c, 3, dst & 7, src & 7);
+}
+
+static void x86_emit_minss_rr(ZeroCCCompiler *c, int dst, int src) {
+    me_emit_u8(c, 0xF3);
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x5D);
+    x86_modrm(c, 3, dst & 7, src & 7);
+}
+
+static void x86_emit_maxss_rr(ZeroCCCompiler *c, int dst, int src) {
+    me_emit_u8(c, 0xF3);
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x5F);
+    x86_modrm(c, 3, dst & 7, src & 7);
+}
+
+static void x86_emit_shufps_rr(ZeroCCCompiler *c, int dst, int src, uint8_t imm) {
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0xC6);
+    x86_modrm(c, 3, dst & 7, src & 7);
+    me_emit_u8(c, imm);
+}
+
+static void x86_emit_pshufd_rr(ZeroCCCompiler *c, int dst, int src, uint8_t imm) {
+    me_emit_u8(c, 0x66);
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x70);
+    x86_modrm(c, 3, dst & 7, src & 7);
+    me_emit_u8(c, imm);
+}
+
+static void x86_emit_pminsd_rr(ZeroCCCompiler *c, int dst, int src) {
+    me_emit_u8(c, 0x66);
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x38);
+    me_emit_u8(c, 0x39);
+    x86_modrm(c, 3, dst & 7, src & 7);
+}
+
+static void x86_emit_pmaxsd_rr(ZeroCCCompiler *c, int dst, int src) {
+    me_emit_u8(c, 0x66);
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x38);
+    me_emit_u8(c, 0x3D);
+    x86_modrm(c, 3, dst & 7, src & 7);
+}
+
+static void x86_emit_v128_hadd(ZeroCCCompiler *c, int dst, int src, int esz, int is_fp) {
+    if (is_fp) {
+        if (esz == 3) {
+            if (dst != src) x86_emit_vmovaps(c, dst, src);
+            x86_emit_haddpd_rr(c, dst, dst);
+        } else {
+            if (dst != src) x86_emit_vmovaps(c, dst, src);
+            x86_emit_haddps_rr(c, dst, dst);
+            x86_emit_haddps_rr(c, dst, dst);
+            x86_emit_fp_cvtss2sd(c, dst, dst);
+        }
+    } else {
+        int scratch = 15; /* xmm15 */
+        x86_emit_vmovaps(c, scratch, src);
+        x86_emit_phaddd_rr(c, scratch, scratch);
+        x86_emit_phaddd_rr(c, scratch, scratch);
+        x86_emit_movd_xmm_to_gpr(c, dst, scratch);
+    }
+}
+
+static void x86_emit_v128_hmin(ZeroCCCompiler *c, int dst, int src, int esz, int is_fp) {
+    if (is_fp) {
+        if (dst != src) x86_emit_vmovaps(c, dst, src);
+        x86_emit_movhlps_rr(c, 15, dst);
+        if (esz == 3) {
+            me_emit_u8(c, 0xF2);
+            x86_rex(c, 0, (dst >> 3) & 1, 0, 1);
+            me_emit_u8(c, 0x0F);
+            me_emit_u8(c, 0x5D);
+            x86_modrm(c, 3, dst & 7, 15 & 7);
+        } else {
+            x86_emit_minps_rr(c, dst, 15);
+            x86_emit_shufps_rr(c, 15, dst, 1);
+            x86_emit_minss_rr(c, dst, 15);
+            x86_emit_fp_cvtss2sd(c, dst, dst);
+        }
+    } else {
+        x86_emit_vmovaps(c, 15, src);
+        x86_emit_pshufd_rr(c, 14, 15, 0xEE);
+        x86_emit_pminsd_rr(c, 15, 14);
+        x86_emit_pshufd_rr(c, 14, 15, 0x55);
+        x86_emit_pminsd_rr(c, 15, 14);
+        x86_emit_movd_xmm_to_gpr(c, dst, 15);
+    }
+}
+
+static void x86_emit_v128_hmax(ZeroCCCompiler *c, int dst, int src, int esz, int is_fp) {
+    if (is_fp) {
+        if (dst != src) x86_emit_vmovaps(c, dst, src);
+        x86_emit_movhlps_rr(c, 15, dst);
+        if (esz == 3) {
+            me_emit_u8(c, 0xF2);
+            x86_rex(c, 0, (dst >> 3) & 1, 0, 1);
+            me_emit_u8(c, 0x0F);
+            me_emit_u8(c, 0x5F);
+            x86_modrm(c, 3, dst & 7, 15 & 7);
+        } else {
+            x86_emit_maxps_rr(c, dst, 15);
+            x86_emit_shufps_rr(c, 15, dst, 1);
+            x86_emit_maxss_rr(c, dst, 15);
+            x86_emit_fp_cvtss2sd(c, dst, dst);
+        }
+    } else {
+        x86_emit_vmovaps(c, 15, src);
+        x86_emit_pshufd_rr(c, 14, 15, 0xEE);
+        x86_emit_pmaxsd_rr(c, 15, 14);
+        x86_emit_pshufd_rr(c, 14, 15, 0x55);
+        x86_emit_pmaxsd_rr(c, 15, 14);
+        x86_emit_movd_xmm_to_gpr(c, dst, 15);
+    }
+}
+
+static inline void x86_pinsrd(ZeroCCCompiler *c, int xmm_dst, int base, int32_t disp, uint8_t lane) {
+    me_emit_u8(c, 0x66);
+    x86_rex(c, 0, (xmm_dst >> 3) & 1, 0, (base >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x3A);
+    me_emit_u8(c, 0x22);
+    int mod;
+    if (disp == 0 && (base & 7) != X86_RBP) mod = 0;
+    else if (disp >= -128 && disp <= 127) mod = 1;
+    else mod = 2;
+    x86_modrm(c, mod, xmm_dst & 7, base & 7);
+    if ((base & 7) == X86_RSP) me_emit_u8(c, 0x24);
+    if (mod == 1) me_emit_u8(c, (uint8_t)(int8_t)disp);
+    else if (mod == 2) me_emit_u32(c, (uint32_t)disp);
+    me_emit_u8(c, lane);
+}
+
+static inline void x86_pinsrq(ZeroCCCompiler *c, int xmm_dst, int base, int32_t disp, uint8_t lane) {
+    me_emit_u8(c, 0x66);
+    x86_rex(c, 1, (xmm_dst >> 3) & 1, 0, (base >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x3A);
+    me_emit_u8(c, 0x22);
+    int mod;
+    if (disp == 0 && (base & 7) != X86_RBP) mod = 0;
+    else if (disp >= -128 && disp <= 127) mod = 1;
+    else mod = 2;
+    x86_modrm(c, mod, xmm_dst & 7, base & 7);
+    if ((base & 7) == X86_RSP) me_emit_u8(c, 0x24);
+    if (mod == 1) me_emit_u8(c, (uint8_t)(int8_t)disp);
+    else if (mod == 2) me_emit_u32(c, (uint32_t)disp);
+    me_emit_u8(c, lane);
+}
+
+static inline void x86_pextrd(ZeroCCCompiler *c, int xmm_src, int base, int32_t disp, uint8_t lane) {
+    me_emit_u8(c, 0x66);
+    x86_rex(c, 0, (xmm_src >> 3) & 1, 0, (base >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x3A);
+    me_emit_u8(c, 0x16);
+    int mod;
+    if (disp == 0 && (base & 7) != X86_RBP) mod = 0;
+    else if (disp >= -128 && disp <= 127) mod = 1;
+    else mod = 2;
+    x86_modrm(c, mod, xmm_src & 7, base & 7);
+    if ((base & 7) == X86_RSP) me_emit_u8(c, 0x24);
+    if (mod == 1) me_emit_u8(c, (uint8_t)(int8_t)disp);
+    else if (mod == 2) me_emit_u32(c, (uint32_t)disp);
+    me_emit_u8(c, lane);
+}
+
+static inline void x86_pextrq(ZeroCCCompiler *c, int xmm_src, int base, int32_t disp, uint8_t lane) {
+    me_emit_u8(c, 0x66);
+    x86_rex(c, 1, (xmm_src >> 3) & 1, 0, (base >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x3A);
+    me_emit_u8(c, 0x16);
+    int mod;
+    if (disp == 0 && (base & 7) != X86_RBP) mod = 0;
+    else if (disp >= -128 && disp <= 127) mod = 1;
+    else mod = 2;
+    x86_modrm(c, mod, xmm_src & 7, base & 7);
+    if ((base & 7) == X86_RSP) me_emit_u8(c, 0x24);
+    if (mod == 1) me_emit_u8(c, (uint8_t)(int8_t)disp);
+    else if (mod == 2) me_emit_u32(c, (uint32_t)disp);
+    me_emit_u8(c, lane);
+}
+
+static void x86_emit_v128_load_strided(ZeroCCCompiler *c, int dst, int base, int stride, int esz) {
+    if (esz == 8) {
+        me_emit_u8(c, 0xF2);
+        x86_rex(c, 0, (dst >> 3) & 1, 0, (base >> 3) & 1);
+        me_emit_u8(c, 0x0F);
+        me_emit_u8(c, 0x10);
+        int mod = (base & 7) == X86_RBP ? 1 : 0;
+        x86_modrm(c, mod, dst & 7, base & 7);
+        if ((base & 7) == X86_RSP) me_emit_u8(c, 0x24);
+        if (mod == 1) me_emit_u8(c, 0);
+
+        x86_pinsrq(c, dst, base, stride, 1);
+    } else {
+        me_emit_u8(c, 0xF3);
+        x86_rex(c, 0, (dst >> 3) & 1, 0, (base >> 3) & 1);
+        me_emit_u8(c, 0x0F);
+        me_emit_u8(c, 0x10);
+        int mod = (base & 7) == X86_RBP ? 1 : 0;
+        x86_modrm(c, mod, dst & 7, base & 7);
+        if ((base & 7) == X86_RSP) me_emit_u8(c, 0x24);
+        if (mod == 1) me_emit_u8(c, 0);
+
+        for (int lane = 1; lane < 4; lane++) {
+            x86_pinsrd(c, dst, base, lane * stride, (uint8_t)lane);
+        }
+    }
+}
+
+static void x86_emit_v128_store_strided(ZeroCCCompiler *c, int src, int base, int stride, int esz) {
+    if (esz == 8) {
+        me_emit_u8(c, 0xF2);
+        x86_rex(c, 0, (src >> 3) & 1, 0, (base >> 3) & 1);
+        me_emit_u8(c, 0x0F);
+        me_emit_u8(c, 0x11);
+        int mod = (base & 7) == X86_RBP ? 1 : 0;
+        x86_modrm(c, mod, src & 7, base & 7);
+        if ((base & 7) == X86_RSP) me_emit_u8(c, 0x24);
+        if (mod == 1) me_emit_u8(c, 0);
+
+        x86_pextrq(c, src, base, stride, 1);
+    } else {
+        me_emit_u8(c, 0xF3);
+        x86_rex(c, 0, (src >> 3) & 1, 0, (base >> 3) & 1);
+        me_emit_u8(c, 0x0F);
+        me_emit_u8(c, 0x11);
+        int mod = (base & 7) == X86_RBP ? 1 : 0;
+        x86_modrm(c, mod, src & 7, base & 7);
+        if ((base & 7) == X86_RSP) me_emit_u8(c, 0x24);
+        if (mod == 1) me_emit_u8(c, 0);
+
+        for (int lane = 1; lane < 4; lane++) {
+            x86_pextrd(c, src, base, lane * stride, (uint8_t)lane);
+        }
+    }
+}
+
 static void x86_emit_const(ZeroCCCompiler *c, int64_t value) {
     x86_emit_mov_imm(c, 0, value);  /* rax */
 }
@@ -2331,8 +2633,8 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .sp_reg = X86_RSP,  /* hardware encoding 4 */
     .scratch_reg1 = 10,                        /* r10 (non-argument/return register) */
     .scratch_reg2 = 11,                        /* r11 (non-argument/return register) */
-    .fp_scratch_reg1 = REGALLOC_FP_SCRATCH1,  /* xmm15 - outside XMM pool 0-7 */
-    .fp_scratch_reg2 = REGALLOC_FP_SCRATCH2,   /* xmm14 - outside XMM pool 0-7 */
+    .fp_scratch_reg1 = 15,                     /* xmm15 - outside XMM pool 0-7 */
+    .fp_scratch_reg2 = 14,                     /* xmm14 - outside XMM pool 0-7 */
     /* 128-bit spill scratch (reserved; excluded from the 64-bit and GPR128 pools):
      * pair0 = (r10, r11). Only ONE pair is safe on x86-64 -- the only GPRs outside both
      * the 64-bit and GPR128 value pools are r10/r11; freeing more (e.g. r8/r9) from the
@@ -2485,6 +2787,14 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_cvtss2sd = x86_emit_fp_cvtss2sd,
     .emit_cvtsi2ss = x86_emit_fp_cvtsi2ss,
     .emit_cvtsd2ss = x86_emit_fp_cvtsd2ss,
+    .emit_v128_hadd = x86_emit_v128_hadd,
+    .emit_v128_hmin = x86_emit_v128_hmin,
+    .emit_v128_hmax = x86_emit_v128_hmax,
+    .emit_v128_load_strided = x86_emit_v128_load_strided,
+    .emit_v128_store_strided = x86_emit_v128_store_strided,
+    .emit_v128_hadd_asm = x86_emit_v128_hadd_asm,
+    .emit_v128_hmin_asm = x86_emit_v128_hmin_asm,
+    .emit_v128_hmax_asm = x86_emit_v128_hmax_asm,
     .patch_jmp = x86_patch_jmp,
     .resolve_labels = x86_resolve_labels,
 

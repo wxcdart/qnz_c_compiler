@@ -1359,6 +1359,94 @@ static void aarch64_emit_vcmpsd_asm(ZeroCCCompiler *c, int dst, int src1, int sr
     fprintf(out, "\tfcmp\td%s, d%s\n", src1_name + 1, src2_name + 1);
 }
 
+/* Horizontal SIMD Vector Reductions (Sprint 210) */
+static void aarch64_emit_v128_hadd_asm(ZeroCCCompiler *c, int dst, int src, int esz, int is_fp, FILE *out) {
+    if (is_fp) {
+        const char *dst_name = BE(c)->get_vec_reg_name(dst);
+        const char *src_name = BE(c)->get_vec_reg_name(src);
+        if (esz == 3) {
+            fprintf(out, "\tfaddp\td%s, v%s.2d\n", dst_name + 1, src_name + 1);
+        } else {
+            fprintf(out, "\tfaddp\tv%s.4s, v%s.4s, v%s.4s\n", dst_name + 1, src_name + 1, src_name + 1);
+            fprintf(out, "\tfaddp\tv%s.4s, v%s.4s, v%s.4s\n", dst_name + 1, dst_name + 1, dst_name + 1);
+            fprintf(out, "\tfcvt\td%s, s%s\n", dst_name + 1, dst_name + 1);
+        }
+    } else {
+        const char *src_name = BE(c)->get_vec_reg_name(src);
+        const char *dst_name = BE(c)->get_hw_reg_name(dst);
+        fprintf(out, "\taddv\ts16, v%s.4s\n", src_name + 1);
+        fprintf(out, "\tfmov\tw%s, s16\n", dst_name + 1);
+    }
+}
+
+static void aarch64_emit_v128_hmin_asm(ZeroCCCompiler *c, int dst, int src, int esz, int is_fp, FILE *out) {
+    if (is_fp) {
+        const char *dst_name = BE(c)->get_vec_reg_name(dst);
+        const char *src_name = BE(c)->get_vec_reg_name(src);
+        char reg_char = (esz == 3) ? 'd' : 's';
+        const char *suf = (esz == 3) ? ".2d" : ".4s";
+        fprintf(out, "\tfminnmv\t%c%s, v%s%s\n", reg_char, dst_name + 1, src_name + 1, suf);
+        if (esz != 3) {
+            fprintf(out, "\tfcvt\td%s, s%s\n", dst_name + 1, dst_name + 1);
+        }
+    } else {
+        const char *src_name = BE(c)->get_vec_reg_name(src);
+        const char *dst_name = BE(c)->get_hw_reg_name(dst);
+        fprintf(out, "\tsminv\ts16, v%s.4s\n", src_name + 1);
+        fprintf(out, "\tfmov\tw%s, s16\n", dst_name + 1);
+    }
+}
+
+static void aarch64_emit_v128_hmax_asm(ZeroCCCompiler *c, int dst, int src, int esz, int is_fp, FILE *out) {
+    if (is_fp) {
+        const char *dst_name = BE(c)->get_vec_reg_name(dst);
+        const char *src_name = BE(c)->get_vec_reg_name(src);
+        char reg_char = (esz == 3) ? 'd' : 's';
+        const char *suf = (esz == 3) ? ".2d" : ".4s";
+        fprintf(out, "\tfmaxnmv\t%c%s, v%s%s\n", reg_char, dst_name + 1, src_name + 1, suf);
+        if (esz != 3) {
+            fprintf(out, "\tfcvt\td%s, s%s\n", dst_name + 1, dst_name + 1);
+        }
+    } else {
+        const char *src_name = BE(c)->get_vec_reg_name(src);
+        const char *dst_name = BE(c)->get_hw_reg_name(dst);
+        fprintf(out, "\tsmaxv\ts16, v%s.4s\n", src_name + 1);
+        fprintf(out, "\tfmov\tw%s, s16\n", dst_name + 1);
+    }
+}
+
+static void aarch64_emit_v128_load_strided_asm(ZeroCCCompiler *c, int dst, int base, int stride, int esz, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *bname = BE(c)->get_hw_reg_name(base);
+    if (esz == 8) {
+        fprintf(out, "\tld1\t{%s.d}[0], [%s]\n", dst_name, bname);
+        fprintf(out, "\tadd\tx16, %s, #%d\n", bname, stride);
+        fprintf(out, "\tld1\t{%s.d}[1], [x16]\n", dst_name);
+    } else {
+        fprintf(out, "\tld1\t{%s.s}[0], [%s]\n", dst_name, bname);
+        for (int lane = 1; lane < 4; lane++) {
+            fprintf(out, "\tadd\tx16, %s, #%d\n", bname, lane * stride);
+            fprintf(out, "\tld1\t{%s.s}[%d], [x16]\n", dst_name, lane);
+        }
+    }
+}
+
+static void aarch64_emit_v128_store_strided_asm(ZeroCCCompiler *c, int src, int base, int stride, int esz, FILE *out) {
+    const char *src_name = BE(c)->get_vec_reg_name(src);
+    const char *bname = BE(c)->get_hw_reg_name(base);
+    if (esz == 8) {
+        fprintf(out, "\tst1\t{%s.d}[0], [%s]\n", src_name, bname);
+        fprintf(out, "\tadd\tx16, %s, #%d\n", bname, stride);
+        fprintf(out, "\tst1\t{%s.d}[1], [x16]\n", src_name);
+    } else {
+        fprintf(out, "\tst1\t{%s.s}[0], [%s]\n", src_name, bname);
+        for (int lane = 1; lane < 4; lane++) {
+            fprintf(out, "\tadd\tx16, %s, #%d\n", bname, lane * stride);
+            fprintf(out, "\tst1\t{%s.s}[%d], [x16]\n", src_name, lane);
+        }
+    }
+}
+
 /* =========================================================================
  * ARM SVE Scalable Vector Extension Text Emitters (Sprint 203)
  * ========================================================================= */
@@ -1974,6 +2062,11 @@ void aarch64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_cvtsd2ss_asm = aarch64_emit_cvtsd2ss_asm;
     be->emit_vcmpss_asm = aarch64_emit_vcmpss_asm;
     be->emit_vcmpsd_asm = aarch64_emit_vcmpsd_asm;
+    be->emit_v128_hadd_asm = aarch64_emit_v128_hadd_asm;
+    be->emit_v128_hmin_asm = aarch64_emit_v128_hmin_asm;
+    be->emit_v128_hmax_asm = aarch64_emit_v128_hmax_asm;
+    be->emit_v128_load_strided_asm = aarch64_emit_v128_load_strided_asm;
+    be->emit_v128_store_strided_asm = aarch64_emit_v128_store_strided_asm;
 
     /* SVE */
     be->emit_sve_ptrue_asm = aarch64_emit_sve_ptrue_asm;

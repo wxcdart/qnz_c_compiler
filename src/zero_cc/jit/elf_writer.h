@@ -269,7 +269,7 @@ typedef struct {
 // ELF Writer Context
 // ============================================================================
 
-#define ELF_MAX_SECTIONS    32
+#define ELF_MAX_SECTIONS    4096
 #define ELF_INITIAL_SYMBOLS     256
 #define ELF_INITIAL_RELOCATIONS 256
 #define ELF_MAX_STRING_LEN  4096

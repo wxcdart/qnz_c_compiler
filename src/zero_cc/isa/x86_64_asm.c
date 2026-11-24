@@ -1482,6 +1482,114 @@ static void x86_emit_vcmpsd_asm(ZeroCCCompiler *c, int dst, int, int src2, int p
     fprintf(out, "\tcmpsd\t$%d,%%%s,%%%s\n", pred, src2_name, dst_name);
 }
 
+/* Horizontal SIMD Vector Reductions (Sprint 210) */
+static void x86_emit_v128_hadd_asm(ZeroCCCompiler *c, int dst, int src, int esz, int is_fp, FILE *out) {
+    if (is_fp) {
+        const char *dst_name = BE(c)->get_vec_reg_name(dst);
+        const char *src_name = BE(c)->get_vec_reg_name(src);
+        if (esz == 3) {
+            if (dst != src) fprintf(out, "\tmovaps\t%%%s,%%%s\n", src_name, dst_name);
+            fprintf(out, "\thaddpd\t%%%s,%%%s\n", dst_name, dst_name);
+        } else {
+            if (dst != src) fprintf(out, "\tmovaps\t%%%s,%%%s\n", src_name, dst_name);
+            fprintf(out, "\thaddps\t%%%s,%%%s\n", dst_name, dst_name);
+            fprintf(out, "\thaddps\t%%%s,%%%s\n", dst_name, dst_name);
+            fprintf(out, "\tcvtss2sd\t%%%s,%%%s\n", dst_name, dst_name);
+        }
+    } else {
+        const char *src_name = BE(c)->get_vec_reg_name(src);
+        const char *dst_name = BE(c)->get_hw_reg_name(dst);
+        fprintf(out, "\tmovaps\t%%%s,%%xmm15\n", src_name);
+        fprintf(out, "\tphaddd\t%%xmm15,%%xmm15\n");
+        fprintf(out, "\tphaddd\t%%xmm15,%%xmm15\n");
+        fprintf(out, "\tmovd\t%%xmm15,%%%s\n", dst_name);
+    }
+}
+
+static void x86_emit_v128_hmin_asm(ZeroCCCompiler *c, int dst, int src, int esz, int is_fp, FILE *out) {
+    if (is_fp) {
+        const char *dst_name = BE(c)->get_vec_reg_name(dst);
+        const char *src_name = BE(c)->get_vec_reg_name(src);
+        if (esz == 3) {
+            if (dst != src) fprintf(out, "\tmovaps\t%%%s,%%%s\n", src_name, dst_name);
+            fprintf(out, "\tmovhlps\t%%%s,%%xmm15\n", dst_name);
+            fprintf(out, "\tminsd\t%%xmm15,%%%s\n", dst_name);
+        } else {
+            if (dst != src) fprintf(out, "\tmovaps\t%%%s,%%%s\n", src_name, dst_name);
+            fprintf(out, "\tmovhlps\t%%%s,%%xmm15\n", dst_name);
+            fprintf(out, "\tminps\t%%xmm15,%%%s\n", dst_name);
+            fprintf(out, "\tshufps\t$1,%%%s,%%xmm15\n", dst_name);
+            fprintf(out, "\tminss\t%%xmm15,%%%s\n", dst_name);
+            fprintf(out, "\tcvtss2sd\t%%%s,%%%s\n", dst_name, dst_name);
+        }
+    } else {
+        const char *src_name = BE(c)->get_vec_reg_name(src);
+        const char *dst_name = BE(c)->get_hw_reg_name(dst);
+        fprintf(out, "\tmovaps\t%%%s,%%xmm15\n", src_name);
+        fprintf(out, "\tpshufd\t$0xee,%%xmm15,%%xmm14\n");
+        fprintf(out, "\tpminsd\t%%xmm14,%%xmm15\n");
+        fprintf(out, "\tpshufd\t$0x55,%%xmm15,%%xmm14\n");
+        fprintf(out, "\tpminsd\t%%xmm14,%%xmm15\n");
+        fprintf(out, "\tmovd\t%%xmm15,%%%s\n", dst_name);
+    }
+}
+
+static void x86_emit_v128_hmax_asm(ZeroCCCompiler *c, int dst, int src, int esz, int is_fp, FILE *out) {
+    if (is_fp) {
+        const char *dst_name = BE(c)->get_vec_reg_name(dst);
+        const char *src_name = BE(c)->get_vec_reg_name(src);
+        if (esz == 3) {
+            if (dst != src) fprintf(out, "\tmovaps\t%%%s,%%%s\n", src_name, dst_name);
+            fprintf(out, "\tmovhlps\t%%%s,%%xmm15\n", dst_name);
+            fprintf(out, "\tmaxsd\t%%xmm15,%%%s\n", dst_name);
+        } else {
+            if (dst != src) fprintf(out, "\tmovaps\t%%%s,%%%s\n", src_name, dst_name);
+            fprintf(out, "\tmovhlps\t%%%s,%%xmm15\n", dst_name);
+            fprintf(out, "\tmaxps\t%%xmm15,%%%s\n", dst_name);
+            fprintf(out, "\tshufps\t$1,%%%s,%%xmm15\n", dst_name);
+            fprintf(out, "\tmaxss\t%%xmm15,%%%s\n", dst_name);
+            fprintf(out, "\tcvtss2sd\t%%%s,%%%s\n", dst_name, dst_name);
+        }
+    } else {
+        const char *src_name = BE(c)->get_vec_reg_name(src);
+        const char *dst_name = BE(c)->get_hw_reg_name(dst);
+        fprintf(out, "\tmovaps\t%%%s,%%xmm15\n", src_name);
+        fprintf(out, "\tpshufd\t$0xee,%%xmm15,%%xmm14\n");
+        fprintf(out, "\tpmaxsd\t%%xmm14,%%xmm15\n");
+        fprintf(out, "\tpshufd\t$0x55,%%xmm15,%%xmm14\n");
+        fprintf(out, "\tpmaxsd\t%%xmm14,%%xmm15\n");
+        fprintf(out, "\tmovd\t%%xmm15,%%%s\n", dst_name);
+    }
+}
+
+static void x86_emit_v128_load_strided_asm(ZeroCCCompiler *c, int dst, int base, int stride, int esz, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *base_name = BE(c)->get_hw_reg_name(base);
+    if (esz == 8) {
+        fprintf(out, "\tmovsd\t(%%%s),%%%s\n", base_name, dst_name);
+        fprintf(out, "\tpinsrq\t$1,%d(%%%s),%%%s\n", stride, base_name, dst_name);
+    } else {
+        fprintf(out, "\tmovss\t(%%%s),%%%s\n", base_name, dst_name);
+        for (int lane = 1; lane < 4; lane++) {
+            fprintf(out, "\tpinsrd\t$%d,%d(%%%s),%%%s\n", lane, lane * stride, base_name, dst_name);
+        }
+    }
+}
+
+static void x86_emit_v128_store_strided_asm(ZeroCCCompiler *c, int src, int base, int stride, int esz, FILE *out) {
+    const char *src_name = BE(c)->get_vec_reg_name(src);
+    const char *base_name = BE(c)->get_hw_reg_name(base);
+    if (esz == 8) {
+        fprintf(out, "\tmovsd\t%%%s,(%%%s)\n", src_name, base_name);
+        fprintf(out, "\tpextrq\t$1,%%%s,%d(%%%s)\n", src_name, stride, base_name);
+    } else {
+        fprintf(out, "\tmovss\t%%%s,(%%%s)\n", src_name, base_name);
+        for (int lane = 1; lane < 4; lane++) {
+            fprintf(out, "\tpextrd\t$%d,%%%s,%d(%%%s)\n", lane, src_name, lane * stride, base_name);
+        }
+    }
+}
+
 /* =========================================================================
  * 256-bit AVX/AVX2 Instruction Emission (Textual Assembly)
  * ========================================================================= */
@@ -2356,4 +2464,9 @@ void x86_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_vpaddd_asm = x86_emit_vpaddd_asm;
     be->emit_vpsubd_asm = x86_emit_vpsubd_asm;
     be->emit_vpmulld_asm = x86_emit_vpmulld_asm;
+    be->emit_v128_hadd_asm = x86_emit_v128_hadd_asm;
+    be->emit_v128_hmin_asm = x86_emit_v128_hmin_asm;
+    be->emit_v128_hmax_asm = x86_emit_v128_hmax_asm;
+    be->emit_v128_load_strided_asm = x86_emit_v128_load_strided_asm;
+    be->emit_v128_store_strided_asm = x86_emit_v128_store_strided_asm;
 }

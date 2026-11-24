@@ -52,7 +52,7 @@ void emit_function_label_asm(ZeroCCCompiler *c) {
         if (c->functions[func_idx].section[0]) {
             fprintf(out, "\t.section\t%s,\"ax\",@progbits\n", c->functions[func_idx].section);
         } else if (c->function_sections) {
-            fprintf(out, "\t.section\t.text.%s,\"ax\",@progbits\n", c->functions[func_idx].name);
+            fprintf(out, "\t.section\t.text.%s,\"ax\",@progbits\n", zero_cc_fn_emit_symbol(&c->functions[func_idx]));
         }
         if (c->debug_info) {
             if (func_idx == 0 && c->source_filename) {
@@ -1764,6 +1764,23 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             return;
         case OP_RVV_VFMV_F_S:
             if (BE(c)->emit_rvv_vfmv_f_s_asm) BE(c)->emit_rvv_vfmv_f_s_asm(c, phys_dst, phys_src1, instr->imm, out);
+            return;
+
+        /* Advanced SIMD Vector Reductions (Sprint 210) */
+        case OP_V128_HADD:
+            if (BE(c)->emit_v128_hadd_asm) BE(c)->emit_v128_hadd_asm(c, phys_dst, phys_src1, instr->imm, (int)instr->imm64, out);
+            return;
+        case OP_V128_HMIN:
+            if (BE(c)->emit_v128_hmin_asm) BE(c)->emit_v128_hmin_asm(c, phys_dst, phys_src1, instr->imm, (int)instr->imm64, out);
+            return;
+        case OP_V128_HMAX:
+            if (BE(c)->emit_v128_hmax_asm) BE(c)->emit_v128_hmax_asm(c, phys_dst, phys_src1, instr->imm, (int)instr->imm64, out);
+            return;
+        case OP_V128_LOAD_STRIDED:
+            if (BE(c)->emit_v128_load_strided_asm) BE(c)->emit_v128_load_strided_asm(c, phys_dst, phys_src1, (int)instr->imm, (int)instr->imm64, out);
+            return;
+        case OP_V128_STORE_STRIDED:
+            if (BE(c)->emit_v128_store_strided_asm) BE(c)->emit_v128_store_strided_asm(c, phys_src2, phys_src1, (int)instr->imm, (int)instr->imm64, out);
             return;
 
         case OP_VSTORESS: {

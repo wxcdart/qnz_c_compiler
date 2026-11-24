@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include "zero_cc/types/type_system.h"
+#include "zero_cc/types/type_funcs.h"
 #include "zero_cc/isa/target_traits.h"
 #include "zero_cc/types/symbols.h"
 
@@ -145,6 +146,30 @@ static inline ABIStructClassification zero_cc_classify_return(const ZeroCCCompil
         return c->isa_backend->classify_return(type);
     }
     return abi_classify_return(c ? c->isa : ISA_X86_64, type);
+}
+
+/*
+ * Check if a return type requires sret (hidden pointer return) under target ABI.
+ */
+static inline bool zero_cc_abi_type_uses_sret(const ZeroCCCompiler *c, const ZeroCCType *type) {
+    if (!type) return false;
+    if (type->tag == TYPE_USER_0 && zero_cc_type_is_vector(type)) {
+        return type->size > 16;
+    }
+    if (type->tag == TYPE_STRUCT || type->tag == TYPE_UNION) {
+        ABIStructClassification cl = zero_cc_classify_return(c, type);
+        return cl.count == 0 || cl.classes[0] == ABI_CLASS_MEMORY;
+    }
+    return false;
+}
+
+/*
+ * Check if an argument type is classified as MEMORY (e.g. >16B struct on System V).
+ */
+static inline bool zero_cc_abi_arg_is_memory(const ZeroCCCompiler *c, const ZeroCCType *type) {
+    if (!type) return false;
+    ABIStructClassification cl = zero_cc_classify_arg(c, type);
+    return cl.count == 0 || cl.classes[0] == ABI_CLASS_MEMORY;
 }
 
 #endif /* ZERO_CC_ABI_CLASSIFY_H */

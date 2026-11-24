@@ -58,6 +58,9 @@ typedef struct {
     int print_gc_sections;  /* --print-gc-sections / -Wl,--print-gc-sections */
     int function_sections;  /* -ffunction-sections */
     int data_sections;      /* -fdata-sections */
+    const char *entry_symbol; /* -e <sym> / --entry <sym> */
+    const char *undefined_syms[32]; /* -u <sym> / --undefined <sym> */
+    int undefined_sym_count;
     int lto;                /* -flto: whole-program link-time optimization */
     int has_avx;            /* -mavx: enable 256-bit AVX vectors */
     int has_avx2;           /* -mavx2: enable AVX2 instructions */
@@ -387,8 +390,39 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
             opts->gc_sections_explicit = 1;
         }
         else if (strcmp(arg, "--print-gc-sections") == 0 || strcmp(arg, "-print-gc-sections") == 0 ||
-                 strcmp(arg, "-Wl,--print-gc-sections") == 0) {
+                 strcmp(arg, "-Wl,--print-gc-sections") == 0 || strcmp(arg, "-Wl,-print-gc-sections") == 0) {
             opts->print_gc_sections = 1;
+        }
+        else if (strcmp(arg, "-e") == 0 && i + 1 < argc) {
+            opts->entry_symbol = argv[++i];
+        }
+        else if (strncmp(arg, "--entry=", 8) == 0) {
+            opts->entry_symbol = arg + 8;
+        }
+        else if (strcmp(arg, "--entry") == 0 && i + 1 < argc) {
+            opts->entry_symbol = argv[++i];
+        }
+        else if (strncmp(arg, "-Wl,-e,", 7) == 0) {
+            opts->entry_symbol = arg + 7;
+        }
+        else if (strncmp(arg, "-Wl,--entry=", 12) == 0) {
+            opts->entry_symbol = arg + 12;
+        }
+        else if (strcmp(arg, "-u") == 0 && i + 1 < argc) {
+            if (opts->undefined_sym_count < 32)
+                opts->undefined_syms[opts->undefined_sym_count++] = argv[++i];
+        }
+        else if (strncmp(arg, "--undefined=", 12) == 0) {
+            if (opts->undefined_sym_count < 32)
+                opts->undefined_syms[opts->undefined_sym_count++] = arg + 12;
+        }
+        else if (strcmp(arg, "--undefined") == 0 && i + 1 < argc) {
+            if (opts->undefined_sym_count < 32)
+                opts->undefined_syms[opts->undefined_sym_count++] = argv[++i];
+        }
+        else if (strncmp(arg, "-Wl,-u,", 7) == 0) {
+            if (opts->undefined_sym_count < 32)
+                opts->undefined_syms[opts->undefined_sym_count++] = arg + 7;
         }
         else if (strcmp(arg, "-MMD") == 0) {
             opts->gen_deps = 1;

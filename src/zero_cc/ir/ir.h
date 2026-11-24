@@ -533,7 +533,28 @@ typedef enum {
      * = pointer to the label name (parser asm-stmt storage), label_idx =
      * the resolved IR label index. */
     OP_ASM_LABEL,
+
+    /* Advanced SIMD Vector Reductions (Sprint 210) */
+    OP_V128_HADD,      /* 128-bit horizontal vector add reduction */
+    OP_V128_HMIN,      /* 128-bit horizontal vector min reduction */
+    OP_V128_HMAX,      /* 128-bit horizontal vector max reduction */
+    OP_V128_LOAD_STRIDED,  /* 128-bit strided vector load from memory */
+    OP_V128_STORE_STRIDED, /* 128-bit strided vector store to memory */
+    OP_VMINPS,         /* 128-bit packed single min */
+    OP_VMAXPS,         /* 128-bit packed single max */
+    OP_VMINPD,         /* 128-bit packed double min */
+    OP_VMAXPD,         /* 128-bit packed double max */
+    OP_VPMINSD,        /* 128-bit packed int32 min */
+    OP_VPMAXSD,        /* 128-bit packed int32 max */
+    OP_RVV_VREDMIN,    /* rvv min reduction across vector */
+    OP_RVV_VREDMAX,    /* rvv max reduction across vector */
+    OP_SVE_SMINV,      /* sve signed min reduction */
+    OP_SVE_SMAXV,      /* sve signed max reduction */
+    OP_SVE_FMINV,      /* sve float min reduction */
+    OP_SVE_FMAXV,      /* sve float max reduction */
 } Opcode;
+
+#define OP_SVE_UADDV OP_SVE_ADDV
 
 /* Condition codes for OP_COND_SET */
 #define CC_LT  0  /* signed less than */
@@ -846,6 +867,23 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_ASM: return "ASM";
         case OP_ASM_ARG: return "ASM_ARG";
         case OP_ASM_LABEL: return "ASM_LABEL";
+        case OP_V128_HADD: return "V128_HADD";
+        case OP_V128_HMIN: return "V128_HMIN";
+        case OP_V128_HMAX: return "V128_HMAX";
+        case OP_V128_LOAD_STRIDED: return "V128_LOAD_STRIDED";
+        case OP_V128_STORE_STRIDED: return "V128_STORE_STRIDED";
+        case OP_VMINPS: return "VMINPS";
+        case OP_VMAXPS: return "VMAXPS";
+        case OP_VMINPD: return "VMINPD";
+        case OP_VMAXPD: return "VMAXPD";
+        case OP_VPMINSD: return "VPMINSD";
+        case OP_VPMAXSD: return "VPMAXSD";
+        case OP_RVV_VREDMIN: return "RVV_VREDMIN";
+        case OP_RVV_VREDMAX: return "RVV_VREDMAX";
+        case OP_SVE_SMINV: return "SVE_SMINV";
+        case OP_SVE_SMAXV: return "SVE_SMAXV";
+        case OP_SVE_FMINV: return "SVE_FMINV";
+        case OP_SVE_FMAXV: return "SVE_FMAXV";
         default: return "UNKNOWN";
     }
 }
@@ -923,6 +961,12 @@ static inline bool ir_opcode_is_simd(Opcode op) {
         case OP_RVV_VCMP: case OP_RVV_VREDSUM:
         case OP_RVV_VMV_V_X: case OP_RVV_VFMV_V_F: case OP_RVV_VMV_X_S: case OP_RVV_VFMV_F_S:
         case OP_RVV_VLSE: case OP_RVV_VSSE: case OP_RVV_VLUXEI: case OP_RVV_VSUXEI:
+        case OP_V128_HADD: case OP_V128_HMIN: case OP_V128_HMAX:
+        case OP_V128_LOAD_STRIDED: case OP_V128_STORE_STRIDED:
+        case OP_VMINPS: case OP_VMAXPS: case OP_VMINPD: case OP_VMAXPD:
+        case OP_VPMINSD: case OP_VPMAXSD:
+        case OP_RVV_VREDMIN: case OP_RVV_VREDMAX:
+        case OP_SVE_SMINV: case OP_SVE_SMAXV: case OP_SVE_FMINV: case OP_SVE_FMAXV:
             return true;
         default:
             return false;

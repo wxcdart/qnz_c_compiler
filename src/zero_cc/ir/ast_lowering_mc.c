@@ -1625,6 +1625,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 }
                 break;
 
+            case OP_VAND:
             case OP_VANDPS:
                 if (c->emit_asm && BE(c)->emit_vandps_asm) {
                     BE(c)->emit_vandps_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
@@ -1633,6 +1634,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 }
                 break;
 
+            case OP_VOR:
             case OP_VORPS:
                 if (c->emit_asm && BE(c)->emit_vorps_asm) {
                     BE(c)->emit_vorps_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
@@ -1641,6 +1643,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 }
                 break;
 
+            case OP_VXOR:
             case OP_VXORPS:
                 if (c->emit_asm && BE(c)->emit_vxorps_asm) {
                     BE(c)->emit_vxorps_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
@@ -2382,6 +2385,47 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                     BE(c)->emit_rvv_vfmv_f_s_asm(c, phys_dst, phys_src1, instr->imm, c->asm_out);
                 } else if (!c->emit_asm && BE(c)->emit_rvv_vfmv_f_s) {
                     BE(c)->emit_rvv_vfmv_f_s(c, phys_dst, phys_src1, instr->imm);
+                }
+                break;
+
+            /* Advanced SIMD Vector Reductions (Sprint 210) */
+            case OP_V128_HADD:
+                if (c->emit_asm && BE(c)->emit_v128_hadd_asm) {
+                    BE(c)->emit_v128_hadd_asm(c, phys_dst, phys_src1, instr->imm, (int)instr->imm64, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v128_hadd) {
+                    BE(c)->emit_v128_hadd(c, phys_dst, phys_src1, instr->imm, (int)instr->imm64);
+                }
+                break;
+
+            case OP_V128_HMIN:
+                if (c->emit_asm && BE(c)->emit_v128_hmin_asm) {
+                    BE(c)->emit_v128_hmin_asm(c, phys_dst, phys_src1, instr->imm, (int)instr->imm64, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v128_hmin) {
+                    BE(c)->emit_v128_hmin(c, phys_dst, phys_src1, instr->imm, (int)instr->imm64);
+                }
+                break;
+
+            case OP_V128_HMAX:
+                if (c->emit_asm && BE(c)->emit_v128_hmax_asm) {
+                    BE(c)->emit_v128_hmax_asm(c, phys_dst, phys_src1, instr->imm, (int)instr->imm64, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v128_hmax) {
+                    BE(c)->emit_v128_hmax(c, phys_dst, phys_src1, instr->imm, (int)instr->imm64);
+                }
+                break;
+
+            case OP_V128_LOAD_STRIDED:
+                if (c->emit_asm && BE(c)->emit_v128_load_strided_asm) {
+                    BE(c)->emit_v128_load_strided_asm(c, phys_dst, phys_src1, (int)instr->imm, (int)instr->imm64, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v128_load_strided) {
+                    BE(c)->emit_v128_load_strided(c, phys_dst, phys_src1, (int)instr->imm, (int)instr->imm64);
+                }
+                break;
+
+            case OP_V128_STORE_STRIDED:
+                if (c->emit_asm && BE(c)->emit_v128_store_strided_asm) {
+                    BE(c)->emit_v128_store_strided_asm(c, phys_src2, phys_src1, (int)instr->imm, (int)instr->imm64, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v128_store_strided) {
+                    BE(c)->emit_v128_store_strided(c, phys_src2, phys_src1, (int)instr->imm, (int)instr->imm64);
                 }
                 break;
 

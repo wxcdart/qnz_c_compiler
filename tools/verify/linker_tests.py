@@ -669,6 +669,80 @@ def case_gc_sections_tests():
               "removing unused section '.drop_table'" in p.stdout)
         check("gc_keep_directive", ok)
 
+    # 4. gc_direct_elf_func: direct ELF object emission (-c -ffunction-sections)
+    with tempfile.TemporaryDirectory() as td:
+        m = os.path.join(td, "main.c")
+        d = os.path.join(td, "dead.c")
+        with open(m, "w") as f:
+            f.write("int live_func(void); int main(void) { return live_func() - 42; }\n")
+        with open(d, "w") as f:
+            f.write("int live_func(void) { return 42; }\nvoid never_called(void) { extern void undefined_symbol(void); undefined_symbol(); }\n")
+        mo = os.path.join(td, "main.o")
+        do = os.path.join(td, "dead.o")
+        exe = os.path.join(td, "app")
+        subprocess.run([BIN, "-c", "-ffunction-sections", m, "-o", mo], check=True)
+        subprocess.run([BIN, "-c", "-ffunction-sections", d, "-o", do], check=True)
+
+        p_no = subprocess.run([BIN, "--zerocc-link", mo, do, "-o", exe], capture_output=True, text=True)
+        p_gc = subprocess.run([BIN, "--zerocc-link", "--gc-sections", "--print-gc-sections", mo, do, "-o", exe], capture_output=True, text=True)
+        pe = subprocess.run([exe], capture_output=True)
+        psym = subprocess.run(["readelf", "-s", exe], capture_output=True, text=True)
+
+        ok = (p_no.returncode != 0 and p_gc.returncode == 0 and pe.returncode == 0 and
+              "never_called" not in psym.stdout and "live_func" in psym.stdout and
+              "removing unused section '.text.never_called'" in p_gc.stdout)
+        check("gc_direct_elf_func", ok)
+
+    # 5. gc_direct_elf_data: direct ELF object emission (-c -fdata-sections)
+    with tempfile.TemporaryDirectory() as td:
+        m = os.path.join(td, "main.c")
+        d = os.path.join(td, "data.c")
+        with open(m, "w") as f:
+            f.write("extern int live_var; int main(void) { return live_var - 123; }\n")
+        with open(d, "w") as f:
+            f.write("int live_var = 123;\nint dead_var = 456;\nint dead_bss[100];\nconst int dead_ro = 789;\n")
+        mo = os.path.join(td, "main.o")
+        do = os.path.join(td, "data.o")
+        exe = os.path.join(td, "app")
+        subprocess.run([BIN, "-c", "-fdata-sections", m, "-o", mo], check=True)
+        subprocess.run([BIN, "-c", "-fdata-sections", d, "-o", do], check=True)
+
+        p = subprocess.run([BIN, "--zerocc-link", "--gc-sections", "--print-gc-sections", mo, do, "-o", exe], capture_output=True, text=True)
+        pe = subprocess.run([exe], capture_output=True)
+        psym = subprocess.run(["readelf", "-s", exe], capture_output=True, text=True)
+
+        ok = (p.returncode == 0 and pe.returncode == 0 and
+              "dead_var" not in psym.stdout and "dead_bss" not in psym.stdout and
+              "dead_ro" not in psym.stdout and "live_var" in psym.stdout and
+              "removing unused section '.data.dead_var'" in p.stdout and
+              "removing unused section '.bss.dead_bss'" in p.stdout and
+              "removing unused section '.rodata.dead_ro'" in p.stdout)
+        check("gc_direct_elf_data", ok)
+
+    # 6. gc_entry_and_undefined: -e <entry> and -u <sym> root preservation
+    with tempfile.TemporaryDirectory() as td:
+        m = os.path.join(td, "main.c")
+        with open(m, "w") as f:
+            f.write("int custom_entry(void) { return 0; }\nint unused1(void) { return 1; }\nint kept_by_u(void) { return 2; }\n")
+        mo = os.path.join(td, "main.o")
+        exe = os.path.join(td, "app")
+        subprocess.run([BIN, "-c", "-ffunction-sections", m, "-o", mo], check=True)
+
+        p_gc = subprocess.run([BIN, "--zerocc-link", "--baremetal", "--no-zerocc-rt",
+                               "-e", "custom_entry", "-u", "kept_by_u",
+                               "--gc-sections", "--print-gc-sections", mo, "-o", exe],
+                              capture_output=True, text=True)
+        psym = subprocess.run(["readelf", "-s", exe], capture_output=True, text=True)
+        phead = subprocess.run(["readelf", "-h", exe], capture_output=True, text=True)
+
+        ok = (p_gc.returncode == 0 and
+              "custom_entry" in psym.stdout and
+              "kept_by_u" in psym.stdout and
+              "unused1" not in psym.stdout and
+              "removing unused section '.text.unused1'" in p_gc.stdout and
+              "Entry point address:               0x400000" in phead.stdout)
+        check("gc_entry_and_undefined", ok)
+
 
 def case_lto_fat_tests():
     with tempfile.TemporaryDirectory() as td:

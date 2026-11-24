@@ -42,7 +42,7 @@ int lower_expr_va_start(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode 
              * pointer and multi-chunk struct params). */
             int gp_regs = BE(c)->conv->int_arg_reg_count;
             int fp_regs = BE(c)->conv->fp_arg_reg_count;
-            int gp_idx = (fn->ret_struct_sz > 16 && zc_target_traits(c)->sret_consumes_arg0) ? 1 : 0;
+            int gp_idx = (zero_cc_abi_type_uses_sret(c, &fn->return_type) && zc_target_traits(c)->sret_consumes_arg0) ? 1 : 0;
             int fp_idx = 0;
             int stack_named = 0;  /* stack-passed named params (ovf base) */
             for (size_t p = 0; p < fn->param_count && p < c->local_count; p++) {
@@ -84,79 +84,8 @@ int lower_expr_va_start(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode 
                 }
             }
 
-            if (zc_target_traits(c)->va_layout == VA_LIST_LAYOUT_ARM32) {
-                int t = zc_alloc_temp(c);
-                ir_emit_lea(c, t, TEMP_NONE, -(save_base + 16 - gp_idx * 4));
-                ir_emit_store_32(c, t, ap_addr);             /* +0 gp */
-
-                t = zc_alloc_temp(c);
-                ir_emit_lea(c, t, TEMP_NONE, -save_base);
-                int off4 = zc_alloc_temp(c);
-                ir_emit_mov_imm(c, off4, 4);
-                int ap_4 = zc_alloc_temp(c);
-                ir_emit_add(c, ap_4, ap_addr, off4);
-                ir_emit_store_32(c, t, ap_4);                /* +4 gp_end */
-
-                int off8 = zc_alloc_temp(c);
-                ir_emit_mov_imm(c, off8, 8);
-                int ap_8 = zc_alloc_temp(c);
-                ir_emit_add(c, ap_8, ap_addr, off8);
-                ir_emit_store_32(c, t, ap_8);                /* +8 fp */
-
-                int off12 = zc_alloc_temp(c);
-                ir_emit_mov_imm(c, off12, 12);
-                int ap_12 = zc_alloc_temp(c);
-                ir_emit_add(c, ap_12, ap_addr, off12);
-                ir_emit_store_32(c, t, ap_12);               /* +12 fp_end */
-
-                t = zc_alloc_temp(c);
-                int ovf_start = 8;
-                int ovf_step = 4;
-                ir_emit_lea(c, t, TEMP_NONE, ovf_start + ovf_step * stack_named);
-                int off16 = zc_alloc_temp(c);
-                ir_emit_mov_imm(c, off16, 16);
-                int ap_16 = zc_alloc_temp(c);
-                ir_emit_add(c, ap_16, ap_addr, off16);
-                ir_emit_store_32(c, t, ap_16);               /* +16 ovf */
-            } else {
-                int t;
-                t = zc_alloc_temp(c);
-                ir_emit_lea(c, t, TEMP_NONE, -(save_base + gp_idx * 8));
-                ir_emit_store_64(c, t, ap_addr);             /* +0 gp */
-
-                t = zc_alloc_temp(c);
-                ir_emit_lea(c, t, TEMP_NONE, -(save_base + gp_regs * 8));
-                int off8 = zc_alloc_temp(c);
-                ir_emit_mov_imm(c, off8, 8);
-                int ap_8 = zc_alloc_temp(c);
-                ir_emit_add(c, ap_8, ap_addr, off8);
-                ir_emit_store_64(c, t, ap_8);                /* +8 gp_end */
-
-                t = zc_alloc_temp(c);
-                ir_emit_lea(c, t, TEMP_NONE, -(save_base + (gp_regs + fp_idx) * 8));
-                int off16 = zc_alloc_temp(c);
-                ir_emit_mov_imm(c, off16, 16);
-                int ap_16 = zc_alloc_temp(c);
-                ir_emit_add(c, ap_16, ap_addr, off16);
-                ir_emit_store_64(c, t, ap_16);               /* +16 fp */
-
-                t = zc_alloc_temp(c);
-                ir_emit_lea(c, t, TEMP_NONE, -(save_base + (gp_regs + fp_regs) * 8));
-                int off24 = zc_alloc_temp(c);
-                ir_emit_mov_imm(c, off24, 24);
-                int ap_24 = zc_alloc_temp(c);
-                ir_emit_add(c, ap_24, ap_addr, off24);
-                ir_emit_store_64(c, t, ap_24);               /* +24 fp_end */
-
-                t = zc_alloc_temp(c);
-                int ovf_start = zc_target_caller_arg_offset(c);
-                int ovf_step = zc_target_slot_size(c);
-                ir_emit_lea(c, t, TEMP_NONE, ovf_start + ovf_step * stack_named);
-                int off32 = zc_alloc_temp(c);
-                ir_emit_mov_imm(c, off32, 32);
-                int ap_32 = zc_alloc_temp(c);
-                ir_emit_add(c, ap_32, ap_addr, off32);
-                ir_emit_store_64(c, t, ap_32);               /* +32 ovf */
+            if (BE(c)->emit_variadic_setup) {
+                BE(c)->emit_variadic_setup(c, ap_addr, save_base, gp_idx, fp_idx, stack_named);
             }
         }
 

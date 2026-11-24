@@ -52,6 +52,17 @@ typedef struct {
     uint32_t bound_temp;       /* Temporary holding upper bound n */
     int32_t bound_slot;        /* Stack slot holding upper bound n, or 0x7fffffff */
     int32_t counter_slot;      /* Stack slot holding counter i, or 0x7fffffff */
+    /* Advanced SIMD Vector Reductions (Sprint 210) */
+    bool is_reduction;         /* True if this loop is a reduction loop */
+    int reduction_op;          /* Reduction operation (OP_ADD, OP_FADD, OP_MIN, OP_MAX) */
+    int32_t reduction_slot;    /* Stack slot holding accumulator, or 0x7fffffff */
+    uint32_t reduction_temp;   /* Temporary holding accumulator, or TEMP_NONE */
+    int red_load_idx;          /* Index of accumulator load instruction */
+    int red_store_idx;         /* Index of accumulator store instruction */
+    int red_arith_idx;         /* Index of accumulator arithmetic instruction */
+    bool is_reduction_fp;      /* True if floating point reduction */
+    /* Strided & Non-Unit Stride Auto-Vectorization */
+    bool has_strided_access;   /* True if loop contains non-unit stride memory accesses */
 } VectorizationInfo;
 
 #define MAX_VECTOR_LOOPS 64

@@ -1583,6 +1583,39 @@ static void riscv_emit_rvv_vredsum_asm(ZeroCCCompiler *c, int vd, int vs1, int v
     else       fprintf(out, "\tvredsum.vs\t%s, %s, %s\n", vd_name, vs1_name, vs2_name);
 }
 
+static void riscv_emit_v128_hadd_asm(ZeroCCCompiler *c, int dst, int src, int esz, int is_fp, FILE *out) {
+    riscv_emit_rvv_vsetivli_default(c, esz, out);
+    const char *src_name = BE(c)->get_vec_reg_name(src);
+    if (is_fp) {
+        const char *dst_name = (dst >= 0 && dst < BE(c)->regs->num_fp_regs) ? BE(c)->regs->fp_regs[dst] : "fa0";
+        fprintf(out, "\tvfredusum.vs\tv16, %s, %s\n", src_name, src_name);
+        fprintf(out, "\tvfmv.f.s\t%s, v16\n", dst_name);
+        if (esz == 2) {
+            fprintf(out, "\tfcvt.d.s\t%s, %s\n", dst_name, dst_name);
+        }
+    } else {
+        const char *dst_name = BE(c)->get_hw_reg_name(dst);
+        fprintf(out, "\tvredsum.vs\tv16, %s, %s\n", src_name, src_name);
+        fprintf(out, "\tvmv.x.s\t%s, v16\n", dst_name);
+    }
+}
+
+static void riscv_emit_v128_load_strided_asm(ZeroCCCompiler *c, int dst, int base, int stride, int esz, FILE *out) {
+    riscv_emit_rvv_vsetivli_default(c, (esz == 8 ? 3 : 2), out);
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *base_name = BE(c)->get_hw_reg_name(base);
+    fprintf(out, "\tli\tt5, %d\n", stride);
+    fprintf(out, "\tvlse%d.v\t%s, (%s), t5\n", (esz == 8 ? 64 : 32), dst_name, base_name);
+}
+
+static void riscv_emit_v128_store_strided_asm(ZeroCCCompiler *c, int src, int base, int stride, int esz, FILE *out) {
+    riscv_emit_rvv_vsetivli_default(c, (esz == 8 ? 3 : 2), out);
+    const char *src_name = BE(c)->get_vec_reg_name(src);
+    const char *base_name = BE(c)->get_hw_reg_name(base);
+    fprintf(out, "\tli\tt5, %d\n", stride);
+    fprintf(out, "\tvsse%d.v\t%s, (%s), t5\n", (esz == 8 ? 64 : 32), src_name, base_name);
+}
+
 static void riscv_emit_rvv_vmv_v_x_asm(ZeroCCCompiler *c, int vd, int rs1, int esz, FILE *out) {
     riscv_emit_rvv_vsetivli_default(c, esz, out);
     fprintf(out, "\tvmv.v.x\t%s, %s\n", BE(c)->get_vec_reg_name(vd), BE(c)->get_hw_reg_name(rs1));
@@ -2569,4 +2602,7 @@ void riscv64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_rvv_vsse_asm = riscv_emit_rvv_vsse_asm;
     be->emit_rvv_vluxei_asm = riscv_emit_rvv_vluxei_asm;
     be->emit_rvv_vsuxei_asm = riscv_emit_rvv_vsuxei_asm;
+    be->emit_v128_hadd_asm = riscv_emit_v128_hadd_asm;
+    be->emit_v128_load_strided_asm = riscv_emit_v128_load_strided_asm;
+    be->emit_v128_store_strided_asm = riscv_emit_v128_store_strided_asm;
 }

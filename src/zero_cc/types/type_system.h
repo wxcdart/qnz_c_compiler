@@ -420,6 +420,14 @@ typedef struct ZeroCCFunction {
     int64_t lto_param_const_val[16];         /* IPCP: constant value for param i */
 } ZeroCCFunction;
 
+/* GNU __asm("sym") label / nested-function mangled name: calls and definition emission
+ * must target this symbol instead of plain fn->name. */
+static inline const char *zero_cc_fn_emit_symbol(const ZeroCCFunction *fn) {
+    if (fn->asm_name[0]) return fn->asm_name;
+    if (fn->is_nested && fn->nested_sym_name[0]) return fn->nested_sym_name;
+    return fn->name;
+}
+
 /* Relocation Record */
 typedef struct {
     size_t text_patch_offset;

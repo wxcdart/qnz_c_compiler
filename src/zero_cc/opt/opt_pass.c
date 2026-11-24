@@ -7,6 +7,7 @@
 #include "zero_cc/opt/opt_loop.h"
 #include "zero_cc/opt/opt_loop_unroll.h"
 #include "zero_cc/opt/opt_vectorize.h"
+#include "zero_cc/opt/opt_slp.h"
 #include "zero_cc/opt/opt_gvn.h"
 #include "zero_cc/opt/opt_branchless.h"
 #include "zero_cc/opt/opt_copy_prop.h"
@@ -30,8 +31,9 @@ static void opt_pass_strength_reduction(ZeroCCCompiler *c);
 static void opt_pass_branch_simplify(ZeroCCCompiler *c);
 static void opt_pass_loop_unroll(ZeroCCCompiler *c);
 static void opt_pass_auto_vectorize(ZeroCCCompiler *c);
+static void opt_pass_slp_vectorize(ZeroCCCompiler *c);
 
-// Enable passes: constant folding -> flag DCE -> DCE -> mem2reg -> CSE -> GVN -> LICM -> strength reduction -> branch simplify -> loop unroll -> auto-vectorize
+// Enable passes: constant folding -> flag DCE -> DCE -> mem2reg -> CSE -> GVN -> LICM -> strength reduction -> branch simplify -> loop unroll -> auto-vectorize -> slp-vectorize
 // Note: mem2reg now enabled with safe VLA handling
 static const OptPass g_opt_passes[] = {
     { "constant_fold", opt_pass_constant_fold, 1, 10, OPT_LEVEL_O1 },
@@ -46,6 +48,7 @@ static const OptPass g_opt_passes[] = {
     { "strength_reduction", opt_pass_strength_reduction, 1, 60, OPT_LEVEL_O3 },
     { "branch_simplify", opt_pass_branch_simplify, 1, 65, OPT_LEVEL_O3 },
     { "auto_vectorize", opt_pass_auto_vectorize, 1, 68, OPT_LEVEL_O3 },
+    { "slp_vectorize", opt_pass_slp_vectorize, 1, 69, OPT_LEVEL_O3 },
     { "loop_unroll", opt_pass_loop_unroll, 1, 70, OPT_LEVEL_O3 },
 };
 
@@ -120,3 +123,4 @@ static void opt_pass_strength_reduction(ZeroCCCompiler *c) { opt_strength_reduct
 static void opt_pass_branch_simplify(ZeroCCCompiler *c) { opt_branch_simplify(c); }
 static void opt_pass_loop_unroll(ZeroCCCompiler *c) { opt_loop_unroll(c); }
 static void opt_pass_auto_vectorize(ZeroCCCompiler *c) { opt_auto_vectorize(c); }
+static void opt_pass_slp_vectorize(ZeroCCCompiler *c) { opt_slp_vectorize(c); }

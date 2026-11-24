@@ -891,7 +891,7 @@ static void aarch32_emit_store_single_fp_raw(ZeroCCCompiler *c, int src_reg, int
 
 /* VFP Narrow Double to Single and Store: VCVT.F32.F64 s30, d<src_reg> + VSTR.32 s30 */
 static void aarch32_emit_store_single_fp(ZeroCCCompiler *c, int src_reg, int base_reg, int32_t offset) {
-    int tmp_d = REGALLOC_FP_SCRATCH1; /* 15 -> s30 */
+    int tmp_d = 15; /* 15 -> s30 */
     int s_dst = tmp_d * 2;
     int D = s_dst & 1, Vd = (s_dst >> 1) & 0xF;
     int M = (src_reg >> 4) & 1, Vm = src_reg & 0xF;
@@ -2560,8 +2560,8 @@ void aarch32_init_backend(void) {
     aarch32_backend.sp_reg = 13;  /* sp */
     aarch32_backend.scratch_reg1 = 12;  /* r12 (ip) */
     aarch32_backend.scratch_reg2 = 9;   /* r9 (caller-saved, non-arg) */
-    aarch32_backend.fp_scratch_reg1 = REGALLOC_FP_SCRATCH1;
-    aarch32_backend.fp_scratch_reg2 = REGALLOC_FP_SCRATCH2;
+    aarch32_backend.fp_scratch_reg1 = 15;
+    aarch32_backend.fp_scratch_reg2 = 14;
     aarch32_backend.g128_scratch_lo[0] = 12;  /* r12 */
     aarch32_backend.g128_scratch_hi[0] = 9;   /* r9 */
     aarch32_backend.g128_scratch_lo[1] = 8;   /* r8 */

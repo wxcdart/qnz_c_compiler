@@ -308,20 +308,6 @@ static inline bool zero_cc_no_builtin(const ZeroCCCompiler *c, const char *name)
  * ast_lowering_call.c) and the emitters must map it back to the function
  * to classify the call as internal (direct offset) rather than external
  * (dlsym/PLT). */
-/* The symbol actually emitted for a function: nested functions are
- * block-scoped and may share source names, so they are emitted under
- * fn->nested_sym_name; a GNU `__asm("sym")` declarator label renames the
- * symbol (fn->asm_name); every name-resolution site (calls, address-of,
- * the .o writer) must use this, or it loads/patches the wrong symbol.
- * (c-torture execute/builtins/{strstr,memops}-asm.c: the builtins are
- * declared `__asm("my_X")` and the user library defines the `my_X`
- * symbols - calls must target the renamed symbol.) */
-static inline const char *zero_cc_fn_emit_symbol(const ZeroCCFunction *fn) {
-    if (fn->asm_name[0]) return fn->asm_name;
-    if (fn->is_nested && fn->nested_sym_name[0]) return fn->nested_sym_name;
-    return fn->name;
-}
-
 /* GNU `__asm("sym")` label on a function declarator: apply it to every
  * record with that name (prototype AND definition entries) so call
  * sites, address-of, and the definition emission all use the same

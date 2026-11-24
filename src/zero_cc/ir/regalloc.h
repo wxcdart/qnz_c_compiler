@@ -52,12 +52,7 @@ static const char *gpr_registers[] __attribute__((unused)) = {
 static const char *xmm_registers[] __attribute__((unused)) = {
     "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7"
 };
-#define XMM_COUNT 8
-
-/* FP spill scratch registers - outside the XMM pool (0-7). Must match the
- * ISA backends' fp_scratch_reg1/2 initializers (C8). */
-#define REGALLOC_FP_SCRATCH1 15
-#define REGALLOC_FP_SCRATCH2 14
+#define XMM_COUNT 32
 
 /* Vector register count macro (ISA-specific) */
 #define VEC_COUNT(ra) (zero_cc_get_target_traits((ra)->target_isa)->regs.num_vec_regs)
@@ -99,11 +94,6 @@ typedef struct RegAllocator {
     size_t active_count;
     size_t active_capacity;
 
-    /* Clobbered registers at each instruction position */
-    bool *rax_clobbered;          /* True if rax is clobbered at instruction i */
-    bool *rdx_clobbered;          /* True if rdx is clobbered at instruction i */
-    size_t clobber_capacity;      /* Capacity of clobber arrays */
-
     /* Free registers per class */
     bool gpr_free[GPR_COUNT];
     bool xmm_free[XMM_COUNT];
@@ -143,17 +133,12 @@ static void regalloc_destroy(RegAllocator *ra) {
     if (!ra) return;
     free(ra->intervals);
     free(ra->active);
-    free(ra->rax_clobbered);
-    free(ra->rdx_clobbered);
     ra->intervals = NULL;
     ra->active = NULL;
-    ra->rax_clobbered = NULL;
-    ra->rdx_clobbered = NULL;
     ra->interval_count = 0;
     ra->interval_capacity = 0;
     ra->active_count = 0;
     ra->active_capacity = 0;
-    ra->clobber_capacity = 0;
 }
 
 /* Set target ISA and configure reserved registers */
@@ -166,6 +151,16 @@ static void regalloc_set_isa(RegAllocator *ra, ZeroCCISA isa) {
         ra->gpr_free[i] = (traits->regs.allocatable_gpr_mask & (1u << i)) != 0;
     }
     ra->used_callee_saved_gpr_mask |= traits->regs.initial_used_callee_saved_mask;
+    for (int i = 0; i < XMM_COUNT; i++) {
+        bool is_avail = (i < traits->regs.num_fp_regs);
+        if (i == traits->regs.fp_scratch_reg1 || i == traits->regs.fp_scratch_reg2) is_avail = false;
+        ra->xmm_free[i] = is_avail;
+    }
+    for (int i = 0; i < 32; i++) {
+        bool is_avail = (i < traits->regs.num_vec_regs);
+        if (i == traits->regs.fp_scratch_reg1 || i == traits->regs.fp_scratch_reg2) is_avail = false;
+        ra->vec_free[i] = is_avail;
+    }
 }
 
 /* Initialize register allocator */
@@ -183,8 +178,6 @@ static void regalloc_init(RegAllocator *ra) {
     memset(ra->temp_to_interval, -1, sizeof(ra->temp_to_interval));
     ra->fixed_interval_count = 0;
     regalloc_set_isa(ra, ISA_X86_64);  /* Default to x86-64, caller can call regalloc_set_isa */
-    for (int i = 0; i < XMM_COUNT; i++) ra->xmm_free[i] = true;
-    for (int i = 0; i < 32; i++) ra->vec_free[i] = true;
 }
 
 /* Add a new live interval */
@@ -483,7 +476,9 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
          * interval that spans a call cannot live in a register - force the
          * (class-aware) spill path (C8). */
         if (interval->spans_call) return -1;
-        for (int i = 0; i < XMM_COUNT; i++) {
+        int num_fp = regs->num_fp_regs > 0 ? regs->num_fp_regs : 8;
+        for (int i = 0; i < num_fp; i++) {
+            if (i == regs->fp_scratch_reg1 || i == regs->fp_scratch_reg2) continue;
             if (ra->xmm_free[i]) {
                 ra->xmm_free[i] = false;
                 /* x86/AArch64: VEC index i (i<8) is the same physical
@@ -501,11 +496,10 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
         int vec_count = VEC_COUNT(ra);
         for (int i = 0; i < vec_count; i++) {
             if (!ra->vec_free[i]) continue;
-            /* Reserve scratch registers 14 and 15 across all ISAs */
-            if (i == REGALLOC_FP_SCRATCH1 || i == REGALLOC_FP_SCRATCH2) continue;
+            /* Reserve scratch registers defined in TargetRegDesc */
+            if (i == regs->fp_scratch_reg1 || i == regs->fp_scratch_reg2) continue;
             if (regs->vec_aliases_xmm) {
-                /* x86/AArch64: vec i (i<8) is the same physical register
-                 * as xmm i (C8). */
+                /* x86/AArch64: vec i is the same physical register as xmm i (C8). */
                 if (i < XMM_COUNT && !ra->xmm_free[i]) continue;
             }
             ra->vec_free[i] = false;
@@ -938,18 +932,6 @@ static bool regalloc_allocate_cost_based(RegAllocator *ra) {
 /* =========================================================================
  * Callee-Saved Register Preservation
  * ========================================================================= */
-
-/* Map register allocator index to VREG number (for x86-64) */
-static int regalloc_idx_to_vreg(int idx) __attribute__((unused));
-static int regalloc_idx_to_vreg(int idx) {
-    /* Pool order: rax, rbx, rcx, rdx, rsi, rdi, r8-r15, rsp, rbp */
-    /* Map pool index to physical register number */
-    static const int idx_to_vreg[] = {0, 3, 1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 4, 5};
-    if (idx >= 0 && idx < 16) {
-        return idx_to_vreg[idx];
-    }
-    return 0;  /* Default to VREG_0 */
-}
 
 /* Get the physical register assigned to a temp ID */
 static int regalloc_get_reg_for_temp(RegAllocator *ra, int temp_id) __attribute__((unused));

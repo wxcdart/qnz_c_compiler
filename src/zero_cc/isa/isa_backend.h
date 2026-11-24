@@ -111,6 +111,7 @@ typedef struct ZeroCCISABackend {
     /* ABI classification hooks (Item #16 Phase 3) */
     ABIStructClassification (*classify_arg)(const ZeroCCType *type);
     ABIStructClassification (*classify_return)(const ZeroCCType *type);
+    void (*emit_variadic_setup)(ZeroCCCompiler *c, int ap_addr, int32_t save_base, int gp_idx, int fp_idx, int stack_named);
 
     /* Assembly emission for IR instructions */
     void (*emit_mov_imm_asm)(ZeroCCCompiler *c, int dst, int64_t imm, FILE *out);
@@ -333,6 +334,13 @@ typedef struct ZeroCCISABackend {
     void (*emit_cvtsd2ss_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
     void (*emit_vcmpss_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int pred, FILE *out);
     void (*emit_vcmpsd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int pred, FILE *out);
+    /* Horizontal SIMD Vector Reductions (Sprint 210) */
+    void (*emit_v128_hadd_asm)(ZeroCCCompiler *c, int dst, int src, int esz, int is_fp, FILE *out);
+    void (*emit_v128_hmin_asm)(ZeroCCCompiler *c, int dst, int src, int esz, int is_fp, FILE *out);
+    void (*emit_v128_hmax_asm)(ZeroCCCompiler *c, int dst, int src, int esz, int is_fp, FILE *out);
+    /* Strided SIMD Vector Operations */
+    void (*emit_v128_load_strided_asm)(ZeroCCCompiler *c, int dst, int base, int stride, int esz, FILE *out);
+    void (*emit_v128_store_strided_asm)(ZeroCCCompiler *c, int src, int base, int stride, int esz, FILE *out);
 
     /* Integer operations */
     void (*emit_mov_imm)(ZeroCCCompiler *c, int dst_reg, int64_t imm);
@@ -652,6 +660,13 @@ typedef struct ZeroCCISABackend {
     void (*emit_cvttsd2ss)(ZeroCCCompiler *c, int dst, int src);  /* Sprint 115m: model double -> ABI float (in-register narrow) */
     void (*emit_cvtsi2ss)(ZeroCCCompiler *c, int dst, int src);
     void (*emit_cvtsd2ss)(ZeroCCCompiler *c, int dst, int src);
+    /* Horizontal SIMD Vector Reductions (Sprint 210) */
+    void (*emit_v128_hadd)(ZeroCCCompiler *c, int dst, int src, int esz, int is_fp);
+    void (*emit_v128_hmin)(ZeroCCCompiler *c, int dst, int src, int esz, int is_fp);
+    void (*emit_v128_hmax)(ZeroCCCompiler *c, int dst, int src, int esz, int is_fp);
+    /* Strided SIMD Vector Operations */
+    void (*emit_v128_load_strided)(ZeroCCCompiler *c, int dst, int base, int stride, int esz);
+    void (*emit_v128_store_strided)(ZeroCCCompiler *c, int src, int base, int stride, int esz);
 
     size_t (*patch_jmp)(ZeroCCCompiler *c, size_t patch_offset, size_t target_offset);
     void (*resolve_labels)(ZeroCCCompiler *c);  /* Resolve all label patches */

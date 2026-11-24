@@ -1968,7 +1968,7 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                 return;
             }
         }
-        if (cur_fn && cur_fn->ret_struct_sz > 16) {
+        if (cur_fn && zero_cc_abi_type_uses_sret(c, &cur_fn->return_type)) {
             /* Return expression (e.g., NODE_CALL or NODE_COMPOUND_LIT) evaluated to a pointer to a >16B struct buffer.
              * Copy chunks from [result_temp + i*8] to caller's sret buffer at -sret_off. */
             int32_t sret_off = cur_fn->sret_stack_offset;

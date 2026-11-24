@@ -4,7 +4,7 @@ title: Two-Pass IR & Linear Scan Register Allocation
 description: IR instruction format, in-stream call and inline-asm payload conventions, virtual register conventions, and linear scan register allocation constraints.
 resource: middleend/ir-and-regalloc
 tags: [ir, regalloc, ssa, registers, calling-convention]
-timestamp: 2026-11-16T00:12:56Z
+timestamp: 2026-11-24T22:48:36Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -307,6 +307,15 @@ Every union member shares offsets, so **offset-only member matching is ambiguous
 - The fallback runs **only when the typeinfo is absent** — when present it is authoritative (a `ull` member must not be demoted to float just because a sibling shares its offset).
 - When the fallback does run, it matches by **member name first** (`innermost->member_name` — `s.str` is clobbered by the offset in `aux.alt`; the semantic pass stashes `member_name` before that), with the legacy first-offset match only as a last resort.
 - The LHS member-store path already uses the typeinfo size (`m_size`) and the RHS float flag, so it was unaffected — but any future per-member attribute must use the same name-first rule.
+
+## Table-Driven Register Allocation (Sprint 214 — Item #16 Phase 2)
+
+Prior to Sprint 214, floating-point and vector register counts and scratch assignments were hardcoded with x86-64 constants in `src/zero_cc/ir/regalloc.h` (`#define REGALLOC_FP_SCRATCH1 15`, `#define REGALLOC_FP_SCRATCH2 14`, `XMM_COUNT 8`).
+The register allocator now derives these properties declaratively from `TargetRegDesc` (`TargetTraits`):
+- `ra->xmm_free` is initialized dynamically based on `traits->regs.num_fp_regs`, reserving `traits->regs.fp_scratch_reg1` and `fp_scratch_reg2`.
+- `ra->vec_free` allocates vector registers up to `traits->regs.num_vec_regs`.
+- `XMM_COUNT` is widened to 32 to support architectures with up to 32 FP/vector registers (AArch64, RISC-V 64/32) without clipping.
+- Initial callee-saved masks are driven declaratively via `traits->regs.initial_used_callee_saved_mask`, decoupling target-specific frame reservations (such as AArch32 r8-r10 scratch) from lowering logic.
 
 ## Known Limitations & Planned Direction (Sprint 35 plan)
 

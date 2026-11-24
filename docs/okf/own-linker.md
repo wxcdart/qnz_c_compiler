@@ -4,7 +4,7 @@ title: ZeroCC Own Linker (T2) - ELF Reader, ar Reader, Static ET_EXEC/PIE Output
 description: ZeroCC's own static linker - the ELF64-LE object reader, the classic ar archive reader with greedy member extraction, symbol resolution, section layout at conventional x86-64/AArch64/RISC-V64 bases, the x86-64 far-rel32 detour-thunk pool, the static-PIE (ET_DYN) self-relocating link, supported relocation sets, and per-ISA generated _start stubs. Gate: make test-linker (21/21) + test/linker/far_thunk.c + test/linker/pie_test.c.
 resource: linker
 tags: [linker, elf, ar, aot, x86-64, aarch64, riscv64, relocations, zero-rt, static-pie, thunks]
-timestamp: 2026-11-21T19:45:56Z
+timestamp: 2026-11-24T17:56:36Z
 generated: pi-agent
 verified: engineering-lead
 status: active
@@ -59,13 +59,14 @@ through), or `.a` (archive extraction).
    stable member-data pointers.
 4. **Re-resolve** (idempotent; an `(obj, sym)` pair already registered is
    skipped) so the duplicate-definition check also covers archive members.
-5. **Dead Section Elimination (`--gc-sections`, Sprint 190)**:
+5. **Dead Section Elimination (`--gc-sections`, Sprint 190 & Sprint 213)**:
    When `--gc-sections` (or `-Wl,--gc-sections`) is requested, the linker performs
    mark-and-sweep garbage collection over all input object sections prior to layout:
    - **Roots**: Entry symbols (`_start`, `Reset_Handler`, `main`, script `ENTRY(...)`,
-     driver `entry_wrapper`, `RT_ENTRY_WRAPPER`), non-discardable sections (`.init*`,
-     `.fini*`, `.ctors*`, `.dtors*`, `.note*`, `.jcr`, `.isr_vector*`, `.vectors*`), and
-     sections matching linker script `KEEP(*(pattern))` directives.
+     CLI entry `-e <sym>` / `--entry <sym>`, driver `entry_wrapper`, `RT_ENTRY_WRAPPER`),
+     undefined/keep symbols (`-u <sym>` / `--undefined <sym>`), non-discardable sections
+     (`.init*`, `.fini*`, `.ctors*`, `.dtors*`, `.note*`, `.jcr`, `.isr_vector*`, `.vectors*`),
+     and sections matching linker script `KEEP(*(pattern))` directives.
    - **Tracer**: BFS worklist follows relocations from live sections to identify referenced
      local sections, global definitions, and `SHN_COMMON` symbols (`ls->is_referenced`).
    - **Discards**: Unmarked input sections are omitted from output section layout (`ZcOutSec`),
@@ -73,8 +74,11 @@ through), or `.a` (archive extraction).
      exclusively within dead sections are ignored (relocations skipped).
    - **Reporting**: `--print-gc-sections` logs each removed non-empty alloc section
      (`removing unused section '%s' in file '%s'`).
-   - **Compiler Emission**: Paired with `-ffunction-sections` (emits `.text.<func>`) and
-     `-fdata-sections` (emits `.data.<var>` and `.bss.<var>`).
+   - **Compiler Emission (Sprint 213)**: Direct ELF object generation (`-c`) supports
+     `-ffunction-sections` (emitting `.text.<fn_sym>`) and `-fdata-sections` (emitting
+     `.data.<name>`, `.bss.<name>`, `.rodata.<name>`), routing relocation sections
+     (`.rela.text.<fn_sym>`, `.rela.data.<name>`) with offsets normalized to the individual
+     section. `ELF_MAX_SECTIONS` scaled to 4096 to support fine-grained modular sections.
 6. **Layout**: `.text` at `0x401000` (x86-64), `0x400000` (AArch64), or `0x10000` (RISC-V64);
    `.rodata` packed 8-aligned after it, `.data` page-aligned (RW segment), `.bss` after
    `.data` (page-aligned when `.data` is empty). Input sections are

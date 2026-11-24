@@ -77,7 +77,11 @@ static inline void emit_asm_data_sections(ZeroCCCompiler *comp) {
             if (gv->section[0]) {
                 fprintf(comp->asm_out, "\t.section\t%s,\"aw\",@progbits\n", gv->section);
             } else if (comp->data_sections) {
-                fprintf(comp->asm_out, "\t.section\t.data.%s,\"aw\",@progbits\n", gv->name);
+                if (gv->type.is_const) {
+                    fprintf(comp->asm_out, "\t.section\t.rodata.%s,\"a\",@progbits\n", gv->name);
+                } else {
+                    fprintf(comp->asm_out, "\t.section\t.data.%s,\"aw\",@progbits\n", gv->name);
+                }
             }
             if (!gv->is_static) {
                 fprintf(comp->asm_out, "\t.globl\t%s\n", gv->name);

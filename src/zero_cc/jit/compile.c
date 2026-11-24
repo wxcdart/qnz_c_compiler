@@ -25,6 +25,7 @@
 #include "zero_cc/parser/definitions.h"
 #include "zero_cc/ir/ir_emitter.h"
 #include "zero_cc/ir/regalloc.h"
+#include "zero_cc/ir/abi_classify.h"
 
 static inline void zero_cc_ensure_param_cap(SemContext *ctx, ZeroCCType **types, const char ***names, size_t *cap, size_t needed) {
     if (needed <= *cap) return;
@@ -1050,9 +1051,9 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
             c->canary_stack_offset = 0;
         }
 
-        /* System V AMD64 ABI: >16 byte struct returns use hidden pointer in RDI.
-         * Reserve an 8-byte stack slot for the hidden pointer before params. */
-        if (fn->ret_struct_sz > 16) {
+        /* Hidden pointer sret return:
+         * Reserve a stack slot for the hidden pointer before params. */
+        if (zero_cc_abi_type_uses_sret(c, &fn->return_type)) {
             c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
             c->current_stack_frame += 8;
             fn->sret_stack_offset = c->current_stack_frame;
@@ -1431,10 +1432,9 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
                 } else {
                     c->canary_stack_offset = 0;
                 }
-                /* System V AMD64 ABI: >16 byte struct returns use the hidden
-                 * pointer in RDI; reserve its slot before the params (same
-                 * as the top-level function path). */
-                if (nf->ret_struct_sz > 16) {
+                /* Hidden pointer sret return: reserve its slot before the params
+                 * (same as the top-level function path). */
+                if (zero_cc_abi_type_uses_sret(c, &nf->return_type)) {
                     c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
                     c->current_stack_frame += 8;
                     nf->sret_stack_offset = c->current_stack_frame;

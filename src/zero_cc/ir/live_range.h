@@ -731,6 +731,10 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
                     lra->temp_reg_class[instr->temp_dest] = REG_CLASS_GPR;
                 } else if (instr->op == OP_RVV_VFMV_F_S) {
                     lra->temp_reg_class[instr->temp_dest] = REG_CLASS_XMM;
+                } else if (instr->op == OP_V128_HADD || instr->op == OP_V128_HMIN || instr->op == OP_V128_HMAX ||
+                           instr->op == OP_SVE_ADDV || instr->op == OP_SVE_SMINV || instr->op == OP_SVE_SMAXV ||
+                           instr->op == OP_SVE_FMINV || instr->op == OP_SVE_FMAXV) {
+                    lra->temp_reg_class[instr->temp_dest] = instr->imm64 ? REG_CLASS_XMM : REG_CLASS_GPR;
                 } else if (ir_opcode_is_float(instr->op)) {
                     lra->temp_reg_class[instr->temp_dest] = REG_CLASS_XMM;
                 } else if (ir_opcode_is_simd(instr->op)) {
@@ -767,6 +771,7 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
                 if (instr->op == OP_CVTSI2SD || instr->op == OP_VCVT_SI2SS || instr->op == OP_VCVT_SI2SD ||
                     instr->op == OP_VLOAD || instr->op == OP_V256_LOAD || instr->op == OP_V512_LOAD ||
                     instr->op == OP_V512_MASK_LOAD ||
+                    instr->op == OP_V128_LOAD_STRIDED || instr->op == OP_V128_STORE_STRIDED ||
                     instr->op == OP_VSTORE || instr->op == OP_V256_STORE || instr->op == OP_V512_STORE ||
                     instr->op == OP_V512_MASK_STORE || instr->op == OP_KMOVW_TO_K1 ||
                     instr->op == OP_KMOVW_TO_K ||
@@ -818,7 +823,7 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
                     lra->temp_reg_class[instr->temp_src2] = REG_CLASS_GPR; /* base pointer */
                 } else if (instr->op == OP_RVV_VLSE) {
                     lra->temp_reg_class[instr->temp_src2] = REG_CLASS_GPR; /* stride */
-                } else if (instr->op == OP_VSTORE || instr->op == OP_V256_STORE || instr->op == OP_V512_STORE || instr->op == OP_V512_MASK_STORE || instr->op == OP_SVE_ST1 || instr->op == OP_RVV_VSE) {
+                } else if (instr->op == OP_VSTORE || instr->op == OP_V256_STORE || instr->op == OP_V512_STORE || instr->op == OP_V512_MASK_STORE || instr->op == OP_SVE_ST1 || instr->op == OP_RVV_VSE || instr->op == OP_V128_STORE_STRIDED) {
                     lra->temp_reg_class[instr->temp_src2] = REG_CLASS_VEC; /* vector value to store */
                 } else if (instr->op == OP_VSTORESS || instr->op == OP_VSTORESD || instr->op == OP_VSTORESS_RAW) {
                     lra->temp_reg_class[instr->temp_src2] = REG_CLASS_XMM; /* scalar float/double value to store */
