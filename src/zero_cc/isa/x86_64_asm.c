@@ -2347,6 +2347,65 @@ static void x86_emit_inline_asm_asm(ZeroCCCompiler *c, size_t idx, FILE *out) {
     fprintf(out, "#NO_APP\n");
 }
 
+static void x86_emit_load_sized_asm(ZeroCCCompiler *c, int phys_dst, int phys_addr, int size_bytes, FILE *out) {
+    const char *dst_name = BE(c)->get_hw_reg_name(phys_dst);
+    const char *addr_name = BE(c)->get_hw_reg_name(phys_addr);
+    if (size_bytes == 1) {
+        fprintf(out, "\tmovzbq\t(%%%s),%%%s\n", addr_name, dst_name);
+    } else if (size_bytes == 2) {
+        fprintf(out, "\tmovzwq\t(%%%s),%%%s\n", addr_name, dst_name);
+    } else if (size_bytes == 4) {
+        static const char *r32_names[] = {
+            "eax", "ecx", "edx", "ebx", "esp", "ebp", "esi", "edi",
+            "r8d", "r9d", "r10d", "r11d", "r12d", "r13d", "r14d", "r15d"
+        };
+        const char *reg_name = (phys_dst >= 0 && phys_dst < 16) ? r32_names[phys_dst] : dst_name;
+        fprintf(out, "\tmovl\t(%%%s),%%%s\n", addr_name, reg_name);
+    } else {
+        fprintf(out, "\tmovq\t(%%%s),%%%s\n", addr_name, dst_name);
+    }
+}
+
+static void x86_emit_store_sized_asm(ZeroCCCompiler *c, int phys_val, int phys_addr, int size_bytes, FILE *out) {
+    const char *val_name = BE(c)->get_hw_reg_name(phys_val);
+    const char *addr_name = BE(c)->get_hw_reg_name(phys_addr);
+    if (size_bytes == 1) {
+        static const char *r8_names[] = {
+            "al", "cl", "dl", "bl", "spl", "bpl", "sil", "dil",
+            "r8b", "r9b", "r10b", "r11b", "r12b", "r13b", "r14b", "r15b"
+        };
+        const char *reg_name = (phys_val >= 0 && phys_val < 16) ? r8_names[phys_val] : val_name;
+        fprintf(out, "\tmovb\t%%%s,(%%%s)\n", reg_name, addr_name);
+    } else if (size_bytes == 2) {
+        static const char *r16_names[] = {
+            "ax", "cx", "dx", "bx", "sp", "bp", "si", "di",
+            "r8w", "r9w", "r10w", "r11w", "r12w", "r13w", "r14w", "r15w"
+        };
+        const char *reg_name = (phys_val >= 0 && phys_val < 16) ? r16_names[phys_val] : val_name;
+        fprintf(out, "\tmovw\t%%%s,(%%%s)\n", reg_name, addr_name);
+    } else if (size_bytes == 4) {
+        static const char *r32_names[] = {
+            "eax", "ecx", "edx", "ebx", "esp", "ebp", "esi", "edi",
+            "r8d", "r9d", "r10d", "r11d", "r12d", "r13d", "r14d", "r15d"
+        };
+        const char *reg_name = (phys_val >= 0 && phys_val < 16) ? r32_names[phys_val] : val_name;
+        fprintf(out, "\tmovl\t%%%s,(%%%s)\n", reg_name, addr_name);
+    } else {
+        fprintf(out, "\tmovq\t%%%s,(%%%s)\n", val_name, addr_name);
+    }
+}
+
+static void x86_emit_test_zero_asm(ZeroCCCompiler *c, int phys_reg, FILE *out) {
+    const char *name = BE(c)->get_hw_reg_name(phys_reg);
+    fprintf(out, "\ttestq\t%%%s, %%%s\n", name, name);
+}
+
+static void x86_emit_cmp_regs_asm(ZeroCCCompiler *c, int phys_reg1, int phys_reg2, FILE *out) {
+    const char *r1 = BE(c)->get_hw_reg_name(phys_reg1);
+    const char *r2 = BE(c)->get_hw_reg_name(phys_reg2);
+    fprintf(out, "\tcmpq\t%%%s, %%%s\n", r2, r1);
+}
+
 /* Initialize x86-64 assembly emission functions in backend */
 void x86_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_prologue_asm = x86_emit_prologue_asm;
@@ -2355,6 +2414,10 @@ void x86_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_stack_guard_check_asm = x86_emit_stack_guard_check_asm;
     be->get_hw_reg_name = x86_get_hw_reg_name;
     be->get_vec_reg_name = x86_get_vec_reg_name;
+    be->emit_load_sized_asm = x86_emit_load_sized_asm;
+    be->emit_store_sized_asm = x86_emit_store_sized_asm;
+    be->emit_test_zero_asm = x86_emit_test_zero_asm;
+    be->emit_cmp_regs_asm = x86_emit_cmp_regs_asm;
 
     be->emit_mov_imm_asm = x86_emit_mov_imm_asm;
     be->emit_mov_reg_asm = x86_emit_mov_reg_asm;

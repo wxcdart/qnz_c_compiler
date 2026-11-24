@@ -24,6 +24,7 @@
 #include "zero_cc/semantic/type.h"
 #include "zero_cc/common/arena.h"
 #include "zero_cc/jit/type_info.h"
+#include "zero_cc/opt/opt_pass.h"
 #include "zero_cc/ir/abi_classify.h"
 #include "zero_cc/ir/regalloc.h"
 #include "zero_cc/ir/live_range.h"

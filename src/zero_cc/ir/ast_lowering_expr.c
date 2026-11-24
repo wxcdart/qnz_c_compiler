@@ -427,7 +427,7 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
 
             ZeroCCSym *sym = zero_cc_find_local(c, name);
             if (sym && !sym->is_extern) {
-                if (c->lto_mode && c->lowering.inlining.active_depth == 0 &&
+                if ((c->lto_mode || c->opt_level >= OPT_LEVEL_O2) && c->lowering.inlining.active_depth == 0 &&
                     sym->is_param && sym->param_reg_idx >= 0 && sym->param_reg_idx < 16) {
                     ZeroCCFunction *cur_fn = zero_cc_get_current_fn(c);
                     if (cur_fn && cur_fn->lto_param_is_const[sym->param_reg_idx] &&
@@ -618,7 +618,7 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                 }
                 ZeroCCFunction *fn = zero_cc_find_function(c, name);
                 if (fn) {
-
+                    fn->is_addr_taken = true;
                     int temp = zc_lower_fn_value(c, fn);
                     if (temp < 0) return -1;
                     if (fn->is_external) {

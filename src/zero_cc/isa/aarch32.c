@@ -2253,6 +2253,45 @@ static void aarch32_emit_vstore_asm(ZeroCCCompiler *c, int src, int base, int32_
     fprintf(out, "\tvst1.64\t{q%d}, [%s, #%d]\n", src, aarch32_get_hw_reg_name(base), offset);
 }
 
+static void aarch32_emit_load_sized_asm(ZeroCCCompiler *c, int phys_dst, int phys_addr, int size_bytes, FILE *out) {
+    const char *dst_name = aarch32_get_hw_reg_name(phys_dst);
+    const char *addr_name = aarch32_get_hw_reg_name(phys_addr);
+    (void)c;
+    if (size_bytes == 1) {
+        fprintf(out, "\tldrb\t%s, [%s]\n", dst_name, addr_name);
+    } else if (size_bytes == 2) {
+        fprintf(out, "\tldrh\t%s, [%s]\n", dst_name, addr_name);
+    } else {
+        fprintf(out, "\tldr\t%s, [%s]\n", dst_name, addr_name);
+    }
+}
+
+static void aarch32_emit_store_sized_asm(ZeroCCCompiler *c, int phys_val, int phys_addr, int size_bytes, FILE *out) {
+    const char *val_name = aarch32_get_hw_reg_name(phys_val);
+    const char *addr_name = aarch32_get_hw_reg_name(phys_addr);
+    (void)c;
+    if (size_bytes == 1) {
+        fprintf(out, "\tstrb\t%s, [%s]\n", val_name, addr_name);
+    } else if (size_bytes == 2) {
+        fprintf(out, "\tstrh\t%s, [%s]\n", val_name, addr_name);
+    } else {
+        fprintf(out, "\tstr\t%s, [%s]\n", val_name, addr_name);
+    }
+}
+
+static void aarch32_emit_test_zero_asm(ZeroCCCompiler *c, int phys_reg, FILE *out) {
+    const char *name = aarch32_get_hw_reg_name(phys_reg);
+    (void)c;
+    fprintf(out, "\tcmp\t%s, #0\n", name);
+}
+
+static void aarch32_emit_cmp_regs_asm(ZeroCCCompiler *c, int phys_reg1, int phys_reg2, FILE *out) {
+    const char *r1 = aarch32_get_hw_reg_name(phys_reg1);
+    const char *r2 = aarch32_get_hw_reg_name(phys_reg2);
+    (void)c;
+    fprintf(out, "\tcmp\t%s, %s\n", r1, r2);
+}
+
 /* =========================================================================
  * Code offset getter
  * ========================================================================= */
@@ -2583,6 +2622,10 @@ void aarch32_init_backend(void) {
     aarch32_backend.emit_stack_guard_check_asm = aarch32_emit_stack_guard_check_asm;
     aarch32_backend.get_hw_reg_name = aarch32_get_hw_reg_name;
     aarch32_backend.get_vec_reg_name = aarch32_get_vec_reg_name;
+    aarch32_backend.emit_load_sized_asm = aarch32_emit_load_sized_asm;
+    aarch32_backend.emit_store_sized_asm = aarch32_emit_store_sized_asm;
+    aarch32_backend.emit_test_zero_asm = aarch32_emit_test_zero_asm;
+    aarch32_backend.emit_cmp_regs_asm = aarch32_emit_cmp_regs_asm;
 
     aarch32_backend.emit_mov_imm = aarch32_emit_mov_imm;
     aarch32_backend.emit_add = aarch32_emit_add;

@@ -1946,6 +1946,45 @@ static void aarch64_emit_inline_asm_asm(ZeroCCCompiler *c, size_t idx, FILE *out
     fprintf(out, "\n#NO_APP\n");
 }
 
+static void aarch64_emit_load_sized_asm(ZeroCCCompiler *c, int phys_dst, int phys_addr, int size_bytes, FILE *out) {
+    const char *dst_name = BE(c)->get_hw_reg_name(phys_dst);
+    const char *addr_name = BE(c)->get_hw_reg_name(phys_addr);
+    if (size_bytes == 1) {
+        fprintf(out, "\tldrb\tw%s, [%s]\n", dst_name + 1, addr_name);
+    } else if (size_bytes == 2) {
+        fprintf(out, "\tldrh\tw%s, [%s]\n", dst_name + 1, addr_name);
+    } else if (size_bytes == 4) {
+        fprintf(out, "\tldr\tw%s, [%s]\n", dst_name + 1, addr_name);
+    } else {
+        fprintf(out, "\tldr\t%s, [%s]\n", dst_name, addr_name);
+    }
+}
+
+static void aarch64_emit_store_sized_asm(ZeroCCCompiler *c, int phys_val, int phys_addr, int size_bytes, FILE *out) {
+    const char *val_name = BE(c)->get_hw_reg_name(phys_val);
+    const char *addr_name = BE(c)->get_hw_reg_name(phys_addr);
+    if (size_bytes == 1) {
+        fprintf(out, "\tstrb\tw%s, [%s]\n", val_name + 1, addr_name);
+    } else if (size_bytes == 2) {
+        fprintf(out, "\tstrh\tw%s, [%s]\n", val_name + 1, addr_name);
+    } else if (size_bytes == 4) {
+        fprintf(out, "\tstr\tw%s, [%s]\n", val_name + 1, addr_name);
+    } else {
+        fprintf(out, "\tstr\t%s, [%s]\n", val_name, addr_name);
+    }
+}
+
+static void aarch64_emit_test_zero_asm(ZeroCCCompiler *c, int phys_reg, FILE *out) {
+    const char *name = BE(c)->get_hw_reg_name(phys_reg);
+    fprintf(out, "\tcmp\t%s, #0\n", name);
+}
+
+static void aarch64_emit_cmp_regs_asm(ZeroCCCompiler *c, int phys_reg1, int phys_reg2, FILE *out) {
+    const char *r1 = BE(c)->get_hw_reg_name(phys_reg1);
+    const char *r2 = BE(c)->get_hw_reg_name(phys_reg2);
+    fprintf(out, "\tcmp\t%s, %s\n", r1, r2);
+}
+
 /* Initialize AArch64 assembly emission functions in backend */
 void aarch64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_inline_asm_asm = aarch64_emit_inline_asm_asm;
@@ -1955,6 +1994,10 @@ void aarch64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_stack_guard_check_asm = aarch64_emit_stack_guard_check_asm;
     be->get_hw_reg_name = aarch64_get_hw_reg_name;
     be->get_vec_reg_name = aarch64_get_vec_reg_name;
+    be->emit_load_sized_asm = aarch64_emit_load_sized_asm;
+    be->emit_store_sized_asm = aarch64_emit_store_sized_asm;
+    be->emit_test_zero_asm = aarch64_emit_test_zero_asm;
+    be->emit_cmp_regs_asm = aarch64_emit_cmp_regs_asm;
 
     be->emit_mov_imm_asm = aarch64_emit_mov_imm_asm;
     be->emit_mov_reg_asm = aarch64_emit_mov_reg_asm;

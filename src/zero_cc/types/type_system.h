@@ -418,6 +418,13 @@ typedef struct ZeroCCFunction {
     bool lto_param_is_const[16];             /* IPCP: param i constant across all call sites */
     bool lto_param_const_unsat[16];          /* IPCP: param i had non-const or differing args */
     int64_t lto_param_const_val[16];         /* IPCP: constant value for param i */
+
+    /* Sprint 217: Function Cloning & IPCP Specialization */
+    bool is_clone;                           /* Specialized clone of another function */
+    size_t clone_orig_fn_idx;                /* Index of original function in c->functions */
+    int call_count;                          /* Direct call site count */
+    bool is_addr_taken;                      /* Function address was taken */
+    bool has_specialized_clones;             /* Original function has spawned specialized clones */
 } ZeroCCFunction;
 
 /* GNU __asm("sym") label / nested-function mangled name: calls and definition emission

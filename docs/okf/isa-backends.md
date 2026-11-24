@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-11-24T22:48:36Z
+timestamp: 2026-11-24T23:58:00Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -722,6 +722,19 @@ Sprint 214 refactored residual architecture checks in register allocation and AS
 - **Variadic Setup Hook (`emit_variadic_setup`)**:
   - Added `.emit_variadic_setup` to `ZeroCCISABackend`.
   - Extracted architecture-specific `va_start` stream initialization from `ast_lowering_varargs.c` into backend registry implementations (`generic_emit_variadic_setup` and `aarch32_emit_variadic_setup`).
+
+## Modular Linker Relocations & ASM Backend Hooks (Sprint 217 — Item #16 Phase 4 & 5)
+
+Sprint 217 completes Item #16 multi-ISA backend refactoring across linker relocations and text assembly emission:
+- **Phase 4: Modular Linker Relocation Ops (`TargetLinkerOps`)**:
+  - Extracted architecture-specific far-relocation thunk allocation and PCREL pre-collection from `src/zero_cc/linker/linker.c` into `TargetLinkerOps` vtable hooks (`reserve_thunks` and `precollect_pcrel`) in `src/zero_cc/linker/linker_reloc.h`.
+  - Implemented `linker_reserve_thunks_x86_64` for x86-64 far-rel32 thunk reservation and PIE `.rela.dyn` sizing.
+  - Implemented `linker_precollect_riscv_pcrel` for RISC-V `R_RISCV_PCREL_HI20` target pre-collection across relocation passes.
+  - Completely eliminated hardcoded `L->machine == EM_X86_64` and `L->machine == EM_RISCV` conditional branches in linker section layout and relocation dispatch.
+- **Phase 5: Consolidated ASM Emitter Backend Hooks (`ZeroCCISABackend`)**:
+  - Added declarative hooks for sized memory access (`emit_load_sized_asm`, `emit_store_sized_asm`) and comparisons (`emit_test_zero_asm`, `emit_cmp_regs_asm`) to `ZeroCCISABackend` in `src/zero_cc/isa/isa_backend.h`.
+  - Implemented and registered hooks across all 4 target ISAs (`x86_64_asm.c`, `aarch64_asm.c`, `riscv_asm.c`, `aarch32.c`).
+  - Refactored `src/zero_cc/ir/asm_emitter.c` to delegate directly to `BE(c)->emit_*_asm`, removing 120 lines of inline target ISA switching.
 
 ---
 

@@ -2433,6 +2433,44 @@ static void riscv32_emit_ovf_trap64_asm(ZeroCCCompiler *c, int rlo, int rhi,
     }
 }
 
+static void riscv_emit_load_sized_asm(ZeroCCCompiler *c, int phys_dst, int phys_addr, int size_bytes, FILE *out) {
+    const char *dst_name = BE(c)->get_hw_reg_name(phys_dst);
+    const char *addr_name = BE(c)->get_hw_reg_name(phys_addr);
+    if (size_bytes == 1) {
+        fprintf(out, "\tlbu\t%s, 0(%s)\n", dst_name, addr_name);
+    } else if (size_bytes == 2) {
+        fprintf(out, "\tlhu\t%s, 0(%s)\n", dst_name, addr_name);
+    } else if (size_bytes == 4) {
+        fprintf(out, "\tlw\t%s, 0(%s)\n", dst_name, addr_name);
+    } else {
+        fprintf(out, "\tld\t%s, 0(%s)\n", dst_name, addr_name);
+    }
+}
+
+static void riscv_emit_store_sized_asm(ZeroCCCompiler *c, int phys_val, int phys_addr, int size_bytes, FILE *out) {
+    const char *val_name = BE(c)->get_hw_reg_name(phys_val);
+    const char *addr_name = BE(c)->get_hw_reg_name(phys_addr);
+    if (size_bytes == 1) {
+        fprintf(out, "\tsb\t%s, 0(%s)\n", val_name, addr_name);
+    } else if (size_bytes == 2) {
+        fprintf(out, "\tsh\t%s, 0(%s)\n", val_name, addr_name);
+    } else if (size_bytes == 4) {
+        fprintf(out, "\tsw\t%s, 0(%s)\n", val_name, addr_name);
+    } else if (c->isa == ISA_RISCV32) {
+        fprintf(out, "\tsw\t%s, 0(%s)\n", val_name, addr_name);
+    } else {
+        fprintf(out, "\tsd\t%s, 0(%s)\n", val_name, addr_name);
+    }
+}
+
+static void riscv_emit_test_zero_asm(ZeroCCCompiler *c, int phys_reg, FILE *out) {
+    (void)c; (void)phys_reg; (void)out;
+}
+
+static void riscv_emit_cmp_regs_asm(ZeroCCCompiler *c, int phys_reg1, int phys_reg2, FILE *out) {
+    (void)c; (void)phys_reg1; (void)phys_reg2; (void)out;
+}
+
 /* Initialize RISC-V assembly emission functions in backend */
 void riscv64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_inline_asm_asm = riscv_emit_inline_asm_asm;
@@ -2442,6 +2480,10 @@ void riscv64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_stack_guard_check_asm = riscv_emit_stack_guard_check_asm;
     be->get_hw_reg_name = riscv_get_hw_reg_name;
     be->get_vec_reg_name = riscv_get_vec_reg_name;
+    be->emit_load_sized_asm = riscv_emit_load_sized_asm;
+    be->emit_store_sized_asm = riscv_emit_store_sized_asm;
+    be->emit_test_zero_asm = riscv_emit_test_zero_asm;
+    be->emit_cmp_regs_asm = riscv_emit_cmp_regs_asm;
 
     be->emit_mov_imm_asm = riscv_emit_mov_imm_asm;
     be->emit_mov_reg_asm = riscv_emit_mov_reg_asm;

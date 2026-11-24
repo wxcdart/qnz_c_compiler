@@ -2410,6 +2410,23 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
             c->token_pos++;
         }
     }
+    /* Sprint 217: Lower any remaining specialized clones */
+    for (size_t fi = 0; fi < c->function_count; fi++) {
+        ZeroCCFunction *cfn = &c->functions[fi];
+        if (cfn->is_clone && !cfn->lto_lowered && cfn->lto_body != AST_NULL) {
+            zero_cc_lower_deferred_fn(c, cfn);
+        }
+    }
+    /* Eliminate static functions whose call sites were all specialized to clones */
+    if (c->opt_level >= OPT_LEVEL_O2) {
+        for (size_t fi = 0; fi < c->function_count; fi++) {
+            ZeroCCFunction *fn = &c->functions[fi];
+            if (fn->is_static && !fn->is_clone && fn->has_specialized_clones &&
+                fn->call_count == 0 && !fn->is_addr_taken) {
+                fn->lto_eliminated = true;
+            }
+        }
+    }
     /* Finalize the static TLS block (.tdata/.tbss layout + per-variable
      * offsets) now that all top-level declarations are known. */
     if (c->tls_backend && c->tls_backend->finalize) {

@@ -431,7 +431,7 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                     while (a_ref != AST_NULL && p_idx < (int)callee_fn->param_count && p_idx < 8) {
                         int64_t p_cval = 0;
                         const ZeroCCType *ipt_pre = &callee_fn->param_types[p_idx];
-                        bool p_is_const = c->lto_mode && zc_lto_is_scalar_int_type(c, ipt_pre) &&
+                        bool p_is_const = (c->lto_mode || c->opt_level >= OPT_LEVEL_O2) && zc_lto_is_scalar_int_type(c, ipt_pre) &&
                                           zc_ast_const_eval(c, arena, a_ref, &p_cval);
                         if (p_is_const) {
                             switch (ipt_pre->tag) {
@@ -620,6 +620,110 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                     }
                 }
             }
+
+            /* Sprint 217: Inter-Procedural Constant Propagation & Function Cloning:
+             * If callee is static, has a saved AST body (lto_body), is not variadic,
+             * and has compile-time constant scalar arguments, specialize into a clone. */
+            if (callee_fn && callee_fn->is_static && callee_fn->lto_body != AST_NULL &&
+                !callee_fn->is_variadic && !callee_fn->is_clone &&
+                (c->opt_level >= OPT_LEVEL_O2 || c->lto_mode) &&
+                c->lowering.inlining.active_depth == 0 && callee_fn->param_count <= 8) {
+                bool has_const = false;
+                bool p_is_c[8] = {false};
+                int64_t p_val[8] = {0};
+                size_t p_i = 0;
+                ASTRef a_cur = node->right;
+                while (a_cur != AST_NULL && p_i < callee_fn->param_count && p_i < 8) {
+                    const ZeroCCType *ipt = &callee_fn->param_types[p_i];
+                    int64_t cv = 0;
+                    if (zc_lto_is_scalar_int_type(c, ipt) && zc_ast_const_eval(c, arena, a_cur, &cv)) {
+                        switch (ipt->tag) {
+                            case TYPE_BOOL:   cv = cv ? 1 : 0; break;
+                            case TYPE_INT8:   cv = (int64_t)(int8_t)cv; break;
+                            case TYPE_UINT8:  cv = (int64_t)(uint8_t)cv; break;
+                            case TYPE_INT16:  cv = (int64_t)(int16_t)cv; break;
+                            case TYPE_UINT16: cv = (int64_t)(uint16_t)cv; break;
+                            case TYPE_INT32:
+                            case TYPE_ENUM:   cv = (int64_t)(int32_t)cv; break;
+                            case TYPE_UINT32: cv = (int64_t)(uint32_t)cv; break;
+                            default: break;
+                        }
+                        p_is_c[p_i] = true;
+                        p_val[p_i] = cv;
+                        has_const = true;
+                    }
+                    ZeroCCASTNode *an = zero_cc_ast_get(arena, a_cur);
+                    a_cur = an ? an->next : AST_NULL;
+                    p_i++;
+                }
+                if (has_const) {
+                    /* Look for existing matching clone */
+                    ZeroCCFunction *match_clone = NULL;
+                    size_t orig_fn_idx = (size_t)(callee_fn - c->functions);
+                    size_t clone_count_for_orig = 0;
+                    for (size_t fi = 0; fi < c->function_count; fi++) {
+                        ZeroCCFunction *f = &c->functions[fi];
+                        if (f->is_clone && f->clone_orig_fn_idx == orig_fn_idx) {
+                            clone_count_for_orig++;
+                            bool same = true;
+                            for (size_t p = 0; p < callee_fn->param_count && p < 8; p++) {
+                                if (f->lto_param_is_const[p] != p_is_c[p]) { same = false; break; }
+                                if (p_is_c[p] && f->lto_param_const_val[p] != p_val[p]) { same = false; break; }
+                            }
+                            if (same) {
+                                match_clone = f;
+                                break;
+                            }
+                        }
+                    }
+                    if (!match_clone && clone_count_for_orig < 8 && c->function_count < ZERO_CC_MAX_FUNCTIONS) {
+                        ZeroCCFunction *clone = &c->functions[c->function_count++];
+                        memcpy(clone, callee_fn, sizeof(ZeroCCFunction));
+                        clone->is_clone = true;
+                        clone->clone_orig_fn_idx = orig_fn_idx;
+                        clone->is_static = true;
+                        clone->text_offset = 0;
+                        clone->text_size = 0;
+                        clone->lto_defer = false;
+                        clone->lto_lowered = false;
+                        clone->can_inline = false;
+                        clone->dwarf_vars = NULL;
+                        clone->dwarf_var_count = 0;
+                        clone->call_count = 0;
+                        clone->asm_name[0] = '\0';
+                        clone->param_dim_arena = NULL;
+                        if (callee_fn->lto_local_count > 0 && callee_fn->lto_locals) {
+                            clone->lto_locals = (ZeroCCSym *)malloc(callee_fn->lto_local_count * sizeof(ZeroCCSym));
+                            if (clone->lto_locals) {
+                                memcpy(clone->lto_locals, callee_fn->lto_locals, callee_fn->lto_local_count * sizeof(ZeroCCSym));
+                                clone->lto_local_count = callee_fn->lto_local_count;
+                            } else {
+                                clone->lto_local_count = 0;
+                            }
+                        } else {
+                            clone->lto_locals = NULL;
+                            clone->lto_local_count = 0;
+                        }
+                        char suffix[64] = {0};
+                        for (size_t p = 0; p < callee_fn->param_count && p < 8; p++) {
+                            clone->lto_param_is_const[p] = p_is_c[p];
+                            clone->lto_param_const_val[p] = p_val[p];
+                            if (p_is_c[p]) {
+                                char part[32];
+                                snprintf(part, sizeof(part), "_p%zu_%ld", p, (long)p_val[p]);
+                                strncat(suffix, part, sizeof(suffix) - strlen(suffix) - 1);
+                            }
+                        }
+                        snprintf(clone->name, sizeof(clone->name), "%s.const%s", callee_fn->name, suffix);
+                        callee_fn->has_specialized_clones = true;
+                        match_clone = clone;
+                    }
+                    if (match_clone) {
+                        callee_fn = match_clone;
+                    }
+                }
+            }
+            if (callee_fn) callee_fn->call_count++;
 
             /* Determine return type of the call */
             ZeroCCType call_ret_type;

@@ -4,7 +4,7 @@ title: Optimization Passes & Safety Invariants
 description: Active IR optimization pipeline (Constant Folding, CopyProp, CSE, GVN, DCE, Mem2Reg, LICM, Auto-Vectorization) and their correctness invariants.
 resource: middleend/optimization-passes
 tags: [optimizations, mem2reg, licm, vectorization, gvn, cse, dce]
-timestamp: 2026-11-24T23:30:11Z
+timestamp: 2026-11-24T23:58:00Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -180,6 +180,14 @@ Optimization passes are registered in `src/zero_cc/opt/opt_pass.c` (`g_opt_passe
         - **RISC-V RVV 1.0**: Emits AVL computation `avl = bound - counter`, followed by `OP_RVV_VSETVLI` configuring vector length dynamically to `vl`, advancing loop counter by `vl` each iteration.
         - **ARM SVE**: Emits predicate setup `OP_SVE_WHILELT` matching element size, followed by `OP_SVE_CNT` to determine active lane count, incrementing counter by `cnt` each iteration.
       - Vectorizes contiguous array loads/stores (`OP_RVV_VLE`/`OP_RVV_VSE` or `OP_SVE_LD1`/`OP_SVE_ST1`) and arithmetic (`+`, `-`, `*`, `&`, `/`).
+      - **SIMD Remainder & Epilogue Vectorization (Sprint 217)**: Loop vectorization correctly handles non-multiple trip counts ($N = 7, 9, 14, 15, 33, 38$) across integer addition, float addition, float multiplication, and reductions without regressing scalar epilogues.
+
+### 12. Function Cloning & Inter-Procedural Constant Propagation (IPCP, Sprint 217)
+- Enabled at `-O2`, `-O3`, and whole-program `-flto`.
+- Analyzes call sites calling static/internal functions with compile-time known constant arguments (`p_is_const`).
+- Clones AST and parameter descriptors into specialized function variants (`callee.const_p<idx>_<val>`), allocating independent `lto_locals` copies to prevent heap sharing and double-free issues during cleanup.
+- Substitutes parameter references directly with constants in cloned function bodies (`lto_param_is_const`), unlocking aggressive downstream dead branch elimination, constant folding, and loop unrolling within specialized callee bodies.
+- Unreferenced original static functions whose call sites are all specialized are marked `lto_eliminated = true` during translation unit finalization if their address is never taken.
 
 ### `OP_ASM` — the inline-asm barrier contract (Sprint 135)
 

@@ -26,6 +26,7 @@
 #include "zero_cc/ir/ir_emitter.h"
 #include "zero_cc/ir/regalloc.h"
 #include "zero_cc/ir/abi_classify.h"
+#include "zero_cc/jit/compile.h"
 
 static inline void zero_cc_ensure_param_cap(SemContext *ctx, ZeroCCType **types, const char ***names, size_t *cap, size_t needed) {
     if (needed <= *cap) return;
@@ -1303,7 +1304,8 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
                 }
             }
 
-            if (c->lto_mode && c->lto_phase == 1 && !has_nested && c->tu_ast_arena) {
+            if ((c->lto_mode || c->opt_level >= OPT_LEVEL_O2) && !has_nested && c->tu_ast_arena &&
+                (fn_static || c->lto_mode)) {
                 ZeroCCASTArena *tu_arena = (ZeroCCASTArena *)c->tu_ast_arena;
                 ASTRef lto_cloned = zero_cc_ast_clone(&arena, body, tu_arena);
                 if (lto_cloned != AST_NULL) {
@@ -1320,8 +1322,10 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
                     fn->ast_arena = tu_arena;
                     fn->perm_arena = perm;
                     fn->owner_tu = c->tu_index;
-                    fn->lto_defer = true;
-                    dim_arena = NULL; /* ownership remains on fn->param_dim_arena until Phase 2 */
+                    if (c->lto_mode && c->lto_phase == 1) {
+                        fn->lto_defer = true;
+                        dim_arena = NULL; /* ownership remains on fn->param_dim_arena until Phase 2 */
+                    }
                 }
             }
 
@@ -1600,6 +1604,14 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
                         zero_cc_aarch32_emit_tramp_stub(c, nf);
                 }
             }
+
+            /* Lower any specialized clones created during this function's lowering */
+            for (size_t fi = 0; fi < c->function_count; fi++) {
+                ZeroCCFunction *cfn = &c->functions[fi];
+                if (cfn->is_clone && !cfn->lto_lowered && cfn->lto_body != AST_NULL) {
+                    zero_cc_lower_deferred_fn(c, cfn);
+                }
+            }
         } else {
             c->had_error = 1;
             /* Errors are recorded in ctx->diags and merged into c->diag_buf at TU end */
@@ -1624,7 +1636,7 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
 }
 
 void zero_cc_lower_deferred_fn(ZeroCCCompiler *c, ZeroCCFunction *fn) {
-    if (!c || !fn || !fn->lto_defer || fn->lto_lowered || fn->lto_eliminated ||
+    if (!c || !fn || (!fn->lto_defer && !fn->is_clone) || fn->lto_lowered || fn->lto_eliminated ||
         fn->lto_body == AST_NULL || !fn->ast_arena) {
         return;
     }

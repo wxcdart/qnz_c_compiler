@@ -28,6 +28,8 @@ typedef struct TargetLinkerOps {
                        const ZcRiscvPcrel *pcrel_tab, size_t pcrel_count,
                        char *err, size_t errsz);
     void (*emit_start_stub)(uint8_t *st, uint64_t text_vma, uint64_t main_vma);
+    int (*reserve_thunks)(ZcLink *L, char *err, size_t errsz);
+    int (*precollect_pcrel)(ZcLink *L, ZcRiscvPcrel **tab_out, size_t *cnt_out, size_t *cap_out);
 } TargetLinkerOps;
 
 /* AArch64 Relocation Handler */
@@ -366,6 +368,10 @@ static inline void linker_stub_arm(uint8_t *st, uint64_t text_vma, uint64_t main
     st[12] = 0x00; st[13] = 0x00; st[14] = 0xA0; st[15] = 0xE1;
 }
 
+/* Forward declarations of target linker hooks */
+int linker_reserve_thunks_x86_64(ZcLink *L, char *err, size_t errsz);
+int linker_precollect_riscv_pcrel(ZcLink *L, ZcRiscvPcrel **tab_out, size_t *cnt_out, size_t *cap_out);
+
 /* Linker context operations helper declaration */
 static inline const TargetLinkerOps *zero_cc_get_linker_ops(uint16_t machine) {
     static const TargetLinkerOps ops_aarch64 = {
@@ -376,6 +382,8 @@ static inline const TargetLinkerOps *zero_cc_get_linker_ops(uint16_t machine) {
         .plt_stub_size = 16,
         .apply_reloc = linker_reloc_aarch64,
         .emit_start_stub = linker_stub_aarch64,
+        .reserve_thunks = NULL,
+        .precollect_pcrel = NULL,
     };
     static const TargetLinkerOps ops_arm = {
         .machine = 40, /* EM_ARM */
@@ -385,6 +393,8 @@ static inline const TargetLinkerOps *zero_cc_get_linker_ops(uint16_t machine) {
         .plt_stub_size = 16,
         .apply_reloc = linker_reloc_arm,
         .emit_start_stub = linker_stub_arm,
+        .reserve_thunks = NULL,
+        .precollect_pcrel = NULL,
     };
     static const TargetLinkerOps ops_riscv = {
         .machine = 243, /* EM_RISCV */
@@ -394,6 +404,8 @@ static inline const TargetLinkerOps *zero_cc_get_linker_ops(uint16_t machine) {
         .plt_stub_size = 20,
         .apply_reloc = linker_reloc_riscv,
         .emit_start_stub = linker_stub_riscv,
+        .reserve_thunks = NULL,
+        .precollect_pcrel = linker_precollect_riscv_pcrel,
     };
     static const TargetLinkerOps ops_x86_64 = {
         .machine = 62, /* EM_X86_64 */
@@ -403,6 +415,8 @@ static inline const TargetLinkerOps *zero_cc_get_linker_ops(uint16_t machine) {
         .plt_stub_size = 16,
         .apply_reloc = NULL, /* inlined in linker.c due to static PIE and far thunks */
         .emit_start_stub = NULL,
+        .reserve_thunks = linker_reserve_thunks_x86_64,
+        .precollect_pcrel = NULL,
     };
 
     switch (machine) {

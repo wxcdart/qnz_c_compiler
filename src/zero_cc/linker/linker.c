@@ -828,6 +828,50 @@ static int gc_mark_and_sweep(ZcLink *L, char *err, size_t errsz) {
     return 0;
 }
 
+/* Target linker hook: reserve x86-64 far-rel32 thunk pool */
+int linker_reserve_thunks_x86_64(ZcLink *L, char *err, size_t errsz) {
+    size_t pc32_cnt = 0, r64_cnt = 0;
+    for (int oi = 0; oi < L->obj_count; oi++) {
+        ZcElfObj *o = L->objs[oi];
+        for (int si = 0; si < o->shnum; si++) {
+            const ZcSection *rs = &o->secs[si];
+            if (rs->type != SHT_RELA || rs->info >= o->shnum) continue;
+            if (outsec_for_section(L, &o->secs[rs->info]) < 0) continue;
+            if (L->gc_sections && L->sec_live[oi] && !L->sec_live[oi][rs->info]) continue;
+            for (size_t r = 0; r < rs->reloc_count; r++) {
+                if (rs->relocs[r].type == 2 /* R_X86_64_PC32 */ ||
+                    rs->relocs[r].type == 4 /* R_X86_64_PLT32 */)
+                    pc32_cnt++;
+                else if (rs->relocs[r].type == 1 /* R_X86_64_64 */)
+                    r64_cnt++;
+            }
+        }
+    }
+    if (pc32_cnt > 0) {
+        ZcOutSec *ttext = &L->outsec[0];
+        L->text_thunk_base = ttext->cursor;
+        if (outsec_zero_extend(ttext,
+                               ttext->cursor + 14 * pc32_cnt) != 0) {
+            snprintf(err, errsz, "out of memory");
+            return -1;
+        }
+    }
+    if (L->pie) {
+        /* .rela.dyn: one slot per R_64 (absolute -> RELATIVE) plus one
+         * per PC32 as a bound (far ones become thunks whose abs64 field
+         * is itself a RELATIVE target).  Placed after the RX content,
+         * 8-aligned, before the page-aligned RW sections.  In PIE the
+         * layout base is 0, so the RX end is computable from cursors. */
+        L->rela_slots = r64_cnt + pc32_cnt;
+        uint64_t rx_end = L->outsec[0].cursor;
+        if (L->outsec[1].cursor > 0)
+            rx_end = align_up(rx_end, 8) + L->outsec[1].cursor;
+        L->rela_dyn_vma = align_up(rx_end, 8);
+        L->rela_dyn_size = 24 * L->rela_slots;
+    }
+    return 0;
+}
+
 static int layout_sections(ZcLink *L, char *err, size_t errsz) {
     const char *names[4] = {".text", ".rodata", ".data", ".bss"};
     for (int i = 0; i < 4; i++) {
@@ -923,50 +967,10 @@ static int layout_sections(ZcLink *L, char *err, size_t errsz) {
         }
     }
 
-    /* Reserve the x86-64 far-rel32 thunk pool at the end of .text, before
-     * VMA assignment, so .rodata/.data/.bss and every symbol VMA land
-     * after the pool.  Bound: one 14-byte slot per PC32/PLT32 relocation
-     * (usually only a handful are actually far). */
-    if (L->machine == EM_X86_64) {
-        size_t pc32_cnt = 0, r64_cnt = 0;
-        for (int oi = 0; oi < L->obj_count; oi++) {
-            ZcElfObj *o = L->objs[oi];
-            for (int si = 0; si < o->shnum; si++) {
-                const ZcSection *rs = &o->secs[si];
-                if (rs->type != SHT_RELA || rs->info >= o->shnum) continue;
-                if (outsec_for_section(L, &o->secs[rs->info]) < 0) continue;
-                if (L->gc_sections && L->sec_live[oi] && !L->sec_live[oi][rs->info]) continue;
-                for (size_t r = 0; r < rs->reloc_count; r++) {
-                    if (rs->relocs[r].type == 2 /* R_X86_64_PC32 */ ||
-                        rs->relocs[r].type == 4 /* R_X86_64_PLT32 */)
-                        pc32_cnt++;
-                    else if (rs->relocs[r].type == 1 /* R_X86_64_64 */)
-                        r64_cnt++;
-                }
-            }
-        }
-        if (pc32_cnt > 0) {
-            ZcOutSec *ttext = &L->outsec[0];
-            L->text_thunk_base = ttext->cursor;
-            if (outsec_zero_extend(ttext,
-                                   ttext->cursor + 14 * pc32_cnt) != 0) {
-                snprintf(err, errsz, "out of memory");
-                return -1;
-            }
-        }
-        if (L->pie) {
-            /* .rela.dyn: one slot per R_64 (absolute -> RELATIVE) plus one
-             * per PC32 as a bound (far ones become thunks whose abs64 field
-             * is itself a RELATIVE target).  Placed after the RX content,
-             * 8-aligned, before the page-aligned RW sections.  In PIE the
-             * layout base is 0, so the RX end is computable from cursors. */
-            L->rela_slots = r64_cnt + pc32_cnt;
-            uint64_t rx_end = L->outsec[0].cursor;
-            if (L->outsec[1].cursor > 0)
-                rx_end = align_up(rx_end, 8) + L->outsec[1].cursor;
-            L->rela_dyn_vma = align_up(rx_end, 8);
-            L->rela_dyn_size = 24 * L->rela_slots;
-        }
+    /* Reserve architecture-specific far-relocation thunk pool (TargetLinkerOps hook) */
+    const TargetLinkerOps *lops = zero_cc_get_linker_ops(L->machine);
+    if (lops && lops->reserve_thunks) {
+        if (lops->reserve_thunks(L, err, errsz) != 0) return -1;
     }
 
     /* VMAs & LMAs:
@@ -1198,82 +1202,95 @@ static int rela_dyn_add(ZcLink *L, uint64_t r_offset, uint64_t r_addend) {
     return 0;
 }
 
+/* Target linker hook: pre-collect all R_RISCV_PCREL_HI20 targets */
+int linker_precollect_riscv_pcrel(ZcLink *L, ZcRiscvPcrel **tab_out, size_t *cnt_out, size_t *cap_out) {
+    ZcRiscvPcrel *pcrel_tab = *tab_out;
+    size_t pcrel_cnt = *cnt_out, pcrel_cap = *cap_out;
+    for (int oi = 0; oi < L->obj_count; oi++) {
+        ZcElfObj *o = L->objs[oi];
+        for (int si = 0; si < o->shnum; si++) {
+            const ZcSection *rs = &o->secs[si];
+            if (rs->type != SHT_RELA || rs->info >= o->shnum) continue;
+            if (L->gc_sections && L->sec_live[oi] && !L->sec_live[oi][rs->info]) continue;
+            int out = outsec_for_section(L, &o->secs[rs->info]);
+            if (out < 0) continue;
+            uint64_t in_off = 0;
+            for (size_t m = 0; m < L->map_count; m++) {
+                if (L->map[m].obj == o && L->map[m].insec == rs->info) {
+                    in_off = L->map[m].out_off;
+                    break;
+                }
+            }
+            const ZcSection *st = zc_elf_symtab(o);
+            if (!st) continue;
+            for (size_t r = 0; r < rs->reloc_count; r++) {
+                const ZcReloc *rel = &rs->relocs[r];
+                if (rel->type != 23 /* R_RISCV_PCREL_HI20 */) continue;
+                uint64_t P = L->outsec[out].vma + in_off + rel->offset;
+                int64_t A = rel->addend;
+                int64_t S = 0;
+                if (rel->sym >= st->sym_count) continue;
+                const ZcSymbol *sym = &st->syms[rel->sym];
+                if (sym->shndx == 0) {
+                    ZcLinkSym *ls = sym_find(L, sym->name);
+                    if (!ls || (ls->obj == -1 && !ls->is_section)) continue;
+                    S = (int64_t)ls->vma;
+                } else if (sym->type == ZC_STT_SECTION) {
+                    if (sym->shndx >= o->shnum) continue;
+                    const char *secname = o->secs[sym->shndx].name;
+                    int sout = outsec_for_name(secname);
+                    if (sout < 0) continue;
+                    uint64_t s_off = 0;
+                    for (size_t m = 0; m < L->map_count; m++) {
+                        if (L->map[m].obj == o && L->map[m].insec == sym->shndx) {
+                            s_off = L->map[m].out_off;
+                            break;
+                        }
+                    }
+                    S = (int64_t)(L->outsec[sout].vma + s_off + sym->value);
+                } else {
+                    if (sym->shndx >= o->shnum) continue;
+                    const char *secname = o->secs[sym->shndx].name;
+                    int sout = outsec_for_name(secname);
+                    if (sout < 0) continue;
+                    uint64_t s_off = 0;
+                    for (size_t m = 0; m < L->map_count; m++) {
+                        if (L->map[m].obj == o && L->map[m].insec == sym->shndx) {
+                            s_off = L->map[m].out_off;
+                            break;
+                        }
+                    }
+                    S = (int64_t)(L->outsec[sout].vma + s_off + sym->value);
+                }
+                int64_t delta = S + A - (int64_t)P;
+                if (pcrel_cnt >= pcrel_cap) {
+                    size_t nc = pcrel_cap ? pcrel_cap * 2 : 64;
+                    ZcRiscvPcrel *nt = (ZcRiscvPcrel *)realloc(pcrel_tab, nc * sizeof(ZcRiscvPcrel));
+                    if (!nt) { free(pcrel_tab); return -1; }
+                    pcrel_tab = nt;
+                    pcrel_cap = nc;
+                }
+                pcrel_tab[pcrel_cnt].p_hi = P;
+                pcrel_tab[pcrel_cnt].delta = delta;
+                pcrel_cnt++;
+            }
+        }
+    }
+    *tab_out = pcrel_tab;
+    *cnt_out = pcrel_cnt;
+    *cap_out = pcrel_cap;
+    return 0;
+}
+
 static int apply_relocations(ZcLink *L, char *err, size_t errsz) {
     ZcRiscvPcrel *pcrel_tab = NULL;
     size_t pcrel_cnt = 0, pcrel_cap = 0;
 
-    if (L->machine == EM_RISCV) {
-        /* Pass 1: pre-collect all R_RISCV_PCREL_HI20 targets so LO12 can
-         * resolve regardless of relocation order. */
-        for (int oi = 0; oi < L->obj_count; oi++) {
-            ZcElfObj *o = L->objs[oi];
-            for (int si = 0; si < o->shnum; si++) {
-                const ZcSection *rs = &o->secs[si];
-                if (rs->type != SHT_RELA || rs->info >= o->shnum) continue;
-                if (L->gc_sections && L->sec_live[oi] && !L->sec_live[oi][rs->info]) continue;
-                int out = outsec_for_section(L, &o->secs[rs->info]);
-                if (out < 0) continue;
-                uint64_t in_off = 0;
-                for (size_t m = 0; m < L->map_count; m++) {
-                    if (L->map[m].obj == o && L->map[m].insec == rs->info) {
-                        in_off = L->map[m].out_off;
-                        break;
-                    }
-                }
-                const ZcSection *st = zc_elf_symtab(o);
-                if (!st) continue;
-                for (size_t r = 0; r < rs->reloc_count; r++) {
-                    const ZcReloc *rel = &rs->relocs[r];
-                    if (rel->type != 23 /* R_RISCV_PCREL_HI20 */) continue;
-                    uint64_t P = L->outsec[out].vma + in_off + rel->offset;
-                    int64_t A = rel->addend;
-                    int64_t S = 0;
-                    if (rel->sym >= st->sym_count) continue;
-                    const ZcSymbol *sym = &st->syms[rel->sym];
-                    if (sym->shndx == 0) {
-                        ZcLinkSym *ls = sym_find(L, sym->name);
-                        if (!ls || (ls->obj == -1 && !ls->is_section)) continue;
-                        S = (int64_t)ls->vma;
-                    } else if (sym->type == ZC_STT_SECTION) {
-                        if (sym->shndx >= o->shnum) continue;
-                        const char *secname = o->secs[sym->shndx].name;
-                        int sout = outsec_for_name(secname);
-                        if (sout < 0) continue;
-                        uint64_t s_off = 0;
-                        for (size_t m = 0; m < L->map_count; m++) {
-                            if (L->map[m].obj == o && L->map[m].insec == sym->shndx) {
-                                s_off = L->map[m].out_off;
-                                break;
-                            }
-                        }
-                        S = (int64_t)(L->outsec[sout].vma + s_off + sym->value);
-                    } else {
-                        if (sym->shndx >= o->shnum) continue;
-                        const char *secname = o->secs[sym->shndx].name;
-                        int sout = outsec_for_name(secname);
-                        if (sout < 0) continue;
-                        uint64_t s_off = 0;
-                        for (size_t m = 0; m < L->map_count; m++) {
-                            if (L->map[m].obj == o && L->map[m].insec == sym->shndx) {
-                                s_off = L->map[m].out_off;
-                                break;
-                            }
-                        }
-                        S = (int64_t)(L->outsec[sout].vma + s_off + sym->value);
-                    }
-                    int64_t delta = S + A - (int64_t)P;
-                    if (pcrel_cnt >= pcrel_cap) {
-                        size_t nc = pcrel_cap ? pcrel_cap * 2 : 64;
-                        ZcRiscvPcrel *nt = (ZcRiscvPcrel *)realloc(pcrel_tab, nc * sizeof(ZcRiscvPcrel));
-                        if (!nt) { free(pcrel_tab); snprintf(err, errsz, "out of memory"); return -1; }
-                        pcrel_tab = nt;
-                        pcrel_cap = nc;
-                    }
-                    pcrel_tab[pcrel_cnt].p_hi = P;
-                    pcrel_tab[pcrel_cnt].delta = delta;
-                    pcrel_cnt++;
-                }
-            }
+    const TargetLinkerOps *lops = zero_cc_get_linker_ops(L->machine);
+    if (lops && lops->precollect_pcrel) {
+        if (lops->precollect_pcrel(L, &pcrel_tab, &pcrel_cnt, &pcrel_cap) != 0) {
+            snprintf(err, errsz, "out of memory");
+            return -1;
         }
     }
 

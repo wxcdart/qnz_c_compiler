@@ -1,5 +1,35 @@
 # CHANGELOG
 
+## [Sprint 217] - 2026-11-24 - Function Cloning & IPCP Specialization, SIMD Epilogue Vectorization, and Multi-ISA Linker / ASM Modularization (Item #16 Phase 4 & 5)
+
+Implements Options 1, 2, and 3:
+- **Option 1: Function Cloning & Inter-Procedural Constant Propagation (IPCP) (`ast_lowering_call.c`, `ast_lowering_expr.c`, `compile.c`, `compile_unit.c`, `type_system.h`)**:
+  - Implemented function cloning and specialization at `-O2` and `-O3` (and whole-program `-flto`) when static functions are called with compile-time constant arguments.
+  - Automatically clones AST definitions and parameter declarations (`callee.const_p<idx>_<val>`), isolating clone local variable definitions and parameter array arenas to prevent aliasing.
+  - Substitutes constant parameters directly into cloned bodies (`cur_fn->lto_param_is_const`), unlocking aggressive downstream dead branch pruning, constant folding, and loop unrolling within specialized callee bodies.
+  - Tracks function references (`is_addr_taken`, `call_count`, `has_specialized_clones`) and automatically marks unreferenced original static functions as `lto_eliminated = true` at translation unit finalization.
+  - Verified with `test/jit/ipcp_specialize_test.c` across `-O0..-O3` in both JIT and AOT modes.
+- **Option 2: SIMD Loop Remainder & Epilogue Vectorization (`opt_vectorize.c`, `test/jit/simd_epilogue_test.c`)**:
+  - Expanded test coverage and verified SIMD vectorization handling of non-multiple trip counts ($N = 7, 9, 14, 15, 33, 38$) across integer addition, float addition, float multiplication, and reductions.
+  - Verified with `test/jit/simd_epilogue_test.c` across `-O0..-O3` in both JIT and AOT modes.
+- **Option 3: Multi-ISA Direct Binary Linker Relocations & Text ASM Emission (Item #16 Phase 4 & 5 Modularization)**:
+  - **Phase 4 (Modular Linker Relocations & Thunks, `linker_reloc.h`, `linker.c`)**:
+    - Added `reserve_thunks` and `precollect_pcrel` function pointer hooks to `TargetLinkerOps`.
+    - Modularized x86-64 far-rel32 thunk pool reservation (`linker_reserve_thunks_x86_64`) and RISC-V PCREL_HI20 pre-collection (`linker_precollect_riscv_pcrel`), removing hardcoded architecture switches from `layout_sections` and `apply_relocations`.
+    - Retained 100% test coverage across all 57 own-linker tests in `tools/verify/linker_tests.py`.
+  - **Phase 5 (Consolidated ASM Emitter Backend Hooks, `isa_backend.h`, `asm_emitter.c`, `x86_64_asm.c`, `aarch64_asm.c`, `riscv_asm.c`, `aarch32.c`)**:
+    - Extended `ZeroCCISABackend` with declarative hooks for sized memory operations (`emit_load_sized_asm`, `emit_store_sized_asm`) and comparisons (`emit_test_zero_asm`, `emit_cmp_regs_asm`).
+    - Implemented and registered hooks across all 4 target ISAs (x86-64, AArch64, RISC-V, and AArch32).
+    - Refactored `src/zero_cc/ir/asm_emitter.c` to delegate directly to backend vtable hooks, eliminating 120 lines of redundant ISA branching.
+- **Verification & Test Coverage**:
+  - `test/jit/ipcp_specialize_test.c` and `test/jit/simd_epilogue_test.c`: 100% passing across JIT and AOT at all `-O` levels.
+  - All 255 tests in `make test` pass.
+  - Full optimizer sweep `make test-opt` passes (155 ok, 0 failed, 58 skipped, 1 nondeterministic).
+  - Own-linker test suite (`linker_tests.py`): 57/57 tests passing.
+  - Embedded baremetal CPU verification `make test-baremetal` passes 100%.
+  - ZeroCC coding style checker (`tools/verify/style_check.py`): 199 files, 0 errors, 0 warnings.
+  - OKF graph validator (`okf.py lint`): 23/23 concepts reachable, 0 errors.
+
 ## [Sprint 216] - 2026-11-24 - Advanced Loop Optimizations: Loop Unswitching & Loop Peeling (Item #11)
 
 Implements Option 1 (Advanced Loop Optimizations — Loop Unswitching & Loop Peeling):
@@ -344,6 +374,36 @@ Implements Option 2: AVX-512 Integer SIMD (`AVX-512BW` / `AVX-512DQ` / `__m512i`
   - All regression gates green: `make test` (245/245 passed), `make test-opt` (143 passed, 0 failed), `make test-san` (720 passed, 0 failed), `python3 tools/verify/style_check.py` (0 errors), `python3 tools/verify/type_tag_verifier.py --verify-all` (OK).
 
 # CHANGELOG
+
+## [Sprint 217] - 2026-11-24 - Function Cloning & IPCP Specialization, SIMD Epilogue Vectorization, and Multi-ISA Linker / ASM Modularization (Item #16 Phase 4 & 5)
+
+Implements Options 1, 2, and 3:
+- **Option 1: Function Cloning & Inter-Procedural Constant Propagation (IPCP) (`ast_lowering_call.c`, `ast_lowering_expr.c`, `compile.c`, `compile_unit.c`, `type_system.h`)**:
+  - Implemented function cloning and specialization at `-O2` and `-O3` (and whole-program `-flto`) when static functions are called with compile-time constant arguments.
+  - Automatically clones AST definitions and parameter declarations (`callee.const_p<idx>_<val>`), isolating clone local variable definitions and parameter array arenas to prevent aliasing.
+  - Substitutes constant parameters directly into cloned bodies (`cur_fn->lto_param_is_const`), unlocking aggressive downstream dead branch pruning, constant folding, and loop unrolling within specialized callee bodies.
+  - Tracks function references (`is_addr_taken`, `call_count`, `has_specialized_clones`) and automatically marks unreferenced original static functions as `lto_eliminated = true` at translation unit finalization.
+  - Verified with `test/jit/ipcp_specialize_test.c` across `-O0..-O3` in both JIT and AOT modes.
+- **Option 2: SIMD Loop Remainder & Epilogue Vectorization (`opt_vectorize.c`, `test/jit/simd_epilogue_test.c`)**:
+  - Expanded test coverage and verified SIMD vectorization handling of non-multiple trip counts ($N = 7, 9, 14, 15, 33, 38$) across integer addition, float addition, float multiplication, and reductions.
+  - Verified with `test/jit/simd_epilogue_test.c` across `-O0..-O3` in both JIT and AOT modes.
+- **Option 3: Multi-ISA Direct Binary Linker Relocations & Text ASM Emission (Item #16 Phase 4 & 5 Modularization)**:
+  - **Phase 4 (Modular Linker Relocations & Thunks, `linker_reloc.h`, `linker.c`)**:
+    - Added `reserve_thunks` and `precollect_pcrel` function pointer hooks to `TargetLinkerOps`.
+    - Modularized x86-64 far-rel32 thunk pool reservation (`linker_reserve_thunks_x86_64`) and RISC-V PCREL_HI20 pre-collection (`linker_precollect_riscv_pcrel`), removing hardcoded architecture switches from `layout_sections` and `apply_relocations`.
+    - Retained 100% test coverage across all 57 own-linker tests in `tools/verify/linker_tests.py`.
+  - **Phase 5 (Consolidated ASM Emitter Backend Hooks, `isa_backend.h`, `asm_emitter.c`, `x86_64_asm.c`, `aarch64_asm.c`, `riscv_asm.c`, `aarch32.c`)**:
+    - Extended `ZeroCCISABackend` with declarative hooks for sized memory operations (`emit_load_sized_asm`, `emit_store_sized_asm`) and comparisons (`emit_test_zero_asm`, `emit_cmp_regs_asm`).
+    - Implemented and registered hooks across all 4 target ISAs (x86-64, AArch64, RISC-V, and AArch32).
+    - Refactored `src/zero_cc/ir/asm_emitter.c` to delegate directly to backend vtable hooks, eliminating 120 lines of redundant ISA branching.
+- **Verification & Test Coverage**:
+  - `test/jit/ipcp_specialize_test.c` and `test/jit/simd_epilogue_test.c`: 100% passing across JIT and AOT at all `-O` levels.
+  - All 255 tests in `make test` pass.
+  - Full optimizer sweep `make test-opt` passes (155 ok, 0 failed, 58 skipped, 1 nondeterministic).
+  - Own-linker test suite (`linker_tests.py`): 57/57 tests passing.
+  - Embedded baremetal CPU verification `make test-baremetal` passes 100%.
+  - ZeroCC coding style checker (`tools/verify/style_check.py`): 199 files, 0 errors, 0 warnings.
+  - OKF graph validator (`okf.py lint`): 23/23 concepts reachable, 0 errors.
 
 ## [Sprint 216] - 2026-11-24 - Advanced Loop Optimizations: Loop Unswitching & Loop Peeling (Item #11)
 
