@@ -1,5 +1,29 @@
 # CHANGELOG
 
+## [Sprint 216] - 2026-11-24 - Advanced Loop Optimizations: Loop Unswitching & Loop Peeling (Item #11)
+
+Implements Option 1 (Advanced Loop Optimizations — Loop Unswitching & Loop Peeling):
+- **Loop Unswitching (`opt_loop_unswitch.c`, `opt_loop_unswitch.h`, `opt_pass.c`, `Makefile`)**:
+  - Implemented `opt_loop_unswitch` pass registered at priority 56 (`OPT_LEVEL_O3`), executing directly after LICM.
+  - Automatically identifies loop-invariant conditional branches (`if (flag)`, `if (mode == 1)`) within loop bodies whose operands are not defined inside the loop.
+  - Clones the loop into two specialized loops: Loop True (where the branch is replaced by an unconditional jump to the taken label) and Loop False (where the branch is replaced by a NOP to fall through).
+  - Emits an outer preheader condition test that directs control flow to the appropriate specialized loop once outside the loop, eliminating per-iteration branch evaluation overhead and exposing straight-line loop bodies for downstream vectorization and unrolling.
+  - Adds unswitch markers (`UNSWITCH_MARKER = 0x5EE7`) to prevent redundant re-unswitching across optimization passes.
+- **Loop Peeling (`opt_loop_peel` in `opt_loop_unswitch.c`, `opt_pass.c`)**:
+  - Implemented `opt_loop_peel` pass registered at priority 66 (`OPT_LEVEL_O3`), executing before Loop Fusion.
+  - Identifies countable loops with initial boundary conditions (e.g. `if (i == 0)` or `if (i == init)`).
+  - Peels the first iteration ($i = \text{init}$) into the preheader, safely guarded against 0-trip loops.
+  - Initializes the remaining loop at $i = \text{init} + 1$, transforming boundary conditions into constants that are completely folded by downstream passes (`constant_fold` and `dce`).
+  - Protects remainder loops with peeling markers (`PEEL_MARKER = 0x5EE8`).
+- **Verification & Test Coverage**:
+  - `test/jit/loop_unswitch_test.c`: invariant flag paths, mode selector paths, and stride offset updates verified across `-O0..-O3` in both JIT and AOT modes.
+  - `test/jit/loop_peel_test.c`: first-iteration boundary assignments, accumulator resets, and 0-trip safety verified across `-O0..-O3` in both JIT and AOT modes.
+  - All 253 tests in `make test` pass.
+  - Full optimizer sweep `make test-opt` passes (153 ok, 0 failed, 58 skipped, 1 nondeterministic).
+  - Embedded baremetal CPU verification `make test-baremetal` passes 100%.
+  - ZeroCC coding style checker (`tools/verify/style_check.py`): 199 files, 0 errors, 0 warnings.
+  - OKF graph validator (`okf.py lint`): 23/23 concepts reachable, 0 errors.
+
 ## [Sprint 215] - 2026-11-24 - Advanced Loop Optimizations: LICM Store Hoisting & Loop Fusion / Jamming
 
 Implements Option 3 (Advanced Loop Optimizations — LICM Store Hoisting & Loop Fusion):
@@ -320,6 +344,30 @@ Implements Option 2: AVX-512 Integer SIMD (`AVX-512BW` / `AVX-512DQ` / `__m512i`
   - All regression gates green: `make test` (245/245 passed), `make test-opt` (143 passed, 0 failed), `make test-san` (720 passed, 0 failed), `python3 tools/verify/style_check.py` (0 errors), `python3 tools/verify/type_tag_verifier.py --verify-all` (OK).
 
 # CHANGELOG
+
+## [Sprint 216] - 2026-11-24 - Advanced Loop Optimizations: Loop Unswitching & Loop Peeling (Item #11)
+
+Implements Option 1 (Advanced Loop Optimizations — Loop Unswitching & Loop Peeling):
+- **Loop Unswitching (`opt_loop_unswitch.c`, `opt_loop_unswitch.h`, `opt_pass.c`, `Makefile`)**:
+  - Implemented `opt_loop_unswitch` pass registered at priority 56 (`OPT_LEVEL_O3`), executing directly after LICM.
+  - Automatically identifies loop-invariant conditional branches (`if (flag)`, `if (mode == 1)`) within loop bodies whose operands are not defined inside the loop.
+  - Clones the loop into two specialized loops: Loop True (where the branch is replaced by an unconditional jump to the taken label) and Loop False (where the branch is replaced by a NOP to fall through).
+  - Emits an outer preheader condition test that directs control flow to the appropriate specialized loop once outside the loop, eliminating per-iteration branch evaluation overhead and exposing straight-line loop bodies for downstream vectorization and unrolling.
+  - Adds unswitch markers (`UNSWITCH_MARKER = 0x5EE7`) to prevent redundant re-unswitching across optimization passes.
+- **Loop Peeling (`opt_loop_peel` in `opt_loop_unswitch.c`, `opt_pass.c`)**:
+  - Implemented `opt_loop_peel` pass registered at priority 66 (`OPT_LEVEL_O3`), executing before Loop Fusion.
+  - Identifies countable loops with initial boundary conditions (e.g. `if (i == 0)` or `if (i == init)`).
+  - Peels the first iteration ($i = \text{init}$) into the preheader, safely guarded against 0-trip loops.
+  - Initializes the remaining loop at $i = \text{init} + 1$, transforming boundary conditions into constants that are completely folded by downstream passes (`constant_fold` and `dce`).
+  - Protects remainder loops with peeling markers (`PEEL_MARKER = 0x5EE8`).
+- **Verification & Test Coverage**:
+  - `test/jit/loop_unswitch_test.c`: invariant flag paths, mode selector paths, and stride offset updates verified across `-O0..-O3` in both JIT and AOT modes.
+  - `test/jit/loop_peel_test.c`: first-iteration boundary assignments, accumulator resets, and 0-trip safety verified across `-O0..-O3` in both JIT and AOT modes.
+  - All 253 tests in `make test` pass.
+  - Full optimizer sweep `make test-opt` passes (153 ok, 0 failed, 58 skipped, 1 nondeterministic).
+  - Embedded baremetal CPU verification `make test-baremetal` passes 100%.
+  - ZeroCC coding style checker (`tools/verify/style_check.py`): 199 files, 0 errors, 0 warnings.
+  - OKF graph validator (`okf.py lint`): 23/23 concepts reachable, 0 errors.
 
 ## [Sprint 215] - 2026-11-24 - Advanced Loop Optimizations: LICM Store Hoisting & Loop Fusion / Jamming
 

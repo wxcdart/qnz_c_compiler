@@ -4,7 +4,7 @@ title: Optimization Passes & Safety Invariants
 description: Active IR optimization pipeline (Constant Folding, CopyProp, CSE, GVN, DCE, Mem2Reg, LICM, Auto-Vectorization) and their correctness invariants.
 resource: middleend/optimization-passes
 tags: [optimizations, mem2reg, licm, vectorization, gvn, cse, dce]
-timestamp: 2026-11-24T23:14:15Z
+timestamp: 2026-11-24T23:30:11Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -75,13 +75,25 @@ Optimization passes are registered in `src/zero_cc/opt/opt_pass.c` (`g_opt_passe
      - Verifies address operand is loop-invariant, no calls/syscalls/inline asm, and exactly one memory store across the loop body.
      - Allocates an accumulator temporary in the preheader (`accum_temp = *addr_temp`), replaces in-loop loads and stores with register moves (`OP_MOV_REG` / `OP_FMOV`), and commits the final value to memory (`*addr_temp = accum_temp`) on loop exit.
      - Preserves 0-trip loop semantics by loading the initial value before the loop and storing back on exit.
-8. **Loop Fusion / Jamming (`opt_loop_fusion.c`, Sprint 215)**
+8. **Loop Unswitching (`opt_loop_unswitch.c`, Sprint 216)**
+   - Registered at priority 56 (`OPT_LEVEL_O3`), executing directly after LICM.
+   - Detects loop-invariant conditional branches (`if (flag)`, `if (mode == 1)`) within loop bodies whose comparison operands are not defined inside the loop.
+   - Clones the loop into two specialized loops: Loop True (where the branch is replaced by an unconditional jump to the taken label) and Loop False (where the branch is replaced by a NOP to fall through).
+   - Emits a single preheader condition test outside the loops directing control flow to the appropriate specialized loop, eliminating per-iteration branch evaluation overhead and exposing straight-line loop bodies for downstream vectorization and unrolling.
+   - Adds unswitch markers (`UNSWITCH_MARKER = 0x5EE7`) to prevent redundant re-unswitching across pass iterations.
+9. **Loop Peeling (`opt_loop_peel` in `opt_loop_unswitch.c`, Sprint 216)**
+   - Registered at priority 66 (`OPT_LEVEL_O3`), executing before Loop Fusion.
+   - Identifies countable loops with initial boundary conditions (e.g. `if (i == 0)` or `if (i == init)`).
+   - Peels the first iteration ($i = \text{init}$) into the preheader, guarded against 0-trip loops.
+   - Initializes the remainder loop at $i = \text{init} + 1$, converting boundary checks into constants that are completely folded by downstream constant folding and dead code elimination.
+   - Adds peeling markers (`PEEL_MARKER = 0x5EE8`) to protect remainder loops.
+10. **Loop Fusion / Jamming (`opt_loop_fusion.c`, Sprint 215)**
    - Registered at priority 67 (`OPT_LEVEL_O3`), running before SIMD auto-vectorization (priority 68) and loop unrolling (priority 70).
    - Merges adjacent loops with identical iteration spaces and compatible data dependencies into a single loop, eliminating redundant loop index increments, comparisons, and branch overhead, while exposing combined bodies to downstream GVN, SLP, and SIMD vectorization.
    - Analyzes loop headers, backedges, induction variable initializations, increment steps, and loop bounds.
    - Enforces dependency safety: verifies no write-after-write (WAW) or write-after-read (WAR) conflicts between Loop 1 and Loop 2.
    - Splices Loop 2's body right before Loop 1's induction step, remapping Loop 2's induction variable uses to Loop 1's induction variable. Hoists pure setup instructions between Loop 1 and Loop 2 into Loop 1's preheader, and redirects Loop 1's exit jump directly to Loop 2's exit label, NOP'ing out Loop 2.
-9. **SIMD Auto-Vectorization (`opt_vectorize.c`)**
+11. **SIMD Auto-Vectorization (`opt_vectorize.c`)**
    - Detects countable array arithmetic loops:
      - **Single-Precision Floats (`float[N]`)**: maps `OP_VLOADSS`, `OP_VSTORESS`, `OP_FADD`/`OP_FSUB`/`OP_FMUL`/`OP_FDIV` &rarr; 128-bit packed single vector instructions (`OP_VADDPS`, `OP_VSUBPS`, `OP_VMULPS`, `OP_VDIVPS`, `OP_VLOAD`, `OP_VSTORE`) with `vec_width = 4` (stride 4, `i += 4`).
      - **Double-Precision Floats (`double[N]`)**: maps `OP_VLOADSD`, `OP_VSTORESD`, `OP_FADD`/`OP_FSUB`/`OP_FMUL`/`OP_FDIV` &rarr; 128-bit packed double vector instructions (`OP_VADDPD`, `OP_VSUBPD`, `OP_VMULPD`, `OP_VDIVPD`, `OP_VLOAD`, `OP_VSTORE`) with `vec_width = 2` (stride 8, `i += 2`).
