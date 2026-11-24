@@ -763,7 +763,7 @@ int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                     c->last_expr_is_128 = 1;
                     return result_temp;
                 }
-                else if (!is_struct && (c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) &&
+                else if (!is_struct && zc_target_is_32bit(c) &&
                          (p_size == 8 || (ti && ti->kind == TYPE_KIND_LONG))) {
                     ir_emit_load64(c, result_temp, operand_temp, 0);
                     c->last_expr_is_float = 0;
@@ -805,7 +805,7 @@ int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                         break;
                     }
                 }
-                if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && (c->last_expr_is_64 || zc_node_is_int64(c, node))) {
+                if (zc_target_is_32bit(c) && (c->last_expr_is_64 || zc_node_is_int64(c, node))) {
                     int src = zc_operand_to64(c, arena, node->left);
                     ir_emit_neg64(c, result_temp, src);
                     c->last_expr_is_64 = 1;
@@ -882,7 +882,7 @@ int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                     ir_emit_cmp(c, operand_temp, zero_f);
                     ir_emit_cond_set(c, result_temp, CC_EQ);
                     c->last_expr_is_float = 0;
-                } else if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && (c->last_expr_is_64 || zc_node_is_int64(c, zero_cc_ast_get(arena, node->left)))) {
+                } else if (zc_target_is_32bit(c) && (c->last_expr_is_64 || zc_node_is_int64(c, zero_cc_ast_get(arena, node->left)))) {
                     int src = zc_operand_to64(c, arena, node->left);
                     int zero64 = zc_alloc_temp(c);
                     ir_emit_mov64_imm(c, zero64, 0);
@@ -974,7 +974,7 @@ int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                         break;
                     }
                 }
-                if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && (c->last_expr_is_64 || zc_node_is_int64(c, node))) {
+                if (zc_target_is_32bit(c) && (c->last_expr_is_64 || zc_node_is_int64(c, node))) {
                     int src = zc_operand_to64(c, arena, node->left);
                     ir_emit_not64(c, result_temp, src);
                     c->last_expr_is_64 = 1;

@@ -236,7 +236,7 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
         case NODE_INT: {
             int us = 0;
             int w = zero_cc_expr_int_info(c, arena, ref, &us);
-            if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && w == 8) {
+            if (zc_target_is_32bit(c) && w == 8) {
                 int temp = zc_alloc_temp(c);
                 ir_emit_mov64_imm(c, temp, node->int_val);
                 c->last_expr_is_float = 0;
@@ -419,7 +419,7 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                          * value and silently drop the high half (O2
                          * inlining of `hi128(v)` became `hi128(zext64(v))`). */
                         c->last_expr_is_128 = c->lowering.inlining.param_is_128[p] ? 1 : 0;
-                        c->last_expr_is_64 = ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && c->lowering.inlining.param_is_64[p]) ? 1 : 0;
+                        c->last_expr_is_64 = (zc_target_is_32bit(c) && c->lowering.inlining.param_is_64[p]) ? 1 : 0;
                         return p_temp;
                     }
                 }
@@ -516,7 +516,7 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                     c->last_expr_is_float = 0;
                     c->last_expr_is_128 = 1;
                     return temp;
-                } else if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) &&
+                } else if (zc_target_is_32bit(c) &&
                            (sym->type.tag == TYPE_INT64 || sym->type.tag == TYPE_UINT64)) {
                     /* Sprint 170 (rv32 i64) / AArch32: load the full 8 bytes into a
                      * GPR64 (lo,hi) temp. */
@@ -589,7 +589,7 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                         c->last_expr_is_128 = 1;
                         return val_temp;
                     }
-                    if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) &&
+                    if (zc_target_is_32bit(c) &&
                         (gv->type.tag == TYPE_INT64 || gv->type.tag == TYPE_UINT64)) {
                         /* Sprint 170 (rv32 i64) / AArch32: load the full 8 bytes into a
                          * GPR64 (lo,hi) temp. */
@@ -755,7 +755,7 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                     c->last_expr_is_float = 1;
                 }
                 if (!is_struct_tern && tern_ti && !c->last_expr_is_float &&
-                    (c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) &&
+                    zc_target_is_32bit(c) &&
                     (tern_ti->kind == TYPE_KIND_LONG && type_size(tern_ti) == 8) && !c->last_expr_is_64) {
                     int c64 = zc_alloc_temp(c);
                     if (tern_ti->modifiers & TYPE_MOD_UNSIGNED) ir_emit_zext32_64(c, c64, res_t);
@@ -789,7 +789,7 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                 ir_emit_cond_set(c, cmp_i, CC_NE);
                 cond_temp = cmp_i;
                 c->last_expr_is_float = 0;
-            } else if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && c->last_expr_is_64) {
+            } else if (zc_target_is_32bit(c) && c->last_expr_is_64) {
                 int zero64 = zc_alloc_temp(c);
                 ir_emit_mov64_imm(c, zero64, 0);
                 ir_emit_cmp64(c, cond_temp, zero64);
@@ -817,7 +817,7 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
             int then_temp = is_struct_tern ? zero_cc_lower_lvalue_addr(c, arena, node->right) : TEMP_NONE;
             if (then_temp == TEMP_NONE) then_temp = lower_expr(c, arena, node->right);
             int then_fp = is_struct_tern ? 0 : c->last_expr_is_float;
-            int then_64 = ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && c->last_expr_is_64);
+            int then_64 = (zc_target_is_32bit(c) && c->last_expr_is_64);
 
             if (then_fp || else_may_be_fp) {
                 if (then_fp) {
@@ -838,7 +838,7 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
             int else_temp = is_struct_tern ? zero_cc_lower_lvalue_addr(c, arena, node->aux.alt) : TEMP_NONE;
             if (else_temp == TEMP_NONE) else_temp = lower_expr(c, arena, node->aux.alt);
             int else_fp = is_struct_tern ? 0 : c->last_expr_is_float;
-            int else_64 = ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && c->last_expr_is_64);
+            int else_64 = (zc_target_is_32bit(c) && c->last_expr_is_64);
             int fp_result = is_struct_tern ? 0 : (then_fp || else_fp || else_may_be_fp);
             int is_64_result = (then_64 || else_64);
 
@@ -1529,7 +1529,7 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                 ir_emit_load128(c, result_temp, addr_temp);
                 c->last_expr_is_float = 0;
                 c->last_expr_is_128 = 1;
-            } else if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) &&
+            } else if (zc_target_is_32bit(c) &&
                        (elem_size == 8 || (elem_ti && elem_ti->kind == TYPE_KIND_LONG))) {
                 ir_emit_load64(c, result_temp, addr_temp, 0);
                 c->last_expr_is_float = 0;
@@ -1671,7 +1671,7 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                     }
                     if (member_is_wide_bf) {
                         ir_emit_load128(c, val_temp, multi_addr);
-                    } else if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && member_sz == 8) {
+                    } else if (zc_target_is_32bit(c) && member_sz == 8) {
                         ir_emit_load64(c, val_temp, multi_addr, 0);
                         c->last_expr_is_64 = 1;
                     } else {
@@ -1718,7 +1718,7 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                          * the upper bytes of the load are not zero and an
                          * early return would leak them into the value). */
                         if (member_is_wide_bf) ir_emit_load128(c, val_temp, gaddr2);
-                        else if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && member_sz == 8) {
+                        else if (zc_target_is_32bit(c) && member_sz == 8) {
                             ir_emit_load64(c, val_temp, gaddr2, 0);
                             c->last_expr_is_64 = 1;
                         } else ir_emit_deref(c, val_temp, gaddr2);
@@ -1748,7 +1748,7 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                         return val_temp;
                     } else {
                         if (member_is_wide_bf) ir_emit_load128(c, val_temp, addr_temp);
-                        else if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && member_sz == 8) {
+                        else if (zc_target_is_32bit(c) && member_sz == 8) {
                             ir_emit_load64(c, val_temp, addr_temp, 0);
                             c->last_expr_is_64 = 1;
                         } else ir_emit_deref(c, val_temp, addr_temp);
@@ -1779,7 +1779,7 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                         return val_temp;
                     } else {
                         if (member_is_wide_bf) ir_emit_load128(c, val_temp, addr_temp);
-                        else if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && member_sz == 8) {
+                        else if (zc_target_is_32bit(c) && member_sz == 8) {
                             ir_emit_load64(c, val_temp, addr_temp, 0);
                             c->last_expr_is_64 = 1;
                         } else ir_emit_deref(c, val_temp, addr_temp);
@@ -1812,7 +1812,7 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                         int waddr = zc_alloc_temp(c);
                         ir_emit_lea(c, waddr, TEMP_NONE, total_offset);
                         ir_emit_load128(c, val_temp, waddr);
-                    } else if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && member_sz == 8) {
+                    } else if (zc_target_is_32bit(c) && member_sz == 8) {
                         int waddr = zc_alloc_temp(c);
                         ir_emit_lea(c, waddr, BE(c)->fp_reg, total_offset);
                         ir_emit_load64(c, val_temp, waddr, 0);
@@ -1852,7 +1852,7 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                         return val_temp;
                     } else {
                         if (member_is_wide_bf) ir_emit_load128(c, val_temp, addr_temp);
-                        else if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && member_sz == 8) {
+                        else if (zc_target_is_32bit(c) && member_sz == 8) {
                             ir_emit_load64(c, val_temp, addr_temp, 0);
                             c->last_expr_is_64 = 1;
                         } else ir_emit_deref(c, val_temp, addr_temp);
@@ -1884,7 +1884,7 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                     int waddr = zc_alloc_temp(c);
                     ir_emit_lea(c, waddr, TEMP_NONE, total_offset);
                     ir_emit_load128(c, val_temp, waddr);
-                } else if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && member_sz == 8) {
+                } else if (zc_target_is_32bit(c) && member_sz == 8) {
                     int waddr = zc_alloc_temp(c);
                     ir_emit_lea(c, waddr, BE(c)->fp_reg, total_offset);
                     ir_emit_load64(c, val_temp, waddr, 0);
@@ -2064,7 +2064,7 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                 if (sz == 1 || sz == 2 || sz == 4) {
                     if (is_u) ir_emit_zext(c, val_temp, (int)sz);
                     else ir_emit_sext(c, val_temp, (int)sz);
-                } else if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && sz == 8) {
+                } else if (zc_target_is_32bit(c) && sz == 8) {
                     c->last_expr_is_64 = 1;
                 }
             }

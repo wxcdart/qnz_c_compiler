@@ -1210,8 +1210,6 @@ bool zero_cc_parse_local_decl(ZeroCCCompiler *c,  /* Sprint 114: defined in decl
                             nf->tramp_stub_fn_idx = -1;
                             if ((nf->nested_captured_count > 0 || nf->goto_pair_count > 0) &&
                                 !nf->is_variadic &&
-                                (c->isa == ISA_X86_64 || c->isa == ISA_AARCH64 || c->isa == ISA_RISCV64 ||
-                                 c->isa == ISA_AARCH32 || c->isa == ISA_RISCV32) &&
                                 c->function_count < ZERO_CC_MAX_FUNCTIONS) {
                                 bool stub_ok = true;
                                 for (size_t ci = 0; ci < nf->nested_captured_count; ci++) {

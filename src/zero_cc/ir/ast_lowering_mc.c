@@ -2527,8 +2527,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                  * 10 bytes (8-byte reloc field at the end); RISC-V emits an
                  * auipc+addi pair; AArch64 emits an adrp+add pair; AArch32 emits
                  * a movw+movt pair (4-byte reloc field at the end). */
-                size_t reloc_field = (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32 ||
-                                      c->isa == ISA_AARCH64 || c->isa == ISA_AARCH32) ? 4 : 8;
+                size_t reloc_field = zc_target_text_sym_reloc_field(c);
                 if (c->reloc_count < ZERO_CC_MAX_RELOCS) {
                     ZeroCCReloc *r = &c->relocs[c->reloc_count++];
                     r->text_patch_offset = BE(c)->get_code_offset(c) - reloc_field;

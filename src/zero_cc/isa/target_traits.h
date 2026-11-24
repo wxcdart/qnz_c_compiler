@@ -74,6 +74,8 @@ struct TargetTraits {
     uint32_t  dwarf_addr_reloc;    /* Target relocation type for pointer/address in DWARF */
     uint32_t  dwarf_sec_reloc;     /* Target relocation type for section offset in DWARF */
     uint8_t   dwarf_fp_reg;        /* DWARF register number for frame pointer (6 on x86-64, 29 on aarch64, 11 on aarch32, 8 on riscv) */
+    uint8_t   text_sym_reloc_field;/* 8 on x86-64, 4 on aarch64/aarch32/riscv64/riscv32 */
+    bool      complex_float_in_single_fp_reg; /* true on x86-64/aarch64/riscv64, false on rv32/aarch32 */
     TargetRegDesc regs;
 };
 
@@ -136,6 +138,8 @@ static inline const TargetTraits *zero_cc_get_target_traits(ZeroCCISA isa) {
                 .dwarf_addr_reloc = 1,   /* R_X86_64_64 */
                 .dwarf_sec_reloc = 10,  /* R_X86_64_32 */
                 .dwarf_fp_reg = 6,      /* %rbp */
+                .text_sym_reloc_field = 8,
+                .complex_float_in_single_fp_reg = true,
                 .regs = {
                     .allocatable_gpr_mask = (1u<<0)|(1u<<2)|(1u<<3)|(1u<<6)|(1u<<7)|(1u<<8)|(1u<<9)|(1u<<12)|(1u<<13)|(1u<<14)|(1u<<15),
                     .callee_saved_gpr_mask = (1u<<3)|(1u<<12)|(1u<<13)|(1u<<14)|(1u<<15),
@@ -192,6 +196,8 @@ static inline const TargetTraits *zero_cc_get_target_traits(ZeroCCISA isa) {
                 .dwarf_addr_reloc = 257, /* R_AARCH64_ABS64 */
                 .dwarf_sec_reloc = 258,  /* R_AARCH64_ABS32 */
                 .dwarf_fp_reg = 29,      /* x29 */
+                .text_sym_reloc_field = 4,
+                .complex_float_in_single_fp_reg = true,
                 .regs = {
                     .allocatable_gpr_mask = 0x1FF878FFu,
                     .callee_saved_gpr_mask = 0x1FF80000u,
@@ -248,6 +254,8 @@ static inline const TargetTraits *zero_cc_get_target_traits(ZeroCCISA isa) {
                 .dwarf_addr_reloc = 2,   /* R_ARM_ABS32 */
                 .dwarf_sec_reloc = 2,    /* R_ARM_ABS32 */
                 .dwarf_fp_reg = 11,      /* r11 */
+                .text_sym_reloc_field = 4,
+                .complex_float_in_single_fp_reg = false,
                 .regs = {
                     .allocatable_gpr_mask = 0x000000FFu,
                     .callee_saved_gpr_mask = 0x000000F0u,
@@ -304,6 +312,8 @@ static inline const TargetTraits *zero_cc_get_target_traits(ZeroCCISA isa) {
                 .dwarf_addr_reloc = 2,   /* R_RISCV_64 */
                 .dwarf_sec_reloc = 1,    /* R_RISCV_32 */
                 .dwarf_fp_reg = 8,       /* s0 / fp */
+                .text_sym_reloc_field = 4,
+                .complex_float_in_single_fp_reg = true,
                 .regs = {
                     .allocatable_gpr_mask = (1u<<7) | (0xFFu<<10) | (1u<<9) | (0x3FFu<<18),
                     .callee_saved_gpr_mask = (1u<<9) | (0x3FFu<<18),
@@ -360,6 +370,8 @@ static inline const TargetTraits *zero_cc_get_target_traits(ZeroCCISA isa) {
                 .dwarf_addr_reloc = 1,   /* R_RISCV_32 */
                 .dwarf_sec_reloc = 1,    /* R_RISCV_32 */
                 .dwarf_fp_reg = 8,       /* s0 / fp */
+                .text_sym_reloc_field = 4,
+                .complex_float_in_single_fp_reg = false,
                 .regs = {
                     .allocatable_gpr_mask = (1u<<7) | (0xFFu<<10) | (1u<<9) | (0x3FFu<<18),
                     .callee_saved_gpr_mask = (1u<<9) | (0x3FFu<<18),

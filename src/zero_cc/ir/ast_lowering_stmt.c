@@ -1595,7 +1595,7 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
             if (ret_cx_is_fp) {
                 int o2 = zc_alloc_temp(c); ir_emit_mov_imm(c, o2, (int)ret_esz);
                 int a2 = zc_alloc_temp(c); ir_emit_add(c, a2, caddr, o2);
-                if (ret_esz == 4 && c->isa != ISA_RISCV32) {
+                if (ret_esz == 4 && zc_target_complex_float_in_single_fp_reg(c)) {
                     /* psABI: a _Complex float return is ONE register - real
                      * in the low 32 bits, imaginary in the HIGH 32 bits.
                      * The stack object already holds that exact 8-byte bit

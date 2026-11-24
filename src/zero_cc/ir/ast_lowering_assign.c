@@ -288,7 +288,7 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
          * global, or element). Store the full 8 bytes as a (lo,hi) GPR64 pair.
          * Compound ops (+= -= *= &= |= ^= <<= >>=) desugar to a 64-bit binop
          * on the loaded LHS and the RHS; div/mod are Phase 3 (libgcc). */
-        if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && left_node && node->right != AST_NULL) {
+        if (zc_target_is_32bit(c) && left_node && node->right != AST_NULL) {
             TypeInfo *lhs_ti64 = ast_node_get_typeinfo(c, left_node);
             ZeroCCSym *lhs_sym64 = (left_node->tag == NODE_IDENT) ? zero_cc_find_local(c, left_node->s.str) : NULL;
             ZeroCCGlobalVar *lhs_gv64 = (left_node->tag == NODE_IDENT && left_node->s.str) ? find_global_var(c, left_node->s.str) : NULL;

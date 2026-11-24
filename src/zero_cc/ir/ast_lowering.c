@@ -748,7 +748,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                  * stream in argument order. */
                 int32_t esz = (sym->type.base && sym->type.base->size == 4) ? 4 : 8;
                 bool is_flt = (esz == 4);
-                if (is_flt && c->isa != ISA_RISCV32) {
+                if (is_flt && zc_target_complex_float_in_single_fp_reg(c)) {
                     if (xmm_idx < BE(c)->conv->fp_arg_reg_count) {
                         ir_emit_param_save_fp(c, xmm_idx, sym->stack_offset, 0);
                     } else {

@@ -518,7 +518,7 @@ int lower_expr_cast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                 result = trunc_t;
                 c->last_expr_is_128 = 0;
             }
-            if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && c->last_expr_is_64 && ctsz <= 4) {
+            if (zc_target_is_32bit(c) && c->last_expr_is_64 && ctsz <= 4) {
                 int trunc_t = zc_alloc_temp(c);
                 ir_emit_trunc64_32(c, trunc_t, result);
                 result = trunc_t;
@@ -531,7 +531,7 @@ int lower_expr_cast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                 if (ctsu) ir_emit_zext(c, cast_t, (int)ctsz);
                 else ir_emit_sext(c, cast_t, (int)ctsz);
                 result = cast_t;
-            } else if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && ctsz == 8 && !c->last_expr_is_64 && !c->last_expr_is_float) {
+            } else if (zc_target_is_32bit(c) && ctsz == 8 && !c->last_expr_is_64 && !c->last_expr_is_float) {
                 int src_u = 0;
                 zero_cc_expr_int_info(c, arena, node->left, &src_u);
                 int cast_t = zc_alloc_temp(c);

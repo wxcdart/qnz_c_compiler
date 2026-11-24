@@ -4,7 +4,7 @@ title: Multi-ISA Target Architecture & Modular Backend Roadmap
 description: Architectural roadmap for decoupling ZeroCC's multi-ISA backends via TargetTraits, table-driven regalloc, modular linker ops, baremetal CPU support, and separate zero_gpu repository boundary.
 resource: backend/target-abstraction-roadmap
 tags: [multi-isa, target-traits, architecture, roadmap, baremetal, modularity, refactoring]
-timestamp: 2026-11-22T19:00:38Z
+timestamp: 2026-11-24T12:49:31Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -12,8 +12,8 @@ status: active
 
 # Multi-ISA Target Architecture & Modular Backend Roadmap
 
-> **Status (Sprint 198):** **Phases 1-5 and Baremetal CPU Scope Complete & Verified**.
-> - **Phase 1 (TargetTraits)**: Declarative architecture metrics (`ptr_size`, `word_size`, `stack_align`, `has_red_zone`, `red_zone_bytes`, `caller_stack_arg_offset`, `has_simd`, `default_vec_width_f32`, `max_vec_bytes`, `ret_gpr_lo/hi`, `ret_vec_lo/hi`, `sret_gpr`, `sret_consumes_arg0`, `elf_machine`, `elf_flags`, `dwarf_addr_reloc`, `dwarf_fp_reg`). Eliminates scattered `(c->isa == ...)` checks across AST lowering, `opt_vectorize.c`, `dwarf.c`, and `ast_lowering_builtins.c`.
+> **Status (Sprint 208):** **Phases 1-5 and Baremetal CPU Scope Complete & Verified**.
+> - **Phase 1 (TargetTraits)**: Declarative architecture metrics (`ptr_size`, `word_size`, `slot_size`, `stack_align`, `has_red_zone`, `red_zone_bytes`, `caller_stack_arg_offset`, `text_sym_reloc_field`, `complex_float_in_single_fp_reg`, `has_simd`, `default_vec_width_f32`, `max_vec_bytes`, `ret_gpr_lo/hi`, `ret_vec_lo/hi`, `sret_gpr`, `sret_consumes_arg0`, `elf_machine`, `elf_flags`, `dwarf_addr_reloc`, `dwarf_fp_reg`). Eliminates scattered `(c->isa == ...)` and `(c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32)` checks across AST lowering, `opt_vectorize.c`, `dwarf.c`, and assembly emitters.
 > - **Phase 2 (Table-Driven Regalloc)**: Completed. Declarative `TargetRegDesc` bitmasks (`allocatable_gpr_mask`, `callee_saved_gpr_mask`, `reserved_gpr_mask`), scratch registers, and register pools (`alloc_pool`, `pair_cs_pool`, `pair_gp_pool`) in `src/zero_cc/isa/target_traits.h` and `src/zero_cc/ir/regalloc.h`.
 > - **Phase 3 (Decoupled ABI Calling Conventions)**: Completed. `abi_classify_arg` and `abi_classify_return` in `src/zero_cc/ir/abi_classify.h`, with `sret_consumes_arg0` and `vararg_floats_in_gpr` declarative traits in `ast_lowering_call.c` and `ast_lowering_varargs.c`.
 > - **Phase 4 (Modular Linker Relocation Ops)**: Completed. `TargetLinkerOps` (`apply_reloc`, `emit_start_stub`, `default_text_base`, `default_elf_flags`, `plt_stub_size`) in `src/zero_cc/linker/linker_reloc.h` and `src/zero_cc/linker/linker.c`. Replaced ~260 lines of cascading architecture relocation code.

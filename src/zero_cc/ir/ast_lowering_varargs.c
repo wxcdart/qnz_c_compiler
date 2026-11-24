@@ -150,7 +150,7 @@ int lower_expr_va_start(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode 
                 ir_emit_store_64(c, t, ap_24);               /* +24 fp_end */
 
                 t = zc_alloc_temp(c);
-                int ovf_start = (c->isa == ISA_AARCH32) ? 8 : 16;
+                int ovf_start = zc_target_caller_arg_offset(c);
                 int ovf_step = zc_target_slot_size(c);
                 ir_emit_lea(c, t, TEMP_NONE, ovf_start + ovf_step * stack_named);
                 int off32 = zc_alloc_temp(c);

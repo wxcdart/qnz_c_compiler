@@ -1,5 +1,31 @@
 # CHANGELOG
 
+## [Sprint 208] - 2026-11-24 - TargetTraits Architecture Metric Consolidation (Item #16 Phase 1 — Multi-ISA Backend Abstraction)
+
+Implements Item #16 Phase 1: TargetTraits / TargetConfig Extraction & Ad-Hoc Target Checks Cleanup:
+- **TargetTraits Metric Extension (`target_traits.h`, `symbols.h`)**:
+  - Added declarative fields to `TargetTraits`:
+    - `text_sym_reloc_field`: 8-byte reloc fields for x86-64 `movabs` vs 4-byte instruction fields for RISC-V (`auipc+addi`), AArch64 (`adrp+add`), and AArch32 (`movw+movt`).
+    - `complex_float_in_single_fp_reg`: true on x86-64, AArch64, and RISC-V 64; false on 32-bit platforms (RV32, AArch32).
+  - Added clean static inline helper accessors in `symbols.h`:
+    - `zc_target_word_size(c)`
+    - `zc_target_stack_align(c)`
+    - `zc_target_sret_gpr(c)`
+    - `zc_target_sret_consumes_arg0(c)`
+    - `zc_target_ret_struct_max_regs_size(c)`
+    - `zc_target_text_sym_reloc_field(c)`
+    - `zc_target_complex_float_in_single_fp_reg(c)`
+- **AST Lowering & Code Generation Ad-Hoc Checks Cleanup**:
+  - Replaced over 30 scattered occurrences of `(c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32)` across `ast_lowering_unop.c`, `ast_lowering_assign.c`, `ast_lowering_cast.c`, `ast_lowering_expr.c`, `ast_lowering_call.c`, and `ast_lowering_binop.c` with the canonical predicate `zc_target_is_32bit(c)`.
+  - Replaced ternary `(c->isa == ISA_RISCV32) ? 4 : 8` checks in `riscv_asm.c` with `zc_target_slot_size(c)` / `zc_target_ptr_size(c)`.
+  - Replaced `(c->isa == ISA_AARCH32) ? 8 : 16` in `ast_lowering_varargs.c` with `zc_target_caller_arg_offset(c)`.
+  - Replaced `c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32 || c->isa == ISA_AARCH64 || c->isa == ISA_AARCH32 ? 4 : 8` in `ast_lowering_mc.c` with `zc_target_text_sym_reloc_field(c)`.
+  - Replaced `c->isa != ISA_RISCV32` complex float return packing checks in `ast_lowering_stmt.c`, `ast_lowering_call.c`, and `ast_lowering.c` with `zc_target_complex_float_in_single_fp_reg(c)`.
+- **Verification**:
+  - Verified across style checker (`python3 tools/verify/style_check.py`: 193/193 clean, 0 errors, 0 warnings).
+  - Native regression suite (`make test`: 246/246 tests passing).
+  - Cross-ISA raw-binary QEMU gate (`make test-isa-qemu`: 80/80 tests passing across x86-64, aarch64, aarch32, riscv64, riscv32).
+
 ## [Sprint 207] - 2026-11-23 - Scalable Loop Auto-Vectorization (Phase 13 — RVV 1.0 Dynamic vsetvli & ARM SVE whilelt / cnt)
 
 Implements Phase 13: Scalable Loop Auto-Vectorization:

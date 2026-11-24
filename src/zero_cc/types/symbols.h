@@ -551,4 +551,32 @@ static inline uint8_t zc_target_dwarf_fp_reg(const ZeroCCCompiler *c) {
     return zc_target_traits(c)->dwarf_fp_reg;
 }
 
+static inline int zc_target_word_size(const ZeroCCCompiler *c) {
+    return (int)zc_target_traits(c)->word_size;
+}
+
+static inline int zc_target_stack_align(const ZeroCCCompiler *c) {
+    return (int)zc_target_traits(c)->stack_align;
+}
+
+static inline int zc_target_sret_gpr(const ZeroCCCompiler *c) {
+    return zc_target_traits(c)->sret_gpr;
+}
+
+static inline bool zc_target_sret_consumes_arg0(const ZeroCCCompiler *c) {
+    return zc_target_traits(c)->sret_consumes_arg0;
+}
+
+static inline int zc_target_ret_struct_max_regs_size(const ZeroCCCompiler *c) {
+    return zc_target_traits(c)->ret_struct_max_regs_size;
+}
+
+static inline size_t zc_target_text_sym_reloc_field(const ZeroCCCompiler *c) {
+    return (size_t)zc_target_traits(c)->text_sym_reloc_field;
+}
+
+static inline bool zc_target_complex_float_in_single_fp_reg(const ZeroCCCompiler *c) {
+    return zc_target_traits(c)->complex_float_in_single_fp_reg;
+}
+
 #endif /* ZERO_CC_TYPES_SYMBOLS_H */

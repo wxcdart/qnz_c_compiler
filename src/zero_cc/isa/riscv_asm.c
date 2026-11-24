@@ -52,11 +52,11 @@ static void riscv_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
         /* C11 _Alignas(N) realign mode: save ra/s0, s0 = pre-realign base,
          * andi sp to N, allocate the N-rounded frame below SP'. CSR slots
          * are SP-anchored at frame-offset(sp). Epilogue = FP-mode leave. */
-        const char *st_op = (c->isa == ISA_RISCV32) ? "sw" : "sd";
+        const char *st_op = zc_target_is_32bit(c) ? "sw" : "sd";
         size_t N = (size_t)c->lowering.frame_align;
         size_t frame = (size_t)c->lowering.frame_delta;
         fprintf(out, "\taddi\tsp, sp, -16\n");
-        fprintf(out, "\t%s\tra, %d(sp)\n", st_op, (c->isa == ISA_RISCV32) ? 4 : 8);
+        fprintf(out, "\t%s\tra, %d(sp)\n", st_op, zc_target_slot_size(c));
         fprintf(out, "\t%s\ts0, 0(sp)\n", st_op);
         fprintf(out, "\taddi\ts0, sp, 0\n");
         if (N < 4096) {
@@ -145,11 +145,11 @@ static void riscv_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
         fprintf(out, "\tsub\tsp, sp, t0\n");
         fprintf(out, "\tli\tt1, %zu\n", aligned_sz);
         fprintf(out, "\tadd\ts0, sp, t1\n");
-        fprintf(out, "\t%s\tra, %d(s0)\n", st_op, (c->isa == ISA_RISCV32) ? 4 : 8);
+        fprintf(out, "\t%s\tra, %d(s0)\n", st_op, zc_target_slot_size(c));
         fprintf(out, "\t%s\ts0, 0(s0)\n", st_op);
     } else {
         fprintf(out, "\taddi\tsp, sp, -%zu\n", total_alloc);
-        fprintf(out, "\t%s\tra, %zu(sp)\n", st_op, aligned_sz + ((c->isa == ISA_RISCV32) ? 4 : 8));
+        fprintf(out, "\t%s\tra, %zu(sp)\n", st_op, aligned_sz + (size_t)zc_target_slot_size(c));
         fprintf(out, "\t%s\ts0, %zu(sp)\n", st_op, aligned_sz);
         fprintf(out, "\taddi\ts0, sp, %zu\n", aligned_sz);
     }
@@ -267,9 +267,9 @@ static void riscv_emit_epilogue_asm(ZeroCCCompiler *c) {
         }
     }
 
-    const char *ld_op = (c->isa == ISA_RISCV32) ? "lw" : "ld";
+    const char *ld_op = zc_target_is_32bit(c) ? "lw" : "ld";
     fprintf(out, "\taddi\tsp, s0, 0\n");
-    fprintf(out, "\t%s\tra, %d(sp)\n", ld_op, (c->isa == ISA_RISCV32) ? 4 : 8);
+    fprintf(out, "\t%s\tra, %d(sp)\n", ld_op, zc_target_slot_size(c));
     fprintf(out, "\t%s\ts0, 0(sp)\n", ld_op);
     fprintf(out, "\taddi\tsp, sp, 16\n");
     fprintf(out, "\tret\n");
@@ -711,9 +711,9 @@ static void riscv_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int ar
     }
     int legacy_n_stack = (!stack_pos && total_int_count > 8) ? total_int_count - 8 : 0;
     int stack_alloc = 0;
-    int ptr_slot = (c->isa == ISA_RISCV32) ? 4 : 8;
-    const char *st_ptr = (c->isa == ISA_RISCV32) ? "sw" : "sd";
-    const char *ld_ptr = (c->isa == ISA_RISCV32) ? "lw" : "ld";
+    int ptr_slot = zc_target_slot_size(c);
+    const char *st_ptr = zc_target_is_32bit(c) ? "sw" : "sd";
+    const char *ld_ptr = zc_target_is_32bit(c) ? "lw" : "ld";
     if (stack_pos) {
         stack_alloc = ((n_stack * ptr_slot) + 15) & ~15;
         if (n_stack > 0) {
@@ -808,9 +808,9 @@ static void riscv_emit_syscall_asm(ZeroCCCompiler *c, int arg_count, const int *
     static const int linux_syscall_regs[7] = {17, 10, 11, 12, 13, 14, 15}; /* a7, a0-a5 */
     static const int clobbered_live_regs[] = {7, 11, 12, 13, 14, 15, 16, 17, 28, 29, 30, 31};
     static const int n_save = 12;
-    int slot = (BE(c)->isa == ISA_RISCV32) ? 4 : 8;
-    const char *st = (BE(c)->isa == ISA_RISCV32) ? "sw" : "sd";
-    const char *ld = (BE(c)->isa == ISA_RISCV32) ? "lw" : "ld";
+    int slot = zc_target_slot_size(c);
+    const char *st = zc_target_is_32bit(c) ? "sw" : "sd";
+    const char *ld = zc_target_is_32bit(c) ? "lw" : "ld";
     int32_t spill_base_offset = c->regalloc.spill_base_offset;
     int n = (arg_count < 7) ? arg_count : 7;
 

@@ -963,7 +963,7 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
             }
             /* Sprint 170 (rv32 i64): a 64-bit integer operand (and not a
              * complex/128 op) lowers on the (lo,hi) GPR64 pair. */
-            if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) &&
+            if (zc_target_is_32bit(c) &&
                 !((cres_ti && cres_ti->kind == TYPE_KIND_COMPLEX) ||
                   (cl_ti && cl_ti->kind == TYPE_KIND_COMPLEX) ||
                   (cr_ti && cr_ti->kind == TYPE_KIND_COMPLEX))) {
@@ -1827,7 +1827,7 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                 ir_emit_cond_set(c, cmp_i, CC_NE);
                 lc = cmp_i;
                 c->last_expr_is_float = 0;
-            } else if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && c->last_expr_is_64) {
+            } else if (zc_target_is_32bit(c) && c->last_expr_is_64) {
                 int zero64 = zc_alloc_temp(c);
                 ir_emit_mov64_imm(c, zero64, 0);
                 ir_emit_cmp64(c, lc, zero64);
@@ -1852,7 +1852,7 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                 ir_emit_cmp(c, rc, zero_f);
                 ir_emit_cond_set(c, rt, CC_NE);
                 c->last_expr_is_float = 0;
-            } else if ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) && c->last_expr_is_64) {
+            } else if (zc_target_is_32bit(c) && c->last_expr_is_64) {
                 int zero64 = zc_alloc_temp(c);
                 ir_emit_mov64_imm(c, zero64, 0);
                 ir_emit_cmp64(c, rc, zero64);

@@ -557,7 +557,7 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                                  (callee_fn->param_types[p].tag == TYPE_INT128 ||
                                   callee_fn->param_types[p].tag == TYPE_UINT128));
                             c->lowering.inlining.param_is_64[p] =
-                                (c->isa == ISA_RISCV32 && callee_fn->param_types &&
+                                (zc_target_is_32bit(c) && callee_fn->param_types &&
                                  (callee_fn->param_types[p].tag == TYPE_INT64 ||
                                   callee_fn->param_types[p].tag == TYPE_UINT64));
                             c->lowering.inlining.param_is_const[p] = inlined_param_is_const[p];
@@ -613,7 +613,7 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                          * it correctly. */
                         c->last_expr_is_128 = (callee_fn->return_type.tag == TYPE_INT128 ||
                                                callee_fn->return_type.tag == TYPE_UINT128) ? 1 : 0;
-                        c->last_expr_is_64 = ((c->isa == ISA_RISCV32 || c->isa == ISA_AARCH32) &&
+                        c->last_expr_is_64 = (zc_target_is_32bit(c) &&
                                               (callee_fn->return_type.tag == TYPE_INT64 ||
                                                callee_fn->return_type.tag == TYPE_UINT64)) ? 1 : 0;
                         return inline_res_temp;
@@ -847,7 +847,7 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                                 if (read_esz == 4) ir_emit_vloadss(c, (uint32_t)i_val, (uint32_t)la);
                                 else ir_emit_vloadsd(c, (uint32_t)i_val, (uint32_t)la);
                             }
-                            if (cesz == 4 && c->isa != ISA_RISCV32) {
+                            if (cesz == 4 && zc_target_complex_float_in_single_fp_reg(c)) {
                                 /* psABI: _Complex float travels in ONE FP
                                  * slot - the register's low 32 bits hold the
                                  * real half and the HIGH 32 bits the
@@ -2040,7 +2040,7 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                         Instr *li = (Instr*)&ir_get_buffer(c)[call_ir_idx];
                         li->label_idx = 0x0100 | (csz & 0xFF);
                     }
-                    if (cesz == 4 && c->isa != ISA_RISCV32) {
+                    if (cesz == 4 && zc_target_complex_float_in_single_fp_reg(c)) {
                         /* psABI: a _Complex float return arrives in ONE
                          * register: real in the low 32 bits, imaginary in
                          * the HIGH 32 bits. The 8-byte bit pattern matches
