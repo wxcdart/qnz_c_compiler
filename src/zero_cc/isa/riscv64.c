@@ -1036,6 +1036,34 @@ static void riscv64_emit_rvv_vse(ZeroCCCompiler *c, int vs3, int rs1, int esz) {
     riscv_emit_u32(c, insn);
 }
 
+static void riscv64_emit_rvv_vlse(ZeroCCCompiler *c, int vd, int rs1, int rs2, int esz) {
+    riscv64_emit_rvv_vsetivli_default(c, esz);
+    uint32_t w = (esz == 0) ? 0 : (esz == 1) ? 5 : (esz == 2) ? 6 : 7;
+    uint32_t insn = 0x0A000007u | (w << 12) | ((RV_REG(rs2) & 0x1Fu) << 20) | ((RV_REG(rs1) & 0x1Fu) << 15) | ((RV_REG(vd) & 0x1Fu) << 7);
+    riscv_emit_u32(c, insn);
+}
+
+static void riscv64_emit_rvv_vsse(ZeroCCCompiler *c, int vs3, int rs1, int rs2, int esz) {
+    riscv64_emit_rvv_vsetivli_default(c, esz);
+    uint32_t w = (esz == 0) ? 0 : (esz == 1) ? 5 : (esz == 2) ? 6 : 7;
+    uint32_t insn = 0x0A000027u | (w << 12) | ((RV_REG(rs2) & 0x1Fu) << 20) | ((RV_REG(rs1) & 0x1Fu) << 15) | ((RV_REG(vs3) & 0x1Fu) << 7);
+    riscv_emit_u32(c, insn);
+}
+
+static void riscv64_emit_rvv_vluxei(ZeroCCCompiler *c, int vd, int rs1, int vs2, int esz) {
+    riscv64_emit_rvv_vsetivli_default(c, esz);
+    uint32_t w = (esz == 0) ? 0 : (esz == 1) ? 5 : (esz == 2) ? 6 : 7;
+    uint32_t insn = 0x06000007u | (w << 12) | ((RV_REG(vs2) & 0x1Fu) << 20) | ((RV_REG(rs1) & 0x1Fu) << 15) | ((RV_REG(vd) & 0x1Fu) << 7);
+    riscv_emit_u32(c, insn);
+}
+
+static void riscv64_emit_rvv_vsuxei(ZeroCCCompiler *c, int vs3, int rs1, int vs2, int esz) {
+    riscv64_emit_rvv_vsetivli_default(c, esz);
+    uint32_t w = (esz == 0) ? 0 : (esz == 1) ? 5 : (esz == 2) ? 6 : 7;
+    uint32_t insn = 0x06000027u | (w << 12) | ((RV_REG(vs2) & 0x1Fu) << 20) | ((RV_REG(rs1) & 0x1Fu) << 15) | ((RV_REG(vs3) & 0x1Fu) << 7);
+    riscv_emit_u32(c, insn);
+}
+
 static void riscv64_emit_rvv_vadd(ZeroCCCompiler *c, int vd, int vs1, int vs2, int esz, int is_fp) {
     riscv64_emit_rvv_vsetivli_default(c, esz);
     uint32_t base = is_fp ? 0x02001057u : 0x02000057u;
@@ -2307,6 +2335,10 @@ ZeroCCISABackend riscv64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_rvv_vfmv_v_f = riscv64_emit_rvv_vfmv_v_f,
     .emit_rvv_vmv_x_s = riscv64_emit_rvv_vmv_x_s,
     .emit_rvv_vfmv_f_s = riscv64_emit_rvv_vfmv_f_s,
+    .emit_rvv_vlse = riscv64_emit_rvv_vlse,
+    .emit_rvv_vsse = riscv64_emit_rvv_vsse,
+    .emit_rvv_vluxei = riscv64_emit_rvv_vluxei,
+    .emit_rvv_vsuxei = riscv64_emit_rvv_vsuxei,
     .emit_cvtss2sd = riscv64_emit_fp_cvtss2sd,
     .emit_cvttsd2ss = riscv64_emit_fp_cvttsd2ss,
     .emit_cvtsi2ss = riscv64_emit_fp_cvtsi2ss,

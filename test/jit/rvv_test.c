@@ -117,5 +117,48 @@ int main(void) {
     float red_f = __riscv_vfmv_f_s_f32m1_f32(fred_v);
     ASSERT_TRUE(red_f > 5.99f && red_f < 6.01f);
 
+    /* 9. Strided Load & Store (vlse / vsse) */
+    int32_t src_stride[8] = {10, 99, 20, 99, 30, 99, 40, 99};
+    ptrdiff_t bstride = 2 * (ptrdiff_t)sizeof(int32_t); /* 8-byte stride */
+    vint32m1_t strided_ld = __riscv_vlse32_v_i32m1(src_stride, bstride, vl32);
+    int32_t strided_out[4] = {0};
+    __riscv_vse32_v_i32m1(strided_out, strided_ld, vl32);
+    ASSERT_EQ(strided_out[0], 10);
+    ASSERT_EQ(strided_out[1], 20);
+    ASSERT_EQ(strided_out[2], 30);
+    ASSERT_EQ(strided_out[3], 40);
+
+    int32_t dst_stride[8] = {0};
+    __riscv_vsse32_v_i32m1(dst_stride, bstride, strided_ld, vl32);
+    ASSERT_EQ(dst_stride[0], 10);
+    ASSERT_EQ(dst_stride[1], 0);
+    ASSERT_EQ(dst_stride[2], 20);
+    ASSERT_EQ(dst_stride[3], 0);
+    ASSERT_EQ(dst_stride[4], 30);
+    ASSERT_EQ(dst_stride[5], 0);
+    ASSERT_EQ(dst_stride[6], 40);
+    ASSERT_EQ(dst_stride[7], 0);
+
+    /* 10. Indexed Load & Store (vluxei / vsuxei) */
+    uint32_t byte_indices[4] = {12, 4, 20, 0}; /* byte offsets for indices 3, 1, 5, 0 */
+    vuint32m1_t vidx = __riscv_vle32_v_u32m1(byte_indices, vl32);
+    int32_t indexed_src[6] = {111, 222, 333, 444, 555, 666};
+    vint32m1_t indexed_ld = __riscv_vluxei32_v_i32m1(indexed_src, vidx, vl32);
+    int32_t indexed_out[4] = {0};
+    __riscv_vse32_v_i32m1(indexed_out, indexed_ld, vl32);
+    ASSERT_EQ(indexed_out[0], 444);
+    ASSERT_EQ(indexed_out[1], 222);
+    ASSERT_EQ(indexed_out[2], 666);
+    ASSERT_EQ(indexed_out[3], 111);
+
+    int32_t indexed_dst[6] = {0};
+    __riscv_vsuxei32_v_i32m1(indexed_dst, vidx, indexed_ld, vl32);
+    ASSERT_EQ(indexed_dst[3], 444);
+    ASSERT_EQ(indexed_dst[1], 222);
+    ASSERT_EQ(indexed_dst[5], 666);
+    ASSERT_EQ(indexed_dst[0], 111);
+    ASSERT_EQ(indexed_dst[2], 0);
+    ASSERT_EQ(indexed_dst[4], 0);
+
     return 0;
 }

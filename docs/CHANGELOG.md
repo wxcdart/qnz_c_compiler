@@ -1,5 +1,28 @@
 # CHANGELOG
 
+## [Sprint 206] - 2026-11-23 - RISC-V Vector Strided & Indexed Operations (Phase 12 — RVV 1.0 vlse / vsse / vluxei / vsuxei Gather & Scatter)
+
+Implements Phase 12: RISC-V Vector Strided & Indexed Operations (RVV 1.0 Gather & Scatter):
+- **RVV 1.0 Strided & Indexed Operations (`ir.h`, `ir.c`, `riscv64.c`, `riscv_asm.c`)**:
+  - Implemented 4 new IR opcodes: `OP_RVV_VLSE`, `OP_RVV_VSSE`, `OP_RVV_VLUXEI`, `OP_RVV_VSUXEI`.
+  - Raw binary machine code emitters in `src/zero_cc/isa/riscv64.c`:
+    - `vlse<eew>.v vd, (rs1), rs2`: `0x0A000007u | (w << 12) | ((rs2 & 31) << 20) | ((rs1 & 31) << 15) | ((vd & 31) << 7)`
+    - `vsse<eew>.v vs3, (rs1), rs2`: `0x0A000027u | (w << 12) | ((rs2 & 31) << 20) | ((rs1 & 31) << 15) | ((vs3 & 31) << 7)`
+    - `vluxei<eew>.v vd, (rs1), vs2`: `0x06000007u | (w << 12) | ((vs2 & 31) << 20) | ((rs1 & 31) << 15) | ((vd & 31) << 7)`
+    - `vsuxei<eew>.v vs3, (rs1), vs2`: `0x06000027u | (w << 12) | ((vs2 & 31) << 20) | ((rs1 & 31) << 15) | ((vs3 & 31) << 7)`
+  - Textual assembly emitters in `src/zero_cc/isa/riscv_asm.c` emitting valid GNU as RVV syntax.
+- **Register Allocator & Liveness Invariants (`live_range.h`, `asm_emitter.c`, `ast_lowering_mc.c`, `opt_dce.c`, `opt_loop_unroll.c`)**:
+  - Store instruction convention: for `OP_RVV_VSSE` and `OP_RVV_VSUXEI`, `temp_dest` is classified as a vector value USE (not definition), ensuring SSA definitions and live ranges remain clean.
+  - Spilled destination reload: when `temp_dest` is spilled to stack, reloaded via scratch vector register rather than left uninitialized.
+  - Side-effect tracking: added vector store instructions to `instr_has_side_effects` and `lu_has_side_effect` to guard against DCE elimination.
+- **Virtual Header (`<riscv_vector.h>`) & Lowering Fallback (`ast_lowering_builtins.c`)**:
+  - Added intrinsics: `__riscv_vlse8_v_*`..`__riscv_vlse64_v_*`, `__riscv_vsse8_v_*`..`__riscv_vsse64_v_*`, `__riscv_vluxei32_v_*`, `__riscv_vluxei64_v_*`, `__riscv_vsuxei32_v_*`, `__riscv_vsuxei64_v_*`.
+  - Added portable simulation fallback loops in AST lowering for JIT and non-RVV execution.
+- **Verification**:
+  - Extended unit test suite [`test/jit/rvv_test.c`](../test/jit/rvv_test.c) covering strided load/store and indexed unordered load/store (gather/scatter).
+  - Verified across JIT (`--run`), native x86_64 AOT, textual RISC-V AOT (`-S` assembled with GNU `as`), raw RISC-V ELF binary codegen (`-c` verified with `objdump`), and under `qemu-riscv64-static -cpu rv64,v=true,vlen=128`.
+  - All test gates passed: `python3 tools/verify/style_check.py` (193/193 clean), `make test` (245/245 passing).
+
 ## [Sprint 205] - 2026-11-23 - AVX-512 Opmask / Predication (Phase 11 — Dedicated Mask Registers k0–k7, Mask Manipulation, Masked Blend)
 
 Implements Phase 11: AVX-512 Dedicated Mask Register File & Predication Operations:

@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-11-24T03:45:03Z
+timestamp: 2026-11-24T04:03:04Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -626,14 +626,18 @@ ZeroCC implements scalable vector length support for AArch64 via ARM SVE and SVE
   - `src/zero_cc/isa/aarch64.c`: Emits raw machine code for SVE instructions.
   - Active predicate registers bind to `p0`, and predicate bitmasks compute into GPRs for standard C logic and control flow.
 
-### 7. RISC-V Vector Extension (RVV 1.0 - Sprint 204)
+### 7. RISC-V Vector Extension (RVV 1.0 - Sprint 204 & Phase 12)
 ZeroCC implements the standard RISC-V Vector Extension (RVV 1.0 — `Zve32x` / `Zve64d` / `V`):
 - **CLI & Feature Flags**: `-mrvv`, `-mno-rvv`, `-march=rv64gcv` / `-march=rv32gcv`. Defines preprocessor macros `__riscv_v_intrinsic` (1000000) and `__riscv_vector` (1).
-- **Virtual Header (`<riscv_vector.h>`)**: Virtual header in `src/zero_cc/core/virtual_headers.h` providing vector types (`vint8m1_t`..`vint64m1_t`, `vuint8m1_t`..`vuint64m1_t`, `vfloat32m1_t`, `vfloat64m1_t`, `vbool*`), vector length configuration (`__riscv_vsetvl_e*`, `__riscv_vsetvlmax_e*`), unit-stride loads/stores (`__riscv_vle*`, `__riscv_vse*`), vector arithmetic (`vadd`, `vsub`, `vmul`, `vdiv`, `vfadd`, `vfsub`, `vfmul`, `vfdiv`), bitwise logic (`vand`, `vor`, `vxor`), comparisons (`vmseq`, `vmslt`, `vmfeq`, `vmflt`), reductions (`vredsum`, `vfredusum`), broadcasts (`vmv_v_x`, `vfmv_v_f`), and scalar extracts (`vmv_x_s`, `vfmv_f_s`).
-- **Software Simulation Fallback**: Builtins lower to scalar/lane simulation on non-RVV hosts and JIT runs, allowing portable execution of vector intrinsics.
+- **Virtual Header (`<riscv_vector.h>`)**: Virtual header in `src/zero_cc/core/virtual_headers.h` providing vector types (`vint8m1_t`..`vint64m1_t`, `vuint8m1_t`..`vuint64m1_t`, `vfloat32m1_t`, `vfloat64m1_t`, `vbool*`), vector length configuration (`__riscv_vsetvl_e*`, `__riscv_vsetvlmax_e*`), unit-stride loads/stores (`__riscv_vle*`, `__riscv_vse*`), strided loads/stores (`__riscv_vlse*`, `__riscv_vsse*`), indexed unordered loads/stores (`__riscv_vluxei*`, `__riscv_vsuxei*`), vector arithmetic (`vadd`, `vsub`, `vmul`, `vdiv`, `vfadd`, `vfsub`, `vfmul`, `vfdiv`), bitwise logic (`vand`, `vor`, `vxor`), comparisons (`vmseq`, `vmslt`, `vmfeq`, `vmflt`), reductions (`vredsum`, `vfredusum`), broadcasts (`vmv_v_x`, `vfmv_v_f`), and scalar extracts (`vmv_x_s`, `vfmv_f_s`).
+- **Software Simulation Fallback**: Builtins lower to scalar/lane simulation on non-RVV hosts and JIT runs, allowing portable execution of vector intrinsics including strided and indexed gather/scatter operations.
 - **Hardware Codegen & Vector State Invariants**:
-  - `src/zero_cc/isa/riscv64.c`: Direct binary MC emission for RVV 1.0 instructions.
-  - `src/zero_cc/isa/riscv_asm.c`: Textual assembly emission using standard GNU as RVV syntax.
+  - `src/zero_cc/isa/riscv64.c`: Direct binary MC emission for RVV 1.0 instructions:
+    - Unit-stride: `vle<eew>.v` (`0x02000007`), `vse<eew>.v` (`0x02000027`)
+    - Strided: `vlse<eew>.v` (`0x0A000007`), `vsse<eew>.v` (`0x0A000027`)
+    - Indexed: `vluxei<eew>.v` (`0x06000007`), `vsuxei<eew>.v` (`0x06000027`)
+  - `src/zero_cc/isa/riscv_asm.c`: Textual assembly emission using standard GNU as RVV syntax (`vlse32.v vd, (rs1), rs2`, `vsse32.v vs3, (rs1), rs2`, `vluxei32.v vd, (rs1), vs2`, `vsuxei32.v vs3, (rs1), vs2`).
+  - Store instruction liveness invariant: `OP_RVV_VSSE` and `OP_RVV_VSUXEI` treat `temp_dest` as vector value USE (not definition), preventing incorrect SSA def tracking and clobbers.
   - Default `vsetivli zero, <lanes>, e<esz>, m1, ta, ma` insertion ensures active `vtype.sew` and `vl` state before vector operations.
   - Scalar float conversion: `fcvt.s.d` ensures single-precision values are NaN-boxed into 64-bit FP registers before `vfmv.v.f`, and `fcvt.d.s` restores extracted scalars to double precision.
 

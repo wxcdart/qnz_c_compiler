@@ -1471,6 +1471,42 @@ static void riscv_emit_rvv_vse_asm(ZeroCCCompiler *c, int vs3, int rs1, int esz,
     fprintf(out, "\tvse%s.v\t%s, (%s)\n", sz_str, vs3_name, rs1_name);
 }
 
+static void riscv_emit_rvv_vlse_asm(ZeroCCCompiler *c, int vd, int rs1, int rs2, int esz, FILE *out) {
+    riscv_emit_rvv_vsetivli_default(esz, out);
+    const char *vd_name = BE(c)->get_vec_reg_name(vd);
+    const char *rs1_name = BE(c)->get_hw_reg_name(rs1);
+    const char *rs2_name = BE(c)->get_hw_reg_name(rs2);
+    const char *sz_str = (esz == 0) ? "8" : (esz == 1) ? "16" : (esz == 2) ? "32" : "64";
+    fprintf(out, "\tvlse%s.v\t%s, (%s), %s\n", sz_str, vd_name, rs1_name, rs2_name);
+}
+
+static void riscv_emit_rvv_vsse_asm(ZeroCCCompiler *c, int vs3, int rs1, int rs2, int esz, FILE *out) {
+    riscv_emit_rvv_vsetivli_default(esz, out);
+    const char *vs3_name = BE(c)->get_vec_reg_name(vs3);
+    const char *rs1_name = BE(c)->get_hw_reg_name(rs1);
+    const char *rs2_name = BE(c)->get_hw_reg_name(rs2);
+    const char *sz_str = (esz == 0) ? "8" : (esz == 1) ? "16" : (esz == 2) ? "32" : "64";
+    fprintf(out, "\tvsse%s.v\t%s, (%s), %s\n", sz_str, vs3_name, rs1_name, rs2_name);
+}
+
+static void riscv_emit_rvv_vluxei_asm(ZeroCCCompiler *c, int vd, int rs1, int vs2, int esz, FILE *out) {
+    riscv_emit_rvv_vsetivli_default(esz, out);
+    const char *vd_name = BE(c)->get_vec_reg_name(vd);
+    const char *rs1_name = BE(c)->get_hw_reg_name(rs1);
+    const char *vs2_name = BE(c)->get_vec_reg_name(vs2);
+    const char *sz_str = (esz == 0) ? "8" : (esz == 1) ? "16" : (esz == 2) ? "32" : "64";
+    fprintf(out, "\tvluxei%s.v\t%s, (%s), %s\n", sz_str, vd_name, rs1_name, vs2_name);
+}
+
+static void riscv_emit_rvv_vsuxei_asm(ZeroCCCompiler *c, int vs3, int rs1, int vs2, int esz, FILE *out) {
+    riscv_emit_rvv_vsetivli_default(esz, out);
+    const char *vs3_name = BE(c)->get_vec_reg_name(vs3);
+    const char *rs1_name = BE(c)->get_hw_reg_name(rs1);
+    const char *vs2_name = BE(c)->get_vec_reg_name(vs2);
+    const char *sz_str = (esz == 0) ? "8" : (esz == 1) ? "16" : (esz == 2) ? "32" : "64";
+    fprintf(out, "\tvsuxei%s.v\t%s, (%s), %s\n", sz_str, vs3_name, rs1_name, vs2_name);
+}
+
 static void riscv_emit_rvv_vadd_asm(ZeroCCCompiler *c, int vd, int vs1, int vs2, int esz, int is_fp, FILE *out) {
     riscv_emit_rvv_vsetivli_default(esz, out);
     const char *vd_name = BE(c)->get_vec_reg_name(vd);
@@ -2527,4 +2563,8 @@ void riscv64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_rvv_vfmv_v_f_asm = riscv_emit_rvv_vfmv_v_f_asm;
     be->emit_rvv_vmv_x_s_asm = riscv_emit_rvv_vmv_x_s_asm;
     be->emit_rvv_vfmv_f_s_asm = riscv_emit_rvv_vfmv_f_s_asm;
+    be->emit_rvv_vlse_asm = riscv_emit_rvv_vlse_asm;
+    be->emit_rvv_vsse_asm = riscv_emit_rvv_vsse_asm;
+    be->emit_rvv_vluxei_asm = riscv_emit_rvv_vluxei_asm;
+    be->emit_rvv_vsuxei_asm = riscv_emit_rvv_vsuxei_asm;
 }

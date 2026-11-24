@@ -1726,16 +1726,51 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name, ZeroCCStdDi
             "static inline float32_t __riscv_vfmv_f_s_f32m1_f32(vfloat32m1_t __src) { return (float32_t)__builtin_zerocc_rvv_vfmv_f_s(2, __src); }\n"
             "static inline float64_t __riscv_vfmv_f_s_f64m1_f64(vfloat64m1_t __src) { return (float64_t)__builtin_zerocc_rvv_vfmv_f_s(3, __src); }\n"
             "static inline vint32m1_t __riscv_vredsum_vs_i32m1_i32m1(vint32m1_t __src, vint32m1_t __init, size_t __vl) { return (vint32m1_t)__builtin_zerocc_rvv_vredsum(2, 0, __src, __init, __vl); }\n"
-            "static inline vfloat32m1_t __riscv_vfredusum_vs_f32m1_f32m1(vfloat32m1_t __src, vfloat32m1_t __init, size_t __vl) { return (vfloat32m1_t)__builtin_zerocc_rvv_vredsum(2, 1, __src, __init, __vl); }\n"
+            "static inline vfloat32m1_t __riscv_vfredusum_vs_f32m1_f32m1(vfloat32m1_t __src, vfloat32m1_t __init, size_t __vl) { return (vfloat32m1_t)__builtin_zerocc_rvv_vredsum(2, 1, __src, __init, __vl); }\n";
+        static const char k_riscv_vector_p5[] =
+            "static inline vint8m1_t __riscv_vlse8_v_i8m1(const int8_t *__base, ptrdiff_t __bstride, size_t __vl) { return (vint8m1_t)__builtin_zerocc_rvv_vlse(0, __base, __bstride, __vl); }\n"
+            "static inline vuint8m1_t __riscv_vlse8_v_u8m1(const uint8_t *__base, ptrdiff_t __bstride, size_t __vl) { return (vuint8m1_t)__builtin_zerocc_rvv_vlse(0, __base, __bstride, __vl); }\n"
+            "static inline vint16m1_t __riscv_vlse16_v_i16m1(const int16_t *__base, ptrdiff_t __bstride, size_t __vl) { return (vint16m1_t)__builtin_zerocc_rvv_vlse(1, __base, __bstride, __vl); }\n"
+            "static inline vuint16m1_t __riscv_vlse16_v_u16m1(const uint16_t *__base, ptrdiff_t __bstride, size_t __vl) { return (vuint16m1_t)__builtin_zerocc_rvv_vlse(1, __base, __bstride, __vl); }\n"
+            "static inline vint32m1_t __riscv_vlse32_v_i32m1(const int32_t *__base, ptrdiff_t __bstride, size_t __vl) { return (vint32m1_t)__builtin_zerocc_rvv_vlse(2, __base, __bstride, __vl); }\n"
+            "static inline vuint32m1_t __riscv_vlse32_v_u32m1(const uint32_t *__base, ptrdiff_t __bstride, size_t __vl) { return (vuint32m1_t)__builtin_zerocc_rvv_vlse(2, __base, __bstride, __vl); }\n"
+            "static inline vint64m1_t __riscv_vlse64_v_i64m1(const int64_t *__base, ptrdiff_t __bstride, size_t __vl) { return (vint64m1_t)__builtin_zerocc_rvv_vlse(3, __base, __bstride, __vl); }\n"
+            "static inline vuint64m1_t __riscv_vlse64_v_u64m1(const uint64_t *__base, ptrdiff_t __bstride, size_t __vl) { return (vuint64m1_t)__builtin_zerocc_rvv_vlse(3, __base, __bstride, __vl); }\n"
+            "static inline vfloat32m1_t __riscv_vlse32_v_f32m1(const float *__base, ptrdiff_t __bstride, size_t __vl) { return (vfloat32m1_t)__builtin_zerocc_rvv_vlse(2, __base, __bstride, __vl); }\n"
+            "static inline vfloat64m1_t __riscv_vlse64_v_f64m1(const double *__base, ptrdiff_t __bstride, size_t __vl) { return (vfloat64m1_t)__builtin_zerocc_rvv_vlse(3, __base, __bstride, __vl); }\n"
+            "static inline void __riscv_vsse8_v_i8m1(int8_t *__base, ptrdiff_t __bstride, vint8m1_t __val, size_t __vl) { __builtin_zerocc_rvv_vsse(0, __base, __bstride, __val, __vl); }\n"
+            "static inline void __riscv_vsse8_v_u8m1(uint8_t *__base, ptrdiff_t __bstride, vuint8m1_t __val, size_t __vl) { __builtin_zerocc_rvv_vsse(0, __base, __bstride, __val, __vl); }\n"
+            "static inline void __riscv_vsse16_v_i16m1(int16_t *__base, ptrdiff_t __bstride, vint16m1_t __val, size_t __vl) { __builtin_zerocc_rvv_vsse(1, __base, __bstride, __val, __vl); }\n"
+            "static inline void __riscv_vsse16_v_u16m1(uint16_t *__base, ptrdiff_t __bstride, vuint16m1_t __val, size_t __vl) { __builtin_zerocc_rvv_vsse(1, __base, __bstride, __val, __vl); }\n"
+            "static inline void __riscv_vsse32_v_i32m1(int32_t *__base, ptrdiff_t __bstride, vint32m1_t __val, size_t __vl) { __builtin_zerocc_rvv_vsse(2, __base, __bstride, __val, __vl); }\n"
+            "static inline void __riscv_vsse32_v_u32m1(uint32_t *__base, ptrdiff_t __bstride, vuint32m1_t __val, size_t __vl) { __builtin_zerocc_rvv_vsse(2, __base, __bstride, __val, __vl); }\n"
+            "static inline void __riscv_vsse64_v_i64m1(int64_t *__base, ptrdiff_t __bstride, vint64m1_t __val, size_t __vl) { __builtin_zerocc_rvv_vsse(3, __base, __bstride, __val, __vl); }\n"
+            "static inline void __riscv_vsse64_v_u64m1(uint64_t *__base, ptrdiff_t __bstride, vuint64m1_t __val, size_t __vl) { __builtin_zerocc_rvv_vsse(3, __base, __bstride, __val, __vl); }\n"
+            "static inline void __riscv_vsse32_v_f32m1(float *__base, ptrdiff_t __bstride, vfloat32m1_t __val, size_t __vl) { __builtin_zerocc_rvv_vsse(2, __base, __bstride, __val, __vl); }\n"
+            "static inline void __riscv_vsse64_v_f64m1(double *__base, ptrdiff_t __bstride, vfloat64m1_t __val, size_t __vl) { __builtin_zerocc_rvv_vsse(3, __base, __bstride, __val, __vl); }\n"
+            "static inline vint32m1_t __riscv_vluxei32_v_i32m1(const int32_t *__base, vuint32m1_t __bindex, size_t __vl) { return (vint32m1_t)__builtin_zerocc_rvv_vluxei(2, __base, __bindex, __vl); }\n"
+            "static inline vuint32m1_t __riscv_vluxei32_v_u32m1(const uint32_t *__base, vuint32m1_t __bindex, size_t __vl) { return (vuint32m1_t)__builtin_zerocc_rvv_vluxei(2, __base, __bindex, __vl); }\n"
+            "static inline vfloat32m1_t __riscv_vluxei32_v_f32m1(const float *__base, vuint32m1_t __bindex, size_t __vl) { return (vfloat32m1_t)__builtin_zerocc_rvv_vluxei(2, __base, __bindex, __vl); }\n"
+            "static inline vint64m1_t __riscv_vluxei64_v_i64m1(const int64_t *__base, vuint64m1_t __bindex, size_t __vl) { return (vint64m1_t)__builtin_zerocc_rvv_vluxei(3, __base, __bindex, __vl); }\n"
+            "static inline vuint64m1_t __riscv_vluxei64_v_u64m1(const uint64_t *__base, vuint64m1_t __bindex, size_t __vl) { return (vuint64m1_t)__builtin_zerocc_rvv_vluxei(3, __base, __bindex, __vl); }\n"
+            "static inline vfloat64m1_t __riscv_vluxei64_v_f64m1(const double *__base, vuint64m1_t __bindex, size_t __vl) { return (vfloat64m1_t)__builtin_zerocc_rvv_vluxei(3, __base, __bindex, __vl); }\n"
+            "static inline void __riscv_vsuxei32_v_i32m1(int32_t *__base, vuint32m1_t __bindex, vint32m1_t __val, size_t __vl) { __builtin_zerocc_rvv_vsuxei(2, __base, __bindex, __val, __vl); }\n"
+            "static inline void __riscv_vsuxei32_v_u32m1(uint32_t *__base, vuint32m1_t __bindex, vuint32m1_t __val, size_t __vl) { __builtin_zerocc_rvv_vsuxei(2, __base, __bindex, __val, __vl); }\n"
+            "static inline void __riscv_vsuxei32_v_f32m1(float *__base, vuint32m1_t __bindex, vfloat32m1_t __val, size_t __vl) { __builtin_zerocc_rvv_vsuxei(2, __base, __bindex, __val, __vl); }\n"
+            "static inline void __riscv_vsuxei64_v_i64m1(int64_t *__base, vuint64m1_t __bindex, vint64m1_t __val, size_t __vl) { __builtin_zerocc_rvv_vsuxei(3, __base, __bindex, __val, __vl); }\n"
+            "static inline void __riscv_vsuxei64_v_u64m1(uint64_t *__base, vuint64m1_t __bindex, vuint64m1_t __val, size_t __vl) { __builtin_zerocc_rvv_vsuxei(3, __base, __bindex, __val, __vl); }\n"
+            "static inline void __riscv_vsuxei64_v_f64m1(double *__base, vuint64m1_t __bindex, vfloat64m1_t __val, size_t __vl) { __builtin_zerocc_rvv_vsuxei(3, __base, __bindex, __val, __vl); }\n"
             "#endif\n";
         size_t l1 = sizeof(k_riscv_vector_p1) - 1, l2 = sizeof(k_riscv_vector_p2) - 1;
         size_t l3 = sizeof(k_riscv_vector_p3) - 1, l4 = sizeof(k_riscv_vector_p4) - 1;
-        char *buf = malloc(l1 + l2 + l3 + l4 + 1);
+        size_t l5 = sizeof(k_riscv_vector_p5) - 1;
+        char *buf = malloc(l1 + l2 + l3 + l4 + l5 + 1);
         if (buf) {
             memcpy(buf, k_riscv_vector_p1, l1);
             memcpy(buf + l1, k_riscv_vector_p2, l2);
             memcpy(buf + l1 + l2, k_riscv_vector_p3, l3);
-            memcpy(buf + l1 + l2 + l3, k_riscv_vector_p4, l4 + 1);
+            memcpy(buf + l1 + l2 + l3, k_riscv_vector_p4, l4);
+            memcpy(buf + l1 + l2 + l3 + l4, k_riscv_vector_p5, l5 + 1);
         }
         return buf;
     }

@@ -685,7 +685,9 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
                     if (strcmp(cn->s.str, "__builtin_zerocc_rvv_vfmv_f_s") == 0) {
                         res = type_float(ctx->perm_arena);
                         expr_node_set_type(ctx, node, res);
-                    } else if (strcmp(cn->s.str, "__builtin_zerocc_rvv_vse") == 0) {
+                    } else if (strcmp(cn->s.str, "__builtin_zerocc_rvv_vse") == 0 ||
+                               strcmp(cn->s.str, "__builtin_zerocc_rvv_vsse") == 0 ||
+                               strcmp(cn->s.str, "__builtin_zerocc_rvv_vsuxei") == 0) {
                         res = type_void(ctx->perm_arena);
                         expr_node_set_type(ctx, node, res);
                     } else if (strcmp(cn->s.str, "__builtin_zerocc_rvv_vsetvl") == 0 ||

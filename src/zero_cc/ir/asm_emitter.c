@@ -1714,6 +1714,18 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
         case OP_RVV_VSE:
             if (BE(c)->emit_rvv_vse_asm) BE(c)->emit_rvv_vse_asm(c, phys_src2, phys_src1, instr->imm, out);
             return;
+        case OP_RVV_VLSE:
+            if (BE(c)->emit_rvv_vlse_asm) BE(c)->emit_rvv_vlse_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, out);
+            return;
+        case OP_RVV_VSSE:
+            if (BE(c)->emit_rvv_vsse_asm) BE(c)->emit_rvv_vsse_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, out);
+            return;
+        case OP_RVV_VLUXEI:
+            if (BE(c)->emit_rvv_vluxei_asm) BE(c)->emit_rvv_vluxei_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, out);
+            return;
+        case OP_RVV_VSUXEI:
+            if (BE(c)->emit_rvv_vsuxei_asm) BE(c)->emit_rvv_vsuxei_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, out);
+            return;
         case OP_RVV_VADD:
             if (BE(c)->emit_rvv_vadd_asm) BE(c)->emit_rvv_vadd_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, (int)instr->imm64, out);
             return;
@@ -2559,7 +2571,13 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
     }
     if (spill_dst >= 0 && !d128_sp && !d64_sp) {
         RegClass rc = regalloc_get_class_for_temp(&c->regalloc, instr->temp_dest);
-        if (rc == REG_CLASS_VEC || rc == REG_CLASS_XMM) {
+        if (instr->op == OP_RVV_VSSE || instr->op == OP_RVV_VSUXEI) {
+            int32_t slot_off = spill_base_offset + (spill_dst + 1) * 8;
+            if (BE(c)->emit_vload_asm) {
+                BE(c)->emit_vload_asm(c, BE(c)->fp_scratch_reg1, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off), out);
+            }
+            phys_dst = BE(c)->fp_scratch_reg1;
+        } else if (rc == REG_CLASS_VEC || rc == REG_CLASS_XMM) {
             phys_dst = BE(c)->fp_scratch_reg1;
         } else {
             phys_dst = BE(c)->scratch_reg1;
@@ -2617,7 +2635,7 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
      * OP_OVF_TRAP is a pure check: the preceding op's own store-back
      * already persisted the value, so re-storing here would overwrite the
      * slot with scratch-register garbage on ISAs where the check is skipped. */
-    if (spill_dst >= 0 && instr->op != OP_OVF_TRAP) {
+    if (spill_dst >= 0 && instr->op != OP_OVF_TRAP && instr->op != OP_RVV_VSSE && instr->op != OP_RVV_VSUXEI) {
         int32_t slot_off = spill_base_offset + (spill_dst + 1) * 8;
         if (d128_sp) {
             if (BE(c)->emit_store_asm) {

@@ -554,6 +554,7 @@ void ir_dump(const ZeroCCCompiler *c, FILE *f) {
             case OP_RVV_VAND: case OP_RVV_VOR: case OP_RVV_VXOR:
             case OP_RVV_VCMP: case OP_RVV_VREDSUM:
             case OP_RVV_VMV_V_X: case OP_RVV_VFMV_V_F: case OP_RVV_VMV_X_S: case OP_RVV_VFMV_F_S:
+            case OP_RVV_VLSE: case OP_RVV_VSSE: case OP_RVV_VLUXEI: case OP_RVV_VSUXEI:
                 fprintf(f, "%s d=%u, s1=%u, s2=%u, imm=%u", ir_opcode_name(instr->op), instr->temp_dest, instr->temp_src1, instr->temp_src2, instr->imm);
                 break;
             case OP_VDIVPS: fprintf(f, "VDIVPS xmm%u, xmm%u, xmm%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);

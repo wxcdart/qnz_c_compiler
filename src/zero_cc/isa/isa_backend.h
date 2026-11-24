@@ -302,6 +302,10 @@ typedef struct ZeroCCISABackend {
     void (*emit_rvv_vfmv_v_f_asm)(ZeroCCCompiler *c, int vd, int fs1, int esz, FILE *out);
     void (*emit_rvv_vmv_x_s_asm)(ZeroCCCompiler *c, int rd, int vs2, int esz, FILE *out);
     void (*emit_rvv_vfmv_f_s_asm)(ZeroCCCompiler *c, int fd, int vs2, int esz, FILE *out);
+    void (*emit_rvv_vlse_asm)(ZeroCCCompiler *c, int vd, int rs1, int rs2, int esz, FILE *out);
+    void (*emit_rvv_vsse_asm)(ZeroCCCompiler *c, int vs3, int rs1, int rs2, int esz, FILE *out);
+    void (*emit_rvv_vluxei_asm)(ZeroCCCompiler *c, int vd, int rs1, int vs2, int esz, FILE *out);
+    void (*emit_rvv_vsuxei_asm)(ZeroCCCompiler *c, int vs3, int rs1, int vs2, int esz, FILE *out);
     void (*emit_vshufps_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int imm, FILE *out);
     void (*emit_vcvt_si2ss_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
     void (*emit_vcvt_ss2si_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
@@ -619,6 +623,10 @@ typedef struct ZeroCCISABackend {
     void (*emit_rvv_vfmv_v_f)(ZeroCCCompiler *c, int vd, int fs1, int esz);
     void (*emit_rvv_vmv_x_s)(ZeroCCCompiler *c, int rd, int vs2, int esz);
     void (*emit_rvv_vfmv_f_s)(ZeroCCCompiler *c, int fd, int vs2, int esz);
+    void (*emit_rvv_vlse)(ZeroCCCompiler *c, int vd, int rs1, int rs2, int esz);
+    void (*emit_rvv_vsse)(ZeroCCCompiler *c, int vs3, int rs1, int rs2, int esz);
+    void (*emit_rvv_vluxei)(ZeroCCCompiler *c, int vd, int rs1, int vs2, int esz);
+    void (*emit_rvv_vsuxei)(ZeroCCCompiler *c, int vs3, int rs1, int vs2, int esz);
     /* Scalar single<->double conversions (GNU vector per-lane lowering),
      * raw byte-emitter form (JIT / raw AOT). */
     void (*emit_cvtss2sd)(ZeroCCCompiler *c, int dst, int src);

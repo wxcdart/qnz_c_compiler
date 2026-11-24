@@ -121,6 +121,10 @@ static int instr_has_side_effects(Instr *instr) {
         case OP_V512_STORE:
         case OP_V512_MASK_STORE:
         case OP_KMOVW_TO_K1:
+        case OP_SVE_ST1:
+        case OP_RVV_VSE:
+        case OP_RVV_VSSE:
+        case OP_RVV_VSUXEI:
         case OP_VSTORESS:
         case OP_VSTORESD:
         case OP_VSTORESS_RAW:

@@ -372,6 +372,10 @@ typedef enum {
     OP_RVV_VFMV_V_F,   /* rvv broadcast float scalar to vector */
     OP_RVV_VMV_X_S,    /* rvv extract scalar integer from vector element 0 */
     OP_RVV_VFMV_F_S,   /* rvv extract scalar float from vector element 0 */
+    OP_RVV_VLSE,       /* rvv strided load */
+    OP_RVV_VSSE,       /* rvv strided store */
+    OP_RVV_VLUXEI,     /* rvv unordered indexed load */
+    OP_RVV_VSUXEI,     /* rvv unordered indexed store */
     /* Floating-point operations (8) */
     OP_FMOV_IMM,       /* load floating-point literal */
     OP_FLOAD,          /* load float from stack slot */
@@ -778,6 +782,10 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_RVV_VFMV_V_F: return "RVV_VFMV_V_F";
         case OP_RVV_VMV_X_S: return "RVV_VMV_X_S";
         case OP_RVV_VFMV_F_S: return "RVV_VFMV_F_S";
+        case OP_RVV_VLSE: return "RVV_VLSE";
+        case OP_RVV_VSSE: return "RVV_VSSE";
+        case OP_RVV_VLUXEI: return "RVV_VLUXEI";
+        case OP_RVV_VSUXEI: return "RVV_VSUXEI";
         case OP_LEA_RIP: return "LEA_RIP";
         case OP_MOV_GLOBAL: return "MOV_GLOBAL";
         case OP_JMP_INDIRECT: return "JMP_INDIRECT";
@@ -914,6 +922,7 @@ static inline bool ir_opcode_is_simd(Opcode op) {
         case OP_RVV_VAND: case OP_RVV_VOR: case OP_RVV_VXOR:
         case OP_RVV_VCMP: case OP_RVV_VREDSUM:
         case OP_RVV_VMV_V_X: case OP_RVV_VFMV_V_F: case OP_RVV_VMV_X_S: case OP_RVV_VFMV_F_S:
+        case OP_RVV_VLSE: case OP_RVV_VSSE: case OP_RVV_VLUXEI: case OP_RVV_VSUXEI:
             return true;
         default:
             return false;

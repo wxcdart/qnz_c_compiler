@@ -650,7 +650,13 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
         }
         if (spill_dst >= 0 && !d128_sp && !d64_sp) {
             RegClass rc = regalloc_get_class_for_temp(&c->regalloc, instr->temp_dest);
-            if (rc == REG_CLASS_VEC || rc == REG_CLASS_XMM) {
+            if (instr->op == OP_RVV_VSSE || instr->op == OP_RVV_VSUXEI) {
+                int32_t slot_off = spill_base_offset + (spill_dst + 1) * 8;
+                if (BE(c)->emit_vload) {
+                    BE(c)->emit_vload(c, BE(c)->fp_scratch_reg1, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off));
+                }
+                phys_dst = BE(c)->fp_scratch_reg1;
+            } else if (rc == REG_CLASS_VEC || rc == REG_CLASS_XMM) {
                 phys_dst = BE(c)->fp_scratch_reg1;
             } else {
                 phys_dst = BE(c)->scratch_reg1;
@@ -2243,6 +2249,38 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 }
                 break;
 
+            case OP_RVV_VLSE:
+                if (c->emit_asm && BE(c)->emit_rvv_vlse_asm) {
+                    BE(c)->emit_rvv_vlse_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_rvv_vlse) {
+                    BE(c)->emit_rvv_vlse(c, phys_dst, phys_src1, phys_src2, instr->imm);
+                }
+                break;
+
+            case OP_RVV_VSSE:
+                if (c->emit_asm && BE(c)->emit_rvv_vsse_asm) {
+                    BE(c)->emit_rvv_vsse_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_rvv_vsse) {
+                    BE(c)->emit_rvv_vsse(c, phys_dst, phys_src1, phys_src2, instr->imm);
+                }
+                break;
+
+            case OP_RVV_VLUXEI:
+                if (c->emit_asm && BE(c)->emit_rvv_vluxei_asm) {
+                    BE(c)->emit_rvv_vluxei_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_rvv_vluxei) {
+                    BE(c)->emit_rvv_vluxei(c, phys_dst, phys_src1, phys_src2, instr->imm);
+                }
+                break;
+
+            case OP_RVV_VSUXEI:
+                if (c->emit_asm && BE(c)->emit_rvv_vsuxei_asm) {
+                    BE(c)->emit_rvv_vsuxei_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_rvv_vsuxei) {
+                    BE(c)->emit_rvv_vsuxei(c, phys_dst, phys_src1, phys_src2, instr->imm);
+                }
+                break;
+
             case OP_RVV_VADD:
                 if (c->emit_asm && BE(c)->emit_rvv_vadd_asm) {
                     BE(c)->emit_rvv_vadd_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, (int)instr->imm64, c->asm_out);
@@ -2882,7 +2920,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
          * already persisted the value, so re-storing here would overwrite
          * the slot with scratch-register garbage on ISAs where the check
          * is skipped. */
-        if (spill_dst >= 0 && instr->op != OP_OVF_TRAP) {
+        if (spill_dst >= 0 && instr->op != OP_OVF_TRAP && instr->op != OP_RVV_VSSE && instr->op != OP_RVV_VSUXEI) {
             int32_t slot_off = spill_base_offset + (spill_dst + 1) * 8;
             if (d128_sp) {
                 if (BE(c)->emit_store) {

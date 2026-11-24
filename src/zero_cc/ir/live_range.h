@@ -672,17 +672,34 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
             continue;
         }
 
-        /* OP_OVF_TRAP only READS its operands (temp_dest is the result/divisor/count,
+        /* OP_OVF_TRAP, OP_RVV_VSSE, and OP_RVV_VSUXEI only READ their operands (temp_dest is a value,
          * not a definition). Carry all present temps as uses. */
-        if (instr->op == OP_OVF_TRAP) {
+        if (instr->op == OP_OVF_TRAP || instr->op == OP_RVV_VSSE || instr->op == OP_RVV_VSUXEI) {
             if (instr->temp_dest != TEMP_NONE) {
                 live_range_add_use(lra, i, instr->temp_dest, false);
+                if (zc_temp_is_user(instr->temp_dest) && (size_t)instr->temp_dest < lra->temp_capacity) {
+                    if (instr->op == OP_RVV_VSSE || instr->op == OP_RVV_VSUXEI) {
+                        lra->temp_reg_class[instr->temp_dest] = REG_CLASS_VEC;
+                    }
+                }
             }
             if (instr->temp_src1 != TEMP_NONE) {
                 live_range_add_use(lra, i, instr->temp_src1, false);
+                if (zc_temp_is_user(instr->temp_src1) && (size_t)instr->temp_src1 < lra->temp_capacity) {
+                    if (instr->op == OP_RVV_VSSE || instr->op == OP_RVV_VSUXEI) {
+                        lra->temp_reg_class[instr->temp_src1] = REG_CLASS_GPR;
+                    }
+                }
             }
             if (instr->temp_src2 != TEMP_NONE) {
                 live_range_add_use(lra, i, instr->temp_src2, false);
+                if (zc_temp_is_user(instr->temp_src2) && (size_t)instr->temp_src2 < lra->temp_capacity) {
+                    if (instr->op == OP_RVV_VSSE) {
+                        lra->temp_reg_class[instr->temp_src2] = REG_CLASS_GPR;
+                    } else if (instr->op == OP_RVV_VSUXEI) {
+                        lra->temp_reg_class[instr->temp_src2] = REG_CLASS_VEC;
+                    }
+                }
             }
             continue;
         }
@@ -754,6 +771,7 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
                     instr->op == OP_KMOVW_TO_K ||
                     instr->op == OP_SVE_LD1 || instr->op == OP_SVE_ST1 ||
                     instr->op == OP_RVV_VLE || instr->op == OP_RVV_VSE ||
+                    instr->op == OP_RVV_VLSE || instr->op == OP_RVV_VLUXEI ||
                     instr->op == OP_RVV_VSETVLI || instr->op == OP_RVV_VMV_V_X ||
                     instr->op == OP_VLOADSS || instr->op == OP_VLOADSD ||
                     instr->op == OP_VSTORESS || instr->op == OP_VSTORESD ||
@@ -797,6 +815,8 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
             if (zc_temp_is_user(instr->temp_src2) && (size_t)instr->temp_src2 < lra->temp_capacity) {
                 if (instr->op == OP_FSTORE) {
                     lra->temp_reg_class[instr->temp_src2] = REG_CLASS_GPR; /* base pointer */
+                } else if (instr->op == OP_RVV_VLSE) {
+                    lra->temp_reg_class[instr->temp_src2] = REG_CLASS_GPR; /* stride */
                 } else if (instr->op == OP_VSTORE || instr->op == OP_V256_STORE || instr->op == OP_V512_STORE || instr->op == OP_V512_MASK_STORE || instr->op == OP_SVE_ST1 || instr->op == OP_RVV_VSE) {
                     lra->temp_reg_class[instr->temp_src2] = REG_CLASS_VEC; /* vector value to store */
                 } else if (instr->op == OP_VSTORESS || instr->op == OP_VSTORESD || instr->op == OP_VSTORESS_RAW) {

@@ -582,7 +582,9 @@ TypeInfo *expr_handle_call(SemContext *ctx, ZeroCCASTNode *node) {
         strncmp(callee->s.str, "__builtin_zerocc_rvv_", 21) == 0) {
         if (strcmp(callee->s.str, "__builtin_zerocc_rvv_vfmv_f_s") == 0) {
             res = type_float(ctx->perm_arena);
-        } else if (strcmp(callee->s.str, "__builtin_zerocc_rvv_vse") == 0) {
+        } else if (strcmp(callee->s.str, "__builtin_zerocc_rvv_vse") == 0 ||
+                   strcmp(callee->s.str, "__builtin_zerocc_rvv_vsse") == 0 ||
+                   strcmp(callee->s.str, "__builtin_zerocc_rvv_vsuxei") == 0) {
             res = type_void(ctx->perm_arena);
         } else if (strcmp(callee->s.str, "__builtin_zerocc_rvv_vsetvl") == 0 ||
                    strcmp(callee->s.str, "__builtin_zerocc_rvv_vmv_x_s") == 0) {
