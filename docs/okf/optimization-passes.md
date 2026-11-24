@@ -4,7 +4,7 @@ title: Optimization Passes & Safety Invariants
 description: Active IR optimization pipeline (Constant Folding, CopyProp, CSE, GVN, DCE, Mem2Reg, LICM, Auto-Vectorization) and their correctness invariants.
 resource: middleend/optimization-passes
 tags: [optimizations, mem2reg, licm, vectorization, gvn, cse, dce]
-timestamp: 2026-11-24T17:30:59Z
+timestamp: 2026-11-24T23:14:15Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -70,7 +70,18 @@ Optimization passes are registered in `src/zero_cc/opt/opt_pass.c` (`g_opt_passe
      - Worklist seeded in reverse postorder (RPO) from entry; `idom(b)` selected as the deepest RPO member of $D(b) \setminus \{b\}$. Post-dominators computed identically on the reverse CFG using a synthetic entry node above all exit blocks.
      - Results cached lazily on `ZeroCCCFG` (`cfg_idom()`, `cfg_post_idom()`) and exposed via $O(\text{depth})$ tree-walk queries `cfg_block_dominates()` and `cfg_block_post_dominates()`.
      - `opt_loop.c`'s `detect_loops` invokes `loop_analyze(c, state)` to wire non-owning views into `LoopAnalysisState.dominators` and `LoopAnalysisState.post_dominators` for upcoming dominance-based invariant hoisting and loop unrolling passes.
-8. **SIMD Auto-Vectorization (`opt_vectorize.c`)**
+   - **LICM Store Hoisting (`opt_licm_store_hoist`, Sprint 215)**:
+     - Detects invariant memory store patterns (`*p = val` or `*p += ...`, `p->field += ...`) inside countable loops.
+     - Verifies address operand is loop-invariant, no calls/syscalls/inline asm, and exactly one memory store across the loop body.
+     - Allocates an accumulator temporary in the preheader (`accum_temp = *addr_temp`), replaces in-loop loads and stores with register moves (`OP_MOV_REG` / `OP_FMOV`), and commits the final value to memory (`*addr_temp = accum_temp`) on loop exit.
+     - Preserves 0-trip loop semantics by loading the initial value before the loop and storing back on exit.
+8. **Loop Fusion / Jamming (`opt_loop_fusion.c`, Sprint 215)**
+   - Registered at priority 67 (`OPT_LEVEL_O3`), running before SIMD auto-vectorization (priority 68) and loop unrolling (priority 70).
+   - Merges adjacent loops with identical iteration spaces and compatible data dependencies into a single loop, eliminating redundant loop index increments, comparisons, and branch overhead, while exposing combined bodies to downstream GVN, SLP, and SIMD vectorization.
+   - Analyzes loop headers, backedges, induction variable initializations, increment steps, and loop bounds.
+   - Enforces dependency safety: verifies no write-after-write (WAW) or write-after-read (WAR) conflicts between Loop 1 and Loop 2.
+   - Splices Loop 2's body right before Loop 1's induction step, remapping Loop 2's induction variable uses to Loop 1's induction variable. Hoists pure setup instructions between Loop 1 and Loop 2 into Loop 1's preheader, and redirects Loop 1's exit jump directly to Loop 2's exit label, NOP'ing out Loop 2.
+9. **SIMD Auto-Vectorization (`opt_vectorize.c`)**
    - Detects countable array arithmetic loops:
      - **Single-Precision Floats (`float[N]`)**: maps `OP_VLOADSS`, `OP_VSTORESS`, `OP_FADD`/`OP_FSUB`/`OP_FMUL`/`OP_FDIV` &rarr; 128-bit packed single vector instructions (`OP_VADDPS`, `OP_VSUBPS`, `OP_VMULPS`, `OP_VDIVPS`, `OP_VLOAD`, `OP_VSTORE`) with `vec_width = 4` (stride 4, `i += 4`).
      - **Double-Precision Floats (`double[N]`)**: maps `OP_VLOADSD`, `OP_VSTORESD`, `OP_FADD`/`OP_FSUB`/`OP_FMUL`/`OP_FDIV` &rarr; 128-bit packed double vector instructions (`OP_VADDPD`, `OP_VSUBPD`, `OP_VMULPD`, `OP_VDIVPD`, `OP_VLOAD`, `OP_VSTORE`) with `vec_width = 2` (stride 8, `i += 2`).

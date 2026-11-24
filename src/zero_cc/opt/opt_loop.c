@@ -38,7 +38,7 @@ void loop_analysis_init(LoopAnalysisState *state) {
 void loop_analysis_free(LoopAnalysisState *state) {
     /* Per-loop work tables (detect_loops): indexed by instruction/byte,
      * grown per loop - released here, not by the caller. */
-    for (size_t i = 0; i < state->loop_count; i++) {
+    for (int i = 0; i < state->loop_count; i++) {
         free(state->loops[i].body_indices);
         free(state->loops[i].is_invariant);
         state->loops[i].body_indices = NULL;
@@ -492,6 +492,7 @@ void opt_licm(ZeroCCCompiler *c) {
     if (total_hoisted == 0) {
         free(global_hoist);
         loop_analysis_free(&state);
+        opt_licm_store_hoist(c);
         return;
     }
 
@@ -583,6 +584,249 @@ void opt_licm(ZeroCCCompiler *c) {
     free(emitted_at_header);
     free(global_hoist);
     loop_analysis_free(&state);
+    opt_licm_store_hoist(c);
+}
+
+typedef struct {
+    int store_idx;
+    int load_idx;
+    uint32_t addr_temp;
+    uint32_t val_temp;
+    uint32_t accum_temp;
+    Opcode store_op;
+    Opcode load_op;
+    int header_idx;
+    int exit_label;
+    int exit_pos;
+} InvariantStoreCand;
+
+/**
+ * Loop-invariant store hoisting / Scalar Replacement of Aggregates (SROA)
+ * Hoists invariant memory writes outside loop bodies by loading into a register
+ * accumulator in the preheader and committing the final store in loop exit blocks.
+ */
+void opt_licm_store_hoist(ZeroCCCompiler *c) {
+    if (!c || c->lowering.has_setjmp) return;
+    if (!cfg_build(c)) return;
+
+    ZeroCCCFG *cfg = &c->cfg_cache;
+    if (cfg->loop_count == 0) return;
+
+    size_t count = ir_get_count(c);
+    InvariantStoreCand cands[16];
+    int cand_count = 0;
+
+    for (int l = 0; l < cfg->loop_count && cand_count < 16; l++) {
+        int h = cfg->loops[l].header;
+        int u = cfg->loops[l].backedge_from;
+        if (h < 0 || h >= cfg->block_count || u < 0 || u >= cfg->block_count) continue;
+
+        int start = (int)cfg->blocks[h].start;
+        int end = (int)cfg->blocks[u].end - 1;
+        if (end - start < 3) continue;
+
+        /* Purity check: loop must have no calls, returns, syscalls, inline asm */
+        bool safe = true;
+        int store_idx = -1;
+        Opcode store_op = OP_NOP;
+        uint32_t addr_temp = TEMP_NONE;
+        uint32_t val_temp = TEMP_NONE;
+        int store_count = 0;
+
+        for (int i = start; i <= end; i++) {
+            Instr *ins = ir_get(c, i);
+            if (!ins) continue;
+            if (ins->op == OP_CALL || ins->op == OP_CALL_INDIRECT ||
+                ins->op == OP_SYSCALL || ins->op == OP_CLONE ||
+                ins->op == OP_ASM || ins->op == OP_RET ||
+                ins->op == OP_EPILOGUE || ins->op == OP_SETJMP || ins->op == OP_LONGJMP) {
+                safe = false;
+                break;
+            }
+            if (ins->op == OP_STORE_32 || ins->op == OP_STORE_64 ||
+                ins->op == OP_FSTORE || ins->op == OP_STORE_16 ||
+                ins->op == OP_STORE_BYTE || ins->op == OP_VSTORE ||
+                ins->op == OP_MOV_MEM) {
+                store_count++;
+                if (ins->op == OP_STORE_32 || ins->op == OP_STORE_64 ||
+                    ins->op == OP_FSTORE || ins->op == OP_STORE_16 ||
+                    ins->op == OP_STORE_BYTE) {
+                    store_idx = i;
+                    store_op = ins->op;
+                    val_temp = ins->temp_src1;
+                    addr_temp = ins->temp_src2;
+                }
+            }
+        }
+        if (!safe || store_count != 1 || store_idx < 0 || addr_temp == TEMP_NONE) continue;
+
+        /* Verify addr_temp is loop invariant (not defined in start..end) */
+        bool addr_invariant = true;
+        for (int i = start; i <= end; i++) {
+            Instr *ins = ir_get(c, i);
+            if (ins && ins->temp_dest == addr_temp) {
+                addr_invariant = false;
+                break;
+            }
+        }
+        if (!addr_invariant) continue;
+
+        /* Find matching load_op */
+        Opcode load_op = OP_NOP;
+        switch (store_op) {
+            case OP_STORE_32: load_op = OP_LOAD_32; break;
+            case OP_STORE_64: load_op = OP_DEREF; break;
+            case OP_STORE_16: load_op = OP_LOAD_16; break;
+            case OP_STORE_BYTE: load_op = OP_LOAD_BYTE; break;
+            case OP_FSTORE: load_op = OP_FLOAD; break;
+            default: break;
+        }
+        if (load_op == OP_NOP) continue;
+
+        /* Find in-loop load from addr_temp */
+        int load_idx = -1;
+        for (int i = start; i <= end; i++) {
+            Instr *ins = ir_get(c, i);
+            if (ins && (ins->op == load_op || (store_op == OP_STORE_64 && ins->op == OP_LOAD64)) && ins->temp_src1 == addr_temp) {
+                load_idx = i;
+                break;
+            }
+        }
+
+        /* Find exit jump and label */
+        int exit_label = -1;
+        for (int i = start + 1; i <= start + 8 && i < end; i++) {
+            Instr *ins = ir_get(c, i);
+            if (!ins) continue;
+            if (ins->op == OP_JE || ins->op == OP_JNE || ins->op == OP_JL ||
+                ins->op == OP_JLE || ins->op == OP_JG || ins->op == OP_JCOND) {
+                exit_label = (int)ins->label_idx;
+                break;
+            }
+        }
+        if (exit_label < 0) continue;
+
+        /* Find position of exit_label in IR */
+        int exit_pos = -1;
+        for (size_t i = 0; i < count; i++) {
+            Instr *ins = ir_get(c, i);
+            if (ins && ins->op == OP_LABEL && (int)ins->label_idx == exit_label) {
+                exit_pos = (int)i;
+                break;
+            }
+        }
+        if (exit_pos < end) continue; /* must exit after loop */
+
+        InvariantStoreCand *cand = &cands[cand_count++];
+        cand->store_idx = store_idx;
+        cand->load_idx = load_idx;
+        cand->addr_temp = addr_temp;
+        cand->val_temp = val_temp;
+        cand->accum_temp = (uint32_t)zc_alloc_temp(c);
+        cand->store_op = store_op;
+        cand->load_op = load_op;
+        cand->header_idx = start;
+        cand->exit_label = exit_label;
+        cand->exit_pos = exit_pos;
+    }
+
+    if (cand_count == 0) return;
+
+    /* Rebuild IR arena with hoisted stores */
+    IRArena new_arena;
+    if (!ir_arena_init(&new_arena, count + cand_count * 4 + 16)) return;
+
+    for (size_t i = 0; i < count; i++) {
+        Instr *ins = ir_get(c, i);
+        if (!ins) continue;
+
+        /* Check if this is a loop header receiving an initial preheader load */
+        for (int c_idx = 0; c_idx < cand_count; c_idx++) {
+            if ((int)i == cands[c_idx].header_idx) {
+                Instr pre_load = {
+                    .op = cands[c_idx].load_op,
+                    .temp_dest = cands[c_idx].accum_temp,
+                    .temp_src1 = cands[c_idx].addr_temp,
+                    .temp_src2 = TEMP_NONE,
+                    .cond = 0,
+                    .flags_out = 0xFF,
+                    .flags_in = 0xFF,
+                    .imm = 0,
+                    .imm64 = 0,
+                    .label_idx = 0
+                };
+                ir_arena_emit(&new_arena, pre_load);
+            }
+        }
+
+        /* Check if this instruction is an in-loop load from candidate addr */
+        bool replaced = false;
+        for (int c_idx = 0; c_idx < cand_count; c_idx++) {
+            if ((int)i == cands[c_idx].load_idx) {
+                Instr mov = {
+                    .op = (cands[c_idx].store_op == OP_FSTORE) ? OP_FMOV : OP_MOV_REG,
+                    .temp_dest = ins->temp_dest,
+                    .temp_src1 = cands[c_idx].accum_temp,
+                    .temp_src2 = TEMP_NONE,
+                    .cond = 0,
+                    .flags_out = 0xFF,
+                    .flags_in = 0xFF,
+                    .imm = 0,
+                    .imm64 = 0,
+                    .label_idx = 0
+                };
+                ir_arena_emit(&new_arena, mov);
+                replaced = true;
+                break;
+            }
+            if ((int)i == cands[c_idx].store_idx) {
+                Instr mov = {
+                    .op = (cands[c_idx].store_op == OP_FSTORE) ? OP_FMOV : OP_MOV_REG,
+                    .temp_dest = cands[c_idx].accum_temp,
+                    .temp_src1 = cands[c_idx].val_temp,
+                    .temp_src2 = TEMP_NONE,
+                    .cond = 0,
+                    .flags_out = 0xFF,
+                    .flags_in = 0xFF,
+                    .imm = 0,
+                    .imm64 = 0,
+                    .label_idx = 0
+                };
+                ir_arena_emit(&new_arena, mov);
+                replaced = true;
+                break;
+            }
+        }
+        if (replaced) continue;
+
+        /* Emit normal instruction */
+        ir_arena_emit(&new_arena, *ins);
+
+        /* If this was an exit label for a candidate, emit final store right after */
+        if (ins->op == OP_LABEL) {
+            for (int c_idx = 0; c_idx < cand_count; c_idx++) {
+                if ((int)ins->label_idx == cands[c_idx].exit_label && (int)i == cands[c_idx].exit_pos) {
+                    Instr exit_store = {
+                        .op = cands[c_idx].store_op,
+                        .temp_dest = TEMP_NONE,
+                        .temp_src1 = cands[c_idx].accum_temp,
+                        .temp_src2 = cands[c_idx].addr_temp,
+                        .cond = 0,
+                        .flags_out = 0xFF,
+                        .flags_in = 0xFF,
+                        .imm = 0,
+                        .imm64 = 0,
+                        .label_idx = 0
+                    };
+                    ir_arena_emit(&new_arena, exit_store);
+                }
+            }
+        }
+    }
+
+    ir_arena_free(&c->ir_arena);
+    c->ir_arena = new_arena;
+    c->cfg_version++;
 }
 
 /**

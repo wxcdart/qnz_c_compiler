@@ -1,5 +1,28 @@
 # CHANGELOG
 
+## [Sprint 215] - 2026-11-24 - Advanced Loop Optimizations: LICM Store Hoisting & Loop Fusion / Jamming
+
+Implements Option 3 (Advanced Loop Optimizations — LICM Store Hoisting & Loop Fusion):
+- **LICM Store Hoisting / Scalar Replacement of Aggregates (`opt_loop.c`, `opt_loop.h`)**:
+  - Implemented `opt_licm_store_hoist` integrated into `opt_licm` at `-O2` and `-O3`.
+  - Automatically identifies invariant memory writes (`*p = val`, `*p += ...`, `p->field += ...`) across integer (8/16/32/64-bit) and floating-point types in countable loops.
+  - Verifies safety: loop contains no function calls, syscalls, returns, or inline assembly, and exactly one memory store whose target address is loop-invariant.
+  - Allocates an accumulator virtual register in the loop preheader (`accum_temp = *addr`), replaces in-loop loads and stores with register moves (`OP_MOV_REG` / `OP_FMOV`), and commits the final accumulated value back to memory on loop exit.
+  - 0-trip preservation: loads the preheader value and commits back on exit, guaranteeing identity if the loop never executes.
+- **Loop Fusion / Jamming (`opt_loop_fusion.c`, `opt_loop_fusion.h`, `opt_pass.c`, `Makefile`)**:
+  - Implemented standalone `opt_loop_fusion` pass registered at priority 67 (`OPT_LEVEL_O3`), running before SIMD auto-vectorization (priority 68) and loop unrolling (priority 70).
+  - Detects adjacent loops with matching trip counts and bounds, identical induction initializations, and compatible data dependencies.
+  - Enforces dependency safety: checks for write-after-write (WAW) and write-after-read (WAR / anti-dependency) memory conflicts between Loop 1 and Loop 2.
+  - Merges adjacent loops: splices Loop 2's body directly before Loop 1's induction step, remaps Loop 2's induction variable uses to Loop 1's induction variable, hoists pure setup instructions between Loop 1 and Loop 2 into Loop 1's preheader, redirects Loop 1's exit jump to Loop 2's exit label, and NOPs out Loop 2.
+- **Verification & Test Coverage**:
+  - `test/jit/licm_store_hoist_test.c`: 32-bit int, 64-bit int, struct member, and 0-trip loop test coverage.
+  - `test/jit/loop_fusion_test.c`: independent array update fusion, producer-consumer fusion, multi-loop fusion, and non-equal bound safety preservation.
+  - All 251 tests in `make test` pass.
+  - Full optimizer sweep `make test-opt` passes (151 ok, 0 failed, 58 skipped, 1 nondeterministic).
+  - Embedded baremetal CPU verification `make test-baremetal` passes 100%.
+  - ZeroCC coding style checker (`tools/verify/style_check.py`): 197 files, 0 errors, 0 warnings.
+  - OKF graph validator (`okf.py lint`): 23/23 concepts reachable, 0 errors.
+
 ## [Sprint 214] - 2026-11-24 - Multi-ISA Backend Architecture (Item #16 Phase 2 & 3) — Table-Driven Regalloc & Decoupled ABI Hooks
 
 Implements Item #16 Phase 2 & Phase 3 (Table-Driven Regalloc & Decoupled ABI Lowering Hooks):
@@ -297,6 +320,29 @@ Implements Option 2: AVX-512 Integer SIMD (`AVX-512BW` / `AVX-512DQ` / `__m512i`
   - All regression gates green: `make test` (245/245 passed), `make test-opt` (143 passed, 0 failed), `make test-san` (720 passed, 0 failed), `python3 tools/verify/style_check.py` (0 errors), `python3 tools/verify/type_tag_verifier.py --verify-all` (OK).
 
 # CHANGELOG
+
+## [Sprint 215] - 2026-11-24 - Advanced Loop Optimizations: LICM Store Hoisting & Loop Fusion / Jamming
+
+Implements Option 3 (Advanced Loop Optimizations — LICM Store Hoisting & Loop Fusion):
+- **LICM Store Hoisting / Scalar Replacement of Aggregates (`opt_loop.c`, `opt_loop.h`)**:
+  - Implemented `opt_licm_store_hoist` integrated into `opt_licm` at `-O2` and `-O3`.
+  - Automatically identifies invariant memory writes (`*p = val`, `*p += ...`, `p->field += ...`) across integer (8/16/32/64-bit) and floating-point types in countable loops.
+  - Verifies safety: loop contains no function calls, syscalls, returns, or inline assembly, and exactly one memory store whose target address is loop-invariant.
+  - Allocates an accumulator virtual register in the loop preheader (`accum_temp = *addr`), replaces in-loop loads and stores with register moves (`OP_MOV_REG` / `OP_FMOV`), and commits the final accumulated value back to memory on loop exit.
+  - 0-trip preservation: loads the preheader value and commits back on exit, guaranteeing identity if the loop never executes.
+- **Loop Fusion / Jamming (`opt_loop_fusion.c`, `opt_loop_fusion.h`, `opt_pass.c`, `Makefile`)**:
+  - Implemented standalone `opt_loop_fusion` pass registered at priority 67 (`OPT_LEVEL_O3`), running before SIMD auto-vectorization (priority 68) and loop unrolling (priority 70).
+  - Detects adjacent loops with matching trip counts and bounds, identical induction initializations, and compatible data dependencies.
+  - Enforces dependency safety: checks for write-after-write (WAW) and write-after-read (WAR / anti-dependency) memory conflicts between Loop 1 and Loop 2.
+  - Merges adjacent loops: splices Loop 2's body directly before Loop 1's induction step, remaps Loop 2's induction variable uses to Loop 1's induction variable, hoists pure setup instructions between Loop 1 and Loop 2 into Loop 1's preheader, redirects Loop 1's exit jump to Loop 2's exit label, and NOPs out Loop 2.
+- **Verification & Test Coverage**:
+  - `test/jit/licm_store_hoist_test.c`: 32-bit int, 64-bit int, struct member, and 0-trip loop test coverage.
+  - `test/jit/loop_fusion_test.c`: independent array update fusion, producer-consumer fusion, multi-loop fusion, and non-equal bound safety preservation.
+  - All 251 tests in `make test` pass.
+  - Full optimizer sweep `make test-opt` passes (151 ok, 0 failed, 58 skipped, 1 nondeterministic).
+  - Embedded baremetal CPU verification `make test-baremetal` passes 100%.
+  - ZeroCC coding style checker (`tools/verify/style_check.py`): 197 files, 0 errors, 0 warnings.
+  - OKF graph validator (`okf.py lint`): 23/23 concepts reachable, 0 errors.
 
 ## [Sprint 214] - 2026-11-24 - Multi-ISA Backend Architecture (Item #16 Phase 2 & 3) — Table-Driven Regalloc & Decoupled ABI Hooks
 

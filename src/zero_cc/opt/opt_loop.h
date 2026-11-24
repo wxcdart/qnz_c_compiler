@@ -81,6 +81,11 @@ void loop_detect(ZeroCCCompiler *c, LoopAnalysisState *state);
 void opt_licm(ZeroCCCompiler *c);
 
 /**
+ * Loop-invariant store hoisting (SROA on invariant pointer targets)
+ */
+void opt_licm_store_hoist(ZeroCCCompiler *c);
+
+/**
  * Strength reduction
  */
 void opt_strength_reduction(ZeroCCCompiler *c);
