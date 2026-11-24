@@ -275,6 +275,23 @@ typedef struct ZeroCCISABackend {
     void (*emit_sve_addv_asm)(ZeroCCCompiler *c, int zd, int pg, int zn, int esz, int is_fp, FILE *out);
     void (*emit_sve_qadd_asm)(ZeroCCCompiler *c, int zd, int zn, int zm, int esz, FILE *out);
     void (*emit_sve_qsub_asm)(ZeroCCCompiler *c, int zd, int zn, int zm, int esz, FILE *out);
+    /* RISC-V Vector Extension (RVV 1.0 - Sprint 204) */
+    void (*emit_rvv_vsetvli_asm)(ZeroCCCompiler *c, int rd, int rs1, int esz, int lmul, FILE *out);
+    void (*emit_rvv_vle_asm)(ZeroCCCompiler *c, int vd, int rs1, int esz, FILE *out);
+    void (*emit_rvv_vse_asm)(ZeroCCCompiler *c, int vs3, int rs1, int esz, FILE *out);
+    void (*emit_rvv_vadd_asm)(ZeroCCCompiler *c, int vd, int vs1, int vs2, int esz, int is_fp, FILE *out);
+    void (*emit_rvv_vsub_asm)(ZeroCCCompiler *c, int vd, int vs1, int vs2, int esz, int is_fp, FILE *out);
+    void (*emit_rvv_vmul_asm)(ZeroCCCompiler *c, int vd, int vs1, int vs2, int esz, int is_fp, FILE *out);
+    void (*emit_rvv_vdiv_asm)(ZeroCCCompiler *c, int vd, int vs1, int vs2, int esz, int is_fp, FILE *out);
+    void (*emit_rvv_vand_asm)(ZeroCCCompiler *c, int vd, int vs1, int vs2, FILE *out);
+    void (*emit_rvv_vor_asm)(ZeroCCCompiler *c, int vd, int vs1, int vs2, FILE *out);
+    void (*emit_rvv_vxor_asm)(ZeroCCCompiler *c, int vd, int vs1, int vs2, FILE *out);
+    void (*emit_rvv_vcmp_asm)(ZeroCCCompiler *c, int vd, int vs1, int vs2, int esz, int cond, int is_fp, FILE *out);
+    void (*emit_rvv_vredsum_asm)(ZeroCCCompiler *c, int vd, int vs1, int vs2, int esz, int is_fp, FILE *out);
+    void (*emit_rvv_vmv_v_x_asm)(ZeroCCCompiler *c, int vd, int rs1, int esz, FILE *out);
+    void (*emit_rvv_vfmv_v_f_asm)(ZeroCCCompiler *c, int vd, int fs1, int esz, FILE *out);
+    void (*emit_rvv_vmv_x_s_asm)(ZeroCCCompiler *c, int rd, int vs2, int esz, FILE *out);
+    void (*emit_rvv_vfmv_f_s_asm)(ZeroCCCompiler *c, int fd, int vs2, int esz, FILE *out);
     void (*emit_vshufps_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int imm, FILE *out);
     void (*emit_vcvt_si2ss_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
     void (*emit_vcvt_ss2si_asm)(ZeroCCCompiler *c, int dst, int src, FILE *out);
@@ -565,6 +582,23 @@ typedef struct ZeroCCISABackend {
     void (*emit_sve_addv)(ZeroCCCompiler *c, int zd, int pg, int zn, int esz, int is_fp);
     void (*emit_sve_qadd)(ZeroCCCompiler *c, int zd, int zn, int zm, int esz);
     void (*emit_sve_qsub)(ZeroCCCompiler *c, int zd, int zn, int zm, int esz);
+    /* RISC-V Vector Extension (RVV 1.0 - Sprint 204) */
+    void (*emit_rvv_vsetvli)(ZeroCCCompiler *c, int rd, int rs1, int esz, int lmul);
+    void (*emit_rvv_vle)(ZeroCCCompiler *c, int vd, int rs1, int esz);
+    void (*emit_rvv_vse)(ZeroCCCompiler *c, int vs3, int rs1, int esz);
+    void (*emit_rvv_vadd)(ZeroCCCompiler *c, int vd, int vs1, int vs2, int esz, int is_fp);
+    void (*emit_rvv_vsub)(ZeroCCCompiler *c, int vd, int vs1, int vs2, int esz, int is_fp);
+    void (*emit_rvv_vmul)(ZeroCCCompiler *c, int vd, int vs1, int vs2, int esz, int is_fp);
+    void (*emit_rvv_vdiv)(ZeroCCCompiler *c, int vd, int vs1, int vs2, int esz, int is_fp);
+    void (*emit_rvv_vand)(ZeroCCCompiler *c, int vd, int vs1, int vs2);
+    void (*emit_rvv_vor)(ZeroCCCompiler *c, int vd, int vs1, int vs2);
+    void (*emit_rvv_vxor)(ZeroCCCompiler *c, int vd, int vs1, int vs2);
+    void (*emit_rvv_vcmp)(ZeroCCCompiler *c, int vd, int vs1, int vs2, int esz, int cond, int is_fp);
+    void (*emit_rvv_vredsum)(ZeroCCCompiler *c, int vd, int vs1, int vs2, int esz, int is_fp);
+    void (*emit_rvv_vmv_v_x)(ZeroCCCompiler *c, int vd, int rs1, int esz);
+    void (*emit_rvv_vfmv_v_f)(ZeroCCCompiler *c, int vd, int fs1, int esz);
+    void (*emit_rvv_vmv_x_s)(ZeroCCCompiler *c, int rd, int vs2, int esz);
+    void (*emit_rvv_vfmv_f_s)(ZeroCCCompiler *c, int fd, int vs2, int esz);
     /* Scalar single<->double conversions (GNU vector per-lane lowering),
      * raw byte-emitter form (JIT / raw AOT). */
     void (*emit_cvtss2sd)(ZeroCCCompiler *c, int dst, int src);

@@ -707,8 +707,11 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
                             (conv && ai >= 0 && ai < conv->int_arg_reg_count)
                             ? conv->int_arg_regs[ai] : -1;
                     }
-                } else if (instr->op == OP_KMOVW_FROM_K1 || instr->op == OP_V512_CMP_MASK) {
+                } else if (instr->op == OP_KMOVW_FROM_K1 || instr->op == OP_V512_CMP_MASK ||
+                           instr->op == OP_RVV_VSETVLI || instr->op == OP_RVV_VMV_X_S) {
                     lra->temp_reg_class[instr->temp_dest] = REG_CLASS_GPR;
+                } else if (instr->op == OP_RVV_VFMV_F_S) {
+                    lra->temp_reg_class[instr->temp_dest] = REG_CLASS_XMM;
                 } else if (ir_opcode_is_float(instr->op)) {
                     lra->temp_reg_class[instr->temp_dest] = REG_CLASS_XMM;
                 } else if (ir_opcode_is_simd(instr->op)) {
@@ -748,10 +751,14 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
                     instr->op == OP_VSTORE || instr->op == OP_V256_STORE || instr->op == OP_V512_STORE ||
                     instr->op == OP_V512_MASK_STORE || instr->op == OP_KMOVW_TO_K1 ||
                     instr->op == OP_SVE_LD1 || instr->op == OP_SVE_ST1 ||
+                    instr->op == OP_RVV_VLE || instr->op == OP_RVV_VSE ||
+                    instr->op == OP_RVV_VSETVLI || instr->op == OP_RVV_VMV_V_X ||
                     instr->op == OP_VLOADSS || instr->op == OP_VLOADSD ||
                     instr->op == OP_VSTORESS || instr->op == OP_VSTORESD ||
                     instr->op == OP_VLOADSS_RAW || instr->op == OP_VSTORESS_RAW) {
                     lra->temp_reg_class[instr->temp_src1] = REG_CLASS_GPR;
+                } else if (instr->op == OP_RVV_VFMV_V_F) {
+                    lra->temp_reg_class[instr->temp_src1] = REG_CLASS_XMM;
                 } else if (instr->op == OP_CVTTSD2SI || instr->op == OP_FSTORE || instr->op == OP_FMOV ||
                     instr->op == OP_CVTSS2SD || instr->op == OP_CVTSD2SS ||
                     instr->op == OP_VCVT_SS2SI || instr->op == OP_VCVT_SD2SI ||
@@ -788,7 +795,7 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
             if (zc_temp_is_user(instr->temp_src2) && (size_t)instr->temp_src2 < lra->temp_capacity) {
                 if (instr->op == OP_FSTORE) {
                     lra->temp_reg_class[instr->temp_src2] = REG_CLASS_GPR; /* base pointer */
-                } else if (instr->op == OP_VSTORE || instr->op == OP_V256_STORE || instr->op == OP_V512_STORE || instr->op == OP_V512_MASK_STORE || instr->op == OP_SVE_ST1) {
+                } else if (instr->op == OP_VSTORE || instr->op == OP_V256_STORE || instr->op == OP_V512_STORE || instr->op == OP_V512_MASK_STORE || instr->op == OP_SVE_ST1 || instr->op == OP_RVV_VSE) {
                     lra->temp_reg_class[instr->temp_src2] = REG_CLASS_VEC; /* vector value to store */
                 } else if (instr->op == OP_VSTORESS || instr->op == OP_VSTORESD || instr->op == OP_VSTORESS_RAW) {
                     lra->temp_reg_class[instr->temp_src2] = REG_CLASS_XMM; /* scalar float/double value to store */

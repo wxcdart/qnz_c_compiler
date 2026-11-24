@@ -1379,6 +1379,11 @@ void opt_auto_vectorize(ZeroCCCompiler *c) {
         for (int i = 0; i < MAX_VECTOR_LOOPS; i++) {
             state.loops[i].vector_width = 16;
         }
+    } else if (c->has_rvv && (isa == ISA_RISCV64 || isa == ISA_RISCV32)) {
+        state.vector_width = 4;
+        for (int i = 0; i < MAX_VECTOR_LOOPS; i++) {
+            state.loops[i].vector_width = 4;
+        }
     } else if (c->has_avx && isa == ISA_X86_64) {
         state.vector_width = 8;
         for (int i = 0; i < MAX_VECTOR_LOOPS; i++) {

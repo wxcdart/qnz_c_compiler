@@ -574,6 +574,24 @@ TypeInfo *expr_handle_call(SemContext *ctx, ZeroCCASTNode *node) {
         }
     }
 
+    if (callee && callee->tag == NODE_IDENT && callee->s.str &&
+        strncmp(callee->s.str, "__builtin_zerocc_rvv_", 21) == 0) {
+        if (strcmp(callee->s.str, "__builtin_zerocc_rvv_vfmv_f_s") == 0) {
+            res = type_float(ctx->perm_arena);
+        } else if (strcmp(callee->s.str, "__builtin_zerocc_rvv_vse") == 0) {
+            res = type_void(ctx->perm_arena);
+        } else if (strcmp(callee->s.str, "__builtin_zerocc_rvv_vsetvl") == 0 ||
+                   strcmp(callee->s.str, "__builtin_zerocc_rvv_vmv_x_s") == 0) {
+            res = type_ulong(ctx->perm_arena);
+        } else {
+            if (ctx->current_fn_ret_type && type_is_vector(ctx->current_fn_ret_type)) {
+                res = ctx->current_fn_ret_type;
+            } else if (vec_arg_t) {
+                res = vec_arg_t;
+            }
+        }
+    }
+
     expr_node_set_type(ctx, node, res);
     return res;
 }

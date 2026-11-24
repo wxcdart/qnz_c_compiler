@@ -165,6 +165,23 @@ static inline void zc_sve_emit_store(ZeroCCCompiler *c, int addr, int vt, int es
                        .flags_out = 0xFF, .flags_in = 0xFF});
 }
 
+static bool zc_simd_has_rvv(const ZeroCCCompiler *c) {
+    return c->has_rvv && (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32);
+}
+
+static inline void zc_rvv_emit_load(ZeroCCCompiler *c, int vt, int addr, int esz) {
+    ir_emit(c, (Instr){.op = OP_RVV_VLE, .temp_dest = (uint32_t)vt,
+                       .temp_src1 = (uint32_t)addr, .imm = esz,
+                       .flags_out = 0xFF, .flags_in = 0xFF});
+}
+
+static inline void zc_rvv_emit_store(ZeroCCCompiler *c, int addr, int vt, int esz) {
+    ir_emit(c, (Instr){.op = OP_RVV_VSE, .temp_dest = TEMP_NONE,
+                       .temp_src1 = (uint32_t)addr, .temp_src2 = (uint32_t)vt,
+                       .imm = esz,
+                       .flags_out = 0xFF, .flags_in = 0xFF});
+}
+
 /* True when the active target implements 512-bit hardware vector load/store. */
 static bool zc_simd_has_hw512(const ZeroCCCompiler *c) {
     return c->has_avx512f && c->isa == ISA_X86_64 && BE(c)->emit_v512_load && BE(c)->emit_v512_store;
@@ -1781,6 +1798,412 @@ static bool zc_lower_sve_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
         }
         c->last_expr_is_float = 0;
         *out_temp = res_addr;
+        return true;
+    }
+
+    return false;
+}
+
+/* Lower `__builtin_zerocc_rvv_*` RISC-V Vector Extension (RVV 1.0) intrinsic helpers. */
+static bool zc_lower_rvv_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
+                                 ZeroCCASTNode *node, const char *rvv_name,
+                                 int *out_temp) {
+    ASTRef arg0_ref = node->right;
+    ZeroCCASTNode *arg0 = arg0_ref ? zero_cc_ast_get(arena, arg0_ref) : NULL;
+    ASTRef arg1_ref = arg0 ? arg0->next : AST_NULL;
+    ZeroCCASTNode *arg1 = arg1_ref ? zero_cc_ast_get(arena, arg1_ref) : NULL;
+    ASTRef arg2_ref = arg1 ? arg1->next : AST_NULL;
+    ZeroCCASTNode *arg2 = arg2_ref ? zero_cc_ast_get(arena, arg2_ref) : NULL;
+    ASTRef arg3_ref = arg2 ? arg2->next : AST_NULL;
+    ZeroCCASTNode *arg3 = arg3_ref ? zero_cc_ast_get(arena, arg3_ref) : NULL;
+    ASTRef arg4_ref = arg3 ? arg3->next : AST_NULL;
+    ZeroCCASTNode *arg4 = arg4_ref ? zero_cc_ast_get(arena, arg4_ref) : NULL;
+    ASTRef arg5_ref = arg4 ? arg4->next : AST_NULL;
+    (void)arg3; (void)arg4; (void)arg5_ref;
+    c->last_expr_is_float = 0;
+
+    if (strcmp(rvv_name, "vsetvl") == 0) {
+        int esz = (int)zc_get_imm_arg(arena, arg0_ref);
+        int avl = lower_expr(c, arena, arg1_ref);
+        int res = zc_alloc_temp(c);
+        if (zc_simd_has_rvv(c)) {
+            ir_emit(c, (Instr){.op = OP_RVV_VSETVLI, .temp_dest = (uint32_t)res,
+                               .temp_src1 = (uint32_t)avl, .imm = esz, .imm64 = 0,
+                               .flags_out = 0xFF, .flags_in = 0xFF});
+        } else {
+            int elem_size = 1 << esz;
+            int max_lanes = 16 / elem_size;
+            int max_t = zc_alloc_temp(c);
+            ir_emit_mov_imm(c, max_t, max_lanes);
+            ir_emit_cmp(c, avl, max_t);
+            int cond = zc_alloc_temp(c);
+            ir_emit_cond_set(c, cond, CC_LE);
+            ir_emit_mov_reg(c, res, avl);
+            uint16_t l_skip = (uint16_t)c->ir_next_label++;
+            ir_emit_je(c, (uint32_t)cond, l_skip);
+            ir_emit_mov_reg(c, res, max_t);
+            ir_emit_label(c, l_skip);
+        }
+        *out_temp = res;
+        return true;
+    }
+
+    if (strcmp(rvv_name, "vle") == 0) {
+        int esz = (int)zc_get_imm_arg(arena, arg0_ref);
+        int base = lower_expr(c, arena, arg1_ref);
+        int res_addr = zc_simd_alloc_res128(c, NULL);
+        if (zc_simd_has_rvv(c)) {
+            int vt = zc_alloc_temp(c);
+            zc_rvv_emit_load(c, vt, base, esz);
+            zc_rvv_emit_store(c, res_addr, vt, esz);
+        } else {
+            int vl = lower_expr(c, arena, arg2_ref);
+            int elem_size = 1 << esz;
+            int lanes = 16 / elem_size;
+            for (int i = 0; i < lanes; i++) {
+                int idx_t = zc_alloc_temp(c);
+                ir_emit_mov_imm(c, idx_t, i);
+                ir_emit_cmp(c, idx_t, vl);
+                int cond = zc_alloc_temp(c);
+                ir_emit_cond_set(c, cond, CC_LT);
+                uint16_t l_skip = (uint16_t)c->ir_next_label++;
+                ir_emit_je(c, (uint32_t)cond, l_skip);
+                int sa = zc_simd_lane_addr(c, base, (size_t)i * elem_size);
+                int da = zc_simd_lane_addr(c, res_addr, (size_t)i * elem_size);
+                int tmp = zc_alloc_temp(c);
+                if (elem_size == 1)      { ir_emit_load_byte(c, tmp, sa); ir_emit_store_byte(c, tmp, da); }
+                else if (elem_size == 2) { ir_emit_load_16(c, tmp, sa); ir_emit_store_16(c, tmp, da); }
+                else if (elem_size == 4) { ir_emit_load_32(c, tmp, sa); ir_emit_store_32(c, tmp, da); }
+                else                     { ir_emit_deref(c, tmp, sa); ir_emit_store_64(c, tmp, da); }
+                ir_emit_label(c, l_skip);
+            }
+        }
+        *out_temp = res_addr;
+        return true;
+    }
+
+    if (strcmp(rvv_name, "vse") == 0) {
+        int esz = (int)zc_get_imm_arg(arena, arg0_ref);
+        int base = lower_expr(c, arena, arg1_ref);
+        int val = lower_expr(c, arena, arg2_ref);
+        if (zc_simd_has_rvv(c)) {
+            int vt = zc_alloc_temp(c);
+            zc_rvv_emit_load(c, vt, val, esz);
+            zc_rvv_emit_store(c, base, vt, esz);
+        } else {
+            int vl = lower_expr(c, arena, arg3_ref);
+            int elem_size = 1 << esz;
+            int lanes = 16 / elem_size;
+            for (int i = 0; i < lanes; i++) {
+                int idx_t = zc_alloc_temp(c);
+                ir_emit_mov_imm(c, idx_t, i);
+                ir_emit_cmp(c, idx_t, vl);
+                int cond = zc_alloc_temp(c);
+                ir_emit_cond_set(c, cond, CC_LT);
+                uint16_t l_skip = (uint16_t)c->ir_next_label++;
+                ir_emit_je(c, (uint32_t)cond, l_skip);
+                int sa = zc_simd_lane_addr(c, val, (size_t)i * elem_size);
+                int da = zc_simd_lane_addr(c, base, (size_t)i * elem_size);
+                int tmp = zc_alloc_temp(c);
+                if (elem_size == 1)      { ir_emit_load_byte(c, tmp, sa); ir_emit_store_byte(c, tmp, da); }
+                else if (elem_size == 2) { ir_emit_load_16(c, tmp, sa); ir_emit_store_16(c, tmp, da); }
+                else if (elem_size == 4) { ir_emit_load_32(c, tmp, sa); ir_emit_store_32(c, tmp, da); }
+                else                     { ir_emit_deref(c, tmp, sa); ir_emit_store_64(c, tmp, da); }
+                ir_emit_label(c, l_skip);
+            }
+        }
+        *out_temp = zc_alloc_temp(c);
+        return true;
+    }
+
+    if (strcmp(rvv_name, "vadd") == 0 || strcmp(rvv_name, "vsub") == 0 ||
+        strcmp(rvv_name, "vmul") == 0 || strcmp(rvv_name, "vdiv") == 0) {
+        Opcode op = (strcmp(rvv_name, "vadd") == 0) ? OP_RVV_VADD :
+                    (strcmp(rvv_name, "vsub") == 0) ? OP_RVV_VSUB :
+                    (strcmp(rvv_name, "vmul") == 0) ? OP_RVV_VMUL : OP_RVV_VDIV;
+        int esz = (int)zc_get_imm_arg(arena, arg0_ref);
+        int is_fp = (int)zc_get_imm_arg(arena, arg1_ref);
+        int a_addr = lower_expr(c, arena, arg2_ref);
+        int b_addr = lower_expr(c, arena, arg3_ref);
+        int res_addr = zc_simd_alloc_res128(c, NULL);
+
+        if (zc_simd_has_rvv(c)) {
+            int va = zc_alloc_temp(c), vb = zc_alloc_temp(c), vr = zc_alloc_temp(c);
+            zc_rvv_emit_load(c, va, a_addr, esz);
+            zc_rvv_emit_load(c, vb, b_addr, esz);
+            ir_emit(c, (Instr){.op = op, .temp_dest = (uint32_t)vr,
+                               .temp_src1 = (uint32_t)va, .temp_src2 = (uint32_t)vb,
+                               .imm = esz, .imm64 = is_fp,
+                               .flags_out = 0xFF, .flags_in = 0xFF});
+            zc_rvv_emit_store(c, res_addr, vr, esz);
+        } else {
+            int elem_size = 1 << esz;
+            int lanes = 16 / elem_size;
+            for (int i = 0; i < lanes; i++) {
+                int sa = zc_simd_lane_addr(c, a_addr, (size_t)i * elem_size);
+                int sb = zc_simd_lane_addr(c, b_addr, (size_t)i * elem_size);
+                int sr = zc_simd_lane_addr(c, res_addr, (size_t)i * elem_size);
+                if (is_fp) {
+                    int va = zc_alloc_temp(c), vb = zc_alloc_temp(c), vr = zc_alloc_temp(c);
+                    if (elem_size == 4) {
+                        ir_emit_vloadss(c, va, sa);
+                        ir_emit_vloadss(c, vb, sb);
+                    } else {
+                        ir_emit_vloadsd(c, va, sa);
+                        ir_emit_vloadsd(c, vb, sb);
+                    }
+                    if (op == OP_RVV_VADD)      ir_emit_fadd(c, vr, va, vb);
+                    else if (op == OP_RVV_VSUB) ir_emit_fsub(c, vr, va, vb);
+                    else if (op == OP_RVV_VMUL) ir_emit_fmul(c, vr, va, vb);
+                    else                        ir_emit_fdiv(c, vr, va, vb);
+
+                    if (elem_size == 4) ir_emit_vstoress(c, sr, vr);
+                    else                ir_emit_vstoresd(c, sr, vr);
+                } else {
+                    int va = zc_alloc_temp(c), vb = zc_alloc_temp(c), vr = zc_alloc_temp(c);
+                    if (elem_size == 4) {
+                        ir_emit_load_32(c, va, sa);
+                        ir_emit_load_32(c, vb, sb);
+                    } else if (elem_size == 8) {
+                        ir_emit_deref(c, va, sa);
+                        ir_emit_deref(c, vb, sb);
+                    } else if (elem_size == 2) {
+                        ir_emit_load_16(c, va, sa);
+                        ir_emit_load_16(c, vb, sb);
+                    } else {
+                        ir_emit_load_byte(c, va, sa);
+                        ir_emit_load_byte(c, vb, sb);
+                    }
+                    if (op == OP_RVV_VADD)      ir_emit_add(c, vr, va, vb);
+                    else if (op == OP_RVV_VSUB) ir_emit_sub(c, vr, va, vb);
+                    else if (op == OP_RVV_VMUL) ir_emit_mul(c, vr, va, vb);
+                    else                        ir_emit_div(c, vr, va, vb);
+
+                    if (elem_size == 4)      ir_emit_store_32(c, vr, sr);
+                    else if (elem_size == 8) ir_emit_store_64(c, vr, sr);
+                    else if (elem_size == 2) ir_emit_store_16(c, vr, sr);
+                    else                     ir_emit_store_byte(c, vr, sr);
+                }
+            }
+        }
+        c->last_expr_is_float = 0;
+        *out_temp = res_addr;
+        return true;
+    }
+
+    if (strcmp(rvv_name, "vand") == 0 || strcmp(rvv_name, "vor") == 0 || strcmp(rvv_name, "vxor") == 0) {
+        Opcode op = (strcmp(rvv_name, "vand") == 0) ? OP_RVV_VAND :
+                    (strcmp(rvv_name, "vor") == 0)  ? OP_RVV_VOR  : OP_RVV_VXOR;
+        int a_addr = lower_expr(c, arena, arg0_ref);
+        int b_addr = lower_expr(c, arena, arg1_ref);
+        int res_addr = zc_simd_alloc_res128(c, NULL);
+        if (zc_simd_has_rvv(c)) {
+            int va = zc_alloc_temp(c), vb = zc_alloc_temp(c), vr = zc_alloc_temp(c);
+            zc_rvv_emit_load(c, va, a_addr, 2);
+            zc_rvv_emit_load(c, vb, b_addr, 2);
+            ir_emit(c, (Instr){.op = op, .temp_dest = (uint32_t)vr,
+                               .temp_src1 = (uint32_t)va, .temp_src2 = (uint32_t)vb,
+                               .flags_out = 0xFF, .flags_in = 0xFF});
+            zc_rvv_emit_store(c, res_addr, vr, 2);
+        } else {
+            for (size_t i = 0; i < 4; i++) {
+                int sa = zc_simd_lane_addr(c, a_addr, i * 4);
+                int sb = zc_simd_lane_addr(c, b_addr, i * 4);
+                int sr = zc_simd_lane_addr(c, res_addr, i * 4);
+                int va = zc_alloc_temp(c), vb = zc_alloc_temp(c), vr = zc_alloc_temp(c);
+                ir_emit_load_32(c, va, sa);
+                ir_emit_load_32(c, vb, sb);
+                if (op == OP_RVV_VAND)     ir_emit_and(c, vr, va, vb);
+                else if (op == OP_RVV_VOR) ir_emit_or(c, vr, va, vb);
+                else                       ir_emit_xor(c, vr, va, vb);
+                ir_emit_store_32(c, vr, sr);
+            }
+        }
+        c->last_expr_is_float = 0;
+        *out_temp = res_addr;
+        return true;
+    }
+
+    if (strcmp(rvv_name, "vcmp") == 0) {
+        int esz = (int)zc_get_imm_arg(arena, arg0_ref);
+        int is_fp = (int)zc_get_imm_arg(arena, arg1_ref);
+        int cond = (int)zc_get_imm_arg(arena, arg2_ref);
+        int a_addr = lower_expr(c, arena, arg3_ref);
+        int b_addr = lower_expr(c, arena, arg4_ref);
+        int res_addr = zc_simd_alloc_res128(c, NULL);
+        if (zc_simd_has_rvv(c)) {
+            int va = zc_alloc_temp(c), vb = zc_alloc_temp(c), vr = zc_alloc_temp(c);
+            zc_rvv_emit_load(c, va, a_addr, esz);
+            zc_rvv_emit_load(c, vb, b_addr, esz);
+            ir_emit(c, (Instr){.op = OP_RVV_VCMP, .temp_dest = (uint32_t)vr,
+                               .temp_src1 = (uint32_t)va, .temp_src2 = (uint32_t)vb,
+                               .imm = esz, .imm64 = (int64_t)(cond | (is_fp << 8)),
+                               .flags_out = 0xFF, .flags_in = 0xFF});
+            zc_rvv_emit_store(c, res_addr, vr, esz);
+        } else {
+            int elem_size = 1 << esz;
+            int lanes = 16 / elem_size;
+            for (int i = 0; i < lanes; i++) {
+                int sa = zc_simd_lane_addr(c, a_addr, (size_t)i * elem_size);
+                int sb = zc_simd_lane_addr(c, b_addr, (size_t)i * elem_size);
+                int sr = zc_simd_lane_addr(c, res_addr, (size_t)i * elem_size);
+                if (is_fp) {
+                    int va = zc_alloc_temp(c), vb = zc_alloc_temp(c);
+                    ir_emit_vloadss(c, va, sa);
+                    ir_emit_vloadss(c, vb, sb);
+                    ir_emit_cmp(c, (uint32_t)va, (uint32_t)vb);
+                    int c_set = zc_alloc_temp(c);
+                    ir_emit_cond_set(c, c_set, (cond == 0) ? CC_EQ : CC_FLT_LT);
+                    ir_emit_store_byte(c, c_set, sr);
+                } else {
+                    int va = zc_alloc_temp(c), vb = zc_alloc_temp(c);
+                    ir_emit_load_32(c, va, sa);
+                    ir_emit_load_32(c, vb, sb);
+                    ir_emit_cmp(c, va, vb);
+                    int c_set = zc_alloc_temp(c);
+                    ir_emit_cond_set(c, c_set, (cond == 0) ? CC_EQ : CC_LT);
+                    ir_emit_store_byte(c, c_set, sr);
+                }
+            }
+        }
+        c->last_expr_is_float = 0;
+        *out_temp = res_addr;
+        return true;
+    }
+
+    if (strcmp(rvv_name, "vredsum") == 0) {
+        int esz = (int)zc_get_imm_arg(arena, arg0_ref);
+        int is_fp = (int)zc_get_imm_arg(arena, arg1_ref);
+        int a_addr = lower_expr(c, arena, arg2_ref);
+        int init_addr = lower_expr(c, arena, arg3_ref);
+        int res_addr = zc_simd_alloc_res128(c, NULL);
+        if (zc_simd_has_rvv(c)) {
+            int va = zc_alloc_temp(c), vi = zc_alloc_temp(c), vr = zc_alloc_temp(c);
+            zc_rvv_emit_load(c, va, a_addr, esz);
+            zc_rvv_emit_load(c, vi, init_addr, esz);
+            ir_emit(c, (Instr){.op = OP_RVV_VREDSUM, .temp_dest = (uint32_t)vr,
+                               .temp_src1 = (uint32_t)va, .temp_src2 = (uint32_t)vi,
+                               .imm = esz, .imm64 = is_fp,
+                               .flags_out = 0xFF, .flags_in = 0xFF});
+            zc_rvv_emit_store(c, res_addr, vr, esz);
+        } else {
+            int elem_size = 1 << esz;
+            int lanes = 16 / elem_size;
+            if (is_fp) {
+                int sum = zc_alloc_temp(c);
+                ir_emit_vloadss(c, sum, init_addr);
+                for (int i = 0; i < lanes; i++) {
+                    int sa = zc_simd_lane_addr(c, a_addr, (size_t)i * elem_size);
+                    int val = zc_alloc_temp(c);
+                    ir_emit_vloadss(c, val, sa);
+                    ir_emit_fadd(c, sum, sum, val);
+                }
+                ir_emit_vstoress(c, res_addr, sum);
+            } else {
+                int sum = zc_alloc_temp(c);
+                ir_emit_load_32(c, sum, init_addr);
+                for (int i = 0; i < lanes; i++) {
+                    int sa = zc_simd_lane_addr(c, a_addr, (size_t)i * elem_size);
+                    int val = zc_alloc_temp(c);
+                    ir_emit_load_32(c, val, sa);
+                    ir_emit_add(c, sum, sum, val);
+                }
+                ir_emit_store_32(c, sum, res_addr);
+            }
+        }
+        c->last_expr_is_float = 0;
+        *out_temp = res_addr;
+        return true;
+    }
+
+    if (strcmp(rvv_name, "vmv_v_x") == 0) {
+        int esz = (int)zc_get_imm_arg(arena, arg0_ref);
+        int val = lower_expr(c, arena, arg1_ref);
+        int res_addr = zc_simd_alloc_res128(c, NULL);
+        if (zc_simd_has_rvv(c)) {
+            int vr = zc_alloc_temp(c);
+            ir_emit(c, (Instr){.op = OP_RVV_VMV_V_X, .temp_dest = (uint32_t)vr,
+                               .temp_src1 = (uint32_t)val, .imm = esz,
+                               .flags_out = 0xFF, .flags_in = 0xFF});
+            zc_rvv_emit_store(c, res_addr, vr, esz);
+        } else {
+            int elem_size = 1 << esz;
+            int lanes = 16 / elem_size;
+            for (int i = 0; i < lanes; i++) {
+                int da = zc_simd_lane_addr(c, res_addr, (size_t)i * elem_size);
+                if (elem_size == 4)      ir_emit_store_32(c, val, da);
+                else if (elem_size == 8) ir_emit_store_64(c, val, da);
+                else if (elem_size == 2) ir_emit_store_16(c, val, da);
+                else                     ir_emit_store_byte(c, val, da);
+            }
+        }
+        c->last_expr_is_float = 0;
+        *out_temp = res_addr;
+        return true;
+    }
+
+    if (strcmp(rvv_name, "vfmv_v_f") == 0) {
+        int esz = (int)zc_get_imm_arg(arena, arg0_ref);
+        int val = lower_expr(c, arena, arg1_ref);
+        int res_addr = zc_simd_alloc_res128(c, NULL);
+        if (zc_simd_has_rvv(c)) {
+            int vr = zc_alloc_temp(c);
+            ir_emit(c, (Instr){.op = OP_RVV_VFMV_V_F, .temp_dest = (uint32_t)vr,
+                               .temp_src1 = (uint32_t)val, .imm = esz,
+                               .flags_out = 0xFF, .flags_in = 0xFF});
+            zc_rvv_emit_store(c, res_addr, vr, esz);
+        } else {
+            int elem_size = 1 << esz;
+            int lanes = 16 / elem_size;
+            for (int i = 0; i < lanes; i++) {
+                int da = zc_simd_lane_addr(c, res_addr, (size_t)i * elem_size);
+                if (elem_size == 4) ir_emit_vstoress(c, da, val);
+                else                ir_emit_vstoresd(c, da, val);
+            }
+        }
+        c->last_expr_is_float = 0;
+        *out_temp = res_addr;
+        return true;
+    }
+
+    if (strcmp(rvv_name, "vmv_x_s") == 0) {
+        int esz = (int)zc_get_imm_arg(arena, arg0_ref);
+        int src = lower_expr(c, arena, arg1_ref);
+        int res = zc_alloc_temp(c);
+        if (zc_simd_has_rvv(c)) {
+            int va = zc_alloc_temp(c);
+            zc_rvv_emit_load(c, va, src, esz);
+            ir_emit(c, (Instr){.op = OP_RVV_VMV_X_S, .temp_dest = (uint32_t)res,
+                               .temp_src1 = (uint32_t)va, .imm = esz,
+                               .flags_out = 0xFF, .flags_in = 0xFF});
+        } else {
+            int elem_size = 1 << esz;
+            if (elem_size == 4)      ir_emit_load_32(c, res, src);
+            else if (elem_size == 8) ir_emit_deref(c, res, src);
+            else if (elem_size == 2) ir_emit_load_16(c, res, src);
+            else                     ir_emit_load_byte(c, res, src);
+        }
+        c->last_expr_is_float = 0;
+        *out_temp = res;
+        return true;
+    }
+
+    if (strcmp(rvv_name, "vfmv_f_s") == 0) {
+        int esz = (int)zc_get_imm_arg(arena, arg0_ref);
+        int src = lower_expr(c, arena, arg1_ref);
+        int res = zc_alloc_temp(c);
+        if (zc_simd_has_rvv(c)) {
+            int va = zc_alloc_temp(c);
+            zc_rvv_emit_load(c, va, src, esz);
+            ir_emit(c, (Instr){.op = OP_RVV_VFMV_F_S, .temp_dest = (uint32_t)res,
+                               .temp_src1 = (uint32_t)va, .imm = esz,
+                               .flags_out = 0xFF, .flags_in = 0xFF});
+        } else {
+            if (esz == 3) ir_emit_vloadsd(c, res, src);
+            else          ir_emit_vloadss(c, res, src);
+        }
+        c->last_expr_is_float = 1;
+        *out_temp = res;
         return true;
     }
 
@@ -4002,6 +4425,11 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
 
     if (strncmp(name, "__builtin_zerocc_sve_", 21) == 0 &&
         zc_lower_sve_builtin(c, arena, node, name + 21, out_temp)) {
+        return true;
+    }
+
+    if (strncmp(name, "__builtin_zerocc_rvv_", 21) == 0 &&
+        zc_lower_rvv_builtin(c, arena, node, name + 21, out_temp)) {
         return true;
     }
 

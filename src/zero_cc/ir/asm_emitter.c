@@ -1644,6 +1644,56 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             if (BE(c)->emit_sve_qsub_asm) BE(c)->emit_sve_qsub_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, out);
             return;
 
+        /* RISC-V Vector Extension (RVV 1.0 - Sprint 204) */
+        case OP_RVV_VSETVLI:
+            if (BE(c)->emit_rvv_vsetvli_asm) BE(c)->emit_rvv_vsetvli_asm(c, phys_dst, phys_src1, instr->imm, (int)instr->imm64, out);
+            return;
+        case OP_RVV_VLE:
+            if (BE(c)->emit_rvv_vle_asm) BE(c)->emit_rvv_vle_asm(c, phys_dst, phys_src1, instr->imm, out);
+            return;
+        case OP_RVV_VSE:
+            if (BE(c)->emit_rvv_vse_asm) BE(c)->emit_rvv_vse_asm(c, phys_src2, phys_src1, instr->imm, out);
+            return;
+        case OP_RVV_VADD:
+            if (BE(c)->emit_rvv_vadd_asm) BE(c)->emit_rvv_vadd_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, (int)instr->imm64, out);
+            return;
+        case OP_RVV_VSUB:
+            if (BE(c)->emit_rvv_vsub_asm) BE(c)->emit_rvv_vsub_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, (int)instr->imm64, out);
+            return;
+        case OP_RVV_VMUL:
+            if (BE(c)->emit_rvv_vmul_asm) BE(c)->emit_rvv_vmul_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, (int)instr->imm64, out);
+            return;
+        case OP_RVV_VDIV:
+            if (BE(c)->emit_rvv_vdiv_asm) BE(c)->emit_rvv_vdiv_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, (int)instr->imm64, out);
+            return;
+        case OP_RVV_VAND:
+            if (BE(c)->emit_rvv_vand_asm) BE(c)->emit_rvv_vand_asm(c, phys_dst, phys_src1, phys_src2, out);
+            return;
+        case OP_RVV_VOR:
+            if (BE(c)->emit_rvv_vor_asm) BE(c)->emit_rvv_vor_asm(c, phys_dst, phys_src1, phys_src2, out);
+            return;
+        case OP_RVV_VXOR:
+            if (BE(c)->emit_rvv_vxor_asm) BE(c)->emit_rvv_vxor_asm(c, phys_dst, phys_src1, phys_src2, out);
+            return;
+        case OP_RVV_VCMP:
+            if (BE(c)->emit_rvv_vcmp_asm) BE(c)->emit_rvv_vcmp_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, (int)(instr->imm64 & 0xFF), (int)((instr->imm64 >> 8) & 1), out);
+            return;
+        case OP_RVV_VREDSUM:
+            if (BE(c)->emit_rvv_vredsum_asm) BE(c)->emit_rvv_vredsum_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, (int)instr->imm64, out);
+            return;
+        case OP_RVV_VMV_V_X:
+            if (BE(c)->emit_rvv_vmv_v_x_asm) BE(c)->emit_rvv_vmv_v_x_asm(c, phys_dst, phys_src1, instr->imm, out);
+            return;
+        case OP_RVV_VFMV_V_F:
+            if (BE(c)->emit_rvv_vfmv_v_f_asm) BE(c)->emit_rvv_vfmv_v_f_asm(c, phys_dst, phys_src1, instr->imm, out);
+            return;
+        case OP_RVV_VMV_X_S:
+            if (BE(c)->emit_rvv_vmv_x_s_asm) BE(c)->emit_rvv_vmv_x_s_asm(c, phys_dst, phys_src1, instr->imm, out);
+            return;
+        case OP_RVV_VFMV_F_S:
+            if (BE(c)->emit_rvv_vfmv_f_s_asm) BE(c)->emit_rvv_vfmv_f_s_asm(c, phys_dst, phys_src1, instr->imm, out);
+            return;
+
         case OP_VSTORESS: {
             const char *val_name = BE(c)->get_vec_reg_name(phys_src2);
             const char *addr_name = BE(c)->get_hw_reg_name(phys_src1);

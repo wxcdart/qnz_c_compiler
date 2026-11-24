@@ -1438,6 +1438,145 @@ static void riscv_emit_vcmpsd_asm(ZeroCCCompiler *c, int, int src1, int src2, in
 }
 
 /* =========================================================================
+ * RISC-V Vector Extension (RVV 1.0 - Sprint 204)
+ * ========================================================================= */
+static void riscv_emit_rvv_vsetivli_default(int esz, FILE *out) {
+    if (esz == 0)      fprintf(out, "\tvsetivli\tzero, 16, e8, m1, ta, ma\n");
+    else if (esz == 1) fprintf(out, "\tvsetivli\tzero, 8, e16, m1, ta, ma\n");
+    else if (esz == 2) fprintf(out, "\tvsetivli\tzero, 4, e32, m1, ta, ma\n");
+    else               fprintf(out, "\tvsetivli\tzero, 2, e64, m1, ta, ma\n");
+}
+
+static void riscv_emit_rvv_vsetvli_asm(ZeroCCCompiler *c, int rd, int rs1, int esz, int lmul, FILE *out) {
+    (void)lmul;
+    const char *rd_name = BE(c)->get_hw_reg_name(rd);
+    const char *rs1_name = BE(c)->get_hw_reg_name(rs1);
+    const char *e_str = (esz == 0) ? "e8" : (esz == 1) ? "e16" : (esz == 2) ? "e32" : "e64";
+    fprintf(out, "\tvsetvli\t%s, %s, %s, m1, ta, ma\n", rd_name, rs1_name, e_str);
+}
+
+static void riscv_emit_rvv_vle_asm(ZeroCCCompiler *c, int vd, int rs1, int esz, FILE *out) {
+    riscv_emit_rvv_vsetivli_default(esz, out);
+    const char *vd_name = BE(c)->get_vec_reg_name(vd);
+    const char *rs1_name = BE(c)->get_hw_reg_name(rs1);
+    const char *sz_str = (esz == 0) ? "8" : (esz == 1) ? "16" : (esz == 2) ? "32" : "64";
+    fprintf(out, "\tvle%s.v\t%s, (%s)\n", sz_str, vd_name, rs1_name);
+}
+
+static void riscv_emit_rvv_vse_asm(ZeroCCCompiler *c, int vs3, int rs1, int esz, FILE *out) {
+    riscv_emit_rvv_vsetivli_default(esz, out);
+    const char *vs3_name = BE(c)->get_vec_reg_name(vs3);
+    const char *rs1_name = BE(c)->get_hw_reg_name(rs1);
+    const char *sz_str = (esz == 0) ? "8" : (esz == 1) ? "16" : (esz == 2) ? "32" : "64";
+    fprintf(out, "\tvse%s.v\t%s, (%s)\n", sz_str, vs3_name, rs1_name);
+}
+
+static void riscv_emit_rvv_vadd_asm(ZeroCCCompiler *c, int vd, int vs1, int vs2, int esz, int is_fp, FILE *out) {
+    riscv_emit_rvv_vsetivli_default(esz, out);
+    const char *vd_name = BE(c)->get_vec_reg_name(vd);
+    const char *vs1_name = BE(c)->get_vec_reg_name(vs1);
+    const char *vs2_name = BE(c)->get_vec_reg_name(vs2);
+    if (is_fp) fprintf(out, "\tvfadd.vv\t%s, %s, %s\n", vd_name, vs1_name, vs2_name);
+    else       fprintf(out, "\tvadd.vv\t%s, %s, %s\n", vd_name, vs1_name, vs2_name);
+}
+
+static void riscv_emit_rvv_vsub_asm(ZeroCCCompiler *c, int vd, int vs1, int vs2, int esz, int is_fp, FILE *out) {
+    riscv_emit_rvv_vsetivli_default(esz, out);
+    const char *vd_name = BE(c)->get_vec_reg_name(vd);
+    const char *vs1_name = BE(c)->get_vec_reg_name(vs1);
+    const char *vs2_name = BE(c)->get_vec_reg_name(vs2);
+    if (is_fp) fprintf(out, "\tvfsub.vv\t%s, %s, %s\n", vd_name, vs1_name, vs2_name);
+    else       fprintf(out, "\tvsub.vv\t%s, %s, %s\n", vd_name, vs1_name, vs2_name);
+}
+
+static void riscv_emit_rvv_vmul_asm(ZeroCCCompiler *c, int vd, int vs1, int vs2, int esz, int is_fp, FILE *out) {
+    riscv_emit_rvv_vsetivli_default(esz, out);
+    const char *vd_name = BE(c)->get_vec_reg_name(vd);
+    const char *vs1_name = BE(c)->get_vec_reg_name(vs1);
+    const char *vs2_name = BE(c)->get_vec_reg_name(vs2);
+    if (is_fp) fprintf(out, "\tvfmul.vv\t%s, %s, %s\n", vd_name, vs1_name, vs2_name);
+    else       fprintf(out, "\tvmul.vv\t%s, %s, %s\n", vd_name, vs1_name, vs2_name);
+}
+
+static void riscv_emit_rvv_vdiv_asm(ZeroCCCompiler *c, int vd, int vs1, int vs2, int esz, int is_fp, FILE *out) {
+    riscv_emit_rvv_vsetivli_default(esz, out);
+    const char *vd_name = BE(c)->get_vec_reg_name(vd);
+    const char *vs1_name = BE(c)->get_vec_reg_name(vs1);
+    const char *vs2_name = BE(c)->get_vec_reg_name(vs2);
+    if (is_fp) fprintf(out, "\tvfdiv.vv\t%s, %s, %s\n", vd_name, vs1_name, vs2_name);
+    else       fprintf(out, "\tvdiv.vv\t%s, %s, %s\n", vd_name, vs1_name, vs2_name);
+}
+
+static void riscv_emit_rvv_vand_asm(ZeroCCCompiler *c, int vd, int vs1, int vs2, FILE *out) {
+    riscv_emit_rvv_vsetivli_default(2, out);
+    fprintf(out, "\tvand.vv\t%s, %s, %s\n", BE(c)->get_vec_reg_name(vd), BE(c)->get_vec_reg_name(vs1), BE(c)->get_vec_reg_name(vs2));
+}
+
+static void riscv_emit_rvv_vor_asm(ZeroCCCompiler *c, int vd, int vs1, int vs2, FILE *out) {
+    riscv_emit_rvv_vsetivli_default(2, out);
+    fprintf(out, "\tvor.vv\t%s, %s, %s\n", BE(c)->get_vec_reg_name(vd), BE(c)->get_vec_reg_name(vs1), BE(c)->get_vec_reg_name(vs2));
+}
+
+static void riscv_emit_rvv_vxor_asm(ZeroCCCompiler *c, int vd, int vs1, int vs2, FILE *out) {
+    riscv_emit_rvv_vsetivli_default(2, out);
+    fprintf(out, "\tvxor.vv\t%s, %s, %s\n", BE(c)->get_vec_reg_name(vd), BE(c)->get_vec_reg_name(vs1), BE(c)->get_vec_reg_name(vs2));
+}
+
+static void riscv_emit_rvv_vcmp_asm(ZeroCCCompiler *c, int vd, int vs1, int vs2, int esz, int cond, int is_fp, FILE *out) {
+    riscv_emit_rvv_vsetivli_default(esz, out);
+    const char *vd_name = BE(c)->get_vec_reg_name(vd);
+    const char *vs1_name = BE(c)->get_vec_reg_name(vs1);
+    const char *vs2_name = BE(c)->get_vec_reg_name(vs2);
+    if (is_fp) {
+        if (cond == 0) fprintf(out, "\tvmfeq.vv\t%s, %s, %s\n", vd_name, vs1_name, vs2_name);
+        else           fprintf(out, "\tvmflt.vv\t%s, %s, %s\n", vd_name, vs1_name, vs2_name);
+    } else {
+        if (cond == 0) fprintf(out, "\tvmseq.vv\t%s, %s, %s\n", vd_name, vs1_name, vs2_name);
+        else           fprintf(out, "\tvmslt.vv\t%s, %s, %s\n", vd_name, vs1_name, vs2_name);
+    }
+}
+
+static void riscv_emit_rvv_vredsum_asm(ZeroCCCompiler *c, int vd, int vs1, int vs2, int esz, int is_fp, FILE *out) {
+    riscv_emit_rvv_vsetivli_default(esz, out);
+    const char *vd_name = BE(c)->get_vec_reg_name(vd);
+    const char *vs1_name = BE(c)->get_vec_reg_name(vs1);
+    const char *vs2_name = BE(c)->get_vec_reg_name(vs2);
+    if (is_fp) fprintf(out, "\tvfredusum.vs\t%s, %s, %s\n", vd_name, vs1_name, vs2_name);
+    else       fprintf(out, "\tvredsum.vs\t%s, %s, %s\n", vd_name, vs1_name, vs2_name);
+}
+
+static void riscv_emit_rvv_vmv_v_x_asm(ZeroCCCompiler *c, int vd, int rs1, int esz, FILE *out) {
+    riscv_emit_rvv_vsetivli_default(esz, out);
+    fprintf(out, "\tvmv.v.x\t%s, %s\n", BE(c)->get_vec_reg_name(vd), BE(c)->get_hw_reg_name(rs1));
+}
+
+static void riscv_emit_rvv_vfmv_v_f_asm(ZeroCCCompiler *c, int vd, int fs1, int esz, FILE *out) {
+    const char *fname = (fs1 >= 0 && fs1 < BE(c)->regs->num_fp_regs) ? BE(c)->regs->fp_regs[fs1] : "fa0";
+    if (esz == 2) {
+        fprintf(out, "\tfcvt.s.d\t%s, %s\n", fname, fname);
+    }
+    riscv_emit_rvv_vsetivli_default(esz, out);
+    fprintf(out, "\tvfmv.v.f\t%s, %s\n", BE(c)->get_vec_reg_name(vd), fname);
+    if (esz == 2) {
+        fprintf(out, "\tfcvt.d.s\t%s, %s\n", fname, fname);
+    }
+}
+
+static void riscv_emit_rvv_vmv_x_s_asm(ZeroCCCompiler *c, int rd, int vs2, int esz, FILE *out) {
+    riscv_emit_rvv_vsetivli_default(esz, out);
+    fprintf(out, "\tvmv.x.s\t%s, %s\n", BE(c)->get_hw_reg_name(rd), BE(c)->get_vec_reg_name(vs2));
+}
+
+static void riscv_emit_rvv_vfmv_f_s_asm(ZeroCCCompiler *c, int fd, int vs2, int esz, FILE *out) {
+    riscv_emit_rvv_vsetivli_default(esz, out);
+    const char *fname = (fd >= 0 && fd < BE(c)->regs->num_fp_regs) ? BE(c)->regs->fp_regs[fd] : "fa0";
+    fprintf(out, "\tvfmv.f.s\t%s, %s\n", fname, BE(c)->get_vec_reg_name(vs2));
+    if (esz == 2) {
+        fprintf(out, "\tfcvt.d.s\t%s, %s\n", fname, fname);
+    }
+}
+
+/* =========================================================================
  * GNU __int128 (Sprint 109): 128-bit ops, RISC-V text forms. RISC-V has no
  * carry flag, so carry/borrow are computed with sltu into t0 (reg 5), mirroring
  * the raw emitters in riscv.c. mul128 also uses t0 as its working scratch.
@@ -2370,4 +2509,22 @@ void riscv64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_cvtsd2ss_asm = riscv_emit_cvtsd2ss_asm;
     be->emit_vcmpss_asm = riscv_emit_vcmpss_asm;
     be->emit_vcmpsd_asm = riscv_emit_vcmpsd_asm;
+
+    /* RISC-V Vector Extension (RVV 1.0 - Sprint 204) */
+    be->emit_rvv_vsetvli_asm = riscv_emit_rvv_vsetvli_asm;
+    be->emit_rvv_vle_asm = riscv_emit_rvv_vle_asm;
+    be->emit_rvv_vse_asm = riscv_emit_rvv_vse_asm;
+    be->emit_rvv_vadd_asm = riscv_emit_rvv_vadd_asm;
+    be->emit_rvv_vsub_asm = riscv_emit_rvv_vsub_asm;
+    be->emit_rvv_vmul_asm = riscv_emit_rvv_vmul_asm;
+    be->emit_rvv_vdiv_asm = riscv_emit_rvv_vdiv_asm;
+    be->emit_rvv_vand_asm = riscv_emit_rvv_vand_asm;
+    be->emit_rvv_vor_asm = riscv_emit_rvv_vor_asm;
+    be->emit_rvv_vxor_asm = riscv_emit_rvv_vxor_asm;
+    be->emit_rvv_vcmp_asm = riscv_emit_rvv_vcmp_asm;
+    be->emit_rvv_vredsum_asm = riscv_emit_rvv_vredsum_asm;
+    be->emit_rvv_vmv_v_x_asm = riscv_emit_rvv_vmv_v_x_asm;
+    be->emit_rvv_vfmv_v_f_asm = riscv_emit_rvv_vfmv_v_f_asm;
+    be->emit_rvv_vmv_x_s_asm = riscv_emit_rvv_vmv_x_s_asm;
+    be->emit_rvv_vfmv_f_s_asm = riscv_emit_rvv_vfmv_f_s_asm;
 }

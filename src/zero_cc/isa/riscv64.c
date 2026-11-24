@@ -1005,6 +1005,126 @@ static void riscv64_emit_label(ZeroCCCompiler *c, const char *name) {
     (void)c; (void)name;
 }
 
+/* =========================================================================
+ * RISC-V Vector Extension (RVV 1.0 - Sprint 204)
+ * ========================================================================= */
+static void riscv64_emit_rvv_vsetivli_default(ZeroCCCompiler *c, int esz) {
+    if (esz == 0)      riscv_emit_u32(c, 0xcc087057u);
+    else if (esz == 1) riscv_emit_u32(c, 0xcc847057u);
+    else if (esz == 2) riscv_emit_u32(c, 0xcd027057u);
+    else               riscv_emit_u32(c, 0xcd817057u);
+}
+
+static void riscv64_emit_rvv_vsetvli(ZeroCCCompiler *c, int rd, int rs1, int esz, int lmul) {
+    (void)lmul;
+    uint32_t zimm = 0xC0u | (uint32_t)((esz & 3) << 3);
+    uint32_t insn = (zimm << 20) | ((RV_REG(rs1) & 0x1Fu) << 15) | (7u << 12) | ((RV_REG(rd) & 0x1Fu) << 7) | 0x57u;
+    riscv_emit_u32(c, insn);
+}
+
+static void riscv64_emit_rvv_vle(ZeroCCCompiler *c, int vd, int rs1, int esz) {
+    riscv64_emit_rvv_vsetivli_default(c, esz);
+    uint32_t w = (esz == 0) ? 0 : (esz == 1) ? 5 : (esz == 2) ? 6 : 7;
+    uint32_t insn = 0x02000007u | (w << 12) | ((RV_REG(rs1) & 0x1Fu) << 15) | ((RV_REG(vd) & 0x1Fu) << 7);
+    riscv_emit_u32(c, insn);
+}
+
+static void riscv64_emit_rvv_vse(ZeroCCCompiler *c, int vs3, int rs1, int esz) {
+    riscv64_emit_rvv_vsetivli_default(c, esz);
+    uint32_t w = (esz == 0) ? 0 : (esz == 1) ? 5 : (esz == 2) ? 6 : 7;
+    uint32_t insn = 0x02000027u | (w << 12) | ((RV_REG(rs1) & 0x1Fu) << 15) | ((RV_REG(vs3) & 0x1Fu) << 7);
+    riscv_emit_u32(c, insn);
+}
+
+static void riscv64_emit_rvv_vadd(ZeroCCCompiler *c, int vd, int vs1, int vs2, int esz, int is_fp) {
+    riscv64_emit_rvv_vsetivli_default(c, esz);
+    uint32_t base = is_fp ? 0x02001057u : 0x02000057u;
+    uint32_t insn = base | ((RV_REG(vs1) & 0x1Fu) << 20) | ((RV_REG(vs2) & 0x1Fu) << 15) | ((RV_REG(vd) & 0x1Fu) << 7);
+    riscv_emit_u32(c, insn);
+}
+
+static void riscv64_emit_rvv_vsub(ZeroCCCompiler *c, int vd, int vs1, int vs2, int esz, int is_fp) {
+    riscv64_emit_rvv_vsetivli_default(c, esz);
+    uint32_t base = is_fp ? 0x0A001057u : 0x0A000057u;
+    uint32_t insn = base | ((RV_REG(vs1) & 0x1Fu) << 20) | ((RV_REG(vs2) & 0x1Fu) << 15) | ((RV_REG(vd) & 0x1Fu) << 7);
+    riscv_emit_u32(c, insn);
+}
+
+static void riscv64_emit_rvv_vmul(ZeroCCCompiler *c, int vd, int vs1, int vs2, int esz, int is_fp) {
+    riscv64_emit_rvv_vsetivli_default(c, esz);
+    uint32_t base = is_fp ? 0x92001057u : 0x96002057u;
+    uint32_t insn = base | ((RV_REG(vs1) & 0x1Fu) << 20) | ((RV_REG(vs2) & 0x1Fu) << 15) | ((RV_REG(vd) & 0x1Fu) << 7);
+    riscv_emit_u32(c, insn);
+}
+
+static void riscv64_emit_rvv_vdiv(ZeroCCCompiler *c, int vd, int vs1, int vs2, int esz, int is_fp) {
+    riscv64_emit_rvv_vsetivli_default(c, esz);
+    uint32_t base = is_fp ? 0x82001057u : 0x86002057u;
+    uint32_t insn = base | ((RV_REG(vs1) & 0x1Fu) << 20) | ((RV_REG(vs2) & 0x1Fu) << 15) | ((RV_REG(vd) & 0x1Fu) << 7);
+    riscv_emit_u32(c, insn);
+}
+
+static void riscv64_emit_rvv_vand(ZeroCCCompiler *c, int vd, int vs1, int vs2) {
+    riscv64_emit_rvv_vsetivli_default(c, 2);
+    riscv_emit_u32(c, 0x26000057u | ((RV_REG(vs1) & 0x1Fu) << 20) | ((RV_REG(vs2) & 0x1Fu) << 15) | ((RV_REG(vd) & 0x1Fu) << 7));
+}
+
+static void riscv64_emit_rvv_vor(ZeroCCCompiler *c, int vd, int vs1, int vs2) {
+    riscv64_emit_rvv_vsetivli_default(c, 2);
+    riscv_emit_u32(c, 0x2A000057u | ((RV_REG(vs1) & 0x1Fu) << 20) | ((RV_REG(vs2) & 0x1Fu) << 15) | ((RV_REG(vd) & 0x1Fu) << 7));
+}
+
+static void riscv64_emit_rvv_vxor(ZeroCCCompiler *c, int vd, int vs1, int vs2) {
+    riscv64_emit_rvv_vsetivli_default(c, 2);
+    riscv_emit_u32(c, 0x2E000057u | ((RV_REG(vs1) & 0x1Fu) << 20) | ((RV_REG(vs2) & 0x1Fu) << 15) | ((RV_REG(vd) & 0x1Fu) << 7));
+}
+
+static void riscv64_emit_rvv_vcmp(ZeroCCCompiler *c, int vd, int vs1, int vs2, int esz, int cond, int is_fp) {
+    riscv64_emit_rvv_vsetivli_default(c, esz);
+    uint32_t base;
+    if (is_fp) base = (cond == 0) ? 0x62001057u : 0x6E001057u;
+    else       base = (cond == 0) ? 0x62000057u : 0x6E000057u;
+    riscv_emit_u32(c, base | ((RV_REG(vs1) & 0x1Fu) << 20) | ((RV_REG(vs2) & 0x1Fu) << 15) | ((RV_REG(vd) & 0x1Fu) << 7));
+}
+
+static void riscv64_emit_rvv_vredsum(ZeroCCCompiler *c, int vd, int vs1, int vs2, int esz, int is_fp) {
+    riscv64_emit_rvv_vsetivli_default(c, esz);
+    uint32_t base = is_fp ? 0x06001057u : 0x02002057u;
+    riscv_emit_u32(c, base | ((RV_REG(vs1) & 0x1Fu) << 20) | ((RV_REG(vs2) & 0x1Fu) << 15) | ((RV_REG(vd) & 0x1Fu) << 7));
+}
+
+static void riscv64_emit_rvv_vmv_v_x(ZeroCCCompiler *c, int vd, int rs1, int esz) {
+    riscv64_emit_rvv_vsetivli_default(c, esz);
+    riscv_emit_u32(c, 0x5E004057u | ((RV_REG(rs1) & 0x1Fu) << 15) | ((RV_REG(vd) & 0x1Fu) << 7));
+}
+
+static void riscv64_emit_rvv_vfmv_v_f(ZeroCCCompiler *c, int vd, int fs1, int esz) {
+    if (esz == 2) {
+        /* fcvt.s.d fs1, fs1 */
+        riscv_emit_u32(c, rv64_FP(RV_REG(fs1), RV_REG(fs1), 1, 0x20, 7));
+    }
+    riscv64_emit_rvv_vsetivli_default(c, esz);
+    riscv_emit_u32(c, 0x5E005057u | ((RV_REG(fs1) & 0x1Fu) << 15) | ((RV_REG(vd) & 0x1Fu) << 7));
+    if (esz == 2) {
+        /* fcvt.d.s fs1, fs1 */
+        riscv_emit_u32(c, 0x42000053u | ((RV_REG(fs1) & 0x1Fu) << 15) | ((RV_REG(fs1) & 0x1Fu) << 7));
+    }
+}
+
+static void riscv64_emit_rvv_vmv_x_s(ZeroCCCompiler *c, int rd, int vs2, int esz) {
+    riscv64_emit_rvv_vsetivli_default(c, esz);
+    riscv_emit_u32(c, 0x42002057u | ((RV_REG(vs2) & 0x1Fu) << 20) | ((RV_REG(rd) & 0x1Fu) << 7));
+}
+
+static void riscv64_emit_rvv_vfmv_f_s(ZeroCCCompiler *c, int fd, int vs2, int esz) {
+    riscv64_emit_rvv_vsetivli_default(c, esz);
+    riscv_emit_u32(c, 0x42001057u | ((RV_REG(vs2) & 0x1Fu) << 20) | ((RV_REG(fd) & 0x1Fu) << 7));
+    if (esz == 2) {
+        /* fcvt.d.s fd, fd */
+        riscv_emit_u32(c, 0x42000053u | ((RV_REG(fd) & 0x1Fu) << 15) | ((RV_REG(fd) & 0x1Fu) << 7));
+    }
+}
+
 
 
 static size_t riscv64_patch_jmp(ZeroCCCompiler *c, size_t patch_offset, size_t target_offset) {
@@ -2169,6 +2289,24 @@ ZeroCCISABackend riscv64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_vandps = riscv64_emit_vandps,
     .emit_vorps = riscv64_emit_vorps,
     .emit_vxorps = riscv64_emit_vxorps,
+
+    /* RISC-V Vector Extension (RVV 1.0 - Sprint 204) */
+    .emit_rvv_vsetvli = riscv64_emit_rvv_vsetvli,
+    .emit_rvv_vle = riscv64_emit_rvv_vle,
+    .emit_rvv_vse = riscv64_emit_rvv_vse,
+    .emit_rvv_vadd = riscv64_emit_rvv_vadd,
+    .emit_rvv_vsub = riscv64_emit_rvv_vsub,
+    .emit_rvv_vmul = riscv64_emit_rvv_vmul,
+    .emit_rvv_vdiv = riscv64_emit_rvv_vdiv,
+    .emit_rvv_vand = riscv64_emit_rvv_vand,
+    .emit_rvv_vor = riscv64_emit_rvv_vor,
+    .emit_rvv_vxor = riscv64_emit_rvv_vxor,
+    .emit_rvv_vcmp = riscv64_emit_rvv_vcmp,
+    .emit_rvv_vredsum = riscv64_emit_rvv_vredsum,
+    .emit_rvv_vmv_v_x = riscv64_emit_rvv_vmv_v_x,
+    .emit_rvv_vfmv_v_f = riscv64_emit_rvv_vfmv_v_f,
+    .emit_rvv_vmv_x_s = riscv64_emit_rvv_vmv_x_s,
+    .emit_rvv_vfmv_f_s = riscv64_emit_rvv_vfmv_f_s,
     .emit_cvtss2sd = riscv64_emit_fp_cvtss2sd,
     .emit_cvttsd2ss = riscv64_emit_fp_cvttsd2ss,
     .emit_cvtsi2ss = riscv64_emit_fp_cvtsi2ss,

@@ -2138,6 +2138,135 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 }
                 break;
 
+            /* RISC-V Vector Extension (RVV 1.0 - Sprint 204) */
+            case OP_RVV_VSETVLI:
+                if (c->emit_asm && BE(c)->emit_rvv_vsetvli_asm) {
+                    BE(c)->emit_rvv_vsetvli_asm(c, phys_dst, phys_src1, instr->imm, (int)instr->imm64, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_rvv_vsetvli) {
+                    BE(c)->emit_rvv_vsetvli(c, phys_dst, phys_src1, instr->imm, (int)instr->imm64);
+                }
+                break;
+
+            case OP_RVV_VLE:
+                if (c->emit_asm && BE(c)->emit_rvv_vle_asm) {
+                    BE(c)->emit_rvv_vle_asm(c, phys_dst, phys_src1, instr->imm, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_rvv_vle) {
+                    BE(c)->emit_rvv_vle(c, phys_dst, phys_src1, instr->imm);
+                }
+                break;
+
+            case OP_RVV_VSE:
+                if (c->emit_asm && BE(c)->emit_rvv_vse_asm) {
+                    BE(c)->emit_rvv_vse_asm(c, phys_src2, phys_src1, instr->imm, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_rvv_vse) {
+                    BE(c)->emit_rvv_vse(c, phys_src2, phys_src1, instr->imm);
+                }
+                break;
+
+            case OP_RVV_VADD:
+                if (c->emit_asm && BE(c)->emit_rvv_vadd_asm) {
+                    BE(c)->emit_rvv_vadd_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, (int)instr->imm64, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_rvv_vadd) {
+                    BE(c)->emit_rvv_vadd(c, phys_dst, phys_src1, phys_src2, instr->imm, (int)instr->imm64);
+                }
+                break;
+
+            case OP_RVV_VSUB:
+                if (c->emit_asm && BE(c)->emit_rvv_vsub_asm) {
+                    BE(c)->emit_rvv_vsub_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, (int)instr->imm64, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_rvv_vsub) {
+                    BE(c)->emit_rvv_vsub(c, phys_dst, phys_src1, phys_src2, instr->imm, (int)instr->imm64);
+                }
+                break;
+
+            case OP_RVV_VMUL:
+                if (c->emit_asm && BE(c)->emit_rvv_vmul_asm) {
+                    BE(c)->emit_rvv_vmul_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, (int)instr->imm64, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_rvv_vmul) {
+                    BE(c)->emit_rvv_vmul(c, phys_dst, phys_src1, phys_src2, instr->imm, (int)instr->imm64);
+                }
+                break;
+
+            case OP_RVV_VDIV:
+                if (c->emit_asm && BE(c)->emit_rvv_vdiv_asm) {
+                    BE(c)->emit_rvv_vdiv_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, (int)instr->imm64, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_rvv_vdiv) {
+                    BE(c)->emit_rvv_vdiv(c, phys_dst, phys_src1, phys_src2, instr->imm, (int)instr->imm64);
+                }
+                break;
+
+            case OP_RVV_VAND:
+                if (c->emit_asm && BE(c)->emit_rvv_vand_asm) {
+                    BE(c)->emit_rvv_vand_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_rvv_vand) {
+                    BE(c)->emit_rvv_vand(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
+            case OP_RVV_VOR:
+                if (c->emit_asm && BE(c)->emit_rvv_vor_asm) {
+                    BE(c)->emit_rvv_vor_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_rvv_vor) {
+                    BE(c)->emit_rvv_vor(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
+            case OP_RVV_VXOR:
+                if (c->emit_asm && BE(c)->emit_rvv_vxor_asm) {
+                    BE(c)->emit_rvv_vxor_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_rvv_vxor) {
+                    BE(c)->emit_rvv_vxor(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
+            case OP_RVV_VCMP:
+                if (c->emit_asm && BE(c)->emit_rvv_vcmp_asm) {
+                    BE(c)->emit_rvv_vcmp_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, (int)(instr->imm64 & 0xFF), (int)((instr->imm64 >> 8) & 1), c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_rvv_vcmp) {
+                    BE(c)->emit_rvv_vcmp(c, phys_dst, phys_src1, phys_src2, instr->imm, (int)(instr->imm64 & 0xFF), (int)((instr->imm64 >> 8) & 1));
+                }
+                break;
+
+            case OP_RVV_VREDSUM:
+                if (c->emit_asm && BE(c)->emit_rvv_vredsum_asm) {
+                    BE(c)->emit_rvv_vredsum_asm(c, phys_dst, phys_src1, phys_src2, instr->imm, (int)instr->imm64, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_rvv_vredsum) {
+                    BE(c)->emit_rvv_vredsum(c, phys_dst, phys_src1, phys_src2, instr->imm, (int)instr->imm64);
+                }
+                break;
+
+            case OP_RVV_VMV_V_X:
+                if (c->emit_asm && BE(c)->emit_rvv_vmv_v_x_asm) {
+                    BE(c)->emit_rvv_vmv_v_x_asm(c, phys_dst, phys_src1, instr->imm, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_rvv_vmv_v_x) {
+                    BE(c)->emit_rvv_vmv_v_x(c, phys_dst, phys_src1, instr->imm);
+                }
+                break;
+
+            case OP_RVV_VFMV_V_F:
+                if (c->emit_asm && BE(c)->emit_rvv_vfmv_v_f_asm) {
+                    BE(c)->emit_rvv_vfmv_v_f_asm(c, phys_dst, phys_src1, instr->imm, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_rvv_vfmv_v_f) {
+                    BE(c)->emit_rvv_vfmv_v_f(c, phys_dst, phys_src1, instr->imm);
+                }
+                break;
+
+            case OP_RVV_VMV_X_S:
+                if (c->emit_asm && BE(c)->emit_rvv_vmv_x_s_asm) {
+                    BE(c)->emit_rvv_vmv_x_s_asm(c, phys_dst, phys_src1, instr->imm, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_rvv_vmv_x_s) {
+                    BE(c)->emit_rvv_vmv_x_s(c, phys_dst, phys_src1, instr->imm);
+                }
+                break;
+
+            case OP_RVV_VFMV_F_S:
+                if (c->emit_asm && BE(c)->emit_rvv_vfmv_f_s_asm) {
+                    BE(c)->emit_rvv_vfmv_f_s_asm(c, phys_dst, phys_src1, instr->imm, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_rvv_vfmv_f_s) {
+                    BE(c)->emit_rvv_vfmv_f_s(c, phys_dst, phys_src1, instr->imm);
+                }
+                break;
+
             case OP_VCVT_SI2SS:
                 if (c->emit_asm && BE(c)->emit_vcvt_si2ss_asm) {
                     BE(c)->emit_vcvt_si2ss_asm(c, phys_dst, phys_src1, c->asm_out);

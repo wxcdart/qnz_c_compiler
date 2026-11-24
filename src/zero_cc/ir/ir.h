@@ -345,6 +345,23 @@ typedef enum {
     OP_SVE_ADDV,       /* sve reduction across vector */
     OP_SVE_QADD,       /* sve2 saturating add */
     OP_SVE_QSUB,       /* sve2 saturating sub */
+    /* RISC-V Vector Extension Opcodes (RVV 1.0 - Sprint 204) */
+    OP_RVV_VSETVLI,    /* rvv vector length setup */
+    OP_RVV_VLE,        /* rvv unit-stride load */
+    OP_RVV_VSE,        /* rvv unit-stride store */
+    OP_RVV_VADD,       /* rvv vector add (int or fp) */
+    OP_RVV_VSUB,       /* rvv vector sub (int or fp) */
+    OP_RVV_VMUL,       /* rvv vector mul (int or fp) */
+    OP_RVV_VDIV,       /* rvv vector div (int or fp) */
+    OP_RVV_VAND,       /* rvv vector bitwise and */
+    OP_RVV_VOR,        /* rvv vector bitwise or */
+    OP_RVV_VXOR,       /* rvv vector bitwise xor */
+    OP_RVV_VCMP,       /* rvv vector compare (int or fp) */
+    OP_RVV_VREDSUM,    /* rvv reduction across vector (int or fp) */
+    OP_RVV_VMV_V_X,    /* rvv broadcast integer scalar to vector */
+    OP_RVV_VFMV_V_F,   /* rvv broadcast float scalar to vector */
+    OP_RVV_VMV_X_S,    /* rvv extract scalar integer from vector element 0 */
+    OP_RVV_VFMV_F_S,   /* rvv extract scalar float from vector element 0 */
     /* Floating-point operations (8) */
     OP_FMOV_IMM,       /* load floating-point literal */
     OP_FLOAD,          /* load float from stack slot */
@@ -725,6 +742,22 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_SVE_ADDV: return "SVE_ADDV";
         case OP_SVE_QADD: return "SVE_QADD";
         case OP_SVE_QSUB: return "SVE_QSUB";
+        case OP_RVV_VSETVLI: return "RVV_VSETVLI";
+        case OP_RVV_VLE: return "RVV_VLE";
+        case OP_RVV_VSE: return "RVV_VSE";
+        case OP_RVV_VADD: return "RVV_VADD";
+        case OP_RVV_VSUB: return "RVV_VSUB";
+        case OP_RVV_VMUL: return "RVV_VMUL";
+        case OP_RVV_VDIV: return "RVV_VDIV";
+        case OP_RVV_VAND: return "RVV_VAND";
+        case OP_RVV_VOR: return "RVV_VOR";
+        case OP_RVV_VXOR: return "RVV_VXOR";
+        case OP_RVV_VCMP: return "RVV_VCMP";
+        case OP_RVV_VREDSUM: return "RVV_VREDSUM";
+        case OP_RVV_VMV_V_X: return "RVV_VMV_V_X";
+        case OP_RVV_VFMV_V_F: return "RVV_VFMV_V_F";
+        case OP_RVV_VMV_X_S: return "RVV_VMV_X_S";
+        case OP_RVV_VFMV_F_S: return "RVV_VFMV_F_S";
         case OP_LEA_RIP: return "LEA_RIP";
         case OP_MOV_GLOBAL: return "MOV_GLOBAL";
         case OP_JMP_INDIRECT: return "JMP_INDIRECT";
@@ -855,6 +888,11 @@ static inline bool ir_opcode_is_simd(Opcode op) {
         case OP_SVE_AND: case OP_SVE_ORR: case OP_SVE_EOR:
         case OP_SVE_CMP: case OP_SVE_ADDV:
         case OP_SVE_QADD: case OP_SVE_QSUB:
+        case OP_RVV_VSETVLI: case OP_RVV_VLE: case OP_RVV_VSE:
+        case OP_RVV_VADD: case OP_RVV_VSUB: case OP_RVV_VMUL: case OP_RVV_VDIV:
+        case OP_RVV_VAND: case OP_RVV_VOR: case OP_RVV_VXOR:
+        case OP_RVV_VCMP: case OP_RVV_VREDSUM:
+        case OP_RVV_VMV_V_X: case OP_RVV_VFMV_V_F: case OP_RVV_VMV_X_S: case OP_RVV_VFMV_F_S:
             return true;
         default:
             return false;

@@ -1,5 +1,28 @@
 # CHANGELOG
 
+## [Sprint 204] - 2026-11-23 - RISC-V Vector Extension (RVV 1.0 — Zve32x / Zve64d / V, 16 IR Opcodes, Virtual <riscv_vector.h>, MC & ASM Emitters)
+
+Implements Option 1: RISC-V Vector Extension (RVV 1.0):
+- **CLI & Target Feature Flags (`driver_opts.h`, `symbols.h`, `main.c`)**:
+  - Added `-mrvv`, `-mno-rvv`, and `-march=` with `v`/`+v`/`gcv` flag handling.
+  - Defined preprocessor feature macros `__riscv_v_intrinsic` (1000000) and `__riscv_vector` (1) when RVV is enabled on RISC-V targets.
+  - Added `has_rvv` flag to `CompileOptions` and `ZeroCCCompiler`.
+- **Virtual Header (`<riscv_vector.h>`)**:
+  - Added complete virtual header providing standard RVV 1.0 types (`vint8m1_t`..`vint64m1_t`, `vuint8m1_t`..`vuint64m1_t`, `vfloat32m1_t`, `vfloat64m1_t`, `vbool*`).
+  - Added length configuration (`__riscv_vsetvl_e*`, `__riscv_vsetvlmax_e*`), unit-stride loads/stores (`__riscv_vle*`, `__riscv_vse*`), arithmetic (`__riscv_vadd_*`, `vsub`, `vmul`, `vdiv`, `vfadd`, `vfsub`, `vfmul`, `vfdiv`), bitwise logic (`vand`, `vor`, `vxor`), comparisons (`vmseq`, `vmslt`, `vmfeq`, `vmflt`), reductions (`vredsum`, `vfredusum`), broadcasts (`vmv_v_x`, `vfmv_v_f`), and scalar extracts (`vmv_x_s`, `vfmv_f_s`).
+- **IR SIMD Opcodes & Register Allocation (`ir.h`, `ir.c`, `live_range.h`)**:
+  - Added 16 RVV opcodes: `OP_RVV_VSETVLI`, `OP_RVV_VLE`, `OP_RVV_VSE`, `OP_RVV_VADD`, `OP_RVV_VSUB`, `OP_RVV_VMUL`, `OP_RVV_VDIV`, `OP_RVV_VAND`, `OP_RVV_VOR`, `OP_RVV_VXOR`, `OP_RVV_VCMP`, `OP_RVV_VREDSUM`, `OP_RVV_VMV_V_X`, `OP_RVV_VFMV_V_F`, `OP_RVV_VMV_X_S`, `OP_RVV_VFMV_F_S`.
+  - Configured register classes in `live_range.h`: GPR for integer/pointer registers, VEC (`v0..v31`) for vector operands, and FP (`fa0`) for scalar float transfers.
+- **Lowering & Software Simulation Fallback (`ast_lowering_builtins.c`, `expr.c`, `visitor.c`)**:
+  - Implemented `zc_lower_rvv_builtin` supporting direct RVV IR generation for RISC-V targets and scalar/lane simulation fallback on non-RVV/JIT hosts.
+- **Backend Machine Code & Text Assembly (`riscv64.c`, `riscv_asm.c`)**:
+  - Implemented binary machine code encoders in `src/zero_cc/isa/riscv64.c` and text assembly emitters in `src/zero_cc/isa/riscv_asm.c`.
+  - Added automatic `vsetivli zero, <lanes>, e<esz>, m1, ta, ma` vector configuration before vector operations to ensure valid active `vtype` and vector length `vl`.
+  - Added NaN-boxing conversion (`fcvt.s.d`) and double promotion (`fcvt.d.s`) around single-precision scalar transfer instructions (`vfmv.v.f` and `vfmv.f.s`) to conform with ZeroCC's double-precision internal scalar FP representation.
+- **Verification**:
+  - Added unit test suite [`test/jit/rvv_test.c`](../test/jit/rvv_test.c) covering length configuration, integer and floating-point vector arithmetic, unit-stride memory transfers, bitwise operations, comparisons, and reductions.
+  - Verified across JIT (`--run`), native AOT, and cross-compiled QEMU execution (`qemu-riscv64-static -cpu rv64,v=true,vext_spec=v1.0,vlen=128`) at `-O0`, `-O1`, `-O2`, and `-O3`.
+
 ## [Sprint 203] - 2026-11-23 - ARM SVE / SVE2 Scalable Vector Extension (AArch64 Predicate Registers p0-p15, Vector Registers z0-z31, Predicated Loads/Stores, Arithmetic & Reductions)
 
 Implements Option 1: ARM SVE / SVE2 Scalable Vector Extension for AArch64:

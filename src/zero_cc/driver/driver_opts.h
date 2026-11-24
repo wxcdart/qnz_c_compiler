@@ -66,6 +66,7 @@ typedef struct {
     int has_avx512dq;       /* -mavx512dq: enable AVX-512 doubleword and quadword instructions */
     int has_sve;            /* -msve: enable ARM Scalable Vector Extension */
     int has_sve2;           /* -msve2: enable ARM SVE2 */
+    int has_rvv;            /* -mrvv: enable RISC-V Vector Extension (RVV 1.0) */
 } CompileOptions;
 
 static void print_usage(const char *prog) {
@@ -322,12 +323,21 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
         else if (strcmp(arg, "-mno-sve2") == 0) {
             opts->has_sve2 = 0;
         }
+        else if (strcmp(arg, "-mrvv") == 0) {
+            opts->has_rvv = 1;
+        }
+        else if (strcmp(arg, "-mno-rvv") == 0) {
+            opts->has_rvv = 0;
+        }
         else if (strncmp(arg, "-march=", 7) == 0) {
             if (strstr(arg, "+sve2")) {
                 opts->has_sve = 1;
                 opts->has_sve2 = 1;
             } else if (strstr(arg, "+sve")) {
                 opts->has_sve = 1;
+            }
+            if (strstr(arg, "v") || strstr(arg, "+v") || strstr(arg, "gcv")) {
+                opts->has_rvv = 1;
             }
         }
         else if (strcmp(arg, "--target") == 0 && i + 1 < argc) {
