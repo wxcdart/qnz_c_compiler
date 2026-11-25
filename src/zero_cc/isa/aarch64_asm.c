@@ -1447,6 +1447,42 @@ static void aarch64_emit_v128_store_strided_asm(ZeroCCCompiler *c, int src, int 
     }
 }
 
+static void aarch64_emit_v128_gather_asm(ZeroCCCompiler *c, int dst, int base, int idx, int esz, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *idx_name = BE(c)->get_vec_reg_name(idx);
+    const char *base_name = BE(c)->get_hw_reg_name(base);
+    int lanes = (esz == 8) ? 2 : 4;
+    for (int k = 0; k < lanes; k++) {
+        if (esz == 8) {
+            fprintf(out, "\tmov\tx16, %s.d[%d]\n", idx_name, k);
+            fprintf(out, "\tadd\tx16, %s, x16, lsl #3\n", base_name);
+            fprintf(out, "\tld1\t{%s.d}[%d], [x16]\n", dst_name, k);
+        } else {
+            fprintf(out, "\tsmov\tx16, %s.s[%d]\n", idx_name, k);
+            fprintf(out, "\tadd\tx16, %s, x16, lsl #2\n", base_name);
+            fprintf(out, "\tld1\t{%s.s}[%d], [x16]\n", dst_name, k);
+        }
+    }
+}
+
+static void aarch64_emit_v128_scatter_asm(ZeroCCCompiler *c, int src, int base, int idx, int esz, FILE *out) {
+    const char *src_name = BE(c)->get_vec_reg_name(src);
+    const char *idx_name = BE(c)->get_vec_reg_name(idx);
+    const char *base_name = BE(c)->get_hw_reg_name(base);
+    int lanes = (esz == 8) ? 2 : 4;
+    for (int k = 0; k < lanes; k++) {
+        if (esz == 8) {
+            fprintf(out, "\tmov\tx16, %s.d[%d]\n", idx_name, k);
+            fprintf(out, "\tadd\tx16, %s, x16, lsl #3\n", base_name);
+            fprintf(out, "\tst1\t{%s.d}[%d], [x16]\n", src_name, k);
+        } else {
+            fprintf(out, "\tsmov\tx16, %s.s[%d]\n", idx_name, k);
+            fprintf(out, "\tadd\tx16, %s, x16, lsl #2\n", base_name);
+            fprintf(out, "\tst1\t{%s.s}[%d], [x16]\n", src_name, k);
+        }
+    }
+}
+
 /* =========================================================================
  * ARM SVE Scalable Vector Extension Text Emitters (Sprint 203)
  * ========================================================================= */
@@ -2110,6 +2146,8 @@ void aarch64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_v128_hmax_asm = aarch64_emit_v128_hmax_asm;
     be->emit_v128_load_strided_asm = aarch64_emit_v128_load_strided_asm;
     be->emit_v128_store_strided_asm = aarch64_emit_v128_store_strided_asm;
+    be->emit_v128_gather_asm = aarch64_emit_v128_gather_asm;
+    be->emit_v128_scatter_asm = aarch64_emit_v128_scatter_asm;
 
     /* SVE */
     be->emit_sve_ptrue_asm = aarch64_emit_sve_ptrue_asm;

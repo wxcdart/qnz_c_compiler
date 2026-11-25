@@ -1590,6 +1590,48 @@ static void x86_emit_v128_store_strided_asm(ZeroCCCompiler *c, int src, int base
     }
 }
 
+static void x86_emit_v128_gather_asm(ZeroCCCompiler *c, int dst, int base, int idx, int esz, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *idx_name = BE(c)->get_vec_reg_name(idx);
+    const char *base_name = BE(c)->get_hw_reg_name(base);
+    int lanes = (esz == 8) ? 2 : 4;
+    for (int k = 0; k < lanes; k++) {
+        if (esz == 8) {
+            fprintf(out, "\tpextrq\t$%d,%%%s,%%r10\n", k, idx_name);
+            fprintf(out, "\tshlq\t$3,%%r10\n");
+            fprintf(out, "\taddq\t%%%s,%%r10\n", base_name);
+            fprintf(out, "\tpinsrq\t$%d,(%%r10),%%%s\n", k, dst_name);
+        } else {
+            fprintf(out, "\tpextrd\t$%d,%%%s,%%r10d\n", k, idx_name);
+            fprintf(out, "\tmovslq\t%%r10d,%%r10\n");
+            fprintf(out, "\tshlq\t$2,%%r10\n");
+            fprintf(out, "\taddq\t%%%s,%%r10\n", base_name);
+            fprintf(out, "\tpinsrd\t$%d,(%%r10),%%%s\n", k, dst_name);
+        }
+    }
+}
+
+static void x86_emit_v128_scatter_asm(ZeroCCCompiler *c, int src, int base, int idx, int esz, FILE *out) {
+    const char *src_name = BE(c)->get_vec_reg_name(src);
+    const char *idx_name = BE(c)->get_vec_reg_name(idx);
+    const char *base_name = BE(c)->get_hw_reg_name(base);
+    int lanes = (esz == 8) ? 2 : 4;
+    for (int k = 0; k < lanes; k++) {
+        if (esz == 8) {
+            fprintf(out, "\tpextrq\t$%d,%%%s,%%r10\n", k, idx_name);
+            fprintf(out, "\tshlq\t$3,%%r10\n");
+            fprintf(out, "\taddq\t%%%s,%%r10\n", base_name);
+            fprintf(out, "\tpextrq\t$%d,%%%s,(%%r10)\n", k, src_name);
+        } else {
+            fprintf(out, "\tpextrd\t$%d,%%%s,%%r10d\n", k, idx_name);
+            fprintf(out, "\tmovslq\t%%r10d,%%r10\n");
+            fprintf(out, "\tshlq\t$2,%%r10\n");
+            fprintf(out, "\taddq\t%%%s,%%r10\n", base_name);
+            fprintf(out, "\tpextrd\t$%d,%%%s,(%%r10)\n", k, src_name);
+        }
+    }
+}
+
 /* =========================================================================
  * 256-bit AVX/AVX2 Instruction Emission (Textual Assembly)
  * ========================================================================= */
@@ -2532,4 +2574,6 @@ void x86_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_v128_hmax_asm = x86_emit_v128_hmax_asm;
     be->emit_v128_load_strided_asm = x86_emit_v128_load_strided_asm;
     be->emit_v128_store_strided_asm = x86_emit_v128_store_strided_asm;
+    be->emit_v128_gather_asm = x86_emit_v128_gather_asm;
+    be->emit_v128_scatter_asm = x86_emit_v128_scatter_asm;
 }

@@ -1616,6 +1616,16 @@ static void riscv_emit_v128_store_strided_asm(ZeroCCCompiler *c, int src, int ba
     fprintf(out, "\tvsse%d.v\t%s, (%s), t5\n", (esz == 8 ? 64 : 32), src_name, base_name);
 }
 
+static void riscv_emit_v128_gather_asm(ZeroCCCompiler *c, int dst, int base, int idx, int esz, FILE *out) {
+    int rvv_esz = (esz == 8) ? 3 : 2;
+    riscv_emit_rvv_vluxei_asm(c, dst, base, idx, rvv_esz, out);
+}
+
+static void riscv_emit_v128_scatter_asm(ZeroCCCompiler *c, int src, int base, int idx, int esz, FILE *out) {
+    int rvv_esz = (esz == 8) ? 3 : 2;
+    riscv_emit_rvv_vsuxei_asm(c, src, base, idx, rvv_esz, out);
+}
+
 static void riscv_emit_rvv_vmv_v_x_asm(ZeroCCCompiler *c, int vd, int rs1, int esz, FILE *out) {
     riscv_emit_rvv_vsetivli_default(c, esz, out);
     fprintf(out, "\tvmv.v.x\t%s, %s\n", BE(c)->get_vec_reg_name(vd), BE(c)->get_hw_reg_name(rs1));
@@ -2647,4 +2657,6 @@ void riscv64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_v128_hadd_asm = riscv_emit_v128_hadd_asm;
     be->emit_v128_load_strided_asm = riscv_emit_v128_load_strided_asm;
     be->emit_v128_store_strided_asm = riscv_emit_v128_store_strided_asm;
+    be->emit_v128_gather_asm = riscv_emit_v128_gather_asm;
+    be->emit_v128_scatter_asm = riscv_emit_v128_scatter_asm;
 }

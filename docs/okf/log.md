@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-24T23:58:00Z
+timestamp: 2026-11-25T00:34:33Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1680,3 +1680,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-24 — Updated `isa-backends.md`
 - Document Multi-ISA Linker Relocations & ASM Backend Hooks (Sprint 217)
+
+## 2026-11-25 — Updated `optimization-passes.md`
+- Sprint 218: Indexed Gather & Scatter SIMD Auto-Vectorization

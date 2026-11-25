@@ -2212,6 +2212,122 @@ static void x86_emit_v128_store_strided(ZeroCCCompiler *c, int src, int base, in
     }
 }
 
+static void x86_emit_v128_gather(ZeroCCCompiler *c, int dst, int base, int idx, int esz) {
+    int lanes = (esz == 8) ? 2 : 4;
+    for (int k = 0; k < lanes; k++) {
+        if (esz == 8) {
+            /* pextrq $k, %xmm_idx, %r10 */
+            me_emit_u8(c, 0x66);
+            x86_rex(c, 1, (idx >> 3) & 1, 0, 1);
+            me_emit_u8(c, 0x0F);
+            me_emit_u8(c, 0x3A);
+            me_emit_u8(c, 0x16);
+            me_emit_u8(c, (uint8_t)(0xC0 | ((idx & 7) << 3) | 2));
+            me_emit_u8(c, (uint8_t)k);
+
+            /* shl $3, %r10 */
+            me_emit_u8(c, 0x49);
+            me_emit_u8(c, 0xC1);
+            me_emit_u8(c, 0xE2);
+            me_emit_u8(c, 0x03);
+
+            /* add %base, %r10 */
+            x86_rex(c, 1, (base >> 3) & 1, 0, 1);
+            me_emit_u8(c, 0x01);
+            me_emit_u8(c, (uint8_t)(0xC0 | ((base & 7) << 3) | 2));
+
+            /* pinsrq $k, (%r10), %xmm_dst */
+            x86_pinsrq(c, dst, 10, 0, (uint8_t)k);
+        } else {
+            /* pextrd $k, %xmm_idx, %r10d */
+            me_emit_u8(c, 0x66);
+            x86_rex(c, 0, (idx >> 3) & 1, 0, 1);
+            me_emit_u8(c, 0x0F);
+            me_emit_u8(c, 0x3A);
+            me_emit_u8(c, 0x16);
+            me_emit_u8(c, (uint8_t)(0xC0 | ((idx & 7) << 3) | 2));
+            me_emit_u8(c, (uint8_t)k);
+
+            /* movslq %r10d, %r10 */
+            me_emit_u8(c, 0x4D);
+            me_emit_u8(c, 0x63);
+            me_emit_u8(c, 0xD2);
+
+            /* shl $2, %r10 */
+            me_emit_u8(c, 0x49);
+            me_emit_u8(c, 0xC1);
+            me_emit_u8(c, 0xE2);
+            me_emit_u8(c, 0x02);
+
+            /* add %base, %r10 */
+            x86_rex(c, 1, (base >> 3) & 1, 0, 1);
+            me_emit_u8(c, 0x01);
+            me_emit_u8(c, (uint8_t)(0xC0 | ((base & 7) << 3) | 2));
+
+            /* pinsrd $k, (%r10), %xmm_dst */
+            x86_pinsrd(c, dst, 10, 0, (uint8_t)k);
+        }
+    }
+}
+
+static void x86_emit_v128_scatter(ZeroCCCompiler *c, int src, int base, int idx, int esz) {
+    int lanes = (esz == 8) ? 2 : 4;
+    for (int k = 0; k < lanes; k++) {
+        if (esz == 8) {
+            /* pextrq $k, %xmm_idx, %r10 */
+            me_emit_u8(c, 0x66);
+            x86_rex(c, 1, (idx >> 3) & 1, 0, 1);
+            me_emit_u8(c, 0x0F);
+            me_emit_u8(c, 0x3A);
+            me_emit_u8(c, 0x16);
+            me_emit_u8(c, (uint8_t)(0xC0 | ((idx & 7) << 3) | 2));
+            me_emit_u8(c, (uint8_t)k);
+
+            /* shl $3, %r10 */
+            me_emit_u8(c, 0x49);
+            me_emit_u8(c, 0xC1);
+            me_emit_u8(c, 0xE2);
+            me_emit_u8(c, 0x03);
+
+            /* add %base, %r10 */
+            x86_rex(c, 1, (base >> 3) & 1, 0, 1);
+            me_emit_u8(c, 0x01);
+            me_emit_u8(c, (uint8_t)(0xC0 | ((base & 7) << 3) | 2));
+
+            /* pextrq $k, %xmm_src, (%r10) */
+            x86_pextrq(c, src, 10, 0, (uint8_t)k);
+        } else {
+            /* pextrd $k, %xmm_idx, %r10d */
+            me_emit_u8(c, 0x66);
+            x86_rex(c, 0, (idx >> 3) & 1, 0, 1);
+            me_emit_u8(c, 0x0F);
+            me_emit_u8(c, 0x3A);
+            me_emit_u8(c, 0x16);
+            me_emit_u8(c, (uint8_t)(0xC0 | ((idx & 7) << 3) | 2));
+            me_emit_u8(c, (uint8_t)k);
+
+            /* movslq %r10d, %r10 */
+            me_emit_u8(c, 0x4D);
+            me_emit_u8(c, 0x63);
+            me_emit_u8(c, 0xD2);
+
+            /* shl $2, %r10 */
+            me_emit_u8(c, 0x49);
+            me_emit_u8(c, 0xC1);
+            me_emit_u8(c, 0xE2);
+            me_emit_u8(c, 0x02);
+
+            /* add %base, %r10 */
+            x86_rex(c, 1, (base >> 3) & 1, 0, 1);
+            me_emit_u8(c, 0x01);
+            me_emit_u8(c, (uint8_t)(0xC0 | ((base & 7) << 3) | 2));
+
+            /* pextrd $k, %xmm_src, (%r10) */
+            x86_pextrd(c, src, 10, 0, (uint8_t)k);
+        }
+    }
+}
+
 static void x86_emit_const(ZeroCCCompiler *c, int64_t value) {
     x86_emit_mov_imm(c, 0, value);  /* rax */
 }
@@ -2792,6 +2908,8 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_v128_hmax = x86_emit_v128_hmax,
     .emit_v128_load_strided = x86_emit_v128_load_strided,
     .emit_v128_store_strided = x86_emit_v128_store_strided,
+    .emit_v128_gather = x86_emit_v128_gather,
+    .emit_v128_scatter = x86_emit_v128_scatter,
     .emit_v128_hadd_asm = x86_emit_v128_hadd_asm,
     .emit_v128_hmin_asm = x86_emit_v128_hmin_asm,
     .emit_v128_hmax_asm = x86_emit_v128_hmax_asm,

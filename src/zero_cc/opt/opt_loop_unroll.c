@@ -71,7 +71,7 @@ static int lu_has_side_effect(uint16_t op) {
     switch (op) {
         case OP_MOV_MEM:
         case OP_STORE_BYTE: case OP_STORE_16: case OP_STORE_32: case OP_STORE_64:
-        case OP_FSTORE: case OP_VSTORE: case OP_V256_STORE: case OP_V512_STORE: case OP_V512_MASK_STORE: case OP_KMOVW_TO_K1: case OP_SVE_ST1: case OP_RVV_VSE: case OP_RVV_VSSE: case OP_RVV_VSUXEI: case OP_VSTORESS: case OP_VSTORESD:
+        case OP_FSTORE: case OP_VSTORE: case OP_V256_STORE: case OP_V512_STORE: case OP_V512_MASK_STORE: case OP_KMOVW_TO_K1: case OP_SVE_ST1: case OP_RVV_VSE: case OP_RVV_VSSE: case OP_RVV_VSUXEI: case OP_V128_STORE_STRIDED: case OP_V128_SCATTER: case OP_VSTORESS: case OP_VSTORESD:
         case OP_VSTORESS_RAW: case OP_STORE128:
         case OP_ATOMIC_XADD: case OP_ATOMIC_CMPXCHG: case OP_ATOMIC_CMPXCHG_BOOL:
         case OP_ATOMIC_XCHG: case OP_ATOMIC_OR: case OP_ATOMIC_AND: case OP_ATOMIC_XOR:

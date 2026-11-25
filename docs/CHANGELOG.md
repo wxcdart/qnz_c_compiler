@@ -1,5 +1,25 @@
 # CHANGELOG
 
+## [Sprint 218] - 2026-11-24 - Indexed Gather & Scatter SIMD Auto-Vectorization (Item #12)
+
+Implements Option 2 (Indexed Gather & Scatter SIMD Auto-Vectorization):
+- **IR & Opcode Extensions (`ir.h`, `ir.c`, `live_range.h`, `opt_dce.c`, `opt_loop_unroll.c`)**:
+  - Introduced 128-bit vector gather and scatter opcodes: `OP_V128_GATHER` and `OP_V128_SCATTER`, widening IR opcodes to 174.
+  - In `live_range.h`: handled `OP_V128_GATHER` as defining a vector destination and reading a GPR base pointer and vector index vector; handled `OP_V128_SCATTER` as reading a vector value (`temp_dest`), a GPR base pointer (`temp_src1`), and a vector index vector (`temp_src2`).
+  - Added spill reload/store suppression and side-effect preservation in `opt_dce.c`, `opt_loop_unroll.c`, `asm_emitter.c`, and `ast_lowering_mc.c`.
+- **Hardware Vector Emission Across ISAs (`isa_backend.h`, `x86_64.c`, `x86_64_asm.c`, `aarch64.c`, `aarch64_asm.c`, `riscv64.c`, `riscv_asm.c`)**:
+  - Extended `ZeroCCISABackend` with backend vtable hooks: `emit_v128_gather`, `emit_v128_scatter`, `emit_v128_gather_asm`, and `emit_v128_scatter_asm`.
+  - **x86-64**: Implemented gather (`x86_emit_v128_gather[_asm]`) and scatter (`x86_emit_v128_scatter[_asm]`) for 32-bit (`pextrd`/`pinsrd`) and 64-bit (`pextrq`/`pinsrq`) lane extraction, index scaling, base addition, and element loads/stores across both JIT and text assembly.
+  - **AArch64**: Implemented gather and scatter via lane addressing (`smov`/`mov`, `add lsl`, and `ld1`/`st1` lane operations) for 32-bit floats/integers and 64-bit doubles/integers.
+  - **RISC-V**: Implemented RVV 1.0 indexed vector loads and stores (`OP_RVV_VLUXEI` and `OP_RVV_VSUXEI`) mapping to `vluxei` / `vsuxei` for vector gather and scatter.
+- **Pattern Recognition & Pre-Classification in Auto-Vectorization (`opt_vectorize.c`, `opt_vectorize.h`)**:
+  - Implemented `is_indexed_add` helper tracing backwards past copies and in-place `SEXT`/`ZEXT` to discover indirect address patterns (`base + idx[i] * scale`) where `idx[i]` is loaded from an array in the loop.
+  - Added loop classification `cls == 2` for indexed array accesses in `classify_addr_temp`.
+  - Added pre-classification pass in `vectorize_loop_full` (`LoopAddrInfo`), recording address classification, base temps, and index temps prior to IR instruction modification, eliminating mutation interference and mapping clobbers.
+- **Verification & Test Coverage**:
+  - `test/jit/simd_gather_scatter_test.c`: Comprehensive test suite verifying integer gather, integer scatter, float gather, float scatter, double gather, double scatter, and gather with post-arithmetic (`dest[i] = src[idx[i]] * 2 + 5`) across multiple trip counts ($N = 4, 7, 8, 15, 16, 23, 32, 47, 48$) in both JIT (`--run`) and AOT binary execution across `-O0..-O3`.
+  - Verified across `make test`, `make test-opt`, `tools/verify/style_check.py`, and `tools/okf/okf.py lint`.
+
 ## [Sprint 217] - 2026-11-24 - Function Cloning & IPCP Specialization, SIMD Epilogue Vectorization, and Multi-ISA Linker / ASM Modularization (Item #16 Phase 4 & 5)
 
 Implements Options 1, 2, and 3:
@@ -374,6 +394,26 @@ Implements Option 2: AVX-512 Integer SIMD (`AVX-512BW` / `AVX-512DQ` / `__m512i`
   - All regression gates green: `make test` (245/245 passed), `make test-opt` (143 passed, 0 failed), `make test-san` (720 passed, 0 failed), `python3 tools/verify/style_check.py` (0 errors), `python3 tools/verify/type_tag_verifier.py --verify-all` (OK).
 
 # CHANGELOG
+
+## [Sprint 218] - 2026-11-24 - Indexed Gather & Scatter SIMD Auto-Vectorization (Item #12)
+
+Implements Option 2 (Indexed Gather & Scatter SIMD Auto-Vectorization):
+- **IR & Opcode Extensions (`ir.h`, `ir.c`, `live_range.h`, `opt_dce.c`, `opt_loop_unroll.c`)**:
+  - Introduced 128-bit vector gather and scatter opcodes: `OP_V128_GATHER` and `OP_V128_SCATTER`, widening IR opcodes to 174.
+  - In `live_range.h`: handled `OP_V128_GATHER` as defining a vector destination and reading a GPR base pointer and vector index vector; handled `OP_V128_SCATTER` as reading a vector value (`temp_dest`), a GPR base pointer (`temp_src1`), and a vector index vector (`temp_src2`).
+  - Added spill reload/store suppression and side-effect preservation in `opt_dce.c`, `opt_loop_unroll.c`, `asm_emitter.c`, and `ast_lowering_mc.c`.
+- **Hardware Vector Emission Across ISAs (`isa_backend.h`, `x86_64.c`, `x86_64_asm.c`, `aarch64.c`, `aarch64_asm.c`, `riscv64.c`, `riscv_asm.c`)**:
+  - Extended `ZeroCCISABackend` with backend vtable hooks: `emit_v128_gather`, `emit_v128_scatter`, `emit_v128_gather_asm`, and `emit_v128_scatter_asm`.
+  - **x86-64**: Implemented gather (`x86_emit_v128_gather[_asm]`) and scatter (`x86_emit_v128_scatter[_asm]`) for 32-bit (`pextrd`/`pinsrd`) and 64-bit (`pextrq`/`pinsrq`) lane extraction, index scaling, base addition, and element loads/stores across both JIT and text assembly.
+  - **AArch64**: Implemented gather and scatter via lane addressing (`smov`/`mov`, `add lsl`, and `ld1`/`st1` lane operations) for 32-bit floats/integers and 64-bit doubles/integers.
+  - **RISC-V**: Implemented RVV 1.0 indexed vector loads and stores (`OP_RVV_VLUXEI` and `OP_RVV_VSUXEI`) mapping to `vluxei` / `vsuxei` for vector gather and scatter.
+- **Pattern Recognition & Pre-Classification in Auto-Vectorization (`opt_vectorize.c`, `opt_vectorize.h`)**:
+  - Implemented `is_indexed_add` helper tracing backwards past copies and in-place `SEXT`/`ZEXT` to discover indirect address patterns (`base + idx[i] * scale`) where `idx[i]` is loaded from an array in the loop.
+  - Added loop classification `cls == 2` for indexed array accesses in `classify_addr_temp`.
+  - Added pre-classification pass in `vectorize_loop_full` (`LoopAddrInfo`), recording address classification, base temps, and index temps prior to IR instruction modification, eliminating mutation interference and mapping clobbers.
+- **Verification & Test Coverage**:
+  - `test/jit/simd_gather_scatter_test.c`: Comprehensive test suite verifying integer gather, integer scatter, float gather, float scatter, double gather, double scatter, and gather with post-arithmetic (`dest[i] = src[idx[i]] * 2 + 5`) across multiple trip counts ($N = 4, 7, 8, 15, 16, 23, 32, 47, 48$) in both JIT (`--run`) and AOT binary execution across `-O0..-O3`.
+  - Verified across `make test`, `make test-opt`, `tools/verify/style_check.py`, and `tools/okf/okf.py lint`.
 
 ## [Sprint 217] - 2026-11-24 - Function Cloning & IPCP Specialization, SIMD Epilogue Vectorization, and Multi-ISA Linker / ASM Modularization (Item #16 Phase 4 & 5)
 

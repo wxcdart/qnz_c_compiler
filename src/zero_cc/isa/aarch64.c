@@ -1604,6 +1604,50 @@ static void aarch64_emit_v128_store_strided(ZeroCCCompiler *c, int src, int base
     }
 }
 
+static void aarch64_emit_v128_gather(ZeroCCCompiler *c, int dst, int base, int idx, int esz) {
+    int lanes = (esz == 8) ? 2 : 4;
+    static const uint32_t ld1_s[4] = { 0x0D408000u, 0x0D409000u, 0x4D408000u, 0x4D409000u };
+    for (int k = 0; k < lanes; k++) {
+        if (esz == 8) {
+            /* mov x16, v<idx>.d[k] */
+            arm64_emit_u32(c, 0x4E003C00u | (((uint32_t)((k << 4) | 8)) << 16) | ((idx & 0x1F) << 5) | 16);
+            /* add x16, x<base>, x16, lsl #3 */
+            arm64_emit_u32(c, 0x8B100C00u | ((base & 0x1F) << 5) | 16);
+            /* ld1 {v<dst>.d}[k], [x16] */
+            arm64_emit_u32(c, (k == 0 ? 0x0D408400u : 0x4D408400u) | (16 << 5) | (dst & 0x1F));
+        } else {
+            /* smov x16, v<idx>.s[k] */
+            arm64_emit_u32(c, 0x4E002C00u | (((uint32_t)((k << 3) | 4)) << 16) | ((idx & 0x1F) << 5) | 16);
+            /* add x16, x<base>, x16, lsl #2 */
+            arm64_emit_u32(c, 0x8B100800u | ((base & 0x1F) << 5) | 16);
+            /* ld1 {v<dst>.s}[k], [x16] */
+            arm64_emit_u32(c, ld1_s[k] | (16 << 5) | (dst & 0x1F));
+        }
+    }
+}
+
+static void aarch64_emit_v128_scatter(ZeroCCCompiler *c, int src, int base, int idx, int esz) {
+    int lanes = (esz == 8) ? 2 : 4;
+    static const uint32_t st1_s[4] = { 0x0D008000u, 0x0D009000u, 0x4D008000u, 0x4D009000u };
+    for (int k = 0; k < lanes; k++) {
+        if (esz == 8) {
+            /* mov x16, v<idx>.d[k] */
+            arm64_emit_u32(c, 0x4E003C00u | (((uint32_t)((k << 4) | 8)) << 16) | ((idx & 0x1F) << 5) | 16);
+            /* add x16, x<base>, x16, lsl #3 */
+            arm64_emit_u32(c, 0x8B100C00u | ((base & 0x1F) << 5) | 16);
+            /* st1 {v<src>.d}[k], [x16] */
+            arm64_emit_u32(c, (k == 0 ? 0x0D008400u : 0x4D008400u) | (16 << 5) | (src & 0x1F));
+        } else {
+            /* smov x16, v<idx>.s[k] */
+            arm64_emit_u32(c, 0x4E002C00u | (((uint32_t)((k << 3) | 4)) << 16) | ((idx & 0x1F) << 5) | 16);
+            /* add x16, x<base>, x16, lsl #2 */
+            arm64_emit_u32(c, 0x8B100800u | ((base & 0x1F) << 5) | 16);
+            /* st1 {v<src>.s}[k], [x16] */
+            arm64_emit_u32(c, st1_s[k] | (16 << 5) | (src & 0x1F));
+        }
+    }
+}
+
 static void aarch64_emit_fp_cmp(ZeroCCCompiler *c, int src1, int src2) {
     /* fcmpe dN, dM - scalar double-precision (signaling NaN compare)
      * fcmpe raises Invalid Operation for QNaN, setting V=1 on unordered.
@@ -2489,6 +2533,8 @@ ZeroCCISABackend aarch64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_v128_hmax = aarch64_emit_v128_hmax,
     .emit_v128_load_strided = aarch64_emit_v128_load_strided,
     .emit_v128_store_strided = aarch64_emit_v128_store_strided,
+    .emit_v128_gather = aarch64_emit_v128_gather,
+    .emit_v128_scatter = aarch64_emit_v128_scatter,
     .emit_v128_hadd_asm = aarch64_emit_v128_hadd_asm,
     .emit_v128_hmin_asm = aarch64_emit_v128_hmin_asm,
     .emit_v128_hmax_asm = aarch64_emit_v128_hmax_asm,

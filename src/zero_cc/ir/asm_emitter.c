@@ -1677,6 +1677,12 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
         case OP_V128_STORE_STRIDED:
             if (BE(c)->emit_v128_store_strided_asm) BE(c)->emit_v128_store_strided_asm(c, phys_src2, phys_src1, (int)instr->imm, (int)instr->imm64, out);
             return;
+        case OP_V128_GATHER:
+            if (BE(c)->emit_v128_gather_asm) BE(c)->emit_v128_gather_asm(c, phys_dst, phys_src1, phys_src2, (int)instr->imm, out);
+            return;
+        case OP_V128_SCATTER:
+            if (BE(c)->emit_v128_scatter_asm) BE(c)->emit_v128_scatter_asm(c, phys_dst, phys_src1, phys_src2, (int)instr->imm, out);
+            return;
 
         case OP_VSTORESS: {
             const char *val_name = BE(c)->get_vec_reg_name(phys_src2);
@@ -2483,7 +2489,7 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
     }
     if (spill_dst >= 0 && !d128_sp && !d64_sp) {
         RegClass rc = regalloc_get_class_for_temp(&c->regalloc, instr->temp_dest);
-        if (instr->op == OP_RVV_VSSE || instr->op == OP_RVV_VSUXEI) {
+        if (instr->op == OP_RVV_VSSE || instr->op == OP_RVV_VSUXEI || instr->op == OP_V128_SCATTER) {
             int32_t slot_off = spill_base_offset + (spill_dst + 1) * 8;
             if (BE(c)->emit_vload_asm) {
                 BE(c)->emit_vload_asm(c, BE(c)->fp_scratch_reg1, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off), out);
@@ -2547,7 +2553,7 @@ void asm_emit_instruction(ZeroCCCompiler *c, const Instr *instr, size_t idx, siz
      * OP_OVF_TRAP is a pure check: the preceding op's own store-back
      * already persisted the value, so re-storing here would overwrite the
      * slot with scratch-register garbage on ISAs where the check is skipped. */
-    if (spill_dst >= 0 && instr->op != OP_OVF_TRAP && instr->op != OP_RVV_VSSE && instr->op != OP_RVV_VSUXEI) {
+    if (spill_dst >= 0 && instr->op != OP_OVF_TRAP && instr->op != OP_RVV_VSSE && instr->op != OP_RVV_VSUXEI && instr->op != OP_V128_SCATTER) {
         int32_t slot_off = spill_base_offset + (spill_dst + 1) * 8;
         if (d128_sp) {
             if (BE(c)->emit_store_asm) {

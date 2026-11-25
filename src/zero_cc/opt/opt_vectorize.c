@@ -311,6 +311,126 @@ static bool is_temp_or_slot_invariant_bound(ZeroCCCompiler *c, int start, int en
     return false;
 }
 
+static int classify_addr_temp(ZeroCCCompiler *c, int start, int end, int pos,
+                              const uint8_t *skip_mask, uint32_t t,
+                              int loop_var, int32_t counter_slot, int depth,
+                              int *scale_out, int32_t *out_base, bool *have_base);
+
+/*
+ * Detect indexed memory address pattern: addr = base + (idx << scale_shift) or base + (idx * scale)
+ * where base is loop-invariant (cls == 0) and idx was loaded from an affine array load in the loop.
+ * Returns true if indexed access, with out_base_temp, out_idx_temp, out_scale.
+ */
+static bool is_indexed_add(ZeroCCCompiler *c, int start, int end, int add_idx,
+                           const uint8_t *skip_mask, int loop_var, int32_t counter_slot,
+                           int *out_base_temp, int *out_idx_temp, int *out_scale) {
+    if (add_idx < 0) return false;
+    const Instr *d = ir_get(c, add_idx);
+    if (!d || d->op != OP_ADD) return false;
+    uint32_t op1 = d->temp_src1;
+    uint32_t op2 = d->temp_src2;
+    if (op1 == TEMP_NONE || op2 == TEMP_NONE) return false;
+
+    /* Try (op1=base, op2=offset) and (op2=base, op1=offset) */
+    for (int pass = 0; pass < 2; pass++) {
+        uint32_t base = (pass == 0) ? op1 : op2;
+        uint32_t offset = (pass == 0) ? op2 : op1;
+
+        int sc_base = 0;
+        int cls_base = classify_addr_temp(c, start, end, add_idx, skip_mask, base,
+                                          loop_var, counter_slot, 0, &sc_base, NULL, NULL);
+        if (cls_base != 0) continue;
+
+        /* Analyze offset */
+        int scale = 0;
+        uint32_t cand = offset;
+
+        int def_off = find_def_backward_in_loop(c, start, add_idx, skip_mask, offset);
+        if (def_off >= 0) {
+            const Instr *oi = ir_get(c, def_off);
+            if (oi->op == OP_SHL) {
+                int64_t sh = 0;
+                if (resolve_const(c, def_off, oi->temp_src2, &sh) && sh >= 0 && sh <= 4) {
+                    scale = 1 << (int)sh;
+                    cand = oi->temp_src1;
+                }
+            } else if (oi->op == OP_MUL) {
+                int64_t m = 0;
+                if (resolve_const(c, def_off, oi->temp_src2, &m) && m > 0 && m <= 16) {
+                    scale = (int)m;
+                    cand = oi->temp_src1;
+                } else if (resolve_const(c, def_off, oi->temp_src1, &m) && m > 0 && m <= 16) {
+                    scale = (int)m;
+                    cand = oi->temp_src2;
+                }
+            }
+        }
+
+        if (scale == 0) continue;
+
+        /* Trace candidate backwards past in-place SEXT/ZEXT and copies */
+        uint32_t cur = cand;
+        int cur_pos = add_idx;
+        for (int depth = 0; depth < 8; depth++) {
+            int dc = find_def_backward_in_loop(c, start, cur_pos, skip_mask, cur);
+            if (dc < 0) break;
+            const Instr *ci = ir_get(c, dc);
+            if (!ci) break;
+            if (ci->op == OP_SEXT8 || ci->op == OP_SEXT16 || ci->op == OP_SEXT32 ||
+                ci->op == OP_ZEXT8 || ci->op == OP_ZEXT16 || ci->op == OP_ZEXT32) {
+                if (ci->temp_src1 != TEMP_NONE && ci->temp_src1 != cur) {
+                    cur = ci->temp_src1;
+                }
+                cur_pos = dc;
+                continue;
+            }
+            if (ci->op == OP_MOV_REG && ci->temp_src1 != TEMP_NONE) {
+                cur = ci->temp_src1;
+                cur_pos = dc;
+                continue;
+            }
+            break;
+        }
+
+        /* Verify that cur was loaded from an array in the loop */
+        int def_load = find_def_backward_in_loop(c, start, cur_pos, skip_mask, cur);
+        if (def_load >= 0) {
+            const Instr *li = ir_get(c, def_load);
+            if (li->op == OP_LOAD_32 || li->op == OP_FLOAD ||
+                li->op == OP_VLOADSS || li->op == OP_VLOADSD) {
+                int sc_load = 0;
+                int cls_load = classify_addr_temp(c, start, end, def_load, skip_mask, li->temp_src1,
+                                                  loop_var, counter_slot, 0, &sc_load, NULL, NULL);
+                if (cls_load == 1) {
+                    if (out_base_temp) *out_base_temp = (int)base;
+                    if (out_idx_temp) *out_idx_temp = (int)li->temp_dest;
+                    if (out_scale) *out_scale = scale;
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+static bool get_indexed_info(ZeroCCCompiler *c, int start, int end, int pos,
+                             const uint8_t *skip_mask, uint32_t addr,
+                             int loop_var, int32_t counter_slot,
+                             int *out_base_temp, int *out_idx_temp, int *out_scale) {
+    if (addr == TEMP_NONE) return false;
+    int def_idx = find_def_backward_in_loop(c, start, pos, skip_mask, addr);
+    if (def_idx < 0) return false;
+    const Instr *d = ir_get(c, def_idx);
+    if (!d) return false;
+
+    if (d->op == OP_MOV_REG && d->temp_src1 != TEMP_NONE) {
+        return get_indexed_info(c, start, end, def_idx, skip_mask, d->temp_src1,
+                                loop_var, counter_slot, out_base_temp, out_idx_temp, out_scale);
+    }
+    return is_indexed_add(c, start, end, def_idx, skip_mask, loop_var, counter_slot,
+                          out_base_temp, out_idx_temp, out_scale);
+}
+
 /*
  * Classify a temp's definition strictly before consumer index `pos`:
  *   0  = loop-invariant (constant, or invariant pointer/base defined before loop)
@@ -425,6 +545,11 @@ static int classify_addr_temp(ZeroCCCompiler *c, int start, int end, int pos,
                                           out_base, have_base);
             if (cls1 == 1 && cls2 == 0) { *scale_out = sc1; return 1; }
             if (cls2 == 1 && cls1 == 0) { *scale_out = sc2; return 1; }
+            int b_t = -1, i_t = -1, sc_idx = 0;
+            if (is_indexed_add(c, start, end, def_idx, skip_mask, loop_var, counter_slot, &b_t, &i_t, &sc_idx)) {
+                *scale_out = sc_idx;
+                return 2;
+            }
             return -1;
         }
         default:
@@ -813,9 +938,10 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
         }
     }
 
+    bool is_pure_copy = (store_count >= 1 && load_count >= 1);
     int mem_kind_count = (has_int32_mem ? 1 : 0) + (has_f32_mem ? 1 : 0) + (has_f64_mem ? 1 : 0);
     if (has_call || has_int_divmod || (mem_kind_count > 1) ||
-        load_count < 1 || arith_count < 1) {
+        load_count < 1 || (arith_count < 1 && !is_pure_copy)) {
         if (skip_mask != skip_buf) free(skip_mask);
         return;
     }
@@ -1192,14 +1318,20 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
         int cls = classify_addr_temp(c, start, end, i, skip_mask, addr,
                                      loop_var, counter_slot, 0, &scale,
                                      &base_off, &have_base);
-        if (cls != 1 || scale <= 0 || (scale % elem_size) != 0) {
+        if (cls == 2) {
+            if (scale <= 0 || (scale % elem_size) != 0) {
+                strides_ok = false;
+                continue;
+            }
+            vinfo->has_indexed_access = true;
+        } else if (cls != 1 || scale <= 0 || (scale % elem_size) != 0) {
             strides_ok = false;
             continue;
         }
-        if (scale > elem_size) {
+        if (cls == 1 && scale > elem_size) {
             vinfo->has_strided_access = true;
         }
-        if (have_base) {
+        if (cls == 1 && have_base) {
             any_aligned_checked = true;
             if (((-base_off) & 15) != 0) all_aligned = false;
         } else {
@@ -1234,7 +1366,7 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
     } else {
         bool has_avx = state->comp && state->comp->has_avx && (state->target_isa == ISA_X86_64);
         bool has_avx512 = state->comp && state->comp->has_avx512f && (state->target_isa == ISA_X86_64);
-        if (vinfo->is_reduction || vinfo->has_strided_access) {
+        if (vinfo->is_reduction || vinfo->has_strided_access || vinfo->has_indexed_access) {
             vinfo->vector_width = has_double ? 2 : 4;
             vinfo->elem_size = elem_size;
             vinfo->array_stride = elem_size;
@@ -1848,6 +1980,45 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
         }
     }
 
+    /* 2.5 Pre-classify address temps for loads and stores BEFORE modifying
+     *     any instructions in the loop, avoiding mutation interference. */
+    int loop_span = end_idx - start_idx + 1;
+    typedef struct {
+        int cls;
+        int scale;
+        int base_t;
+        int idx_t;
+    } LoopAddrInfo;
+    LoopAddrInfo addr_info_buf[256];
+    LoopAddrInfo *addr_info = (loop_span <= 256)
+        ? addr_info_buf
+        : (LoopAddrInfo *)calloc((size_t)loop_span, sizeof(LoopAddrInfo));
+    if (loop_span <= 256) memset(addr_info_buf, 0, sizeof(addr_info_buf));
+
+    for (int i = start_idx; i <= end_idx; i++) {
+        Instr *ins = ir_get(c, i);
+        if (!ins || ins->op == OP_NOP || ins->op == OP_DEAD) continue;
+        bool is_load = (ins->op == OP_LOAD_32 || ins->op == OP_FLOAD ||
+                        ins->op == OP_VLOADSS || ins->op == OP_VLOADSD);
+        bool is_store = (ins->op == OP_STORE_32 || ins->op == OP_FSTORE ||
+                         ins->op == OP_VSTORESS || ins->op == OP_VSTORESD);
+        if (!is_load && !is_store) continue;
+        uint32_t addr = (ins->op == OP_STORE_32) ? ins->temp_src2 : ins->temp_src1;
+        int sc = 0;
+        int cls = classify_addr_temp(c, start_idx, end_idx, i, NULL, addr,
+                                     vinfo->loop_var_temp, vinfo->counter_slot, 0, &sc, NULL, NULL);
+        int base_t = -1, idx_t = -1, sc_idx = 0;
+        if (cls == 2) {
+            get_indexed_info(c, start_idx, end_idx, i, NULL, addr,
+                             vinfo->loop_var_temp, vinfo->counter_slot, &base_t, &idx_t, &sc_idx);
+        }
+        int rel = i - start_idx;
+        addr_info[rel].cls = cls;
+        addr_info[rel].scale = sc;
+        addr_info[rel].base_t = base_t;
+        addr_info[rel].idx_t = idx_t;
+    }
+
     /* 3. Track scalar temp -> fresh untagged vector temp mapping so REG_CLASS_VEC
      *    never aliases compacted REG_CLASS_GPR / REG_CLASS_XMM temp IDs. */
     static int32_t s_scalar_to_vec_map[65536];
@@ -1906,14 +2077,30 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
             if (!zc_temp_is_user(instr->temp_dest) || instr->temp_dest >= 65536) continue;
             uint32_t old_dest = instr->temp_dest;
             int vec_temp = zc_alloc_temp(c);
-            scalar_to_vec_map[old_dest] = vec_temp;
 
-            int scale = 0;
-            int cls = classify_addr_temp(c, start_idx, end_idx, i, NULL, instr->temp_src1,
-                                         vinfo->loop_var_temp, vinfo->counter_slot, 0, &scale, NULL, NULL);
+            int rel = i - start_idx;
+            int cls = addr_info[rel].cls;
+            int scale = addr_info[rel].scale;
             bool is_strided = (cls == 1 && scale > vinfo->elem_size);
 
-            if (is_strided) {
+            if (cls == 2) {
+                int base_t = addr_info[rel].base_t;
+                int idx_t = addr_info[rel].idx_t;
+                int vec_idx = (idx_t >= 0 && idx_t < 65536) ? scalar_to_vec_map[idx_t] : -1;
+                if (vec_idx >= 0) {
+                    instr->op = vinfo->is_rvv ? OP_RVV_VLUXEI : OP_V128_GATHER;
+                    instr->temp_dest = (uint32_t)vec_temp;
+                    instr->temp_src1 = (uint32_t)base_t;
+                    instr->temp_src2 = (uint32_t)vec_idx;
+                    instr->imm = (int16_t)vinfo->elem_size;
+                    instr->imm64 = 0;
+                } else {
+                    instr->op = OP_VLOAD;
+                    instr->temp_dest = (uint32_t)vec_temp;
+                    instr->temp_src2 = TEMP_NONE;
+                    instr->imm64 = 0;
+                }
+            } else if (is_strided) {
                 instr->op = OP_V128_LOAD_STRIDED;
                 instr->temp_dest = (uint32_t)vec_temp;
                 instr->temp_src2 = TEMP_NONE;
@@ -1936,6 +2123,7 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
             instr->width = 0;
             instr->flags_out = 0xFF;
             instr->flags_in = 0xFF;
+            scalar_to_vec_map[old_dest] = vec_temp;
             continue;
         }
 
@@ -2010,12 +2198,30 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
             int vec_value = (scalar_val_temp < 65536) ? scalar_to_vec_map[scalar_val_temp] : -1;
             if (vec_value < 0) continue;
 
-            int scale = 0;
-            int cls = classify_addr_temp(c, start_idx, end_idx, i, NULL, scalar_addr_temp,
-                                         vinfo->loop_var_temp, vinfo->counter_slot, 0, &scale, NULL, NULL);
+            int rel = i - start_idx;
+            int cls = addr_info[rel].cls;
+            int scale = addr_info[rel].scale;
             bool is_strided = (cls == 1 && scale > vinfo->elem_size);
 
-            if (is_strided) {
+            if (cls == 2) {
+                int base_t = addr_info[rel].base_t;
+                int idx_t = addr_info[rel].idx_t;
+                int vec_idx = (idx_t >= 0 && idx_t < 65536) ? scalar_to_vec_map[idx_t] : -1;
+                if (vec_idx >= 0) {
+                    instr->op = vinfo->is_rvv ? OP_RVV_VSUXEI : OP_V128_SCATTER;
+                    instr->temp_dest = (uint32_t)vec_value;
+                    instr->temp_src1 = (uint32_t)base_t;
+                    instr->temp_src2 = (uint32_t)vec_idx;
+                    instr->imm = (int16_t)vinfo->elem_size;
+                    instr->imm64 = 0;
+                } else {
+                    instr->op = OP_VSTORE;
+                    instr->temp_dest = TEMP_NONE;
+                    instr->temp_src1 = scalar_addr_temp;
+                    instr->temp_src2 = (uint32_t)vec_value;
+                    instr->imm64 = 0;
+                }
+            } else if (is_strided) {
                 instr->op = OP_V128_STORE_STRIDED;
                 instr->temp_dest = TEMP_NONE;
                 instr->temp_src1 = scalar_addr_temp;
@@ -2204,6 +2410,7 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
         c->cfg_cache.valid = false;
     }
 
+    if (addr_info != addr_info_buf) free(addr_info);
     return true;
 }
 

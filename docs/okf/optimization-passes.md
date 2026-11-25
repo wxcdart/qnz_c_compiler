@@ -4,7 +4,7 @@ title: Optimization Passes & Safety Invariants
 description: Active IR optimization pipeline (Constant Folding, CopyProp, CSE, GVN, DCE, Mem2Reg, LICM, Auto-Vectorization) and their correctness invariants.
 resource: middleend/optimization-passes
 tags: [optimizations, mem2reg, licm, vectorization, gvn, cse, dce]
-timestamp: 2026-11-24T23:58:00Z
+timestamp: 2026-11-25T00:34:33Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -174,6 +174,15 @@ Optimization passes are registered in `src/zero_cc/opt/opt_pass.c` (`g_opt_passe
       - Supports vector memory copies (consecutive loads stored to consecutive addresses) and packed vector arithmetic (`OP_VPADDD`, `OP_VPSUBD`, `OP_VPMULLD`, `OP_VADDPS`, `OP_VSUBPS`, `OP_VMULPS`, `OP_VDIVPS`, `OP_VADDPD`, `OP_VSUBPD`, `OP_VMULPD`, `OP_VDIVPD`, `OP_VANDPS`, `OP_VORPS`, `OP_VXORPS`).
       - Supports scalar broadcasts (`OP_V128_LOAD_STRIDED` with stride 0) for operations with uniform scalar operands.
       - Employs in-place replacement of scalar instructions with vector loads, vector ALUs, and vector stores, NOPing out obsolete scalar loads, sign-extensions, and stores.
+    - **Indexed Gather & Scatter Auto-Vectorization (Sprint 218)**:
+      - Expands `opt_vectorize.c` beyond contiguous and strided accesses to auto-vectorize non-contiguous, indirect array lookups and mutations (`dest[i] = src[idx[i]]` and `dest[idx[i]] = src[i]`).
+      - Identifies address computation patterns (`is_indexed_add`) where the address is formed by `base + idx[i] * scale` and `idx[i]` is loaded from an array within the loop body.
+      - Employs a pre-classification pass in `vectorize_loop_full` (`LoopAddrInfo`) that categorizes all address temporaries before modifying the IR, preventing mutation interference and temp clobbering.
+      - Introduced IR opcodes `OP_V128_GATHER` and `OP_V128_SCATTER`, with live range rules (`live_range.h`) treating `OP_V128_SCATTER`'s `temp_dest` as a read use of the vector value to store.
+      - Hardware vector lowering across all supported ISAs:
+        - **x86-64**: Vector gather and scatter sequences using `pextrd`/`pinsrd` (32-bit int/float) and `pextrq`/`pinsrq` (64-bit double/int64) with address calculation and lane insertion/extraction in both JIT and text assembly.
+        - **AArch64**: NEON vector gather and scatter via lane addressing (`smov`/`mov`, `add lsl`, and `ld1`/`st1` lane operations).
+        - **RISC-V**: RVV 1.0 indexed vector loads and stores via `vluxei` / `vsuxei` (`OP_RVV_VLUXEI`, `OP_RVV_VSUXEI`).
     - **Scalable Loop Auto-Vectorization (Phase 13, Sprint 207)**:
       - Recognizes loop-invariant bounds even across stack frame slot storage (`is_temp_or_slot_invariant_bound`).
       - Emits dynamic vector length control without needing scalar remainder loop peeling:

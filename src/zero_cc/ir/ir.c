@@ -558,6 +558,7 @@ void ir_dump(const ZeroCCCompiler *c, FILE *f) {
             case OP_RVV_VLSE: case OP_RVV_VSSE: case OP_RVV_VLUXEI: case OP_RVV_VSUXEI:
             case OP_V128_HADD: case OP_V128_HMIN: case OP_V128_HMAX:
             case OP_V128_LOAD_STRIDED: case OP_V128_STORE_STRIDED:
+            case OP_V128_GATHER: case OP_V128_SCATTER:
             case OP_VMINPS: case OP_VMAXPS: case OP_VMINPD: case OP_VMAXPD:
             case OP_VPMINSD: case OP_VPMAXSD:
                 fprintf(f, "%s d=%u, s1=%u, s2=%u, imm=%u", ir_opcode_name(instr->op), instr->temp_dest, instr->temp_src1, instr->temp_src2, instr->imm);
@@ -648,6 +649,8 @@ void ir_dump(const ZeroCCCompiler *c, FILE *f) {
                              break;
             case OP_CMP_ZERO: fprintf(f, "CMP_ZERO r%u", instr->temp_src1);
                               break;
+            case OP_LOAD_32: fprintf(f, "LOAD_32 r%u, [r%u]", instr->temp_dest, instr->temp_src1);
+                             break;
             case OP_STORE_32: fprintf(f, "STORE_32 [r%u], r%u", instr->temp_src2, instr->temp_src1);
                               break;
             case OP_DEREF: fprintf(f, "DEREF r%u, r%u", instr->temp_dest, instr->temp_src1);

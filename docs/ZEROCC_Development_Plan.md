@@ -82,7 +82,8 @@ ZeroCC is a multi-ISA C99/C11/C23 compiler targeting x86-64, AArch64, and RISC-V
   - **Phase 4 (Modular Linker Relocations & Thunks, Sprint 217)**: `TargetLinkerOps` vtable in `src/zero_cc/linker/linker_reloc.h` for per-architecture relocation application, PLT stub generation, x86-64 far-rel32 thunk reservation (`reserve_thunks`), and RISC-V PCREL pre-collection (`precollect_pcrel`), eliminating cascading architecture switches in `linker.c`.
   - **Phase 5 (ASM Emitter Backend Hooks, Sprint 217)**: Sized memory loads/stores, branch conditions, and comparisons in `src/zero_cc/ir/asm_emitter.c` delegated to `ZeroCCISABackend` hooks (`emit_load_sized_asm`, `emit_store_sized_asm`, `emit_test_zero_asm`, `emit_cmp_regs_asm`), eliminating inline text formatting conditionals.
 - **Function Cloning & Inter-Procedural Constant Propagation (IPCP, Sprint 217)**: Automatically clones static functions called with compile-time constant arguments into specialized variants (`callee.const_p...`), substituting constants directly into cloned function bodies and unlocking aggressive downstream dead branch pruning, constant folding, and loop unrolling at `-O2`/`-O3` and `-flto`.
-- **Advanced SIMD Vector Architecture & Auto-Vectorization (Sprints 191–217)**:
+- **Advanced SIMD Vector Architecture & Auto-Vectorization (Sprints 191–218)**:
+  - **Indexed Gather & Scatter Vectorization (Sprint 218)**: Auto-vectorizes non-contiguous, indirect array lookups and mutations (`dest[i] = src[idx[i]]` and `dest[idx[i]] = src[i]`) across x86-64 (`OP_V128_GATHER`, `OP_V128_SCATTER`), AArch64 lane addressing, and RISC-V RVV 1.0 (`OP_RVV_VLUXEI`, `OP_RVV_VSUXEI`).
   - **Horizontal Reductions (Sprint 210)**: Loop auto-vectorization for horizontal reduction loops (`sum += a[i]`, min/max) using hardware vector reductions (`OP_V128_HADD`, `OP_RVV_VREDSUM`, `OP_SVE_UADDV`).
   - **Strided & AoS Vectorization (Sprint 211)**: Support non-unit constant induction strides (`a[2*i]`) and Array-of-Structures layouts (`points[i].x`) via hardware strided memory ops (`OP_V128_LOAD_STRIDED`, `OP_V128_STORE_STRIDED`, RVV `vlse`/`vsse`, AArch64 structured lanes, x86 lane extraction).
   - **SLP (Superword-Level Parallelism) Vectorization (Sprint 212)**: Straight-line basic-block vectorization grouping isomorphic contiguous stores, memory copies, arithmetic, and scalar broadcasts without requiring loops (`opt_slp.c`).
@@ -152,7 +153,7 @@ Arena AST Parser (src/zero_cc/parser/definitions.h, ast_stmt.h, ast_expr.h)
     ↓
 Semantic Analyzer (src/zero_cc/semantic/visitor.c, TypeInfo)
     ↓
-AST-to-IR Lowering (src/zero_cc/ir/ast_lowering*.c -> 172-opcode Instr with in-stream OP_CALL_ARG & OP_ASM_ARG/OP_ASM_LABEL)
+AST-to-IR Lowering (src/zero_cc/ir/ast_lowering*.c -> 174-opcode Instr with in-stream OP_CALL_ARG & OP_ASM_ARG/OP_ASM_LABEL)
     ↓
 Optimization Pipeline (src/zero_cc/opt/opt_*.c + opt/cfg.{h,c} CFG + dominator view; -O0 none, default -O1: ConstantFold/FlagDCE/DCE/CopyProp/Mem2Reg, -O2: +CSE/GVN/LICM/inlining, -O3: +Branchless/StrengthReduction/BranchSimplify/LoopUnroll/Vectorize)
     ↓

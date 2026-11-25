@@ -650,7 +650,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
         }
         if (spill_dst >= 0 && !d128_sp && !d64_sp) {
             RegClass rc = regalloc_get_class_for_temp(&c->regalloc, instr->temp_dest);
-            if (instr->op == OP_RVV_VSSE || instr->op == OP_RVV_VSUXEI) {
+            if (instr->op == OP_RVV_VSSE || instr->op == OP_RVV_VSUXEI || instr->op == OP_V128_SCATTER) {
                 int32_t slot_off = spill_base_offset + (spill_dst + 1) * 8;
                 if (BE(c)->emit_vload) {
                     BE(c)->emit_vload(c, BE(c)->fp_scratch_reg1, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off));
@@ -2429,6 +2429,22 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 }
                 break;
 
+            case OP_V128_GATHER:
+                if (c->emit_asm && BE(c)->emit_v128_gather_asm) {
+                    BE(c)->emit_v128_gather_asm(c, phys_dst, phys_src1, phys_src2, (int)instr->imm, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v128_gather) {
+                    BE(c)->emit_v128_gather(c, phys_dst, phys_src1, phys_src2, (int)instr->imm);
+                }
+                break;
+
+            case OP_V128_SCATTER:
+                if (c->emit_asm && BE(c)->emit_v128_scatter_asm) {
+                    BE(c)->emit_v128_scatter_asm(c, phys_dst, phys_src1, phys_src2, (int)instr->imm, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v128_scatter) {
+                    BE(c)->emit_v128_scatter(c, phys_dst, phys_src1, phys_src2, (int)instr->imm);
+                }
+                break;
+
             case OP_VCVT_SI2SS:
                 if (c->emit_asm && BE(c)->emit_vcvt_si2ss_asm) {
                     BE(c)->emit_vcvt_si2ss_asm(c, phys_dst, phys_src1, c->asm_out);
@@ -2963,7 +2979,7 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
          * already persisted the value, so re-storing here would overwrite
          * the slot with scratch-register garbage on ISAs where the check
          * is skipped. */
-        if (spill_dst >= 0 && instr->op != OP_OVF_TRAP && instr->op != OP_RVV_VSSE && instr->op != OP_RVV_VSUXEI) {
+        if (spill_dst >= 0 && instr->op != OP_OVF_TRAP && instr->op != OP_RVV_VSSE && instr->op != OP_RVV_VSUXEI && instr->op != OP_V128_SCATTER) {
             int32_t slot_off = spill_base_offset + (spill_dst + 1) * 8;
             if (d128_sp) {
                 if (BE(c)->emit_store) {

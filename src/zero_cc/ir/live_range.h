@@ -672,13 +672,13 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
             continue;
         }
 
-        /* OP_OVF_TRAP, OP_RVV_VSSE, and OP_RVV_VSUXEI only READ their operands (temp_dest is a value,
+        /* OP_OVF_TRAP, OP_RVV_VSSE, OP_RVV_VSUXEI, and OP_V128_SCATTER only READ their operands (temp_dest is a value,
          * not a definition). Carry all present temps as uses. */
-        if (instr->op == OP_OVF_TRAP || instr->op == OP_RVV_VSSE || instr->op == OP_RVV_VSUXEI) {
+        if (instr->op == OP_OVF_TRAP || instr->op == OP_RVV_VSSE || instr->op == OP_RVV_VSUXEI || instr->op == OP_V128_SCATTER) {
             if (instr->temp_dest != TEMP_NONE) {
                 live_range_add_use(lra, i, instr->temp_dest, false);
                 if (zc_temp_is_user(instr->temp_dest) && (size_t)instr->temp_dest < lra->temp_capacity) {
-                    if (instr->op == OP_RVV_VSSE || instr->op == OP_RVV_VSUXEI) {
+                    if (instr->op == OP_RVV_VSSE || instr->op == OP_RVV_VSUXEI || instr->op == OP_V128_SCATTER) {
                         lra->temp_reg_class[instr->temp_dest] = REG_CLASS_VEC;
                     }
                 }
@@ -686,7 +686,7 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
             if (instr->temp_src1 != TEMP_NONE) {
                 live_range_add_use(lra, i, instr->temp_src1, false);
                 if (zc_temp_is_user(instr->temp_src1) && (size_t)instr->temp_src1 < lra->temp_capacity) {
-                    if (instr->op == OP_RVV_VSSE || instr->op == OP_RVV_VSUXEI) {
+                    if (instr->op == OP_RVV_VSSE || instr->op == OP_RVV_VSUXEI || instr->op == OP_V128_SCATTER) {
                         lra->temp_reg_class[instr->temp_src1] = REG_CLASS_GPR;
                     }
                 }
@@ -696,7 +696,7 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
                 if (zc_temp_is_user(instr->temp_src2) && (size_t)instr->temp_src2 < lra->temp_capacity) {
                     if (instr->op == OP_RVV_VSSE) {
                         lra->temp_reg_class[instr->temp_src2] = REG_CLASS_GPR;
-                    } else if (instr->op == OP_RVV_VSUXEI) {
+                    } else if (instr->op == OP_RVV_VSUXEI || instr->op == OP_V128_SCATTER) {
                         lra->temp_reg_class[instr->temp_src2] = REG_CLASS_VEC;
                     }
                 }
@@ -772,6 +772,7 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
                     instr->op == OP_VLOAD || instr->op == OP_V256_LOAD || instr->op == OP_V512_LOAD ||
                     instr->op == OP_V512_MASK_LOAD ||
                     instr->op == OP_V128_LOAD_STRIDED || instr->op == OP_V128_STORE_STRIDED ||
+                    instr->op == OP_V128_GATHER || instr->op == OP_V128_SCATTER ||
                     instr->op == OP_VSTORE || instr->op == OP_V256_STORE || instr->op == OP_V512_STORE ||
                     instr->op == OP_V512_MASK_STORE || instr->op == OP_KMOVW_TO_K1 ||
                     instr->op == OP_KMOVW_TO_K ||
@@ -823,8 +824,8 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
                     lra->temp_reg_class[instr->temp_src2] = REG_CLASS_GPR; /* base pointer */
                 } else if (instr->op == OP_RVV_VLSE) {
                     lra->temp_reg_class[instr->temp_src2] = REG_CLASS_GPR; /* stride */
-                } else if (instr->op == OP_VSTORE || instr->op == OP_V256_STORE || instr->op == OP_V512_STORE || instr->op == OP_V512_MASK_STORE || instr->op == OP_SVE_ST1 || instr->op == OP_RVV_VSE || instr->op == OP_V128_STORE_STRIDED) {
-                    lra->temp_reg_class[instr->temp_src2] = REG_CLASS_VEC; /* vector value to store */
+                } else if (instr->op == OP_VSTORE || instr->op == OP_V256_STORE || instr->op == OP_V512_STORE || instr->op == OP_V512_MASK_STORE || instr->op == OP_SVE_ST1 || instr->op == OP_RVV_VSE || instr->op == OP_V128_STORE_STRIDED || instr->op == OP_V128_GATHER || instr->op == OP_V128_SCATTER) {
+                    lra->temp_reg_class[instr->temp_src2] = REG_CLASS_VEC; /* vector value to store or vector index */
                 } else if (instr->op == OP_VSTORESS || instr->op == OP_VSTORESD || instr->op == OP_VSTORESS_RAW) {
                     lra->temp_reg_class[instr->temp_src2] = REG_CLASS_XMM; /* scalar float/double value to store */
                 } else if (instr->op == OP_FADD || instr->op == OP_FSUB || instr->op == OP_FMUL || instr->op == OP_FDIV ||

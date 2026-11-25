@@ -1176,6 +1176,16 @@ static void riscv64_emit_v128_store_strided(ZeroCCCompiler *c, int src, int base
     riscv64_emit_rvv_vsse(c, src, base, 30, (esz == 8 ? 3 : 2));
 }
 
+static void riscv64_emit_v128_gather(ZeroCCCompiler *c, int dst, int base, int idx, int esz) {
+    int rvv_esz = (esz == 8) ? 3 : 2;
+    riscv64_emit_rvv_vluxei(c, dst, base, idx, rvv_esz);
+}
+
+static void riscv64_emit_v128_scatter(ZeroCCCompiler *c, int src, int base, int idx, int esz) {
+    int rvv_esz = (esz == 8) ? 3 : 2;
+    riscv64_emit_rvv_vsuxei(c, src, base, idx, rvv_esz);
+}
+
 
 
 static size_t riscv64_patch_jmp(ZeroCCCompiler *c, size_t patch_offset, size_t target_offset) {
@@ -2365,6 +2375,8 @@ ZeroCCISABackend riscv64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_v128_hadd = riscv64_emit_v128_hadd,
     .emit_v128_load_strided = riscv64_emit_v128_load_strided,
     .emit_v128_store_strided = riscv64_emit_v128_store_strided,
+    .emit_v128_gather = riscv64_emit_v128_gather,
+    .emit_v128_scatter = riscv64_emit_v128_scatter,
     .emit_v128_hadd_asm = riscv_emit_v128_hadd_asm,
     .emit_cvtss2sd = riscv64_emit_fp_cvtss2sd,
     .emit_cvttsd2ss = riscv64_emit_fp_cvttsd2ss,

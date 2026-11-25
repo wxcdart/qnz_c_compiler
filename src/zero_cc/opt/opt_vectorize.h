@@ -63,6 +63,8 @@ typedef struct {
     bool is_reduction_fp;      /* True if floating point reduction */
     /* Strided & Non-Unit Stride Auto-Vectorization */
     bool has_strided_access;   /* True if loop contains non-unit stride memory accesses */
+    /* Indexed Gather / Scatter Auto-Vectorization */
+    bool has_indexed_access;   /* True if loop contains indirect array accesses (gather/scatter) */
 } VectorizationInfo;
 
 #define MAX_VECTOR_LOOPS 64

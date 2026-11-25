@@ -540,6 +540,8 @@ typedef enum {
     OP_V128_HMAX,      /* 128-bit horizontal vector max reduction */
     OP_V128_LOAD_STRIDED,  /* 128-bit strided vector load from memory */
     OP_V128_STORE_STRIDED, /* 128-bit strided vector store to memory */
+    OP_V128_GATHER,        /* 128-bit indexed vector gather load (dest=vec_data, src1=base_gpr, src2=vec_idx, imm=esz) */
+    OP_V128_SCATTER,       /* 128-bit indexed vector scatter store (dest=vec_data, src1=base_gpr, src2=vec_idx, imm=esz) */
     OP_VMINPS,         /* 128-bit packed single min */
     OP_VMAXPS,         /* 128-bit packed single max */
     OP_VMINPD,         /* 128-bit packed double min */
@@ -872,6 +874,8 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_V128_HMAX: return "V128_HMAX";
         case OP_V128_LOAD_STRIDED: return "V128_LOAD_STRIDED";
         case OP_V128_STORE_STRIDED: return "V128_STORE_STRIDED";
+        case OP_V128_GATHER: return "V128_GATHER";
+        case OP_V128_SCATTER: return "V128_SCATTER";
         case OP_VMINPS: return "VMINPS";
         case OP_VMAXPS: return "VMAXPS";
         case OP_VMINPD: return "VMINPD";
@@ -963,6 +967,7 @@ static inline bool ir_opcode_is_simd(Opcode op) {
         case OP_RVV_VLSE: case OP_RVV_VSSE: case OP_RVV_VLUXEI: case OP_RVV_VSUXEI:
         case OP_V128_HADD: case OP_V128_HMIN: case OP_V128_HMAX:
         case OP_V128_LOAD_STRIDED: case OP_V128_STORE_STRIDED:
+        case OP_V128_GATHER: case OP_V128_SCATTER:
         case OP_VMINPS: case OP_VMAXPS: case OP_VMINPD: case OP_VMAXPD:
         case OP_VPMINSD: case OP_VPMAXSD:
         case OP_RVV_VREDMIN: case OP_RVV_VREDMAX:
