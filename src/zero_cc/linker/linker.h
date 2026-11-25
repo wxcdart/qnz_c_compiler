@@ -43,7 +43,7 @@ typedef struct {
     bool        print_gc_sections; /* --print-gc-sections: log discarded sections */
     const char *entry_wrapper; /* entry wrapper target symbol (or NULL) */
     const char *entry_symbol;  /* entry point symbol override (-e <sym>) */
-    const char *const *undefined_syms; /* -u <sym> list */
+    const char **undefined_syms; /* -u <sym> list */
     int         undefined_sym_count;
 } ZcLinkOpts;
 

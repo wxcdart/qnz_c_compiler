@@ -231,6 +231,7 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
     }
     c->last_expr_is_128 = 0;  /* GNU __int128 (Sprint 109): 128-bit cases set it */
     c->last_expr_is_64 = 0;   /* Sprint 170 (rv32 i64): 64-bit cases set it */
+    c->last_cx_valid = 0;     /* Complex (Sprint 227): complex cases set it */
 
     switch (node->tag) {
         case NODE_INT: {

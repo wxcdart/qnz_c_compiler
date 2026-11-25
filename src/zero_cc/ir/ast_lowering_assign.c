@@ -684,7 +684,11 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                 bool rv_is_float = c->last_expr_is_float;
                 int rh = zc_alloc_temp(c), li = zc_alloc_temp(c);
                 if (rhs_cx) {
-                    if (rhs_is_fp) {
+                    if (c->last_cx_valid && (size_t)c->last_cx_esz == rhs_esz) {
+                        rh = c->last_cx_rr;
+                        li = c->last_cx_ri;
+                        c->last_cx_valid = 0;
+                    } else if (rhs_is_fp) {
                         if (rhs_esz == 4) { ir_emit_vloadss(c, rh, (uint32_t)rv); int o2 = zc_alloc_temp(c); ir_emit_mov_imm(c, o2, 4); int a2 = zc_alloc_temp(c); ir_emit_add(c, a2, rv, o2); ir_emit_vloadss(c, li, (uint32_t)a2); }
                         else { ir_emit_vloadsd(c, rh, (uint32_t)rv); int o2 = zc_alloc_temp(c); ir_emit_mov_imm(c, o2, 8); int a2 = zc_alloc_temp(c); ir_emit_add(c, a2, rv, o2); ir_emit_vloadsd(c, li, (uint32_t)a2); }
                     } else {

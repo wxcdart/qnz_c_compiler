@@ -109,7 +109,7 @@ static inline void arm32_emit_u32(ZeroCCCompiler *c, uint32_t insn) {
 
 /* Load/Store: LDR/STR, byte/word, pre/post-index, up/down */
 /* LDR/STR: bit 26=1 (0x04000000), P=bit 24, U=bit 23, B=bit 22, W=bit 21, L=bit 20 */
-#define ARM_LDR_STR(p,u,b,w,l) ((1u<<26)|((p)<<24)|((u)<<23)|((b)<<22)|((w)<<21)|((l)<<20))
+#define ARM_LDR_STR(p,u,b,w,l) (((uint32_t)1<<26)|((p)<<24)|((u)<<23)|((b)<<22)|((w)<<21)|((l)<<20))
 
 /* ========================================================================= */
 /* VFPv3/NEON instruction encoding helpers (ARMv7-A) */

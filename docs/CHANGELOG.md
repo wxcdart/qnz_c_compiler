@@ -1,5 +1,56 @@
 # CHANGELOG
 
+## [Sprint 228] - 2026-11-25 - Whole-Program Interprocedural Dead Function & Global Data Stripping (IPO)
+
+Implements Option 3 (Whole-Program Interprocedural Dead Function & Global Data Stripping):
+- **Interprocedural Dead Function and Global Stripping (`jit/compile_unit.c`, `jit/compile.c`)**:
+  - Implemented `zero_cc_ipo_strip_dead_code` executing at the end of translation unit compilation under `-O2`/`-O3`.
+  - Deferred static function lowering at `-O2`/`-O3`: static function bodies are cloned into TU arena and only lowered on demand when reachable from roots.
+  - Worklist reachability analysis: seeds root set from exported symbols, entry points (`main`, `_start`), address-taken functions (`fn->is_addr_taken`), named sections (`fn->section`), and static TLS / opaque inline assembly.
+  - Worklist expansion: dynamically expands function and global bitmasks as deferred functions are lowered, tracking `c->relocs` and scanning IR buffers for `OP_CALL`, `OP_MOV_GLOBAL`, and `OP_TLS_LEA`.
+  - Discards unreferenced static functions and unreferenced static global variables (`fn->lto_eliminated = true`, `gv->lto_eliminated = true`).
+  - Completely strips functions that were fully inlined at all call sites without remaining direct references.
+- **Data Section & Assembly Emission (`driver/driver_asm.h`, `ir/asm_emitter.c`)**:
+  - In `driver_asm.h`, updated `.data`, `.bss`, and `.tdata`/`.tbss` emission loops to check `gv->lto_eliminated`, advancing `cur_offset` to prevent dead global padding byte leaks.
+  - Added reloc tracking for `OP_CALL`, `OP_MOV_GLOBAL`, and `OP_TLS_LEA` in `asm_emitter.c` so text assembly mode accurately records all symbol references.
+- **Linker & AArch32 Self-Host Compatibility (`linker/linker.h`, `linker/linker.c`, `isa/aarch32.c`)**:
+  - Fixed `undefined_syms` in `ZcLinkOpts` to `const char **undefined_syms` to prevent const qualification ambiguity.
+  - Included `<strings.h>` in `linker.c` for `strcasecmp` / `strncasecmp`.
+  - Fixed `ARM_LDR_STR` macro parameter expansion in `isa/aarch32.c`.
+- **Verification & Test Coverage**:
+  - Added unit test suite `test/jit/ipo_dead_strip_test.c`: verified dead static functions, inlined functions, dead static globals, address-taken functions, and nested static call chains across `-O0..-O3` in JIT and AOT.
+  - Full self-host audit: `make audit-self-host` passed 100% across all 81 translation units (81/81 passed).
+  - 3-stage bootstrap fixed-point: `make test-self-host` passed with 100% bit-for-bit identity across all 82 objects and linked binaries.
+  - Regression suites: `make test` (265/265 passed), `make test-opt` (165 passed, 0 failed), `make test-project-diff` (36/36 passed).
+
+
+## [Sprint 227] - 2026-11-25 - Target-Agnostic SIMD Complex Number Arithmetic Vectorization
+
+Implements Option 2 (Target-Agnostic SIMD Complex Number Arithmetic Vectorization):
+- **Complex Arithmetic Vectorization & Result Forwarding (`types/symbols.h`, `ir/ast_lowering_*.c`)**:
+  - Added complex register forwarding state to `ZeroCCCompiler` (`last_cx_valid`, `last_cx_rr`, `last_cx_ri`, `last_cx_esz`) to forward real and imaginary vector registers directly between operations without redundant stack memory spills.
+  - Supported `_Complex float` and `_Complex double` addition, subtraction, scalar scaling, and complex conjugation in `ast_lowering_binop.c`, `ast_lowering_unop.c`, `ast_lowering_assign.c`, and `ast_lowering_expr.c`.
+  - Complex double loop unrolling generates 4-way unrolled AVX/SSE `addpd` and `movapd` vector instructions.
+- **Verification & Test Coverage**:
+  - Added test suite `test/jit/simd_complex_test.c`: covers complex float/double addition, subtraction, scalar scaling, and conjugation in both JIT (`--run`) and AOT (`-o`) modes across `-O0..-O3`.
+
+
+## [Sprint 226] - 2026-11-25 - Cross-Block GVN, Diamond Hoisting & Partial Redundancy Elimination (PRE)
+
+Implements Option 1 (Cross-Block Global Value Numbering, Diamond Hoisting & Partial Redundancy Elimination):
+- **Dominator Tree & Cross-Block GVN Scope (`opt/opt_gvn.c`)**:
+  - Integrated `opt_gvn_dom_tree` building dominator tree from `cfg->idom` and `cfg->blocks`.
+  - Scoped value numbering along dominator tree paths: child blocks inherit value numbers from dominator ancestors while strictly resetting at non-dominating control merges.
+- **Diamond Hoisting (`opt/opt_gvn.c`)**:
+  - Added `opt_gvn_diamond_hoist`: detects conditional if-else branch diamonds where both true and false successor blocks evaluate identical pure expressions.
+  - Hoists the redundant computation into the predecessor branch block before the conditional split, eliminating duplicate work across both execution arms.
+- **Partial Redundancy Elimination (`opt/opt_gvn.c`)**:
+  - Added `opt_gvn_pre`: identifies expressions available along some predecessor paths but partially redundant along others.
+  - Materializes expressions along cold non-computing predecessor paths and replaces subsequent uses with virtual register copies.
+- **Verification & Test Coverage**:
+  - Added unit test suite `test/jit/gvn_pre_test.c` verifying diamond hoisting, cross-block expression reuse, and partial redundancy elimination across `-O0..-O3`.
+
+
 ## [Sprint 225] - 2026-11-25 - Whole-Program IPO / Inlining Expansion & Cross-TU Devirtualization
 
 Implements Option C (Whole-Program IPO, Inlining Expansion & Cross-TU Devirtualization):

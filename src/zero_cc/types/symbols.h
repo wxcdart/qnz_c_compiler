@@ -40,6 +40,12 @@ typedef struct ZeroCCCompiler {
     size_t token_count;
     size_t token_pos;
     int last_expr_is_float;
+    /* Complex numbers (Sprint 227): temps holding the real and imaginary parts
+     * of the most recent lower_expr if it produced a complex value in registers. */
+    int last_cx_valid;
+    int last_cx_rr;
+    int last_cx_ri;
+    int last_cx_esz;
     /* GNU __int128 (Sprint 109): 1 if the most recent lower_expr produced a
      * 128-bit (lo,hi) GPR128 value (a 128-bit local/global load, a 128-bit
      * arithmetic binop/unop, or a 128-bit cast); 0 if it produced a plain

@@ -961,6 +961,10 @@ int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                         else { ir_emit_store_64(c, rh, res_addr); ir_emit_store_64(c, neg_li, res_a2); }
                     }
                     c->last_expr_is_float = 0;
+                    c->last_cx_valid = 1;
+                    c->last_cx_rr = rh;
+                    c->last_cx_ri = neg_li;
+                    c->last_cx_esz = (int)cesz;
                     return res_addr;
                 }
                 /* 128-bit bitwise NOT: operand is a GPR128 (lo,hi) pair, so use

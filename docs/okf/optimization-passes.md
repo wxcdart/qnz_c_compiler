@@ -4,7 +4,7 @@ title: Optimization Passes & Safety Invariants
 description: Active IR optimization pipeline (Constant Folding, CopyProp, CSE, GVN, DCE, Mem2Reg, LICM, Auto-Vectorization) and their correctness invariants.
 resource: middleend/optimization-passes
 tags: [optimizations, mem2reg, licm, vectorization, gvn, cse, dce]
-timestamp: 2026-11-25T14:22:05Z
+timestamp: 2026-11-25T16:57:24Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -26,9 +26,16 @@ Optimization passes are registered in `src/zero_cc/opt/opt_pass.c` (`g_opt_passe
    - Eliminates redundant pure expressions within basic blocks while respecting flag-setting instructions (`REG_FLAGS`).
 4. **Global Value Numbering (`opt_gvn.c`)**
    - Block-scoped hash-based value numbering: duplicate numberable expressions (`ADD/SUB/MUL/AND/OR/XOR/SHL/SHR/NEG/NOT/MOV_REG/MOV_IMM`) in a block are replaced with copies of the first occurrence; the value table resets at every `OP_LABEL`.
+   - **Dominator-Tree Scoped Value Numbering (Sprint 226)**: Builds dominator trees (`opt_gvn_dom_tree`) from `cfg->idom`. Value numbers are inherited along dominator tree ancestor paths, allowing expressions computed in dominating blocks to be eliminated in dominated blocks.
+   - **Diamond Hoisting (Sprint 226)**: `opt_gvn_diamond_hoist` detects if-then-else diamond structures where both branches compute identical pure expressions, hoisting the computation to the branch predecessor.
+   - **Partial Redundancy Elimination (Sprint 226)**: `opt_gvn_pre` identifies expressions available on some predecessor paths, materializing them along non-computing paths to make the expression fully redundant and hoistable into a register copy.
    - A second scan does **restrict-aware redundant-load elimination / store-to-load forwarding** (`opt_restrict_memory_forward`): loads are keyed on (width, canonical address temp); loads from the same unmodified stack slot share a canonical temp; untagged stores clobber all pending entries, `restrict`-grouped stores only their own group; a 64-bit store forwards its value to later 64-bit loads of the same address.
    - **O(1) block reset (Sprint 38)**: the canonical-temp table (`g_canon`, full 16-bit temp-id space) uses **generation stamps** — `mf_reset()` bumps a generation counter instead of rewriting all 65536 slots (the rewrite ran at *every* block boundary — 447× per large function — and measured ~60 ms per function of the ~65 ms GVN total; now ~2.3 ms total per function at `-O2/-O3` on `synth_large.c`).
-5. **Small Function Inlining & Devirtualization (`ast_lowering_call.c` / `ast_lowering_expr.c` / `jit/compile.c`)**
+5. **Whole-Program Interprocedural Dead Function & Global Data Stripping (IPO) (`jit/compile_unit.c`, Sprint 228)**
+   - Deferral and Reachability Analysis: Static function lowering is deferred at `-O2`/`-O3` into `tu_ast_arena`. At the end of compilation, `zero_cc_ipo_strip_dead_code` seeds a root set from exported symbols, entry points, address-taken functions (`fn->is_addr_taken`), named sections, and TLS/opaque assembly.
+   - Demand-Driven Lowering: Reachable functions are popped from a worklist and lowered on demand; emitted relocations (`c->relocs`) and IR instructions (`OP_CALL`, `OP_MOV_GLOBAL`, `OP_TLS_LEA`) are scanned to discover newly reached symbols.
+   - Dead Elimination: Unreached static functions and static global variables are marked `lto_eliminated = true`, omitting them from `.text`, `.data`, `.bss`, and symbol tables. Functions completely inlined at every call site with no address taken are completely stripped.
+6. **Small Function Inlining & Devirtualization (`ast_lowering_call.c` / `ast_lowering_expr.c` / `jit/compile.c`)**
    - Automatically inlines static and `inline` leaf/helper functions at `-O2`/`-O3` (and LTO mode at `-O1`+), up to recursion depth 4 (Sprint 225).
    - AST node count budget expanded from 35 to 60 (and up to 100 for `-O3` or explicit `inline`, Sprint 225).
    - Candidate function bodies are cloned from function-local AST arenas into TU-level `tu_ast_arena`.

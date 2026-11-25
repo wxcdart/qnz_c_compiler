@@ -31,7 +31,7 @@ static inline void emit_asm_data_sections(ZeroCCCompiler *comp) {
     bool has_data = false;
     for (size_t i = 0; i < comp->global_var_count; i++) {
         if (comp->global_vars[i].name[0] && !comp->global_vars[i].is_tls && !comp->global_vars[i].is_bss &&
-            !comp->global_vars[i].alias_target[0]) {
+            !comp->global_vars[i].alias_target[0] && !comp->global_vars[i].lto_eliminated) {
             has_data = true;
             break;
         }
@@ -46,6 +46,10 @@ static inline void emit_asm_data_sections(ZeroCCCompiler *comp) {
         for (size_t i = 0; i < comp->global_var_count; i++) {
             ZeroCCGlobalVar *gv = &comp->global_vars[i];
             if (!gv->name[0]) continue;
+            if (gv->lto_eliminated) {
+                cur_offset = gv->data_offset + gv->size;
+                continue;
+            }
             /* GNU alias entry: no storage of its own, no symbol to emit */
             if (gv->alias_target[0]) continue;
             /* TLS variables live in .tdata/.tbss (emitted below), not .data */
@@ -193,7 +197,7 @@ static inline void emit_asm_data_sections(ZeroCCCompiler *comp) {
     bool has_bss = false;
     for (size_t i = 0; i < comp->global_var_count; i++) {
         if (comp->global_vars[i].name[0] && comp->global_vars[i].is_bss && !comp->global_vars[i].is_tls &&
-            !comp->global_vars[i].alias_target[0]) {
+            !comp->global_vars[i].alias_target[0] && !comp->global_vars[i].lto_eliminated) {
             has_bss = true;
             break;
         }
@@ -206,7 +210,7 @@ static inline void emit_asm_data_sections(ZeroCCCompiler *comp) {
         }
         for (size_t i = 0; i < comp->global_var_count; i++) {
             ZeroCCGlobalVar *gv = &comp->global_vars[i];
-            if (!gv->name[0] || gv->is_tls || !gv->is_bss || gv->alias_target[0]) continue;
+            if (!gv->name[0] || gv->is_tls || !gv->is_bss || gv->alias_target[0] || gv->lto_eliminated) continue;
 
             size_t align = gv->type.align ? gv->type.align : 8;
             if (comp->isa == ISA_AARCH64) {

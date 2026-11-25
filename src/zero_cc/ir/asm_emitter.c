@@ -759,6 +759,13 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
 
         case OP_MOV_GLOBAL: {
             const char *symbol_name = (const char *)(intptr_t)instr->imm64;
+            if (c->reloc_count < ZERO_CC_MAX_RELOCS && symbol_name && symbol_name[0]) {
+                ZeroCCReloc *r = &c->relocs[c->reloc_count++];
+                r->text_patch_offset = 0;
+                snprintf(r->target_symbol, sizeof(r->target_symbol), "%s", symbol_name);
+                r->is_call = false;
+                r->is_tls = false;
+            }
             const char *dst_name = BE(c)->get_hw_reg_name(phys_dst);
             if (c->isa == ISA_AARCH64) {
                 fprintf(out, "\tadrp\t%s, %s\n", dst_name, symbol_name);
@@ -779,6 +786,13 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
              * the canonical GCC idiom - load the thread pointer, then add
              * the @tpoff displacement (the assembler emits TPOFF32). */
             const char *symbol_name = (const char *)(intptr_t)instr->imm64;
+            if (c->reloc_count < ZERO_CC_MAX_RELOCS && symbol_name && symbol_name[0]) {
+                ZeroCCReloc *r = &c->relocs[c->reloc_count++];
+                r->text_patch_offset = 0;
+                snprintf(r->target_symbol, sizeof(r->target_symbol), "%s", symbol_name);
+                r->is_call = false;
+                r->is_tls = true;
+            }
             const char *dst_name = BE(c)->get_hw_reg_name(phys_dst);
             if (c->isa != ISA_X86_64) {
                 /* Unreachable: the TLS backend rejects other ISAs. */
@@ -793,6 +807,13 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
         case OP_CALL: {
             /* Get function name from imm64 (stored as pointer) */
             const char *func_name = (const char *)(intptr_t)instr->imm64;
+            if (c->reloc_count < ZERO_CC_MAX_RELOCS && func_name && func_name[0]) {
+                ZeroCCReloc *r = &c->relocs[c->reloc_count++];
+                r->text_patch_offset = 0;
+                snprintf(r->target_symbol, sizeof(r->target_symbol), "%s", func_name);
+                r->is_call = true;
+                r->is_tls = false;
+            }
 
             /* Collect call arguments: args 0/1 from OP_CALL itself,
              * args 2+ from OP_CALL_ARG pseudo-instructions that follow

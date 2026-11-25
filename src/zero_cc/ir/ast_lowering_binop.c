@@ -1407,6 +1407,10 @@ int lower_expr_binop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                 int addr = zc_alloc_temp(c);
                 ir_emit_lea(c, addr, BE(c)->fp_reg, -croff);
                 c->last_expr_is_float = 0;
+                c->last_cx_valid = 1;
+                c->last_cx_rr = rr;
+                c->last_cx_ri = ri;
+                c->last_cx_esz = (int)cesz;
                 return addr;
             }
         }

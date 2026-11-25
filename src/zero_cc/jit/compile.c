@@ -1322,9 +1322,9 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
                     fn->ast_arena = tu_arena;
                     fn->perm_arena = perm;
                     fn->owner_tu = c->tu_index;
-                    if (c->lto_mode && c->lto_phase == 1) {
+                    if ((c->lto_mode && c->lto_phase == 1) || (c->opt_level >= OPT_LEVEL_O2 && fn_static)) {
                         fn->lto_defer = true;
-                        dim_arena = NULL; /* ownership remains on fn->param_dim_arena until Phase 2 */
+                        dim_arena = NULL; /* ownership remains on fn->param_dim_arena until Phase 2 / IPO */
                     }
                 }
             }

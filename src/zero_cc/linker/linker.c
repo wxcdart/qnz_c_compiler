@@ -23,6 +23,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 
 #include "zero_cc/linker/elf_reader.h"
@@ -158,7 +159,7 @@ typedef struct ZcLink {
     bool gc_sections;
     bool print_gc_sections;
     const char *entry_symbol;
-    const char *const *undefined_syms;
+    const char **undefined_syms;
     int undefined_sym_count;
     uint8_t *sec_live[ZC_MAX_INPUTS];
     ZcLinkScript script;

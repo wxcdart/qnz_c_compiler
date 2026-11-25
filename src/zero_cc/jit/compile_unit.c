@@ -25,6 +25,219 @@
 
 /* File-scope top-level decl helpers -> compile.c */
 
+/* Interprocedural Dead Function & Global Data Stripping (IPO) */
+typedef struct {
+    ZeroCCCompiler *c;
+    uint8_t *live_fn;
+    size_t live_fn_cap;
+    uint8_t *live_gv;
+    size_t live_gv_cap;
+    size_t *q;
+    size_t q_head;
+    size_t q_tail;
+    size_t q_cap;
+} ZeroCCIPOCtx;
+
+static void zero_cc_ipo_push_fn(ZeroCCIPOCtx *ctx, size_t fi);
+static void zero_cc_ipo_mark_sym(ZeroCCIPOCtx *ctx, const char *name);
+static void zero_cc_ipo_mark_gv_data(ZeroCCIPOCtx *ctx, ZeroCCGlobalVar *gv);
+
+static void zero_cc_ipo_ensure_fn_cap(ZeroCCIPOCtx *ctx, size_t needed) {
+    if (needed <= ctx->live_fn_cap) return;
+    size_t ncap = ctx->live_fn_cap ? ctx->live_fn_cap * 2 : 128;
+    while (ncap < needed) ncap *= 2;
+    uint8_t *ng = (uint8_t *)realloc(ctx->live_fn, ncap);
+    if (!ng) return;
+    memset(ng + ctx->live_fn_cap, 0, ncap - ctx->live_fn_cap);
+    ctx->live_fn = ng;
+    ctx->live_fn_cap = ncap;
+}
+
+static void zero_cc_ipo_ensure_gv_cap(ZeroCCIPOCtx *ctx, size_t needed) {
+    if (needed <= ctx->live_gv_cap) return;
+    size_t ncap = ctx->live_gv_cap ? ctx->live_gv_cap * 2 : 128;
+    while (ncap < needed) ncap *= 2;
+    uint8_t *ng = (uint8_t *)realloc(ctx->live_gv, ncap);
+    if (!ng) return;
+    memset(ng + ctx->live_gv_cap, 0, ncap - ctx->live_gv_cap);
+    ctx->live_gv = ng;
+    ctx->live_gv_cap = ncap;
+}
+
+static void zero_cc_ipo_push_fn(ZeroCCIPOCtx *ctx, size_t fi) {
+    if (fi >= ctx->c->function_count) return;
+    zero_cc_ipo_ensure_fn_cap(ctx, fi + 1);
+    if (ctx->live_fn[fi]) return;
+    ctx->live_fn[fi] = 1;
+    if (ctx->q_tail >= ctx->q_cap) {
+        size_t ncap = ctx->q_cap ? ctx->q_cap * 2 : 64;
+        ctx->q = (size_t *)realloc(ctx->q, ncap * sizeof(size_t));
+        ctx->q_cap = ncap;
+    }
+    ctx->q[ctx->q_tail++] = fi;
+}
+
+static void zero_cc_ipo_mark_gv_data(ZeroCCIPOCtx *ctx, ZeroCCGlobalVar *gv) {
+    ZeroCCCompiler *c = ctx->c;
+    if (!gv) return;
+    if (gv->alias_target[0]) {
+        zero_cc_ipo_mark_sym(ctx, gv->alias_target);
+    }
+    size_t gsz = gv->size ? gv->size : gv->type.size;
+    if (!gv->is_bss && gsz > 0) {
+        for (size_t di = 0; di < c->data_reloc_count; di++) {
+            const ZeroCCDataReloc *dr = &c->data_relocs[di];
+            if (dr->data_patch_offset >= gv->data_offset &&
+                dr->data_patch_offset < gv->data_offset + gsz) {
+                if (dr->target_kind == 1 && dr->target_global_idx >= 0) {
+                    size_t gi = (size_t)dr->target_global_idx;
+                    if (gi < c->global_var_count) {
+                        zero_cc_ipo_ensure_gv_cap(ctx, gi + 1);
+                        if (!ctx->live_gv[gi]) {
+                            ctx->live_gv[gi] = 1;
+                            zero_cc_ipo_mark_gv_data(ctx, &c->global_vars[gi]);
+                        }
+                    }
+                } else if ((dr->target_kind == 2 || dr->target_kind == 3) && dr->target_extern_name[0]) {
+                    zero_cc_ipo_mark_sym(ctx, dr->target_extern_name);
+                } else if (dr->target_kind == 5 && dr->target_global_idx >= 0) {
+                    zero_cc_ipo_push_fn(ctx, (size_t)dr->target_global_idx);
+                }
+            }
+        }
+    }
+}
+
+static void zero_cc_ipo_mark_sym(ZeroCCIPOCtx *ctx, const char *name) {
+    if (!ctx || !name || !name[0]) return;
+    ZeroCCCompiler *c = ctx->c;
+    ZeroCCFunction *fn = zero_cc_find_function(c, name);
+    if (!fn) fn = zero_cc_find_function_by_symbol(c, name);
+    if (fn && !fn->is_prototype && !fn->is_external && !fn->is_object && !fn->lto_eliminated) {
+        zero_cc_ipo_push_fn(ctx, (size_t)(fn - c->functions));
+    }
+    ZeroCCGlobalVar *gv = find_global_var(c, name);
+    if (gv && !gv->lto_eliminated) {
+        size_t gi = (size_t)(gv - c->global_vars);
+        if (gi < c->global_var_count) {
+            zero_cc_ipo_ensure_gv_cap(ctx, gi + 1);
+            if (!ctx->live_gv[gi]) {
+                ctx->live_gv[gi] = 1;
+                zero_cc_ipo_mark_gv_data(ctx, gv);
+            }
+        }
+    }
+}
+
+static void zero_cc_ipo_strip_dead_code(ZeroCCCompiler *c) {
+    if (!c || c->lto_mode || c->opt_level < OPT_LEVEL_O2) return;
+
+    ZeroCCIPOCtx ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.c = c;
+    ctx.live_fn_cap = c->function_count + 64;
+    ctx.live_gv_cap = c->global_var_count + 64;
+    ctx.live_fn = (uint8_t *)calloc(ctx.live_fn_cap, 1);
+    ctx.live_gv = (uint8_t *)calloc(ctx.live_gv_cap, 1);
+    if (!ctx.live_fn || !ctx.live_gv) {
+        if (ctx.live_fn) free(ctx.live_fn);
+        if (ctx.live_gv) free(ctx.live_gv);
+        return;
+    }
+
+    bool has_opaque = (c->file_scope_asm_count > 0);
+
+    /* 1. Seed root functions */
+    for (size_t fi = 0; fi < c->function_count; fi++) {
+        ZeroCCFunction *fn = &c->functions[fi];
+        if (fn->is_prototype || fn->is_external || fn->is_object || fn->lto_eliminated) continue;
+        if (!fn->is_static || fn->is_addr_taken || fn->section[0] != '\0' ||
+            (!fn->lto_defer && !fn->is_clone) || has_opaque) {
+            zero_cc_ipo_push_fn(&ctx, fi);
+        }
+    }
+
+    /* 2. Seed root global variables */
+    for (size_t gi = 0; gi < c->global_var_count; gi++) {
+        ZeroCCGlobalVar *gv = &c->global_vars[gi];
+        if (gv->lto_eliminated) continue;
+        if (!gv->is_static || gv->section[0] != '\0' || gv->is_tls || has_opaque) {
+            zero_cc_ipo_ensure_gv_cap(&ctx, gi + 1);
+            if (!ctx.live_gv[gi]) {
+                ctx.live_gv[gi] = 1;
+                zero_cc_ipo_mark_gv_data(&ctx, gv);
+            }
+        }
+    }
+
+    /* 3. Mark symbols from pre-existing relocs (from eagerly lowered functions) */
+    for (size_t ri = 0; ri < c->reloc_count; ri++) {
+        zero_cc_ipo_mark_sym(&ctx, c->relocs[ri].target_symbol);
+    }
+    if (c->ir_arena.buffer) {
+        for (size_t ii = 0; ii < c->ir_arena.count; ii++) {
+            const Instr *in = &c->ir_arena.buffer[ii];
+            if ((in->op == OP_CALL || in->op == OP_MOV_GLOBAL || in->op == OP_TLS_LEA) &&
+                in->imm64 != 0) {
+                const char *sym = (const char *)(intptr_t)in->imm64;
+                if ((intptr_t)sym > 0x1000) {
+                    zero_cc_ipo_mark_sym(&ctx, sym);
+                }
+            }
+        }
+    }
+
+    /* 4. Demand-driven lowering worklist */
+    while (ctx.q_head < ctx.q_tail) {
+        size_t fi = ctx.q[ctx.q_head++];
+        ZeroCCFunction *fn = &c->functions[fi];
+        if ((fn->lto_defer || fn->is_clone) && !fn->lto_lowered && !fn->lto_eliminated) {
+            size_t reloc_before = c->reloc_count;
+            size_t ir_before = c->ir_arena.count;
+            zero_cc_lower_deferred_fn(c, fn);
+            if (c->had_error) break;
+
+            for (size_t ri = reloc_before; ri < c->reloc_count; ri++) {
+                zero_cc_ipo_mark_sym(&ctx, c->relocs[ri].target_symbol);
+            }
+            if (c->ir_arena.buffer) {
+                for (size_t ii = ir_before; ii < c->ir_arena.count; ii++) {
+                    const Instr *in = &c->ir_arena.buffer[ii];
+                    if ((in->op == OP_CALL || in->op == OP_MOV_GLOBAL || in->op == OP_TLS_LEA) &&
+                        in->imm64 != 0) {
+                        const char *sym = (const char *)(intptr_t)in->imm64;
+                        if ((intptr_t)sym > 0x1000) {
+                            zero_cc_ipo_mark_sym(&ctx, sym);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /* 5. Mark unreached functions and globals as eliminated */
+    for (size_t fi = 0; fi < c->function_count; fi++) {
+        ZeroCCFunction *fn = &c->functions[fi];
+        bool is_live = (fi < ctx.live_fn_cap) ? ctx.live_fn[fi] : 0;
+        if (!fn->is_prototype && !fn->is_external && !fn->is_object &&
+            !is_live && (fn->lto_defer || fn->is_clone) && !fn->lto_lowered) {
+            fn->lto_eliminated = true;
+        }
+    }
+
+    for (size_t gi = 0; gi < c->global_var_count; gi++) {
+        ZeroCCGlobalVar *gv = &c->global_vars[gi];
+        bool is_live = (gi < ctx.live_gv_cap) ? ctx.live_gv[gi] : 0;
+        if (!is_live && !gv->lto_eliminated && gv->is_static) {
+            gv->lto_eliminated = true;
+        }
+    }
+
+    free(ctx.live_fn);
+    free(ctx.live_gv);
+    if (ctx.q) free(ctx.q);
+}
+
 /* Master Translation Unit Compiler */
 void zero_cc_compile_c99(ZeroCCCompiler *c) {
     if (!c->lto_mode) {
@@ -2410,23 +2623,8 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
             c->token_pos++;
         }
     }
-    /* Sprint 217: Lower any remaining specialized clones */
-    for (size_t fi = 0; fi < c->function_count; fi++) {
-        ZeroCCFunction *cfn = &c->functions[fi];
-        if (cfn->is_clone && !cfn->lto_lowered && cfn->lto_body != AST_NULL) {
-            zero_cc_lower_deferred_fn(c, cfn);
-        }
-    }
-    /* Eliminate static functions whose call sites were all specialized to clones */
-    if (c->opt_level >= OPT_LEVEL_O2) {
-        for (size_t fi = 0; fi < c->function_count; fi++) {
-            ZeroCCFunction *fn = &c->functions[fi];
-            if (fn->is_static && !fn->is_clone && fn->has_specialized_clones &&
-                fn->call_count == 0 && !fn->is_addr_taken) {
-                fn->lto_eliminated = true;
-            }
-        }
-    }
+    /* Sprint 228: Interprocedural Dead Function & Global Data Stripping (IPO) */
+    zero_cc_ipo_strip_dead_code(c);
     /* Finalize the static TLS block (.tdata/.tbss layout + per-variable
      * offsets) now that all top-level declarations are known. */
     if (c->tls_backend && c->tls_backend->finalize) {
