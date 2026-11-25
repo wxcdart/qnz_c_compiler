@@ -1344,6 +1344,31 @@ static void aarch64_emit_vdivpd(ZeroCCCompiler *c, int dst, int src1, int src2) 
     arm64_emit_u32(c, 0x6E60FC00 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5) | (dst & 0x1F));
 }
 
+static void aarch64_emit_vpaddb(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* add v<dst>.16b, v<src1>.16b, v<src2>.16b */
+    arm64_emit_u32(c, 0x4E208400 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5) | (dst & 0x1F));
+}
+
+static void aarch64_emit_vpsubb(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* sub v<dst>.16b, v<src1>.16b, v<src2>.16b */
+    arm64_emit_u32(c, 0x6E208400 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5) | (dst & 0x1F));
+}
+
+static void aarch64_emit_vpaddw(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* add v<dst>.8h, v<src1>.8h, v<src2>.8h */
+    arm64_emit_u32(c, 0x4E608400 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5) | (dst & 0x1F));
+}
+
+static void aarch64_emit_vpsubw(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* sub v<dst>.8h, v<src1>.8h, v<src2>.8h */
+    arm64_emit_u32(c, 0x6E608400 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5) | (dst & 0x1F));
+}
+
+static void aarch64_emit_vpmullw(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* mul v<dst>.8h, v<src1>.8h, v<src2>.8h */
+    arm64_emit_u32(c, 0x4E609C00 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5) | (dst & 0x1F));
+}
+
 static void aarch64_emit_vpaddd(ZeroCCCompiler *c, int dst, int src1, int src2) {
     /* add v<dst>.4s, v<src1>.4s, v<src2>.4s */
     arm64_emit_u32(c, 0x4EA08400 | ((src2 & 0x1F) << 16) | ((src1 & 0x1F) << 5) | (dst & 0x1F));
@@ -2555,6 +2580,11 @@ ZeroCCISABackend aarch64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_vsubpd = aarch64_emit_vsubpd,
     .emit_vmulpd = aarch64_emit_vmulpd,
     .emit_vdivpd = aarch64_emit_vdivpd,
+    .emit_vpaddb = aarch64_emit_vpaddb,
+    .emit_vpsubb = aarch64_emit_vpsubb,
+    .emit_vpaddw = aarch64_emit_vpaddw,
+    .emit_vpsubw = aarch64_emit_vpsubw,
+    .emit_vpmullw = aarch64_emit_vpmullw,
     .emit_vpaddd = aarch64_emit_vpaddd,
     .emit_vpsubd = aarch64_emit_vpsubd,
     .emit_vpmulld = aarch64_emit_vpmulld,

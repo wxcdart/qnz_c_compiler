@@ -212,6 +212,11 @@ typedef struct ZeroCCISABackend {
     void (*emit_vsubpd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
     void (*emit_vmulpd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
     void (*emit_vdivpd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_vpaddb_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_vpsubb_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_vpaddw_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_vpsubw_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_vpmullw_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
     void (*emit_vpaddd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
     void (*emit_vpsubd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
     void (*emit_vpmulld_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
@@ -548,6 +553,11 @@ typedef struct ZeroCCISABackend {
     void (*emit_vsubpd)(ZeroCCCompiler *c, int dst, int src1, int src2);
     void (*emit_vmulpd)(ZeroCCCompiler *c, int dst, int src1, int src2);
     void (*emit_vdivpd)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_vpaddb)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_vpsubb)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_vpaddw)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_vpsubw)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_vpmullw)(ZeroCCCompiler *c, int dst, int src1, int src2);
     void (*emit_vpaddd)(ZeroCCCompiler *c, int dst, int src1, int src2);
     void (*emit_vpsubd)(ZeroCCCompiler *c, int dst, int src1, int src2);
     void (*emit_vpmulld)(ZeroCCCompiler *c, int dst, int src1, int src2);

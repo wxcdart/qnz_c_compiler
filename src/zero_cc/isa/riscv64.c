@@ -941,6 +941,31 @@ static void riscv64_emit_vdivpd(ZeroCCCompiler *c, int dst, int src1, int src2) 
     riscv_emit_u32(c, 0x82001057 | ((RV_REG(src1) & 0x1F) << 20) | ((RV_REG(src2) & 0x1F) << 15) | ((RV_REG(dst) & 0x1F) << 7));  /* vfdiv.vv */
 }
 
+static void riscv64_emit_vpaddb(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    riscv_emit_u32(c, 0xcc087057u);  /* vsetivli zero, 16, e8, m1, ta, ma */
+    riscv_emit_u32(c, 0x02000057 | ((RV_REG(src1) & 0x1F) << 20) | ((RV_REG(src2) & 0x1F) << 15) | ((RV_REG(dst) & 0x1F) << 7));  /* vadd.vv */
+}
+
+static void riscv64_emit_vpsubb(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    riscv_emit_u32(c, 0xcc087057u);  /* vsetivli zero, 16, e8, m1, ta, ma */
+    riscv_emit_u32(c, 0x0A000057 | ((RV_REG(src1) & 0x1F) << 20) | ((RV_REG(src2) & 0x1F) << 15) | ((RV_REG(dst) & 0x1F) << 7));  /* vsub.vv */
+}
+
+static void riscv64_emit_vpaddw(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    riscv_emit_u32(c, 0xcc847057u);  /* vsetivli zero, 8, e16, m1, ta, ma */
+    riscv_emit_u32(c, 0x02000057 | ((RV_REG(src1) & 0x1F) << 20) | ((RV_REG(src2) & 0x1F) << 15) | ((RV_REG(dst) & 0x1F) << 7));  /* vadd.vv */
+}
+
+static void riscv64_emit_vpsubw(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    riscv_emit_u32(c, 0xcc847057u);  /* vsetivli zero, 8, e16, m1, ta, ma */
+    riscv_emit_u32(c, 0x0A000057 | ((RV_REG(src1) & 0x1F) << 20) | ((RV_REG(src2) & 0x1F) << 15) | ((RV_REG(dst) & 0x1F) << 7));  /* vsub.vv */
+}
+
+static void riscv64_emit_vpmullw(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    riscv_emit_u32(c, 0xcc847057u);  /* vsetivli zero, 8, e16, m1, ta, ma */
+    riscv_emit_u32(c, 0x96002057 | ((RV_REG(src1) & 0x1F) << 20) | ((RV_REG(src2) & 0x1F) << 15) | ((RV_REG(dst) & 0x1F) << 7));  /* vmul.vv */
+}
+
 static void riscv64_emit_vpaddd(ZeroCCCompiler *c, int dst, int src1, int src2) {
     riscv_emit_u32(c, 0xCD027057);  /* vsetivli zero, 4, e32, m1, ta, ma */
     riscv_emit_u32(c, 0x02000057 | ((RV_REG(src1) & 0x1F) << 20) | ((RV_REG(src2) & 0x1F) << 15) | ((RV_REG(dst) & 0x1F) << 7));  /* vadd.vv */
@@ -2357,6 +2382,11 @@ ZeroCCISABackend riscv64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_vsubpd = riscv64_emit_vsubpd,
     .emit_vmulpd = riscv64_emit_vmulpd,
     .emit_vdivpd = riscv64_emit_vdivpd,
+    .emit_vpaddb = riscv64_emit_vpaddb,
+    .emit_vpsubb = riscv64_emit_vpsubb,
+    .emit_vpaddw = riscv64_emit_vpaddw,
+    .emit_vpsubw = riscv64_emit_vpsubw,
+    .emit_vpmullw = riscv64_emit_vpmullw,
     .emit_vpaddd = riscv64_emit_vpaddd,
     .emit_vpsubd = riscv64_emit_vpsubd,
     .emit_vpmulld = riscv64_emit_vpmulld,

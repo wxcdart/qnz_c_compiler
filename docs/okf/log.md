@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-25T01:32:24Z
+timestamp: 2026-11-25T02:02:53Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1686,3 +1686,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-25 — Updated `optimization-passes.md`
 - Sprint 219: SIMD if-conversion & conditional vectorization (predication and blend via OP_V128_CMP and OP_V128_SELECT)
+
+## 2026-11-25 — Updated `optimization-passes.md`
+- Document narrow integer SIMD vectorization (8-bit char and 16-bit short) across x86-64, AArch64, and RISC-V in Sprint 220

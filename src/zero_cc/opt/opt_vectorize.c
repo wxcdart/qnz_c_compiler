@@ -570,8 +570,12 @@ static bool value_is_vec_chain(ZeroCCCompiler *c, int start, int pos,
         if (skip_mask && skip_mask[k - start]) continue;
         const Instr *d = ir_get(c, k);
         if (!d || d->op == OP_NOP || d->op == OP_DEAD) continue;
-        if ((d->op == OP_SEXT32 || d->op == OP_ZEXT32) &&
+        if ((d->op == OP_SEXT8 || d->op == OP_SEXT16 || d->op == OP_SEXT32 ||
+             d->op == OP_ZEXT8 || d->op == OP_ZEXT16 || d->op == OP_ZEXT32) &&
             (d->temp_src1 == t || d->temp_dest == t)) {
+            if (d->temp_src1 != TEMP_NONE && d->temp_dest != d->temp_src1) {
+                return value_is_vec_chain(c, start, k, skip_mask, d->temp_src1, depth + 1);
+            }
             continue;
         }
         if (instr_writes_temp(d, t)) { def_idx = k; break; }
@@ -579,11 +583,16 @@ static bool value_is_vec_chain(ZeroCCCompiler *c, int start, int pos,
     if (def_idx < 0) return false;
 
     const Instr *d = ir_get(c, def_idx);
-    if (d->op == OP_LOAD_32 || d->op == OP_FLOAD ||
+    if (d->op == OP_LOAD_BYTE || d->op == OP_LOAD_16 ||
+        d->op == OP_LOAD_32 || d->op == OP_FLOAD ||
         d->op == OP_VLOADSS || d->op == OP_VLOADSD) {
         return true;
     }
     if (d->op == OP_MOV_REG || d->op == OP_CVTSS2SD || d->op == OP_CVTSD2SS) {
+        return value_is_vec_chain(c, start, def_idx, skip_mask, d->temp_src1, depth + 1);
+    }
+    if (d->op == OP_SEXT8 || d->op == OP_SEXT16 || d->op == OP_SEXT32 ||
+        d->op == OP_ZEXT8 || d->op == OP_ZEXT16 || d->op == OP_ZEXT32) {
         return value_is_vec_chain(c, start, def_idx, skip_mask, d->temp_src1, depth + 1);
     }
 
@@ -1059,6 +1068,8 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
     int arith_count = 0;
     int base_temp = -1;
     int loop_var = -1;
+    bool has_int8_mem = false;
+    bool has_int16_mem = false;
     bool has_int32_mem = false;
     bool has_f32_mem = false;
     bool has_f64_mem = false;
@@ -1088,8 +1099,16 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
             continue;
         }
 
-        if (instr->op == OP_LOAD_32 || instr->op == OP_FLOAD ||
-            instr->op == OP_VLOADSS || instr->op == OP_VLOADSD) {
+        if (instr->op == OP_LOAD_BYTE) {
+            load_count++;
+            if (base_temp < 0) base_temp = (int)instr->temp_src1;
+            has_int8_mem = true;
+        } else if (instr->op == OP_LOAD_16) {
+            load_count++;
+            if (base_temp < 0) base_temp = (int)instr->temp_src1;
+            has_int16_mem = true;
+        } else if (instr->op == OP_LOAD_32 || instr->op == OP_FLOAD ||
+                   instr->op == OP_VLOADSS || instr->op == OP_VLOADSD) {
             load_count++;
             if (base_temp < 0) base_temp = (int)instr->temp_src1;
             if (instr->op == OP_VLOADSD || instr->op == OP_FLOAD) {
@@ -1100,8 +1119,14 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
                 has_int32_mem = true;
             }
         }
-        if (instr->op == OP_STORE_32 || instr->op == OP_FSTORE ||
-            instr->op == OP_VSTORESS || instr->op == OP_VSTORESD) {
+        if (instr->op == OP_STORE_BYTE) {
+            store_count++;
+            has_int8_mem = true;
+        } else if (instr->op == OP_STORE_16) {
+            store_count++;
+            has_int16_mem = true;
+        } else if (instr->op == OP_STORE_32 || instr->op == OP_FSTORE ||
+                   instr->op == OP_VSTORESS || instr->op == OP_VSTORESD) {
             store_count++;
             if (instr->op == OP_VSTORESD || instr->op == OP_FSTORE) {
                 has_double = true; has_fp = true; has_f64_mem = true;
@@ -1126,7 +1151,7 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
     }
 
     bool is_pure_copy = (store_count >= 1 && load_count >= 1);
-    int mem_kind_count = (has_int32_mem ? 1 : 0) + (has_f32_mem ? 1 : 0) + (has_f64_mem ? 1 : 0);
+    int mem_kind_count = (has_int8_mem ? 1 : 0) + (has_int16_mem ? 1 : 0) + (has_int32_mem ? 1 : 0) + (has_f32_mem ? 1 : 0) + (has_f64_mem ? 1 : 0);
     if (has_call || has_int_divmod || (mem_kind_count > 1) ||
         load_count < 1 || (arith_count < 1 && !is_pure_copy)) {
         if (skip_mask != skip_buf) free(skip_mask);
@@ -1332,7 +1357,14 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
                 } else {
                     bool has_avx = state->comp && state->comp->has_avx && (state->target_isa == ISA_X86_64);
                     bool has_avx512 = state->comp && state->comp->has_avx512f && (state->target_isa == ISA_X86_64);
-                    int width = is_red ? (r_dbl ? 2 : 4) : (has_double ? (has_avx512 ? 8 : (has_avx ? 4 : 2)) : state->vector_width);
+                    int elem_size_pre = 4;
+                    if (has_double) elem_size_pre = 8;
+                    else if (has_int8_mem) elem_size_pre = 1;
+                    else if (has_int16_mem) elem_size_pre = 2;
+                    int width = is_red ? (r_dbl ? 2 : 4) :
+                                (has_double ? (has_avx512 ? 8 : (has_avx ? 4 : 2)) :
+                                (elem_size_pre == 1 ? 16 :
+                                (elem_size_pre == 2 ? 8 : state->vector_width)));
                     int64_t v_trip = trip;
                     bool needs_peel = false;
                     if (trip >= width) {
@@ -1501,7 +1533,7 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
         return;
     }
 
-    int elem_size = has_double ? 8 : 4;
+    int elem_size = has_double ? 8 : (has_int8_mem ? 1 : (has_int16_mem ? 2 : 4));
     bool strides_ok = true;
     bool chains_ok = true;
     bool all_aligned = true;
@@ -1514,14 +1546,15 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
         if (vinfo->is_reduction && (i == vinfo->red_load_idx || i == vinfo->red_store_idx)) {
             continue;
         }
-        bool is_load = (a->op == OP_LOAD_32 || a->op == OP_FLOAD ||
+        bool is_load = (a->op == OP_LOAD_BYTE || a->op == OP_LOAD_16 ||
+                        a->op == OP_LOAD_32 || a->op == OP_FLOAD ||
                         a->op == OP_VLOADSS || a->op == OP_VLOADSD);
-        bool is_store32 = (a->op == OP_STORE_32);
+        bool is_store = (a->op == OP_STORE_BYTE || a->op == OP_STORE_16 || a->op == OP_STORE_32);
         bool is_storef = (a->op == OP_FSTORE || a->op == OP_VSTORESS || a->op == OP_VSTORESD);
-        if (!is_load && !is_store32 && !is_storef) continue;
+        if (!is_load && !is_store && !is_storef) continue;
 
-        uint32_t addr = is_store32 ? a->temp_src2 : a->temp_src1;
-        uint32_t val  = is_store32 ? a->temp_src1 : a->temp_src2;
+        uint32_t addr = is_store ? a->temp_src2 : a->temp_src1;
+        uint32_t val  = is_store ? a->temp_src1 : a->temp_src2;
         int scale = 0;
         int32_t base_off = 0;
         bool have_base = false;
@@ -1547,7 +1580,7 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
         } else {
             all_aligned = false;
         }
-        if (!vinfo->is_reduction && (is_store32 || is_storef) &&
+        if (!vinfo->is_reduction && (is_store || is_storef) &&
             !value_is_vec_chain(c, start, i, skip_mask, val, 0)) {
             chains_ok = false;
         }
@@ -1561,7 +1594,9 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
 
     vinfo->is_vectorizable = true;
     vinfo->is_double = has_double;
-    vinfo->is_int32 = !has_fp && !has_double;
+    vinfo->is_int32 = (elem_size == 4 && !has_fp);
+    vinfo->is_int16 = (elem_size == 2);
+    vinfo->is_int8 = (elem_size == 1);
     vinfo->loop_var_temp = loop_var;
     vinfo->array_base_temp = base_temp;
     vinfo->inc_instr_idx = inc_idx;
@@ -1570,20 +1605,28 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
     vinfo->stride_bytes = elem_size;
     vinfo->is_aligned = any_aligned_checked && all_aligned;
     if (vinfo->is_scalable && !vinfo->has_strided_access) {
-        vinfo->vector_width = has_double ? 2 : 4;
+        vinfo->vector_width = (elem_size == 8) ? 2 : (elem_size == 2) ? 8 : (elem_size == 1) ? 16 : 4;
         vinfo->elem_size = elem_size;
         vinfo->array_stride = elem_size;
     } else {
         bool has_avx = state->comp && state->comp->has_avx && (state->target_isa == ISA_X86_64);
         bool has_avx512 = state->comp && state->comp->has_avx512f && (state->target_isa == ISA_X86_64);
         if (vinfo->is_reduction || vinfo->has_strided_access || vinfo->has_indexed_access) {
-            vinfo->vector_width = has_double ? 2 : 4;
+            vinfo->vector_width = (elem_size == 8) ? 2 : (elem_size == 2) ? 8 : (elem_size == 1) ? 16 : 4;
             vinfo->elem_size = elem_size;
             vinfo->array_stride = elem_size;
         } else if (has_double) {
             vinfo->vector_width = has_avx512 ? 8 : (has_avx ? 4 : 2);
             vinfo->elem_size = 8;
             vinfo->array_stride = 8;
+        } else if (elem_size == 1) {
+            vinfo->vector_width = 16;
+            vinfo->elem_size = 1;
+            vinfo->array_stride = 1;
+        } else if (elem_size == 2) {
+            vinfo->vector_width = 8;
+            vinfo->elem_size = 2;
+            vinfo->array_stride = 2;
         } else {
             vinfo->vector_width = state->vector_width;
             vinfo->elem_size = 4;
@@ -1688,7 +1731,7 @@ static int get_sve_op(int scalar_op) {
 /**
  * Get vector operation for scalar operation
  */
-static int get_vec_op(int scalar_op, bool is_double, bool is_int32, bool is_256, bool is_512) {
+static int get_vec_op(int scalar_op, bool is_double, bool is_int32, bool is_int16, bool is_int8, bool is_256, bool is_512) {
     if (is_512) {
         if (is_double) {
             switch (scalar_op) {
@@ -1780,6 +1823,25 @@ static int get_vec_op(int scalar_op, bool is_double, bool is_int32, bool is_256,
             case OP_XOR:  return OP_VXORPS;
             default:      return scalar_op;
         }
+    } else if (is_int8) {
+        switch (scalar_op) {
+            case OP_ADD:  return OP_VPADDB;
+            case OP_SUB:  return OP_VPSUBB;
+            case OP_AND:  return OP_VANDPS;
+            case OP_OR:   return OP_VORPS;
+            case OP_XOR:  return OP_VXORPS;
+            default:      return scalar_op;
+        }
+    } else if (is_int16) {
+        switch (scalar_op) {
+            case OP_ADD:  return OP_VPADDW;
+            case OP_SUB:  return OP_VPSUBW;
+            case OP_MUL:  return OP_VPMULLW;
+            case OP_AND:  return OP_VANDPS;
+            case OP_OR:   return OP_VORPS;
+            case OP_XOR:  return OP_VXORPS;
+            default:      return scalar_op;
+        }
     } else if (is_int32) {
         switch (scalar_op) {
             case OP_ADD:  return OP_VPADDD;
@@ -1822,8 +1884,9 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
     }
 
     int vec_width = vinfo->vector_width;
-    bool is_512 = !vinfo->is_scalable && (vec_width >= 16 || (vinfo->is_double && vec_width >= 8));
-    bool is_256 = !vinfo->is_scalable && !is_512 && (vec_width >= 8 || (vinfo->is_double && vec_width >= 4));
+    int total_bytes = vec_width * vinfo->elem_size;
+    bool is_512 = !vinfo->is_scalable && !vinfo->is_int8 && !vinfo->is_int16 && (total_bytes >= 64);
+    bool is_256 = !vinfo->is_scalable && !vinfo->is_int8 && !vinfo->is_int16 && !is_512 && (total_bytes >= 32);
     if (vinfo->is_scalable) {
         if (vinfo->is_rvv && c) c->rvv_dynamic_vl = true;
     } else {
@@ -2266,12 +2329,15 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
     for (int i = start_idx; i <= end_idx; i++) {
         Instr *ins = ir_get(c, i);
         if (!ins || ins->op == OP_NOP || ins->op == OP_DEAD) continue;
-        bool is_load = (ins->op == OP_LOAD_32 || ins->op == OP_FLOAD ||
+        bool is_load = (ins->op == OP_LOAD_BYTE || ins->op == OP_LOAD_16 ||
+                        ins->op == OP_LOAD_32 || ins->op == OP_FLOAD ||
                         ins->op == OP_VLOADSS || ins->op == OP_VLOADSD);
-        bool is_store = (ins->op == OP_STORE_32 || ins->op == OP_FSTORE ||
+        bool is_store = (ins->op == OP_STORE_BYTE || ins->op == OP_STORE_16 ||
+                         ins->op == OP_STORE_32 || ins->op == OP_FSTORE ||
                          ins->op == OP_VSTORESS || ins->op == OP_VSTORESD);
         if (!is_load && !is_store) continue;
-        uint32_t addr = (ins->op == OP_STORE_32) ? ins->temp_src2 : ins->temp_src1;
+        bool is_int_st = (ins->op == OP_STORE_BYTE || ins->op == OP_STORE_16 || ins->op == OP_STORE_32);
+        uint32_t addr = is_int_st ? ins->temp_src2 : ins->temp_src1;
         int sc = 0;
         int cls = classify_addr_temp(c, start_idx, end_idx, i, NULL, addr,
                                      vinfo->loop_var_temp, vinfo->counter_slot, 0, &sc, NULL, NULL);
@@ -2287,7 +2353,7 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
         addr_info[rel].idx_t = idx_t;
     }
 
-    int esz = vinfo->is_double ? 3 : 2;
+    int esz = (vinfo->elem_size == 8) ? 3 : (vinfo->elem_size == 4) ? 2 : (vinfo->elem_size == 2) ? 1 : 0;
 
     for (int i = start_idx; i <= end_idx; i++) {
         Instr *instr = ir_get(c, i);
@@ -2407,7 +2473,8 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
         }
 
         /* Scalar loads -> vector load into fresh vector temp */
-        if (instr->op == OP_LOAD_32 || instr->op == OP_FLOAD ||
+        if (instr->op == OP_LOAD_BYTE || instr->op == OP_LOAD_16 ||
+            instr->op == OP_LOAD_32 || instr->op == OP_FLOAD ||
             instr->op == OP_VLOADSS || instr->op == OP_VLOADSD) {
             if (!zc_temp_is_user(instr->temp_dest) || instr->temp_dest >= 65536) continue;
             uint32_t old_dest = instr->temp_dest;
@@ -2506,6 +2573,10 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
             instr->op == OP_ZEXT8 || instr->op == OP_ZEXT16 || instr->op == OP_ZEXT32) {
             uint32_t t = (instr->temp_src1 != TEMP_NONE) ? instr->temp_src1 : instr->temp_dest;
             if (zc_temp_is_user(t) && t < 65536 && scalar_to_vec_map[t] >= 0) {
+                if (instr->temp_dest != TEMP_NONE && instr->temp_src1 != TEMP_NONE &&
+                    instr->temp_dest < 65536 && instr->temp_dest != instr->temp_src1) {
+                    scalar_to_vec_map[instr->temp_dest] = scalar_to_vec_map[instr->temp_src1];
+                }
                 instr->op = OP_NOP;
             }
             continue;
@@ -2524,7 +2595,7 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
                     if (vinfo->is_scalable) {
                         vec_op = vinfo->is_rvv ? get_rvv_op(instr->op) : get_sve_op(instr->op);
                     } else {
-                        vec_op = get_vec_op(instr->op, vinfo->is_double, vinfo->is_int32, is_256, is_512);
+                        vec_op = get_vec_op(instr->op, vinfo->is_double, vinfo->is_int32, vinfo->is_int16, vinfo->is_int8, is_256, is_512);
                     }
                     int vec_dest = zc_alloc_temp(c);
                     scalar_to_vec_map[instr->temp_dest] = vec_dest;
@@ -2560,10 +2631,12 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
         }
 
         /* Scalar stores -> OP_VSTORE */
-        if (instr->op == OP_STORE_32 || instr->op == OP_FSTORE ||
+        if (instr->op == OP_STORE_BYTE || instr->op == OP_STORE_16 ||
+            instr->op == OP_STORE_32 || instr->op == OP_FSTORE ||
             instr->op == OP_VSTORESS || instr->op == OP_VSTORESD) {
-            uint32_t scalar_val_temp = (instr->op == OP_STORE_32) ? instr->temp_src1 : instr->temp_src2;
-            uint32_t scalar_addr_temp = (instr->op == OP_STORE_32) ? instr->temp_src2 : instr->temp_src1;
+            bool is_int_store = (instr->op == OP_STORE_BYTE || instr->op == OP_STORE_16 || instr->op == OP_STORE_32);
+            uint32_t scalar_val_temp = is_int_store ? instr->temp_src1 : instr->temp_src2;
+            uint32_t scalar_addr_temp = is_int_store ? instr->temp_src2 : instr->temp_src1;
             int vec_value = (scalar_val_temp < 65536) ? scalar_to_vec_map[scalar_val_temp] : -1;
             if (vec_value < 0) continue;
 

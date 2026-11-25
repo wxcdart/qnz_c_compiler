@@ -1231,6 +1231,46 @@ static void aarch64_emit_vdivpd_asm(ZeroCCCompiler *c, int dst, int src1, int sr
     fprintf(out, "\tfdiv\t%s.2d, %s.2d, %s.2d\n", dst_name, src1_name, src2_name);
 }
 
+/* Vector packed 8-bit int add - add.16b */
+static void aarch64_emit_vpaddb_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src1_name = BE(c)->get_vec_reg_name(src1);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tadd\t%s.16b, %s.16b, %s.16b\n", dst_name, src1_name, src2_name);
+}
+
+/* Vector packed 8-bit int sub - sub.16b */
+static void aarch64_emit_vpsubb_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src1_name = BE(c)->get_vec_reg_name(src1);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tsub\t%s.16b, %s.16b, %s.16b\n", dst_name, src1_name, src2_name);
+}
+
+/* Vector packed 16-bit int add - add.8h */
+static void aarch64_emit_vpaddw_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src1_name = BE(c)->get_vec_reg_name(src1);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tadd\t%s.8h, %s.8h, %s.8h\n", dst_name, src1_name, src2_name);
+}
+
+/* Vector packed 16-bit int sub - sub.8h */
+static void aarch64_emit_vpsubw_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src1_name = BE(c)->get_vec_reg_name(src1);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tsub\t%s.8h, %s.8h, %s.8h\n", dst_name, src1_name, src2_name);
+}
+
+/* Vector packed 16-bit int mul - mul.8h */
+static void aarch64_emit_vpmullw_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src1_name = BE(c)->get_vec_reg_name(src1);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tmul\t%s.8h, %s.8h, %s.8h\n", dst_name, src1_name, src2_name);
+}
+
 /* Vector packed 32-bit int add - add.4s */
 static void aarch64_emit_vpaddd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
     const char *dst_name = BE(c)->get_vec_reg_name(dst);
@@ -2178,6 +2218,11 @@ void aarch64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_vsubpd_asm = aarch64_emit_vsubpd_asm;
     be->emit_vmulpd_asm = aarch64_emit_vmulpd_asm;
     be->emit_vdivpd_asm = aarch64_emit_vdivpd_asm;
+    be->emit_vpaddb_asm = aarch64_emit_vpaddb_asm;
+    be->emit_vpsubb_asm = aarch64_emit_vpsubb_asm;
+    be->emit_vpaddw_asm = aarch64_emit_vpaddw_asm;
+    be->emit_vpsubw_asm = aarch64_emit_vpsubw_asm;
+    be->emit_vpmullw_asm = aarch64_emit_vpmullw_asm;
     be->emit_vpaddd_asm = aarch64_emit_vpaddd_asm;
     be->emit_vpsubd_asm = aarch64_emit_vpsubd_asm;
     be->emit_vpmulld_asm = aarch64_emit_vpmulld_asm;

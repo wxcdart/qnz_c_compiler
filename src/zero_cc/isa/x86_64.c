@@ -505,6 +505,83 @@ static void x86_emit_vdivpd(ZeroCCCompiler *c, int dst, int src1, int src2) {
     x86_modrm(c, 3, dst & 7, src2 & 7);
 }
 
+static void x86_emit_vpaddb(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* paddb xmm_dest, xmm_src - packed 8-bit int add (66 0F FC /r) */
+    if (dst == src2 && dst != src1) {
+        int tmp = src1; src1 = src2; src2 = tmp;
+    }
+    if (dst != src1) {
+        x86_emit_vmovaps(c, dst, src1);
+    }
+    me_emit_u8(c, 0x66);
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src2 >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0xFC);  /* paddb */
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_vpsubb(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* psubb xmm_dest, xmm_src - packed 8-bit int subtract (66 0F F8 /r) */
+    if (dst == src2 && dst != src1) {
+        x86_emit_vmovaps(c, 15, src2);
+        x86_emit_vmovaps(c, dst, src1);
+        src2 = 15;
+    } else if (dst != src1) {
+        x86_emit_vmovaps(c, dst, src1);
+    }
+    me_emit_u8(c, 0x66);
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src2 >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0xF8);  /* psubb */
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_vpaddw(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* paddw xmm_dest, xmm_src - packed 16-bit int add (66 0F FD /r) */
+    if (dst == src2 && dst != src1) {
+        int tmp = src1; src1 = src2; src2 = tmp;
+    }
+    if (dst != src1) {
+        x86_emit_vmovaps(c, dst, src1);
+    }
+    me_emit_u8(c, 0x66);
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src2 >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0xFD);  /* paddw */
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_vpsubw(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* psubw xmm_dest, xmm_src - packed 16-bit int subtract (66 0F F9 /r) */
+    if (dst == src2 && dst != src1) {
+        x86_emit_vmovaps(c, 15, src2);
+        x86_emit_vmovaps(c, dst, src1);
+        src2 = 15;
+    } else if (dst != src1) {
+        x86_emit_vmovaps(c, dst, src1);
+    }
+    me_emit_u8(c, 0x66);
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src2 >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0xF9);  /* psubw */
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_vpmullw(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    /* pmullw xmm_dest, xmm_src - packed 16-bit int multiply (66 0F D5 /r) */
+    if (dst == src2 && dst != src1) {
+        int tmp = src1; src1 = src2; src2 = tmp;
+    }
+    if (dst != src1) {
+        x86_emit_vmovaps(c, dst, src1);
+    }
+    me_emit_u8(c, 0x66);
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src2 >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0xD5);  /* pmullw */
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
 static void x86_emit_vpaddd(ZeroCCCompiler *c, int dst, int src1, int src2) {
     /* paddd xmm_dest, xmm_src - packed 32-bit int add (66 0F FE /r) */
     if (dst == src2 && dst != src1) {
@@ -2934,6 +3011,11 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_vsubpd = x86_emit_vsubpd,
     .emit_vmulpd = x86_emit_vmulpd,
     .emit_vdivpd = x86_emit_vdivpd,
+    .emit_vpaddb = x86_emit_vpaddb,
+    .emit_vpsubb = x86_emit_vpsubb,
+    .emit_vpaddw = x86_emit_vpaddw,
+    .emit_vpsubw = x86_emit_vpsubw,
+    .emit_vpmullw = x86_emit_vpmullw,
     .emit_vpaddd = x86_emit_vpaddd,
     .emit_vpsubd = x86_emit_vpsubd,
     .emit_vpmulld = x86_emit_vpmulld,

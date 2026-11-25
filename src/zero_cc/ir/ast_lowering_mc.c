@@ -1579,6 +1579,46 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 }
                 break;
 
+            case OP_VPADDB:
+                if (c->emit_asm && BE(c)->emit_vpaddb_asm) {
+                    BE(c)->emit_vpaddb_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_vpaddb) {
+                    BE(c)->emit_vpaddb(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
+            case OP_VPSUBB:
+                if (c->emit_asm && BE(c)->emit_vpsubb_asm) {
+                    BE(c)->emit_vpsubb_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_vpsubb) {
+                    BE(c)->emit_vpsubb(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
+            case OP_VPADDW:
+                if (c->emit_asm && BE(c)->emit_vpaddw_asm) {
+                    BE(c)->emit_vpaddw_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_vpaddw) {
+                    BE(c)->emit_vpaddw(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
+            case OP_VPSUBW:
+                if (c->emit_asm && BE(c)->emit_vpsubw_asm) {
+                    BE(c)->emit_vpsubw_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_vpsubw) {
+                    BE(c)->emit_vpsubw(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
+            case OP_VPMULLW:
+                if (c->emit_asm && BE(c)->emit_vpmullw_asm) {
+                    BE(c)->emit_vpmullw_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_vpmullw) {
+                    BE(c)->emit_vpmullw(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
             case OP_VPADDD:
                 if (c->emit_asm && BE(c)->emit_vpaddd_asm) {
                     BE(c)->emit_vpaddd_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);

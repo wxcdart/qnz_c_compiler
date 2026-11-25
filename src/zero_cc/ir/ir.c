@@ -584,6 +584,16 @@ void ir_dump(const ZeroCCCompiler *c, FILE *f) {
                             break;
             case OP_VSHUFPS: fprintf(f, "VSHUFPS xmm%u, xmm%u, xmm%u, imm=%d", instr->temp_dest, instr->temp_src1, instr->temp_src2, (int)instr->imm);
                              break;
+            case OP_VPADDB: fprintf(f, "VPADDB xmm%u, xmm%u, xmm%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);
+                            break;
+            case OP_VPSUBB: fprintf(f, "VPSUBB xmm%u, xmm%u, xmm%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);
+                            break;
+            case OP_VPADDW: fprintf(f, "VPADDW xmm%u, xmm%u, xmm%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);
+                            break;
+            case OP_VPSUBW: fprintf(f, "VPSUBW xmm%u, xmm%u, xmm%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);
+                            break;
+            case OP_VPMULLW: fprintf(f, "VPMULLW xmm%u, xmm%u, xmm%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);
+                             break;
             case OP_VPADDD: fprintf(f, "VPADDD xmm%u, xmm%u, xmm%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);
                             break;
             case OP_VPSUBD: fprintf(f, "VPSUBD xmm%u, xmm%u, xmm%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);

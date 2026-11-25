@@ -4,7 +4,7 @@ title: Optimization Passes & Safety Invariants
 description: Active IR optimization pipeline (Constant Folding, CopyProp, CSE, GVN, DCE, Mem2Reg, LICM, Auto-Vectorization) and their correctness invariants.
 resource: middleend/optimization-passes
 tags: [optimizations, mem2reg, licm, vectorization, gvn, cse, dce]
-timestamp: 2026-11-25T01:32:24Z
+timestamp: 2026-11-25T02:02:53Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -98,6 +98,11 @@ Optimization passes are registered in `src/zero_cc/opt/opt_pass.c` (`g_opt_passe
      - **Single-Precision Floats (`float[N]`)**: maps `OP_VLOADSS`, `OP_VSTORESS`, `OP_FADD`/`OP_FSUB`/`OP_FMUL`/`OP_FDIV` &rarr; 128-bit packed single vector instructions (`OP_VADDPS`, `OP_VSUBPS`, `OP_VMULPS`, `OP_VDIVPS`, `OP_VLOAD`, `OP_VSTORE`) with `vec_width = 4` (stride 4, `i += 4`).
      - **Double-Precision Floats (`double[N]`)**: maps `OP_VLOADSD`, `OP_VSTORESD`, `OP_FADD`/`OP_FSUB`/`OP_FMUL`/`OP_FDIV` &rarr; 128-bit packed double vector instructions (`OP_VADDPD`, `OP_VSUBPD`, `OP_VMULPD`, `OP_VDIVPD`, `OP_VLOAD`, `OP_VSTORE`) with `vec_width = 2` (stride 8, `i += 2`).
      - **32-Bit Packed Integers (`int[N]`)**: maps `OP_LOAD_32`, `OP_STORE_32`, `OP_ADD`/`OP_SUB`/`OP_MUL` &rarr; 128-bit packed integer vector instructions (`OP_VPADDD`, `OP_VPSUBD`, `OP_VPMULLD`, `OP_VLOAD`, `OP_VSTORE`) with `vec_width = 4` (stride 4, `i += 4`).
+     - **Narrow Integers (8-bit `char` & 16-bit `short`, Sprint 220)**:
+       - 8-bit `char[N]`: maps `OP_LOAD_BYTE`, `OP_STORE_BYTE`, `OP_ADD`/`OP_SUB` &rarr; 128-bit packed byte vector instructions (`OP_VPADDB`, `OP_VPSUBB`, `OP_VLOAD`, `OP_VSTORE`) with `vec_width = 16` (stride 1, `i += 16`).
+       - 16-bit `short[N]`: maps `OP_LOAD_16`, `OP_STORE_16`, `OP_ADD`/`OP_SUB`/`OP_MUL` &rarr; 128-bit packed word vector instructions (`OP_VPADDW`, `OP_VPSUBW`, `OP_VPMULLW`, `OP_VLOAD`, `OP_VSTORE`) with `vec_width = 8` (stride 2, `i += 8`).
+       - Transparent integer promotion traversal: `value_is_vec_chain` traverses `OP_SEXT8`/`OP_SEXT16`/`OP_ZEXT8`/`OP_ZEXT16` transparently so scalar arithmetic promoted to 32-bit ints by C rules correctly binds to narrow vector operations.
+       - Multi-ISA lowered to x86-64 SSE2 (`paddb`, `psubb`, `paddw`, `psubw`, `pmullw`), AArch64 NEON (`add.16b`, `sub.16b`, `add.8h`, `sub.8h`, `mul.8h`), and RISC-V RVV 1.0 (`vsetivli zero, 16, e8, m1` / `vsetivli zero, 8, e16, m1` + `vadd.vv`, `vsub.vv`, `vmul.vv`).
      - Supports multi-ISA backend lowering across x86-64 SSE2/SSE4.1 (`paddd`, `psubd`, `pmulld`), AArch64 NEON (`add.4s`, `sub.4s`, `mul.4s`, `fadd.2d`, `fadd.4s`, `ldr/str q`), and RISC-V RVV 1.0 (`vsetivli zero, 4, e32, m1` / `vsetivli zero, 2, e64, m1`, `vadd.vv`, `vsub.vv`, `vmul.vv`, `vfadd.vv`, `vle32.v`/`vse32.v`).
      - **Induction Classification & Temp Mapping (Sprint 179)**: `classify_addr_temp` traces through sign/zero extensions (`OP_SEXT8/16/32`, `OP_ZEXT8/16/32`), vectorizing standard loops indexing arrays with 32-bit integer counters (`arr[i]`). The scalar-to-vector temp map covers the complete 16-bit temp space (65536 entries), ensuring later functions in multi-function translation units vectorize completely.
      - **Vector Register Allocator Decoupling (`REG_CLASS_VEC`, Sprint 179)**: Vector registers are decoupled from scalar FP (`REG_CLASS_XMM`), treated as caller-saved across function calls (`spans_call -> spill`), with reserved vector scratches (14/15) and 16-byte aligned 2-slot spill slots reloaded/stored via `emit_vload` / `emit_vstore`. Scalar FP instructions (`*SS`, `*SD`) remain strictly in `REG_CLASS_XMM`.

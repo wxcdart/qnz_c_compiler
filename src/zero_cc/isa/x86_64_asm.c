@@ -1358,6 +1358,73 @@ static void x86_emit_vmovapd_asm(ZeroCCCompiler *c, int dst, int src, FILE *out)
     fprintf(out, "\tmovapd\t%%%s,%%%s\n", src_name, dst_name);
 }
 
+/* Vector packed 8-bit int add - paddb */
+static void x86_emit_vpaddb_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    if (dst == src2 && dst != src1) {
+        int tmp = src1; src1 = src2; src2 = tmp;
+    }
+    if (dst != src1) {
+        x86_emit_vmovaps_asm(c, dst, src1, out);
+    }
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tpaddb\t%%%s,%%%s\n", src2_name, dst_name);
+}
+
+/* Vector packed 8-bit int sub - psubb */
+static void x86_emit_vpsubb_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    if (dst == src2 && dst != src1) {
+        x86_emit_vmovaps_asm(c, 15, src2, out);
+        x86_emit_vmovaps_asm(c, dst, src1, out);
+        src2 = 15;
+    } else if (dst != src1) {
+        x86_emit_vmovaps_asm(c, dst, src1, out);
+    }
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tpsubb\t%%%s,%%%s\n", src2_name, dst_name);
+}
+
+/* Vector packed 16-bit int add - paddw */
+static void x86_emit_vpaddw_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    if (dst == src2 && dst != src1) {
+        int tmp = src1; src1 = src2; src2 = tmp;
+    }
+    if (dst != src1) {
+        x86_emit_vmovaps_asm(c, dst, src1, out);
+    }
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tpaddw\t%%%s,%%%s\n", src2_name, dst_name);
+}
+
+/* Vector packed 16-bit int sub - psubw */
+static void x86_emit_vpsubw_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    if (dst == src2 && dst != src1) {
+        x86_emit_vmovaps_asm(c, 15, src2, out);
+        x86_emit_vmovaps_asm(c, dst, src1, out);
+        src2 = 15;
+    } else if (dst != src1) {
+        x86_emit_vmovaps_asm(c, dst, src1, out);
+    }
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tpsubw\t%%%s,%%%s\n", src2_name, dst_name);
+}
+
+/* Vector packed 16-bit int mul - pmullw */
+static void x86_emit_vpmullw_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    if (dst == src2 && dst != src1) {
+        int tmp = src1; src1 = src2; src2 = tmp;
+    }
+    if (dst != src1) {
+        x86_emit_vmovaps_asm(c, dst, src1, out);
+    }
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *src2_name = BE(c)->get_vec_reg_name(src2);
+    fprintf(out, "\tpmullw\t%%%s,%%%s\n", src2_name, dst_name);
+}
+
 /* Vector packed 32-bit int add - paddd */
 static void x86_emit_vpaddd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
     if (dst == src2 && dst != src1) {
@@ -2643,6 +2710,11 @@ void x86_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_cvtsd2ss_asm = x86_emit_cvtsd2ss_asm;
     be->emit_vcmpss_asm = x86_emit_vcmpss_asm;
     be->emit_vcmpsd_asm = x86_emit_vcmpsd_asm;
+    be->emit_vpaddb_asm = x86_emit_vpaddb_asm;
+    be->emit_vpsubb_asm = x86_emit_vpsubb_asm;
+    be->emit_vpaddw_asm = x86_emit_vpaddw_asm;
+    be->emit_vpsubw_asm = x86_emit_vpsubw_asm;
+    be->emit_vpmullw_asm = x86_emit_vpmullw_asm;
     be->emit_vpaddd_asm = x86_emit_vpaddd_asm;
     be->emit_vpsubd_asm = x86_emit_vpsubd_asm;
     be->emit_vpmulld_asm = x86_emit_vpmulld_asm;

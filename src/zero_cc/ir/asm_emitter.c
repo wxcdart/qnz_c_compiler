@@ -1139,7 +1139,37 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             }
             return;
 
-        /* SIMD/Vector Operations - Packed 32-bit Integer */
+        /* SIMD/Vector Operations - Packed Integer */
+        case OP_VPADDB:
+            if (BE(c)->emit_vpaddb_asm) {
+                BE(c)->emit_vpaddb_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+
+        case OP_VPSUBB:
+            if (BE(c)->emit_vpsubb_asm) {
+                BE(c)->emit_vpsubb_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+
+        case OP_VPADDW:
+            if (BE(c)->emit_vpaddw_asm) {
+                BE(c)->emit_vpaddw_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+
+        case OP_VPSUBW:
+            if (BE(c)->emit_vpsubw_asm) {
+                BE(c)->emit_vpsubw_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+
+        case OP_VPMULLW:
+            if (BE(c)->emit_vpmullw_asm) {
+                BE(c)->emit_vpmullw_asm(c, phys_dst, phys_src1, phys_src2, out);
+            }
+            return;
+
         case OP_VPADDD:
             if (BE(c)->emit_vpaddd_asm) {
                 BE(c)->emit_vpaddd_asm(c, phys_dst, phys_src1, phys_src2, out);

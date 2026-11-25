@@ -1,5 +1,28 @@
 # CHANGELOG
 
+## [Sprint 220] - 2026-11-25 - Narrow Integer SIMD Vectorization (8-bit char & 16-bit short)
+
+Implements Option 2 (Narrow Integer SIMD Vectorization):
+- **Opcodes & IR Extensions (`ir.h`, `ir.c`)**:
+  - Introduced packed 8-bit integer vector arithmetic opcodes: `OP_VPADDB` and `OP_VPSUBB` (16 elements per 128-bit vector).
+  - Introduced packed 16-bit integer vector arithmetic opcodes: `OP_VPADDW`, `OP_VPSUBW`, and `OP_VPMULLW` (8 elements per 128-bit vector).
+  - Added inline IR builders: `ir_emit_vpaddb`, `ir_emit_vpsubb`, `ir_emit_vpaddw`, `ir_emit_vpsubw`, `ir_emit_vpmullw`.
+  - Updated IR disassembler and opcode predicates (`ir_opcode_is_simd`).
+- **Multi-ISA Backend Machine Code & Text Assembly (`isa_backend.h`, `x86_64.c`, `x86_64_asm.c`, `aarch64.c`, `aarch64_asm.c`, `riscv64.c`, `riscv_asm.c`, `ast_lowering_mc.c`, `asm_emitter.c`)**:
+  - Extended `ZeroCCISABackend` with backend vtable hooks: `emit_vpaddb`, `emit_vpsubb`, `emit_vpaddw`, `emit_vpsubw`, `emit_vpmullw` (and their `_asm` counterparts).
+  - **x86-64**: Implemented `paddb` (`66 0F FC /r`), `psubb` (`66 0F F8 /r`), `paddw` (`66 0F FD /r`), `psubw` (`66 0F F9 /r`), and `pmullw` (`66 0F D5 /r`) with XMM15 temporary preservation for non-commutative operand clobbers.
+  - **AArch64**: Implemented NEON 128-bit vector instructions: `add v.16b`, `sub v.16b`, `add v.8h`, `sub v.8h`, and `mul v.8h`.
+  - **RISC-V**: Implemented RVV 1.0 vector instructions: `vsetivli zero, 16, e8, m1, ta, ma` for 8-bit and `vsetivli zero, 8, e16, m1, ta, ma` for 16-bit, followed by `vadd.vv`, `vsub.vv`, and `vmul.vv`.
+- **Auto-Vectorizer Integration (`opt_vectorize.c`, `opt_vectorize.h`)**:
+  - Updated `VectorizationInfo`: added `is_int8` and `is_int16` tracking flags.
+  - In `value_is_vec_chain`: transparently traverses `OP_SEXT8`/`OP_SEXT16`/`OP_ZEXT8`/`OP_ZEXT16` and identifies `OP_LOAD_BYTE` and `OP_LOAD_16` as valid vector chain roots.
+  - In `analyze_loop_for_vectorization_full`: classifies element sizes for 8-bit (`elem_size = 1`, `width = 16`) and 16-bit (`elem_size = 2`, `width = 8`), correctly sizing trip count requirements and remainder loop peeling.
+  - In `vectorize_loop_full`: lowers scalar `OP_LOAD_BYTE`/`OP_LOAD_16` to `OP_VLOAD` and `OP_STORE_BYTE`/`OP_STORE_16` to `OP_VSTORE` with element size marks `esz = 0` (e8) and `esz = 1` (e16).
+  - Updated `get_vec_op`: maps scalar arithmetic to narrow vector opcodes (`OP_VPADDB`, `OP_VPSUBB`, `OP_VPADDW`, `OP_VPSUBW`, `OP_VPMULLW`) while preserving float and 32-bit int vectors.
+- **Verification & Test Coverage**:
+  - `test/jit/simd_narrow_int_test.c`: Test suite verifying 8-bit `char` addition and subtraction, and 16-bit `short` addition, subtraction, and multiplication across multiple trip counts (both exact multiples and peeled remainders) across `-O0..-O3` in both JIT (`--run`) and AOT binary execution.
+  - Verified across `make test` (258/258 passed), `make test-opt` (216/216 passed, 0 failures), `tools/verify/style_check.py` (0 errors), and `tools/okf/okf.py lint` (23/23 reachable).
+
 ## [Sprint 219] - 2026-11-25 - SIMD If-Conversion & Conditional Vectorization (Predication / Blend)
 
 Implements Option 1 (SIMD If-Conversion & Conditional Vectorization):

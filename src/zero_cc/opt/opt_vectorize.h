@@ -36,7 +36,9 @@ typedef struct {
     int iter_count_temp;       /* Temporary for iteration count */
     bool is_double;            /* 64-bit double precision floating point */
     bool is_int32;             /* 32-bit packed integer */
-    int elem_size;             /* Element size in bytes (4 or 8) */
+    bool is_int16;             /* 16-bit packed integer (Sprint 220) */
+    bool is_int8;              /* 8-bit packed integer (Sprint 220) */
+    int elem_size;             /* Element size in bytes (1, 2, 4, 8) */
     int inc_instr_idx;         /* Instruction index of loop counter increment */
     bool inc_use_src2;         /* True if OP_ADD counter is in temp_src2 */
     bool is_aligned;           /* True if all stack array bases are 16-byte aligned */

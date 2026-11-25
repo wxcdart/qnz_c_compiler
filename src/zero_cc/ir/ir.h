@@ -266,6 +266,11 @@ typedef enum {
     OP_VANDPS,     /* andps (packed single) */
     OP_VXORPS,     /* xorps (packed single) */
     OP_VSHUFPS,    /* shufps (shuffle packed single) */
+    OP_VPADDB,     /* paddb (packed 8-bit integer add) */
+    OP_VPSUBB,     /* psubb (packed 8-bit integer subtract) */
+    OP_VPADDW,     /* paddw (packed 16-bit integer add) */
+    OP_VPSUBW,     /* psubw (packed 16-bit integer subtract) */
+    OP_VPMULLW,    /* pmullw (packed 16-bit integer multiply) */
     OP_VPADDD,     /* paddd (packed 32-bit integer add) */
     OP_VPSUBD,     /* psubd (packed 32-bit integer subtract) */
     OP_VPMULLD,    /* pmulld (packed 32-bit integer multiply) */
@@ -709,6 +714,14 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_VANDPS: return "VANDPS";
         case OP_VXORPS: return "VXORPS";
         case OP_VSHUFPS: return "VSHUFPS";
+        case OP_VPADDB: return "VPADDB";
+        case OP_VPSUBB: return "VPSUBB";
+        case OP_VPADDW: return "VPADDW";
+        case OP_VPSUBW: return "VPSUBW";
+        case OP_VPMULLW: return "VPMULLW";
+        case OP_VPADDD: return "VPADDD";
+        case OP_VPSUBD: return "VPSUBD";
+        case OP_VPMULLD: return "VPMULLD";
         case OP_V256_LOAD: return "V256_LOAD";
         case OP_V256_STORE: return "V256_STORE";
         case OP_V256_ADDPS: return "V256_ADDPS";
@@ -940,6 +953,8 @@ static inline bool ir_opcode_is_simd(Opcode op) {
         case OP_VSUBPD: case OP_VMULPD: case OP_VADDPD: case OP_VDIVPD:
         case OP_VMOVAPS: case OP_VMOVAPD:
         case OP_VANDPS: case OP_VXORPS: case OP_VSHUFPS:
+        case OP_VPADDB: case OP_VPSUBB:
+        case OP_VPADDW: case OP_VPSUBW: case OP_VPMULLW:
         case OP_VPADDD: case OP_VPSUBD: case OP_VPMULLD:
         case OP_V256_LOAD: case OP_V256_STORE:
         case OP_V256_ADDPS: case OP_V256_SUBPS: case OP_V256_MULPS: case OP_V256_DIVPS:
@@ -1679,6 +1694,21 @@ static inline void ir_emit_vmulps(ZeroCCCompiler *c, uint32_t temp_dest, uint32_
 }
 static inline void ir_emit_vaddpd(ZeroCCCompiler *c, uint32_t temp_dest, uint32_t temp_src1, uint32_t temp_src2) {
     ir_emit(c, (Instr){.op = OP_VADDPD, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+}
+static inline void ir_emit_vpaddb(ZeroCCCompiler *c, uint32_t temp_dest, uint32_t temp_src1, uint32_t temp_src2) {
+    ir_emit(c, (Instr){.op = OP_VPADDB, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+}
+static inline void ir_emit_vpsubb(ZeroCCCompiler *c, uint32_t temp_dest, uint32_t temp_src1, uint32_t temp_src2) {
+    ir_emit(c, (Instr){.op = OP_VPSUBB, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+}
+static inline void ir_emit_vpaddw(ZeroCCCompiler *c, uint32_t temp_dest, uint32_t temp_src1, uint32_t temp_src2) {
+    ir_emit(c, (Instr){.op = OP_VPADDW, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+}
+static inline void ir_emit_vpsubw(ZeroCCCompiler *c, uint32_t temp_dest, uint32_t temp_src1, uint32_t temp_src2) {
+    ir_emit(c, (Instr){.op = OP_VPSUBW, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
+}
+static inline void ir_emit_vpmullw(ZeroCCCompiler *c, uint32_t temp_dest, uint32_t temp_src1, uint32_t temp_src2) {
+    ir_emit(c, (Instr){.op = OP_VPMULLW, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
 }
 static inline void ir_emit_vpaddd(ZeroCCCompiler *c, uint32_t temp_dest, uint32_t temp_src1, uint32_t temp_src2) {
     ir_emit(c, (Instr){.op = OP_VPADDD, .temp_dest = temp_dest, .temp_src1 = temp_src1, .temp_src2 = temp_src2, .imm = 0, .label_idx = 0});
