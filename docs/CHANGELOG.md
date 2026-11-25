@@ -1,5 +1,23 @@
 # CHANGELOG
 
+## [Sprint 223] - 2026-11-25 - Loop Invariant Code Motion (LICM) Store Hoisting & SROA
+
+Implements Option A (LICM Store Hoisting & Scalar Replacement of Aggregates):
+- **Store Hoisting & SROA Enhancements (`opt_loop.c`)**:
+  - Enhanced `opt_licm_store_hoist` to hoist loop-invariant memory writes (`*p = val`, `*p += val`, `p->field += val`, `a[k] += val`) outside loop bodies into preheaders and exit blocks.
+  - Supports multiple stores and loads targeting the same invariant memory location in loop bodies (e.g. accumulator updates, conditional assignments).
+  - Invariant address resolution: added `check_addr_invariant` and `is_same_addr` to track address pointers loaded from unwritten stack slots (`addr_slot`), matching frontend pointer parameter and local variable reload patterns.
+  - Multi-exit loop support: identifies all loop exit target labels and emits the final committing store (`OP_STORE_32`, `OP_STORE_64`, `OP_STORE_16`, `OP_STORE_BYTE`) at every loop exit block.
+  - Dedicated virtual register allocation (`zc_alloc_temp`) for accumulator temporaries, eliminating register collisions and clobbering from in-loop temporary reuse.
+- **Downstream SIMD Auto-Vectorizer Integration (`opt_vectorize.c`)**:
+  - Updated `detect_loop_reduction`: extended register accumulator detection to trace through `MOV_REG` definitions and identify the true loop-carried accumulator register.
+  - In the vectorized loop body, properly NOPs the in-loop accumulator register load and store moves, allowing the SIMD vector accumulator to compute horizontal reductions and feed the scalar remainder loop without register clobbers.
+- **Verification & Test Coverage**:
+  - Expanded unit test `test/jit/licm_store_hoist_test.c`: 32-bit int accumulation, 64-bit int accumulation, struct field accumulation, 0-trip safety, const loop step, narrow integer (16-bit short and 8-bit char) accumulation, and conditional accumulator updates.
+  - Verified across `-O0..-O3` in both JIT (`--run`) and AOT binary execution.
+  - Full test suite: `make test` (260/260 passed), `make test-opt` (160 passed, 0 failed, 58 skipped, 1 nondeterministic), `tools/verify/style_check.py` (0 errors), and `tools/okf/okf.py lint` (23/23 reachable).
+
+
 ## [Sprint 222] - 2026-11-25 - Loop Collapsing & Outer Loop Auto-Vectorization
 
 Implements Option 4 (Loop Collapsing & Outer Loop Auto-Vectorization):
@@ -473,6 +491,24 @@ Implements Option 2: AVX-512 Integer SIMD (`AVX-512BW` / `AVX-512DQ` / `__m512i`
   - All regression gates green: `make test` (245/245 passed), `make test-opt` (143 passed, 0 failed), `make test-san` (720 passed, 0 failed), `python3 tools/verify/style_check.py` (0 errors), `python3 tools/verify/type_tag_verifier.py --verify-all` (OK).
 
 # CHANGELOG
+
+## [Sprint 223] - 2026-11-25 - Loop Invariant Code Motion (LICM) Store Hoisting & SROA
+
+Implements Option A (LICM Store Hoisting & Scalar Replacement of Aggregates):
+- **Store Hoisting & SROA Enhancements (`opt_loop.c`)**:
+  - Enhanced `opt_licm_store_hoist` to hoist loop-invariant memory writes (`*p = val`, `*p += val`, `p->field += val`, `a[k] += val`) outside loop bodies into preheaders and exit blocks.
+  - Supports multiple stores and loads targeting the same invariant memory location in loop bodies (e.g. accumulator updates, conditional assignments).
+  - Invariant address resolution: added `check_addr_invariant` and `is_same_addr` to track address pointers loaded from unwritten stack slots (`addr_slot`), matching frontend pointer parameter and local variable reload patterns.
+  - Multi-exit loop support: identifies all loop exit target labels and emits the final committing store (`OP_STORE_32`, `OP_STORE_64`, `OP_STORE_16`, `OP_STORE_BYTE`) at every loop exit block.
+  - Dedicated virtual register allocation (`zc_alloc_temp`) for accumulator temporaries, eliminating register collisions and clobbering from in-loop temporary reuse.
+- **Downstream SIMD Auto-Vectorizer Integration (`opt_vectorize.c`)**:
+  - Updated `detect_loop_reduction`: extended register accumulator detection to trace through `MOV_REG` definitions and identify the true loop-carried accumulator register.
+  - In the vectorized loop body, properly NOPs the in-loop accumulator register load and store moves, allowing the SIMD vector accumulator to compute horizontal reductions and feed the scalar remainder loop without register clobbers.
+- **Verification & Test Coverage**:
+  - Expanded unit test `test/jit/licm_store_hoist_test.c`: 32-bit int accumulation, 64-bit int accumulation, struct field accumulation, 0-trip safety, const loop step, narrow integer (16-bit short and 8-bit char) accumulation, and conditional accumulator updates.
+  - Verified across `-O0..-O3` in both JIT (`--run`) and AOT binary execution.
+  - Full test suite: `make test` (260/260 passed), `make test-opt` (160 passed, 0 failed, 58 skipped, 1 nondeterministic), `tools/verify/style_check.py` (0 errors), and `tools/okf/okf.py lint` (23/23 reachable).
+
 
 ## [Sprint 218] - 2026-11-24 - Indexed Gather & Scatter SIMD Auto-Vectorization (Item #12)
 

@@ -588,17 +588,85 @@ void opt_licm(ZeroCCCompiler *c) {
 }
 
 typedef struct {
-    int store_idx;
-    int load_idx;
     uint32_t addr_temp;
-    uint32_t val_temp;
+    int32_t addr_slot;     /* stack slot if addr is loaded from [fp+slot], else 0 */
     uint32_t accum_temp;
     Opcode store_op;
     Opcode load_op;
+    int addr_def_idx;      /* index of in-loop def of addr_temp, or -1 if outside */
     int header_idx;
-    int exit_label;
-    int exit_pos;
+    int exit_labels[8];
+    int exit_positions[8];
+    int exit_count;
+    int start_idx;
+    int end_idx;
 } InvariantStoreCand;
+
+static bool is_same_addr(ZeroCCCompiler *c, int from_idx, int start_idx, uint32_t t, uint32_t target_addr, int32_t target_slot) {
+    if (t == target_addr) return true;
+    if (target_slot < 0) {
+        for (int k = from_idx - 1; k >= start_idx && k >= from_idx - 8; k--) {
+            Instr *ins = ir_get(c, k);
+            if (!ins) continue;
+            if (ins->temp_dest == t) {
+                if (ins->op == OP_MOV && ins->temp_src1 == TEMP_NONE && ins->imm == target_slot) {
+                    return true;
+                }
+                if (ins->op == OP_MOV_REG) {
+                    return is_same_addr(c, k, start_idx, ins->temp_src1, target_addr, target_slot);
+                }
+                return false;
+            }
+        }
+    }
+    return false;
+}
+
+static bool check_addr_invariant(ZeroCCCompiler *c, int start, int end, uint32_t addr, int *out_def_idx, int32_t *out_slot) {
+    *out_def_idx = -1;
+    *out_slot = 0;
+    int def_count = 0;
+    int def_idx = -1;
+
+    for (int i = start; i <= end; i++) {
+        Instr *ins = ir_get(c, i);
+        if (ins && ins->temp_dest == addr) {
+            def_count++;
+            def_idx = i;
+        }
+    }
+
+    if (def_count == 0) {
+        return true;
+    }
+
+    if (def_count == 1) {
+        Instr *d = ir_get(c, def_idx);
+        if (d && d->op == OP_MOV && d->temp_src1 == TEMP_NONE && d->imm < 0) {
+            int32_t slot = d->imm;
+            bool slot_written = false;
+            for (int i = start; i <= end; i++) {
+                Instr *ins = ir_get(c, i);
+                if (ins && ins->op == OP_MOV_MEM && ins->imm == slot) {
+                    slot_written = true;
+                    break;
+                }
+            }
+            if (!slot_written) {
+                *out_def_idx = def_idx;
+                *out_slot = slot;
+                return true;
+            }
+        }
+        if (d && d->op == OP_LEA && d->imm < 0) {
+            *out_def_idx = def_idx;
+            *out_slot = d->imm;
+            return true;
+        }
+    }
+
+    return false;
+}
 
 /**
  * Loop-invariant store hoisting / Scalar Replacement of Aggregates (SROA)
@@ -627,12 +695,6 @@ void opt_licm_store_hoist(ZeroCCCompiler *c) {
 
         /* Purity check: loop must have no calls, returns, syscalls, inline asm */
         bool safe = true;
-        int store_idx = -1;
-        Opcode store_op = OP_NOP;
-        uint32_t addr_temp = TEMP_NONE;
-        uint32_t val_temp = TEMP_NONE;
-        int store_count = 0;
-
         for (int i = start; i <= end; i++) {
             Instr *ins = ir_get(c, i);
             if (!ins) continue;
@@ -643,98 +705,115 @@ void opt_licm_store_hoist(ZeroCCCompiler *c) {
                 safe = false;
                 break;
             }
-            if (ins->op == OP_STORE_32 || ins->op == OP_STORE_64 ||
-                ins->op == OP_FSTORE || ins->op == OP_STORE_16 ||
-                ins->op == OP_STORE_BYTE || ins->op == OP_VSTORE ||
-                ins->op == OP_MOV_MEM) {
-                store_count++;
-                if (ins->op == OP_STORE_32 || ins->op == OP_STORE_64 ||
-                    ins->op == OP_FSTORE || ins->op == OP_STORE_16 ||
-                    ins->op == OP_STORE_BYTE) {
-                    store_idx = i;
-                    store_op = ins->op;
-                    val_temp = ins->temp_src1;
-                    addr_temp = ins->temp_src2;
-                }
-            }
         }
-        if (!safe || store_count != 1 || store_idx < 0 || addr_temp == TEMP_NONE) continue;
+        if (!safe) continue;
 
-        /* Verify addr_temp is loop invariant (not defined in start..end) */
-        bool addr_invariant = true;
+        /* Find all pointer stores in the loop */
+        int store_count = 0;
+        Opcode store_op = OP_NOP;
+        uint32_t cand_addr = TEMP_NONE;
+
         for (int i = start; i <= end; i++) {
             Instr *ins = ir_get(c, i);
-            if (ins && ins->temp_dest == addr_temp) {
-                addr_invariant = false;
+            if (!ins) continue;
+            if (ins->op == OP_STORE_32 || ins->op == OP_STORE_64 ||
+                ins->op == OP_STORE_16 || ins->op == OP_STORE_BYTE) {
+                if (cand_addr == TEMP_NONE) {
+                    cand_addr = ins->temp_src2;
+                    store_op = ins->op;
+                }
+                /* Verify all pointer stores in this loop target the same invariant address */
+                if (ins->temp_src2 != cand_addr || ins->op != store_op) {
+                    safe = false;
+                    break;
+                }
+                store_count++;
+            } else if (ins->op == OP_VSTORE || ins->op == OP_FSTORE ||
+                       ins->op == OP_VSTORESS || ins->op == OP_VSTORESD) {
+                safe = false;
                 break;
             }
         }
-        if (!addr_invariant) continue;
+        if (!safe || store_count == 0 || cand_addr == TEMP_NONE) continue;
 
-        /* Find matching load_op */
+        /* Verify cand_addr is loop-invariant */
+        int addr_def_idx = -1;
+        int32_t addr_slot = 0;
+        if (!check_addr_invariant(c, start, end, cand_addr, &addr_def_idx, &addr_slot)) {
+            continue;
+        }
+
+        /* Determine matching load opcode */
         Opcode load_op = OP_NOP;
         switch (store_op) {
             case OP_STORE_32: load_op = OP_LOAD_32; break;
             case OP_STORE_64: load_op = OP_DEREF; break;
             case OP_STORE_16: load_op = OP_LOAD_16; break;
             case OP_STORE_BYTE: load_op = OP_LOAD_BYTE; break;
-            case OP_FSTORE: load_op = OP_FLOAD; break;
             default: break;
         }
         if (load_op == OP_NOP) continue;
 
-        /* Find in-loop load from addr_temp */
-        int load_idx = -1;
-        for (int i = start; i <= end; i++) {
-            Instr *ins = ir_get(c, i);
-            if (ins && (ins->op == load_op || (store_op == OP_STORE_64 && ins->op == OP_LOAD64)) && ins->temp_src1 == addr_temp) {
-                load_idx = i;
-                break;
-            }
-        }
+        /* Find all loop exit blocks */
+        int exit_labels[8];
+        int exit_positions[8];
+        int exit_count = 0;
 
-        /* Find exit jump and label */
-        int exit_label = -1;
-        for (int i = start + 1; i <= start + 8 && i < end; i++) {
+        for (int i = start; i <= end; i++) {
             Instr *ins = ir_get(c, i);
             if (!ins) continue;
             if (ins->op == OP_JE || ins->op == OP_JNE || ins->op == OP_JL ||
-                ins->op == OP_JLE || ins->op == OP_JG || ins->op == OP_JCOND) {
-                exit_label = (int)ins->label_idx;
-                break;
+                ins->op == OP_JLE || ins->op == OP_JG || ins->op == OP_JCOND ||
+                ins->op == OP_JMP) {
+                int lbl = (int)ins->label_idx;
+                int pos = -1;
+                for (size_t k = 0; k < count; k++) {
+                    Instr *ki = ir_get(c, k);
+                    if (ki && ki->op == OP_LABEL && (int)ki->label_idx == lbl) {
+                        pos = (int)k;
+                        break;
+                    }
+                }
+                if (pos >= 0 && (pos < start || pos > end)) {
+                    bool dup = false;
+                    for (int e = 0; e < exit_count; e++) {
+                        if (exit_labels[e] == lbl) { dup = true; break; }
+                    }
+                    if (!dup && exit_count < 8) {
+                        exit_labels[exit_count] = lbl;
+                        exit_positions[exit_count] = pos;
+                        exit_count++;
+                    }
+                }
             }
         }
-        if (exit_label < 0) continue;
+        if (exit_count == 0) continue;
 
-        /* Find position of exit_label in IR */
-        int exit_pos = -1;
-        for (size_t i = 0; i < count; i++) {
-            Instr *ins = ir_get(c, i);
-            if (ins && ins->op == OP_LABEL && (int)ins->label_idx == exit_label) {
-                exit_pos = (int)i;
-                break;
-            }
-        }
-        if (exit_pos < end) continue; /* must exit after loop */
+        /* Allocate dedicated fresh temporary for accum_temp to avoid collision */
+        uint32_t accum_temp = (uint32_t)zc_alloc_temp(c);
 
         InvariantStoreCand *cand = &cands[cand_count++];
-        cand->store_idx = store_idx;
-        cand->load_idx = load_idx;
-        cand->addr_temp = addr_temp;
-        cand->val_temp = val_temp;
-        cand->accum_temp = (uint32_t)zc_alloc_temp(c);
+        cand->addr_temp = cand_addr;
+        cand->addr_slot = addr_slot;
+        cand->accum_temp = accum_temp;
         cand->store_op = store_op;
         cand->load_op = load_op;
+        cand->addr_def_idx = addr_def_idx;
         cand->header_idx = start;
-        cand->exit_label = exit_label;
-        cand->exit_pos = exit_pos;
+        cand->exit_count = exit_count;
+        for (int e = 0; e < exit_count; e++) {
+            cand->exit_labels[e] = exit_labels[e];
+            cand->exit_positions[e] = exit_positions[e];
+        }
+        cand->start_idx = start;
+        cand->end_idx = end;
     }
 
     if (cand_count == 0) return;
 
     /* Rebuild IR arena with hoisted stores */
     IRArena new_arena;
-    if (!ir_arena_init(&new_arena, count + cand_count * 4 + 16)) return;
+    if (!ir_arena_init(&new_arena, count + cand_count * 8 + 32)) return;
 
     for (size_t i = 0; i < count; i++) {
         Instr *ins = ir_get(c, i);
@@ -743,6 +822,10 @@ void opt_licm_store_hoist(ZeroCCCompiler *c) {
         /* Check if this is a loop header receiving an initial preheader load */
         for (int c_idx = 0; c_idx < cand_count; c_idx++) {
             if ((int)i == cands[c_idx].header_idx) {
+                if (cands[c_idx].addr_def_idx >= 0) {
+                    Instr *addr_ins = ir_get(c, cands[c_idx].addr_def_idx);
+                    if (addr_ins) ir_arena_emit(&new_arena, *addr_ins);
+                }
                 Instr pre_load = {
                     .op = cands[c_idx].load_op,
                     .temp_dest = cands[c_idx].accum_temp,
@@ -759,58 +842,27 @@ void opt_licm_store_hoist(ZeroCCCompiler *c) {
             }
         }
 
-        /* Check if this instruction is an in-loop load from candidate addr */
+        /* Check if this instruction is inside a candidate loop */
         bool replaced = false;
         for (int c_idx = 0; c_idx < cand_count; c_idx++) {
-            if ((int)i == cands[c_idx].load_idx) {
-                Instr mov = {
-                    .op = (cands[c_idx].store_op == OP_FSTORE) ? OP_FMOV : OP_MOV_REG,
-                    .temp_dest = ins->temp_dest,
-                    .temp_src1 = cands[c_idx].accum_temp,
-                    .temp_src2 = TEMP_NONE,
-                    .cond = 0,
-                    .flags_out = 0xFF,
-                    .flags_in = 0xFF,
-                    .imm = 0,
-                    .imm64 = 0,
-                    .label_idx = 0
-                };
-                ir_arena_emit(&new_arena, mov);
-                replaced = true;
-                break;
-            }
-            if ((int)i == cands[c_idx].store_idx) {
-                Instr mov = {
-                    .op = (cands[c_idx].store_op == OP_FSTORE) ? OP_FMOV : OP_MOV_REG,
-                    .temp_dest = cands[c_idx].accum_temp,
-                    .temp_src1 = cands[c_idx].val_temp,
-                    .temp_src2 = TEMP_NONE,
-                    .cond = 0,
-                    .flags_out = 0xFF,
-                    .flags_in = 0xFF,
-                    .imm = 0,
-                    .imm64 = 0,
-                    .label_idx = 0
-                };
-                ir_arena_emit(&new_arena, mov);
-                replaced = true;
-                break;
-            }
-        }
-        if (replaced) continue;
-
-        /* Emit normal instruction */
-        ir_arena_emit(&new_arena, *ins);
-
-        /* If this was an exit label for a candidate, emit final store right after */
-        if (ins->op == OP_LABEL) {
-            for (int c_idx = 0; c_idx < cand_count; c_idx++) {
-                if ((int)ins->label_idx == cands[c_idx].exit_label && (int)i == cands[c_idx].exit_pos) {
-                    Instr exit_store = {
-                        .op = cands[c_idx].store_op,
-                        .temp_dest = TEMP_NONE,
+            if ((int)i >= cands[c_idx].start_idx && (int)i <= cands[c_idx].end_idx) {
+                if ((int)i == cands[c_idx].addr_def_idx) {
+                    replaced = true;
+                    break;
+                }
+                if (cands[c_idx].addr_slot < 0 && ins->op == OP_MOV &&
+                    ins->temp_src1 == TEMP_NONE && ins->imm == cands[c_idx].addr_slot) {
+                    replaced = true;
+                    break;
+                }
+                if ((ins->op == cands[c_idx].load_op ||
+                     (cands[c_idx].store_op == OP_STORE_64 && (ins->op == OP_LOAD64 || ins->op == OP_DEREF))) &&
+                    is_same_addr(c, (int)i, cands[c_idx].start_idx, ins->temp_src1, cands[c_idx].addr_temp, cands[c_idx].addr_slot)) {
+                    Instr mov = {
+                        .op = OP_MOV_REG,
+                        .temp_dest = ins->temp_dest,
                         .temp_src1 = cands[c_idx].accum_temp,
-                        .temp_src2 = cands[c_idx].addr_temp,
+                        .temp_src2 = TEMP_NONE,
                         .cond = 0,
                         .flags_out = 0xFF,
                         .flags_in = 0xFF,
@@ -818,7 +870,55 @@ void opt_licm_store_hoist(ZeroCCCompiler *c) {
                         .imm64 = 0,
                         .label_idx = 0
                     };
-                    ir_arena_emit(&new_arena, exit_store);
+                    ir_arena_emit(&new_arena, mov);
+                    replaced = true;
+                    break;
+                }
+                if (ins->op == cands[c_idx].store_op &&
+                    is_same_addr(c, (int)i, cands[c_idx].start_idx, ins->temp_src2, cands[c_idx].addr_temp, cands[c_idx].addr_slot)) {
+                    Instr mov = {
+                        .op = OP_MOV_REG,
+                        .temp_dest = cands[c_idx].accum_temp,
+                        .temp_src1 = ins->temp_src1,
+                        .temp_src2 = TEMP_NONE,
+                        .cond = 0,
+                        .flags_out = 0xFF,
+                        .flags_in = 0xFF,
+                        .imm = 0,
+                        .imm64 = 0,
+                        .label_idx = 0
+                    };
+                    ir_arena_emit(&new_arena, mov);
+                    replaced = true;
+                    break;
+                }
+            }
+        }
+        if (replaced) continue;
+
+        /* Emit normal instruction */
+        ir_arena_emit(&new_arena, *ins);
+
+        /* If this was an exit label for any candidate, emit the final store right after */
+        if (ins->op == OP_LABEL) {
+            for (int c_idx = 0; c_idx < cand_count; c_idx++) {
+                for (int e = 0; e < cands[c_idx].exit_count; e++) {
+                    if ((int)ins->label_idx == cands[c_idx].exit_labels[e] &&
+                        (int)i == cands[c_idx].exit_positions[e]) {
+                        Instr exit_store = {
+                            .op = cands[c_idx].store_op,
+                            .temp_dest = TEMP_NONE,
+                            .temp_src1 = cands[c_idx].accum_temp,
+                            .temp_src2 = cands[c_idx].addr_temp,
+                            .cond = 0,
+                            .flags_out = 0xFF,
+                            .flags_in = 0xFF,
+                            .imm = 0,
+                            .imm64 = 0,
+                            .label_idx = 0
+                        };
+                        ir_arena_emit(&new_arena, exit_store);
+                    }
                 }
             }
         }

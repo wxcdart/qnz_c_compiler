@@ -821,8 +821,29 @@ static bool detect_loop_reduction(
         }
     } else {
         /* Register accumulator */
-        if (zc_temp_is_user(acc_in_temp) && zc_temp_is_user(acc_out_temp)) {
-            red_temp = (int)acc_in_temp;
+        uint32_t true_acc = acc_in_temp;
+        int def_in = find_def_backward_in_loop(c, start, red_arith_idx, skip_mask, acc_in_temp);
+        int store_out = -1;
+        if (def_in >= 0) {
+            Instr *din = ir_get(c, def_in);
+            if (din && din->op == OP_MOV_REG && zc_temp_is_user(din->temp_src1)) {
+                for (int j = red_arith_idx + 1; j <= end; j++) {
+                    if (skip_mask && skip_mask[j - start]) continue;
+                    Instr *dj = ir_get(c, j);
+                    if (dj && dj->op == OP_MOV_REG && dj->temp_dest == din->temp_src1 && dj->temp_src1 == acc_out_temp) {
+                        true_acc = din->temp_src1;
+                        store_out = j;
+                        break;
+                    }
+                }
+            }
+        }
+        if (zc_temp_is_user(true_acc) && zc_temp_is_user(acc_out_temp)) {
+            red_temp = (int)true_acc;
+            if (store_out >= 0 && def_in >= 0) {
+                red_load_idx = def_in;
+                red_store_idx = store_out;
+            }
         } else {
             return false;
         }

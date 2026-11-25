@@ -4,7 +4,7 @@ title: Optimization Passes & Safety Invariants
 description: Active IR optimization pipeline (Constant Folding, CopyProp, CSE, GVN, DCE, Mem2Reg, LICM, Auto-Vectorization) and their correctness invariants.
 resource: middleend/optimization-passes
 tags: [optimizations, mem2reg, licm, vectorization, gvn, cse, dce]
-timestamp: 2026-11-25T02:27:40Z
+timestamp: 2026-11-25T13:42:37Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -70,11 +70,14 @@ Optimization passes are registered in `src/zero_cc/opt/opt_pass.c` (`g_opt_passe
      - Worklist seeded in reverse postorder (RPO) from entry; `idom(b)` selected as the deepest RPO member of $D(b) \setminus \{b\}$. Post-dominators computed identically on the reverse CFG using a synthetic entry node above all exit blocks.
      - Results cached lazily on `ZeroCCCFG` (`cfg_idom()`, `cfg_post_idom()`) and exposed via $O(\text{depth})$ tree-walk queries `cfg_block_dominates()` and `cfg_block_post_dominates()`.
      - `opt_loop.c`'s `detect_loops` invokes `loop_analyze(c, state)` to wire non-owning views into `LoopAnalysisState.dominators` and `LoopAnalysisState.post_dominators` for upcoming dominance-based invariant hoisting and loop unrolling passes.
-   - **LICM Store Hoisting (`opt_licm_store_hoist`, Sprint 215)**:
-     - Detects invariant memory store patterns (`*p = val` or `*p += ...`, `p->field += ...`) inside countable loops.
-     - Verifies address operand is loop-invariant, no calls/syscalls/inline asm, and exactly one memory store across the loop body.
-     - Allocates an accumulator temporary in the preheader (`accum_temp = *addr_temp`), replaces in-loop loads and stores with register moves (`OP_MOV_REG` / `OP_FMOV`), and commits the final value to memory (`*addr_temp = accum_temp`) on loop exit.
+   - **LICM Store Hoisting (`opt_licm_store_hoist`, Sprint 215 / Sprint 223)**:
+     - Detects invariant memory store patterns (`*p = val`, `*p += ...`, `p->field += ...`, `a[k] += ...`) inside countable loops.
+     - Invariant address resolution: verifies address operand is loop-invariant using `check_addr_invariant` and `is_same_addr`, tracking pointer addresses loaded from unwritten stack slots (`addr_slot`), matching frontend local pointer/parameter load patterns across loop iterations.
+     - Purity check: loop must contain no calls, indirect calls, syscalls, clones, inline asm, setjmp/longjmp, or epilogues.
+     - Allocates a dedicated accumulator temporary (`zc_alloc_temp`) in the preheader (`accum_temp = *addr_temp`), replaces in-loop loads and stores with register moves (`OP_MOV_REG`), and commits the final value to memory (`*addr_temp = accum_temp`) on loop exit blocks.
+     - Multi-exit support: identifies all exit target labels and emits the committing store at every loop exit.
      - Preserves 0-trip loop semantics by loading the initial value before the loop and storing back on exit.
+     - Downstream SIMD reduction integration: `opt_vectorize.c` traces register accumulators through `MOV_REG` definitions to identify the true loop accumulator register, NOP-ing scalar moves in the vector loop body while preserving scalar remainder execution.
 8. **Loop Unswitching (`opt_loop_unswitch.c`, Sprint 216)**
    - Registered at priority 56 (`OPT_LEVEL_O3`), executing directly after LICM.
    - Detects loop-invariant conditional branches (`if (flag)`, `if (mode == 1)`) within loop bodies whose comparison operands are not defined inside the loop.

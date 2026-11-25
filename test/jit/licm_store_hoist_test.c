@@ -18,6 +18,7 @@ static void test_int_accum(void) {
     for (int i = 0; i < 10; i++) {
         sum += arr[i];
     }
+    printf("first sum = %d\n", sum);
     assert(sum == 155);
 
     /* Test via pointer */
@@ -26,6 +27,7 @@ static void test_int_accum(void) {
     for (int i = 0; i < 10; i++) {
         *p_sum += arr[i];
     }
+    printf("second sum = %d\n", *p_sum);
     assert(*p_sum == 55);
 }
 
@@ -76,15 +78,57 @@ static void test_const_loop(void) {
     for (int i = 0; i < 100; i++) {
         *p_val = *p_val + 2;
     }
+    printf("test_const_loop got %d\n", *p_val);
     assert(*p_val == 200);
+}
+
+/* Test 6: 16-bit short and 8-bit char accumulation */
+static void test_narrow_accum(void) {
+    short sarr[5] = {10, 20, 30, 40, 50};
+    short ssum = 100;
+    short *p_ssum = &ssum;
+    for (int i = 0; i < 5; i++) {
+        *p_ssum += sarr[i];
+    }
+    assert(*p_ssum == 250);
+
+    signed char carr[5] = {1, 2, 3, 4, 5};
+    signed char csum = 10;
+    signed char *p_csum = &csum;
+    for (int i = 0; i < 5; i++) {
+        *p_csum += carr[i];
+    }
+    assert(*p_csum == 25);
+}
+
+/* Test 7: Conditional min update */
+static void test_conditional_min(void) {
+    int marr[6] = {50, 20, 80, 10, 60, 30};
+    int min_val = 999;
+    int *p_min = &min_val;
+    for (int i = 0; i < 6; i++) {
+        if (marr[i] < *p_min) {
+            *p_min = marr[i];
+        }
+    }
+    assert(*p_min == 10);
 }
 
 int main(void) {
     test_int_accum();
+    printf("1 ok\n");
     test_int64_accum();
+    printf("2 ok\n");
     test_struct_field_accum();
+    printf("3 ok\n");
     test_zero_trip();
+    printf("4 ok\n");
     test_const_loop();
+    printf("5 ok\n");
+    test_narrow_accum();
+    printf("6 ok\n");
+    test_conditional_min();
+    printf("7 ok\n");
     printf("LICM store hoisting tests passed!\n");
     return 0;
 }
