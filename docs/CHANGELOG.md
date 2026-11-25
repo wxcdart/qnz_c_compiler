@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## [Sprint 222] - 2026-11-25 - Loop Collapsing & Outer Loop Auto-Vectorization
+
+Implements Option 4 (Loop Collapsing & Outer Loop Auto-Vectorization):
+- **Loop Collapsing Optimizer (`opt_loop_collapse.c`, `opt_loop_collapse.h`)**:
+  - Registered at priority 67 (`OPT_LEVEL_O3`), executing right before SIMD auto-vectorization (priority 68) and loop unrolling (priority 70).
+  - Detects perfectly nested countable 2D loops: `for (int i = 0; i < N; i++) for (int j = 0; j < M; j++) c[i * M + j] = ...`.
+  - When the inner loop trip count $M$ is small or not a multiple of the SIMD vector width (e.g. $M = 2$ or $M = 3$), the inner loop cannot normally be vectorized. Loop collapsing flattens the two loops into a single 1D loop of trip count $K = N \times M$ with affine unit-stride access `c[k] = ...`.
+  - Flattens the iteration space: updates the outer loop bound to $N \times M$.
+  - Identifies 2D index computations (`t_mul = out_ctr * M; t_idx = t_mul + in_ctr`) using induction variable tracking (`is_counter_reg`), and replaces them with direct moves from the outer induction variable.
+  - Eliminates the inner loop header, exit condition test, induction variable step, backedge jump, and exit label.
+  - Enables downstream SIMD auto-vectorization (`opt_vectorize.c`) to vectorize seamlessly across outer loop boundaries without remainder loops or scalar stalls.
+- **Verification & Test Coverage**:
+  - Added test suite `test/jit/simd_loop_collapse_test.c`: covers 2D int addition ($16 \times 3 = 48$), 2D short addition ($8 \times 3 = 24$), 2D signed char subtraction ($8 \times 2 = 16$), 2D int multiplication ($16 \times 2 = 32$), and 2D uint bitwise XOR ($8 \times 4 = 32$).
+  - Verified across `-O0..-O3` in both JIT (`--run`) and AOT binary execution.
+  - Full test suite: `make test` (260/260 passed), `make test-opt` (160 passed, 0 failed, 58 skipped, 1 nondeterministic), `tools/verify/style_check.py` (0 errors), and `tools/okf/okf.py lint` (23/23 reachable).
+
 ## [Sprint 221] - 2026-11-25 - SIMD-Accelerated zero_rt String & Memory Primitives
 
 Implements Option 3 (SIMD & Word-Accelerated `zero_rt` String & Memory Primitives):

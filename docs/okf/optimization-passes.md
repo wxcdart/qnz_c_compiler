@@ -4,7 +4,7 @@ title: Optimization Passes & Safety Invariants
 description: Active IR optimization pipeline (Constant Folding, CopyProp, CSE, GVN, DCE, Mem2Reg, LICM, Auto-Vectorization) and their correctness invariants.
 resource: middleend/optimization-passes
 tags: [optimizations, mem2reg, licm, vectorization, gvn, cse, dce]
-timestamp: 2026-11-25T02:02:53Z
+timestamp: 2026-11-25T02:27:40Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -93,7 +93,23 @@ Optimization passes are registered in `src/zero_cc/opt/opt_pass.c` (`g_opt_passe
    - Analyzes loop headers, backedges, induction variable initializations, increment steps, and loop bounds.
    - Enforces dependency safety: verifies no write-after-write (WAW) or write-after-read (WAR) conflicts between Loop 1 and Loop 2.
    - Splices Loop 2's body right before Loop 1's induction step, remapping Loop 2's induction variable uses to Loop 1's induction variable. Hoists pure setup instructions between Loop 1 and Loop 2 into Loop 1's preheader, and redirects Loop 1's exit jump directly to Loop 2's exit label, NOP'ing out Loop 2.
-11. **SIMD Auto-Vectorization (`opt_vectorize.c`)**
+11. **Loop Collapsing & Outer Loop Auto-Vectorization (`opt_loop_collapse.c`, Sprint 222)**
+   - Registered at priority 67 (`OPT_LEVEL_O3`), executing right before SIMD auto-vectorization (priority 68) and loop unrolling (priority 70).
+   - Detects perfectly nested countable 2D loops:
+     ```c
+     for (int i = 0; i < N; i++) {
+         for (int j = 0; j < M; j++) {
+             c[i * M + j] = a[i * M + j] + b[i * M + j];
+         }
+     }
+     ```
+   - When inner trip count $M$ is small or not a multiple of the SIMD vector width (e.g. $M = 2$ or $M = 3$), normal vectorizers fail to vectorize the inner loop due to insufficient loop trip count.
+   - Loop collapsing flattens the two loops into a single 1D loop of trip count $K = N \times M$ with affine unit-stride access `c[k] = a[k] + b[k]`:
+     - Updates the outer loop bound to $N \times M$.
+     - Detects 2D index computations (`t_mul = out_ctr * M; t_idx = t_mul + in_ctr`) and replaces them with direct moves from the outer induction variable.
+     - Eliminates the inner loop header, condition test, induction step, backedge, and exit label.
+     - Allows downstream SIMD auto-vectorization (`opt_vectorize.c`) to vectorize seamlessly across outer loop boundaries without remainder loops or scalar stalls.
+12. **SIMD Auto-Vectorization (`opt_vectorize.c`)**
    - Detects countable array arithmetic loops:
      - **Single-Precision Floats (`float[N]`)**: maps `OP_VLOADSS`, `OP_VSTORESS`, `OP_FADD`/`OP_FSUB`/`OP_FMUL`/`OP_FDIV` &rarr; 128-bit packed single vector instructions (`OP_VADDPS`, `OP_VSUBPS`, `OP_VMULPS`, `OP_VDIVPS`, `OP_VLOAD`, `OP_VSTORE`) with `vec_width = 4` (stride 4, `i += 4`).
      - **Double-Precision Floats (`double[N]`)**: maps `OP_VLOADSD`, `OP_VSTORESD`, `OP_FADD`/`OP_FSUB`/`OP_FMUL`/`OP_FDIV` &rarr; 128-bit packed double vector instructions (`OP_VADDPD`, `OP_VSUBPD`, `OP_VMULPD`, `OP_VDIVPD`, `OP_VLOAD`, `OP_VSTORE`) with `vec_width = 2` (stride 8, `i += 2`).

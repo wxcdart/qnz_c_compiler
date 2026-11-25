@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-25T02:07:19Z
+timestamp: 2026-11-25T02:27:40Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1692,3 +1692,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-25 — Updated `zero-rt.md`
 - Document accelerated string and memory primitives in zero_rt/core/string.c in Sprint 221
+
+## 2026-11-25 — Updated `optimization-passes.md`
+- Sprint 222: Loop Collapsing & Outer Loop Auto-Vectorization (opt_loop_collapse.c)
