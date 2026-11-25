@@ -966,6 +966,33 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
         int result_temp = lower_expr(c, arena, node->left);
         int result_is128 = c->last_expr_is_128;  /* GNU __int128 (Sprint 109) */
         if (sym) {
+            /* Sprint 225 Devirtualization: track function target name for function pointer locals */
+            if (node->left != AST_NULL) {
+                ZeroCCASTNode *init_n = zero_cc_ast_get(arena, node->left);
+                while (init_n && (init_n->tag == NODE_UNOP && (init_n->aux.op == TK_AMP || init_n->aux.op == TK_STAR))) {
+                    init_n = zero_cc_ast_get(arena, init_n->left);
+                }
+                if (init_n && init_n->tag == NODE_IDENT && init_n->s.str) {
+                    const char *target_cand = init_n->s.str;
+                    if (zero_cc_resolve_callee(c, target_cand)) {
+                        snprintf(sym->fn_target_name, sizeof(sym->fn_target_name), "%s", target_cand);
+                    } else {
+                        ZeroCCSym *asym = zero_cc_find_local(c, target_cand);
+                        if (asym && asym->fn_target_name[0]) {
+                            snprintf(sym->fn_target_name, sizeof(sym->fn_target_name), "%s", asym->fn_target_name);
+                        } else if (c->lowering.inlining.active_depth > 0) {
+                            for (int ap = 0; ap < c->lowering.inlining.param_count; ap++) {
+                                if (c->lowering.inlining.param_names[ap] &&
+                                    strcmp(target_cand, c->lowering.inlining.param_names[ap]) == 0 &&
+                                    c->lowering.inlining.param_fn_target[ap]) {
+                                    snprintf(sym->fn_target_name, sizeof(sym->fn_target_name), "%s", c->lowering.inlining.param_fn_target[ap]);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             /* C99 complex local initializer: the RHS is either an
              * address-form complex object (binop/call/ident) or a scalar
              * value (converted to (val, 0)). */
@@ -1444,6 +1471,10 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                 if (c->lowering.inlining.return_target_temp >= 0 && res >= 0 && res != c->lowering.inlining.return_target_temp) {
                     if (ret128) ir_emit_mov128(c, c->lowering.inlining.return_target_temp, res);
                     else if (ret64) ir_emit_mov64(c, c->lowering.inlining.return_target_temp, res);
+                    else if (c->last_expr_is_float ||
+                             c->lowering.inlining.return_type.tag == TYPE_FLOAT ||
+                             c->lowering.inlining.return_type.tag == TYPE_DOUBLE)
+                        ir_emit_fmov(c, (uint32_t)c->lowering.inlining.return_target_temp, (uint32_t)res);
                     else ir_emit_mov_reg(c, c->lowering.inlining.return_target_temp, res);
                 }
             }

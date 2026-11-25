@@ -255,11 +255,13 @@ TypeInfo *expr_handle_unary(SemContext *ctx, ZeroCCASTNode *node) {
         }
         case '*':
         case TK_STAR: {
-            /* Dereference operator (*): operand must be a pointer or array */
+            /* Dereference operator (*): operand must be a pointer, array, or function designator */
             if (type_is_pointer(op_type)) {
                 res = op_type->details.pointer.base;
             } else if (type_is_array(op_type)) {
                 res = op_type->details.array.base;
+            } else if (op_type && op_type->kind == TYPE_KIND_FUNCTION) {
+                res = (TypeInfo *)op_type;
             } else {
                 expr_error(ctx, node, "indirection requires pointer operand");
                 return NULL;

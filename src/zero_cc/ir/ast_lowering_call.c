@@ -26,7 +26,7 @@
  * that function with the given name is the callee (innermost level wins,
  * per C block scoping). Falls back to the global function table for
  * top-level names. */
-static ZeroCCFunction *zero_cc_resolve_callee(ZeroCCCompiler *c, const char *name) {
+ZeroCCFunction *zero_cc_resolve_callee(ZeroCCCompiler *c, const char *name) {
     if (c->lowering.current_func_idx < c->function_count) {
         size_t lvl = c->lowering.current_func_idx;
         while (lvl < c->function_count) {
@@ -155,6 +155,11 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
          * (t.fn)(), ...): any non-identifier callee lowers to an indirect
          * call through the evaluated pointer value. */
         ZeroCCASTNode *callee = zero_cc_ast_get(arena, node->left);
+        while (callee && (callee->tag == NODE_UNOP && (callee->aux.op == TK_AMP || callee->aux.op == TK_STAR))) {
+            ZeroCCASTNode *inner = zero_cc_ast_get(arena, callee->left);
+            if (!inner) break;
+            callee = inner;
+        }
         bool callee_is_ident = (callee && callee->tag == NODE_IDENT);
         const char *name = callee_is_ident ? callee->s.str : NULL;
         /* Directly-lowered GCC/Clang builtins, intrinsics, and atomics */
@@ -332,6 +337,43 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
             if (!callee_gv && callee_is_ident && !callee_fn && !callee_sym && c->lto_mode && c->lto_ctx) {
                 callee_gv = zero_cc_lto_find_global(c->lto_ctx, name);
             }
+
+            /* Devirtualize function pointer calls (Sprint 225) */
+            const char *devirt_target = NULL;
+            if (!callee_fn && callee_sym && callee_sym->fn_target_name[0]) {
+                devirt_target = callee_sym->fn_target_name;
+            } else if (!callee_fn && callee_gv) {
+                if (callee_gv->init_fn_target[0]) {
+                    devirt_target = callee_gv->init_fn_target;
+                } else {
+                    for (size_t ri = 0; ri < c->data_reloc_count; ri++) {
+                        if (c->data_relocs[ri].data_patch_offset == callee_gv->data_offset &&
+                            c->data_relocs[ri].target_kind == 3) {
+                            snprintf(callee_gv->init_fn_target, sizeof(callee_gv->init_fn_target), "%s", c->data_relocs[ri].target_extern_name);
+                            devirt_target = callee_gv->init_fn_target;
+                            break;
+                        }
+                    }
+                }
+            } else if (!callee_fn && callee_is_ident && c->lowering.inlining.active_depth > 0) {
+                for (int p = 0; p < c->lowering.inlining.param_count; p++) {
+                    if (c->lowering.inlining.param_names[p] &&
+                        strcmp(name, c->lowering.inlining.param_names[p]) == 0 &&
+                        c->lowering.inlining.param_fn_target[p] &&
+                        c->lowering.inlining.param_fn_target[p][0]) {
+                        devirt_target = c->lowering.inlining.param_fn_target[p];
+                        break;
+                    }
+                }
+            }
+
+            if (devirt_target) {
+                ZeroCCFunction *dfn = zero_cc_resolve_callee(c, devirt_target);
+                if (dfn) callee_fn = dfn;
+                name = devirt_target;
+                callee_sym = NULL;
+                callee_gv = NULL;
+            }
             /* An inlined body may call through its own function-pointer
              * parameter by name (`fun(depth)` inside an inlined
              * `g(int (*fun)(int))`): in the caller's scope `fun` is
@@ -418,7 +460,7 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
             bool same_tu_inline = (!c->lto_mode || !callee_fn || callee_fn->owner_tu == c->tu_index);
             if (callee_fn && callee_fn->can_inline && callee_fn->inline_body != AST_NULL &&
                 (same_tu_inline || callee_fn->lto_can_cross_inline) &&
-                c->lowering.inlining.active_depth < 2 &&
+                c->lowering.inlining.active_depth < 4 &&
                 (c->opt_level >= OPT_LEVEL_O2 || (c->lto_mode && c->opt_level >= OPT_LEVEL_O1) || callee_fn->is_variadic)) {
                 ZeroCCASTArena *callee_arena = (ZeroCCASTArena *)callee_fn->ast_arena;
                 if (callee_arena) {
@@ -426,6 +468,8 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                     int inlined_param_temps[8];
                     bool inlined_param_is_const[8];
                     int64_t inlined_param_const_val[8];
+                    const char *inlined_param_fn_target[8] = {NULL};
+                    bool inlined_param_is_float[8] = {false};
                     int p_idx = 0;
                     ASTRef a_ref = node->right;
                     while (a_ref != AST_NULL && p_idx < (int)callee_fn->param_count && p_idx < 8) {
@@ -448,6 +492,41 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                         }
                         inlined_param_is_const[p_idx] = p_is_const;
                         inlined_param_const_val[p_idx] = p_cval;
+
+                        /* Track function pointer target for devirtualization */
+                        const char *arg_fn_target = NULL;
+                        ZeroCCASTNode *an_pre = zero_cc_ast_get(arena, a_ref);
+                        ZeroCCASTNode *target_an = an_pre;
+                        while (target_an && (target_an->tag == NODE_UNOP && (target_an->aux.op == TK_AMP || target_an->aux.op == TK_STAR))) {
+                            target_an = zero_cc_ast_get(arena, target_an->left);
+                        }
+                        if (target_an && target_an->tag == NODE_IDENT && target_an->s.str) {
+                            const char *cand = target_an->s.str;
+                            if (zero_cc_resolve_callee(c, cand)) {
+                                arg_fn_target = cand;
+                            } else {
+                                ZeroCCSym *asym = zero_cc_find_local(c, cand);
+                                if (asym && asym->fn_target_name[0]) {
+                                    arg_fn_target = asym->fn_target_name;
+                                } else {
+                                    ZeroCCGlobalVar *agv = find_global_var(c, cand);
+                                    if (agv && agv->init_fn_target[0]) {
+                                        arg_fn_target = agv->init_fn_target;
+                                    } else if (c->lowering.inlining.active_depth > 0) {
+                                        for (int ap = 0; ap < c->lowering.inlining.param_count; ap++) {
+                                            if (c->lowering.inlining.param_names[ap] &&
+                                                strcmp(cand, c->lowering.inlining.param_names[ap]) == 0 &&
+                                                c->lowering.inlining.param_fn_target[ap]) {
+                                                arg_fn_target = c->lowering.inlining.param_fn_target[ap];
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        inlined_param_fn_target[p_idx] = arg_fn_target;
+
                         int a_temp = lower_expr(c, arena, a_ref);
                         /* Sprint 110: normalize 128-bit argument width. The
                          * inlined body substitutes the param temp directly,
@@ -463,8 +542,13 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                         c->last_expr_is_128 = 0;
                         const ZeroCCType *ipt = &callee_fn->param_types[p_idx];
                         bool p_is128 = (ipt->tag == TYPE_INT128 || ipt->tag == TYPE_UINT128);
+                        bool p_is_fp = (ipt->tag == TYPE_FLOAT || ipt->tag == TYPE_DOUBLE);
                         if (!c->last_expr_is_float) {
-                            if (p_is128 && !a_is128) {
+                            if (p_is_fp) {
+                                int ft = zc_alloc_temp(c);
+                                ir_emit_cvtsi2sd(c, (uint32_t)ft, (uint32_t)a_temp);
+                                a_temp = ft;
+                            } else if (p_is128 && !a_is128) {
                                 int t128 = zc_alloc_temp(c);
                                 bool src_signed = false;
                                 ZeroCCASTNode *an0 = zero_cc_ast_get(arena, a_ref);
@@ -486,10 +570,16 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                                 a_is128 = false;
                             }
                             /* Extend integer argument if narrow */
-                            if (!a_is128) {
+                            if (!a_is128 && !p_is_fp) {
                                 zero_cc_emit_int_extend(c, a_temp, ipt);
                             }
+                        } else if (!p_is_fp) {
+                            int it = zc_alloc_temp(c);
+                            ir_emit_cvttsd2si(c, (uint32_t)it, (uint32_t)a_temp);
+                            a_temp = it;
+                            zero_cc_emit_int_extend(c, a_temp, ipt);
                         }
+                        inlined_param_is_float[p_idx] = p_is_fp;
                         inlined_param_temps[p_idx++] = a_temp;
                         ZeroCCASTNode *an = zero_cc_ast_get(arena, a_ref);
                         a_ref = an ? an->next : AST_NULL;
@@ -528,6 +618,8 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                         bool prev_param_is_64[8];
                         bool prev_param_is_const[8];
                         int64_t prev_param_const_val[8];
+                        const char *prev_param_fn_target[8];
+                        bool prev_param_is_float[8];
                         for (int p = 0; p < 8; p++) {
                             prev_param_names[p] = c->lowering.inlining.param_names[p];
                             prev_param_temps[p] = c->lowering.inlining.param_temps[p];
@@ -536,6 +628,8 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                             prev_param_is_64[p] = c->lowering.inlining.param_is_64[p];
                             prev_param_is_const[p] = c->lowering.inlining.param_is_const[p];
                             prev_param_const_val[p] = c->lowering.inlining.param_const_val[p];
+                            prev_param_fn_target[p] = c->lowering.inlining.param_fn_target[p];
+                            prev_param_is_float[p] = c->lowering.inlining.param_is_float[p];
                         }
 
                         /* Setup new inlining context */
@@ -562,6 +656,8 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                                   callee_fn->param_types[p].tag == TYPE_UINT64));
                             c->lowering.inlining.param_is_const[p] = inlined_param_is_const[p];
                             c->lowering.inlining.param_const_val[p] = inlined_param_const_val[p];
+                            c->lowering.inlining.param_fn_target[p] = inlined_param_fn_target[p];
+                            c->lowering.inlining.param_is_float[p] = inlined_param_is_float[p];
                         }
 
                         /* Lower inlined body statements into IR */
@@ -584,7 +680,12 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                          * inline body).  Unspecified value, matching the
                          * non-inlined case; dead code when every path
                          * returns a value. */
-                        ir_emit_mov_reg(c, inline_res_temp, VREG_0);
+                        if (callee_fn->return_type.tag == TYPE_FLOAT ||
+                            callee_fn->return_type.tag == TYPE_DOUBLE) {
+                            ir_emit_fmov(c, (uint32_t)inline_res_temp, (uint32_t)VREG_F0);
+                        } else {
+                            ir_emit_mov_reg(c, inline_res_temp, VREG_0);
+                        }
                         ir_emit_label(c, inline_exit_label);
 
                         /* Restore previous inlining context */
@@ -603,6 +704,8 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                             c->lowering.inlining.param_is_64[p] = prev_param_is_64[p];
                             c->lowering.inlining.param_is_const[p] = prev_param_is_const[p];
                             c->lowering.inlining.param_const_val[p] = prev_param_const_val[p];
+                            c->lowering.inlining.param_fn_target[p] = prev_param_fn_target[p];
+                            c->lowering.inlining.param_is_float[p] = prev_param_is_float[p];
                         }
 
                         c->last_expr_is_float = (callee_fn->return_type.tag == TYPE_FLOAT ||

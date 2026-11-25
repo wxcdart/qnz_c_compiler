@@ -4,7 +4,7 @@ title: Optimization Passes & Safety Invariants
 description: Active IR optimization pipeline (Constant Folding, CopyProp, CSE, GVN, DCE, Mem2Reg, LICM, Auto-Vectorization) and their correctness invariants.
 resource: middleend/optimization-passes
 tags: [optimizations, mem2reg, licm, vectorization, gvn, cse, dce]
-timestamp: 2026-11-25T13:56:56Z
+timestamp: 2026-11-25T14:22:05Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -28,10 +28,17 @@ Optimization passes are registered in `src/zero_cc/opt/opt_pass.c` (`g_opt_passe
    - Block-scoped hash-based value numbering: duplicate numberable expressions (`ADD/SUB/MUL/AND/OR/XOR/SHL/SHR/NEG/NOT/MOV_REG/MOV_IMM`) in a block are replaced with copies of the first occurrence; the value table resets at every `OP_LABEL`.
    - A second scan does **restrict-aware redundant-load elimination / store-to-load forwarding** (`opt_restrict_memory_forward`): loads are keyed on (width, canonical address temp); loads from the same unmodified stack slot share a canonical temp; untagged stores clobber all pending entries, `restrict`-grouped stores only their own group; a 64-bit store forwards its value to later 64-bit loads of the same address.
    - **O(1) block reset (Sprint 38)**: the canonical-temp table (`g_canon`, full 16-bit temp-id space) uses **generation stamps** — `mf_reset()` bumps a generation counter instead of rewriting all 65536 slots (the rewrite ran at *every* block boundary — 447× per large function — and measured ~60 ms per function of the ~65 ms GVN total; now ~2.3 ms total per function at `-O2/-O3` on `synth_large.c`).
-5. **Small Function Inlining (`ast_lowering_expr.c` / `jit/compile.h`)**
-   - Automatically inlines static and `inline` leaf/helper functions ($N \le 35$ AST nodes, non-variadic, no struct returns $>8$B, non-recursive) at `-O2`/`-O3` (up to depth 2).
+5. **Small Function Inlining & Devirtualization (`ast_lowering_call.c` / `ast_lowering_expr.c` / `jit/compile.c`)**
+   - Automatically inlines static and `inline` leaf/helper functions at `-O2`/`-O3` (and LTO mode at `-O1`+), up to recursion depth 4 (Sprint 225).
+   - AST node count budget expanded from 35 to 60 (and up to 100 for `-O3` or explicit `inline`, Sprint 225).
    - Candidate function bodies are cloned from function-local AST arenas into TU-level `tu_ast_arena`.
    - At call sites, argument expressions are evaluated to temporaries, bound to parameter identifiers, and the inlined body is lowered directly into caller IR, routing returns to destination temporaries without call instruction or stack frame overhead.
+   - **Scalar Floating-Point Inlining (Sprint 225)**: Supports `float` and `double` parameters and returns. Arguments undergo automatic int-to-float (`cvtsi2sd`) or float-to-int (`cvttsd2si`) conversions if signature demands it; parameter substitution tracks `param_is_float[p]` to set `c->last_expr_is_float = 1`, and inlined return materialization emits `ir_emit_fmov` (XMM registers).
+   - **Cross-TU and Higher-Order Devirtualization (Sprint 225)**:
+     - Unwraps address-of and dereference unary chains on callees (`(&foo)(...)`, `(*foo)(...)`) into direct calls.
+     - Tracks target function names for local function pointer variables (`sym->fn_target_name[128]`) across declarations and assignments.
+     - Devirtualizes global function pointers (`gv->init_fn_target[128]`) via data reloc kind 3 entries.
+     - Tracks function pointer targets passed into inlined higher-order functions (`param_fn_target[8]`). Calls through inlined parameters (e.g. `fn(x)` in `apply(square, 5)`) devirtualize to the concrete function (`square(5)`) and immediately inline within the same pass.
    - Subsequent passes (`mem2reg`, `licm`, `copy_prop`, `dce`) optimize seamlessly across the inlined boundary.
    - **Caller-Local Shadowing Invariant (Sprint 128)**: In `ast_lowering_call.c`, `c->local_lookup_bound` is cleared to `0` upon entering the inlined callee context (and restored upon exit). This ensures that identifier and member lookups (`zero_cc_find_local`) in the inlined body cannot accidentally bind to caller stack variables that share a parameter or local name (e.g. `sqlite3VdbeExec(Vdbe *p)` calling inlined `sqlite3VdbeCursorRestore(VdbeCursor *p)` accessing `p->uc.pCursor`).
    - **Result-Temp Definition Invariant (Sprint 153)**: `inline_res_temp` is returned as the call expression's value and read by expression contexts EVEN FOR VOID CALLEES (a ternary MOVs each arm's value into its result temp: `x ? f1() : f1()`), so it must be **defined on every path reaching the inline exit label** — the invariant the non-inlined path upholds by emitting `MOV res = VREG_0` after the `CALL` in all cases. Two materialization sites provide it, both `MOV …, VREG_0` (unspecified value, exactly matching the non-inlined case): the **fallthrough** (between the lowered body and the exit label — a body that can fall off the end without executing a `return`, a `noreturn` body or a missing return, both UB but accepted, never fires the inlined-REDIRECT: c-torture `compile/pr37913` `int i = bar();` for a noreturn `bar`, plus `compile/20080613-1`, `execute/20001124-1`) and the **inlined void return** (`lower_stmt_return` emits it before the jump to the exit label, which would otherwise skip the fallthrough: `compile/pr39394`, `x ? f1() : f1()` with inline void bodies, -O2 — "untracked temp 20 in function 'f2'"). Without both, the `opt_temp_renumber` untracked-temp backstop rejects the function. The materializations are dead code when every path returns a value.

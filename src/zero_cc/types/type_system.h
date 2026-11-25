@@ -274,6 +274,8 @@ typedef struct {
      * - the declared symbol/register name.  Recorded for diagnostics and
      * future register pinning; storage is the normal frame/data object. */
     char asm_name[64];
+    /* Target function name if function pointer symbol has known target (Sprint 225 Devirtualization) */
+    char fn_target_name[128];
 } ZeroCCSym;
 
 /* Maximum parameters supported in a parsed function prototype/definition.

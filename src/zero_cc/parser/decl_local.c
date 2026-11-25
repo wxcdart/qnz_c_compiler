@@ -1715,6 +1715,15 @@ bool zero_cc_parse_local_decl(ZeroCCCompiler *c,  /* Sprint 114: defined in decl
                     }
                     dn = zero_cc_ast_get(arena, decl_ref);
                     if (dn) dn->left = init_val;
+                    if (sym && init_val != AST_NULL) {
+                        ZeroCCASTNode *in = zero_cc_ast_get(arena, init_val);
+                        while (in && (in->tag == NODE_UNOP && (in->aux.op == TK_AMP || in->aux.op == TK_STAR))) {
+                            in = zero_cc_ast_get(arena, in->left);
+                        }
+                        if (in && in->tag == NODE_IDENT && in->s.str) {
+                            snprintf(sym->fn_target_name, sizeof(sym->fn_target_name), "%s", in->s.str);
+                        }
+                    }
                     } /* !is_static_local */
                 }
 
@@ -1916,6 +1925,15 @@ bool zero_cc_parse_local_decl(ZeroCCCompiler *c,  /* Sprint 114: defined in decl
                         }
                         next_dn = zero_cc_ast_get(arena, next_decl_ref);
                         if (next_dn) next_dn->left = next_init;
+                        if (next_sym && next_init != AST_NULL) {
+                            ZeroCCASTNode *in = zero_cc_ast_get(arena, next_init);
+                            while (in && (in->tag == NODE_UNOP && (in->aux.op == TK_AMP || in->aux.op == TK_STAR))) {
+                                in = zero_cc_ast_get(arena, in->left);
+                            }
+                            if (in && in->tag == NODE_IDENT && in->s.str) {
+                                snprintf(next_sym->fn_target_name, sizeof(next_sym->fn_target_name), "%s", in->s.str);
+                            }
+                        }
                     }
 
                     ZeroCCASTNode *tail_node = zero_cc_ast_get(arena, tail_decl);

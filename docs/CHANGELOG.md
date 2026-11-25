@@ -1,5 +1,27 @@
 # CHANGELOG
 
+## [Sprint 225] - 2026-11-25 - Whole-Program IPO / Inlining Expansion & Cross-TU Devirtualization
+
+Implements Option C (Whole-Program IPO, Inlining Expansion & Cross-TU Devirtualization):
+- **Function Pointer Devirtualization (`ast_lowering_call.c`, `ast_lowering_stmt.c`, `ast_lowering_assign.c`, `decl_local.c`)**:
+  - Callee expression unwrapping: recursively unwraps unary `&` and `*` chains on callee expressions (`(&foo)(...)`, `(*foo)(...)`, `(***foo)(...)`), converting indirect call sites into direct calls to `foo`.
+  - Local function pointer tracking: tracks concrete target function names in `sym->fn_target_name[128]` for local function pointer variables across declarations (`int (*fp)(int) = foo;`) and assignments (`fp = bar;`).
+  - Global function pointer tracking: detects function symbol initializers in `gv->init_fn_target[128]` and data relocations (kind 3), converting indirect global function pointer calls into direct calls.
+  - Inlined higher-order parameter devirtualization: tracks known function arguments passed to inlined helper parameters (`c->lowering.inlining.param_fn_target[8]`). Calls through inlined parameters (e.g. `fn(val)` inside `apply(square, 5)`) devirtualize to the concrete function (`square(5)`) and immediately inline within the same pass.
+- **Inlining Budget & Capability Expansion (`compile.c`, `ast_lowering_call.c`, `ast_lowering_expr.c`, `ast_lowering_stmt.c`)**:
+  - Increased inlining recursion depth limit from depth 2 to depth 4 (`active_depth < 4`), unlocking deep multi-level helper chaining and nested wrapper function inlining.
+  - Expanded AST node budget in `can_inline` eligibility from 35 nodes to 60 nodes (and up to 100 nodes for `-O3` or explicit `inline`).
+  - Enabled scalar `float` and `double` parameter and return inlining:
+    - Removed float/double parameter disqualification in `compile.c`.
+    - Automatically emits argument conversions (`ir_emit_cvtsi2sd` / `ir_emit_cvttsd2si`) when argument and parameter types differ.
+    - Sets `c->last_expr_is_float = 1` during inlined parameter substitution via `param_is_float[8]`.
+    - Handles floating-point return value copy into target temps using `ir_emit_fmov` (XMM registers).
+- **Verification & Test Coverage**:
+  - Added unit test suite `test/jit/devirtualize_inlining_test.c`: covers direct `(&fn)`/`(*fn)` calls, local function pointer variables with reassignment, global function pointers, inlined parameter devirtualization (`apply_fn`, `apply_twice`), 4-level deep nested inlining (`nest_l1`..`nest_l4`), and float/double inlining (`lerpf`, `d_poly`).
+  - Verified across `-O0..-O3` in both JIT (`--run`) and AOT binary execution.
+  - Full test suite: `make test` (262/262 passed), `make test-opt` (162 passed, 0 failed, 58 skipped, 1 nondeterministic), `tools/verify/style_check.py` (0 errors), and `tools/okf/okf.py lint` (23/23 reachable).
+
+
 ## [Sprint 224] - 2026-11-25 - Advanced SLP Tree Vectorization (Multi-Expression Bundling)
 
 Implements Option B (Advanced SLP Tree Vectorization & Multi-Expression Bundling):
@@ -504,7 +526,6 @@ Implements Option 2: AVX-512 Integer SIMD (`AVX-512BW` / `AVX-512DQ` / `__m512i`
   - Verified across JIT (`--run`) and AOT (`-O0`, `-O2`), as well as `-mavx512f -mavx512bw -mavx512dq -S` text assembly verified via GNU `as`.
   - All regression gates green: `make test` (245/245 passed), `make test-opt` (143 passed, 0 failed), `make test-san` (720 passed, 0 failed), `python3 tools/verify/style_check.py` (0 errors), `python3 tools/verify/type_tag_verifier.py --verify-all` (OK).
 
-# CHANGELOG
 
 ## [Sprint 224] - 2026-11-25 - Advanced SLP Tree Vectorization (Multi-Expression Bundling)
 

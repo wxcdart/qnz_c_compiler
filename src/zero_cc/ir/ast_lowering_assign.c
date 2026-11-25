@@ -2214,6 +2214,27 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                         } else {
                             lower_assign_conv_zt(c, right_temp, &sym->type);
                             zc_sym_store(c, sym, 0, right_temp);  /* Sprint 72 */
+                            if (!is_compound) {
+                                ZeroCCASTNode *rhs_n = (node->right != AST_NULL) ? zero_cc_ast_get(arena, node->right) : NULL;
+                                while (rhs_n && (rhs_n->tag == NODE_UNOP && (rhs_n->aux.op == TK_AMP || rhs_n->aux.op == TK_STAR))) {
+                                    rhs_n = zero_cc_ast_get(arena, rhs_n->left);
+                                }
+                                if (rhs_n && rhs_n->tag == NODE_IDENT && rhs_n->s.str) {
+                                    const char *target_cand = rhs_n->s.str;
+                                    if (zero_cc_resolve_callee(c, target_cand)) {
+                                        snprintf(sym->fn_target_name, sizeof(sym->fn_target_name), "%s", target_cand);
+                                    } else {
+                                        ZeroCCSym *asym = zero_cc_find_local(c, target_cand);
+                                        if (asym && asym->fn_target_name[0]) {
+                                            snprintf(sym->fn_target_name, sizeof(sym->fn_target_name), "%s", asym->fn_target_name);
+                                        } else {
+                                            sym->fn_target_name[0] = '\0';
+                                        }
+                                    }
+                                } else {
+                                    sym->fn_target_name[0] = '\0';
+                                }
+                            }
                             if (zc_target_is_32bit(c) && (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) && sym->type.size > 4 && sym->type.size <= 8 && !is_compound) {
                                 /* RV32 ILP32 / AAPCS32 ABI: second 4-byte chunk returned in a1/r1 (VREG_2) */
                                 zc_sym_store(c, sym, 4, VREG_2);  /* Sprint 72 */

@@ -1254,7 +1254,8 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
                 !fn->returns_struct && (fn->ret_struct_sz <= 8 || ret_is_128_scalar)) {
                 ZeroCCASTArena *tu_arena = (ZeroCCASTArena *)c->tu_ast_arena;
                 size_t node_count = zero_cc_ast_node_count(&arena, body);
-                bool inline_ok = (node_count > 0 && node_count <= 35 &&
+                size_t max_nodes = (fn_inline || c->opt_level >= OPT_LEVEL_O3) ? 100 : 60;
+                bool inline_ok = (node_count > 0 && node_count <= max_nodes &&
                                   !zero_cc_ast_has_call(&arena, body, fn->name));
                 if (inline_ok) {
                     if (fn->param_count > 8)
@@ -1264,8 +1265,7 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
                         (fn->return_type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&fn->return_type)))
                         inline_ok = false;
                     for (size_t p = 0; inline_ok && p < fn->param_count; p++) {
-                        if (fn->param_types[p].tag == TYPE_FLOAT || fn->param_types[p].tag == TYPE_DOUBLE ||
-                            fn->param_types[p].tag == TYPE_STRUCT || fn->param_types[p].tag == TYPE_UNION ||
+                        if (fn->param_types[p].tag == TYPE_STRUCT || fn->param_types[p].tag == TYPE_UNION ||
                             fn->param_types[p].tag == TYPE_ARRAY || fn->param_types[p].is_complex ||
                             (fn->param_types[p].tag == TYPE_USER_0 && zero_cc_type_is_vector(&fn->param_types[p])))
                             inline_ok = false;

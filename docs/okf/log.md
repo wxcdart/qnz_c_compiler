@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-25T13:56:56Z
+timestamp: 2026-11-25T14:22:05Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1701,3 +1701,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-25 — Updated `optimization-passes.md`
 - Sprint 224: Advanced SLP Tree Vectorization (multi-expression DAG bundling, topological tree emission, shared leaf load deduplication)
+
+## 2026-11-25 — Updated `optimization-passes.md`
+- Sprint 225: Whole-Program IPO / Inlining Expansion & Cross-TU Devirtualization

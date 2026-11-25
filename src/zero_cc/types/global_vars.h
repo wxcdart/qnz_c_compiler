@@ -29,6 +29,7 @@ struct ZeroCCGlobalVar {
     bool lto_is_const_val;    /* Cross-TU constant global scalar propagation */
     int64_t lto_const_val;    /* Constant scalar value */
     bool lto_eliminated;      /* Eliminated by dead-global pruning */
+    char init_fn_target[128]; /* Target function name if initialized to a function address (Sprint 225) */
 };
 
 /* Global variable storage (M2: dynamic table - grows on demand, no fixed cap) */

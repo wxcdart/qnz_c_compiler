@@ -155,6 +155,8 @@ typedef struct {
         bool param_is_64[8];           /* Sprint 172: param is a 64-bit scalar on rv32 (GPR64 temp) - param substitution sets last_expr_is_64 */
         bool param_is_const[8];        /* Param has known compile-time constant value in this inlined frame */
         int64_t param_const_val[8];    /* Constant value when param_is_const[i] is true */
+        const char *param_fn_target[8];/* Target function name if known at call site (Sprint 225 Devirtualization) */
+        bool param_is_float[8];        /* Sprint 225: param is a float/double scalar (FP temp) */
         void *perm_arena;              /* Semantic perm Arena * of inlined callee's TU */
     } inlining;
 } LoweringState;

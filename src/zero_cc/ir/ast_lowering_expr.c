@@ -412,7 +412,7 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                     if (c->lowering.inlining.param_names[p] &&
                         strcmp(name, c->lowering.inlining.param_names[p]) == 0) {
                         int p_temp = c->lowering.inlining.param_temps[p];
-                        c->last_expr_is_float = 0;
+                        c->last_expr_is_float = c->lowering.inlining.param_is_float[p] ? 1 : 0;
                         /* Sprint 110: a 128-bit param's temp is a GPR128
                          * pair - without this, consumers (binop lowering,
                          * shifts, casts) classify it as a plain 64-bit

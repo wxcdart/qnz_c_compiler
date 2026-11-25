@@ -34,6 +34,7 @@
 /* Forward declarations */
 void lower_node(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
 int lower_expr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref);
+ZeroCCFunction *zero_cc_resolve_callee(ZeroCCCompiler *c, const char *name);
 
 /* GNU __int128 (Sprint 109): emit a constant-count 128-bit shift of the
  * (lo,hi) pair (s_lo,s_hi) into (dlo,dhi). op is TK_SHL or TK_SHR.  A TK_SHR
