@@ -278,6 +278,21 @@ static int try_match_site(ZeroCCCompiler *c, int i, SelectSite *site) {
     if (!preds_is_single(&cfg->blocks[b_else], b_je)) return 0;
     if (!preds_is_pair(&cfg->blocks[b_end], b_then, b_else)) return 0;
 
+    /* Preserve loop-internal conditionals for SIMD conditional vectorization */
+    if (cfg->loop_count > 0) {
+        for (int l = 0; l < cfg->loop_count; l++) {
+            int h = cfg->loops[l].header;
+            int t = cfg->loops[l].backedge_from;
+            if (h >= 0 && t >= 0 && h < cfg->block_count && t < cfg->block_count) {
+                size_t l_start = cfg->blocks[h].start;
+                size_t l_end = cfg->blocks[t].end;
+                if ((size_t)i >= l_start && (size_t)end_label <= l_end) {
+                    return 0; /* site is inside a loop; let SIMD vectorizer handle it */
+                }
+            }
+        }
+    }
+
     site->je_idx = i;
     site->cond_idx = i - 1;
     site->mask_kind = mask_kind;

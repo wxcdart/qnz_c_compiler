@@ -4,7 +4,7 @@ title: Optimization Passes & Safety Invariants
 description: Active IR optimization pipeline (Constant Folding, CopyProp, CSE, GVN, DCE, Mem2Reg, LICM, Auto-Vectorization) and their correctness invariants.
 resource: middleend/optimization-passes
 tags: [optimizations, mem2reg, licm, vectorization, gvn, cse, dce]
-timestamp: 2026-11-25T00:34:33Z
+timestamp: 2026-11-25T01:32:24Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -197,6 +197,15 @@ Optimization passes are registered in `src/zero_cc/opt/opt_pass.c` (`g_opt_passe
 - Clones AST and parameter descriptors into specialized function variants (`callee.const_p<idx>_<val>`), allocating independent `lto_locals` copies to prevent heap sharing and double-free issues during cleanup.
 - Substitutes parameter references directly with constants in cloned function bodies (`lto_param_is_const`), unlocking aggressive downstream dead branch elimination, constant folding, and loop unrolling within specialized callee bodies.
 - Unreferenced original static functions whose call sites are all specialized are marked `lto_eliminated = true` during translation unit finalization if their address is never taken.
+
+### SIMD If-Conversion & Conditional Vectorization (Sprint 219)
+
+Sprint 219 extends the loop auto-vectorizer (`opt_vectorize.c`) with conditional if-conversion and vector selection:
+- **`OP_V128_CMP`**: Computes element-wise comparison masks across 32-bit/64-bit integer and floating-point vector registers (`pcmpeqd`/`pcmpgtd` on x86, `cmeq`/`cmgt`/`fcmgt` on AArch64, `rvv_vcmp` on RISC-V). Produces an all-1s (`~0`) bitmask in true lanes and all-0s in false lanes.
+- **`OP_V128_SELECT`**: Universal bitwise select `(src_true & mask) | (src_false & ~mask)` using SSE2 `movaps`, `andnps`, `andps`, `orps` on x86-64, NEON `bsl` on AArch64, and vector bitwise blend on RISC-V RVV.
+- **Diamond Pattern Matching & Vectorization**: Detects internal conditional diamonds (`CMP` -> `COND_SET` -> `JE` -> `then_arm` -> `JMP` -> `else_arm`) without rejecting the loop for mid-body conditional branches. Replaces the scalar branch sequence with a packed `OP_V128_CMP` and `OP_V128_SELECT`, completely eliminating conditional branching inside the loop body.
+- **Liveness & DCE Integration**: DCE (`opt_dce.c`) tracks `OP_V128_SELECT`'s vector mask operand stored in `imm64`, preserving `OP_V128_CMP` across dead code elimination iterations.
+- **Verification**: Verified via `test/jit/simd_cond_vectorize_test.c` across `-O0..-O3` in both JIT and AOT.
 
 ### `OP_ASM` — the inline-asm barrier contract (Sprint 135)
 

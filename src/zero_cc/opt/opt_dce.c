@@ -257,7 +257,8 @@ static void mark_uses(ZeroCCCompiler *c, Instr *instr) {
 
         case OP_ATOMIC_CMPXCHG:
         case OP_ATOMIC_CMPXCHG_BOOL:
-            // Atomic compare-and-exchange uses imm64 as the expected operand temp
+        case OP_V128_SELECT:
+            // Atomic compare-and-exchange uses imm64 as expected temp; V128_SELECT uses imm64 as vector mask temp
             if (instr->temp_src1 != TEMP_NONE) {
                 mark_live(instr->temp_src1);
             }

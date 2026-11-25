@@ -1683,6 +1683,26 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
         case OP_V128_SCATTER:
             if (BE(c)->emit_v128_scatter_asm) BE(c)->emit_v128_scatter_asm(c, phys_dst, phys_src1, phys_src2, (int)instr->imm, out);
             return;
+        case OP_V128_CMP:
+            if (BE(c)->emit_v128_cmp_asm) {
+                BE(c)->emit_v128_cmp_asm(c, phys_dst, phys_src1, phys_src2, (int)instr->cond, (int)instr->imm, (int)instr->imm64, out);
+            }
+            return;
+        case OP_V128_SELECT: {
+            int phys_mask = (instr->imm64 == TEMP_NONE) ? BE(c)->fp_reg : asm_get_phys_reg(&c->regalloc, (uint32_t)instr->imm64);
+            int spill_mask = regalloc_get_spill_slot_for_temp(&c->regalloc, (uint32_t)instr->imm64);
+            if (spill_mask >= 0) {
+                int32_t slot_off = c->regalloc.spill_base_offset + (spill_mask + 1) * 8;
+                if (BE(c)->emit_vload_asm) {
+                    BE(c)->emit_vload_asm(c, BE(c)->fp_scratch_reg2, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off), out);
+                }
+                phys_mask = BE(c)->fp_scratch_reg2;
+            }
+            if (BE(c)->emit_v128_select_asm) {
+                BE(c)->emit_v128_select_asm(c, phys_dst, phys_src1, phys_src2, phys_mask, (int)instr->imm, out);
+            }
+            return;
+        }
 
         case OP_VSTORESS: {
             const char *val_name = BE(c)->get_vec_reg_name(phys_src2);

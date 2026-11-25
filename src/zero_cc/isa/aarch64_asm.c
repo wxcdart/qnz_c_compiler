@@ -1483,6 +1483,60 @@ static void aarch64_emit_v128_scatter_asm(ZeroCCCompiler *c, int src, int base, 
     }
 }
 
+static void aarch64_emit_v128_select_asm(ZeroCCCompiler *c, int dst, int src_true, int src_false, int mask, int esz, FILE *out) {
+    (void)esz;
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *true_name = BE(c)->get_vec_reg_name(src_true);
+    const char *false_name = BE(c)->get_vec_reg_name(src_false);
+    const char *mask_name = BE(c)->get_vec_reg_name(mask);
+    if (dst != mask) {
+        fprintf(out, "\tmov\t%s.16b, %s.16b\n", dst_name, mask_name);
+    }
+    fprintf(out, "\tbsl\t%s.16b, %s.16b, %s.16b\n", dst_name, true_name, false_name);
+}
+
+static void aarch64_emit_v128_cmp_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int cond, int esz, int is_fp, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *s1_name = BE(c)->get_vec_reg_name(src1);
+    const char *s2_name = BE(c)->get_vec_reg_name(src2);
+    const char *suffix = (esz == 8 || esz == 3) ? "2d" : "4s";
+    if (is_fp) {
+        const char *op = "fcmeq";
+        const char *first = s1_name, *second = s2_name;
+        bool invert = false;
+        switch (cond) {
+            case CC_EQ: op = "fcmeq"; break;
+            case CC_NE: op = "fcmeq"; invert = true; break;
+            case CC_GT: case CC_FLT_GT: op = "fcmgt"; break;
+            case CC_GE: case CC_FLT_GE: op = "fcmge"; break;
+            case CC_LT: case CC_FLT_LT: op = "fcmgt"; first = s2_name; second = s1_name; break;
+            case CC_LE: case CC_FLT_LE: op = "fcmge"; first = s2_name; second = s1_name; break;
+            default: op = "fcmeq"; break;
+        }
+        fprintf(out, "\t%s\t%s.%s, %s.%s, %s.%s\n", op, dst_name, suffix, first, suffix, second, suffix);
+        if (invert) {
+            fprintf(out, "\tmvn\t%s.16b, %s.16b\n", dst_name, dst_name);
+        }
+    } else {
+        const char *op = "cmeq";
+        const char *first = s1_name, *second = s2_name;
+        bool invert = false;
+        switch (cond) {
+            case CC_EQ: op = "cmeq"; break;
+            case CC_NE: op = "cmeq"; invert = true; break;
+            case CC_GT: op = "cmgt"; break;
+            case CC_GE: op = "cmge"; break;
+            case CC_LT: op = "cmgt"; first = s2_name; second = s1_name; break;
+            case CC_LE: op = "cmge"; first = s2_name; second = s1_name; break;
+            default: op = "cmeq"; break;
+        }
+        fprintf(out, "\t%s\t%s.%s, %s.%s, %s.%s\n", op, dst_name, suffix, first, suffix, second, suffix);
+        if (invert) {
+            fprintf(out, "\tmvn\t%s.16b, %s.16b\n", dst_name, dst_name);
+        }
+    }
+}
+
 /* =========================================================================
  * ARM SVE Scalable Vector Extension Text Emitters (Sprint 203)
  * ========================================================================= */
@@ -2148,6 +2202,8 @@ void aarch64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_v128_store_strided_asm = aarch64_emit_v128_store_strided_asm;
     be->emit_v128_gather_asm = aarch64_emit_v128_gather_asm;
     be->emit_v128_scatter_asm = aarch64_emit_v128_scatter_asm;
+    be->emit_v128_cmp_asm = aarch64_emit_v128_cmp_asm;
+    be->emit_v128_select_asm = aarch64_emit_v128_select_asm;
 
     /* SVE */
     be->emit_sve_ptrue_asm = aarch64_emit_sve_ptrue_asm;

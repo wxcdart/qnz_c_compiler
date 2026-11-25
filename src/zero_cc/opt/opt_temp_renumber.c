@@ -295,12 +295,12 @@ int opt_temp_renumber(ZeroCCCompiler *c, const char *fn_name) {
             }
             ins->temp_src2 = new_id[f];
         }
-        if (ins->op == OP_ATOMIC_CMPXCHG || ins->op == OP_ATOMIC_CMPXCHG_BOOL) {
+        if (ins->op == OP_ATOMIC_CMPXCHG || ins->op == OP_ATOMIC_CMPXCHG_BOOL || ins->op == OP_V128_SELECT) {
             f = (uint32_t)ins->imm64;
             if (zc_temp_is_user(f)) {
                 if (f >= max_id || !new_id[f]) {
                     diag_report_error_at_token(c,
-                        "internal error: untracked temp %u in atomic cmpxchg of "
+                        "internal error: untracked temp %u in select/cmpxchg of "
                         "function '%s' - refusing to emit", f, fn);
                     goto fail;
                 }

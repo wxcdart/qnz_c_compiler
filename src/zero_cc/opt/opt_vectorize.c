@@ -834,6 +834,193 @@ static bool detect_loop_reduction(
     return true;
 }
 
+typedef struct {
+    int cmp_idx;        /* OP_CMP */
+    int condset_idx;    /* OP_COND_SET */
+    int je_idx;         /* OP_JE */
+    int then_start;     /* start instruction of then arm */
+    int then_end;       /* end instruction of then arm */
+    int jmp_idx;        /* OP_JMP (or -1 if single arm) */
+    int else_label_idx; /* OP_LABEL (or -1) */
+    int else_start;     /* start instruction of else arm (or -1) */
+    int else_end;       /* end instruction of else arm (or -1) */
+    int end_label_idx;  /* OP_LABEL */
+    int res_temp;       /* destination temp receiving the selected value */
+    int then_val;       /* temp holding then-value */
+    int else_val;       /* temp holding else-value */
+    int cond;           /* condition code (CC_GT, CC_LT, etc.) */
+    bool is_fp;         /* true if floating point comparison */
+    int esz;            /* 4 or 8 */
+    int vec_mask;       /* allocated vector mask temp */
+    int vec_res;        /* allocated vector result temp */
+    int vec_then;       /* allocated or mapped vector then temp */
+    int vec_else;       /* allocated or mapped vector else temp */
+} LoopCondDiamond;
+
+static int detect_loop_diamonds(ZeroCCCompiler *c, int start, int end, int test_idx,
+                                const uint8_t *skip_mask, LoopCondDiamond *diamonds, int max_diamonds) {
+    int count = 0;
+    for (int i = start + 1; i < end; i++) {
+        if (i == test_idx || (skip_mask && skip_mask[i - start])) continue;
+        Instr *je = ir_get(c, i);
+        if (!je || je->op != OP_JE) continue;
+        uint32_t cond_t = je->temp_src1;
+        if (!zc_temp_is_user(cond_t)) continue;
+
+        int condset_idx = -1;
+        for (int k = i - 1; k >= start; k--) {
+            if (skip_mask && skip_mask[k - start]) continue;
+            Instr *ins = ir_get(c, k);
+            if (ins && ins->op == OP_COND_SET && ins->temp_dest == cond_t) {
+                condset_idx = k;
+                break;
+            }
+        }
+        if (condset_idx < 0) continue;
+
+        int cmp_idx = -1;
+        for (int k = condset_idx - 1; k >= start; k--) {
+            if (skip_mask && skip_mask[k - start]) continue;
+            Instr *ins = ir_get(c, k);
+            if (ins && (ins->op == OP_CMP || ins->op == OP_VCMPSS || ins->op == OP_VCMPSD)) {
+                cmp_idx = k;
+                break;
+            }
+        }
+        if (cmp_idx < 0) continue;
+
+        int else_lid = (int)je->label_idx;
+        int target_pos = -1;
+        for (int k = start; k <= end; k++) {
+            Instr *ins = ir_get(c, k);
+            if (ins && ins->op == OP_LABEL && (int)ins->label_idx == else_lid) {
+                target_pos = k;
+                break;
+            }
+        }
+        if (target_pos <= i || target_pos >= end) continue;
+
+        Instr *before_target = ir_get(c, target_pos - 1);
+        if (before_target && before_target->op == OP_JMP) {
+            int end_lid = (int)before_target->label_idx;
+            int end_pos = -1;
+            for (int k = target_pos + 1; k <= end; k++) {
+                Instr *ins = ir_get(c, k);
+                if (ins && ins->op == OP_LABEL && (int)ins->label_idx == end_lid) {
+                    end_pos = k;
+                    break;
+                }
+            }
+            if (end_pos <= target_pos || end_pos > end) continue;
+
+            int then_last = target_pos - 2;
+            int then_val = -1;
+            int res_t = -1;
+            for (int k = i + 1; k <= then_last; k++) {
+                if (skip_mask && skip_mask[k - start]) continue;
+                Instr *ins = ir_get(c, k);
+                if (!ins || ins->op == OP_NOP || ins->op == OP_DEAD) continue;
+                if (ins->op == OP_MOV_REG || ins->op == OP_FMOV) {
+                    res_t = (int)ins->temp_dest;
+                    then_val = (int)ins->temp_src1;
+                }
+            }
+            if (res_t < 0 || then_val < 0) continue;
+
+            int else_last = end_pos - 1;
+            int else_val = -1;
+            for (int k = target_pos + 1; k <= else_last; k++) {
+                if (skip_mask && skip_mask[k - start]) continue;
+                Instr *ins = ir_get(c, k);
+                if (!ins || ins->op == OP_NOP || ins->op == OP_DEAD) continue;
+                if ((ins->op == OP_MOV_REG || ins->op == OP_FMOV) && (int)ins->temp_dest == res_t) {
+                    else_val = (int)ins->temp_src1;
+                }
+            }
+            if (else_val < 0) continue;
+
+            Instr *cmp_ins = ir_get(c, cmp_idx);
+            Instr *cs_ins = ir_get(c, condset_idx);
+            bool is_fp = (cmp_ins->op == OP_VCMPSS || cmp_ins->op == OP_VCMPSD ||
+                          (cmp_ins->flags_out == 0xFE) ||
+                          ((zc_temp_tag(c, cmp_ins->temp_src1) & 0x0F) == ZC_TAGCLS_FLOAT));
+
+            if (count < max_diamonds) {
+                LoopCondDiamond *d = &diamonds[count++];
+                d->cmp_idx = cmp_idx;
+                d->condset_idx = condset_idx;
+                d->je_idx = i;
+                d->then_start = i + 1;
+                d->then_end = then_last;
+                d->jmp_idx = target_pos - 1;
+                d->else_label_idx = target_pos;
+                d->else_start = target_pos + 1;
+                d->else_end = else_last;
+                d->end_label_idx = end_pos;
+                d->res_temp = res_t;
+                d->then_val = then_val;
+                d->else_val = else_val;
+                d->cond = (int)cs_ins->cond;
+                d->is_fp = is_fp;
+                d->esz = is_fp ? (cmp_ins->op == OP_VCMPSD ? 8 : 4) : 4;
+                d->vec_mask = -1;
+                d->vec_res = -1;
+                d->vec_then = -1;
+                d->vec_else = -1;
+            }
+            i = end_pos;
+        } else {
+            /* Single-arm if without else */
+            int end_pos = target_pos;
+            int then_last = end_pos - 1;
+            int then_val = -1;
+            int res_t = -1;
+            for (int k = i + 1; k <= then_last; k++) {
+                if (skip_mask && skip_mask[k - start]) continue;
+                Instr *ins = ir_get(c, k);
+                if (!ins || ins->op == OP_NOP || ins->op == OP_DEAD) continue;
+                if (ins->op == OP_MOV_REG || ins->op == OP_FMOV) {
+                    res_t = (int)ins->temp_dest;
+                    then_val = (int)ins->temp_src1;
+                }
+            }
+            if (res_t < 0 || then_val < 0) continue;
+
+            Instr *cmp_ins = ir_get(c, cmp_idx);
+            Instr *cs_ins = ir_get(c, condset_idx);
+            bool is_fp = (cmp_ins->op == OP_VCMPSS || cmp_ins->op == OP_VCMPSD ||
+                          (cmp_ins->flags_out == 0xFE) ||
+                          ((zc_temp_tag(c, cmp_ins->temp_src1) & 0x0F) == ZC_TAGCLS_FLOAT));
+
+            if (count < max_diamonds) {
+                LoopCondDiamond *d = &diamonds[count++];
+                d->cmp_idx = cmp_idx;
+                d->condset_idx = condset_idx;
+                d->je_idx = i;
+                d->then_start = i + 1;
+                d->then_end = then_last;
+                d->jmp_idx = -1;
+                d->else_label_idx = -1;
+                d->else_start = -1;
+                d->else_end = -1;
+                d->end_label_idx = end_pos;
+                d->res_temp = res_t;
+                d->then_val = then_val;
+                d->else_val = res_t;
+                d->cond = (int)cs_ins->cond;
+                d->is_fp = is_fp;
+                d->esz = is_fp ? (cmp_ins->op == OP_VCMPSD ? 8 : 4) : 4;
+                d->vec_mask = -1;
+                d->vec_res = -1;
+                d->vec_then = -1;
+                d->vec_else = -1;
+            }
+            i = end_pos;
+        }
+    }
+    return count;
+}
+
 /**
  * Analyze a single loop for vectorization opportunities
  */
@@ -956,6 +1143,9 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
     bool inc_use_src2 = false;
     bool bound_ok = false;
 
+    LoopCondDiamond diamonds[16];
+    int diamond_count = detect_loop_diamonds(c, start, end, -1, skip_mask, diamonds, 16);
+
     /* Find label positions up front */
     if (cfg_build(c)) {
         ZeroCCCFG *cfg = &c->cfg_cache;
@@ -997,6 +1187,15 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
                     continue;
                 }
             }
+            bool is_diamond_branch = false;
+            for (int d = 0; d < diamond_count; d++) {
+                if (last == diamonds[d].je_idx || (diamonds[d].jmp_idx >= 0 && last == diamonds[d].jmp_idx)) {
+                    is_diamond_branch = true;
+                    break;
+                }
+            }
+            if (is_diamond_branch) continue;
+
             has_mid_body_cond = true;
         }
     } else {
@@ -1010,11 +1209,22 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
         if (!ins) continue;
         if (ins->op == OP_JE || ins->op == OP_JNE || ins->op == OP_JL ||
             ins->op == OP_JLE || ins->op == OP_JG || ins->op == OP_JCOND) {
-            has_mid_body_cond = true;
+            bool is_diamond_branch = false;
+            for (int d = 0; d < diamond_count; d++) {
+                if (idx == diamonds[d].je_idx) {
+                    is_diamond_branch = true;
+                    break;
+                }
+            }
+            if (!is_diamond_branch) {
+                has_mid_body_cond = true;
+            }
         }
     }
 
     if (!has_mid_body_cond && test_idx > start) {
+        vinfo->has_cond_select = (diamond_count > 0);
+        vinfo->cond_diamond_count = diamond_count;
         Instr *test_ins = ir_get(c, test_idx);
         int flag = (int)test_ins->temp_src1;
         for (int k = test_idx - 1; k > start && condset_idx < 0; k--) {
@@ -1980,6 +2190,64 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
         }
     }
 
+    LoopCondDiamond diamonds[16];
+    int diamond_count = 0;
+    int v_zero = -1;
+    if (vinfo->has_cond_select) {
+        v_zero = zc_alloc_temp(c);
+        Instr z_ins = {
+            .op = OP_VXORPS,
+            .temp_dest = (uint32_t)v_zero,
+            .temp_src1 = (uint32_t)v_zero,
+            .temp_src2 = (uint32_t)v_zero,
+            .cond = 0,
+            .flags_out = 0xFF,
+            .flags_in = 0xFF,
+            .imm = 0,
+            .imm64 = 0,
+            .label_idx = 0
+        };
+        ir_insert_at(c, (size_t)start_idx, z_ins);
+        start_idx++;
+        end_idx++;
+        if (vinfo->inc_instr_idx >= start_idx - 1) vinfo->inc_instr_idx++;
+        if (vinfo->test_instr_idx >= start_idx - 1) vinfo->test_instr_idx++;
+        if (vinfo->cmp_instr_idx >= start_idx - 1) vinfo->cmp_instr_idx++;
+        diamond_count = detect_loop_diamonds(c, start_idx, end_idx, vinfo->test_instr_idx, NULL, diamonds, 16);
+    }
+
+    /* Track scalar temp -> fresh untagged vector temp mapping so REG_CLASS_VEC
+     * never aliases compacted REG_CLASS_GPR / REG_CLASS_XMM temp IDs. */
+    static int32_t s_scalar_to_vec_map[65536];
+    int32_t *scalar_to_vec_map = s_scalar_to_vec_map;
+    memset(scalar_to_vec_map, 0xFF, sizeof(s_scalar_to_vec_map));
+
+    for (int d = 0; d < diamond_count; d++) {
+        uint32_t ops[4] = {
+            (uint32_t)diamonds[d].then_val,
+            (uint32_t)diamonds[d].else_val,
+            ir_get(c, diamonds[d].cmp_idx)->temp_src1,
+            ir_get(c, diamonds[d].cmp_idx)->temp_src2
+        };
+        int search_from[4] = {
+            diamonds[d].then_end,
+            (diamonds[d].else_end >= 0 ? diamonds[d].else_end : diamonds[d].end_label_idx),
+            diamonds[d].cmp_idx,
+            diamonds[d].cmp_idx
+        };
+        for (int op_idx = 0; op_idx < 4; op_idx++) {
+            uint32_t t = ops[op_idx];
+            if (t == TEMP_NONE || t >= 65536) continue;
+            int64_t cv = 0;
+            int def_k = -1;
+            if (resolve_const_at(c, search_from[op_idx], t, &cv, &def_k) && cv == 0) {
+                scalar_to_vec_map[t] = v_zero;
+                if ((uint32_t)diamonds[d].then_val == t) diamonds[d].vec_then = v_zero;
+                if ((uint32_t)diamonds[d].else_val == t) diamonds[d].vec_else = v_zero;
+            }
+        }
+    }
+
     /* 2.5 Pre-classify address temps for loads and stores BEFORE modifying
      *     any instructions in the loop, avoiding mutation interference. */
     int loop_span = end_idx - start_idx + 1;
@@ -2019,17 +2287,84 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
         addr_info[rel].idx_t = idx_t;
     }
 
-    /* 3. Track scalar temp -> fresh untagged vector temp mapping so REG_CLASS_VEC
-     *    never aliases compacted REG_CLASS_GPR / REG_CLASS_XMM temp IDs. */
-    static int32_t s_scalar_to_vec_map[65536];
-    int32_t *scalar_to_vec_map = s_scalar_to_vec_map;
-    memset(scalar_to_vec_map, 0xFF, sizeof(s_scalar_to_vec_map));
-
     int esz = vinfo->is_double ? 3 : 2;
 
     for (int i = start_idx; i <= end_idx; i++) {
         Instr *instr = ir_get(c, i);
         if (!instr || instr->op == OP_NOP || instr->op == OP_DEAD) continue;
+
+        if (diamond_count > 0) {
+            int d_idx = -1;
+            for (int d = 0; d < diamond_count; d++) {
+                if (i == diamonds[d].cmp_idx || i == diamonds[d].condset_idx ||
+                    i == diamonds[d].je_idx || i == diamonds[d].jmp_idx ||
+                    i == diamonds[d].else_label_idx || i == diamonds[d].end_label_idx ||
+                    (i >= diamonds[d].then_start && i <= diamonds[d].then_end) ||
+                    (diamonds[d].else_start >= 0 && i >= diamonds[d].else_start && i <= diamonds[d].else_end)) {
+                    d_idx = d;
+                    break;
+                }
+            }
+            if (d_idx >= 0) {
+                LoopCondDiamond *d = &diamonds[d_idx];
+                if (i == d->cmp_idx) {
+                    Instr *cm = instr;
+                    uint32_t s1 = cm->temp_src1;
+                    uint32_t s2 = cm->temp_src2;
+                    int vec_s1 = (s1 < 65536 && scalar_to_vec_map[s1] >= 0) ? scalar_to_vec_map[s1] : v_zero;
+                    int vec_s2 = (s2 < 65536 && scalar_to_vec_map[s2] >= 0) ? scalar_to_vec_map[s2] : v_zero;
+                    int v_mask = zc_alloc_temp(c);
+                    d->vec_mask = v_mask;
+                    cm->op = OP_V128_CMP;
+                    cm->temp_dest = (uint32_t)v_mask;
+                    cm->temp_src1 = (uint32_t)vec_s1;
+                    cm->temp_src2 = (uint32_t)vec_s2;
+                    cm->imm = (int16_t)vinfo->elem_size;
+                    cm->cond = (uint8_t)d->cond;
+                    cm->imm64 = (int64_t)(d->is_fp ? 1 : 0);
+                    cm->label_idx = 0;
+                    cm->flags_out = 0xFF; cm->flags_in = 0xFF;
+                    continue;
+                }
+                if (i == d->condset_idx || i == d->je_idx ||
+                    (d->jmp_idx >= 0 && i == d->jmp_idx) ||
+                    (d->else_label_idx >= 0 && i == d->else_label_idx)) {
+                    instr->op = OP_NOP;
+                    continue;
+                }
+                if (i >= d->then_start && i <= d->then_end) {
+                    if ((instr->op == OP_MOV_REG || instr->op == OP_FMOV) && (int)instr->temp_dest == d->res_temp) {
+                        instr->op = OP_NOP;
+                        continue;
+                    }
+                }
+                if (d->else_start >= 0 && i >= d->else_start && i <= d->else_end) {
+                    if ((instr->op == OP_MOV_REG || instr->op == OP_FMOV) && (int)instr->temp_dest == d->res_temp) {
+                        instr->op = OP_NOP;
+                        continue;
+                    }
+                }
+                if (i == d->end_label_idx) {
+                    int vec_then = (d->vec_then >= 0) ? d->vec_then :
+                        ((d->then_val < 65536 && scalar_to_vec_map[d->then_val] >= 0) ? scalar_to_vec_map[d->then_val] : v_zero);
+                    int vec_else = (d->vec_else >= 0) ? d->vec_else :
+                        ((d->else_val < 65536 && scalar_to_vec_map[d->else_val] >= 0) ? scalar_to_vec_map[d->else_val] : v_zero);
+                    int v_res = zc_alloc_temp(c);
+                    d->vec_res = v_res;
+                    instr->op = OP_V128_SELECT;
+                    instr->temp_dest = (uint32_t)v_res;
+                    instr->temp_src1 = (uint32_t)vec_then;
+                    instr->temp_src2 = (uint32_t)vec_else;
+                    instr->imm64 = (int64_t)d->vec_mask;
+                    instr->imm = (int16_t)vinfo->elem_size;
+                    instr->label_idx = 0;
+                    instr->cond = 0;
+                    instr->flags_out = 0xFF; instr->flags_in = 0xFF;
+                    if (d->res_temp < 65536) scalar_to_vec_map[d->res_temp] = v_res;
+                    continue;
+                }
+            }
+        }
 
         if (vinfo->is_reduction) {
             bool is_red_load = (i == vinfo->red_load_idx);
@@ -2124,6 +2459,16 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
             instr->flags_out = 0xFF;
             instr->flags_in = 0xFF;
             scalar_to_vec_map[old_dest] = vec_temp;
+            if (diamond_count > 0) {
+                for (int d = 0; d < diamond_count; d++) {
+                    if (i >= diamonds[d].then_start && i <= diamonds[d].then_end) {
+                        if (old_dest == (uint32_t)diamonds[d].then_val) diamonds[d].vec_then = vec_temp;
+                    }
+                    if (diamonds[d].else_start >= 0 && i >= diamonds[d].else_start && i <= diamonds[d].else_end) {
+                        if (old_dest == (uint32_t)diamonds[d].else_val) diamonds[d].vec_else = vec_temp;
+                    }
+                }
+            }
             continue;
         }
 
@@ -2133,6 +2478,20 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
                 scalar_to_vec_map[instr->temp_src1] >= 0 &&
                 zc_temp_is_user(instr->temp_dest) && instr->temp_dest < 65536) {
                 scalar_to_vec_map[instr->temp_dest] = scalar_to_vec_map[instr->temp_src1];
+                if (diamond_count > 0) {
+                    for (int d = 0; d < diamond_count; d++) {
+                        if (i >= diamonds[d].then_start && i <= diamonds[d].then_end) {
+                            if (instr->temp_dest == (uint32_t)diamonds[d].then_val) {
+                                diamonds[d].vec_then = scalar_to_vec_map[instr->temp_src1];
+                            }
+                        }
+                        if (diamonds[d].else_start >= 0 && i >= diamonds[d].else_start && i <= diamonds[d].else_end) {
+                            if (instr->temp_dest == (uint32_t)diamonds[d].else_val) {
+                                diamonds[d].vec_else = scalar_to_vec_map[instr->temp_src1];
+                            }
+                        }
+                    }
+                }
                 instr->op = OP_NOP;
                 continue;
             }
@@ -2169,6 +2528,16 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
                     }
                     int vec_dest = zc_alloc_temp(c);
                     scalar_to_vec_map[instr->temp_dest] = vec_dest;
+                    if (diamond_count > 0) {
+                        for (int d = 0; d < diamond_count; d++) {
+                            if (i >= diamonds[d].then_start && i <= diamonds[d].then_end) {
+                                if (instr->temp_dest == (uint32_t)diamonds[d].then_val) diamonds[d].vec_then = vec_dest;
+                            }
+                            if (diamonds[d].else_start >= 0 && i >= diamonds[d].else_start && i <= diamonds[d].else_end) {
+                                if (instr->temp_dest == (uint32_t)diamonds[d].else_val) diamonds[d].vec_else = vec_dest;
+                            }
+                        }
+                    }
 
                     instr->op = (uint16_t)vec_op;
                     instr->temp_dest = (uint32_t)vec_dest;

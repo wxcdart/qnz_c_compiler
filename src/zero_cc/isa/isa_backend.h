@@ -347,6 +347,9 @@ typedef struct ZeroCCISABackend {
     void (*emit_v128_store_strided_asm)(ZeroCCCompiler *c, int src, int base, int stride, int esz, FILE *out);
     void (*emit_v128_gather_asm)(ZeroCCCompiler *c, int dst, int base, int idx, int esz, FILE *out);
     void (*emit_v128_scatter_asm)(ZeroCCCompiler *c, int src, int base, int idx, int esz, FILE *out);
+    /* Conditional Vectorization (Predication / Blend) (Sprint 219) */
+    void (*emit_v128_cmp_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int cond, int esz, int is_fp, FILE *out);
+    void (*emit_v128_select_asm)(ZeroCCCompiler *c, int dst, int src_true, int src_false, int mask, int esz, FILE *out);
 
     /* Integer operations */
     void (*emit_mov_imm)(ZeroCCCompiler *c, int dst_reg, int64_t imm);
@@ -675,6 +678,9 @@ typedef struct ZeroCCISABackend {
     void (*emit_v128_store_strided)(ZeroCCCompiler *c, int src, int base, int stride, int esz);
     void (*emit_v128_gather)(ZeroCCCompiler *c, int dst, int base, int idx, int esz);
     void (*emit_v128_scatter)(ZeroCCCompiler *c, int src, int base, int idx, int esz);
+    /* Conditional Vectorization (Predication / Blend) (Sprint 219) */
+    void (*emit_v128_cmp)(ZeroCCCompiler *c, int dst, int src1, int src2, int cond, int esz, int is_fp);
+    void (*emit_v128_select)(ZeroCCCompiler *c, int dst, int src_true, int src_false, int mask, int esz);
 
     size_t (*patch_jmp)(ZeroCCCompiler *c, size_t patch_offset, size_t target_offset);
     void (*resolve_labels)(ZeroCCCompiler *c);  /* Resolve all label patches */

@@ -875,6 +875,16 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
             live_range_add_use(lra, i, VREG_0, false);
             live_range_mark_clobber(lra, i, 0);
         }
+
+        if (instr->op == OP_V128_SELECT) {
+            uint32_t mask_t = (uint32_t)instr->imm64;
+            if (mask_t != TEMP_NONE) {
+                live_range_add_use(lra, i, (int)mask_t, false);
+                if (zc_temp_is_user(mask_t) && (size_t)mask_t < lra->temp_capacity) {
+                    lra->temp_reg_class[mask_t] = REG_CLASS_VEC;
+                }
+            }
+        }
     }
 }
 

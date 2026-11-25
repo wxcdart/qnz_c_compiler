@@ -2328,6 +2328,112 @@ static void x86_emit_v128_scatter(ZeroCCCompiler *c, int src, int base, int idx,
     }
 }
 
+static void x86_emit_andnps_rr(ZeroCCCompiler *c, int dst, int src) {
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x55);
+    x86_modrm(c, 3, dst & 7, src & 7);
+}
+
+static void x86_emit_pcmpeqd_rr(ZeroCCCompiler *c, int dst, int src) {
+    me_emit_u8(c, 0x66);
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x76);
+    x86_modrm(c, 3, dst & 7, src & 7);
+}
+
+static void x86_emit_pcmpgtd_rr(ZeroCCCompiler *c, int dst, int src) {
+    me_emit_u8(c, 0x66);
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0x66);
+    x86_modrm(c, 3, dst & 7, src & 7);
+}
+
+static void x86_emit_cmpps_rr(ZeroCCCompiler *c, int dst, int src, uint8_t pred) {
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0xC2);
+    x86_modrm(c, 3, dst & 7, src & 7);
+    me_emit_u8(c, pred);
+}
+
+static void x86_emit_cmppd_rr(ZeroCCCompiler *c, int dst, int src, uint8_t pred) {
+    me_emit_u8(c, 0x66);
+    x86_rex(c, 0, (dst >> 3) & 1, 0, (src >> 3) & 1);
+    me_emit_u8(c, 0x0F);
+    me_emit_u8(c, 0xC2);
+    x86_modrm(c, 3, dst & 7, src & 7);
+    me_emit_u8(c, pred);
+}
+
+static void x86_emit_v128_select(ZeroCCCompiler *c, int dst, int src_true, int src_false, int mask, int esz) {
+    (void)esz;
+    int scratch = 15; /* xmm15 */
+    x86_emit_vmovaps(c, scratch, mask);
+    x86_emit_andnps_rr(c, scratch, src_false);
+    if (dst != mask) x86_emit_vmovaps(c, dst, mask);
+    x86_emit_vandps(c, dst, dst, src_true);
+    x86_emit_vorps(c, dst, dst, scratch);
+}
+
+static void x86_emit_v128_cmp(ZeroCCCompiler *c, int dst, int src1, int src2, int cond, int esz, int is_fp) {
+    if (is_fp) {
+        uint8_t pred = 0;
+        int s1 = src1, s2 = src2;
+        switch (cond) {
+            case CC_EQ: pred = 0; break;
+            case CC_LT: case CC_FLT_LT: pred = 1; break;
+            case CC_LE: case CC_FLT_LE: pred = 2; break;
+            case CC_NE: pred = 4; break;
+            case CC_GE: case CC_FLT_GE: pred = 2; s1 = src2; s2 = src1; break;
+            case CC_GT: case CC_FLT_GT: pred = 1; s1 = src2; s2 = src1; break;
+            default: pred = 0; break;
+        }
+        if (dst != s1) x86_emit_vmovaps(c, dst, s1);
+        if (esz == 8 || esz == 3) {
+            x86_emit_cmppd_rr(c, dst, s2, pred);
+        } else {
+            x86_emit_cmpps_rr(c, dst, s2, pred);
+        }
+    } else {
+        int scratch = 15;
+        switch (cond) {
+            case CC_EQ:
+                if (dst != src1) x86_emit_vmovaps(c, dst, src1);
+                x86_emit_pcmpeqd_rr(c, dst, src2);
+                break;
+            case CC_NE:
+                if (dst != src1) x86_emit_vmovaps(c, dst, src1);
+                x86_emit_pcmpeqd_rr(c, dst, src2);
+                x86_emit_pcmpeqd_rr(c, scratch, scratch);
+                x86_emit_vxorps(c, dst, dst, scratch);
+                break;
+            case CC_GT:
+                if (dst != src1) x86_emit_vmovaps(c, dst, src1);
+                x86_emit_pcmpgtd_rr(c, dst, src2);
+                break;
+            case CC_LT:
+                if (dst != src2) x86_emit_vmovaps(c, dst, src2);
+                x86_emit_pcmpgtd_rr(c, dst, src1);
+                break;
+            case CC_GE:
+                if (dst != src2) x86_emit_vmovaps(c, dst, src2);
+                x86_emit_pcmpgtd_rr(c, dst, src1);
+                x86_emit_pcmpeqd_rr(c, scratch, scratch);
+                x86_emit_vxorps(c, dst, dst, scratch);
+                break;
+            case CC_LE:
+                if (dst != src1) x86_emit_vmovaps(c, dst, src1);
+                x86_emit_pcmpgtd_rr(c, dst, src2);
+                x86_emit_pcmpeqd_rr(c, scratch, scratch);
+                x86_emit_vxorps(c, dst, dst, scratch);
+                break;
+        }
+    }
+}
+
 static void x86_emit_const(ZeroCCCompiler *c, int64_t value) {
     x86_emit_mov_imm(c, 0, value);  /* rax */
 }
@@ -2910,6 +3016,8 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_v128_store_strided = x86_emit_v128_store_strided,
     .emit_v128_gather = x86_emit_v128_gather,
     .emit_v128_scatter = x86_emit_v128_scatter,
+    .emit_v128_cmp = x86_emit_v128_cmp,
+    .emit_v128_select = x86_emit_v128_select,
     .emit_v128_hadd_asm = x86_emit_v128_hadd_asm,
     .emit_v128_hmin_asm = x86_emit_v128_hmin_asm,
     .emit_v128_hmax_asm = x86_emit_v128_hmax_asm,

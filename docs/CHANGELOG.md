@@ -1,5 +1,28 @@
 # CHANGELOG
 
+## [Sprint 219] - 2026-11-25 - SIMD If-Conversion & Conditional Vectorization (Predication / Blend)
+
+Implements Option 1 (SIMD If-Conversion & Conditional Vectorization):
+- **Opcodes & IR Extensions (`ir.h`, `ir.c`, `live_range.h`, `opt_temp_renumber.c`, `opt_dce.c`)**:
+  - Introduced vector comparison and vector selection opcodes: `OP_V128_CMP` and `OP_V128_SELECT`, widening IR opcodes to 176.
+  - In `live_range.h`: registered `OP_V128_SELECT`'s `imm64` (the vector condition mask temporary) as a use of `REG_CLASS_VEC`.
+  - In `opt_temp_renumber.c`: updated compact-space register renumbering to remap `ins->imm64` for `OP_V128_SELECT`.
+  - In `opt_dce.c`: updated dead code elimination to mark `ins->imm64` live for `OP_V128_SELECT`, ensuring `OP_V128_CMP` survives optimization iterations.
+- **Hardware Vector Emission Across ISAs (`isa_backend.h`, `x86_64.c`, `x86_64_asm.c`, `aarch64.c`, `aarch64_asm.c`, `riscv64.c`, `riscv_asm.c`, `ast_lowering_mc.c`, `asm_emitter.c`)**:
+  - Extended `ZeroCCISABackend` with backend hooks: `emit_v128_cmp`, `emit_v128_select`, `emit_v128_cmp_asm`, and `emit_v128_select_asm`.
+  - **x86-64**: Implemented `x86_emit_v128_cmp[_asm]` supporting packed float comparison (`cmpps`/`cmppd`) and 32-bit packed integer comparison (`pcmpeqd`/`pcmpgtd` with XOR inversion for NE, LE, GE). Implemented universal bitwise vector select `x86_emit_v128_select[_asm]` computing `(src_true & mask) | (src_false & ~mask)` using SSE2 `movaps`, `andnps`, `andps`, and `orps`.
+  - **AArch64**: Implemented `aarch64_emit_v128_cmp[_asm]` using NEON `fcmeq`/`fcmgt`/`fcmge` and `cmeq`/`cmgt`/`cmge`, and `aarch64_emit_v128_select[_asm]` using NEON Bitwise Select (`bsl`).
+  - **RISC-V**: Implemented RVV 1.0 vector comparison dispatch (`rvv_vcmp`) and vector bitwise blend selection.
+- **Loop Vectorizer Integration (`opt_vectorize.c`, `opt_vectorize.h`, `opt_branchless.c`)**:
+  - In `opt_branchless.c`: added loop boundary check to bypass scalar branchless conversion inside loop bodies, reserving control-flow diamonds for SIMD predication.
+  - Implemented `detect_loop_diamonds` pattern matcher to detect if-else diamonds and single-arm conditionals.
+  - Updated `analyze_loop_for_vectorization_full` so internal conditional diamonds are recognized and do not cause loop rejection for mid-body conditionals.
+  - Updated `vectorize_loop_full` to replace scalar comparisons with `OP_V128_CMP`, vectorize then/else operations into independent vector temporaries (`vec_then`/`vec_else`), NOP scalar branch scaffolding, and replace join labels with `OP_V128_SELECT`.
+  - In preheader: automatically broadcasts zero constants via `OP_VXORPS` and non-zero constants via aligned stack loads.
+- **Verification & Test Coverage**:
+  - `test/jit/simd_cond_vectorize_test.c`: Comprehensive test suite verifying integer ternary max, integer ternary min, ReLU clamp (`a[i] < 0 ? 0 : a[i]`), float conditional select, float conditional arithmetic (`a[i] > 0.0f ? a[i] * 2.0f : a[i] - 1.0f`), double-precision conditional select with 0.0, and remainder loop peeling across `-O0..-O3` in both JIT (`--run`) and AOT binary execution.
+  - Verified across `make test` (257/257 passed), `make test-opt` (215/215 passed, 0 failures), `tools/verify/style_check.py`, and `tools/okf/okf.py lint`.
+
 ## [Sprint 218] - 2026-11-24 - Indexed Gather & Scatter SIMD Auto-Vectorization (Item #12)
 
 Implements Option 2 (Indexed Gather & Scatter SIMD Auto-Vectorization):

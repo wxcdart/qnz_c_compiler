@@ -1648,6 +1648,59 @@ static void aarch64_emit_v128_scatter(ZeroCCCompiler *c, int src, int base, int 
     }
 }
 
+static void aarch64_emit_v128_select(ZeroCCCompiler *c, int dst, int src_true, int src_false, int mask, int esz) {
+    (void)esz;
+    /* orr v<dst>.16b, v<mask>.16b, v<mask>.16b if dst != mask */
+    if (dst != mask) {
+        arm64_emit_u32(c, 0x4EA01C00u | (((uint32_t)(mask & 0x1F)) << 16) | (((uint32_t)(mask & 0x1F)) << 5) | (uint32_t)(dst & 0x1F));
+    }
+    /* bsl v<dst>.16b, v<src_true>.16b, v<src_false>.16b */
+    arm64_emit_u32(c, 0x6E601C00u | (((uint32_t)(src_false & 0x1F)) << 16) | (((uint32_t)(src_true & 0x1F)) << 5) | (uint32_t)(dst & 0x1F));
+}
+
+static void aarch64_emit_v128_cmp(ZeroCCCompiler *c, int dst, int src1, int src2, int cond, int esz, int is_fp) {
+    uint32_t d = (uint32_t)(dst & 0x1F);
+    uint32_t s1 = (uint32_t)(src1 & 0x1F);
+    uint32_t s2 = (uint32_t)(src2 & 0x1F);
+    bool is_d = (esz == 8 || esz == 3);
+
+    if (is_fp) {
+        uint32_t op = 0;
+        uint32_t first = s1, second = s2;
+        bool invert = false;
+        switch (cond) {
+            case CC_EQ: op = is_d ? 0x4E60E400u : 0x4E20E400u; break; /* fcmeq */
+            case CC_NE: op = is_d ? 0x4E60E400u : 0x4E20E400u; invert = true; break;
+            case CC_GT: case CC_FLT_GT: op = is_d ? 0x6E60E400u : 0x6E20E400u; break; /* fcmgt */
+            case CC_GE: case CC_FLT_GE: op = is_d ? 0x6E60EC00u : 0x6E20EC00u; break; /* fcmge */
+            case CC_LT: case CC_FLT_LT: op = is_d ? 0x6E60E400u : 0x6E20E400u; first = s2; second = s1; break;
+            case CC_LE: case CC_FLT_LE: op = is_d ? 0x6E60EC00u : 0x6E20EC00u; first = s2; second = s1; break;
+            default: op = is_d ? 0x4E60E400u : 0x4E20E400u; break;
+        }
+        arm64_emit_u32(c, op | (second << 16) | (first << 5) | d);
+        if (invert) {
+            arm64_emit_u32(c, 0x6E205800u | (d << 5) | d); /* mvn v<d>.16b, v<d>.16b */
+        }
+    } else {
+        uint32_t op = 0;
+        uint32_t first = s1, second = s2;
+        bool invert = false;
+        switch (cond) {
+            case CC_EQ: op = is_d ? 0x4E608C00u : 0x4E208C00u; break; /* cmeq */
+            case CC_NE: op = is_d ? 0x4E608C00u : 0x4E208C00u; invert = true; break;
+            case CC_GT: op = is_d ? 0x4E603400u : 0x4E203400u; break; /* cmgt */
+            case CC_GE: op = is_d ? 0x4E603C00u : 0x4E203C00u; break; /* cmge */
+            case CC_LT: op = is_d ? 0x4E603400u : 0x4E203400u; first = s2; second = s1; break;
+            case CC_LE: op = is_d ? 0x4E603C00u : 0x4E203C00u; first = s2; second = s1; break;
+            default: op = is_d ? 0x4E608C00u : 0x4E208C00u; break;
+        }
+        arm64_emit_u32(c, op | (second << 16) | (first << 5) | d);
+        if (invert) {
+            arm64_emit_u32(c, 0x6E205800u | (d << 5) | d); /* mvn v<d>.16b, v<d>.16b */
+        }
+    }
+}
+
 static void aarch64_emit_fp_cmp(ZeroCCCompiler *c, int src1, int src2) {
     /* fcmpe dN, dM - scalar double-precision (signaling NaN compare)
      * fcmpe raises Invalid Operation for QNaN, setting V=1 on unordered.
@@ -2535,6 +2588,8 @@ ZeroCCISABackend aarch64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_v128_store_strided = aarch64_emit_v128_store_strided,
     .emit_v128_gather = aarch64_emit_v128_gather,
     .emit_v128_scatter = aarch64_emit_v128_scatter,
+    .emit_v128_cmp = aarch64_emit_v128_cmp,
+    .emit_v128_select = aarch64_emit_v128_select,
     .emit_v128_hadd_asm = aarch64_emit_v128_hadd_asm,
     .emit_v128_hmin_asm = aarch64_emit_v128_hmin_asm,
     .emit_v128_hmax_asm = aarch64_emit_v128_hmax_asm,

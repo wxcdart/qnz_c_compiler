@@ -1632,6 +1632,83 @@ static void x86_emit_v128_scatter_asm(ZeroCCCompiler *c, int src, int base, int 
     }
 }
 
+static void x86_emit_v128_select_asm(ZeroCCCompiler *c, int dst, int src_true, int src_false, int mask, int esz, FILE *out) {
+    (void)esz;
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *true_name = BE(c)->get_vec_reg_name(src_true);
+    const char *false_name = BE(c)->get_vec_reg_name(src_false);
+    const char *mask_name = BE(c)->get_vec_reg_name(mask);
+    const char *scratch_name = BE(c)->get_vec_reg_name(15);
+
+    fprintf(out, "\tmovaps\t%%%s,%%%s\n", mask_name, scratch_name);
+    fprintf(out, "\tandnps\t%%%s,%%%s\n", false_name, scratch_name);
+    if (dst != mask) {
+        fprintf(out, "\tmovaps\t%%%s,%%%s\n", mask_name, dst_name);
+    }
+    fprintf(out, "\tandps\t%%%s,%%%s\n", true_name, dst_name);
+    fprintf(out, "\torps\t%%%s,%%%s\n", scratch_name, dst_name);
+}
+
+static void x86_emit_v128_cmp_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int cond, int esz, int is_fp, FILE *out) {
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *s1_name = BE(c)->get_vec_reg_name(src1);
+    const char *s2_name = BE(c)->get_vec_reg_name(src2);
+    const char *scratch_name = BE(c)->get_vec_reg_name(15);
+    const char *ins_fp = (esz == 8 || esz == 3) ? "cmppd" : "cmpps";
+
+    if (is_fp) {
+        int pred = 0;
+        const char *first = s1_name;
+        const char *second = s2_name;
+        switch (cond) {
+            case CC_EQ: pred = 0; break;
+            case CC_LT: case CC_FLT_LT: pred = 1; break;
+            case CC_LE: case CC_FLT_LE: pred = 2; break;
+            case CC_NE: pred = 4; break;
+            case CC_GE: case CC_FLT_GE: pred = 2; first = s2_name; second = s1_name; break;
+            case CC_GT: case CC_FLT_GT: pred = 1; first = s2_name; second = s1_name; break;
+            default: pred = 0; break;
+        }
+        if (strcmp(dst_name, first) != 0) {
+            fprintf(out, "\tmovaps\t%%%s,%%%s\n", first, dst_name);
+        }
+        fprintf(out, "\t%s\t$%d,%%%s,%%%s\n", ins_fp, pred, second, dst_name);
+    } else {
+        switch (cond) {
+            case CC_EQ:
+                if (dst != src1) fprintf(out, "\tmovaps\t%%%s,%%%s\n", s1_name, dst_name);
+                fprintf(out, "\tpcmpeqd\t%%%s,%%%s\n", s2_name, dst_name);
+                break;
+            case CC_NE:
+                if (dst != src1) fprintf(out, "\tmovaps\t%%%s,%%%s\n", s1_name, dst_name);
+                fprintf(out, "\tpcmpeqd\t%%%s,%%%s\n", s2_name, dst_name);
+                fprintf(out, "\tpcmpeqd\t%%%s,%%%s\n", scratch_name, scratch_name);
+                fprintf(out, "\tpxor\t%%%s,%%%s\n", scratch_name, dst_name);
+                break;
+            case CC_GT:
+                if (dst != src1) fprintf(out, "\tmovaps\t%%%s,%%%s\n", s1_name, dst_name);
+                fprintf(out, "\tpcmpgtd\t%%%s,%%%s\n", s2_name, dst_name);
+                break;
+            case CC_LT:
+                if (dst != src2) fprintf(out, "\tmovaps\t%%%s,%%%s\n", s2_name, dst_name);
+                fprintf(out, "\tpcmpgtd\t%%%s,%%%s\n", s1_name, dst_name);
+                break;
+            case CC_GE:
+                if (dst != src2) fprintf(out, "\tmovaps\t%%%s,%%%s\n", s2_name, dst_name);
+                fprintf(out, "\tpcmpgtd\t%%%s,%%%s\n", s1_name, dst_name);
+                fprintf(out, "\tpcmpeqd\t%%%s,%%%s\n", scratch_name, scratch_name);
+                fprintf(out, "\tpxor\t%%%s,%%%s\n", scratch_name, dst_name);
+                break;
+            case CC_LE:
+                if (dst != src1) fprintf(out, "\tmovaps\t%%%s,%%%s\n", s1_name, dst_name);
+                fprintf(out, "\tpcmpgtd\t%%%s,%%%s\n", s2_name, dst_name);
+                fprintf(out, "\tpcmpeqd\t%%%s,%%%s\n", scratch_name, scratch_name);
+                fprintf(out, "\tpxor\t%%%s,%%%s\n", scratch_name, dst_name);
+                break;
+        }
+    }
+}
+
 /* =========================================================================
  * 256-bit AVX/AVX2 Instruction Emission (Textual Assembly)
  * ========================================================================= */
@@ -2576,4 +2653,6 @@ void x86_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_v128_store_strided_asm = x86_emit_v128_store_strided_asm;
     be->emit_v128_gather_asm = x86_emit_v128_gather_asm;
     be->emit_v128_scatter_asm = x86_emit_v128_scatter_asm;
+    be->emit_v128_cmp_asm = x86_emit_v128_cmp_asm;
+    be->emit_v128_select_asm = x86_emit_v128_select_asm;
 }

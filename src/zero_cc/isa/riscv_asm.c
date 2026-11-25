@@ -1626,6 +1626,25 @@ static void riscv_emit_v128_scatter_asm(ZeroCCCompiler *c, int src, int base, in
     riscv_emit_rvv_vsuxei_asm(c, src, base, idx, rvv_esz, out);
 }
 
+static void riscv_emit_v128_select_asm(ZeroCCCompiler *c, int dst, int src_true, int src_false, int mask, int esz, FILE *out) {
+    (void)esz;
+    riscv_emit_rvv_vsetivli_default(c, 2, out);
+    const char *dst_name = BE(c)->get_vec_reg_name(dst);
+    const char *true_name = BE(c)->get_vec_reg_name(src_true);
+    const char *false_name = BE(c)->get_vec_reg_name(src_false);
+    const char *mask_name = BE(c)->get_vec_reg_name(mask);
+    const char *scratch_name = BE(c)->get_vec_reg_name(31);
+    fprintf(out, "\tvand.vv\t%s, %s, %s\n", dst_name, true_name, mask_name);
+    fprintf(out, "\tvnot.v\t%s, %s\n", scratch_name, mask_name);
+    fprintf(out, "\tvand.vv\t%s, %s, %s\n", scratch_name, false_name, scratch_name);
+    fprintf(out, "\tvor.vv\t%s, %s, %s\n", dst_name, dst_name, scratch_name);
+}
+
+static void riscv_emit_v128_cmp_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int cond, int esz, int is_fp, FILE *out) {
+    int rvv_esz = (esz == 8 || esz == 3) ? 3 : 2;
+    riscv_emit_rvv_vcmp_asm(c, dst, src1, src2, rvv_esz, cond, is_fp, out);
+}
+
 static void riscv_emit_rvv_vmv_v_x_asm(ZeroCCCompiler *c, int vd, int rs1, int esz, FILE *out) {
     riscv_emit_rvv_vsetivli_default(c, esz, out);
     fprintf(out, "\tvmv.v.x\t%s, %s\n", BE(c)->get_vec_reg_name(vd), BE(c)->get_hw_reg_name(rs1));
@@ -2659,4 +2678,6 @@ void riscv64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_v128_store_strided_asm = riscv_emit_v128_store_strided_asm;
     be->emit_v128_gather_asm = riscv_emit_v128_gather_asm;
     be->emit_v128_scatter_asm = riscv_emit_v128_scatter_asm;
+    be->emit_v128_cmp_asm = riscv_emit_v128_cmp_asm;
+    be->emit_v128_select_asm = riscv_emit_v128_select_asm;
 }

@@ -2445,6 +2445,32 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 }
                 break;
 
+            case OP_V128_CMP:
+                if (c->emit_asm && BE(c)->emit_v128_cmp_asm) {
+                    BE(c)->emit_v128_cmp_asm(c, phys_dst, phys_src1, phys_src2, (int)instr->cond, (int)instr->imm, (int)instr->imm64, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v128_cmp) {
+                    BE(c)->emit_v128_cmp(c, phys_dst, phys_src1, phys_src2, (int)instr->cond, (int)instr->imm, (int)instr->imm64);
+                }
+                break;
+
+            case OP_V128_SELECT: {
+                int phys_mask = (instr->imm64 == TEMP_NONE) ? BE(c)->fp_reg : regalloc_get_reg_for_temp(&c->regalloc, (uint32_t)instr->imm64);
+                int spill_mask = regalloc_get_spill_slot_for_temp(&c->regalloc, (uint32_t)instr->imm64);
+                if (spill_mask >= 0) {
+                    int32_t slot_off = spill_base_offset + (spill_mask + 1) * 8;
+                    if (BE(c)->emit_vload) {
+                        BE(c)->emit_vload(c, BE(c)->fp_scratch_reg2, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot_off));
+                    }
+                    phys_mask = BE(c)->fp_scratch_reg2;
+                }
+                if (c->emit_asm && BE(c)->emit_v128_select_asm) {
+                    BE(c)->emit_v128_select_asm(c, phys_dst, phys_src1, phys_src2, phys_mask, (int)instr->imm, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v128_select) {
+                    BE(c)->emit_v128_select(c, phys_dst, phys_src1, phys_src2, phys_mask, (int)instr->imm);
+                }
+                break;
+            }
+
             case OP_VCVT_SI2SS:
                 if (c->emit_asm && BE(c)->emit_vcvt_si2ss_asm) {
                     BE(c)->emit_vcvt_si2ss_asm(c, phys_dst, phys_src1, c->asm_out);

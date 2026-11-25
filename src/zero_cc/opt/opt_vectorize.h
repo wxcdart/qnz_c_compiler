@@ -65,6 +65,9 @@ typedef struct {
     bool has_strided_access;   /* True if loop contains non-unit stride memory accesses */
     /* Indexed Gather / Scatter Auto-Vectorization */
     bool has_indexed_access;   /* True if loop contains indirect array accesses (gather/scatter) */
+    /* Conditional Vectorization (Predication / Blend) (Sprint 219) */
+    bool has_cond_select;      /* True if loop contains conditional diamonds for SIMD blend */
+    int cond_diamond_count;    /* Number of detected conditional diamonds */
 } VectorizationInfo;
 
 #define MAX_VECTOR_LOOPS 64
