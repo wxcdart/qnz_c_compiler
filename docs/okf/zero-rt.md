@@ -4,7 +4,7 @@ title: Zero_RT — ZeroCC's Own Freestanding Runtime (Linux x86-64 + AArch64/RIS
 description: The zero_rt/ runtime (heap, strings, exit, minimal stdio with Ryū float formatting) compiled by zerocc itself, auto-linked by --zerocc-link, and the zeroc_main_wrapper entry routing that makes atexit work on a plain return from main.
 resource: zero-rt
 tags: [zero-rt, runtime, freestanding, heap, stdio, ryu, zero-cc-link, phase-0]
-timestamp: 2026-11-18T19:55:04Z
+timestamp: 2026-11-25T02:07:19Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -22,7 +22,13 @@ status: active
 - `baremetal/uart.h` & `baremetal/uart.c` — MMIO UART driver supporting 16550 (`0x10000000` on RISC-V), ARM PL011 (`0x09000000` on ARM/AArch32), and in-memory trace ring buffer (`g_baremetal_uart_buf`).
 - `baremetal/os.c` — freestanding OS layer routing `zeroc_rt_write` to UART, `zeroc_rt_read` to UART input, bump-pointer `zeroc_rt_brk` between `_ebss` and `_stack_top - guard`, and recording `g_baremetal_exit_code` on CPU halt.
 - `core/heap.c` — `malloc`/`free`/`calloc`/`realloc` on a `brk`-backed first-fit allocator, plus the `-fsanitize=leak` atexit report (Sprint 169): `zeroc_rt_leak_report_set`/`zeroc_rt_leak_ignore` walk the arena at exit, report live blocks to fd 2 (stdio-free), and request exit code 23; the report is enabled by the `zeroc_leak_main_wrapper` entry (see `exit.c` below). Under `__BAREMETAL__`, `rt_arena_init` falls back to smaller arenas down to 4096 bytes when RAM is constrained.
-- `core/string.c` — `memcpy`/`memmove`/`memset`/`memcmp`, `strlen`/`strcpy`/`strcat`/etc.
+- `core/string.c` — Accelerated string & memory primitives (Sprint 221):
+  - `memcpy`: 8-byte aligned preheader alignment, 32-byte unrolled 64-bit word loop, 8-byte word step, scalar remainder. On x86-64 and AArch64, leverages hardware unaligned memory access; on other architectures, ensures pointer alignment safety.
+  - `memset`: 8-byte destination alignment followed by 32-byte unrolled 64-bit word stores with 64-bit replicated pattern (`w |= w << 8; w |= w << 16; w |= w << 32`).
+  - `memcmp`: 64-bit word comparison loop with fast mismatch isolation.
+  - `strlen`: 8-byte aligned address pre-scan followed by 64-bit word zero-byte detection using Alan Mycroft's zero-byte algorithm (`((w - 0x0101010101010101ULL) & ~w & 0x8080808080808080ULL)`), completely eliminating byte-by-byte looping overhead while guaranteeing page-boundary safety.
+  - `memmove`: High-to-low 64-bit chunked copy for overlapping regions, forward routing to `memcpy`.
+  - `strcpy`: Accelerated via `strlen` + `memcpy`.
 - `core/exit.c` — `atexit`/`exit`/`abort` plus **`zeroc_main_wrapper`**: calls `main`, then `exit(status)`, so the atexit list runs on a plain `return` from `main`. **`zeroc_leak_main_wrapper`** (Sprint 169) is the `-fsanitize=leak` variant: it first calls `zeroc_rt_leak_report_set(1)`, then takes the same entry path; the own linker routes the `_start` stub through it when the driver requests it (and `exit()` honors `zeroc_rt_set_exit_override` — the leak report's exit 23 — only when the program would otherwise exit 0).
 - `core/stdio.c` — unbuffered `printf`/`fprintf`/`sprintf`/`snprintf`/`puts`/`putchar`; float formatting via vendored **Ryū** (`third_party/vendor/ryu/`, Apache-2.0 OR Boost-1.0: `d2fixed_buffered` for `%f`, `d2exp_buffered` for `%e`/`%g`) on hosted targets, or compact zero-table `bm_fmt_float` under `__BAREMETAL__` to conserve microcontroller Flash capacity.
 - `core/int128.c` — freestanding 128-bit integer div/mod/shift (`zc_udiv128`, `zc_sdiv128`, `zc_umod128`, `zc_smod128`, `zc_shl128_v`, `zc_shr128_v`, `zc_sar128_v`).

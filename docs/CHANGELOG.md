@@ -1,5 +1,22 @@
 # CHANGELOG
 
+## [Sprint 221] - 2026-11-25 - SIMD-Accelerated zero_rt String & Memory Primitives
+
+Implements Option 3 (SIMD & Word-Accelerated `zero_rt` String & Memory Primitives):
+- **Core Primitives Optimization (`zero_rt/core/string.c`)**:
+  - `memcpy`: Replaced byte-by-byte copy loop with 8-byte destination preheader alignment, 32-byte unrolled 64-bit word copies (4x 64-bit loads and stores per iteration), followed by 8-byte word step and scalar remainder. On x86-64 and AArch64, leverages native hardware unaligned access; on other architectures, ensures pointer alignment safety.
+  - `memset`: Replaced byte-by-byte write loop with 8-byte destination alignment and 32-byte unrolled 64-bit word stores with full 64-bit replicated pattern (`w |= w << 8; w |= w << 16; w |= w << 32;`), writing 32 bytes per iteration with zero byte loop overhead.
+  - `memcmp`: Replaced byte loop with 64-bit word comparison loop with fast mismatch byte isolation, checking 8 bytes per clock cycle.
+  - `strlen`: Replaced linear scan with 8-byte aligned pre-scan followed by 64-bit word zero-byte detection using Alan Mycroft's zero-byte algorithm (`((w - 0x0101010101010101ULL) & ~w & 0x8080808080808080ULL)`), completely eliminating byte-by-byte looping overhead while guaranteeing page-boundary safety.
+  - `memmove`: Added high-to-low 64-bit chunked copy for overlapping regions and forward routing to `memcpy`.
+  - `strcpy`: Accelerated via `strlen` + `memcpy`.
+- **Cross-Architecture Build & Verification**:
+  - Rebuilt all 8 `zero_rt` archive targets with zerocc: `zero_rt.a` (x86_64), `zero_rt_aarch64.a`, `zero_rt_aarch32.a`, `zero_rt_riscv64.a`, `zero_rt_riscv32.a`, `zero_rt_baremetal.a`, `zero_rt_baremetal_rv32.a`, `zero_rt_baremetal_arm.a`.
+  - Verified embedded baremetal runtime execution across all 5 ISAs (`make test-baremetal`).
+- **Test Coverage**:
+  - Added comprehensive unit test `test/jit/simd_string_rt_test.c` verifying correctness, guard zone preservation, and offset alignments (0..15) across lengths 0..129 for `memcpy`, `memset`, `memcmp`, `strlen`, and `memmove`.
+  - Tested and verified across `-O0..-O3` in both JIT (`--run`) and AOT binary execution.
+
 ## [Sprint 220] - 2026-11-25 - Narrow Integer SIMD Vectorization (8-bit char & 16-bit short)
 
 Implements Option 2 (Narrow Integer SIMD Vectorization):

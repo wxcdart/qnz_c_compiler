@@ -8,8 +8,74 @@
 void *memcpy(void *dest, const void *src, size_t n) {
     uint8_t *d = (uint8_t *)dest;
     const uint8_t *s = (const uint8_t *)src;
-    size_t i;
-    for (i = 0; i < n; i++) d[i] = s[i];
+    if (d == s || n == 0) return dest;
+
+    if (n < 8) {
+        size_t i;
+        for (i = 0; i < n; i++) d[i] = s[i];
+        return dest;
+    }
+
+#if defined(__x86_64__) || defined(__aarch64__)
+    /* Unaligned access is supported natively in hardware */
+    while ((uintptr_t)d & 7) {
+        *d++ = *s++;
+        n--;
+    }
+    while (n >= 32) {
+        uint64_t w0 = *(const uint64_t *)(s + 0);
+        uint64_t w1 = *(const uint64_t *)(s + 8);
+        uint64_t w2 = *(const uint64_t *)(s + 16);
+        uint64_t w3 = *(const uint64_t *)(s + 24);
+        *(uint64_t *)(d + 0) = w0;
+        *(uint64_t *)(d + 8) = w1;
+        *(uint64_t *)(d + 16) = w2;
+        *(uint64_t *)(d + 24) = w3;
+        d += 32;
+        s += 32;
+        n -= 32;
+    }
+    while (n >= 8) {
+        *(uint64_t *)d = *(const uint64_t *)s;
+        d += 8;
+        s += 8;
+        n -= 8;
+    }
+    while (n > 0) {
+        *d++ = *s++;
+        n--;
+    }
+#else
+    if ((((uintptr_t)d ^ (uintptr_t)s) & 7) == 0) {
+        while ((uintptr_t)d & 7) {
+            *d++ = *s++;
+            n--;
+        }
+        while (n >= 32) {
+            uint64_t w0 = *(const uint64_t *)(s + 0);
+            uint64_t w1 = *(const uint64_t *)(s + 8);
+            uint64_t w2 = *(const uint64_t *)(s + 16);
+            uint64_t w3 = *(const uint64_t *)(s + 24);
+            *(uint64_t *)(d + 0) = w0;
+            *(uint64_t *)(d + 8) = w1;
+            *(uint64_t *)(d + 16) = w2;
+            *(uint64_t *)(d + 24) = w3;
+            d += 32;
+            s += 32;
+            n -= 32;
+        }
+        while (n >= 8) {
+            *(uint64_t *)d = *(const uint64_t *)s;
+            d += 8;
+            s += 8;
+            n -= 8;
+        }
+    }
+    while (n > 0) {
+        *d++ = *s++;
+        n--;
+    }
+#endif
     return dest;
 }
 
@@ -17,47 +83,153 @@ void *memmove(void *dest, const void *src, size_t n) {
     uint8_t *d = (uint8_t *)dest;
     const uint8_t *s = (const uint8_t *)src;
     if (d == s || n == 0) return dest;
-    if (s < d) {
+    if (s < d && (size_t)(d - s) < n) {
         /* forward overlap: copy high to low */
+#if defined(__x86_64__) || defined(__aarch64__)
+        d += n;
+        s += n;
+        while (n >= 8) {
+            d -= 8;
+            s -= 8;
+            *(uint64_t *)d = *(const uint64_t *)s;
+            n -= 8;
+        }
+        while (n > 0) {
+            d--;
+            s--;
+            *d = *s;
+            n--;
+        }
+#else
         size_t i;
         for (i = n; i > 0; i--) d[i - 1] = s[i - 1];
-    } else {
-        size_t i;
-        for (i = 0; i < n; i++) d[i] = s[i];
+#endif
+        return dest;
     }
-    return dest;
+    return memcpy(dest, src, n);
 }
 
 void *memset(void *s, int c, size_t n) {
     uint8_t *p = (uint8_t *)s;
-    size_t i;
-    for (i = 0; i < n; i++) p[i] = (uint8_t)c;
+    if (n == 0) return s;
+
+    uint8_t byte = (uint8_t)c;
+    if (n < 8) {
+        size_t i;
+        for (i = 0; i < n; i++) p[i] = byte;
+        return s;
+    }
+
+    uint64_t w = byte;
+    w |= (w << 8);
+    w |= (w << 16);
+    w |= (w << 32);
+
+    /* Align p to 8-byte boundary */
+    while ((uintptr_t)p & 7) {
+        *p++ = byte;
+        n--;
+    }
+
+    while (n >= 32) {
+        *(uint64_t *)(p + 0) = w;
+        *(uint64_t *)(p + 8) = w;
+        *(uint64_t *)(p + 16) = w;
+        *(uint64_t *)(p + 24) = w;
+        p += 32;
+        n -= 32;
+    }
+
+    while (n >= 8) {
+        *(uint64_t *)p = w;
+        p += 8;
+        n -= 8;
+    }
+
+    while (n > 0) {
+        *p++ = byte;
+        n--;
+    }
     return s;
 }
 
 int memcmp(const void *s1, const void *s2, size_t n) {
     const uint8_t *a = (const uint8_t *)s1;
     const uint8_t *b = (const uint8_t *)s2;
-    size_t i;
-    for (i = 0; i < n; i++) {
-        if (a[i] != b[i]) return (int)a[i] - (int)b[i];
+    if (a == b || n == 0) return 0;
+
+#if defined(__x86_64__) || defined(__aarch64__)
+    while (n >= 8) {
+        uint64_t w1 = *(const uint64_t *)a;
+        uint64_t w2 = *(const uint64_t *)b;
+        if (w1 != w2) {
+            for (size_t i = 0; i < 8; i++) {
+                if (a[i] != b[i]) return (int)a[i] - (int)b[i];
+            }
+        }
+        a += 8;
+        b += 8;
+        n -= 8;
+    }
+#else
+    if ((((uintptr_t)a | (uintptr_t)b) & 7) == 0) {
+        while (n >= 8) {
+            uint64_t w1 = *(const uint64_t *)a;
+            uint64_t w2 = *(const uint64_t *)b;
+            if (w1 != w2) {
+                for (size_t i = 0; i < 8; i++) {
+                    if (a[i] != b[i]) return (int)a[i] - (int)b[i];
+                }
+            }
+            a += 8;
+            b += 8;
+            n -= 8;
+        }
+    }
+#endif
+
+    while (n > 0) {
+        if (*a != *b) return (int)*a - (int)*b;
+        a++;
+        b++;
+        n--;
     }
     return 0;
 }
 
 size_t strlen(const char *s) {
-    size_t n = 0;
-    while (s[n]) n++;
-    return n;
+    const char *s_orig = s;
+
+    /* Align s to 8-byte boundary */
+    while ((uintptr_t)s & 7) {
+        if (!*s) return (size_t)(s - s_orig);
+        s++;
+    }
+
+    const uint64_t *p64 = (const uint64_t *)s;
+    const uint64_t ones = 0x0101010101010101ULL;
+    const uint64_t mask = 0x8080808080808080ULL;
+    for (;;) {
+        uint64_t w = *p64;
+        /* Check if any byte in 64-bit word w is zero */
+        if (((w - ones) & ~w & mask) != 0) {
+            const char *cp = (const char *)p64;
+            if (!cp[0]) return (size_t)(cp - s_orig);
+            if (!cp[1]) return (size_t)(cp - s_orig + 1);
+            if (!cp[2]) return (size_t)(cp - s_orig + 2);
+            if (!cp[3]) return (size_t)(cp - s_orig + 3);
+            if (!cp[4]) return (size_t)(cp - s_orig + 4);
+            if (!cp[5]) return (size_t)(cp - s_orig + 5);
+            if (!cp[6]) return (size_t)(cp - s_orig + 6);
+            return (size_t)(cp - s_orig + 7);
+        }
+        p64++;
+    }
 }
 
 char *strcpy(char *dest, const char *src) {
-    size_t i = 0;
-    while (src[i]) {
-        dest[i] = src[i];
-        i++;
-    }
-    dest[i] = 0;
+    size_t len = strlen(src);
+    memcpy(dest, src, len + 1);
     return dest;
 }
 
