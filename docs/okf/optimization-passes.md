@@ -4,7 +4,7 @@ title: Optimization Passes & Safety Invariants
 description: Active IR optimization pipeline (Constant Folding, CopyProp, CSE, GVN, DCE, Mem2Reg, LICM, Auto-Vectorization) and their correctness invariants.
 resource: middleend/optimization-passes
 tags: [optimizations, mem2reg, licm, vectorization, gvn, cse, dce]
-timestamp: 2026-11-25T13:42:37Z
+timestamp: 2026-11-25T13:56:56Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -191,12 +191,13 @@ Optimization passes are registered in `src/zero_cc/opt/opt_pass.c` (`g_opt_passe
         - AArch64: NEON structured lane memory operations using `ld1 {v.s}[k]` / `st1 {v.s}[k]` and `ld1 {v.d}[k]` / `st1 {v.d}[k]`.
         - RISC-V RVV: Hardware constant strided vector loads and stores via `vlse32.v` / `vsse32.v` (32-bit) and `vlse64.v` / `vsse64.v` (64-bit).
       - Integrates with both vector arithmetic loops and horizontal reduction loops (`sum += a[2*i]`), supporting peeled remainder loops when iteration counts are not multiples of the vector width.
-    - **SLP (Superword-Level Parallelism) Vectorization (Sprint 212)**:
+    - **SLP (Superword-Level Parallelism) Vectorization (Sprint 212 / Sprint 224)**:
       - Implements straight-line basic block SIMD auto-vectorization without requiring loops (`src/zero_cc/opt/opt_slp.c`).
       - Scans basic blocks for isomorphic operation groups across 128-bit vector lanes: 4x32-bit integer/float operations or 2x64-bit double operations.
       - Discovers contiguous memory store groups by resolving address base and monotonic offsets (`resolve_ptr_addr`), tracking through local frame slots and pointer arithmetic.
       - Supports vector memory copies (consecutive loads stored to consecutive addresses) and packed vector arithmetic (`OP_VPADDD`, `OP_VPSUBD`, `OP_VPMULLD`, `OP_VADDPS`, `OP_VSUBPS`, `OP_VMULPS`, `OP_VDIVPS`, `OP_VADDPD`, `OP_VSUBPD`, `OP_VMULPD`, `OP_VDIVPD`, `OP_VANDPS`, `OP_VORPS`, `OP_VXORPS`).
       - Supports scalar broadcasts (`OP_V128_LOAD_STRIDED` with stride 0) for operations with uniform scalar operands.
+      - **Advanced SLP Tree Vectorization (Sprint 224)**: extends SLP to arbitrary-depth multi-expression DAG trees (`SlpTreeNode`). Recursively matches expression trees (`slp_build_tree`) across individual lane definition contexts, emits packed vector operations in topological post-order (`slp_emit_tree`), and automatically deduplicates shared contiguous vector loads (`find_existing_load_vtemp`) across expression branches (e.g. self-square `a * a + b * b`, FMA `a * b + c`, compound `(a + b) * (c - d)`, dual multiply-subtract `a * b - c * d`).
       - Employs in-place replacement of scalar instructions with vector loads, vector ALUs, and vector stores, NOPing out obsolete scalar loads, sign-extensions, and stores.
     - **Indexed Gather & Scatter Auto-Vectorization (Sprint 218)**:
       - Expands `opt_vectorize.c` beyond contiguous and strided accesses to auto-vectorize non-contiguous, indirect array lookups and mutations (`dest[i] = src[idx[i]]` and `dest[idx[i]] = src[i]`).

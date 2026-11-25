@@ -225,23 +225,53 @@ static bool is_slp_load(const Instr *ins, uint32_t *addr_temp, uint32_t *dest_te
 /* Find the underlying load instruction, skipping sign-extensions or register moves */
 static int find_underlying_load(ZeroCCCompiler *c, int cur_idx, uint32_t temp, int *intermediate_idx) {
     if (intermediate_idx) *intermediate_idx = -1;
-    int def_idx = find_last_def_before(c, cur_idx, temp);
-    if (def_idx < 0) return -1;
-    const Instr *ins = ir_get(c, def_idx);
-    if (!ins) return -1;
-    if (ins->op == OP_SEXT32 || ins->op == OP_ZEXT32 || ins->op == OP_MOV_REG) {
-        if (intermediate_idx) *intermediate_idx = def_idx;
-        uint32_t src = (ins->op == OP_MOV_REG) ? ins->temp_src1 : ins->temp_dest;
-        int prev = find_last_def_before(c, def_idx, src);
-        if (prev >= 0) {
-            uint32_t a = 0, d = 0; int esz = 0; bool flt = false;
-            if (is_slp_load(ir_get(c, prev), &a, &d, &esz, &flt)) {
-                return prev;
-            }
+    int cur = cur_idx;
+    uint32_t t = temp;
+    for (int step = 0; step < 4; step++) {
+        int def = find_last_def_before(c, cur, t);
+        if (def < 0) return -1;
+        const Instr *ins = ir_get(c, def);
+        if (!ins) return -1;
+        uint32_t a = 0, d = 0; int esz = 0; bool flt = false;
+        if (is_slp_load(ins, &a, &d, &esz, &flt)) {
+            return def;
         }
-        return def_idx;
+        if (ins->op == OP_SEXT32 || ins->op == OP_ZEXT32 || ins->op == OP_MOV_REG) {
+            if (intermediate_idx && *intermediate_idx < 0) *intermediate_idx = def;
+            t = (ins->op == OP_MOV_REG) ? ins->temp_src1 : ins->temp_dest;
+            cur = def;
+            continue;
+        }
+        return def;
     }
-    return def_idx;
+    return -1;
+}
+
+/* Find the effective definition instruction, unwrapping intermediate moves or extensions */
+static int find_effective_def(ZeroCCCompiler *c, int cur_idx, uint32_t temp, int *intermediate_idx) {
+    if (intermediate_idx) *intermediate_idx = -1;
+    int cur = cur_idx;
+    uint32_t t = temp;
+    for (int step = 0; step < 4; step++) {
+        int def = find_last_def_before(c, cur, t);
+        if (def < 0) return -1;
+        const Instr *ins = ir_get(c, def);
+        if (!ins) return -1;
+        if (ins->op == OP_MOV_REG && ins->temp_src1 != TEMP_NONE) {
+            if (intermediate_idx && *intermediate_idx < 0) *intermediate_idx = def;
+            t = ins->temp_src1;
+            cur = def;
+            continue;
+        }
+        if (ins->op == OP_SEXT32 || ins->op == OP_ZEXT32) {
+            if (intermediate_idx && *intermediate_idx < 0) *intermediate_idx = def;
+            t = ins->temp_dest;
+            cur = def;
+            continue;
+        }
+        return def;
+    }
+    return -1;
 }
 
 /* Map scalar arithmetic opcode to packed vector opcode */
@@ -337,6 +367,249 @@ static void mark_and_nop_snan_diamonds(ZeroCCCompiler *c, int start, int end) {
     }
 }
 
+/* Advanced SLP Tree Vectorization Types and Functions */
+typedef enum {
+    SLP_TREE_LOAD,
+    SLP_TREE_ARITH
+} SlpTreeKind;
+
+typedef struct SlpTreeNode {
+    SlpTreeKind kind;
+    int scalar_op;
+    int vec_op;
+    int elem_size;
+    bool is_float;
+    uint32_t v_temp;
+    int def_indices[4];
+    int inter_indices[4];
+    PtrAddr base_addr;
+    uint32_t load_addr_temp;
+    struct SlpTreeNode *left;
+    struct SlpTreeNode *right;
+} SlpTreeNode;
+
+static void slp_free_tree(SlpTreeNode *node) {
+    if (!node) return;
+    slp_free_tree(node->left);
+    slp_free_tree(node->right);
+    free(node);
+}
+
+static uint32_t find_existing_load_vtemp(SlpTreeNode *root, const PtrAddr *addr) {
+    if (!root) return TEMP_NONE;
+    if (root->kind == SLP_TREE_LOAD && root->v_temp != TEMP_NONE) {
+        if (root->base_addr.kind == addr->kind &&
+            root->base_addr.id == addr->id &&
+            root->base_addr.offset == addr->offset) {
+            return root->v_temp;
+        }
+    }
+    uint32_t l = find_existing_load_vtemp(root->left, addr);
+    if (l != TEMP_NONE) return l;
+    return find_existing_load_vtemp(root->right, addr);
+}
+
+static SlpTreeNode *slp_build_tree(
+    ZeroCCCompiler *c,
+    const int *lane_positions,
+    const uint32_t *lane_temps,
+    int width,
+    int esz,
+    bool is_float,
+    int depth
+) {
+    if (!c || !lane_positions || !lane_temps || depth > 6 || width < 2 || width > 4) return NULL;
+
+    /* Check 1: Contiguous Loads */
+    int ld_indices[4] = {-1, -1, -1, -1};
+    int inter_indices[4] = {-1, -1, -1, -1};
+    PtrAddr ld_addrs[4];
+    uint32_t ld_addr_temps[4] = {0, 0, 0, 0};
+    bool all_loads = true;
+
+    for (int k = 0; k < width; k++) {
+        ld_indices[k] = find_underlying_load(c, lane_positions[k], lane_temps[k], &inter_indices[k]);
+        if (ld_indices[k] < 0) { all_loads = false; break; }
+        const Instr *ins = ir_get(c, ld_indices[k]);
+        uint32_t la = 0, ld = 0; int le = 0; bool lf = false;
+        if (!is_slp_load(ins, &la, &ld, &le, &lf) || le != esz || lf != is_float) {
+            all_loads = false;
+            break;
+        }
+        ld_addr_temps[k] = la;
+        resolve_ptr_addr(c, ld_indices[k], la, &ld_addrs[k]);
+        if (k > 0 && (ld_addrs[k].kind != ld_addrs[0].kind ||
+                      ld_addrs[k].id != ld_addrs[0].id ||
+                      ld_addrs[k].offset != ld_addrs[0].offset + k * esz)) {
+            all_loads = false;
+            break;
+        }
+    }
+
+    if (all_loads) {
+        SlpTreeNode *node = (SlpTreeNode *)calloc(1, sizeof(SlpTreeNode));
+        if (!node) return NULL;
+        node->kind = SLP_TREE_LOAD;
+        node->elem_size = esz;
+        node->is_float = is_float;
+        node->base_addr = ld_addrs[0];
+        node->load_addr_temp = ld_addr_temps[0];
+        node->v_temp = TEMP_NONE;
+        for (int k = 0; k < width; k++) {
+            node->def_indices[k] = ld_indices[k];
+            node->inter_indices[k] = inter_indices[k];
+        }
+        return node;
+    }
+
+    /* Check 2: Isomorphic Arithmetic Operations */
+    int def_indices[4] = {-1, -1, -1, -1};
+    int arith_inter[4] = {-1, -1, -1, -1};
+    for (int k = 0; k < width; k++) {
+        def_indices[k] = find_effective_def(c, lane_positions[k], lane_temps[k], &arith_inter[k]);
+        if (def_indices[k] < 0) return NULL;
+    }
+
+    const Instr *first_ins = ir_get(c, def_indices[0]);
+    if (!first_ins) return NULL;
+    int op0 = first_ins->op;
+    int vec_op = get_vector_arith_op(op0, esz, is_float);
+    if (vec_op == OP_NOP) return NULL;
+
+    for (int k = 1; k < width; k++) {
+        const Instr *ins_k = ir_get(c, def_indices[k]);
+        if (!ins_k || ins_k->op != op0) return NULL;
+    }
+
+    /* Collect left and right operand temporaries across all lanes */
+    uint32_t left_temps[4], right_temps[4];
+    for (int k = 0; k < width; k++) {
+        const Instr *ins_k = ir_get(c, def_indices[k]);
+        left_temps[k] = ins_k->temp_src1;
+        right_temps[k] = ins_k->temp_src2;
+    }
+
+    /* Recursively build left and right subtrees */
+    SlpTreeNode *left_node = slp_build_tree(c, def_indices, left_temps, width, esz, is_float, depth + 1);
+    if (!left_node) return NULL;
+
+    SlpTreeNode *right_node = slp_build_tree(c, def_indices, right_temps, width, esz, is_float, depth + 1);
+    if (!right_node) {
+        slp_free_tree(left_node);
+        return NULL;
+    }
+
+    SlpTreeNode *node = (SlpTreeNode *)calloc(1, sizeof(SlpTreeNode));
+    if (!node) {
+        slp_free_tree(left_node);
+        slp_free_tree(right_node);
+        return NULL;
+    }
+    node->kind = SLP_TREE_ARITH;
+    node->scalar_op = op0;
+    node->vec_op = vec_op;
+    node->elem_size = esz;
+    node->is_float = is_float;
+    node->left = left_node;
+    node->right = right_node;
+    node->v_temp = TEMP_NONE;
+    for (int k = 0; k < width; k++) {
+        node->def_indices[k] = def_indices[k];
+        node->inter_indices[k] = arith_inter[k];
+    }
+    return node;
+}
+
+static void slp_emit_tree(
+    ZeroCCCompiler *c,
+    SlpTreeNode *root,
+    SlpTreeNode *node,
+    int width
+) {
+    if (!c || !node) return;
+
+    /* Post-order traversal: emit left and right children first */
+    if (node->left) slp_emit_tree(c, root, node->left, width);
+    if (node->right) slp_emit_tree(c, root, node->right, width);
+
+    if (node->kind == SLP_TREE_LOAD) {
+        uint32_t existing = find_existing_load_vtemp(root, &node->base_addr);
+        if (existing != TEMP_NONE) {
+            node->v_temp = existing;
+            for (int k = 0; k < width; k++) {
+                if (node->def_indices[k] >= 0) {
+                    Instr *sk = ir_get(c, node->def_indices[k]);
+                    if (sk) sk->op = OP_NOP;
+                }
+                if (node->inter_indices[k] >= 0) {
+                    Instr *ik = ir_get(c, node->inter_indices[k]);
+                    if (ik) ik->op = OP_NOP;
+                }
+            }
+            return;
+        }
+
+        node->v_temp = (uint32_t)zc_alloc_temp(c);
+
+        /* In-place replace lane 0 load with vector load */
+        Instr *ld0 = ir_get(c, node->def_indices[0]);
+        ld0->op = OP_VLOAD;
+        ld0->temp_dest = node->v_temp;
+        ld0->temp_src2 = TEMP_NONE;
+        ld0->width = 0;
+        ld0->cond = 0;
+        ld0->flags_out = 0xFF;
+        ld0->flags_in = 0xFF;
+        ld0->imm = 0;
+        ld0->imm64 = 0;
+
+        for (int k = 1; k < width; k++) {
+            if (node->def_indices[k] >= 0) {
+                Instr *sk = ir_get(c, node->def_indices[k]);
+                if (sk) sk->op = OP_NOP;
+            }
+            if (node->inter_indices[k] >= 0) {
+                Instr *ik = ir_get(c, node->inter_indices[k]);
+                if (ik) ik->op = OP_NOP;
+            }
+        }
+        if (node->inter_indices[0] >= 0) {
+            Instr *ik = ir_get(c, node->inter_indices[0]);
+            if (ik) ik->op = OP_NOP;
+        }
+    } else if (node->kind == SLP_TREE_ARITH) {
+        node->v_temp = (uint32_t)zc_alloc_temp(c);
+
+        /* In-place replace lane 0 arithmetic with vector arithmetic */
+        Instr *ar0 = ir_get(c, node->def_indices[0]);
+        ar0->op = (uint16_t)node->vec_op;
+        ar0->temp_dest = node->v_temp;
+        ar0->temp_src1 = node->left->v_temp;
+        ar0->temp_src2 = node->right->v_temp;
+        ar0->width = 0;
+        ar0->cond = 0;
+        ar0->flags_out = 0xFF;
+        ar0->flags_in = 0xFF;
+        ar0->imm = 0;
+        ar0->imm64 = 0;
+
+        for (int k = 1; k < width; k++) {
+            if (node->def_indices[k] >= 0) {
+                Instr *sk = ir_get(c, node->def_indices[k]);
+                if (sk) sk->op = OP_NOP;
+            }
+            if (node->inter_indices[k] >= 0) {
+                Instr *ik = ir_get(c, node->inter_indices[k]);
+                if (ik) ik->op = OP_NOP;
+            }
+        }
+        if (node->inter_indices[0] >= 0) {
+            Instr *ik = ir_get(c, node->inter_indices[0]);
+            if (ik) ik->op = OP_NOP;
+        }
+    }
+}
+
 /* Check if instruction is a basic block boundary */
 static bool is_bb_boundary(const Instr *ins) {
     if (!ins) return false;
@@ -422,7 +695,42 @@ static bool slp_vectorize_block(ZeroCCCompiler *c, int start, int end) {
         }
         if (!contiguous) continue;
 
-        /* Found a contiguous store group! Check if stored values are isomorphic */
+        /* Check if stored values form an Advanced SLP expression tree (loads, compound arithmetic) */
+        int store_positions[4] = {0, 0, 0, 0};
+        uint32_t val_temps[4] = {0, 0, 0, 0};
+        for (int k = 0; k < width; k++) {
+            store_positions[k] = stores[i + k].instr_idx;
+            val_temps[k] = stores[i + k].val_temp;
+        }
+
+        SlpTreeNode *root = slp_build_tree(c, store_positions, val_temps, width, esz, stores[i].is_float, 0);
+        if (root) {
+            slp_emit_tree(c, root, root, width);
+
+            Instr *st0 = ir_get(c, stores[i].instr_idx);
+            st0->op = OP_VSTORE;
+            st0->temp_dest = TEMP_NONE;
+            st0->temp_src1 = stores[i].addr_temp;
+            st0->temp_src2 = root->v_temp;
+            st0->width = 0;
+            st0->cond = 0;
+            st0->flags_out = 0xFF;
+            st0->flags_in = 0xFF;
+            st0->imm = 0;
+            st0->imm64 = 0;
+
+            for (int k = 1; k < width; k++) {
+                Instr *stk = ir_get(c, stores[i + k].instr_idx);
+                if (stk) stk->op = OP_NOP;
+                stores[i + k].vectorized = true;
+            }
+            stores[i].vectorized = true;
+            slp_free_tree(root);
+            changed = true;
+            continue;
+        }
+
+        /* Fallback: inspect definitions for scalar broadcast or residual single ops */
         int store_idx0 = stores[i].instr_idx;
         uint32_t store_addr0 = stores[i].addr_temp;
 

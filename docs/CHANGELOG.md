@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## [Sprint 224] - 2026-11-25 - Advanced SLP Tree Vectorization (Multi-Expression Bundling)
+
+Implements Option B (Advanced SLP Tree Vectorization & Multi-Expression Bundling):
+- **SLP Expression DAG Tree Engine (`opt_slp.c`)**:
+  - Extended Superword-Level Parallelism (SLP) from single isomorphic operation pairs to arbitrary-depth expression DAG trees (`SlpTreeNode`, `SLP_TREE_LOAD`, `SLP_TREE_ARITH`).
+  - Recursive tree builder `slp_build_tree`: matches operands through the expression graph across all lanes in their individual definition contexts (`lane_positions`), resolving intermediate type casts and register copies via `find_effective_def`.
+  - Topological vector emission `slp_emit_tree`: post-order traversal replaces lane 0 scalar operations in-place with SIMD packed instructions (`OP_VLOAD`, `OP_VPADDD`, `OP_VPSUBD`, `OP_VPMULLD`, `OP_VADDPS`, `OP_VSUBPS`, `OP_VMULPS`, `OP_VADDPD`, `OP_VSUBPD`, `OP_VMULPD`, `OP_VSTORE`), while NOP-ing redundant scalar instructions in auxiliary lanes.
+  - Automatic leaf load deduplication `find_existing_load_vtemp`: recognizes when different branches of an expression tree reference the same contiguous vector input (e.g. self-square `a * a + b * b`), reusing the loaded vector register and avoiding redundant memory loads.
+  - Supports 4D integer vectors (`Vec4i`), 4D float vectors (`Vec4f`), 2D double vectors (`Vec2d`), and 4-element arrays across FMA (`a * b + c`), compound expressions (`(a + b) * (c - d)`), dual multiply-subtract (`a * b - c * d`), and 3-stage chains (`(a + b - c) * d`).
+- **Verification & Test Coverage**:
+  - Added test suite `test/jit/simd_slp_tree_test.c` covering 10 multi-expression test cases across `-O0..-O3` in both JIT (`--run`) and AOT binary execution.
+  - Full test suite: `make test` (261/261 passed), `make test-opt` (161 passed, 0 failed, 58 skipped, 1 nondeterministic), `tools/verify/style_check.py` (0 errors), and `tools/okf/okf.py lint` (23/23 reachable).
+
+
 ## [Sprint 223] - 2026-11-25 - Loop Invariant Code Motion (LICM) Store Hoisting & SROA
 
 Implements Option A (LICM Store Hoisting & Scalar Replacement of Aggregates):
@@ -491,6 +505,20 @@ Implements Option 2: AVX-512 Integer SIMD (`AVX-512BW` / `AVX-512DQ` / `__m512i`
   - All regression gates green: `make test` (245/245 passed), `make test-opt` (143 passed, 0 failed), `make test-san` (720 passed, 0 failed), `python3 tools/verify/style_check.py` (0 errors), `python3 tools/verify/type_tag_verifier.py --verify-all` (OK).
 
 # CHANGELOG
+
+## [Sprint 224] - 2026-11-25 - Advanced SLP Tree Vectorization (Multi-Expression Bundling)
+
+Implements Option B (Advanced SLP Tree Vectorization & Multi-Expression Bundling):
+- **SLP Expression DAG Tree Engine (`opt_slp.c`)**:
+  - Extended Superword-Level Parallelism (SLP) from single isomorphic operation pairs to arbitrary-depth expression DAG trees (`SlpTreeNode`, `SLP_TREE_LOAD`, `SLP_TREE_ARITH`).
+  - Recursive tree builder `slp_build_tree`: matches operands through the expression graph across all lanes in their individual definition contexts (`lane_positions`), resolving intermediate type casts and register copies via `find_effective_def`.
+  - Topological vector emission `slp_emit_tree`: post-order traversal replaces lane 0 scalar operations in-place with SIMD packed instructions (`OP_VLOAD`, `OP_VPADDD`, `OP_VPSUBD`, `OP_VPMULLD`, `OP_VADDPS`, `OP_VSUBPS`, `OP_VMULPS`, `OP_VADDPD`, `OP_VSUBPD`, `OP_VMULPD`, `OP_VSTORE`), while NOP-ing redundant scalar instructions in auxiliary lanes.
+  - Automatic leaf load deduplication `find_existing_load_vtemp`: recognizes when different branches of an expression tree reference the same contiguous vector input (e.g. self-square `a * a + b * b`), reusing the loaded vector register and avoiding redundant memory loads.
+  - Supports 4D integer vectors (`Vec4i`), 4D float vectors (`Vec4f`), 2D double vectors (`Vec2d`), and 4-element arrays across FMA (`a * b + c`), compound expressions (`(a + b) * (c - d)`), dual multiply-subtract (`a * b - c * d`), and 3-stage chains (`(a + b - c) * d`).
+- **Verification & Test Coverage**:
+  - Added test suite `test/jit/simd_slp_tree_test.c` covering 10 multi-expression test cases across `-O0..-O3` in both JIT (`--run`) and AOT binary execution.
+  - Full test suite: `make test` (261/261 passed), `make test-opt` (161 passed, 0 failed, 58 skipped, 1 nondeterministic), `tools/verify/style_check.py` (0 errors), and `tools/okf/okf.py lint` (23/23 reachable).
+
 
 ## [Sprint 223] - 2026-11-25 - Loop Invariant Code Motion (LICM) Store Hoisting & SROA
 
