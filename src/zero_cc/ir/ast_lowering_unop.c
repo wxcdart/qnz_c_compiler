@@ -248,6 +248,49 @@ int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                             ZeroCCSym *bsym = zero_cc_find_local(c, base_node->s.str);
                             ZeroCCGlobalVar *bgv = bsym ? NULL : find_global_var(c, base_node->s.str);
                             if (bsym) {
+                                if (bsym->is_sroa && !is_arrow) {
+                                    int m_idx = -1;
+                                    if (operand->member_name) {
+                                        for (size_t m = 0; m < bsym->type.member_count; m++) {
+                                            if (bsym->type.members[m].name && strcmp(operand->member_name, bsym->type.members[m].name) == 0) {
+                                                m_idx = (int)m;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    if (m_idx < 0) {
+                                        for (size_t m = 0; m < bsym->type.member_count; m++) {
+                                            if (bsym->type.members[m].offset == (size_t)member_offset) {
+                                                m_idx = (int)m;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    if (m_idx >= 0 && m_idx < 16) {
+                                        int32_t slot_off = -bsym->sroa_offsets[m_idx];
+                                        TypeInfo *m_ti = ast_node_get_typeinfo(c, operand);
+                                        bool m_flt = (m_ti && type_is_floating(m_ti)) || (bsym->type.members[m_idx].tag == TYPE_FLOAT || bsym->type.members[m_idx].tag == TYPE_DOUBLE);
+                                        int val_t = zc_alloc_temp(c);
+                                        int res_t = zc_alloc_temp(c);
+                                        if (m_flt) {
+                                            ir_emit_fload(c, (uint32_t)val_t, TEMP_NONE, slot_off);
+                                            int one_i = zc_alloc_temp(c); ir_emit_mov_imm(c, one_i, 1);
+                                            int one_f = zc_alloc_temp(c); ir_emit_cvtsi2sd(c, (uint32_t)one_f, (uint32_t)one_i);
+                                            if (node->aux.op == TK_INC) ir_emit_fadd(c, (uint32_t)res_t, (uint32_t)val_t, (uint32_t)one_f);
+                                            else ir_emit_fsub(c, (uint32_t)res_t, (uint32_t)val_t, (uint32_t)one_f);
+                                            ir_emit_fstore(c, (uint32_t)res_t, TEMP_NONE, slot_off);
+                                            c->last_expr_is_float = 1;
+                                        } else {
+                                            ir_emit_load(c, val_t, BE(c)->fp_reg, slot_off);
+                                            int one_t = zc_alloc_temp(c);
+                                            ir_emit_mov_imm(c, one_t, (node->aux.op == TK_INC) ? 1 : -1);
+                                            ir_emit_add(c, res_t, val_t, one_t);
+                                            ir_emit_store(c, res_t, BE(c)->fp_reg, slot_off);
+                                            c->last_expr_is_float = 0;
+                                        }
+                                        return (node->flags & 1) ? val_t : res_t;
+                                    }
+                                }
                                 base_addr = zc_alloc_temp(c);
                                 if (is_arrow) {
                                     /* p->m: load the pointer value */

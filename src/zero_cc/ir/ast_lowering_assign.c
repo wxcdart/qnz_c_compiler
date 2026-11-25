@@ -1414,6 +1414,76 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                  * addressing) - a frame-relative store would clobber the
                  * saved pointer with member data. */
                 if (sym->is_vla_struct) base_is_ptr = true;
+                if (sym->is_sroa && !base_is_ptr) {
+                    int m_idx = -1;
+                    if (innermost && innermost->member_name) {
+                        for (size_t m = 0; m < sym->type.member_count; m++) {
+                            if (sym->type.members[m].name && strcmp(innermost->member_name, sym->type.members[m].name) == 0) {
+                                m_idx = (int)m;
+                                break;
+                            }
+                        }
+                    }
+                    if (m_idx < 0) {
+                        for (size_t m = 0; m < sym->type.member_count; m++) {
+                            if (sym->type.members[m].offset == (size_t)member_offset) {
+                                m_idx = (int)m;
+                                break;
+                            }
+                        }
+                    }
+                    if (m_idx >= 0 && m_idx < 16) {
+                        int32_t slot_off = -sym->sroa_offsets[m_idx];
+                        if (is_compound) {
+                            TypeInfo *mc_ti = ast_node_get_typeinfo(c, left_node);
+                            bool is_flt = (mc_ti && type_is_floating(mc_ti)) || c->last_expr_is_float;
+                            int curr_val = zc_alloc_temp(c);
+                            if (is_flt) {
+                                ir_emit_fload(c, (uint32_t)curr_val, TEMP_NONE, slot_off);
+                                int float_rhs = right_temp;
+                                if (!c->last_expr_is_float) {
+                                    float_rhs = zc_alloc_temp(c);
+                                    ir_emit_cvtsi2sd(c, (uint32_t)float_rhs, (uint32_t)right_temp);
+                                }
+                                int op_res = zc_alloc_temp(c);
+                                switch (node->aux.op) {
+                                    case TK_ADD_ASSIGN: ir_emit_fadd(c, (uint32_t)op_res, (uint32_t)curr_val, (uint32_t)float_rhs); break;
+                                    case TK_SUB_ASSIGN: ir_emit_fsub(c, (uint32_t)op_res, (uint32_t)curr_val, (uint32_t)float_rhs); break;
+                                    case TK_MUL_ASSIGN: ir_emit_fmul(c, (uint32_t)op_res, (uint32_t)curr_val, (uint32_t)float_rhs); break;
+                                    case TK_DIV_ASSIGN: ir_emit_fdiv(c, (uint32_t)op_res, (uint32_t)curr_val, (uint32_t)float_rhs); break;
+                                    default: op_res = float_rhs; break;
+                                }
+                                right_temp = op_res;
+                                c->last_expr_is_float = 1;
+                            } else {
+                                ir_emit_load(c, curr_val, BE(c)->fp_reg, slot_off);
+                                int op_res = zc_alloc_temp(c);
+                                switch (node->aux.op) {
+                                    case TK_ADD_ASSIGN: ir_emit_add(c, op_res, curr_val, right_temp); break;
+                                    case TK_SUB_ASSIGN: ir_emit_sub(c, op_res, curr_val, right_temp); break;
+                                    case TK_MUL_ASSIGN: ir_emit_mul(c, op_res, curr_val, right_temp); break;
+                                    case TK_DIV_ASSIGN: ir_emit_div(c, op_res, curr_val, right_temp); break;
+                                    case TK_MOD_ASSIGN: ir_emit_mod(c, op_res, curr_val, right_temp); break;
+                                    case TK_AND_ASSIGN: ir_emit_and(c, op_res, curr_val, right_temp); break;
+                                    case TK_OR_ASSIGN:  ir_emit_or(c, op_res, curr_val, right_temp); break;
+                                    case TK_XOR_ASSIGN: ir_emit_xor(c, op_res, curr_val, right_temp); break;
+                                    case TK_SHL_ASSIGN: ir_emit_shl(c, op_res, curr_val, right_temp); break;
+                                    case TK_SHR_ASSIGN: ir_emit_shr(c, op_res, curr_val, right_temp); break;
+                                    default: ir_emit_mov_reg(c, op_res, right_temp); break;
+                                }
+                                right_temp = op_res;
+                            }
+                        }
+                        if (right_is_float || c->last_expr_is_float) {
+                            ir_emit_fstore(c, (uint32_t)right_temp, TEMP_NONE, slot_off);
+                            c->last_expr_is_float = 1;
+                        } else {
+                            ir_emit_store(c, right_temp, BE(c)->fp_reg, slot_off);
+                            c->last_expr_is_float = 0;
+                        }
+                        return right_temp;
+                    }
+                }
                 if (base_is_ptr) {
                     /* p->member = val: store through the pointer */
                     int ptr_temp = zc_alloc_temp(c);

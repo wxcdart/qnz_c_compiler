@@ -497,3 +497,39 @@ These items from earlier roadmap sections are all complete:
 7. **Cross-TU Dead Code & Data Elimination (`--gc-sections`, Sprint 190)**: Mark-and-sweep section garbage collection across object files and archives, eliminating unreferenced functions and data variables. Paired with `-ffunction-sections`, `-fdata-sections`, and linker script `KEEP(*(pattern))` directives to preserve reset vectors and hardware tables.
 8. **Standalone GPU Compiler Repository (`zero_gpu`)**: Maintained as an independent project in its own dedicated repository, specialized for SSA IR, divergence analysis, multiple address spaces, and bytecode/text emission (PTX/SPIR-V), driven by ZeroCC host binaries via standard dynamic GPU runtime libraries.
 
+---
+
+## ⚡ Comprehensive Optimization Pipeline Roadmap (Tiers 1–4)
+
+A structured roadmap covering the compiler optimization taxonomy across all 4 tiers, tracking completed work and active milestones:
+
+### Tier 1: Local & Low-Complexity Passes (Status: 100% Complete ✅)
+1. **Constant Folding**: Compile-time constant binary/unary evaluation across integer, floating-point, `__int128`, and complex types (`opt_constant_fold.c`).
+2. **Algebraic Simplification & Peephole**: Algebraic identities ($x+0, x \times 1, x \oplus x, x \text{ \& } \sim x$) and bitwise identities (`opt_constant_fold.c`).
+3. **Strength Reduction (Scalar)**: Powers-of-2 mul/div/mod lowered to shifts and masks across all 5 ISA emitters.
+4. **Local CSE**: Basic-block hash-based subexpression elimination (`opt_cse.c`).
+5. **Dead Code Elimination (DCE)**: Backward liveness analysis removing unreferenced pure instructions (`opt_dce.c`).
+6. **Branch Simplification & Unreachable Block Removal**: CFG dead block pruning and constant branch folding (`cfg.c`, `opt_branchless.c`).
+
+### Tier 2: SSA & Global Dataflow Passes (Active Milestone)
+7. **Mem2Reg (Complete ✅)**: Stack slot forwarding and cross-block loop-carried induction/accumulator promotion (`opt_mem2reg.c`).
+8. **Sparse Conditional Constant Propagation (SCCP) (Subsumed ✅)**: Iterative pipeline interleaves constant folding, copy prop, branchless select, and CFG dead edge pruning.
+9. **Global Value Numbering (GVN) (Complete ✅, Sprint 226)**: Dominator-tree scoped GVN (`opt_gvn_dom_tree`), If-Else Diamond Hoisting (`opt_gvn_diamond_hoist`), and Partial Redundancy Elimination (`opt_gvn_pre`).
+10. **Aggressive Dead Code Elimination (ADCE) (Sprint 230)**: Classical reverse-mark worklist from program roots (stores, calls, returns), pruning dead loops and unused induction variables without trip-count evaluation.
+11. **Tail Call Optimization (TCO) (Sprint 229)**: Reusing caller stack frames via direct jumps (`jmp`) for self-tail-recursive calls and eligible sibling calls.
+
+### Tier 3: Memory & Interprocedural Passes (Active Milestone)
+12. **Function Inlining & Devirtualization (Complete ✅, Sprint 225)**: Small function inlining up to depth 4, float/double inlining, higher-order parameter devirtualization.
+13. **Dead Store Elimination (DSE) (Sprint 231)**: Cross-block backward post-dominator analysis removing overwritten memory and stack stores before intervening reads.
+14. **Scalar Replacement of Aggregates (SROA) (Sprint 231)**: Decomposing non-escaping stack structs into independent scalar virtual registers, unblocking mem2reg promotion.
+15. **Alias Analysis (Basic/TBAA) (Mature ✅)**: C99 `restrict` group tracking (`opt_restrict_memory_forward`), stack-vs-heap/global distinction, offset-based disjoint range checks.
+16. **Escape Analysis (Future)**: Tracking pointer lifetimes to lower non-escaping heap allocations (`malloc`/`calloc`) to stack storage.
+
+### Tier 4: Loop & Vectorization Passes (Status: 100% Complete ✅)
+17. **Loop-Invariant Code Motion (LICM)**: Preheader hoisting, read-only stack hoisting, and invariant store hoisting (`opt_loop.c`, `opt_licm_store_hoist`).
+18. **Induction Variable Strength Reduction**: Array index multiplication ($a[i] \rightarrow \text{base} + i \times 4$) lowered to pointer increments and scaled addressing.
+19. **Loop Unrolling & Unswitching**: Constant-trip full unrolling, runtime-bound partial unrolling (2/4/8), and invariant branch unswitching (`opt_loop_unroll.c`, `opt_loop_unswitch.c`).
+20. **Loop Deletion & Idiom Recognition**: Word/SIMD-accelerated runtime routines (`zero_rt`), 2D loop collapsing (`opt_loop_collapse.c`), AST `memcpy`/`memset` recognition.
+21. **Auto-Vectorization (SLP & Loop)**: Multi-expression SLP DAG trees (`opt_slp.c`), integer/float, reductions, conditional blend, gather/scatter, narrow ints, and complex numbers (`opt_vectorize.c`) across AVX-512, AVX2, NEON, SVE, and RVV 1.0.
+
+

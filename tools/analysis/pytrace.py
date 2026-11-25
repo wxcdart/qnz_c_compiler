@@ -1058,7 +1058,7 @@ class PyTracer:
             print(f"{COLOR_BOLD}Disassembly Window ({self.arch}):{COLOR_RESET}")
             self.disassemble_around(pc)
             print("-" * 78)
-            self.dump_stack(sp, words=8)
+            self.dump_stack(sp, words=256)
         print("=" * 78 + "\n")
 
     def interactive_prompt(self, signo=None):

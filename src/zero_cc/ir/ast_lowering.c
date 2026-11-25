@@ -77,7 +77,7 @@ static void zc_prescan_mark_addr_of(ZeroCCCompiler *c, ZeroCCASTArena *arena, AS
     if (n->tag == NODE_IDENT && n->s.str) {
         for (size_t i = 0; i < c->local_count; i++) {
             ZeroCCSym *s = &c->locals[i];
-            if (strcmp(s->name, n->s.str) == 0) {
+            if (s->name[0] && strcmp(s->name, n->s.str) == 0) {
                 if (s->is_static_local) {
                     s->static_addr_taken = true;
                 } else {
@@ -130,8 +130,35 @@ static void zc_prescan_visit(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef re
             zc_prescan_visit(c, arena, n->aux.alt);
             break;
         case NODE_CAST:
-        case NODE_MEMBER:
             zc_prescan_visit(c, arena, n->left);
+            break;
+        case NODE_MEMBER:
+            /* Member access: follow the base without marking base ident as bare use */
+            {
+                ASTRef curr = n->left;
+                while (curr != AST_NULL) {
+                    ZeroCCASTNode *mn = zero_cc_ast_get(arena, curr);
+                    if (!mn) break;
+                    if (mn->tag == NODE_MEMBER) {
+                        curr = mn->left;
+                    } else if (mn->tag == NODE_IDENT) {
+                        break;
+                    } else {
+                        zc_prescan_visit(c, arena, curr);
+                        break;
+                    }
+                }
+            }
+            break;
+        case NODE_IDENT:
+            if (n->s.str) {
+                for (size_t i = 0; i < c->local_count; i++) {
+                    ZeroCCSym *s = &c->locals[i];
+                    if (s->name[0] && strcmp(s->name, n->s.str) == 0) {
+                        s->has_bare_use = true;
+                    }
+                }
+            }
             break;
         case NODE_INDEX:
             zc_prescan_visit(c, arena, n->left);
@@ -148,6 +175,12 @@ static void zc_prescan_visit(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef re
             break;
         }
         case NODE_COMPOUND_LIT:
+            if (n->aux.step > 0 && (size_t)(n->aux.step - 1) < c->local_count) {
+                c->locals[n->aux.step - 1].has_bare_use = true;
+            }
+            zc_prescan_visit(c, arena, n->left);
+            zc_prescan_visit(c, arena, n->right);
+            break;
         case NODE_VA_ARG:
         case NODE_VA_START:
             zc_prescan_visit(c, arena, n->left);
@@ -209,6 +242,12 @@ static void zc_prescan_visit(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef re
             break;
         case NODE_DEFAULT:
         case NODE_DECL:
+            if (n->left != AST_NULL && n->aux.step > 0 && (size_t)(n->aux.step - 1) < c->local_count) {
+                ZeroCCSym *s = &c->locals[n->aux.step - 1];
+                if (s->type.tag == TYPE_STRUCT) s->has_bare_use = true;
+            }
+            zc_prescan_visit(c, arena, n->left);
+            break;
         case NODE_STATIC_ASSERT:
             zc_prescan_visit(c, arena, n->left);
             break;
@@ -385,6 +424,32 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
 
     /* Prescan AST for address-taken variables (both static locals and automatic locals) */
     zero_cc_prescan_static_addr_taken(c, arena, root);
+
+    /* SROA candidate identification (Sprint 231):
+     * Non-escaping local structs with scalar fields get independent 8-byte aligned slots */
+    for (size_t i = 0; i < c->local_count; i++) {
+        ZeroCCSym *s = &c->locals[i];
+        if (s->is_param || s->is_static_local || s->is_vla || s->is_vla_struct) continue;
+        if (s->addr_taken || s->has_bare_use) continue;
+        if (s->type.tag != TYPE_STRUCT) continue;
+        if (s->type.member_count == 0 || s->type.member_count > 16) continue;
+        bool ok = true;
+        for (size_t m = 0; m < s->type.member_count; m++) {
+            ZeroTypeTag tag = s->type.members[m].tag;
+            if (tag == TYPE_STRUCT || tag == TYPE_UNION || tag == TYPE_ARRAY) {
+                ok = false;
+                break;
+            }
+        }
+        if (!ok) continue;
+
+        s->is_sroa = true;
+        for (size_t m = 0; m < s->type.member_count; m++) {
+            c->current_stack_frame += 8;
+            c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+            s->sroa_offsets[m] = c->current_stack_frame;
+        }
+    }
 
     /* Determine stack protector requirements */
     bool needs_protect = false;
@@ -967,6 +1032,10 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
             static_local_mirror_in(c, &c->locals[i]);
     }
 
+    /* Tail call entry label (Sprint 229) */
+    c->lowering.tail_call_entry_label = c->ir_next_label++;
+    ir_emit_label(c, c->lowering.tail_call_entry_label);
+
     /* Lower AST to IR (instruction selection) */
     lower_node(c, arena, root);
     /* C99 5.1.2.2.3p1: reaching the '}' that terminates main returns 0.
@@ -1004,13 +1073,8 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         ir_emit_load(c, VREG_0, BE(c)->fp_reg, -c->lowering.static_local_rt_off);
     }
 
-    /* Sprint 151 (plan item 9): temp-ID renumbering by liveness. Compacts
-     * the function's churned id space (32-bit storage may now hold well
-     * past the old 16-bit budget) down to the PEAK-LIVE set before any
-     * optimizer pass or register allocation sees it. This replaces the
-     * old C2b churn guard: the backstop now trips on peak-live temps
-     * (>= 65535) - a true resource limit - instead of total allocation
-     * churn (~3 ids per `t = t + 1` statement). */
+    /* Sprint 151 (plan item 9): temp-ID renumbering by liveness.
+     * If lowering churned near the 64k limit, compact before optimization. */
     if (!opt_temp_renumber(c, lowering_fn ? lowering_fn->name : "<anon>")) {
         return;
     }
@@ -1078,7 +1142,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                         for (size_t d = i; d > 0; d--) {
                             const Instr *di = ir_get(c, d - 1);
                             if (!di) continue;
-                            if (di->temp_dest != iv->temp_id) continue;
+                            if (di->temp_dest != (uint32_t)iv->temp_id) continue;
                             const Instr *dn = ir_get(c, d);
                             def_flows = !(dn && (dn->op == OP_JMP ||
                                 dn->op == OP_JMP_LABEL || dn->op == OP_JMP_INDIRECT ||

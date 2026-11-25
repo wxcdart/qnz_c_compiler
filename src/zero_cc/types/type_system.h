@@ -243,6 +243,10 @@ typedef struct {
      * zero_cc_prescan_static_addr_taken in ast_lowering.c). */
     bool static_addr_taken;
     bool addr_taken;                      /* Local variable address is taken in function body */
+    /* SROA (Sprint 231): Scalar Replacement of Aggregates for non-escaping structs */
+    bool is_sroa;
+    int32_t sroa_offsets[16];
+    bool has_bare_use;
     bool is_extern;                       /* Block-scope extern declaration */
     /* C11 6.2.1: the block scope of this declaration has ended during
      * lowering (its enclosing NODE_BLOCK finished). The flat latest-wins

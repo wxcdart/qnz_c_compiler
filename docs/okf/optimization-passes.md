@@ -4,7 +4,7 @@ title: Optimization Passes & Safety Invariants
 description: Active IR optimization pipeline (Constant Folding, CopyProp, CSE, GVN, DCE, Mem2Reg, LICM, Auto-Vectorization) and their correctness invariants.
 resource: middleend/optimization-passes
 tags: [optimizations, mem2reg, licm, vectorization, gvn, cse, dce]
-timestamp: 2026-11-25T16:57:24Z
+timestamp: 2026-11-25T20:25:17Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -255,6 +255,28 @@ Sprint 219 extends the loop auto-vectorizer (`opt_vectorize.c`) with conditional
 - **Clobber spill pass** (post-`regalloc_allocate`, in `ast_lowering.c`): after allocation, every non-operand interval live across the `OP_ASM` whose assigned register is in the operand's `clobber_mask` is marked spilled; `forbidden_mask` keeps operand temps out of clobbered registers *at allocation time* (see `ir-and-regalloc.md`). This is why a clobbered live value survives: it is reloaded from its frame slot on the far side of the asm.
 - **Arena-rebuild remap**: LICM, branchless, and the DCE compaction each remap the `IRAsmArgs` `instr_index` entries through their new arena (the same invariant as `IRCallArgs`). Forgetting one (DCE's compaction was the first miss) silently drops the template from the `.s` while the post-asm store still writes the uninitialized output temp.
 - **Gate**: `make test-asm` (`tools/asm_diff.py`) differential-tests the `-S` path at `-O0..-O3` against a host-`gcc -O2` reference; `test/jit/inline_asm_barrier.c` sweeps the JIT-safe empty-template forms in `make test-opt`.
+
+### Tail Call Optimization (TCO & Sibling Calls, Sprint 229)
+- Automatically detects self-tail calls in `return fn(...);` and void tail calls in `ast_lowering_stmt.c`.
+- Emits a dedicated entry label (`tail_call_entry_label`) at the start of the function body following parameter initialization.
+- Evaluates arguments into temporary virtual registers and assigns them directly into parameter slots or promoted vregs (`arg_temps`).
+- Emits an unconditional jump back to `tail_call_entry_label`, executing recursive algorithms with $O(1)$ stack consumption and avoiding stack overflow.
+
+### Classical Reverse-Mark Aggressive Dead Code Elimination (ADCE, Sprint 230)
+- Registered at priority 54 (`opt_adce.c`), operating on CFG post-dominator analysis.
+- Computes Control Dependence Graph (CDG) to establish control dependencies between basic blocks and branch predicates.
+- Employs reverse-mark liveness: assumes all instructions are dead; seeds worklist with essential roots (stores, calls, returns, volatile ops, nonlocal gotos, setjmp guards).
+- Propagates liveness backward to defining instructions and control-dependent branch conditions, replacing unmarked dead instructions and branches with NOPs to delete dead computation trees and dead loops.
+
+### Full Intra-Function SROA & Dead Store Elimination (DSE, Sprint 231)
+- **Scalar Replacement of Aggregates (SROA)**:
+  - Scans local variable declarations in `decl_local.c` and `ast_lowering.c` for non-escaping, non-address-taken structs (`is_sroa`).
+  - Replaces aggregate struct allocations with individual 8-byte aligned scalar member slots (`sroa_offsets[m]`).
+  - Lowers member accesses, stores, and increments directly to scalar slots, exposing fields to Mem2Reg, CopyProp, CSE, and GVN.
+- **Dead Store Elimination (DSE)**:
+  - Backward dataflow analysis (`opt_dse.c`) on CFG over non-escaping scalar locals and SROA slots.
+  - Slices stores overwritten by subsequent stores to the same slot without an intervening read.
+  - Guards loop-carried induction slots (`slot_in_loop`) to maintain correctness across unrolling and auto-vectorization.
 
 ## Known Issues Surfaced During Sprint 39 (ALL RESOLVED in Sprint 40)
 

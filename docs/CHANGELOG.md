@@ -1,5 +1,46 @@
 # CHANGELOG
 
+## [Sprint 231] - 2026-11-25 - Full Intra-Function SROA & Dead Store Elimination (DSE)
+
+Implements Option 3 (Items #13 & #14):
+- **Scalar Replacement of Aggregates (SROA, `parser/decl_local.c`, `ir/ast_lowering_*.c`, `types/type_system.h`)**:
+  - Automatically identifies local non-escaping, non-address-taken structs with up to 16 scalar/pointer members (`is_sroa`).
+  - Replaces aggregate stack allocations with individual 8-byte aligned scalar member slots (`sroa_offsets[m]`).
+  - Lowers direct struct member assignments, increments/decrements, and loads to independent scalar stack slots, unblocking scalar optimizations (Mem2Reg, CopyProp, CSE, GVN).
+- **Dead Store Elimination (DSE, `opt/opt_dse.c`, `opt/opt_dse.h`)**:
+  - Implements iterative backward dataflow analysis (`LiveIn = Gen | (LiveOut & ~Kill)`) on basic block CFG over stack slots.
+  - Whitelists only non-escaping, non-address-taken scalar local variables and SROA slots.
+  - Preserves loop-carried induction updates (`slot_in_loop`) to maintain sound interaction with loop unrolling and vectorization.
+  - Slices dead stores before subsequent overwriting stores or block exits without intervening reads.
+- **Verification & Test Coverage**:
+  - Added unit test `test/jit/sroa_dse_test.c` verifying SROA promotion, dead store elimination, multiple members, and nested functions.
+
+
+## [Sprint 230] - 2026-11-25 - Classical Reverse-Mark Aggressive Dead Code Elimination (ADCE)
+
+Implements Option 2 (Item #10):
+- **Reverse-Mark Aggressive Dead Code Elimination (ADCE, `opt/opt_adce.c`, `opt/opt_adce.h`)**:
+  - Computes Control Dependence Graph (CDG) from CFG post-dominator tree.
+  - Treats all instructions as dead by default; seeds initial worklist with essential roots (memory stores, calls, indirect calls, returns, volatile ops, nonlocal gotos, setjmp guards).
+  - Iteratively marks live instructions and propagates liveness to defining instructions and control-dependent branch predicates.
+  - Replaces unmarked dead instructions and dead control branches with NOPs, removing entire dead computation trees and dead loops.
+  - Configured with `MAX_ADCE_USES 512` and bounds checks for high-arity functions.
+- **Verification & Test Coverage**:
+  - Added unit test `test/jit/adce_test.c` verifying dead computation pruning, dead branch pruning, and live store loop preservation.
+
+
+## [Sprint 229] - 2026-11-25 - Tail Call Optimization (TCO & Sibling Calls)
+
+Implements Option 1 (Item #11):
+- **Tail Call Optimization (TCO, `ir/lowering_state.h`, `ir/ast_lowering.c`, `ir/ast_lowering_stmt.c`)**:
+  - Detects self-tail calls in `return fn(...);` statements and void tail-call statements (`fn(...)` immediately preceding return or block end).
+  - Emits `tail_call_entry_label` at function body entry after initial parameter initialization.
+  - Lowers arguments into virtual registers, stores them into parameter slots/promoted vregs, and jumps directly to `tail_call_entry_label`.
+  - Converts recursive function calls into O(1) stack loops across integer, pointer, and floating-point parameters, eliminating stack frame allocation overhead and avoiding call stack overflow.
+- **Verification & Test Coverage**:
+  - Added unit test `test/jit/tail_call_test.c` covering GCD, factorial, Fibonacci, counter recursion, float accumulators, and void tail calls.
+
+
 ## [Sprint 228] - 2026-11-25 - Whole-Program Interprocedural Dead Function & Global Data Stripping (IPO)
 
 Implements Option 3 (Whole-Program Interprocedural Dead Function & Global Data Stripping):

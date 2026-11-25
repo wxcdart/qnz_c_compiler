@@ -95,6 +95,8 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	src/zero_cc/opt/opt_pass.o \
 	src/zero_cc/opt/opt_constant_fold.o \
 	src/zero_cc/opt/opt_dce.o \
+	src/zero_cc/opt/opt_dse.o \
+	src/zero_cc/opt/opt_adce.o \
 	src/zero_cc/opt/opt_mem2reg.o \
 	src/zero_cc/opt/opt_cse.o \
 	src/zero_cc/opt/opt_gvn.o \

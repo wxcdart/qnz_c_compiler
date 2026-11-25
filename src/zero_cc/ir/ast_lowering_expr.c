@@ -1786,6 +1786,37 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                         } else ir_emit_deref(c, val_temp, addr_temp);
                     }
                 } else if (sym) {
+                    if (sym->is_sroa) {
+                        int m_idx = -1;
+                        if (innermost && innermost->member_name) {
+                            for (size_t m = 0; m < sym->type.member_count; m++) {
+                                if (sym->type.members[m].name && strcmp(innermost->member_name, sym->type.members[m].name) == 0) {
+                                    m_idx = (int)m;
+                                    break;
+                                }
+                            }
+                        }
+                        if (m_idx < 0) {
+                            for (size_t m = 0; m < sym->type.member_count; m++) {
+                                if (sym->type.members[m].offset == (size_t)member_offset) {
+                                    m_idx = (int)m;
+                                    break;
+                                }
+                            }
+                        }
+                        if (m_idx >= 0 && m_idx < 16) {
+                            int32_t slot_off = -sym->sroa_offsets[m_idx];
+                            if (member_is_float) {
+                                ir_emit_fload(c, (uint32_t)val_temp, TEMP_NONE, slot_off);
+                                c->last_expr_is_float = 1;
+                                return val_temp;
+                            }
+                            ir_emit_load(c, val_temp, BE(c)->fp_reg, slot_off);
+                            if (member_ti) lower_extend_narrow(c, val_temp, member_ti);
+                            c->last_expr_is_float = 0;
+                            return val_temp;
+                        }
+                    }
                     /* Local struct/union base accessed via `.`: frame-
                      * relative member load (base_stack_offset from the
                      * local's slot). */

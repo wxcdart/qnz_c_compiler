@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-25T16:57:24Z
+timestamp: 2026-11-25T20:25:17Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1707,3 +1707,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-25 — Updated `optimization-passes.md`
 - Sprint 226-228: Cross-Block GVN, Complex SIMD, and Interprocedural Dead Stripping
+
+## 2026-11-25 — Updated `optimization-passes.md`
+- Add TCO, ADCE, SROA, and DSE documentation (Sprints 229-231)

@@ -55,6 +55,7 @@ typedef struct {
     size_t current_func_idx;           /* Index of function currently being lowered */
     IREmitterContext ir_ctx;           /* IR emission state (call tracking) */
     uint16_t epilogue_label;           /* Synthetic epilogue label for returns */
+    uint16_t tail_call_entry_label;     /* Entry label for tail call recursion (Sprint 229) */
     bool is_frameless;                 /* True when leaf function needs no stack frame */
     bool has_stack_protector;          /* True when function has stack guard canary enabled */
     int32_t canary_stack_off;          /* Frame slot offset (positive, fp-relative) holding canary */

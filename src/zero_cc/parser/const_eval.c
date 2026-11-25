@@ -406,7 +406,10 @@ void zc_cv_udiv128(uint64_t alo, uint64_t ahi,
             else        ql |= (1ULL << (127 - i));
         }
     }
-    *qlo = ql; *qhi = qh; *rlo = rem_lo; *rhi = rem_hi;
+    if (qlo) *qlo = ql;
+    if (qhi) *qhi = qh;
+    if (rlo) *rlo = rem_lo;
+    if (rhi) *rhi = rem_hi;
 }
 
 ZCConstVal zc_cv_div(ZCConstVal a, ZCConstVal b) {
