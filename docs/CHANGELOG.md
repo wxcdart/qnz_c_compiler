@@ -1,5 +1,28 @@
 # CHANGELOG
 
+## [Sprint 255] - 2026-11-26 - Mach-O 64-bit Multi-TU Native Object Linking Parity (`MH_OBJECT` Linking & Relocation Resolution)
+
+- **Mach-O 64-bit Object Reader (`macho_reader.h`, `macho_reader.c`)**:
+  - Implemented 64-bit Mach-O relocatable object (`MH_OBJECT`) file parser for Darwin ABI targets (x86-64 and ARM64).
+  - Validates `MH_MAGIC_64` (`0xfeedfacf`), CPU architecture (`CPU_TYPE_X86_64`, `CPU_TYPE_ARM64`), filetype, and load command headers.
+  - Parses `LC_SEGMENT_64` commands and section descriptors: `__text`, `__cstring`, `__data`, and `__bss` sections with offset, size, alignment, and raw section data views.
+  - Parses section relocation tables: reads 8-byte `ZeroCCMachORelocation` entries (`r_address`, `r_info` bitfields: `r_symbolnum:24`, `r_pcrel:1`, `r_length:2`, `r_extern:1`, `r_type:4`).
+  - Parses `LC_SYMTAB` symbol tables: parses `ZeroCCNlist64` structures (`n_strx`, `n_type`, `n_sect`, `n_desc`, `n_value`) resolving symbol classifications (`N_UNDF`, `N_SECT`, `N_ABS`, `N_EXT`) and names against string tables.
+  - Implemented helper `zero_cc_macho_find_section` to query sections by segment and section name.
+- **Mach-O Multi-Object Native Linker (`macho_writer.h`, `macho_writer.c`, `main.c`)**:
+  - Implemented `zero_cc_macho_link_objects(filename, obj_files, obj_count, opts)`:
+    - Section concatenation and layout across arbitrary Mach-O object files for `__text`, `__cstring`, `__data`, and `__bss`.
+    - Section alignment padding: enforces 16-byte alignment for code sections and 8-byte alignment for data/bss sections.
+    - Global symbol table collection and symbol resolution across translation units: handles defined global functions and data symbols, Darwin leading underscore matching (`_main`, `_func`), and `_main` entry point discovery.
+    - Inter-TU relocation resolution: patches cross-object call and reference sites for x86-64 (`X86_64_RELOC_BRANCH`, `X86_64_RELOC_SIGNED`, `X86_64_RELOC_UNSIGNED`) and ARM64 (`ARM64_RELOC_BRANCH26`, `ARM64_RELOC_PAGE21`, `ARM64_RELOC_PAGEOFF12`).
+    - Emits linked Mach-O 64-bit standalone executables (`MH_EXECUTE`) with `LC_MAIN` and dynamic libraries (`MH_DYLIB`) with `LC_ID_DYLIB`.
+  - Added undefined symbol tracking (`N_UNDF | N_EXT`) and text section relocation table emission in single-object generation (`macho_write_obj_core`).
+  - Integrated into compiler driver (`src/main.c`): multi-file `--macho` invocations with mixed `.c` and `.o` inputs compile each source to an intermediate `.o` Mach-O object, invoke `zero_cc_macho_link_objects`, unlink intermediate objects, and produce the final Mach-O executable or shared library.
+- **Verification Battery (`tools/verify/macho_tests.py`, `Makefile`)**:
+  - Expanded `tools/verify/macho_tests.py` (`make test-macho`) with tests for multi-object executable linking, mixed `.c` and `.o` linking, multi-object `.dylib` dynamic libraries, and ARM64 Mach-O object linking.
+  - 57/57 Mach-O tests passing cleanly (up from 44). Full test suite (279 tests) clean. Style check: 0 errors, 0 warnings.
+
+
 ## [Sprint 254] - 2026-11-26 - Full ISO C23 Standard Attribute & Enum Syntax Completion
 
 - **Fixed Underlying Enum Types (`enum E : <type>`) (`type_parser.h`, `decl_enum.h`, `decl_struct.c`, `zero_cc_declarator_stack.h`, `type_system.h`)**:

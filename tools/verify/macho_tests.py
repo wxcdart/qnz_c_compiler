@@ -324,6 +324,141 @@ def test_multi_tu_linking():
         report("Multi-TU executable valid MH_EXECUTE", hdr and hdr["filetype"] == MH_EXECUTE)
 
 
+def test_macho_multi_object_linking():
+    """Verify linking multiple precompiled Mach-O .o object files into a single binary."""
+    with tempfile.TemporaryDirectory() as td:
+        tu1 = Path(td) / "obj1.c"
+        tu2 = Path(td) / "obj2.c"
+        o1 = Path(td) / "obj1.o"
+        o2 = Path(td) / "obj2.o"
+        exe = Path(td) / "obj_merged.macho"
+
+        tu1.write_text("""
+        int get_val2(void);
+        int main(void) {
+            return get_val2() + 10;
+        }
+        """)
+        tu2.write_text("""
+        int get_val2(void) {
+            return 88;
+        }
+        """)
+
+        # 1. Compile each TU to relocatable object with -c
+        c1 = subprocess.run([str(ZEROCC), "--macho", "-c", str(tu1), "-o", str(o1)], capture_output=True, text=True)
+        c2 = subprocess.run([str(ZEROCC), "--macho", "-c", str(tu2), "-o", str(o2)], capture_output=True, text=True)
+        report("Compile TU1 to Mach-O object", c1.returncode == 0, c1.stderr)
+        report("Compile TU2 to Mach-O object", c2.returncode == 0, c2.stderr)
+        if c1.returncode != 0 or c2.returncode != 0:
+            return
+
+        # 2. Link the .o files into an executable
+        cmd = [str(ZEROCC), "--macho", str(o1), str(o2), "-o", str(exe)]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        report("Mach-O multi-object linking (.o files)", proc.returncode == 0, proc.stderr)
+        if proc.returncode != 0:
+            return
+
+        hdr = parse_macho_header(exe.read_bytes())
+        report("Linked multi-object binary valid MH_EXECUTE", hdr and hdr["filetype"] == MH_EXECUTE)
+        cmds = parse_load_commands(exe.read_bytes(), hdr["ncmds"])
+        main_cmd = next((c for c in cmds if c["cmd"] == LC_MAIN), None)
+        report("Linked multi-object binary has valid LC_MAIN", main_cmd is not None)
+
+
+def test_macho_mixed_c_and_object_linking():
+    """Verify linking a mixture of .c source and precompiled .o object into a single binary."""
+    with tempfile.TemporaryDirectory() as td:
+        tu1 = Path(td) / "src.c"
+        tu2 = Path(td) / "helper.c"
+        o2 = Path(td) / "helper.o"
+        exe = Path(td) / "mixed.macho"
+
+        tu1.write_text("""
+        int helper_func(void);
+        int main(void) {
+            return helper_func();
+        }
+        """)
+        tu2.write_text("""
+        int helper_func(void) {
+            return 42;
+        }
+        """)
+
+        # Compile helper to .o
+        subprocess.run([str(ZEROCC), "--macho", "-c", str(tu2), "-o", str(o2)], check=True)
+
+        # Link .c and .o together
+        cmd = [str(ZEROCC), "--macho", str(tu1), str(o2), "-o", str(exe)]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        report("Mach-O mixed .c and .o linking", proc.returncode == 0, proc.stderr)
+        if proc.returncode != 0:
+            return
+
+        hdr = parse_macho_header(exe.read_bytes())
+        report("Mixed-input executable valid MH_EXECUTE", hdr and hdr["filetype"] == MH_EXECUTE)
+
+
+def test_macho_multi_object_dylib():
+    """Verify linking multiple .o object files into a .dylib dynamic library."""
+    with tempfile.TemporaryDirectory() as td:
+        f1 = Path(td) / "lib1.c"
+        f2 = Path(td) / "lib2.c"
+        o1 = Path(td) / "lib1.o"
+        o2 = Path(td) / "lib2.o"
+        dylib = Path(td) / "libmerged.dylib"
+
+        f1.write_text("int lib_func_alpha(void) { return 100; }\n")
+        f2.write_text("int lib_func_beta(void) { return 200; }\n")
+
+        subprocess.run([str(ZEROCC), "--macho", "-c", str(f1), "-o", str(o1)], check=True)
+        subprocess.run([str(ZEROCC), "--macho", "-c", str(f2), "-o", str(o2)], check=True)
+
+        cmd = [str(ZEROCC), "-shared", "--macho", str(o1), str(o2), "-o", str(dylib)]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        report("Mach-O multi-object .dylib linking", proc.returncode == 0, proc.stderr)
+        if proc.returncode != 0:
+            return
+
+        hdr = parse_macho_header(dylib.read_bytes())
+        report("Multi-object dylib valid MH_DYLIB", hdr and hdr["filetype"] == MH_DYLIB)
+
+        cmds = parse_load_commands(dylib.read_bytes(), hdr["ncmds"])
+        symtab_cmd = next((c for c in cmds if c["cmd"] == LC_SYMTAB), None)
+        if symtab_cmd:
+            symoff, nsyms, stroff, strsize = struct.unpack_from("<IIII", symtab_cmd["raw"], 8)
+            strtab = dylib.read_bytes()[stroff : stroff + strsize]
+            report("Multi-object dylib contains _lib_func_alpha", b"_lib_func_alpha" in strtab)
+            report("Multi-object dylib contains _lib_func_beta", b"_lib_func_beta" in strtab)
+
+
+def test_macho_arm64_multi_object_linking():
+    """Verify multi-object linking for ARM64 (Apple Silicon) target."""
+    with tempfile.TemporaryDirectory() as td:
+        f1 = Path(td) / "arm1.c"
+        f2 = Path(td) / "arm2.c"
+        o1 = Path(td) / "arm1.o"
+        o2 = Path(td) / "arm2.o"
+        exe = Path(td) / "arm_merged.macho"
+
+        f1.write_text("int helper(void); int main(void) { return helper(); }\n")
+        f2.write_text("int helper(void) { return 1; }\n")
+
+        subprocess.run([str(ZEROCC), "--target=aarch64-apple-darwin", "-c", str(f1), "-o", str(o1)], check=True)
+        subprocess.run([str(ZEROCC), "--target=aarch64-apple-darwin", "-c", str(f2), "-o", str(o2)], check=True)
+
+        cmd = [str(ZEROCC), "--target=aarch64-apple-darwin", str(o1), str(o2), "-o", str(exe)]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        report("Mach-O arm64 multi-object linking", proc.returncode == 0, proc.stderr)
+        if proc.returncode != 0:
+            return
+
+        hdr = parse_macho_header(exe.read_bytes())
+        report("ARM64 linked executable cputype ARM64", hdr and hdr["cputype"] == CPU_TYPE_ARM64)
+
+
 def test_host_file_utility():
     """Verify that host Linux 'file' utility identifies the emitted Mach-O artifacts."""
     with tempfile.TemporaryDirectory() as td:
@@ -363,6 +498,10 @@ def main():
     test_cli_flags_and_autodetection()
     test_optimization_sweep()
     test_multi_tu_linking()
+    test_macho_multi_object_linking()
+    test_macho_mixed_c_and_object_linking()
+    test_macho_multi_object_dylib()
+    test_macho_arm64_multi_object_linking()
     test_host_file_utility()
 
     print(f"\nResult: {passed} passed, {failed} failed")

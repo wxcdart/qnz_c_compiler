@@ -4,7 +4,7 @@ title: ZeroCC Own Linker (T2) - ELF Reader, ar Reader, Static ET_EXEC/PIE Output
 description: ZeroCC's own static linker - the ELF64-LE object reader, the classic ar archive reader with greedy member extraction, symbol resolution, section layout at conventional x86-64/AArch64/RISC-V64 bases, the x86-64 far-rel32 detour-thunk pool, the static-PIE (ET_DYN) self-relocating link, supported relocation sets, and per-ISA generated _start stubs. Gate: make test-linker (21/21) + test/linker/far_thunk.c + test/linker/pie_test.c.
 resource: linker
 tags: [linker, elf, ar, aot, x86-64, aarch64, riscv64, relocations, zero-rt, static-pie, thunks]
-timestamp: 2026-11-26T16:58:46Z
+timestamp: 2026-11-26T22:52:42Z
 generated: pi-agent
 verified: engineering-lead
 status: active
@@ -37,7 +37,8 @@ linker** → T3 runtime): zero_rt Phase 0 is its first customer.
 | `ar_reader.{h,c}` | Classic `ar` archive reader (GNU/BSD/LLVM ar): 60-byte member headers, long-name (`#1/NNN` BSD and `/offset` GNU via `//` member), index-member skipping (`//`, `__.SYMDEF`, `Sym64 Table`). Members are returned as views into the archive image. |
 | `ar_writer.{h,c}` | Native `ar` archive writer (Sprint 148): creates standard deterministic GNU-format `.a` static archives with `/` ELF symbol index table (big-endian symbol count, offset array, and symbol names) and `//` long filename table for names > 15 characters. CLI driver `--ar` (`rcs`, `t`, `x`). Replaces host system `ar` in runtime archive generation (`zero_rt*.a`). |
 | `pe_writer.{h,c}` | Windows PE/COFF native output writer (Sprint 246 & 249): standalone PE32+ console/GUI executables (`.exe`), dynamic link libraries (`.dll`, `-shared`) with `.edata` export table, relocatable COFF objects (`.obj`, `-c`), multi-DLL `.idata` dynamic imports (`KERNEL32.dll`, `msvcrt.dll`), and IAT indirect jump thunks. |
-| `macho_writer.{h,c}` | macOS Mach-O 64-bit native output writer (Sprint 251): standalone executables (`MH_EXECUTE`), dynamic link libraries (`MH_DYLIB` / `.dylib`, `-shared`) with `LC_ID_DYLIB`, relocatable objects (`MH_OBJECT` / `.o`, `-c`), `__PAGEZERO`/`__TEXT`/`__DATA`/`__LINKEDIT` segments, dynamic loader commands (`LC_LOAD_DYLINKER`, `LC_LOAD_DYLIB`), `LC_MAIN` entry point, and `LC_SYMTAB`/`LC_DYSYMTAB` symbol tables with Darwin leading underscores. |
+| `macho_writer.{h,c}` | macOS Mach-O 64-bit native output writer (Sprint 251 & 255): standalone executables (`MH_EXECUTE`), dynamic link libraries (`MH_DYLIB` / `.dylib`, `-shared`) with `LC_ID_DYLIB`, relocatable objects (`MH_OBJECT` / `.o`, `-c`), `__PAGEZERO`/`__TEXT`/`__DATA`/`__LINKEDIT` segments, dynamic loader commands (`LC_LOAD_DYLINKER`, `LC_LOAD_DYLIB`), `LC_MAIN` entry point, and multi-TU object linker (`zero_cc_macho_link_objects`). |
+| `macho_reader.{h,c}` | macOS Mach-O 64-bit object reader (Sprint 255): validates `MH_MAGIC_64` (`0xfeedfacf`), parses `LC_SEGMENT_64` section tables (`__text`, `__cstring`, `__data`, `__bss`), section relocation records (`ZeroCCMachORelocation`), and `LC_SYMTAB` symbol tables (`ZeroCCNlist64`). |
 | `linker.{h,c}` | `zero_cc_link_exec(out, objects, archives, err)`: the pipeline below. |
 
 Driver integration (`src/main.c`): `--zerocc-link` (with `-o`) selects the

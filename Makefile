@@ -139,6 +139,7 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	src/zero_cc/linker/linker.o \
 	src/zero_cc/linker/pe_writer.o \
 	src/zero_cc/linker/macho_writer.o \
+	src/zero_cc/linker/macho_reader.o \
 	src/zero_cc/types/string_pool.o)
 
 .PHONY: all test clean golden_test test-unit test-semantic test-abi test-jit test-tap benchmark \

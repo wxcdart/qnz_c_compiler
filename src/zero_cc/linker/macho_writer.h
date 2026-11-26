@@ -261,6 +261,14 @@ bool zero_cc_macho_write_obj_arch(const char *filename,
  */
 bool zero_cc_macho_write_obj_from_comp(const char *filename, ZeroCCCompiler *comp);
 
+/**
+ * @brief Link multiple Mach-O 64-bit object files (.o) into a standalone executable or dylib.
+ */
+bool zero_cc_macho_link_objects(const char *filename,
+                                const char **obj_files,
+                                size_t obj_count,
+                                const ZeroCCMachoOptions *opts);
+
 #ifdef __cplusplus
 }
 #endif

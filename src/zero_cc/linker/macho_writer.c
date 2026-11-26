@@ -9,6 +9,7 @@
 #include <string.h>
 #include <time.h>
 #include "zero_cc.h"
+#include "zero_cc/linker/macho_reader.h"
 #include "zero_cc/types/global_vars.h"
 
 #define MACHO_PAGE_SIZE 0x1000U /* 4 KB standard page alignment */
@@ -172,15 +173,15 @@ static bool macho_write_obj_core(const char *filename,
     seg.filesize = cur_fileoff - seg.fileoff;
 
     /* Build string table and symbol table */
-    char strtab[2048];
+    char strtab[16384];
     memset(strtab, 0, sizeof(strtab));
     uint32_t str_len = 1; /* strtab starts with '\0' */
 
-    MachOSymbol syms[128];
+    MachOSymbol syms[512];
     uint32_t nsyms = 0;
 
     if (comp) {
-        for (size_t i = 0; i < comp->function_count && nsyms < 120; i++) {
+        for (size_t i = 0; i < comp->function_count && nsyms < 450; i++) {
             ZeroCCFunction *fn = &comp->functions[i];
             if (!fn->is_prototype && fn->name[0] != '\0') {
                 snprintf(syms[nsyms].name, sizeof(syms[nsyms].name), "_%s", fn->name);
@@ -197,7 +198,7 @@ static bool macho_write_obj_core(const char *filename,
                 }
             }
         }
-        for (size_t i = 0; i < comp->global_var_count && nsyms < 120; i++) {
+        for (size_t i = 0; i < comp->global_var_count && nsyms < 450; i++) {
             ZeroCCGlobalVar *gv = &comp->global_vars[i];
             if (gv->name[0] != '\0') {
                 uint8_t sect = 1;
@@ -220,6 +221,35 @@ static bool macho_write_obj_core(const char *filename,
                 }
             }
         }
+        /* Add undefined symbols for unresolved relocations */
+        for (size_t i = 0; i < comp->reloc_count && nsyms < 450; i++) {
+            ZeroCCReloc *r = &comp->relocs[i];
+            if (r->target_symbol[0] != '\0') {
+                char mangled[144];
+                snprintf(mangled, sizeof(mangled), "_%s", r->target_symbol);
+                bool found = false;
+                for (uint32_t s = 0; s < nsyms; s++) {
+                    if (strcmp(syms[s].name, mangled) == 0) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    snprintf(syms[nsyms].name, sizeof(syms[nsyms].name), "%s", mangled);
+                    syms[nsyms].type = ZERO_CC_N_UNDF | ZERO_CC_N_EXT;
+                    syms[nsyms].sect = 0;
+                    syms[nsyms].desc = 0;
+                    syms[nsyms].value = 0;
+                    syms[nsyms].str_offset = str_len;
+                    size_t slen = strlen(syms[nsyms].name) + 1;
+                    if (str_len + slen < sizeof(strtab)) {
+                        memcpy(strtab + str_len, syms[nsyms].name, slen);
+                        str_len += (uint32_t)slen;
+                        nsyms++;
+                    }
+                }
+            }
+        }
     } else {
         /* Exported _main or default entry */
         snprintf(syms[nsyms].name, sizeof(syms[nsyms].name), "_main");
@@ -232,6 +262,49 @@ static bool macho_write_obj_core(const char *filename,
         memcpy(strtab + str_len, syms[nsyms].name, slen);
         str_len += (uint32_t)slen;
         nsyms++;
+    }
+
+    /* Build text section relocations */
+    ZeroCCMachORelocation *text_relocs = NULL;
+    uint32_t text_nreloc = 0;
+    if (comp && comp->reloc_count > 0) {
+        text_relocs = (ZeroCCMachORelocation *)calloc(comp->reloc_count + 1, sizeof(ZeroCCMachORelocation));
+        if (text_relocs) {
+            for (size_t i = 0; i < comp->reloc_count; i++) {
+                ZeroCCReloc *r = &comp->relocs[i];
+                char mangled[144];
+                snprintf(mangled, sizeof(mangled), "_%s", r->target_symbol);
+                int sym_idx = -1;
+                for (uint32_t s = 0; s < nsyms; s++) {
+                    if (strcmp(syms[s].name, mangled) == 0) {
+                        sym_idx = (int)s;
+                        break;
+                    }
+                }
+                if (sym_idx >= 0) {
+                    text_relocs[text_nreloc].r_address = (int32_t)r->text_patch_offset;
+                    uint32_t symnum = (uint32_t)sym_idx;
+                    uint32_t pcrel = 1;
+                    uint32_t len = 2; /* 4 bytes */
+                    uint32_t ext = 1;
+                    uint32_t type = (target_cpu == ZERO_CC_CPU_TYPE_ARM64) ? 2 : ZERO_CC_X86_64_RELOC_BRANCH;
+                    if (!r->is_call) {
+                        type = (target_cpu == ZERO_CC_CPU_TYPE_ARM64) ? 3 : ZERO_CC_X86_64_RELOC_SIGNED;
+                    }
+                    text_relocs[text_nreloc].r_info = (symnum & 0x00FFFFFFU) | (pcrel << 24) |
+                                                      (len << 25) | (ext << 27) | (type << 28);
+                    text_nreloc++;
+                }
+            }
+        }
+    }
+
+    uint32_t reloff = 0;
+    if (text_nreloc > 0) {
+        reloff = macho_align_up(cur_fileoff, 8);
+        sects[0].reloff = reloff;
+        sects[0].nreloc = text_nreloc;
+        cur_fileoff = reloff + (uint32_t)(text_nreloc * sizeof(ZeroCCMachORelocation));
     }
 
     uint32_t symoff = macho_align_up(cur_fileoff, 8);
@@ -281,6 +354,18 @@ static bool macho_write_obj_core(const char *filename,
         }
         fwrite(data, 1, data_size, f);
     }
+
+    /* Write relocations */
+    if (text_nreloc > 0 && text_relocs) {
+        cur_pos = ftell(f);
+        if ((uint32_t)cur_pos < reloff) {
+            size_t pad = reloff - (uint32_t)cur_pos;
+            uint8_t zero = 0;
+            for (size_t i = 0; i < pad; i++) fwrite(&zero, 1, 1, f);
+        }
+        fwrite(text_relocs, sizeof(ZeroCCMachORelocation), text_nreloc, f);
+    }
+    if (text_relocs) free(text_relocs);
 
     /* Pad to symoff */
     cur_pos = ftell(f);
@@ -683,6 +768,272 @@ bool zero_cc_macho_write_exe(const char *filename,
                                         ZERO_CC_CPU_TYPE_X86_64);
 }
 
+static bool macho_write_dylib_core(const char *filename,
+                                   const uint8_t *text, size_t text_size,
+                                   const uint8_t *rodata, size_t rodata_size,
+                                   const uint8_t *data, size_t data_size,
+                                   size_t bss_size,
+                                   const MachOSymbol *syms, uint32_t nsyms,
+                                   const char *strtab, uint32_t str_len,
+                                   uint32_t cputype,
+                                   const char *dylib_name)
+{
+    FILE *f = fopen(filename, "wb");
+    if (!f) return false;
+
+    uint32_t page_size = MACHO_PAGE_SIZE;
+    uint32_t text_nsects = 1 + (rodata_size > 0 ? 1 : 0);
+    uint32_t data_nsects = (data_size > 0 ? 1 : 0) + (bss_size > 0 ? 1 : 0);
+    bool has_data_seg = (data_nsects > 0);
+
+    uint32_t cmd_text_size = (uint32_t)(sizeof(ZeroCCSegmentCommand64) + text_nsects * sizeof(ZeroCCSection64));
+    uint32_t cmd_data_size = has_data_seg ? (uint32_t)(sizeof(ZeroCCSegmentCommand64) + data_nsects * sizeof(ZeroCCSection64)) : 0;
+    uint32_t cmd_linkedit_size = sizeof(ZeroCCSegmentCommand64);
+    uint32_t cmd_id_dylib_size = 56;
+    uint32_t cmd_dylib_size = 56;
+    uint32_t cmd_symtab_size = sizeof(ZeroCCSymtabCommand);
+    uint32_t cmd_dysymtab_size = sizeof(ZeroCCDysymtabCommand);
+
+    uint32_t ncmds = 6 + (has_data_seg ? 1 : 0);
+    uint32_t sizeofcmds = cmd_text_size + cmd_data_size + cmd_linkedit_size +
+                          cmd_id_dylib_size + cmd_dylib_size +
+                          cmd_symtab_size + cmd_dysymtab_size;
+
+    ZeroCCMachHeader64 hdr;
+    memset(&hdr, 0, sizeof(hdr));
+    hdr.magic = ZERO_CC_MH_MAGIC_64;
+    hdr.cputype = cputype;
+    hdr.cpusubtype = (cputype == ZERO_CC_CPU_TYPE_ARM64) ?
+                     ZERO_CC_CPU_SUBTYPE_ARM64_ALL : ZERO_CC_CPU_SUBTYPE_X86_64_ALL;
+    hdr.filetype = ZERO_CC_MH_DYLIB;
+    hdr.ncmds = ncmds;
+    hdr.sizeofcmds = sizeofcmds;
+    hdr.flags = ZERO_CC_MH_NOUNDEFS | ZERO_CC_MH_DYLDLINK | ZERO_CC_MH_TWOLEVEL;
+
+    uint64_t text_vmaddr = 0;
+    uint32_t header_and_cmds_size = (uint32_t)sizeof(hdr) + sizeofcmds;
+    uint32_t text_sec_offset = macho_align_up(header_and_cmds_size, 16);
+
+    uint32_t text_total_raw = (uint32_t)(text_sec_offset + text_size + (rodata_size > 0 ? rodata_size + 16 : 0));
+    uint32_t text_filesize = macho_align_up(text_total_raw, page_size);
+    uint64_t text_vmsize = text_filesize;
+
+    uint64_t data_vmaddr = text_vmaddr + text_vmsize;
+    uint32_t data_fileoff = text_filesize;
+    uint32_t data_filesize = has_data_seg ? macho_align_up((uint32_t)data_size, page_size) : 0;
+    uint64_t data_vmsize = has_data_seg ? macho_align_up64((uint64_t)(data_size + bss_size), page_size) : 0;
+
+    uint64_t linkedit_vmaddr = data_vmaddr + (has_data_seg ? data_vmsize : 0);
+    uint32_t linkedit_fileoff = data_fileoff + data_filesize;
+    uint32_t linkedit_filesize = page_size;
+    uint64_t linkedit_vmsize = page_size;
+
+    /* 1. __TEXT */
+    ZeroCCSegmentCommand64 cmd_text;
+    memset(&cmd_text, 0, sizeof(cmd_text));
+    cmd_text.cmd = ZERO_CC_LC_SEGMENT_64;
+    cmd_text.cmdsize = cmd_text_size;
+    snprintf(cmd_text.segname, sizeof(cmd_text.segname), "__TEXT");
+    cmd_text.vmaddr = text_vmaddr;
+    cmd_text.vmsize = text_vmsize;
+    cmd_text.fileoff = 0;
+    cmd_text.filesize = text_filesize;
+    cmd_text.maxprot = ZERO_CC_VM_PROT_ALL;
+    cmd_text.initprot = ZERO_CC_VM_PROT_READ | ZERO_CC_VM_PROT_EXECUTE;
+    cmd_text.nsects = text_nsects;
+
+    ZeroCCSection64 text_sects[2];
+    memset(text_sects, 0, sizeof(text_sects));
+    snprintf(text_sects[0].sectname, sizeof(text_sects[0].sectname), "__text");
+    snprintf(text_sects[0].segname, sizeof(text_sects[0].segname), "__TEXT");
+    text_sects[0].addr = text_vmaddr + text_sec_offset;
+    text_sects[0].size = text_size;
+    text_sects[0].offset = text_sec_offset;
+    text_sects[0].align = 4;
+    text_sects[0].flags = ZERO_CC_MACHO_S_REGULAR | ZERO_CC_MACHO_S_ATTR_SOME_INSTRUCTIONS | ZERO_CC_MACHO_S_ATTR_PURE_INSTRUCTIONS;
+
+    if (rodata_size > 0) {
+        uint32_t rodata_sec_offset = macho_align_up(text_sec_offset + (uint32_t)text_size, 16);
+        snprintf(text_sects[1].sectname, sizeof(text_sects[1].sectname), "__cstring");
+        snprintf(text_sects[1].segname, sizeof(text_sects[1].segname), "__TEXT");
+        text_sects[1].addr = text_vmaddr + rodata_sec_offset;
+        text_sects[1].size = rodata_size;
+        text_sects[1].offset = rodata_sec_offset;
+        text_sects[1].align = 0;
+        text_sects[1].flags = ZERO_CC_MACHO_S_CSTRING_LITERALS;
+    }
+
+    /* 2. __DATA */
+    ZeroCCSegmentCommand64 cmd_data;
+    ZeroCCSection64 data_sects[2];
+    memset(&cmd_data, 0, sizeof(cmd_data));
+    memset(data_sects, 0, sizeof(data_sects));
+
+    if (has_data_seg) {
+        cmd_data.cmd = ZERO_CC_LC_SEGMENT_64;
+        cmd_data.cmdsize = cmd_data_size;
+        snprintf(cmd_data.segname, sizeof(cmd_data.segname), "__DATA");
+        cmd_data.vmaddr = data_vmaddr;
+        cmd_data.vmsize = data_vmsize;
+        cmd_data.fileoff = data_fileoff;
+        cmd_data.filesize = data_filesize;
+        cmd_data.maxprot = ZERO_CC_VM_PROT_ALL;
+        cmd_data.initprot = ZERO_CC_VM_PROT_READ | ZERO_CC_VM_PROT_WRITE;
+        cmd_data.nsects = data_nsects;
+
+        uint32_t ds_idx = 0;
+        if (data_size > 0) {
+            snprintf(data_sects[ds_idx].sectname, sizeof(data_sects[ds_idx].sectname), "__data");
+            snprintf(data_sects[ds_idx].segname, sizeof(data_sects[ds_idx].segname), "__DATA");
+            data_sects[ds_idx].addr = data_vmaddr;
+            data_sects[ds_idx].size = data_size;
+            data_sects[ds_idx].offset = data_fileoff;
+            data_sects[ds_idx].align = 3;
+            data_sects[ds_idx].flags = ZERO_CC_MACHO_S_REGULAR;
+            ds_idx++;
+        }
+        if (bss_size > 0) {
+            snprintf(data_sects[ds_idx].sectname, sizeof(data_sects[ds_idx].sectname), "__bss");
+            snprintf(data_sects[ds_idx].segname, sizeof(data_sects[ds_idx].segname), "__DATA");
+            data_sects[ds_idx].addr = data_vmaddr + data_size;
+            data_sects[ds_idx].size = bss_size;
+            data_sects[ds_idx].offset = 0;
+            data_sects[ds_idx].align = 3;
+            data_sects[ds_idx].flags = ZERO_CC_MACHO_S_ZEROFILL;
+            ds_idx++;
+        }
+    }
+
+    /* 3. __LINKEDIT */
+    ZeroCCSegmentCommand64 cmd_linkedit;
+    memset(&cmd_linkedit, 0, sizeof(cmd_linkedit));
+    cmd_linkedit.cmd = ZERO_CC_LC_SEGMENT_64;
+    cmd_linkedit.cmdsize = cmd_linkedit_size;
+    snprintf(cmd_linkedit.segname, sizeof(cmd_linkedit.segname), "__LINKEDIT");
+    cmd_linkedit.vmaddr = linkedit_vmaddr;
+    cmd_linkedit.vmsize = linkedit_vmsize;
+    cmd_linkedit.fileoff = linkedit_fileoff;
+    cmd_linkedit.filesize = linkedit_filesize;
+    cmd_linkedit.maxprot = ZERO_CC_VM_PROT_ALL;
+    cmd_linkedit.initprot = ZERO_CC_VM_PROT_READ;
+    cmd_linkedit.nsects = 0;
+
+    /* 4. LC_ID_DYLIB */
+    uint8_t id_dylib_buf[56];
+    memset(id_dylib_buf, 0, sizeof(id_dylib_buf));
+    ZeroCCDylibCommand *cmd_id_dylib = (ZeroCCDylibCommand *)id_dylib_buf;
+    cmd_id_dylib->cmd = ZERO_CC_LC_ID_DYLIB;
+    cmd_id_dylib->cmdsize = cmd_id_dylib_size;
+    cmd_id_dylib->dylib_name_offset = 24;
+    cmd_id_dylib->dylib_timestamp = 1;
+    cmd_id_dylib->dylib_current_version = 0x010000;
+    cmd_id_dylib->dylib_compatibility_version = 0x010000;
+    const char *id_name = dylib_name ? dylib_name : filename;
+    snprintf((char *)(id_dylib_buf + 24), sizeof(id_dylib_buf) - 24, "%s", id_name);
+
+    /* 5. LC_LOAD_DYLIB */
+    uint8_t dylib_buf[56];
+    memset(dylib_buf, 0, sizeof(dylib_buf));
+    ZeroCCDylibCommand *cmd_dylib = (ZeroCCDylibCommand *)dylib_buf;
+    cmd_dylib->cmd = ZERO_CC_LC_LOAD_DYLIB;
+    cmd_dylib->cmdsize = cmd_dylib_size;
+    cmd_dylib->dylib_name_offset = 24;
+    cmd_dylib->dylib_timestamp = 2;
+    cmd_dylib->dylib_current_version = 0x05000000;
+    cmd_dylib->dylib_compatibility_version = 0x01000000;
+    memcpy(dylib_buf + 24, "/usr/lib/libSystem.B.dylib", 27);
+
+    uint32_t symoff = linkedit_fileoff;
+    uint32_t stroff = (uint32_t)(symoff + nsyms * sizeof(ZeroCCNlist64));
+
+    ZeroCCSymtabCommand cmd_symtab;
+    memset(&cmd_symtab, 0, sizeof(cmd_symtab));
+    cmd_symtab.cmd = ZERO_CC_LC_SYMTAB;
+    cmd_symtab.cmdsize = cmd_symtab_size;
+    cmd_symtab.symoff = symoff;
+    cmd_symtab.nsyms = nsyms;
+    cmd_symtab.stroff = stroff;
+    cmd_symtab.strsize = str_len;
+
+    ZeroCCDysymtabCommand cmd_dysymtab;
+    memset(&cmd_dysymtab, 0, sizeof(cmd_dysymtab));
+    cmd_dysymtab.cmd = ZERO_CC_LC_DYSYMTAB;
+    cmd_dysymtab.cmdsize = cmd_dysymtab_size;
+    cmd_dysymtab.iextdefsym = 0;
+    cmd_dysymtab.nextdefsym = nsyms;
+
+    /* Write headers & commands */
+    fwrite(&hdr, sizeof(hdr), 1, f);
+    fwrite(&cmd_text, sizeof(cmd_text), 1, f);
+    fwrite(text_sects, sizeof(ZeroCCSection64), text_nsects, f);
+    if (has_data_seg) {
+        fwrite(&cmd_data, sizeof(cmd_data), 1, f);
+        fwrite(data_sects, sizeof(ZeroCCSection64), data_nsects, f);
+    }
+    fwrite(&cmd_linkedit, sizeof(cmd_linkedit), 1, f);
+    fwrite(id_dylib_buf, 1, sizeof(id_dylib_buf), f);
+    fwrite(dylib_buf, 1, sizeof(dylib_buf), f);
+    fwrite(&cmd_symtab, sizeof(cmd_symtab), 1, f);
+    fwrite(&cmd_dysymtab, sizeof(cmd_dysymtab), 1, f);
+
+    /* Pad to text_sec_offset */
+    long cur_pos = ftell(f);
+    if ((uint32_t)cur_pos < text_sec_offset) {
+        size_t pad = text_sec_offset - (uint32_t)cur_pos;
+        uint8_t zero = 0;
+        for (size_t i = 0; i < pad; i++) fwrite(&zero, 1, 1, f);
+    }
+
+    if (text && text_size > 0) fwrite(text, 1, text_size, f);
+    if (rodata && rodata_size > 0) {
+        cur_pos = ftell(f);
+        if ((uint32_t)cur_pos < text_sects[1].offset) {
+            size_t pad = text_sects[1].offset - (uint32_t)cur_pos;
+            uint8_t zero = 0;
+            for (size_t i = 0; i < pad; i++) fwrite(&zero, 1, 1, f);
+        }
+        fwrite(rodata, 1, rodata_size, f);
+    }
+
+    cur_pos = ftell(f);
+    if (has_data_seg && (uint32_t)cur_pos < data_fileoff) {
+        size_t pad = data_fileoff - (uint32_t)cur_pos;
+        uint8_t zero = 0;
+        for (size_t i = 0; i < pad; i++) fwrite(&zero, 1, 1, f);
+    }
+    if (data && data_size > 0) fwrite(data, 1, data_size, f);
+
+    cur_pos = ftell(f);
+    if ((uint32_t)cur_pos < linkedit_fileoff) {
+        size_t pad = linkedit_fileoff - (uint32_t)cur_pos;
+        uint8_t zero = 0;
+        for (size_t i = 0; i < pad; i++) fwrite(&zero, 1, 1, f);
+    }
+
+    for (uint32_t i = 0; i < nsyms; i++) {
+        ZeroCCNlist64 nl;
+        memset(&nl, 0, sizeof(nl));
+        nl.n_strx = syms[i].str_offset;
+        nl.n_type = syms[i].type;
+        nl.n_sect = syms[i].sect;
+        nl.n_desc = syms[i].desc;
+        nl.n_value = syms[i].value;
+        fwrite(&nl, sizeof(nl), 1, f);
+    }
+    fwrite(strtab, 1, str_len, f);
+
+    cur_pos = ftell(f);
+    uint32_t total_expected = linkedit_fileoff + linkedit_filesize;
+    if ((uint32_t)cur_pos < total_expected) {
+        size_t pad = total_expected - (uint32_t)cur_pos;
+        uint8_t zero = 0;
+        for (size_t i = 0; i < pad; i++) fwrite(&zero, 1, 1, f);
+    }
+
+    fclose(f);
+    return true;
+}
+
 bool zero_cc_macho_write_binary_from_comp(const char *filename,
                                          ZeroCCCompiler *comp,
                                          const ZeroCCMachoOptions *opts)
@@ -745,184 +1096,27 @@ bool zero_cc_macho_write_binary_from_comp(const char *filename,
                        ((comp->isa == ISA_AARCH64) ? ZERO_CC_CPU_TYPE_ARM64 : ZERO_CC_CPU_TYPE_X86_64);
     uint32_t cpusubtype = (cputype == ZERO_CC_CPU_TYPE_ARM64) ?
                           ZERO_CC_CPU_SUBTYPE_ARM64_ALL : ZERO_CC_CPU_SUBTYPE_X86_64_ALL;
+    (void)cpusubtype;
 
     bool ok = false;
     if (is_dylib) {
-        /* Mach-O dynamic library writer */
-        FILE *f = fopen(filename, "wb");
-        if (!f) {
-            if (patched_text) free(patched_text);
-            return false;
-        }
-
-        uint32_t page_size = MACHO_PAGE_SIZE;
-        uint32_t text_nsects = 1 + (rodata_size > 0 ? 1 : 0);
-        uint32_t data_nsects = (data_size > 0 ? 1 : 0) + (bss_size > 0 ? 1 : 0);
-        bool has_data_seg = (data_nsects > 0);
-
-        uint32_t cmd_text_size = (uint32_t)(sizeof(ZeroCCSegmentCommand64) + text_nsects * sizeof(ZeroCCSection64));
-        uint32_t cmd_data_size = has_data_seg ? (uint32_t)(sizeof(ZeroCCSegmentCommand64) + data_nsects * sizeof(ZeroCCSection64)) : 0;
-        uint32_t cmd_linkedit_size = sizeof(ZeroCCSegmentCommand64);
-        uint32_t cmd_id_dylib_size = 56;
-        uint32_t cmd_dylib_size = 56;
-        uint32_t cmd_symtab_size = sizeof(ZeroCCSymtabCommand);
-        uint32_t cmd_dysymtab_size = sizeof(ZeroCCDysymtabCommand);
-
-        uint32_t ncmds = 6 + (has_data_seg ? 1 : 0);
-        uint32_t sizeofcmds = cmd_text_size + cmd_data_size + cmd_linkedit_size +
-                              cmd_id_dylib_size + cmd_dylib_size +
-                              cmd_symtab_size + cmd_dysymtab_size;
-
-        ZeroCCMachHeader64 hdr;
-        memset(&hdr, 0, sizeof(hdr));
-        hdr.magic = ZERO_CC_MH_MAGIC_64;
-        hdr.cputype = cputype;
-        hdr.cpusubtype = cpusubtype;
-        hdr.filetype = ZERO_CC_MH_DYLIB;
-        hdr.ncmds = ncmds;
-        hdr.sizeofcmds = sizeofcmds;
-        hdr.flags = ZERO_CC_MH_NOUNDEFS | ZERO_CC_MH_DYLDLINK | ZERO_CC_MH_TWOLEVEL;
-
-        uint64_t text_vmaddr = 0;
-        uint32_t header_and_cmds_size = (uint32_t)sizeof(hdr) + sizeofcmds;
-        uint32_t text_sec_offset = macho_align_up(header_and_cmds_size, 16);
-
-        uint32_t text_total_raw = (uint32_t)(text_sec_offset + text_size + (rodata_size > 0 ? rodata_size + 16 : 0));
-        uint32_t text_filesize = macho_align_up(text_total_raw, page_size);
-        uint64_t text_vmsize = text_filesize;
-
-        uint64_t data_vmaddr = text_vmaddr + text_vmsize;
-        uint32_t data_fileoff = text_filesize;
-        uint32_t data_filesize = has_data_seg ? macho_align_up((uint32_t)data_size, page_size) : 0;
-        uint64_t data_vmsize = has_data_seg ? macho_align_up64((uint64_t)(data_size + bss_size), page_size) : 0;
-
-        uint64_t linkedit_vmaddr = data_vmaddr + (has_data_seg ? data_vmsize : 0);
-        uint32_t linkedit_fileoff = data_fileoff + data_filesize;
-        uint32_t linkedit_filesize = page_size;
-        uint64_t linkedit_vmsize = page_size;
-
-        /* 1. __TEXT */
-        ZeroCCSegmentCommand64 cmd_text;
-        memset(&cmd_text, 0, sizeof(cmd_text));
-        cmd_text.cmd = ZERO_CC_LC_SEGMENT_64;
-        cmd_text.cmdsize = cmd_text_size;
-        snprintf(cmd_text.segname, sizeof(cmd_text.segname), "__TEXT");
-        cmd_text.vmaddr = text_vmaddr;
-        cmd_text.vmsize = text_vmsize;
-        cmd_text.fileoff = 0;
-        cmd_text.filesize = text_filesize;
-        cmd_text.maxprot = ZERO_CC_VM_PROT_ALL;
-        cmd_text.initprot = ZERO_CC_VM_PROT_READ | ZERO_CC_VM_PROT_EXECUTE;
-        cmd_text.nsects = text_nsects;
-
-        ZeroCCSection64 text_sects[2];
-        memset(text_sects, 0, sizeof(text_sects));
-        snprintf(text_sects[0].sectname, sizeof(text_sects[0].sectname), "__text");
-        snprintf(text_sects[0].segname, sizeof(text_sects[0].segname), "__TEXT");
-        text_sects[0].addr = text_vmaddr + text_sec_offset;
-        text_sects[0].size = text_size;
-        text_sects[0].offset = text_sec_offset;
-        text_sects[0].align = 4;
-        text_sects[0].flags = ZERO_CC_MACHO_S_REGULAR | ZERO_CC_MACHO_S_ATTR_SOME_INSTRUCTIONS | ZERO_CC_MACHO_S_ATTR_PURE_INSTRUCTIONS;
-
-        if (rodata_size > 0) {
-            uint32_t rodata_sec_offset = macho_align_up(text_sec_offset + (uint32_t)text_size, 16);
-            snprintf(text_sects[1].sectname, sizeof(text_sects[1].sectname), "__cstring");
-            snprintf(text_sects[1].segname, sizeof(text_sects[1].segname), "__TEXT");
-            text_sects[1].addr = text_vmaddr + rodata_sec_offset;
-            text_sects[1].size = rodata_size;
-            text_sects[1].offset = rodata_sec_offset;
-            text_sects[1].align = 0;
-            text_sects[1].flags = ZERO_CC_MACHO_S_CSTRING_LITERALS;
-        }
-
-        /* 2. __DATA */
-        ZeroCCSegmentCommand64 cmd_data;
-        ZeroCCSection64 data_sects[2];
-        memset(&cmd_data, 0, sizeof(cmd_data));
-        memset(data_sects, 0, sizeof(data_sects));
-
-        if (has_data_seg) {
-            cmd_data.cmd = ZERO_CC_LC_SEGMENT_64;
-            cmd_data.cmdsize = cmd_data_size;
-            snprintf(cmd_data.segname, sizeof(cmd_data.segname), "__DATA");
-            cmd_data.vmaddr = data_vmaddr;
-            cmd_data.vmsize = data_vmsize;
-            cmd_data.fileoff = data_fileoff;
-            cmd_data.filesize = data_filesize;
-            cmd_data.maxprot = ZERO_CC_VM_PROT_ALL;
-            cmd_data.initprot = ZERO_CC_VM_PROT_READ | ZERO_CC_VM_PROT_WRITE;
-            cmd_data.nsects = data_nsects;
-
-            uint32_t ds_idx = 0;
-            if (data_size > 0) {
-                snprintf(data_sects[ds_idx].sectname, sizeof(data_sects[ds_idx].sectname), "__data");
-                snprintf(data_sects[ds_idx].segname, sizeof(data_sects[ds_idx].segname), "__DATA");
-                data_sects[ds_idx].addr = data_vmaddr;
-                data_sects[ds_idx].size = data_size;
-                data_sects[ds_idx].offset = data_fileoff;
-                data_sects[ds_idx].align = 3;
-                data_sects[ds_idx].flags = ZERO_CC_MACHO_S_REGULAR;
-                ds_idx++;
-            }
-            if (bss_size > 0) {
-                snprintf(data_sects[ds_idx].sectname, sizeof(data_sects[ds_idx].sectname), "__bss");
-                snprintf(data_sects[ds_idx].segname, sizeof(data_sects[ds_idx].segname), "__DATA");
-                data_sects[ds_idx].addr = data_vmaddr + data_size;
-                data_sects[ds_idx].size = bss_size;
-                data_sects[ds_idx].offset = 0;
-                data_sects[ds_idx].align = 3;
-                data_sects[ds_idx].flags = ZERO_CC_MACHO_S_ZEROFILL;
-                ds_idx++;
-            }
-        }
-
-        /* 3. __LINKEDIT */
-        ZeroCCSegmentCommand64 cmd_linkedit;
-        memset(&cmd_linkedit, 0, sizeof(cmd_linkedit));
-        cmd_linkedit.cmd = ZERO_CC_LC_SEGMENT_64;
-        cmd_linkedit.cmdsize = cmd_linkedit_size;
-        snprintf(cmd_linkedit.segname, sizeof(cmd_linkedit.segname), "__LINKEDIT");
-        cmd_linkedit.vmaddr = linkedit_vmaddr;
-        cmd_linkedit.vmsize = linkedit_vmsize;
-        cmd_linkedit.fileoff = linkedit_fileoff;
-        cmd_linkedit.filesize = linkedit_filesize;
-        cmd_linkedit.maxprot = ZERO_CC_VM_PROT_ALL;
-        cmd_linkedit.initprot = ZERO_CC_VM_PROT_READ;
-        cmd_linkedit.nsects = 0;
-
-        /* 4. LC_ID_DYLIB */
-        uint8_t id_dylib_buf[56];
-        memset(id_dylib_buf, 0, sizeof(id_dylib_buf));
-        ZeroCCDylibCommand *cmd_id_dylib = (ZeroCCDylibCommand *)id_dylib_buf;
-        cmd_id_dylib->cmd = ZERO_CC_LC_ID_DYLIB;
-        cmd_id_dylib->cmdsize = cmd_id_dylib_size;
-        cmd_id_dylib->dylib_name_offset = 24;
-        cmd_id_dylib->dylib_timestamp = 1;
-        cmd_id_dylib->dylib_current_version = 0x010000;
-        cmd_id_dylib->dylib_compatibility_version = 0x010000;
-        const char *id_name = (opts && opts->dylib_name) ? opts->dylib_name : filename;
-        snprintf((char *)(id_dylib_buf + 24), sizeof(id_dylib_buf) - 24, "%s", id_name);
-
-        /* 5. LC_LOAD_DYLIB */
-        uint8_t dylib_buf[56];
-        memset(dylib_buf, 0, sizeof(dylib_buf));
-        ZeroCCDylibCommand *cmd_dylib = (ZeroCCDylibCommand *)dylib_buf;
-        cmd_dylib->cmd = ZERO_CC_LC_LOAD_DYLIB;
-        cmd_dylib->cmdsize = cmd_dylib_size;
-        cmd_dylib->dylib_name_offset = 24;
-        cmd_dylib->dylib_timestamp = 2;
-        cmd_dylib->dylib_current_version = 0x05000000;
-        cmd_dylib->dylib_compatibility_version = 0x01000000;
-        memcpy(dylib_buf + 24, "/usr/lib/libSystem.B.dylib", 27);
-
-        /* 6. Export table in symbol table */
-        char strtab[1024];
+        char strtab[4096];
         memset(strtab, 0, sizeof(strtab));
         uint32_t str_len = 1;
 
         MachOSymbol syms[64];
         uint32_t nsyms = 0;
+
+        uint64_t text_vmaddr = 0;
+        uint32_t text_nsects = 1 + (rodata_size > 0 ? 1 : 0);
+        uint32_t data_nsects = (data_size > 0 ? 1 : 0) + (bss_size > 0 ? 1 : 0);
+        bool has_data_seg = (data_nsects > 0);
+        uint32_t cmd_text_size = (uint32_t)(sizeof(ZeroCCSegmentCommand64) + text_nsects * sizeof(ZeroCCSection64));
+        uint32_t cmd_data_size = has_data_seg ? (uint32_t)(sizeof(ZeroCCSegmentCommand64) + data_nsects * sizeof(ZeroCCSection64)) : 0;
+        uint32_t sizeofcmds = cmd_text_size + cmd_data_size + sizeof(ZeroCCSegmentCommand64) +
+                              56 + 56 + sizeof(ZeroCCSymtabCommand) + sizeof(ZeroCCDysymtabCommand);
+        uint32_t header_and_cmds_size = (uint32_t)sizeof(ZeroCCMachHeader64) + sizeofcmds;
+        uint32_t text_sec_offset = macho_align_up(header_and_cmds_size, 16);
 
         for (size_t i = 0; i < comp->function_count && nsyms < 60; i++) {
             ZeroCCFunction *fn = &comp->functions[i];
@@ -942,95 +1136,16 @@ bool zero_cc_macho_write_binary_from_comp(const char *filename,
             }
         }
 
-        uint32_t symoff = linkedit_fileoff;
-        uint32_t stroff = (uint32_t)(symoff + nsyms * sizeof(ZeroCCNlist64));
-
-        ZeroCCSymtabCommand cmd_symtab;
-        memset(&cmd_symtab, 0, sizeof(cmd_symtab));
-        cmd_symtab.cmd = ZERO_CC_LC_SYMTAB;
-        cmd_symtab.cmdsize = cmd_symtab_size;
-        cmd_symtab.symoff = symoff;
-        cmd_symtab.nsyms = nsyms;
-        cmd_symtab.stroff = stroff;
-        cmd_symtab.strsize = str_len;
-
-        ZeroCCDysymtabCommand cmd_dysymtab;
-        memset(&cmd_dysymtab, 0, sizeof(cmd_dysymtab));
-        cmd_dysymtab.cmd = ZERO_CC_LC_DYSYMTAB;
-        cmd_dysymtab.cmdsize = cmd_dysymtab_size;
-        cmd_dysymtab.iextdefsym = 0;
-        cmd_dysymtab.nextdefsym = nsyms;
-
-        /* Write headers & commands */
-        fwrite(&hdr, sizeof(hdr), 1, f);
-        fwrite(&cmd_text, sizeof(cmd_text), 1, f);
-        fwrite(text_sects, sizeof(ZeroCCSection64), text_nsects, f);
-        if (has_data_seg) {
-            fwrite(&cmd_data, sizeof(cmd_data), 1, f);
-            fwrite(data_sects, sizeof(ZeroCCSection64), data_nsects, f);
-        }
-        fwrite(&cmd_linkedit, sizeof(cmd_linkedit), 1, f);
-        fwrite(id_dylib_buf, 1, sizeof(id_dylib_buf), f);
-        fwrite(dylib_buf, 1, sizeof(dylib_buf), f);
-        fwrite(&cmd_symtab, sizeof(cmd_symtab), 1, f);
-        fwrite(&cmd_dysymtab, sizeof(cmd_dysymtab), 1, f);
-
-        /* Pad to text_sec_offset */
-        long cur_pos = ftell(f);
-        if ((uint32_t)cur_pos < text_sec_offset) {
-            size_t pad = text_sec_offset - (uint32_t)cur_pos;
-            uint8_t zero = 0;
-            for (size_t i = 0; i < pad; i++) fwrite(&zero, 1, 1, f);
-        }
-
-        if (final_text && text_size > 0) fwrite(final_text, 1, text_size, f);
-        if (rodata_data && rodata_size > 0) {
-            cur_pos = ftell(f);
-            if ((uint32_t)cur_pos < text_sects[1].offset) {
-                size_t pad = text_sects[1].offset - (uint32_t)cur_pos;
-                uint8_t zero = 0;
-                for (size_t i = 0; i < pad; i++) fwrite(&zero, 1, 1, f);
-            }
-            fwrite(rodata_data, 1, rodata_size, f);
-        }
-
-        cur_pos = ftell(f);
-        if (has_data_seg && (uint32_t)cur_pos < data_fileoff) {
-            size_t pad = data_fileoff - (uint32_t)cur_pos;
-            uint8_t zero = 0;
-            for (size_t i = 0; i < pad; i++) fwrite(&zero, 1, 1, f);
-        }
-        if (data_data && data_size > 0) fwrite(data_data, 1, data_size, f);
-
-        cur_pos = ftell(f);
-        if ((uint32_t)cur_pos < linkedit_fileoff) {
-            size_t pad = linkedit_fileoff - (uint32_t)cur_pos;
-            uint8_t zero = 0;
-            for (size_t i = 0; i < pad; i++) fwrite(&zero, 1, 1, f);
-        }
-
-        for (uint32_t i = 0; i < nsyms; i++) {
-            ZeroCCNlist64 nl;
-            memset(&nl, 0, sizeof(nl));
-            nl.n_strx = syms[i].str_offset;
-            nl.n_type = syms[i].type;
-            nl.n_sect = syms[i].sect;
-            nl.n_desc = syms[i].desc;
-            nl.n_value = syms[i].value;
-            fwrite(&nl, sizeof(nl), 1, f);
-        }
-        fwrite(strtab, 1, str_len, f);
-
-        cur_pos = ftell(f);
-        uint32_t total_expected = linkedit_fileoff + linkedit_filesize;
-        if ((uint32_t)cur_pos < total_expected) {
-            size_t pad = total_expected - (uint32_t)cur_pos;
-            uint8_t zero = 0;
-            for (size_t i = 0; i < pad; i++) fwrite(&zero, 1, 1, f);
-        }
-
-        fclose(f);
-        ok = true;
+        const char *id_name = (opts && opts->dylib_name) ? opts->dylib_name : filename;
+        ok = macho_write_dylib_core(filename,
+                                    final_text, text_size,
+                                    rodata_data, rodata_size,
+                                    data_data, data_size,
+                                    bss_size,
+                                    syms, nsyms,
+                                    strtab, str_len,
+                                    cputype,
+                                    id_name);
     } else {
         ok = zero_cc_macho_write_exe_arch(filename,
                                          final_text, text_size,
@@ -1088,4 +1203,339 @@ bool zero_cc_macho_write_obj_from_comp(const char *filename, ZeroCCCompiler *com
                                 bss_size,
                                 cputype,
                                 comp);
+}
+
+bool zero_cc_macho_link_objects(const char *filename,
+                                const char **obj_files,
+                                size_t obj_count,
+                                const ZeroCCMachoOptions *opts)
+{
+    if (!filename || !obj_files || obj_count == 0) return false;
+
+    ZeroCCMachoParsedObject *parsed = (ZeroCCMachoParsedObject *)calloc(obj_count, sizeof(ZeroCCMachoParsedObject));
+    if (!parsed) return false;
+
+    char err[256];
+    uint32_t target_cpu = 0;
+    for (size_t i = 0; i < obj_count; i++) {
+        if (!zero_cc_macho_read_object_file(obj_files[i], &parsed[i], err, sizeof(err))) {
+            fprintf(stderr, "zerocc: error reading Mach-O object %s: %s\n", obj_files[i], err);
+            for (size_t j = 0; j <= i; j++) zero_cc_macho_parsed_object_free(&parsed[j]);
+            free(parsed);
+            return false;
+        }
+        if (target_cpu == 0) target_cpu = parsed[i].cputype;
+    }
+    if (opts && opts->cputype != 0) target_cpu = opts->cputype;
+    if (target_cpu == 0) target_cpu = ZERO_CC_CPU_TYPE_X86_64;
+
+    /* Buffers for combined sections */
+    size_t text_cap = 65536, text_size = 0;
+    uint8_t *text_buf = (uint8_t *)calloc(1, text_cap);
+    size_t rodata_cap = 65536, rodata_size = 0;
+    uint8_t *rodata_buf = (uint8_t *)calloc(1, rodata_cap);
+    size_t data_cap = 65536, data_size = 0;
+    uint8_t *data_buf = (uint8_t *)calloc(1, data_cap);
+    size_t bss_size = 0;
+
+    size_t *obj_text_off = (size_t *)calloc(obj_count, sizeof(size_t));
+    size_t *obj_rodata_off = (size_t *)calloc(obj_count, sizeof(size_t));
+    size_t *obj_data_off = (size_t *)calloc(obj_count, sizeof(size_t));
+    size_t *obj_bss_off = (size_t *)calloc(obj_count, sizeof(size_t));
+
+    /* 1. Combine sections across all objects */
+    for (size_t i = 0; i < obj_count; i++) {
+        /* __text */
+        const ZeroCCMachoSectParsed *s_text = zero_cc_macho_find_section(&parsed[i], "__TEXT", "__text");
+        if (s_text && s_text->size > 0 && s_text->data) {
+            text_size = macho_align_up((uint32_t)text_size, 16);
+            obj_text_off[i] = text_size;
+            while (text_size + s_text->size > text_cap) {
+                text_cap *= 2;
+                text_buf = (uint8_t *)realloc(text_buf, text_cap);
+            }
+            memcpy(text_buf + text_size, s_text->data, s_text->size);
+            text_size += s_text->size;
+        }
+
+        /* __cstring / rodata */
+        const ZeroCCMachoSectParsed *s_ro = zero_cc_macho_find_section(&parsed[i], "__TEXT", "__cstring");
+        if (s_ro && s_ro->size > 0 && s_ro->data) {
+            rodata_size = macho_align_up((uint32_t)rodata_size, 8);
+            obj_rodata_off[i] = rodata_size;
+            while (rodata_size + s_ro->size > rodata_cap) {
+                rodata_cap *= 2;
+                rodata_buf = (uint8_t *)realloc(rodata_buf, rodata_cap);
+            }
+            memcpy(rodata_buf + rodata_size, s_ro->data, s_ro->size);
+            rodata_size += s_ro->size;
+        }
+
+        /* __data */
+        const ZeroCCMachoSectParsed *s_data = zero_cc_macho_find_section(&parsed[i], "__DATA", "__data");
+        if (s_data && s_data->size > 0 && s_data->data) {
+            data_size = macho_align_up((uint32_t)data_size, 8);
+            obj_data_off[i] = data_size;
+            while (data_size + s_data->size > data_cap) {
+                data_cap *= 2;
+                data_buf = (uint8_t *)realloc(data_buf, data_cap);
+            }
+            memcpy(data_buf + data_size, s_data->data, s_data->size);
+            data_size += s_data->size;
+        }
+
+        /* __bss */
+        const ZeroCCMachoSectParsed *s_bss = zero_cc_macho_find_section(&parsed[i], "__DATA", "__bss");
+        if (s_bss && s_bss->size > 0) {
+            bss_size = macho_align_up((uint32_t)bss_size, 8);
+            obj_bss_off[i] = bss_size;
+            bss_size += s_bss->size;
+        }
+    }
+
+    /* 2. Collect defined global symbols */
+    typedef struct {
+        char name[128];
+        int sect_kind; /* 1=TEXT, 2=RODATA, 3=DATA, 4=BSS */
+        uint64_t offset;
+    } GlobalMachoSym;
+
+    GlobalMachoSym gsyms[1024];
+    size_t ngsyms = 0;
+
+    for (size_t i = 0; i < obj_count; i++) {
+        for (size_t s = 0; s < parsed[i].symbol_count; s++) {
+            const ZeroCCMachoSymParsed *sym = &parsed[i].symbols[s];
+            if (sym->is_extern && (sym->type & ZERO_CC_N_SECT) &&
+                sym->sect > 0 && sym->sect <= parsed[i].section_count) {
+                const ZeroCCMachoSectParsed *sec = &parsed[i].sections[sym->sect - 1];
+                int kind = 0;
+                uint64_t base = 0;
+                if (strcmp(sec->sectname, "__text") == 0) {
+                    kind = 1; base = obj_text_off[i];
+                } else if (strcmp(sec->sectname, "__cstring") == 0) {
+                    kind = 2; base = obj_rodata_off[i];
+                } else if (strcmp(sec->sectname, "__data") == 0) {
+                    kind = 3; base = obj_data_off[i];
+                } else if (strcmp(sec->sectname, "__bss") == 0) {
+                    kind = 4; base = obj_bss_off[i];
+                }
+                if (kind > 0 && ngsyms < 1024) {
+                    snprintf(gsyms[ngsyms].name, sizeof(gsyms[ngsyms].name), "%s", sym->name);
+                    gsyms[ngsyms].sect_kind = kind;
+                    gsyms[ngsyms].offset = base + sym->value;
+                    ngsyms++;
+                }
+            }
+        }
+    }
+
+    /* 3. Locate entry point (_main) */
+    uint32_t entry_offset = 0;
+    for (size_t s = 0; s < ngsyms; s++) {
+        if (strcmp(gsyms[s].name, "_main") == 0 || strcmp(gsyms[s].name, "main") == 0) {
+            entry_offset = (uint32_t)gsyms[s].offset;
+            break;
+        }
+    }
+
+    /* 4. Determine VM Layout */
+    bool is_dylib = (opts && opts->is_dylib);
+    uint64_t text_vmaddr = is_dylib ? 0 : 0x100000000ULL;
+    uint32_t page_size = MACHO_PAGE_SIZE;
+    uint32_t text_nsects = 1 + (rodata_size > 0 ? 1 : 0);
+    uint32_t data_nsects = (data_size > 0 ? 1 : 0) + (bss_size > 0 ? 1 : 0);
+    bool has_data_seg = (data_nsects > 0);
+
+    uint32_t cmd_pagezero_size = is_dylib ? 0 : sizeof(ZeroCCSegmentCommand64);
+    uint32_t cmd_text_size = (uint32_t)(sizeof(ZeroCCSegmentCommand64) + text_nsects * sizeof(ZeroCCSection64));
+    uint32_t cmd_data_size = has_data_seg ?
+        (uint32_t)(sizeof(ZeroCCSegmentCommand64) + data_nsects * sizeof(ZeroCCSection64)) : 0;
+    uint32_t cmd_linkedit_size = sizeof(ZeroCCSegmentCommand64);
+    uint32_t cmd_dylinker_size = is_dylib ? 0 : 32;
+    uint32_t cmd_dylib_size = 56;
+    uint32_t cmd_id_dylib_size = is_dylib ? 56 : 0;
+    uint32_t cmd_main_size = is_dylib ? 0 : sizeof(ZeroCCEntryPointCommand);
+    uint32_t cmd_symtab_size = sizeof(ZeroCCSymtabCommand);
+    uint32_t cmd_dysymtab_size = sizeof(ZeroCCDysymtabCommand);
+
+    uint32_t sizeofcmds = cmd_pagezero_size + cmd_text_size + cmd_data_size +
+                          cmd_linkedit_size + cmd_dylinker_size + cmd_dylib_size +
+                          cmd_id_dylib_size + cmd_main_size + cmd_symtab_size + cmd_dysymtab_size;
+    uint32_t header_and_cmds_size = (uint32_t)sizeof(ZeroCCMachHeader64) + sizeofcmds;
+    uint32_t text_sec_offset = macho_align_up(header_and_cmds_size, 16);
+
+    uint32_t text_total_raw = (uint32_t)(text_sec_offset + text_size + (rodata_size > 0 ? rodata_size + 16 : 0));
+    uint32_t text_filesize = macho_align_up(text_total_raw, page_size);
+    uint64_t text_vmsize = text_filesize;
+
+    uint64_t data_vmaddr = text_vmaddr + text_vmsize;
+    uint32_t rodata_sec_offset = macho_align_up(text_sec_offset + (uint32_t)text_size, 16);
+
+    /* 5. Apply Relocations */
+    for (size_t i = 0; i < obj_count; i++) {
+        for (size_t s = 0; s < parsed[i].section_count; s++) {
+            const ZeroCCMachoSectParsed *sec = &parsed[i].sections[s];
+            if (!sec->relocs || sec->reloc_count == 0) continue;
+
+            bool is_sec_text = (strcmp(sec->sectname, "__text") == 0);
+            bool is_sec_data = (strcmp(sec->sectname, "__data") == 0);
+
+            for (size_t r = 0; r < sec->reloc_count; r++) {
+                const ZeroCCMachoRelocParsed *rel = &sec->relocs[r];
+                uint64_t target_vm = 0;
+
+                if (rel->is_extern) {
+                    if (rel->symbolnum < parsed[i].symbol_count) {
+                        const char *target_name = parsed[i].symbols[rel->symbolnum].name;
+                        for (size_t g = 0; g < ngsyms; g++) {
+                            if (strcmp(gsyms[g].name, target_name) == 0) {
+                                if (gsyms[g].sect_kind == 1) {
+                                    target_vm = text_vmaddr + text_sec_offset + gsyms[g].offset;
+                                } else if (gsyms[g].sect_kind == 2) {
+                                    target_vm = text_vmaddr + rodata_sec_offset + gsyms[g].offset;
+                                } else if (gsyms[g].sect_kind == 3) {
+                                    target_vm = data_vmaddr + gsyms[g].offset;
+                                } else if (gsyms[g].sect_kind == 4) {
+                                    target_vm = data_vmaddr + data_size + gsyms[g].offset;
+                                }
+                                break;
+                            }
+                        }
+                    }
+                } else {
+                    /* Section-relative */
+                    if (rel->symbolnum > 0 && rel->symbolnum <= parsed[i].section_count) {
+                        const ZeroCCMachoSectParsed *target_sec = &parsed[i].sections[rel->symbolnum - 1];
+                        if (strcmp(target_sec->sectname, "__text") == 0) {
+                            target_vm = text_vmaddr + text_sec_offset + obj_text_off[i];
+                        } else if (strcmp(target_sec->sectname, "__cstring") == 0) {
+                            target_vm = text_vmaddr + rodata_sec_offset + obj_rodata_off[i];
+                        } else if (strcmp(target_sec->sectname, "__data") == 0) {
+                            target_vm = data_vmaddr + obj_data_off[i];
+                        } else if (strcmp(target_sec->sectname, "__bss") == 0) {
+                            target_vm = data_vmaddr + data_size + obj_bss_off[i];
+                        }
+                    }
+                }
+
+                if (target_vm == 0) continue;
+
+                if (is_sec_text && text_buf) {
+                    uint8_t *patch_loc = text_buf + obj_text_off[i] + rel->address;
+                    uint64_t pc_vm = text_vmaddr + text_sec_offset + obj_text_off[i] + rel->address + 4;
+
+                    if (target_cpu == ZERO_CC_CPU_TYPE_X86_64) {
+                        if (rel->type == ZERO_CC_X86_64_RELOC_BRANCH || rel->type == ZERO_CC_X86_64_RELOC_SIGNED) {
+                            int32_t existing = 0;
+                            memcpy(&existing, patch_loc, 4);
+                            int32_t disp = (int32_t)(target_vm - pc_vm) + existing;
+                            memcpy(patch_loc, &disp, 4);
+                        } else if (rel->type == ZERO_CC_X86_64_RELOC_UNSIGNED) {
+                            uint64_t existing = 0;
+                            memcpy(&existing, patch_loc, 8);
+                            uint64_t val = target_vm + existing;
+                            memcpy(patch_loc, &val, 8);
+                        }
+                    } else if (target_cpu == ZERO_CC_CPU_TYPE_ARM64) {
+                        if (rel->type == 2) { /* ARM64_RELOC_BRANCH26 */
+                            int64_t delta = (int64_t)(target_vm - (pc_vm - 4));
+                            int32_t imm26 = (int32_t)((delta >> 2) & 0x03FFFFFF);
+                            uint32_t instr = 0;
+                            memcpy(&instr, patch_loc, 4);
+                            instr = (instr & 0xFC000000) | (uint32_t)imm26;
+                            memcpy(patch_loc, &instr, 4);
+                        } else if (rel->type == 3) { /* ARM64_RELOC_PAGE21 */
+                            int64_t p_cur = (int64_t)((pc_vm - 4) >> 12);
+                            int64_t p_tgt = (int64_t)(target_vm >> 12);
+                            int32_t p_delta = (int32_t)(p_tgt - p_cur);
+                            uint32_t immlo = (uint32_t)(p_delta & 3) << 29;
+                            uint32_t immhi = (uint32_t)((p_delta >> 2) & 0x7FFFF) << 5;
+                            uint32_t instr = 0;
+                            memcpy(&instr, patch_loc, 4);
+                            instr = (instr & 0x9F00001F) | immlo | immhi;
+                            memcpy(patch_loc, &instr, 4);
+                        } else if (rel->type == 4) { /* ARM64_RELOC_PAGEOFF12 */
+                            uint32_t poff = (uint32_t)(target_vm & 0xFFF);
+                            uint32_t instr = 0;
+                            memcpy(&instr, patch_loc, 4);
+                            instr = (instr & 0xFFC003FF) | (poff << 10);
+                            memcpy(patch_loc, &instr, 4);
+                        }
+                    }
+                } else if (is_sec_data && data_buf) {
+                    uint8_t *patch_loc = data_buf + obj_data_off[i] + rel->address;
+                    uint64_t existing = 0;
+                    memcpy(&existing, patch_loc, 8);
+                    uint64_t val = target_vm + existing;
+                    memcpy(patch_loc, &val, 8);
+                }
+            }
+        }
+    }
+
+    /* 6. Emit binary */
+    bool ok = false;
+    if (is_dylib) {
+        /* Build export symbol table for dylib */
+        MachOSymbol *dsyms = (MachOSymbol *)calloc(ngsyms + 1, sizeof(MachOSymbol));
+        char strtab[16384];
+        memset(strtab, 0, sizeof(strtab));
+        uint32_t str_len = 1;
+        uint32_t ndsyms = 0;
+
+        for (size_t s = 0; s < ngsyms; s++) {
+            snprintf(dsyms[ndsyms].name, sizeof(dsyms[ndsyms].name), "%s", gsyms[s].name);
+            dsyms[ndsyms].type = ZERO_CC_N_SECT | ZERO_CC_N_EXT;
+            dsyms[ndsyms].sect = (uint8_t)gsyms[s].sect_kind;
+            dsyms[ndsyms].desc = 0;
+            if (gsyms[s].sect_kind == 1) {
+                dsyms[ndsyms].value = text_vmaddr + text_sec_offset + gsyms[s].offset;
+            } else {
+                dsyms[ndsyms].value = data_vmaddr + gsyms[s].offset;
+            }
+            dsyms[ndsyms].str_offset = str_len;
+            size_t slen = strlen(dsyms[ndsyms].name) + 1;
+            if (str_len + slen < sizeof(strtab)) {
+                memcpy(strtab + str_len, dsyms[ndsyms].name, slen);
+                str_len += (uint32_t)slen;
+                ndsyms++;
+            }
+        }
+
+        const char *dylib_name = (opts && opts->dylib_name) ? opts->dylib_name : filename;
+        ok = macho_write_dylib_core(filename,
+                                    text_buf, text_size,
+                                    rodata_buf, rodata_size,
+                                    data_buf, data_size,
+                                    bss_size,
+                                    dsyms, ndsyms,
+                                    strtab, str_len,
+                                    target_cpu,
+                                    dylib_name);
+        free(dsyms);
+    } else {
+        ok = zero_cc_macho_write_exe_arch(filename,
+                                         text_buf, text_size,
+                                         rodata_buf, rodata_size,
+                                         data_buf, data_size,
+                                         bss_size,
+                                         entry_offset,
+                                         target_cpu);
+    }
+
+    /* Cleanup */
+    free(text_buf);
+    free(rodata_buf);
+    free(data_buf);
+    free(obj_text_off);
+    free(obj_rodata_off);
+    free(obj_data_off);
+    free(obj_bss_off);
+    for (size_t i = 0; i < obj_count; i++) {
+        zero_cc_macho_parsed_object_free(&parsed[i]);
+    }
+    free(parsed);
+
+    return ok;
 }
