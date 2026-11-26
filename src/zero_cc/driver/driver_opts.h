@@ -74,6 +74,7 @@ typedef struct {
     int has_sve;            /* -msve: enable ARM Scalable Vector Extension */
     int has_sve2;           /* -msve2: enable ARM SVE2 */
     int has_rvv;            /* -mrvv: enable RISC-V Vector Extension (RVV 1.0) */
+    int is_pe;              /* --pe / -mpe / Windows PE32+ output */
     int jit_argc;           /* JIT main argc */
     char **jit_argv;        /* JIT main argv */
 } CompileOptions;
@@ -383,11 +384,19 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
                 opts->has_rvv = 1;
             }
         }
+        else if (strcmp(arg, "--pe") == 0 || strcmp(arg, "-mpe") == 0) {
+            opts->is_pe = 1;
+        }
         else if ((strcmp(arg, "--target") == 0 && i + 1 < argc) || strncmp(arg, "--target=", 9) == 0) {
             if (strncmp(arg, "--target=", 9) == 0) {
                 opts->target_arch = arg + 9;
             } else {
                 opts->target_arch = argv[++i];
+            }
+            if (strstr(opts->target_arch, "pe") ||
+                strstr(opts->target_arch, "mingw") ||
+                strstr(opts->target_arch, "windows")) {
+                opts->is_pe = 1;
             }
             if (strstr(opts->target_arch, "-none-") ||
                 strstr(opts->target_arch, "-elf") ||
@@ -627,6 +636,16 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
         else {
             fprintf(stderr, "Unknown option: %s\n", arg);
             return -1;
+        }
+    }
+
+    if (opts->output_file) {
+        size_t olen = strlen(opts->output_file);
+        if (olen >= 4 && (strcmp(opts->output_file + olen - 4, ".exe") == 0 ||
+                          strcmp(opts->output_file + olen - 4, ".EXE") == 0 ||
+                          strcmp(opts->output_file + olen - 4, ".obj") == 0 ||
+                          strcmp(opts->output_file + olen - 4, ".OBJ") == 0)) {
+            opts->is_pe = 1;
         }
     }
 

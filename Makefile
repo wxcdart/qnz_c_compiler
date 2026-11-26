@@ -137,13 +137,14 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	src/zero_cc/linker/ar_reader.o \
 	src/zero_cc/linker/ar_writer.o \
 	src/zero_cc/linker/linker.o \
+	src/zero_cc/linker/pe_writer.o \
 	src/zero_cc/types/string_pool.o)
 
 .PHONY: all test clean golden_test test-unit test-semantic test-abi test-jit test-tap benchmark \
 	asan asan-unit asan-semantic asan-abi asan-jit \
 	test-asan test-asan-unit test-asan-semantic test-asan-abi test-asan-jit \
 	test-project-diff test-project-runs \
-	test-isa-qemu test-isa128 test-dlfcn-isa test-driver test-linker test-lto test-pgo \
+	test-isa-qemu test-isa128 test-dlfcn-isa test-driver test-linker test-lto test-pgo test-pe \
 	test-c23 test-asm test-opt test-san test-preproc test-fuzz test-perf \
 	audit-self-host stage1 test-stage1 stage2 test-stage2 test-self-host \
 	stage1-ownlink test-stage1-ownlink stage2-ownlink test-stage2-ownlink test-self-host-ownlink \
@@ -392,6 +393,10 @@ test-lto: $(ZC_BIN)
 # execution profiling, profile dumping, hot inlining, and branch layout.
 test-pgo: $(ZC_BIN)
 	@python3 tools/verify/pgo_tests.py
+
+# Windows PE/COFF Native Output (PE32+ .exe and COFF .obj) tests:
+test-pe: $(ZC_BIN)
+	@python3 tools/verify/pe_tests.py
 
 # Embedded Baremetal CPU tests: linker scripts, LMA/VMA separation, boundary symbols,
 # freestanding environment, and capacity overflow checks across all target ISAs.

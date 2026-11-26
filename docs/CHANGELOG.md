@@ -1,5 +1,26 @@
 # CHANGELOG
 
+## [Sprint 246] - 2026-11-26 - Cross-Platform Native Binary Output (T3-Win PE/COFF)
+
+- **Windows PE32+ Executable Writer (`linker/pe_writer.h`, `linker/pe_writer.c`, `main.c`, `driver/driver_opts.h`)**:
+  - Implemented standalone Windows PE32+ (x86-64) console executable emission (`.exe`).
+  - Structured standard MS-DOS header ("MZ"), DOS execution stub ("This program cannot be run in DOS mode."), PE signature ("PE\0\0"), COFF File Header (`IMAGE_FILE_MACHINE_AMD64 = 0x8664`), and PE32+ Optional Header 64 (`magic = 0x020B`, subsystem = `IMAGE_SUBSYSTEM_WINDOWS_CUI`, default image base `0x140000000`, 4 KB page section alignment, 512-byte file alignment).
+  - Emitted section table with `.text` (code/execute/read), `.rdata` (read-only data), `.data` (writable initialized data + BSS reserve), and `.idata` (dynamic import table).
+  - Built KERNEL32.dll import directory and Import Address Table (IAT) importing `ExitProcess`.
+  - Added integrated CRT entry point stub that aligns stack (`sub rsp, 40`), calls `main`, captures exit code into `ECX` (Windows x64 ABI), and invokes `ExitProcess` via IAT.
+- **Relocatable COFF Object Writer (`linker/pe_writer.h`, `linker/pe_writer.c`)**:
+  - Implemented relocatable COFF object file emission (`.obj`) with `IMAGE_FILE_MACHINE_AMD64`.
+  - Generated section headers, COFF symbol table (function and data symbols with storage classes), COFF string table for long symbols, and relocation records (`IMAGE_REL_AMD64_REL32`, `IMAGE_REL_AMD64_ADDR64`).
+- **Driver Integration (`driver/driver_opts.h`, `main.c`)**:
+  - Added `--pe` and `-mpe` command-line flags.
+  - Automatically detected Windows target strings (`--target=x86_64-w64-mingw32`, `--target=pe-x86-64`, `--target=windows`) and file extensions (`.exe`, `.obj`).
+  - Integrated `zero_cc_pe_write_coff_obj_from_comp` in `write_compiled_object` (`-c`) and `zero_cc_pe_write_exe_from_comp` in `compile_and_link`.
+- **Verification Battery (`tools/verify/pe_tests.py`, `Makefile`)**:
+  - Added formal verification suite `tools/verify/pe_tests.py` (`make test-pe`).
+  - Validates byte-exact DOS and PE headers, section names, KERNEL32 imports, `objdump` inspection (`pei-x86-64` and `pe-x86-64`), CLI flags, and optimization sweeps (`-O0..-O3`).
+  - All 31/31 PE verification checks pass.
+  - Verified regression gates: `make test` (277/277 passed), `python3 tools/verify/style_check.py` (0 errors), `python3 tools/okf/okf.py lint` (23/23 reachable).
+
 ## [Sprint 245] - 2026-11-26 - C23 Standard Feature Completion (wb/uwb Suffixes & Static Compound Literals)
 
 - **C23 Bit-Precise Integer Suffixes (`lexer/scan.h`, `parser/type_parser.h`, `semantic/type.c`, `types/token.h`)**:

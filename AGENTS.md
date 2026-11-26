@@ -54,6 +54,7 @@ Before scanning the 80+ historical files in `docs/`, **always consult the Open K
   make test-baremetal      # embedded baremetal CPU verification gate: linker scripts (-T), LMA/VMA separation, boundary symbols, freestanding env, capacity overflow
   make test-lto            # Cross-TU Link-Time Optimization (-flto) verification battery (tools/verify/lto_tests.py)
   make test-pgo            # Profile-Guided Optimization (-fprofile-generate / -fprofile-use) verification battery (tools/verify/pgo_tests.py)
+  make test-pe             # Windows PE/COFF native output (PE32+ .exe / COFF .obj) battery (tools/verify/pe_tests.py)
   make asan                # host-side ASan/UBSan rebuild of the compiler itself — run after core-pipeline (parser/semantic/IR/optimizer) changes to catch the compiler's own memory bugs before they become user-facing crashes
   python3 tools/verify/sret_verifier.py --verify-all
   python3 tools/verify/type_tag_verifier.py --verify-all

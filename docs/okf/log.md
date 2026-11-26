@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-26T11:44:43Z
+timestamp: 2026-11-26T12:04:21Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1737,3 +1737,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-26 — Updated `frontend-and-types.md`
 - Sprint 245: C23 wb/uwb suffixes and static compound literals
+
+## 2026-11-26 — Updated `build-and-verification.md`
+- Sprint 246: Cross-Platform Native Binary Output (T3-Win PE/COFF)

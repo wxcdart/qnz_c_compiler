@@ -33,6 +33,7 @@
 #include "zero_cc/linker/ar_reader.h"
 #include "zero_cc/linker/linker.h"
 #include "zero_cc/linker/ar_writer.h"
+#include "zero_cc/linker/pe_writer.h"
 
 void __zc_pgo_reset(void);
 void __zc_pgo_set_file(const char *path);
@@ -827,7 +828,7 @@ static int compile_object_single(CompileOptions *opts, const char *input,
 
     /* Determine output filename */
     static char output_buf[512];
-    const char *output_path = derive_default_output(input, output, ".o",
+    const char *output_path = derive_default_output(input, output, opts->is_pe ? ".obj" : ".o",
                                                     output_buf, sizeof(output_buf));
 
     if (opts->verbose) {
@@ -977,6 +978,14 @@ static int write_compiled_object(ZeroCCCompiler *comp, CompileOptions *opts,
                                  const char *output_path, const char *lto_prep_source) {
     if (opts->verbose) {
         printf("Writing object file: %s\n", output_path);
+    }
+
+    if (opts->is_pe) {
+        if (!zero_cc_pe_write_coff_obj_from_comp(output_path, comp)) {
+            fprintf(stderr, "zerocc: error writing COFF object file: %s\n", output_path);
+            return 1;
+        }
+        return 0;
     }
 
     /* Initialize ELF writer from target traits */
@@ -1930,6 +1939,38 @@ static bool find_rv32_musl_prefix(char *out, size_t out_len) {
 }
 
 static int compile_and_link(CompileOptions *opts) {
+    if (opts->is_pe) {
+        if (opts->input_count == 0) return 1;
+        const char *output = opts->output_file ? opts->output_file : "a.exe";
+        ZeroCCCompiler *comp = jit_compile_tu(opts, opts->input_files[0], 0);
+        if (!comp) return 1;
+        for (int i = 1; i < opts->input_count; i++) {
+            ZeroCCCompiler *tu = jit_compile_tu(opts, opts->input_files[i], i);
+            if (!tu) {
+                zero_cc_compiler_free(comp);
+                return 1;
+            }
+            char err[256];
+            if (zero_cc_tu_merge(comp, tu, err, sizeof(err)) != 0) {
+                fprintf(stderr, "zerocc: error: %s\n", err);
+                zero_cc_compiler_free(comp);
+                zero_cc_compiler_free(tu);
+                return 1;
+            }
+            zero_cc_compiler_free(tu);
+        }
+        bool ok = zero_cc_pe_write_exe_from_comp(output, comp);
+        zero_cc_compiler_free(comp);
+        if (!ok) {
+            fprintf(stderr, "zerocc: error writing PE executable: %s\n", output);
+            return 1;
+        }
+        if (opts->verbose) {
+            printf("Successfully generated PE32+ executable: %s\n", output);
+        }
+        return 0;
+    }
+
     /* Get target ISA (also decides the intermediate-object strategy below). */
     ZeroCCISA target_isa = parse_target_arch(opts->target_arch);
 
@@ -2579,8 +2620,8 @@ int main(int argc, char **argv) {
         } else {
             rc = compile_object(&opts);
         }
-    } else if (opts.output_file) {
-        /* Generate executable via system linker */
+    } else if (opts.output_file || opts.is_pe) {
+        /* Generate executable via system linker or PE writer */
         rc = compile_and_link(&opts);
     } else {
         rc = compile_jit(&opts);
