@@ -52,6 +52,7 @@ Before scanning the 80+ historical files in `docs/`, **always consult the Open K
   make test-self-host      # self-hosting 3-stage bootstrap fixed-point gate: Stage 1 == Stage 2 bit-for-bit identity (tools/verify/self_host_cycle.py)
   make test-self-host-ownlink # own-linker self-hosting 3-stage bootstrap fixed-point gate: compiled & linked by ZeroCC own-linker (tools/verify/self_host_cycle.py --own-linker)
   make test-baremetal      # embedded baremetal CPU verification gate: linker scripts (-T), LMA/VMA separation, boundary symbols, freestanding env, capacity overflow
+  make test-lto            # Cross-TU Link-Time Optimization (-flto) verification battery (tools/verify/lto_tests.py)
   make asan                # host-side ASan/UBSan rebuild of the compiler itself — run after core-pipeline (parser/semantic/IR/optimizer) changes to catch the compiler's own memory bugs before they become user-facing crashes
   python3 tools/verify/sret_verifier.py --verify-all
   python3 tools/verify/type_tag_verifier.py --verify-all
@@ -79,7 +80,7 @@ ZeroCC's tools live in `tools/` organized by concern:
 
 | Subpackage | Purpose |
 | :--- | :--- |
-| `tools/verify/` | Regression gates (san_sweep, opt_sweep, perf_budget, torture_run, diag_battery, test_runner, driver_tests, linker_tests, baremetal_test, project_diff/runs, abi_interop, asm_diff, cfg_verifier, loop_unroll_verifier, style_check, sret_verifier, type_tag_verifier, isa_qemu_diff, isa128_diff, dlfcn_isa_diff, regress_exec_diff, extension_verifier, self_host_audit, self_host_cycle) |
+| `tools/verify/` | Regression gates (san_sweep, opt_sweep, perf_budget, torture_run, diag_battery, test_runner, driver_tests, linker_tests, lto_tests, baremetal_test, project_diff/runs, abi_interop, asm_diff, cfg_verifier, loop_unroll_verifier, style_check, sret_verifier, type_tag_verifier, isa_qemu_diff, isa128_diff, dlfcn_isa_diff, regress_exec_diff, extension_verifier, self_host_audit, self_host_cycle) |
 | `tools/analysis/` | Codegen inspection & debugging (pytrace, pymemcheck, elf_verify, elf_min, riscv_enc_check, reloc_pair_check, vtable_check, cross_isa_comparator, struct_abi_verifier, struct_return_verifier, struct_asm_analyzer, prologue_epilogue_verifier, simd_regression_suite, literal_verifier, qemu_test_runner) |
 | `tools/okf/` | Knowledge graph tooling (okf.py) |
 | `tools/toolchain/` | Toolchain setup (setup_musl_cross.sh, musl_host_toolchain.sh, embed_symtab.py, build_stage1.py, setup_dev_env.sh) |

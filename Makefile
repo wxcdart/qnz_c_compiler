@@ -141,7 +141,7 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	asan asan-unit asan-semantic asan-abi asan-jit \
 	test-asan test-asan-unit test-asan-semantic test-asan-abi test-asan-jit \
 	test-project-diff test-project-runs \
-	test-isa-qemu test-isa128 test-dlfcn-isa test-driver test-linker \
+	test-isa-qemu test-isa128 test-dlfcn-isa test-driver test-linker test-lto \
 	test-c23 test-asm test-opt test-san test-preproc test-fuzz test-perf \
 	audit-self-host stage1 test-stage1 stage2 test-stage2 test-self-host \
 	stage1-ownlink test-stage1-ownlink stage2-ownlink test-stage2-ownlink test-self-host-ownlink \
@@ -380,6 +380,11 @@ test-driver: $(ZC_BIN)
 # stdout+exit against the system-linker reference.
 test-linker: $(ZC_BIN)
 	@python3 tools/verify/linker_tests.py
+
+# Cross-TU Link-Time Optimization (-flto) tests: multi-TU inlining, dead-code
+# elimination, constant propagation, Fat-LTO .o/.a archives, and mixed objects.
+test-lto: $(ZC_BIN)
+	@python3 tools/verify/lto_tests.py
 
 # Embedded Baremetal CPU tests: linker scripts, LMA/VMA separation, boundary symbols,
 # freestanding environment, and capacity overflow checks across all target ISAs.

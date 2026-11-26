@@ -1,5 +1,24 @@
 # CHANGELOG
 
+## [Sprint 243] - 2026-11-26 - Cross-TU Link-Time Optimization (-flto) Verification Battery
+
+- **Cross-TU Link-Time Optimization Verification (`tools/verify/lto_tests.py`, `Makefile`)**:
+  - Implemented formal verification test battery `tools/verify/lto_tests.py` exercising 9 core LTO scenarios:
+    1. Direct multi-TU AOT compilation at `-O0..-O3`.
+    2. Direct multi-TU in-memory JIT execution (`--run -O0..-O3`).
+    3. Separate `.o` compilation with `-flto -c` and subsequent link with `-flto`.
+    4. Static archive (`.a`) Fat-LTO member resolution and linking.
+    5. Cross-TU dead function elimination (verified via symbol analysis with `nm`).
+    6. Cross-TU constant global propagation and cross-TU function inlining.
+    7. Mixed LTO (`.zc.lto`) and non-LTO object file linking with automatic external root discovery.
+    8. Static symbol isolation across separate translation units.
+    9. Cross-TU struct by-value parameter passing and struct returns under `-flto`.
+  - Added `make test-lto` build target to the Makefile and integrated into `AGENTS.md` and `tools/README.md`.
+- **Verification & Test Coverage**:
+  - All 9 LTO battery tests pass cleanly across `-O0..-O3`.
+  - Code style check (`style_check.py`): 0 errors, 0 warnings.
+  - OKF validation (`okf.py lint`): all nodes reachable, schema valid.
+
 ## [Sprint 242] - 2026-11-26 - Inline Asm RCX Constraint & Multidimensional Array Param Declarator
 
 - **Inline Assembly Fixed Constraint `c` / `%rcx` (`ir/ast_lowering_stmt.c`, `isa/target_traits.h`, `ir/live_range.h`)**:

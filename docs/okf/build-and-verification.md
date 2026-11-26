@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 165-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-11-18T12:55:05Z
+timestamp: 2026-11-26T11:04:27Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -107,6 +107,24 @@ make asan-semantic   # 17/17 as of Sprint 100
 # (opt_loop.c loop_analysis_free).  Every in-process compile is destroyed
 # via zero_cc_compiler_free, so this gate also catches new per-compile leaks.
 make asan
+```
+
+### Link-Time Optimization battery (`make test-lto`, Sprint 243)
+
+`tools/verify/lto_tests.py` verifies ZeroCC's cross-translation-unit Link-Time Optimization (`-flto`):
+- Direct multi-TU AOT compilation across `-O0..-O3`.
+- Direct multi-TU in-memory JIT execution (`--run -O0..-O3`).
+- Separate object compilation (`-flto -c`) with Fat-LTO embedded `.zc.lto` ELF sections, linked via `-flto`.
+- Static archive (`.a`) Fat-LTO member resolution and whole-program cross-TU analysis.
+- Cross-TU dead-code elimination (verified by checking dropped unreferenced static/global symbols via `nm`).
+- Cross-TU constant propagation and function inlining across TUs.
+- Mixed LTO (`.zc.lto`) and non-LTO object linking.
+- Static symbol name-mangling and isolation between translation units.
+- Struct by-value passing and struct return ABI preservation across LTO boundaries.
+
+```bash
+make test-lto
+python3 tools/verify/lto_tests.py
 ```
 
 ### Optimizer regression sweep (`make test-opt`)
