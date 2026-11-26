@@ -244,6 +244,7 @@ bool zero_cc_parse_fn_declarator(
             zero_cc_declarator_get_function_chunk(&d);
         *has_prototype = fc->has_prototype;
         *is_variadic_fn = fc->is_variadic;
+        if (fc->is_ms_abi) c->pending_ms_abi = 1;
         /* Walk the AST param list once (O(n)) - re-walking from the head
          * for each param is O(n^2) and blew the 10s c-torture build budget
          * on limits-fndefn's 100,001-param prototype (31s vs 8s legacy). */
@@ -961,6 +962,10 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
             fn->is_static = fn_static;
             fn->is_constexpr = c->pending_constexpr_fn;
             fn->is_interrupt = c->pending_interrupt;
+            if (c->pending_ms_abi == 1) fn->is_ms_abi = true;
+            else if (c->pending_ms_abi == 2) fn->is_ms_abi = false;
+            else fn->is_ms_abi = c->is_win64_abi;
+            c->pending_ms_abi = 0;
             if (c->pending_interrupt) {
                 if (strcasecmp(c->pending_interrupt_mode, "FIQ") == 0) {
                     fn->interrupt_mode = 1;
@@ -1019,6 +1024,11 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
          * definition in another TU wins at link time (Unity setup stubs). */
         fn->is_weak = c->pending_weak;
         fn->is_interrupt = c->pending_interrupt;
+        if (c->pending_ms_abi == 1) fn->is_ms_abi = true;
+        else if (c->pending_ms_abi == 2) fn->is_ms_abi = false;
+        else fn->is_ms_abi = c->is_win64_abi;
+        c->pending_ms_abi = 0;
+        c->lowering.current_func_idx = c->function_count - 1;
         if (c->pending_interrupt) {
             if (strcasecmp(c->pending_interrupt_mode, "FIQ") == 0) {
                 fn->interrupt_mode = 1;
@@ -1083,7 +1093,7 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
 
         /* Hidden pointer sret return:
          * Reserve a stack slot for the hidden pointer before params. */
-        if (zero_cc_abi_type_uses_sret(c, &fn->return_type)) {
+        if (zero_cc_abi_type_uses_sret_fn(c, &fn->return_type, fn->is_ms_abi)) {
             c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
             c->current_stack_frame += 8;
             fn->sret_stack_offset = c->current_stack_frame;
@@ -1482,7 +1492,7 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
                 }
                 /* Hidden pointer sret return: reserve its slot before the params
                  * (same as the top-level function path). */
-                if (zero_cc_abi_type_uses_sret(c, &nf->return_type)) {
+                if (zero_cc_abi_type_uses_sret_fn(c, &nf->return_type, nf->is_ms_abi)) {
                     c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
                     c->current_stack_frame += 8;
                     nf->sret_stack_offset = c->current_stack_frame;

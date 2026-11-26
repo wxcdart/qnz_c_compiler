@@ -243,12 +243,12 @@ With 3-stage self-hosting fixed-point convergence (Stage 1 == Stage 2 bit-for-bi
    - **Phase 3 — gates**: Integrated into `make test-isa-qemu` (`tools/verify/isa_qemu_diff.py --isa aarch32`: 16/16 passing against `musl-gcc-aarch32` under `qemu-arm-static`).
 
 6. **Platform Portability: Windows PE/COFF + Win64 ABI (`T3-Win`) & macOS Mach-O (`T4-Mac`)** — Cross-compilation and full **Linux-host verification** without requiring native Windows, Wine, or macOS hardware:
-   - **Phase 1 — Win64 ABI Codegen (`--target x86_64-windows` / `ABI_WIN64`)**:
+   - **Phase 1 — Win64 ABI Codegen (`--target x86_64-windows` / `ABI_WIN64` / `__attribute__((ms_abi))` / `-mabi=ms`) — Done (Sprint 253)**:
      - Positional 4-slot register passing: integer/pointer arguments in `rcx`, `rdx`, `r8`, `r9`; floating-point in `xmm0`–`xmm3` (shared slot indices `0..3`, fifth+ arguments on stack).
      - Mandatory 32-byte caller shadow space (`sub $32, %rsp`) before every call, 16-byte stack frame alignment, and no 128-byte red zone.
      - Callee-saved register set adds `rdi` and `rsi` alongside `rbx`, `rbp`, `r12`–`r15` (plus `xmm6`–`xmm15` preservation for FP/vector).
      - Struct/aggregate rules: power-of-2 sizes `1, 2, 4, 8` bytes pass/return in a single GPR (`rax`); all other sizes pass via caller-allocated hidden pointer, and non-GPR returns pass hidden `sret` pointer in `rcx` (shifting user args to `rdx`, `r8`, `r9`).
-     - Variadic `va_list` implemented as flat `char *` into the caller's 32-byte shadow home slots (`[rbp+16..40]`).
+     - Attribute handling (`__attribute__((ms_abi))`, `__attribute__((sysv_abi))`), driver CLI options (`-mabi=ms`, `-mabi=win64`, `-mabi=sysv`), indirect MS-ABI function pointer calls, and regression suite `test/jit/ms_abi.c` passing across JIT (`--run`), AOT binary (`-o`), and assembly (`-S`).
    - **Phase 2 — COFF `.obj` & PE32+ `.exe` Container Writers (`src/zero_cc/linker/pe_writer.c`) — Done (Sprint 246)**:
      - Relocatable COFF `.obj` writer (`IMAGE_FILE_MACHINE_AMD64 = 0x8664`, sections `.text`, `.rdata`, `.data`, `.bss`, COFF relocations `IMAGE_REL_AMD64_ADDR64` / `IMAGE_REL_AMD64_REL32`, COFF symbol & string tables).
      - Standalone PE32+ `.exe` executable writer (`MZ` DOS header + stub, `PE\0\0`, `IMAGE_FILE_HEADER`, `IMAGE_OPTIONAL_HEADER64` with `Magic = 0x20b`, `ImageBase = 0x140000000`, `SectionAlignment = 0x1000`, `FileAlignment = 0x200`, `Subsystem = IMAGE_SUBSYSTEM_WINDOWS_CUI`, section table, and `.idata` Import Directory / IAT for `kernel32.dll` and `msvcrt.dll`), plus Win32 OS boundary shims (`WriteFile`, `ReadFile`, `VirtualAlloc`, `ExitProcess`).

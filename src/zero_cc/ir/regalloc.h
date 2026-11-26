@@ -111,6 +111,7 @@ typedef struct RegAllocator {
      * Callee-saved indices in the pool: 1=rbx, 8=r12, 9=r13, 10=r14, 11=r15
      * Bit N is set if pool index N was assigned to some live interval. */
     uint32_t used_callee_saved_gpr_mask;
+    uint32_t custom_callee_saved_gpr_mask;
 
     /* Cost-based allocation flag */
     bool use_cost_based;  /* If true, use spill cost priority instead of start position */
@@ -172,6 +173,7 @@ static void regalloc_init(RegAllocator *ra) {
     ra->next_vec_spill_slot = 0;
     ra->instruction_count = 0;
     ra->used_callee_saved_gpr_mask = 0;
+    ra->custom_callee_saved_gpr_mask = 0;
     ra->use_cost_based = true;   /* Enable cost-based allocation for better loop performance */
     ra->spill_across_calls = false;
     ra->asm_pressure_fail = false;
@@ -344,7 +346,9 @@ static void expire_old_intervals(RegAllocator *ra, size_t current_pos) {
 /* Check if a physical GPR is callee-saved for the target ISA */
 static inline bool regalloc_is_callee_saved_gpr(const RegAllocator *ra, int phys_reg) {
     if (!ra || phys_reg < 0 || phys_reg >= GPR_COUNT) return false;
-    return (zero_cc_get_target_traits(ra->target_isa)->regs.callee_saved_gpr_mask & (1u << phys_reg)) != 0;
+    uint32_t mask = ra->custom_callee_saved_gpr_mask ? ra->custom_callee_saved_gpr_mask
+                                                     : zero_cc_get_target_traits(ra->target_isa)->regs.callee_saved_gpr_mask;
+    return (mask & (1u << phys_reg)) != 0;
 }
 
 /* Physical register an interval is pinned to: VREG_0/VREG_2 are the
@@ -436,7 +440,7 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
             if (ra->spill_across_calls) {
                 return -1;
             }
-            uint32_t cs_mask = regs->callee_saved_gpr_mask;
+            uint32_t cs_mask = ra->custom_callee_saved_gpr_mask ? ra->custom_callee_saved_gpr_mask : regs->callee_saved_gpr_mask;
             for (int i = 0; i < GPR_COUNT; i++) {
                 if ((cs_mask & (1u << i)) && ra->gpr_free[i]) {
                     ra->gpr_free[i] = false;
@@ -448,13 +452,14 @@ static int alloc_reg(RegAllocator *ra, LiveInterval *interval) {
             return -1;
         }
 
+        uint32_t cs_mask = ra->custom_callee_saved_gpr_mask ? ra->custom_callee_saved_gpr_mask : regs->callee_saved_gpr_mask;
         for (int pool_idx = 0; pool_idx < regs->alloc_pool_count; pool_idx++) {
             int phys_reg = regs->alloc_pool[pool_idx];
             if (regs->op_scratch_gpr >= 0 && phys_reg == regs->op_scratch_gpr) continue;
             if (interval->forbidden_mask && (interval->forbidden_mask & (1u << phys_reg))) continue;
             if (ra->gpr_free[phys_reg] && !regalloc_reg_conflicts_fixed(ra, phys_reg, interval)) {
                 ra->gpr_free[phys_reg] = false;
-                if (regs->callee_saved_gpr_mask & (1u << phys_reg)) {
+                if (cs_mask & (1u << phys_reg)) {
                     ra->used_callee_saved_gpr_mask |= (1u << phys_reg);
                 }
                 return phys_reg;

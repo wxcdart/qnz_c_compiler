@@ -90,6 +90,10 @@ typedef struct ZeroCCCompiler {
     int pending_interrupt;
     char pending_interrupt_mode[32];
 
+    /* Microsoft x64 Calling Convention: 0 = default, 1 = ms_abi, 2 = sysv_abi */
+    int pending_ms_abi;
+    bool is_win64_abi;
+
     ZeroCCSym *locals;
     size_t local_count;
     size_t local_capacity;

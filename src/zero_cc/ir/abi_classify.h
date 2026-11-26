@@ -151,8 +151,17 @@ static inline ABIStructClassification zero_cc_classify_return(const ZeroCCCompil
 /*
  * Check if a return type requires sret (hidden pointer return) under target ABI.
  */
-static inline bool zero_cc_abi_type_uses_sret(const ZeroCCCompiler *c, const ZeroCCType *type) {
+static inline bool zero_cc_abi_type_uses_sret_fn(const ZeroCCCompiler *c, const ZeroCCType *type, bool is_ms_abi) {
     if (!type) return false;
+    if (c && c->isa == ISA_X86_64 && (is_ms_abi || c->is_win64_abi)) {
+        if (type->tag == TYPE_STRUCT || type->tag == TYPE_UNION) {
+            size_t sz = type->size;
+            /* Microsoft x64 ABI: structs/unions of size 1, 2, 4, 8 return in RAX; all other sizes use sret */
+            if (sz == 1 || sz == 2 || sz == 4 || sz == 8) return false;
+            return true;
+        }
+        return false;
+    }
     if (type->tag == TYPE_USER_0 && zero_cc_type_is_vector(type)) {
         return type->size > 16;
     }
@@ -161,6 +170,14 @@ static inline bool zero_cc_abi_type_uses_sret(const ZeroCCCompiler *c, const Zer
         return cl.count == 0 || cl.classes[0] == ABI_CLASS_MEMORY;
     }
     return false;
+}
+
+static inline bool zero_cc_abi_type_uses_sret(const ZeroCCCompiler *c, const ZeroCCType *type) {
+    bool is_ms = false;
+    if (c && c->function_count > 0 && c->lowering.current_func_idx < c->function_count) {
+        is_ms = c->functions[c->lowering.current_func_idx].is_ms_abi;
+    }
+    return zero_cc_abi_type_uses_sret_fn(c, type, is_ms);
 }
 
 /*

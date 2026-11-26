@@ -17,6 +17,9 @@
 #define X86_RBP 5
 #define X86_R11 11
 
+const ISACallingConvention *x86_64_get_win64_conv(void);
+const ISACallingConvention *x86_64_get_sysv_conv(void);
+
 /* Helper: emit ModR/M byte for x86-64 */
 static inline void x86_modrm(ZeroCCCompiler *c, int mod, int reg, int rm) {
     me_emit_u8(c, (mod << 6) | ((reg & 7) << 3) | (rm & 7));

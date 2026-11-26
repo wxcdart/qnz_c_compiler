@@ -20,6 +20,7 @@ void emit_mc_call(ZeroCCCompiler *c, size_t i, const Instr *instr,
     int call_arg_is_fp[IR_CALL_MAX_ARGS] = {0};
     int call_arg_is_64[IR_CALL_MAX_ARGS] = {0};
     uint8_t call_arg_stack_pos[IR_CALL_MAX_ARGS] = {0};
+    bool is_ms_call = (instr->alias_group & ZC_CALL_FLAG_MS_ABI) != 0;
 
     if (total_arg_count > 0 && instr->temp_src1 != TEMP_NONE) {
         call_arg_temps[0] = (int)instr->temp_src1;
@@ -111,7 +112,7 @@ void emit_mc_call(ZeroCCCompiler *c, size_t i, const Instr *instr,
      * the same reason. */
     int cidx = *call_idx;
     bool have_fp_table = (cidx < c->lowering.ir_ctx.call_count);
-    if (have_fp_table) {
+    if (have_fp_table && !is_ms_call) {
         int fp_count = c->lowering.ir_ctx.call_fp_spill_counts[cidx];
         int fp_reg_cap = BE(c)->conv ? BE(c)->conv->fp_arg_reg_count : 8;
         for (int f = 0; f < fp_count && f < fp_reg_cap; f++) {
@@ -123,7 +124,7 @@ void emit_mc_call(ZeroCCCompiler *c, size_t i, const Instr *instr,
                 BE(c)->emit_load_fp(c, fp_arg_reg, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -spill_off));
             }
         }
-    } else {
+    } else if (!is_ms_call) {
         /* Capped-table fallback: the call_fp_spills side table
          * covers only the first 64 calls of a function (see
          * lowering_state.h); for calls past the cap, load the
@@ -190,11 +191,12 @@ void emit_mc_call(ZeroCCCompiler *c, size_t i, const Instr *instr,
     if (total_arg_count > 0) {
         n_stack = 0;
         int fp_seen = 0;
+        int arg_limit = is_ms_call ? 240 : 255;
         for (int ai = 0; ai < total_arg_count; ai++) {
             if (call_arg_is_fp[ai] == 1) {
                 int f = fp_seen++;
                 int pos = call_arg_stack_pos[ai];
-                if (pos < 255 && pos < IR_CALL_MAX_ARGS) {
+                if (pos < arg_limit && pos < IR_CALL_MAX_ARGS) {
                     stack_meta_temp[pos] = -1;
                     stack_meta_fp[pos] = f;
                     stack_meta_set[pos] = 1;
@@ -204,7 +206,7 @@ void emit_mc_call(ZeroCCCompiler *c, size_t i, const Instr *instr,
             }
             if (call_arg_is_fp[ai] == 2 || call_arg_is_fp[ai] == 3) continue;
             int pos = call_arg_stack_pos[ai];
-            if (pos < 255 && pos < IR_CALL_MAX_ARGS) {
+            if (pos < arg_limit && pos < IR_CALL_MAX_ARGS) {
                 stack_meta_temp[pos] = call_arg_temps[ai];
                 stack_meta_fp[pos] = -1;
                 stack_meta_set[pos] = 1;
@@ -307,34 +309,67 @@ void emit_mc_call(ZeroCCCompiler *c, size_t i, const Instr *instr,
     }
 
     /* Safe parallel move: push all src registers then pop into dst registers */
-    int n_args = (arg_count < int_arg_count) ? arg_count : int_arg_count;
-    int src_regs[8];
-    for (int a = 0; a < n_args; a++) {
-        int r = regalloc_get_reg_for_temp(&c->regalloc, arg_temps[a]);
-        int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, arg_temps[a]);
-        if (sp >= 0) {
-            int32_t off = spill_base_offset + (sp + 1) * 8;
-            if (BE(c)->emit_load) BE(c)->emit_load(c, BE(c)->scratch_reg1, zero_cc_frame_base_reg(c), zero_cc_frame_disp_at(c, -off, extra_sp));
-            r = BE(c)->scratch_reg1;
+    if (is_ms_call) {
+        static const int win64_int_regs[] = {1, 2, 8, 9};
+        int ms_int_slots[4];
+        int ms_int_temps[4];
+        int ms_int_count = 0;
+        for (int a = 0; a < total_arg_count && ms_int_count < 4; a++) {
+            if (call_arg_is_fp[a] == 0) {
+                int pos = call_arg_stack_pos[a];
+                if (pos >= 240 && pos < 244) {
+                    ms_int_temps[ms_int_count] = call_arg_temps[a];
+                    ms_int_slots[ms_int_count] = pos - 240;
+                    ms_int_count++;
+                }
+            }
         }
-        src_regs[a] = r;
-        BE(c)->emit_push_reg(c, src_regs[a]);
-        extra_sp += slot_sz;
-    }
-    for (int a = n_args - 1; a >= 0; a--) {
-        int dst_reg = backend_get_int_arg_reg(BE(c), a);
-        if (dst_reg < 0) {
-            /* Argument is stack-passed, skip register assignment */
-            continue;
+        for (int a = 0; a < ms_int_count; a++) {
+            int r = regalloc_get_reg_for_temp(&c->regalloc, ms_int_temps[a]);
+            int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, ms_int_temps[a]);
+            if (sp >= 0) {
+                int32_t off = spill_base_offset + (sp + 1) * 8;
+                if (BE(c)->emit_load) BE(c)->emit_load(c, BE(c)->scratch_reg1, zero_cc_frame_base_reg(c), zero_cc_frame_disp_at(c, -off, extra_sp));
+                r = BE(c)->scratch_reg1;
+            }
+            BE(c)->emit_push_reg(c, r);
+            extra_sp += slot_sz;
         }
-        BE(c)->emit_pop_reg(c, dst_reg);
-        extra_sp -= slot_sz;
+        for (int a = ms_int_count - 1; a >= 0; a--) {
+            int dst_reg = win64_int_regs[ms_int_slots[a]];
+            BE(c)->emit_pop_reg(c, dst_reg);
+            extra_sp -= slot_sz;
+        }
+    } else {
+        int n_args = (arg_count < int_arg_count) ? arg_count : int_arg_count;
+        int src_regs[8];
+        for (int a = 0; a < n_args; a++) {
+            int r = regalloc_get_reg_for_temp(&c->regalloc, arg_temps[a]);
+            int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, arg_temps[a]);
+            if (sp >= 0) {
+                int32_t off = spill_base_offset + (sp + 1) * 8;
+                if (BE(c)->emit_load) BE(c)->emit_load(c, BE(c)->scratch_reg1, zero_cc_frame_base_reg(c), zero_cc_frame_disp_at(c, -off, extra_sp));
+                r = BE(c)->scratch_reg1;
+            }
+            src_regs[a] = r;
+            BE(c)->emit_push_reg(c, src_regs[a]);
+            extra_sp += slot_sz;
+        }
+        for (int a = n_args - 1; a >= 0; a--) {
+            int dst_reg = backend_get_int_arg_reg(BE(c), a);
+            if (dst_reg < 0) {
+                /* Argument is stack-passed, skip register assignment */
+                continue;
+            }
+            BE(c)->emit_pop_reg(c, dst_reg);
+            extra_sp -= slot_sz;
+        }
     }
 
     /* System V AMD64 ABI: For variadic functions (or unprototyped/indirect
      * calls that may reach a variadic definition), %al must hold the number
      * of SSE registers used. Skip when calling a known non-variadic prototype. */
-    bool need_variadic_al = true;
+    bool need_variadic_al = !is_ms_call;
     if (fn_name) {
         const ZeroCCFunction *callee_fn = zero_cc_find_function_by_symbol(c, fn_name);
         if (callee_fn && callee_fn->has_prototype && !callee_fn->is_variadic) {
@@ -343,6 +378,48 @@ void emit_mc_call(ZeroCCCompiler *c, size_t i, const Instr *instr,
     }
     if (need_variadic_al && BE(c)->emit_variadic_al_setup) {
         BE(c)->emit_variadic_al_setup(c, fp_reg_idx);
+    }
+
+    if (is_ms_call) {
+        int ms_fp_slots[4];
+        int ms_fp_temps[4];
+        int ms_fp_count = 0;
+        for (int a = 0; a < total_arg_count && ms_fp_count < 4; a++) {
+            if (call_arg_is_fp[a] == 1) {
+                int pos = call_arg_stack_pos[a];
+                if (pos >= 240 && pos < 244) {
+                    ms_fp_temps[ms_fp_count] = call_arg_temps[a];
+                    ms_fp_slots[ms_fp_count] = pos - 240;
+                    ms_fp_count++;
+                }
+            }
+        }
+        for (int a = 0; a < ms_fp_count; a++) {
+            int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, ms_fp_temps[a]);
+            int r;
+            if (sp >= 0) {
+                int32_t off = spill_base_offset + (sp + 1) * 8;
+                if (BE(c)->emit_load_fp) {
+                    BE(c)->emit_load_fp(c, 15, zero_cc_frame_base_reg(c), zero_cc_frame_disp_at(c, -off, extra_sp));
+                }
+                r = 15;
+            } else {
+                r = regalloc_get_reg_for_temp(&c->regalloc, ms_fp_temps[a]);
+            }
+            if (BE(c)->emit_store_fp) BE(c)->emit_store_fp(c, r, BE(c)->sp_reg, -slot_sz);
+            if (BE(c)->emit_stack_adjust) BE(c)->emit_stack_adjust(c, -slot_sz);
+            extra_sp += slot_sz;
+        }
+        for (int a = ms_fp_count - 1; a >= 0; a--) {
+            int dst_reg = ms_fp_slots[a];
+            if (BE(c)->emit_load_fp) BE(c)->emit_load_fp(c, dst_reg, BE(c)->sp_reg, 0);
+            if (BE(c)->emit_stack_adjust) BE(c)->emit_stack_adjust(c, slot_sz);
+            extra_sp -= slot_sz;
+        }
+    }
+
+    if (is_ms_call && BE(c)->emit_stack_adjust) {
+        BE(c)->emit_stack_adjust(c, -32);
     }
 
     /* Caller-saved registers across calls on AArch64 (x0-x18) are
@@ -377,7 +454,12 @@ void emit_mc_call(ZeroCCCompiler *c, size_t i, const Instr *instr,
     }
 
     /* Caller cleans up stack-passed arguments (and alignment pad) */
-    if (n_stack > 0) {
+    if (is_ms_call) {
+        int total_cleanup = 32 + (n_stack > 0 ? (stack_bytes + stack_pad) : 0);
+        if (BE(c)->emit_stack_adjust) {
+            BE(c)->emit_stack_adjust(c, total_cleanup);
+        }
+    } else if (n_stack > 0) {
         BE(c)->emit_stack_adjust(c, stack_bytes + stack_pad);
     }
 

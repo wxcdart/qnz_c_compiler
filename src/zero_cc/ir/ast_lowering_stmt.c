@@ -1938,18 +1938,19 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
                 return;
             }
             int32_t struct_offset = -sym->stack_offset;
-            if (zc_target_is_32bit(c) && sym->type.size > 4 && sym->type.size <= 8) {
+            bool uses_sret = cur_fn2 && zero_cc_abi_type_uses_sret(c, &cur_fn2->return_type);
+            if (!uses_sret && zc_target_is_32bit(c) && sym->type.size > 4 && sym->type.size <= 8) {
                 /* ILP32 ABI: 5-8 byte struct returned across a0/r0 (VREG_0) and a1/r1 (VREG_2) */
                 ir_emit_load(c, VREG_0, BE(c)->fp_reg, struct_offset);
                 ir_emit_load(c, VREG_2, BE(c)->fp_reg, struct_offset + 4);
                 ir_emit_jmp(c, c->lowering.epilogue_label);
                 return;
-            } else if (sym->type.size <= 8) {
+            } else if (!uses_sret && sym->type.size <= 8) {
                 /* System V AMD64 ABI: <=8 byte struct returned in rax (VREG_0) */
                 ir_emit_load(c, VREG_0, BE(c)->fp_reg, struct_offset);
                 ir_emit_jmp(c, c->lowering.epilogue_label);
                 return;
-            } else if (sym->type.size <= 16) {
+            } else if (!uses_sret && sym->type.size <= 16) {
                 /* System V AMD64 ABI: 9-16 byte struct returned across rax and rdx
                  * Canonical secondary value register: VREG_2 maps to rdx/x1/a1
                  * via regalloc_get_reg_for_temp. */

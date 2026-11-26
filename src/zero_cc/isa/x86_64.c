@@ -50,6 +50,30 @@ static const ISACallingConvention x86_64_conv = {
     .callee_save_slot_offsets = x86_64_callee_save_slot_offset,  /* indexed by array position */
 };
 
+/* Microsoft x64 Calling Convention (ABI_WIN64 / ms_abi) */
+static const int win64_int_arg_regs[] = {1, 2, 8, 9};  /* rcx, rdx, r8, r9 */
+static const int win64_fp_arg_regs[] = {0, 1, 2, 3};   /* xmm0-xmm3 */
+static const int win64_callee_saved_gpr[] = {3, 6, 7, 12, 13, 14, 15};  /* rbx, rsi, rdi, r12-r15 */
+static const int32_t win64_callee_save_slot_offset[] = {8, 16, 24, 32, 40, 48, 56};
+
+static const ISACallingConvention win64_conv = {
+    .int_arg_regs = win64_int_arg_regs,
+    .int_arg_reg_count = 4,
+    .fp_arg_regs = win64_fp_arg_regs,
+    .fp_arg_reg_count = 4,
+    .callee_saved_gpr = win64_callee_saved_gpr,
+    .callee_saved_gpr_count = 7,
+    .callee_save_slot_offsets = win64_callee_save_slot_offset,
+};
+
+const ISACallingConvention *x86_64_get_win64_conv(void) {
+    return &win64_conv;
+}
+
+const ISACallingConvention *x86_64_get_sysv_conv(void) {
+    return &x86_64_conv;
+}
+
 /* x86-64 backend implementation */
 static void x86_emit_prologue(ZeroCCCompiler *c, size_t stack_size, uint32_t callee_save_mask) {
     if (c->lowering.is_frameless) return;
@@ -137,12 +161,12 @@ static void x86_emit_prologue(ZeroCCCompiler *c, size_t stack_size, uint32_t cal
     }
 
     /* Emit callee-saved register stores (after prologue, when mask is populated) */
-    /* x86-64 callee-saved registers: rbx(3), r12(12), r13(13), r14(14), r15(15) */
-    static const int callee_saved_regs[] = {3, 12, 13, 14, 15};
-    static const int32_t slot_offsets[] = {8, 16, 24, 32, 40};
+    const int *callee_saved = BE(c)->conv->callee_saved_gpr;
+    int count = BE(c)->conv->callee_saved_gpr_count;
+    const int32_t *slot_offsets = BE(c)->conv->callee_save_slot_offsets;
 
-    for (int i = 0; i < 5; i++) {
-        int reg = callee_saved_regs[i];
+    for (int i = 0; i < count; i++) {
+        int reg = callee_saved[i];
         if ((callee_save_mask >> reg) & 1u) {
             /* mov [rbp - offset], reg */
             static const uint8_t mov_rm64_r64[] = {0x89};
@@ -2880,9 +2904,9 @@ static void x86_emit_lea_rip(ZeroCCCompiler *c, int dst_reg, size_t rodata_offse
 /* Parameter spilling: integer register to stack */
 static void x86_emit_param_save_int(ZeroCCCompiler *c, int reg_idx, int32_t offset) {
     /* mov base,disp <- reg; base = FP (or SP with delta, Option 4) */
-    if (reg_idx >= 0 && reg_idx < 6) {
-        static const uint8_t arg_regs[6] = {7, 6, 2, 1, 8, 9}; /* rdi rsi rdx rcx r8 r9 */
-        x86_rm(c, 0x89, arg_regs[reg_idx], zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -offset));
+    if (reg_idx >= 0 && reg_idx < BE(c)->conv->int_arg_reg_count) {
+        int reg = BE(c)->conv->int_arg_regs[reg_idx];
+        x86_rm(c, 0x89, reg, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -offset));
     }
 }
 
@@ -2907,6 +2931,14 @@ static void x86_emit_param_save_fp(ZeroCCCompiler *c, int reg_idx, int32_t offse
 /* Variadic spill: spill remaining integer registers for va_start */
 static void x86_emit_variadic_spill(ZeroCCCompiler *c, int param_count, int32_t base_offset) {
     (void)param_count;
+    if (c->function_count > 0 && c->lowering.current_func_idx < c->function_count &&
+        c->functions[c->lowering.current_func_idx].is_ms_abi) {
+        static const uint8_t ms_regs[4] = {1, 2, 8, 9}; /* rcx, rdx, r8, r9 */
+        for (int i = 0; i < 4; i++) {
+            x86_rm(c, 0x89, ms_regs[i], X86_RBP, 16 + i * 8);
+        }
+        return;
+    }
     /* Save area (16 8-byte slots above the locals; see the variadic spill
      * reservation in zero_cc_lower_ast): slots 0..5 = rdi rsi rdx rcx r8
      * r9, slots 6..13 = lower 64 bits of xmm0..xmm7. All registers are

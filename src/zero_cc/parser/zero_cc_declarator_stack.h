@@ -52,6 +52,7 @@ typedef struct ZeroCCDeclaratorChunk {
     TypeInfo *param_tis[16];
     bool has_prototype;         /* true if prototype list or (void), false if K&R () */
     bool is_variadic;
+    bool is_ms_abi;
     /* The param list terminated on its closing ')' (a broken/early stop
      * - e.g. an anonymous struct param `struct {int b[a];} c` the param
      * parser cannot parse - leaves this false so callers fall back to
@@ -955,7 +956,18 @@ static inline bool zero_cc_parse_declarator_internal(
     ZeroCCDeclaratorLevel *lvl = &d->levels[level];
 
     /* 1. Parse pointer asterisks and qualifiers at this level */
-    while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_STAR) {
+    while (c->token_pos < c->token_count &&
+           (c->tokens[c->token_pos].type == TK_STAR ||
+            (c->tokens[c->token_pos].type == TK_IDENT &&
+             c->tokens[c->token_pos].str_val &&
+             (strcmp(c->tokens[c->token_pos].str_val, "__zc_ms_abi__") == 0 ||
+              strcmp(c->tokens[c->token_pos].str_val, "__zc_sysv_abi__") == 0)))) {
+        if (c->tokens[c->token_pos].type == TK_IDENT) {
+            if (strcmp(c->tokens[c->token_pos].str_val, "__zc_ms_abi__") == 0) c->pending_ms_abi = 1;
+            else if (strcmp(c->tokens[c->token_pos].str_val, "__zc_sysv_abi__") == 0) c->pending_ms_abi = 2;
+            c->token_pos++;
+            continue;
+        }
         c->token_pos++;
         ZeroCCDeclaratorChunk ptr_chunk;
         memset(&ptr_chunk, 0, sizeof(ptr_chunk));
@@ -964,11 +976,19 @@ static inline bool zero_cc_parse_declarator_internal(
                (c->tokens[c->token_pos].type == TK_CONST ||
                 c->tokens[c->token_pos].type == TK_VOLATILE ||
                 c->tokens[c->token_pos].type == TK_RESTRICT ||
-                c->tokens[c->token_pos].type == TK_ATOMIC)) {
+                c->tokens[c->token_pos].type == TK_ATOMIC ||
+                (c->tokens[c->token_pos].type == TK_IDENT &&
+                 c->tokens[c->token_pos].str_val &&
+                 (strcmp(c->tokens[c->token_pos].str_val, "__zc_ms_abi__") == 0 ||
+                  strcmp(c->tokens[c->token_pos].str_val, "__zc_sysv_abi__") == 0)))) {
             if (c->tokens[c->token_pos].type == TK_CONST) ptr_chunk.is_const = true;
             else if (c->tokens[c->token_pos].type == TK_VOLATILE) ptr_chunk.is_volatile = true;
             else if (c->tokens[c->token_pos].type == TK_RESTRICT) ptr_chunk.is_restrict = true;
             else if (c->tokens[c->token_pos].type == TK_ATOMIC) ptr_chunk.is_atomic = true;
+            else if (c->tokens[c->token_pos].type == TK_IDENT) {
+                if (strcmp(c->tokens[c->token_pos].str_val, "__zc_ms_abi__") == 0) c->pending_ms_abi = 1;
+                else if (strcmp(c->tokens[c->token_pos].str_val, "__zc_sysv_abi__") == 0) c->pending_ms_abi = 2;
+            }
             c->token_pos++;
         }
         /* GNU aligned(N) marker between pointer chunks:
@@ -1069,6 +1089,10 @@ static inline bool zero_cc_parse_declarator_internal(
             ZeroCCDeclaratorChunk fn_chunk;
             memset(&fn_chunk, 0, sizeof(fn_chunk));
             fn_chunk.kind = ZERO_CC_DECL_CHUNK_FUNCTION;
+            if (c->pending_ms_abi == 1) fn_chunk.is_ms_abi = true;
+            else if (c->pending_ms_abi == 2) fn_chunk.is_ms_abi = false;
+            else fn_chunk.is_ms_abi = c->is_win64_abi;
+            c->pending_ms_abi = 0;
             bool record_zt = want_param_zt && d->name != NULL &&
                              level == d->name_level && lvl->suffix_count == 0;
             zero_cc_parse_param_list(c, arena, ctx, &fn_chunk, d, record_zt);
@@ -1311,6 +1335,7 @@ static inline ZeroCCType zero_cc_chunk_apply(const ZeroCCDeclaratorChunk *chunk,
          * `f(33, 11)` passed 33 in EDI instead of XMM0). */
         target.fn_has_prototype = chunk->has_prototype;
         target.fn_is_variadic = chunk->is_variadic;
+        target.fn_is_ms_abi = chunk->is_ms_abi;
         if (chunk->has_prototype && chunk->param_count > 0 &&
             target.fn_params == NULL) {
             /* Pool-resident (freed with the type pool at end of compile;

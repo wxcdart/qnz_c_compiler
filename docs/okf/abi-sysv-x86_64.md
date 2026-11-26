@@ -4,7 +4,7 @@ title: System V AMD64 ABI & Struct Calling Conventions (sret)
 description: Complete x86-64 System V ABI rules implemented in ZeroCC, including register assignment, by-value struct arguments, and hidden pointer (sret) returns for >16 byte structs.
 resource: abi/sysv-x86_64
 tags: [abi, x86_64, sret, structs, calling-convention, funcptr]
-timestamp: 2026-11-11T17:10:32Z
+timestamp: 2026-11-26T19:27:46Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -114,6 +114,27 @@ ZeroCC's private `va_list` (64 B: `gp`/`fp`/overflow pointers) is not ABI-compat
 - glibc steps `overflow_arg_area` by 16 while the zerocc caller packs stack args at 8 B — overflow (more than 6 GP or 6 FP variadics) to an extern is unsupported; the printf-family corpus cases fit in the register region.
 - Companion frontend pieces: `stdio.h` declares the `vprintf`/`vfprintf`/`vscanf`/`vfscanf` family, and `va_end(ap)` is `((void)(ap))` — it must **evaluate** its argument (`va-arg-21` advances a pointer through `va_end(**ap_ptr++)`).
 - The ELF writer must not emit **unreferenced** prototype symbols (`main.c`): an undefined symbol for a never-called prototype makes GNU `ld` pull archive members (musl `vfscanf` → missing soft-float helpers on riscv32 → link failure).
+
+## Microsoft x64 Calling Convention (`ABI_WIN64` / `ms_abi`, Sprint 253)
+
+ZeroCC natively supports the Microsoft x64 calling convention (`ABI_WIN64`) activated via function attribute `__attribute__((ms_abi))` (or `-mabi=ms` / `-mabi=win64` driver flags), with explicit return to System V via `__attribute__((sysv_abi))` / `-mabi=sysv`:
+
+- **Unified 4-Slot Register Window**:
+  - Arguments 0..3 occupy unified slots 0..3:
+    - Slot 0: `%rcx` (int/ptr) or `%xmm0` (fp)
+    - Slot 1: `%rdx` (int/ptr) or `%xmm1` (fp)
+    - Slot 2: `%r8`  (int/ptr) or `%xmm2` (fp)
+    - Slot 3: `%r9`  (int/ptr) or `%xmm3` (fp)
+  - Slot mapping is strict and positional: an argument at position $k \in \{0..3\}$ always consumes slot $k$, without separate integer and floating-point stream packing.
+- **32-Byte Shadow Space ("Home Space")**:
+  - The caller must allocate 32 bytes on the stack frame (`subq $32, %rsp`) immediately above the return address prior to issuing `call`.
+  - The callee may use this shadow space to spill incoming register arguments (`%rcx`, `%rdx`, `%r8`, `%r9`).
+- **Callee-Saved Registers**:
+  - Win64 specifies `%rbx`, `%rsi`, `%rdi`, `%rbp`, and `%r12`–`%r15` as non-volatile (callee-saved). ZeroCC's register allocator automatically includes `%rsi` and `%rdi` in the callee-saved preservation mask when compiling an `ms_abi` function.
+- **Return Values and Structs**:
+  - Scalar types up to 64 bits and structs of size 1, 2, 4, or 8 bytes return in `%rax`.
+  - All other structs (>8 bytes or non-power-of-2) return via a hidden pointer passed in `%rcx` (slot 0), shifting user arguments to slots 1..3 (`%rdx`, `%r8`, `%r9`).
+  - By-value structs larger than 8 bytes passed as arguments are copied by the caller, and a pointer to the copy is passed in the argument slot.
 
 ## Related Concepts
 - Return to [Root Index](./index.md)

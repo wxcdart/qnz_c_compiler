@@ -365,6 +365,7 @@ static ZeroCCCompiler *jit_compile_tu(CompileOptions *opts, const char *input, i
 
     ZeroCCISA target_isa = parse_target_arch(opts->target_arch);
     zero_cc_init_compiler_with_target(comp, target_isa);
+    comp->is_win64_abi = opts->is_win64_abi || (opts->is_pe && (target_isa == ISA_X86_64));
     comp->opt_level = (OptLevel)opts->opt_level;
     comp->omit_frame_pointer = opts->omit_frame_pointer;
     comp->no_builtin_all = opts->no_builtin_all != 0;
@@ -442,6 +443,7 @@ static ZeroCCCompiler *lto_compile_tu_phase1(CompileOptions *opts, const char *s
 
     ZeroCCISA target_isa = parse_target_arch(opts->target_arch);
     zero_cc_init_compiler_with_target(comp, target_isa);
+    comp->is_win64_abi = opts->is_win64_abi || (opts->is_pe && (target_isa == ISA_X86_64));
 
     comp->opt_level = (OptLevel)opts->opt_level;
     comp->omit_frame_pointer = opts->omit_frame_pointer;
@@ -861,6 +863,7 @@ static int compile_object_single(CompileOptions *opts, const char *input,
     /* Initialize target ISA */
     ZeroCCISA target_isa = parse_target_arch(opts->target_arch);
     zero_cc_init_compiler_with_target(comp, target_isa);
+    comp->is_win64_abi = opts->is_win64_abi || (opts->is_pe && (target_isa == ISA_X86_64));
 
     /* Store optimization level in compiler for use by ast_lowering */
     comp->opt_level = (OptLevel)opts->opt_level;

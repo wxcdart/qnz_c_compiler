@@ -854,9 +854,11 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
 
             if (BE(c)->emit_call_asm) {
                 c->lowering.current_call_is_sibling = ((instr->alias_group & ZC_CALL_FLAG_SIBLING) != 0);
+                c->lowering.current_call_is_ms_abi = ((instr->alias_group & ZC_CALL_FLAG_MS_ABI) != 0);
                 c->asm_call_seq++;  /* index into the lowering ir_ctx call tables */
                 BE(c)->emit_call_asm(c, func_name, n, unpacked_temps, unpacked_is_fp, unpacked_stack_pos, out);
                 c->lowering.current_call_is_sibling = false;
+                c->lowering.current_call_is_ms_abi = false;
             }
             return;
         }

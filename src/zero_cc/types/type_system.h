@@ -134,6 +134,7 @@ typedef struct ZeroCCType {
     size_t fn_param_count;
     bool fn_has_prototype;
     bool fn_is_variadic;
+    bool fn_is_ms_abi;
 
     size_t member_count;
 } ZeroCCType;
@@ -325,6 +326,7 @@ typedef struct ZeroCCFunction {
     bool can_inline;                      /* Eligible for small function inlining */
     bool is_interrupt;                    /* Embedded ISR: __attribute__((interrupt)) */
     int interrupt_mode;                   /* 0 = default (machine/IRQ), 1 = FIQ, 2 = user, 3 = supervisor */
+    bool is_ms_abi;                       /* Microsoft x64 calling convention (__attribute__((ms_abi))) */
     uint32_t inline_body;                 /* ASTRef root of function body in compiler's tu_ast_arena */
     void *ast_arena;                      /* Pointer to ZeroCCASTArena owning inline_body */
     uint32_t *param_dim_exprs;    /* C99 6.7.6.2: VLA parameter dimension expressions (ASTRef),

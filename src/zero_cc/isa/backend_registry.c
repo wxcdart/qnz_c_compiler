@@ -14,6 +14,42 @@
 
 static void generic_emit_variadic_setup(ZeroCCCompiler *c, int ap_addr, int32_t save_base,
                                         int gp_idx, int fp_idx, int stack_named) {
+    const ZeroCCFunction *fn = (c && c->function_count > 0 && c->lowering.current_func_idx < c->function_count)
+                                   ? &c->functions[c->lowering.current_func_idx] : NULL;
+    bool is_ms = (c && c->isa == ISA_X86_64 && ((fn && fn->is_ms_abi) || c->is_win64_abi));
+    if (is_ms) {
+        int zero_t = zc_alloc_temp(c);
+        ir_emit_mov_imm(c, zero_t, 0);
+        ir_emit_store_64(c, zero_t, ap_addr);        /* +0 gp */
+        int off8 = zc_alloc_temp(c);
+        ir_emit_mov_imm(c, off8, 8);
+        int ap_8 = zc_alloc_temp(c);
+        ir_emit_add(c, ap_8, ap_addr, off8);
+        ir_emit_store_64(c, zero_t, ap_8);           /* +8 gp_end */
+        int off16 = zc_alloc_temp(c);
+        ir_emit_mov_imm(c, off16, 16);
+        int ap_16 = zc_alloc_temp(c);
+        ir_emit_add(c, ap_16, ap_addr, off16);
+        ir_emit_store_64(c, zero_t, ap_16);          /* +16 fp */
+        int off24 = zc_alloc_temp(c);
+        ir_emit_mov_imm(c, off24, 24);
+        int ap_24 = zc_alloc_temp(c);
+        ir_emit_add(c, ap_24, ap_addr, off24);
+        ir_emit_store_64(c, zero_t, ap_24);          /* +24 fp_end */
+
+        bool uses_sret = fn && zero_cc_abi_type_uses_sret_fn(c, &fn->return_type, true);
+        int named_count = (int)(fn ? fn->param_count : 0);
+        int ovf_slot = (uses_sret ? 1 : 0) + named_count;
+        int t = zc_alloc_temp(c);
+        ir_emit_lea(c, t, TEMP_NONE, 16 + ovf_slot * 8);
+        int off32 = zc_alloc_temp(c);
+        ir_emit_mov_imm(c, off32, 32);
+        int ap_32 = zc_alloc_temp(c);
+        ir_emit_add(c, ap_32, ap_addr, off32);
+        ir_emit_store_64(c, t, ap_32);               /* +32 ovf */
+        return;
+    }
+
     int t;
     int gp_regs = (c && BE(c) && BE(c)->conv) ? BE(c)->conv->int_arg_reg_count : 6;
     int fp_regs = (c && BE(c) && BE(c)->conv) ? BE(c)->conv->fp_arg_reg_count : 8;

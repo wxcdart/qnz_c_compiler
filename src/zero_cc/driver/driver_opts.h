@@ -78,6 +78,7 @@ typedef struct {
     int is_macho;           /* --macho / -mmacho / macOS Mach-O 64-bit output */
     int is_shared;          /* -shared: emit dynamic library (.so / .dll / .dylib) */
     int is_windows_gui;     /* -mwindows: Windows GUI subsystem (subsystem = 2) */
+    int is_win64_abi;       /* -mabi=ms / -mabi=win64: Microsoft x64 Calling Convention */
     int jit_argc;           /* JIT main argc */
     char **jit_argv;        /* JIT main argv */
 } CompileOptions;
@@ -399,6 +400,12 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
         }
         else if (strcmp(arg, "-mconsole") == 0) {
             opts->is_windows_gui = 0;
+        }
+        else if (strcmp(arg, "-mabi=ms") == 0 || strcmp(arg, "-mabi=win64") == 0) {
+            opts->is_win64_abi = 1;
+        }
+        else if (strcmp(arg, "-mabi=sysv") == 0) {
+            opts->is_win64_abi = 0;
         }
         else if ((strcmp(arg, "--target") == 0 && i + 1 < argc) || strncmp(arg, "--target=", 9) == 0) {
             if (strncmp(arg, "--target=", 9) == 0) {

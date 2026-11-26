@@ -74,6 +74,7 @@ struct TypeInfo {
              * implicit declarations are NOT prototypes: C99 6.7.5.3 only
              * constrains argument counts against prototype types. */
             bool       is_prototype;
+            bool       is_ms_abi;
         } function; // TYPE_FUNCTION
         // Struct / union / enum representation extensions
         struct {

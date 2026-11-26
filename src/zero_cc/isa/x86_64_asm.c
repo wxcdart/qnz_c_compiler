@@ -705,6 +705,8 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
     static const char *int_arg_regs[] = {"rdi", "rsi", "rdx", "rcx", "r8", "r9"};
     static const char *fp_arg_regs[] = {"xmm0", "xmm1", "xmm2", "xmm3",
                                          "xmm4", "xmm5", "xmm6", "xmm7"};
+    static const char *win64_int_regs[] = {"rcx", "rdx", "r8", "r9"};
+    bool is_ms_call = c->lowering.current_call_is_ms_abi;
 
     int int_arg_idx = 0;
     int fp_arg_idx = 0;
@@ -730,6 +732,10 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
         }
     }
 
+    int ms_fp_slots[4];
+    int ms_fp_temps[4];
+    int ms_fp_count = 0;
+
     /* Handle FP args first (register phase only: the first 8 FP args in
      * stream order; FP args beyond that are stack args, pushed below) */
     for (int i = 0; i < arg_count; i++) {
@@ -740,18 +746,26 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
                                    : BE(c)->get_vec_reg_name(phys_reg);
         int arg_is_fp = is_fp ? is_fp[i] : 0;
         int arg_pos = stack_pos ? stack_pos[i] : 255;
-        if (arg_is_fp == 1 && arg_pos >= 255 && fp_arg_idx < BE(c)->conv->fp_arg_reg_count) {
-            int fp_arg_reg = backend_get_fp_arg_reg(BE(c), fp_arg_idx);
-            int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, temp);
-            if (sp >= 0) {
-                int32_t off = spill_base_offset + (sp + 1) * 8;
-                if (BE(c)->emit_load_fp_asm && fp_arg_reg >= 0) {
-                    BE(c)->emit_load_fp_asm(c, fp_arg_reg, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off), out);
-                }
-            } else if (phys_reg >= 0) {
-                fprintf(out, "\tmovsd\t%%%s, %%%s\n", reg_name, fp_arg_regs[fp_arg_idx]);
+        if (is_ms_call) {
+            if (arg_is_fp == 1 && arg_pos >= 240 && arg_pos < 244 && ms_fp_count < 4) {
+                ms_fp_temps[ms_fp_count] = temp;
+                ms_fp_slots[ms_fp_count] = arg_pos - 240;
+                ms_fp_count++;
             }
-            fp_arg_idx++;
+        } else {
+            if (arg_is_fp == 1 && arg_pos >= 255 && fp_arg_idx < BE(c)->conv->fp_arg_reg_count) {
+                int fp_arg_reg = backend_get_fp_arg_reg(BE(c), fp_arg_idx);
+                int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, temp);
+                if (sp >= 0) {
+                    int32_t off = spill_base_offset + (sp + 1) * 8;
+                    if (BE(c)->emit_load_fp_asm && fp_arg_reg >= 0) {
+                        BE(c)->emit_load_fp_asm(c, fp_arg_reg, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -off), out);
+                    }
+                } else if (phys_reg >= 0) {
+                    fprintf(out, "\tmovsd\t%%%s, %%%s\n", reg_name, fp_arg_regs[fp_arg_idx]);
+                }
+                fp_arg_idx++;
+            }
         }
     }
 
@@ -759,20 +773,31 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
     int n_int_args = 0;
     int int_arg_temps[IR_CALL_MAX_ARGS];
     int total_int_count = 0;
+    int ms_int_slots[4];
+    int ms_int_temps[4];
+    int ms_int_count = 0;
     (void)int_arg_idx;
 
     for (int i = 0; i < arg_count; i++) {
         int arg_is_fp = is_fp ? is_fp[i] : 0;
         int arg_pos = stack_pos ? stack_pos[i] : 255;
         if (arg_is_fp == 0) {
-            /* Sprint 158: only REGISTER int args (stack_pos 255) go to the
-             * push/pop register phase - System V memory-arg chunks
-             * (pos < 255) are pushed by the stack-arg loop below. */
-            if (arg_pos < 255) continue;
-            int temp = arg_temps[i];
-            int_arg_temps[total_int_count++] = temp;
-            if (n_int_args < 6) {
-                n_int_args++;
+            if (is_ms_call) {
+                if (arg_pos >= 240 && arg_pos < 244 && ms_int_count < 4) {
+                    ms_int_temps[ms_int_count] = arg_temps[i];
+                    ms_int_slots[ms_int_count] = arg_pos - 240;
+                    ms_int_count++;
+                }
+            } else {
+                /* Sprint 158: only REGISTER int args (stack_pos 255) go to the
+                 * push/pop register phase - System V memory-arg chunks
+                 * (pos < 255) are pushed by the stack-arg loop below. */
+                if (arg_pos < 255) continue;
+                int temp = arg_temps[i];
+                int_arg_temps[total_int_count++] = temp;
+                if (n_int_args < 6) {
+                    n_int_args++;
+                }
             }
         }
     }
@@ -783,9 +808,10 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
      * are pushed via movsd+subq (the value sits in the temp's XMM reg). */
     int n_stack = 0;
     int stack_pos_list[IR_CALL_MAX_ARGS];   /* slot k holds the side-table index of arg k */
+    int arg_limit = is_ms_call ? 240 : 255;
     for (int i = 0; i < arg_count && i < IR_CALL_MAX_ARGS; i++) {
         int arg_pos = stack_pos ? stack_pos[i] : 255;
-        if (arg_pos < 255 && arg_pos < IR_CALL_MAX_ARGS) {
+        if (arg_pos < arg_limit && arg_pos < IR_CALL_MAX_ARGS) {
             stack_pos_list[arg_pos] = i;
             if (arg_pos + 1 > n_stack) n_stack = arg_pos + 1;
         }
@@ -838,11 +864,20 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
             int i = stack_pos_list[pos];
             int arg_is_fp = is_fp ? is_fp[i] : 0;
             if (arg_is_fp == 1) {
-                int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, arg_temps[i]);
-                const char *reg_name = (phys_reg >= 0 && phys_reg < BE(c)->regs->num_fp_regs)
-                                           ? BE(c)->regs->fp_regs[phys_reg]
-                                           : BE(c)->get_vec_reg_name(phys_reg);
-                fprintf(out, "\tmovsd\t%%%s, -8(%%rsp)\n", reg_name);
+                int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, arg_temps[i]);
+                if (sp >= 0) {
+                    int32_t off = spill_base_offset + (sp + 1) * 8;
+                    fprintf(out, "\tmovsd\t%d(%%%s), %%xmm15\n",
+                            (int)zero_cc_frame_disp_at(c, -off, extra_sp),
+                            BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c)));
+                    fprintf(out, "\tmovsd\t%%xmm15, -8(%%rsp)\n");
+                } else {
+                    int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, arg_temps[i]);
+                    const char *reg_name = (phys_reg >= 0 && phys_reg < BE(c)->regs->num_fp_regs)
+                                               ? BE(c)->regs->fp_regs[phys_reg]
+                                               : BE(c)->get_vec_reg_name(phys_reg);
+                    fprintf(out, "\tmovsd\t%%%s, -8(%%rsp)\n", reg_name);
+                }
                 fprintf(out, "\tsubq\t$8, %%rsp\n");
             } else {
                 int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, arg_temps[i]);
@@ -885,24 +920,78 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
         }
     }
 
-    /* Push all src integer registers to stack (reloading spilled temps via %r10) */
-    for (int i = 0; i < n_int_args; i++) {
-        int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, int_arg_temps[i]);
-        if (sp >= 0) {
-            int32_t off = spill_base_offset + (sp + 1) * 8;
-            fprintf(out, "\tmovq\t%d(%%%s),%%r10\n",
-                    (int)zero_cc_frame_disp_at(c, -off, extra_sp),
-                    BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c)));
-            fprintf(out, "\tpushq\t%%r10\n");
-        } else {
-            int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, int_arg_temps[i]);
-            fprintf(out, "\tpushq\t%%%s\n", BE(c)->get_hw_reg_name(phys_reg));
+    if (is_ms_call) {
+        for (int i = 0; i < ms_int_count; i++) {
+            int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, ms_int_temps[i]);
+            if (sp >= 0) {
+                int32_t off = spill_base_offset + (sp + 1) * 8;
+                fprintf(out, "\tmovq\t%d(%%%s),%%r10\n",
+                        (int)zero_cc_frame_disp_at(c, -off, extra_sp),
+                        BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c)));
+                fprintf(out, "\tpushq\t%%r10\n");
+            } else {
+                int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, ms_int_temps[i]);
+                fprintf(out, "\tpushq\t%%%s\n", BE(c)->get_hw_reg_name(phys_reg));
+            }
+            extra_sp += 8;
         }
-        extra_sp += 8;
+        for (int i = ms_int_count - 1; i >= 0; i--) {
+            fprintf(out, "\tpopq\t%%%s\n", win64_int_regs[ms_int_slots[i]]);
+            extra_sp -= 8;
+        }
+    } else {
+        /* Push all src integer registers to stack (reloading spilled temps via %r10) */
+        for (int i = 0; i < n_int_args; i++) {
+            int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, int_arg_temps[i]);
+            if (sp >= 0) {
+                int32_t off = spill_base_offset + (sp + 1) * 8;
+                fprintf(out, "\tmovq\t%d(%%%s),%%r10\n",
+                        (int)zero_cc_frame_disp_at(c, -off, extra_sp),
+                        BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c)));
+                fprintf(out, "\tpushq\t%%r10\n");
+            } else {
+                int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, int_arg_temps[i]);
+                fprintf(out, "\tpushq\t%%%s\n", BE(c)->get_hw_reg_name(phys_reg));
+            }
+            extra_sp += 8;
+        }
+        /* Pop in reverse into destination ABI registers */
+        for (int i = n_int_args - 1; i >= 0; i--) {
+            fprintf(out, "\tpopq\t%%%s\n", int_arg_regs[i]);
+            extra_sp -= 8;
+        }
     }
-    /* Pop in reverse into destination ABI registers */
-    for (int i = n_int_args - 1; i >= 0; i--) {
-        fprintf(out, "\tpopq\t%%%s\n", int_arg_regs[i]);
+
+    if (is_ms_call && ms_fp_count > 0) {
+        for (int i = 0; i < ms_fp_count; i++) {
+            int temp = ms_fp_temps[i];
+            int sp = regalloc_get_spill_slot_for_temp(&c->regalloc, temp);
+            if (sp >= 0) {
+                int32_t off = spill_base_offset + (sp + 1) * 8;
+                fprintf(out, "\tmovsd\t%d(%%%s), %%xmm15\n",
+                        (int)zero_cc_frame_disp_at(c, -off, extra_sp),
+                        BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c)));
+                fprintf(out, "\tsubq\t$8, %%rsp\n");
+                fprintf(out, "\tmovsd\t%%xmm15, (%%rsp)\n");
+            } else {
+                int phys_reg = regalloc_get_reg_for_temp(&c->regalloc, temp);
+                const char *reg_name = (phys_reg >= 0 && phys_reg < BE(c)->regs->num_fp_regs)
+                                           ? BE(c)->regs->fp_regs[phys_reg]
+                                           : BE(c)->get_vec_reg_name(phys_reg);
+                fprintf(out, "\tsubq\t$8, %%rsp\n");
+                fprintf(out, "\tmovsd\t%%%s, (%%rsp)\n", reg_name);
+            }
+            extra_sp += 8;
+        }
+        for (int i = ms_fp_count - 1; i >= 0; i--) {
+            fprintf(out, "\tmovsd\t(%%rsp), %%xmm%d\n", ms_fp_slots[i]);
+            fprintf(out, "\taddq\t$8, %%rsp\n");
+            extra_sp -= 8;
+        }
+    }
+
+    if (is_ms_call) {
+        fprintf(out, "\tsubq\t$32, %%rsp\n");
     }
 
     if (indirect_reg_name) {
@@ -913,12 +1002,12 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
          * MC (AOT) path; without it the -S output loses FP args to
          * variadic callees (pre-existing: even `printf("%f", sin(1.0))`
          * printed 0.000000). */
-        if (fp_arg_idx > 0) {
+        if (!is_ms_call && fp_arg_idx > 0) {
             fprintf(out, "\tmovb\t$%d, %%al\n", fp_arg_idx);
         }
         fprintf(out, "\tcall\t*%%r11\n");
     } else {
-        bool need_variadic_al = true;
+        bool need_variadic_al = !is_ms_call;
         if (func_name) {
             const ZeroCCFunction *callee_fn = zero_cc_find_function_by_symbol(c, func_name);
             if (callee_fn && callee_fn->has_prototype && !callee_fn->is_variadic) {
@@ -968,7 +1057,10 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
     }
 
     /* Clean up stack arguments after call */
-    if (n_stack > 0) {
+    if (is_ms_call) {
+        int total_cleanup = 32 + (n_stack > 0 ? (n_stack * 8 + stack_pad) : 0);
+        fprintf(out, "\taddq\t$%d, %%rsp\n", total_cleanup);
+    } else if (n_stack > 0) {
         int total_cleanup = n_stack * 8 + stack_pad;
         fprintf(out, "\taddq\t$%d, %%rsp\n", total_cleanup);
     }
@@ -1153,10 +1245,11 @@ static void x86_emit_vla_alloc_asm(ZeroCCCompiler *c, int dst, int size, FILE *o
 
 /* PARAM_SAVE_INT: save incoming integer parameter to -offset(%%rbp) (or SP+delta) */
 static void x86_emit_param_save_int_asm(ZeroCCCompiler *c, int reg_idx, int32_t offset, FILE *out) {
-    static const char *arg_regs[6] = {"rdi", "rsi", "rdx", "rcx", "r8", "r9"};
-    if (reg_idx >= 0 && reg_idx < 6) {
+    if (reg_idx >= 0 && reg_idx < BE(c)->conv->int_arg_reg_count) {
+        int reg = BE(c)->conv->int_arg_regs[reg_idx];
+        const char *reg_name = BE(c)->get_hw_reg_name(reg);
         const char *base_name = BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c));
-        fprintf(out, "\tmovq\t%%%s,%d(%%%s)\n", arg_regs[reg_idx],
+        fprintf(out, "\tmovq\t%%%s,%d(%%%s)\n", reg_name,
                 (int)zero_cc_frame_disp(c, -offset), base_name);
     }
 }
@@ -1179,6 +1272,14 @@ static void x86_emit_param_save_fp_asm(ZeroCCCompiler *c, int reg_idx, int32_t o
 /* VARIADIC_SPILL: spill remaining integer registers for va_start */
 static void x86_emit_variadic_spill_asm(ZeroCCCompiler *c, int param_count, int32_t base_offset, FILE *out) {
     (void)param_count;
+    if (c->function_count > 0 && c->lowering.current_func_idx < c->function_count &&
+        c->functions[c->lowering.current_func_idx].is_ms_abi) {
+        static const char *ms_regs[4] = {"rcx", "rdx", "r8", "r9"};
+        for (int i = 0; i < 4; i++) {
+            fprintf(out, "\tmovq\t%%%s, %d(%%rbp)\n", ms_regs[i], 16 + i * 8);
+        }
+        return;
+    }
     /* Mirror x86_emit_variadic_spill (MC path): spill ALL arg registers into
      * the 16-slot save area - integer regs first, then FP regs (lower 64
      * bits via movsd). va_start points the streams just past the named

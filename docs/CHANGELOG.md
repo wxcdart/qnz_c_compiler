@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## [Sprint 253] - 2026-11-26 - Microsoft x64 Native Calling Convention (ABI_WIN64 / `__attribute__((ms_abi))` / `-mabi=ms`)
+
+- **Microsoft x64 Calling Convention Implementation (`x86_64.c`, `x86_64_asm.c`, `ast_lowering_call.c`, `ast_lowering_mc_call.c`, `ast_lowering.c`, `compile.c`, `compile_unit.c`, `zero_cc_declarator_stack.h`, `abi_classify.h`)**:
+  - Implemented GNU C `__attribute__((ms_abi))` and `__attribute__((sysv_abi))` function and function-pointer attribute handling in preprocessor, declarator parser, and compiler function registration.
+  - Added CLI compiler driver flags `-mabi=ms`, `-mabi=win64`, and `-mabi=sysv` for setting target-default calling convention on x86-64.
+  - Implemented `win64_conv` calling convention table:
+    - 4-register argument window: GPRs `RCX, RDX, R8, R9` and XMM registers `XMM0-XMM3`.
+    - Unified 0..3 argument slot sequence: argument $i$ occupies slot $i$ regardless of whether preceding arguments were integer or floating-point.
+    - 32-byte caller-allocated shadow store ("home space") above the return address.
+    - Callee-saved GPRs: `RBX, RSI, RDI, R12, R13, R14, R15` (`RSI` and `RDI` non-volatile under Win64).
+    - Return value and `sret`: scalars up to 64 bits and structs with size 1, 2, 4, or 8 bytes return in `RAX`; all other structs return via hidden first-argument pointer in `RCX`.
+    - Pass-by-reference struct passing: structs whose size is not 1, 2, 4, or 8 bytes are automatically passed by reference (shallow copy created by caller, address passed in slot).
+  - Emitted shadow space allocation (`subq $32, %rsp`) and stack cleanup across text assembly (`-S`) and machine-code (`-c` / raw ELF / JIT) paths.
+  - Extended indirect call lowering to support MS-ABI function pointers (`int (MS_ABI *pfn)(...)`) dispatching through `%r11`.
+  - Added regression test `test/jit/ms_abi.c` verifying integer args, FP args, interleaved slots, stack args (>4), small & medium structs by value/sret, variadic functions, indirect function pointer calls, and caller register preservation (`rsi`/`rdi`) across JIT, AOT, and `-S` modes.
+
 ## [Sprint 252] - 2026-11-26 - Embedded Hardware Interrupts & ISRs (`__attribute__((interrupt))`) across RISC-V and ARM
 
 - **Embedded Hardware Interrupts & ISR Epilogue/Prologue Support (`preprocessor.c`, `type_system.h`, `symbols.h`, `compile_unit.c`, `compile.c`, `riscv32.c`, `riscv64.c`, `riscv_asm.c`, `aarch32.c`)**:

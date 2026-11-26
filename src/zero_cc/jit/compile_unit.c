@@ -238,6 +238,28 @@ static void zero_cc_ipo_strip_dead_code(ZeroCCCompiler *c) {
     if (ctx.q) free(ctx.q);
 }
 
+static inline size_t zero_cc_find_decl_header_end(const ZeroCCCompiler *c, size_t dstart) {
+    int paren = 0, brace = 0;
+    bool is_aggregate = (c->tokens[dstart].type == TK_STRUCT ||
+                         c->tokens[dstart].type == TK_UNION ||
+                         c->tokens[dstart].type == TK_ENUM);
+    for (size_t p = dstart; p < c->token_count; p++) {
+        ZeroCCTokType tt = c->tokens[p].type;
+        if (tt == TK_LPAREN) paren++;
+        else if (tt == TK_RPAREN) { if (paren > 0) paren--; }
+        else if (tt == TK_LBRACE) {
+            if (!is_aggregate && paren == 0 && brace == 0) return p;
+            brace++;
+        }
+        else if (tt == TK_RBRACE) {
+            if (brace > 0) brace--;
+            if (brace == 0 && paren == 0) return p + 1;
+        }
+        else if (tt == TK_SEMI && paren == 0 && brace == 0) return p + 1;
+    }
+    return c->token_count;
+}
+
 /* Master Translation Unit Compiler */
 void zero_cc_compile_c99(ZeroCCCompiler *c) {
     if (!c->lto_mode) {
@@ -353,23 +375,16 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
         c->pending_constexpr_fn = 0;
         c->pending_interrupt = 0;
         c->pending_interrupt_mode[0] = '\0';
+        c->pending_ms_abi = 0;
         {
             size_t dstart = c->token_pos;
-            int paren = 0, brace = 0;
-            size_t dend = c->token_count;
-            for (size_t p = dstart; p < c->token_count; p++) {
-                ZeroCCTokType tt = c->tokens[p].type;
-                if (tt == TK_LPAREN) paren++;
-                else if (tt == TK_RPAREN) { if (paren > 0) paren--; }
-                else if (tt == TK_LBRACE) brace++;
-                else if (tt == TK_RBRACE) {
-                    if (brace > 0) brace--;
-                    if (brace == 0 && paren == 0) { dend = p + 1; break; }
-                }
-                else if (tt == TK_SEMI && paren == 0 && brace == 0) { dend = p + 1; break; }
-            }
+            size_t dend = zero_cc_find_decl_header_end(c, dstart);
             size_t p = dstart;
+            int scan_brace = 0;
             while (p + 3 < dend) {
+                if (c->tokens[p].type == TK_LBRACE) scan_brace++;
+                else if (c->tokens[p].type == TK_RBRACE) { if (scan_brace > 0) scan_brace--; }
+                if (scan_brace > 0) { p++; continue; }
                 if (c->tokens[p].type == TK_IDENT) {
                     const char *id = c->tokens[p].allocated_str ? c->tokens[p].allocated_str : c->tokens[p].str_val;
                     if (id && strcmp(id, "__zc_section__") == 0 &&
@@ -398,20 +413,12 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
          * another TU then wins at link time - Unity setup stubs). */
         {
             size_t dstart = c->token_pos;
-            int paren = 0, brace = 0;
-            size_t dend = c->token_count;
-            for (size_t p = dstart; p < c->token_count; p++) {
-                ZeroCCTokType tt = c->tokens[p].type;
-                if (tt == TK_LPAREN) paren++;
-                else if (tt == TK_RPAREN) { if (paren > 0) paren--; }
-                else if (tt == TK_LBRACE) brace++;
-                else if (tt == TK_RBRACE) {
-                    if (brace > 0) brace--;
-                    if (brace == 0 && paren == 0) { dend = p + 1; break; }
-                }
-                else if (tt == TK_SEMI && paren == 0 && brace == 0) { dend = p + 1; break; }
-            }
+            size_t dend = zero_cc_find_decl_header_end(c, dstart);
+            int scan_brace = 0;
             for (size_t p = dstart; p < dend; p++) {
+                if (c->tokens[p].type == TK_LBRACE) scan_brace++;
+                else if (c->tokens[p].type == TK_RBRACE) { if (scan_brace > 0) scan_brace--; }
+                if (scan_brace > 0) continue;
                 if (c->tokens[p].type == TK_IDENT) {
                     const char *id = c->tokens[p].allocated_str ? c->tokens[p].allocated_str : c->tokens[p].str_val;
                     if (id && strcmp(id, "__zc_weak__") == 0) {
@@ -430,20 +437,12 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
          * before dispatch and record it so the function is registered as an ISR. */
         {
             size_t dstart = c->token_pos;
-            int paren = 0, brace = 0;
-            size_t dend = c->token_count;
-            for (size_t p = dstart; p < c->token_count; p++) {
-                ZeroCCTokType tt = c->tokens[p].type;
-                if (tt == TK_LPAREN) paren++;
-                else if (tt == TK_RPAREN) { if (paren > 0) paren--; }
-                else if (tt == TK_LBRACE) brace++;
-                else if (tt == TK_RBRACE) {
-                    if (brace > 0) brace--;
-                    if (brace == 0 && paren == 0) { dend = p + 1; break; }
-                }
-                else if (tt == TK_SEMI && paren == 0 && brace == 0) { dend = p + 1; break; }
-            }
+            size_t dend = zero_cc_find_decl_header_end(c, dstart);
+            int scan_brace = 0;
             for (size_t p = dstart; p < dend; p++) {
+                if (c->tokens[p].type == TK_LBRACE) scan_brace++;
+                else if (c->tokens[p].type == TK_RBRACE) { if (scan_brace > 0) scan_brace--; }
+                if (scan_brace > 0) continue;
                 if (c->tokens[p].type == TK_IDENT) {
                     const char *id = c->tokens[p].allocated_str ? c->tokens[p].allocated_str : c->tokens[p].str_val;
                     if (id && strcmp(id, "__zc_interrupt__") == 0) {
@@ -468,6 +467,24 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                             dend--;
                         }
                         break;
+                    }
+                    if (id && strcmp(id, "__zc_ms_abi__") == 0) {
+                        c->pending_ms_abi = 1;
+                        size_t after = p + 1;
+                        memmove(&c->tokens[p], &c->tokens[after], (c->token_count - after) * sizeof(c->tokens[0]));
+                        c->token_count--;
+                        dend--;
+                        p--;
+                        continue;
+                    }
+                    if (id && strcmp(id, "__zc_sysv_abi__") == 0) {
+                        c->pending_ms_abi = 2;
+                        size_t after = p + 1;
+                        memmove(&c->tokens[p], &c->tokens[after], (c->token_count - after) * sizeof(c->tokens[0]));
+                        c->token_count--;
+                        dend--;
+                        p--;
+                        continue;
                     }
                 }
             }

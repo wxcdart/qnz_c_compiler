@@ -57,6 +57,7 @@ typedef struct {
     uint16_t epilogue_label;           /* Synthetic epilogue label for returns */
     uint16_t tail_call_entry_label;     /* Entry label for tail call recursion (Sprint 229) */
     bool current_call_is_sibling;      /* True when current OP_CALL is a sibling tail call (Sprint 234) */
+    bool current_call_is_ms_abi;      /* True when current OP_CALL uses Microsoft x64 calling convention */
     bool is_frameless;                 /* True when leaf function needs no stack frame */
     bool has_stack_protector;          /* True when function has stack guard canary enabled */
     int32_t canary_stack_off;          /* Frame slot offset (positive, fp-relative) holding canary */

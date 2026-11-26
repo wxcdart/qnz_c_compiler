@@ -905,8 +905,41 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
             int mem_arg_range_pos = 0;
             int mem_arg_range_count = 0;
             bool mem_arg_range_pending = false;
-            bool callee_uses_sret = zero_cc_abi_type_uses_sret(c, &call_ret_type);
+            bool callee_is_ms_abi = false;
+            if (c->isa == ISA_X86_64) {
+                if (c->is_win64_abi) callee_is_ms_abi = true;
+                if (callee_fn) {
+                    if (callee_fn->is_ms_abi) callee_is_ms_abi = true;
+                }
+                if (!callee_is_ms_abi && callee_sym) {
+                    if (callee_sym->type.fn_is_ms_abi) callee_is_ms_abi = true;
+                    if (callee_sym->type.base && callee_sym->type.base->fn_is_ms_abi) callee_is_ms_abi = true;
+                }
+                if (!callee_is_ms_abi && callee_gv) {
+                    if (callee_gv->type.fn_is_ms_abi) callee_is_ms_abi = true;
+                    if (callee_gv->type.base && callee_gv->type.base->fn_is_ms_abi) callee_is_ms_abi = true;
+                }
+                if (!callee_is_ms_abi && callee) {
+                    TypeInfo *cti = ast_node_get_typeinfo(c, callee);
+                    if (cti && cti->kind == TYPE_KIND_POINTER && cti->details.pointer.base &&
+                        cti->details.pointer.base->kind == TYPE_KIND_FUNCTION) {
+                        if (cti->details.pointer.base->details.function.is_ms_abi) callee_is_ms_abi = true;
+                    } else if (cti && cti->kind == TYPE_KIND_FUNCTION) {
+                        if (cti->details.function.is_ms_abi) callee_is_ms_abi = true;
+                    }
+                }
+            }
+            bool callee_uses_sret = zero_cc_abi_type_uses_sret_fn(c, &call_ret_type, callee_is_ms_abi);
             if (callee_uses_sret && zc_target_traits(c)->sret_consumes_arg0) gp_stream = 1;  /* hidden sret ptr takes GP slot 0 */
+            int ms_slot = callee_uses_sret ? 1 : 0;
+
+            bool is_callee_variadic = (callee_fn && callee_fn->is_variadic) ||
+                (name && (strcmp(name, "printf") == 0 || strcmp(name, "sprintf") == 0 ||
+                          strcmp(name, "snprintf") == 0 || strcmp(name, "fprintf") == 0));
+            int named_params = callee_fn ? (int)callee_fn->param_count :
+                (name && strcmp(name, "printf") == 0 ? 1 :
+                 (name && (strcmp(name, "sprintf") == 0 || strcmp(name, "fprintf") == 0) ? 2 :
+                  (name && strcmp(name, "snprintf") == 0 ? 3 : 0)));
 
             while (arg != AST_NULL) {
                 ZeroCCASTNode *arg_node = zero_cc_ast_get(arena, arg);
@@ -951,6 +984,107 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                     }
                 }
                 param_idx++;
+                if (callee_is_ms_abi) {
+                    int slot = ms_slot++;
+                    bool is_var_arg = is_callee_variadic && (param_idx > named_params);
+                    uint8_t spos = (slot < 4) ? (uint8_t)(240 + slot) : (uint8_t)(slot - 4);
+                    if (slot >= 4 && (slot - 4 + 1 > stack_arg_count)) {
+                        stack_arg_count = slot - 4 + 1;
+                    }
+
+                    if (c->last_expr_is_float) {
+                        c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                        c->current_stack_frame += 8;
+                        int32_t f_slot = c->current_stack_frame;
+                        if (abi_float_arg && !is_var_arg) {
+                            int sa = zc_alloc_temp(c);
+                            ir_emit_lea(c, sa, BE(c)->fp_reg, -f_slot);
+                            ir_emit_vstoress(c, (uint32_t)sa, (uint32_t)temp);
+                        } else {
+                            ir_emit_fstore(c, (uint32_t)temp, TEMP_NONE, -f_slot);
+                        }
+                        if (fp_arg_idx < IR_CALL_MAX_ARGS) {
+                            fp_spill_stack_pos[fp_arg_idx] = spos;
+                            fp_spill_offsets[fp_arg_idx] = f_slot;
+                            fp_arg_idx++;
+                        }
+                        if (is_var_arg && slot < 4) {
+                            int int_val = zc_alloc_temp(c);
+                            ir_emit_load(c, int_val, BE(c)->fp_reg, -f_slot);
+                            if (int_arg_idx < IR_CALL_MAX_ARGS) {
+                                int_spill_stack_pos[int_arg_idx] = spos;
+                                int_spill_offsets[int_arg_idx] = f_slot;
+                                int_arg_idx++;
+                            }
+                        }
+                    } else {
+                        size_t arg_struct_sz = 0;
+                        bool is_struct = false;
+                        int src_addr = TEMP_NONE;
+                        if (arg_node && arg_node->tag == NODE_IDENT) {
+                            ZeroCCSym *asym = zero_cc_find_local(c, arg_node->s.str);
+                            if (asym && (asym->type.tag == TYPE_STRUCT || asym->type.tag == TYPE_UNION)) {
+                                arg_struct_sz = asym->type.size;
+                                is_struct = true;
+                                src_addr = zc_alloc_temp(c);
+                                ir_emit_lea(c, src_addr, BE(c)->fp_reg, -asym->stack_offset);
+                            } else if (!asym) {
+                                ZeroCCGlobalVar *gv = find_global_var(c, arg_node->s.str);
+                                if (gv && (gv->type.tag == TYPE_STRUCT || gv->type.tag == TYPE_UNION)) {
+                                    arg_struct_sz = gv->type.size;
+                                    is_struct = true;
+                                    src_addr = zc_alloc_temp(c);
+                                    ir_emit_global_addr(c, src_addr, gv);
+                                }
+                            }
+                        } else if (arg_node) {
+                            TypeInfo *ati = ast_node_get_typeinfo(c, arg_node);
+                            if (ati && (ati->kind == TYPE_KIND_STRUCT || ati->kind == TYPE_KIND_UNION)) {
+                                arg_struct_sz = type_size(ati);
+                                is_struct = true;
+                                src_addr = temp;
+                            }
+                        }
+
+                        if (is_struct && arg_struct_sz != 1 && arg_struct_sz != 2 && arg_struct_sz != 4 && arg_struct_sz != 8) {
+                            c->current_stack_frame = (c->current_stack_frame + 15) & ~15;
+                            c->current_stack_frame += (int32_t)((arg_struct_sz + 7) & ~7);
+                            int32_t copy_buf_off = c->current_stack_frame;
+                            int buf_addr = zc_alloc_temp(c);
+                            ir_emit_lea(c, buf_addr, BE(c)->fp_reg, -copy_buf_off);
+                            zc_emit_mem_copy(c, src_addr != TEMP_NONE ? src_addr : temp, buf_addr, arg_struct_sz);
+
+                            c->current_stack_frame += 8;
+                            int32_t ptr_slot = c->current_stack_frame;
+                            ir_emit_store(c, buf_addr, BE(c)->fp_reg, -ptr_slot);
+                            if (int_arg_idx < IR_CALL_MAX_ARGS) {
+                                int_spill_stack_pos[int_arg_idx] = spos;
+                                int_spill_offsets[int_arg_idx] = ptr_slot;
+                                int_arg_idx++;
+                            }
+                        } else {
+                            int pass_val = temp;
+                            if (is_struct && src_addr != TEMP_NONE) {
+                                pass_val = zc_alloc_temp(c);
+                                if (arg_struct_sz == 1) ir_emit_load_byte(c, pass_val, src_addr);
+                                else if (arg_struct_sz == 2) ir_emit_load_16(c, pass_val, src_addr);
+                                else if (arg_struct_sz == 4) ir_emit_load_32(c, pass_val, src_addr);
+                                else ir_emit_deref(c, pass_val, src_addr);
+                            }
+                            c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                            c->current_stack_frame += 8;
+                            int32_t slot_off = c->current_stack_frame;
+                            ir_emit_store(c, pass_val, BE(c)->fp_reg, -slot_off);
+                            if (int_arg_idx < IR_CALL_MAX_ARGS) {
+                                int_spill_stack_pos[int_arg_idx] = spos;
+                                int_spill_offsets[int_arg_idx] = slot_off;
+                                int_arg_idx++;
+                            }
+                        }
+                    }
+                    arg = arg_node ? arg_node->next : AST_NULL;
+                    continue;
+                }
                 /* C99 complex argument: passed in TWO consecutive FP
                  * registers (real, then imaginary) for floating, or in GPR(s)
                  * for integer complex. The argument expression lowered to the
@@ -1240,13 +1374,6 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                         continue;
                     }
                 }
-                bool is_callee_variadic = (callee_fn && callee_fn->is_variadic) ||
-                    (name && (strcmp(name, "printf") == 0 || strcmp(name, "sprintf") == 0 ||
-                              strcmp(name, "snprintf") == 0 || strcmp(name, "fprintf") == 0));
-                int named_params = callee_fn ? (int)callee_fn->param_count :
-                    (name && strcmp(name, "printf") == 0 ? 1 :
-                     (name && (strcmp(name, "sprintf") == 0 || strcmp(name, "fprintf") == 0) ? 2 :
-                      (name && strcmp(name, "snprintf") == 0 ? 3 : 0)));
                 bool is_var_arg = is_callee_variadic && (param_idx > named_params);
 
                 if (c->last_expr_is_float && zc_target_traits(c)->vararg_floats_in_gpr && is_var_arg) {
@@ -2162,7 +2289,7 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                 all_arg_stack_pos[all_arg_count] = 255;
                 all_arg_count++;
             }
-            if (callee_uses_sret) all_arg_stack_pos[0] = 255;  /* sret entry is always a register arg */
+            if (callee_uses_sret) all_arg_stack_pos[0] = callee_is_ms_abi ? 240 : 255;  /* sret entry is always a register arg */
 
 
             /* Emit IR call (NULL name for indirect calls) */
@@ -2183,6 +2310,9 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
              * to read. */
             if (ir_get_count(c) > 0) {
                 Instr *last_instr = (Instr*)&ir_get_buffer(c)[call_ir_idx];
+                if (callee_is_ms_abi) {
+                    last_instr->alias_group |= ZC_CALL_FLAG_MS_ABI;
+                }
                 last_instr->temp_dest = (uint32_t)all_arg_count;
                 if (all_arg_count > 0) last_instr->temp_src1 = (uint32_t)all_arg_temps[0];
                 if (all_arg_count > 1) last_instr->temp_src2 = (uint32_t)all_arg_temps[1];
@@ -2353,7 +2483,7 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
             }
 
             /* Check if function returns a 9-16 byte struct/union */
-            if ((call_ret_type.tag == TYPE_STRUCT || call_ret_type.tag == TYPE_UNION) &&
+            if (!callee_uses_sret && (call_ret_type.tag == TYPE_STRUCT || call_ret_type.tag == TYPE_UNION) &&
                 call_ret_type.size > 8 && call_ret_type.size <= 16) {
                 TypeInfo *ret_unit_ti = ast_node_get_typeinfo(c, node);
                 bool u0fp = zc_typeinfo_unit_is_fp(ret_unit_ti, 0);

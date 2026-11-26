@@ -150,6 +150,7 @@ static inline TypeInfo *zero_cc_type_to_typeinfo(Arena *perm, ZeroCCType t) {
                     }
                 }
                 TypeInfo *fn_ti = type_function(perm, ret_ti, fn_params, fn_pcount, fn_variadic);
+                if (fn_ti) fn_ti->details.function.is_ms_abi = t.base->fn_is_ms_abi || t.fn_is_ms_abi;
                 if (fn_params) free(fn_params);
                 ti = type_pointer_to(perm, fn_ti);
             } else {
@@ -380,6 +381,7 @@ static inline ZeroCCType typeinfo_to_zero_cc_type(const TypeInfo *ti) {
             t = ret_t;
             t.base = zero_cc_type_alloc_base(&ret_t);
             t.is_func = true;
+            t.fn_is_ms_abi = ti->details.function.is_ms_abi;
             break;
         }
         case TYPE_KIND_POINTER: {
@@ -415,6 +417,8 @@ static inline ZeroCCType typeinfo_to_zero_cc_type(const TypeInfo *ti) {
                         t.base->fn_param_count = pc;
                         t.base->fn_has_prototype = pfn->details.function.is_prototype;
                         t.base->fn_is_variadic = pfn->details.function.is_variadic;
+                        t.base->fn_is_ms_abi = pfn->details.function.is_ms_abi;
+                        t.fn_is_ms_abi = pfn->details.function.is_ms_abi;
                     }
                 }
             } else if (ti->details.pointer.base) {

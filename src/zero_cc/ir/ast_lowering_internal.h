@@ -348,7 +348,29 @@ static inline bool ast_expr_is_struct_addr(ZeroCCCompiler *c, ZeroCCASTArena *ar
     if (!node) return false;
     if (node->tag == NODE_CALL) {
         TypeInfo *ti = ast_node_get_typeinfo(c, node);
-        if (type_is_struct_or_union(ti) && type_size(ti) > 16) return true;
+        if (type_is_struct_or_union(ti)) {
+            bool is_ms = (c && c->isa == ISA_X86_64 && c->is_win64_abi);
+            ZeroCCASTNode *cal = zero_cc_ast_get(arena, node->left);
+            if (cal && cal->tag == NODE_IDENT && cal->s.str) {
+                const ZeroCCFunction *cf = zero_cc_find_function(c, cal->s.str);
+                if (!cf) cf = zero_cc_find_function_by_symbol(c, cal->s.str);
+                if (cf && cf->is_ms_abi) is_ms = true;
+            }
+            if (!is_ms && cal) {
+                TypeInfo *cti = ast_node_get_typeinfo(c, cal);
+                if (cti && cti->kind == TYPE_KIND_POINTER && cti->details.pointer.base &&
+                    cti->details.pointer.base->kind == TYPE_KIND_FUNCTION) {
+                    if (cti->details.pointer.base->details.function.is_ms_abi) is_ms = true;
+                } else if (cti && cti->kind == TYPE_KIND_FUNCTION) {
+                    if (cti->details.function.is_ms_abi) is_ms = true;
+                }
+            }
+            if (is_ms) {
+                size_t sz = type_size(ti);
+                if (sz != 1 && sz != 2 && sz != 4 && sz != 8) return true;
+            }
+            if (type_size(ti) > 16) return true;
+        }
         /* Sprint 158 (x86-64): a 9-16B struct call with any SSE unit
          * (float/double member) is materialized into a stack object by
          * the call lowering (the value travels XMM0/XMM1 or the SSEup

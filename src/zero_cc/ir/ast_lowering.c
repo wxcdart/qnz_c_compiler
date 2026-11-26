@@ -20,6 +20,7 @@
 #include "zero_cc/opt/opt_temp_renumber.h"
 #include "zero_cc/opt/opt_pgo.h"
 #include "zero_cc/dwarf/dwarf.h"
+#include "zero_cc/isa/x86_64_common.h"
 
 /* =========================================================================
  * Main Entry Point
@@ -414,6 +415,13 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     /* Reset register allocator for this function */
     regalloc_init(&c->regalloc);
     regalloc_set_isa(&c->regalloc, c->isa);  /* Set target ISA and reserved registers */
+    const ISACallingConvention *orig_conv = BE(c) ? BE(c)->conv : NULL;
+    bool is_ms_fn = (c->isa == ISA_X86_64) && lowering_fn && (lowering_fn->is_ms_abi || c->is_win64_abi);
+    if (is_ms_fn) {
+        if (BE(c)) ((ZeroCCISABackend *)BE(c))->conv = x86_64_get_win64_conv();
+        c->regalloc.custom_callee_saved_gpr_mask = (1u << 3) | (1u << 6) | (1u << 7) |
+                                                   (1u << 12) | (1u << 13) | (1u << 14) | (1u << 15);
+    }
     c->next_temp_id = VREG_USER_START;
     c->ir_next_label = 0;
     c->pgo_block_seq = 0;
@@ -489,7 +497,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
 
     /* Determine if incoming parameters can be kept directly in virtual registers (frameless leaf) */
     bool can_promote_params = false;
-    if (!needs_protect && lowering_fn && !c->debug_info) {
+    if (!needs_protect && lowering_fn && !c->debug_info && !is_ms_fn) {
         ZeroCCFunction *fn = lowering_fn;
         int max_int_params = zc_target_traits(c)->max_promoted_int_params;
         if (!fn->is_variadic && !zero_cc_abi_type_uses_sret(c, &fn->return_type) &&
@@ -641,7 +649,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
          * - System V AMD64 ABI (x86-64): RDI (param_idx=0), real params start at RSI (int_idx=1)
          * - RISC-V LP64D ABI: a0 (param_idx=0), real params start at a1 (int_idx=1)
          * - AArch64 AAPCS64 ABI: x8 (Indirect Result Location Register, param_idx=8), real params start at x0 (int_idx=0) */
-        bool uses_sret = zero_cc_abi_type_uses_sret(c, &fn->return_type);
+        bool uses_sret = zero_cc_abi_type_uses_sret_fn(c, &fn->return_type, is_ms_fn);
         /* >16B struct/union params: pending hidden-pointer copies to run
          * after ALL param saves (see the branch below for why). */
         int32_t big_param_pt_off[64];
@@ -663,11 +671,60 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                 ir_emit_param_save_int(c, zc_target_traits(c)->sret_gpr, fn->sret_stack_offset);
                 int_idx = 0;  /* Real params still start at x0 */
             } else {
-                ir_emit_param_save_int(c, 0, fn->sret_stack_offset);  /* param_idx=0 means RDI / a0 */
-                int_idx = 1;  /* Real params start at RSI / a1 */
+                ir_emit_param_save_int(c, 0, fn->sret_stack_offset);  /* param_idx=0 means RDI / a0 / RCX */
+                int_idx = 1;  /* Real params start at RSI / a1 / RDX */
             }
         }
 
+        if (is_ms_fn) {
+            int ms_slot = uses_sret ? 1 : 0;
+            for (size_t p = 0; p < fn->param_count && p < (size_t)c->local_count; p++) {
+                ZeroCCSym *sym = &c->locals[p];
+                if (!sym->is_param) continue;
+                int slot = ms_slot++;
+                bool is_fp = (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE);
+                bool is_struct = (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION);
+                bool is_pass_by_ref_struct = is_struct && (sym->type.size != 1 && sym->type.size != 2 &&
+                                                           sym->type.size != 4 && sym->type.size != 8);
+
+                if (slot < 4) {
+                    if (is_fp) {
+                        ir_emit_param_save_fp(c, slot, sym->stack_offset, sym->type.tag == TYPE_FLOAT ? 1 : 0);
+                    } else if (is_pass_by_ref_struct) {
+                        c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                        c->current_stack_frame += 8;
+                        int32_t pt_off = c->current_stack_frame;
+                        ir_emit_param_save_int(c, slot, pt_off);
+                        if (big_param_copy_count < 64) {
+                            big_param_pt_off[big_param_copy_count] = pt_off;
+                            big_param_dst_off[big_param_copy_count] = sym->stack_offset;
+                            big_param_size[big_param_copy_count] = sym->type.size;
+                            big_param_copy_count++;
+                        }
+                    } else {
+                        ir_emit_param_save_int(c, slot, sym->stack_offset);
+                    }
+                } else {
+                    int32_t caller_off = 16 + slot * 8;
+                    if (is_pass_by_ref_struct) {
+                        c->current_stack_frame = (c->current_stack_frame + 7) & ~7;
+                        c->current_stack_frame += 8;
+                        int32_t pt_off = c->current_stack_frame;
+                        ir_emit_load(c, VREG_0, BE(c)->fp_reg, caller_off);
+                        ir_emit_store(c, VREG_0, BE(c)->fp_reg, -pt_off);
+                        if (big_param_copy_count < 64) {
+                            big_param_pt_off[big_param_copy_count] = pt_off;
+                            big_param_dst_off[big_param_copy_count] = sym->stack_offset;
+                            big_param_size[big_param_copy_count] = sym->type.size;
+                            big_param_copy_count++;
+                        }
+                    } else {
+                        ir_emit_load(c, VREG_0, BE(c)->fp_reg, caller_off);
+                        ir_emit_store(c, VREG_0, BE(c)->fp_reg, -sym->stack_offset);
+                    }
+                }
+            }
+        } else {
         for (size_t p = 0; p < fn->param_count && p < (size_t)c->local_count; p++) {
             ZeroCCSym *sym = &c->locals[p];
             if (!sym->is_param) continue;
@@ -890,6 +947,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                 ir_emit_store(c, VREG_0, BE(c)->fp_reg, -sym->stack_offset);
                 stack_idx++;
             }
+        }
         }
 
         if (fn->is_variadic) {
@@ -1609,4 +1667,8 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
 
     /* text_offset was already set in compile.h BEFORE the prologue was emitted,
      * so fn->text_offset correctly points to the function's first byte. */
+    if (is_ms_fn && BE(c)) {
+        ((ZeroCCISABackend *)BE(c))->conv = orig_conv;
+        c->regalloc.custom_callee_saved_gpr_mask = 0;
+    }
 }
