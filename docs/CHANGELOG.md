@@ -1,5 +1,60 @@
 # CHANGELOG
 
+## [Sprint 234] - 2026-11-25 - General Sibling Call Optimization (TCO Phase 2)
+
+Implements Option 3 (TCO Phase 2 - General Sibling Calls, Tier 2 Item #11):
+- **General Sibling Call Optimization (`ir/ast_lowering_stmt.c`, `ir/ast_lowering_mc_call.c`, `isa/x86_64.c`, `isa/x86_64_asm.c`, `isa/isa_backend.h`, `ir/ir.h`)**:
+  - Extends tail call optimization to handle sibling calls between different functions (`callee_fn != cur_fn`) at tail return positions.
+  - ABI and Safety Validation:
+    - Verifies matching return value types and sizes between caller and callee; supports void return tail chains.
+    - Excludes variadic callees and functions using the SysV sret hidden pointer convention.
+    - Verifies arguments fit within register argument limits ($\le 6$ arguments on System V AMD64).
+    - Recursively checks all argument expressions (`zc_expr_has_local_addr`) to guarantee no reference to local stack objects escapes to the sibling callee.
+  - Sibling Call Codegen:
+    - Adds `ZC_CALL_FLAG_SIBLING` (0x01) to `OP_CALL` instructions.
+    - In AOT assembly and JIT machine code emitters, emits stack frame teardown (restoring callee-saved registers and stack pointer via `emit_leave` / `leave`) followed by a direct tail jump (`jmp <callee>` in assembly or `emit_tail_jmp` in JIT).
+  - Mutual Recursion & Performance:
+    - Enables mutually recursive functions (e.g. `is_even`/`is_odd`, state machine ping-pong chains) to execute in $O(1)$ stack space without stack overflow.
+- **Verification & Test Coverage**:
+  - Added unit test `test/jit/sibling_call_test.c` verifying 100,000-deep mutual recursion, multi-argument arithmetic in tail positions, void sibling calls, and non-dangling safety checks when passing addresses of local variables.
+
+
+## [Sprint 233] - 2026-11-25 - Intra-Function Escape Analysis & Heap-to-Stack Promotion
+
+Implements Option 2 (Intra-Function Escape Analysis & Heap-to-Stack Promotion, Tier 3 Item #16):
+- **Escape Analysis & Heap-to-Stack Promotion (`opt/opt_escape.c`, `opt/opt_escape.h`, `opt/opt_pass.c`)**:
+  - Added `opt_escape` pass registered at priority 43 (`OPT_LEVEL_O2`+).
+  - Analyzes intra-procedural dynamic memory allocations via `malloc(size)`.
+  - Statically analyzes allocation sizes backward through constant evaluation, constant multiplication, and shifts up to 4096 bytes.
+  - Implements targeted backward pointer origin tracing (`escape_traces_to_malloc`) immune to virtual register ID reuse across basic blocks.
+  - Enforces strict non-escape criteria: verifies pointer is never returned, never stored to globals or heap memory, never passed to non-`free` function calls, and never used in indirect calls or inline assembly.
+  - **Heap Promotion**:
+    - Replaces non-escaping `malloc(size)` calls with direct stack frame allocation (`c->current_stack_frame`) and `OP_LEA dest, [rbp - slot]`.
+    - Eliminates all corresponding `free(ptr)` calls by replacing them with `OP_NOP`.
+  - **Dead Allocation Slicing**:
+    - Identifies promoted buffers with no memory reads or writes and eliminates both allocation and free calls without consuming stack memory.
+- **Verification & Test Coverage**:
+  - Added unit test `test/jit/escape_analysis_test.c` verifying heap-to-stack promotion, dead allocation elimination, arithmetic-size promotions, and correct preservation of escaping pointers.
+
+
+## [Sprint 232] - 2026-11-25 - Loop Idiom Recognition & Memcpy/Memset Synthesis
+
+Implements Option 1 (Loop Idioms - Memcpy/Memset Synthesis, Tier 4 Item #20):
+- **Loop Idiom Recognition (`opt/opt_loop_idiom.c`, `opt/opt_loop_idiom.h`, `opt/opt_pass.c`)**:
+  - Added `opt_loop_idiom` pass registered at priority 57 (`OPT_LEVEL_O2`+).
+  - Integrates with CFG loop detection to analyze natural, countable loops.
+  - Determines induction variables, steps, trip count limits, element access widths, and preheader zero-trip guards.
+  - **Memset Idiom Synthesis**:
+    - Recognizes loops writing invariant or constant values across sequential memory locations (`dst[i] = val`).
+    - Synthesizes optimized calls to `memset(dst, val, n * elem_size)`.
+  - **Memcopy Idiom Synthesis**:
+    - Recognizes loops copying sequential elements between distinct memory buffers (`dst[i] = src[i]`).
+    - Synthesizes optimized calls to `memcpy(dst, src, n * elem_size)`.
+  - Transforms loop bodies and backedge branches into single libc calls, bypassing loop branch penalties and scalar store overhead.
+- **Verification & Test Coverage**:
+  - Added unit test `test/jit/loop_idiom_test.c` verifying zero fill, byte fill, word fill, array copies, and struct copies.
+
+
 ## [Sprint 231] - 2026-11-25 - Full Intra-Function SROA & Dead Store Elimination (DSE)
 
 Implements Option 3 (Items #13 & #14):

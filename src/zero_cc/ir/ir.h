@@ -37,6 +37,7 @@ typedef struct ZeroCCCompiler ZeroCCCompiler;
  * their OP_CALL in the instruction stream, eliminating the need for an
  * instr_index-keyed side table. (Sprint 151c: IR cleanup.) */
 #define OP_CALL_ARG_PSEUDO 0  /* marker; real opcode assigned in Opcode enum below */
+#define ZC_CALL_FLAG_SIBLING 0x01 /* alias_group flag on OP_CALL: sibling tail call (Sprint 234) */
 
 /* ==========================================================================
  * Inline asm (GNU __asm__) - Sprint 135, Phase 1 (x86-64 AOT text path).

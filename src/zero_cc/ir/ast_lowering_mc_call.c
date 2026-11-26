@@ -350,7 +350,26 @@ void emit_mc_call(ZeroCCCompiler *c, size_t i, const Instr *instr,
      * an OP_CALL with spans_call=true, and alloc_reg() in regalloc.h
      * restricting spans_call intervals to callee-saved registers
      * (x19-x28) or stack spill slots. */
-    /* Emit the call */
+    /* Emit the call (or sibling tail jump) */
+    if (fn_name && (instr->alias_group & ZC_CALL_FLAG_SIBLING) != 0 && BE(c)->emit_tail_jmp != NULL) {
+        if (!c->lowering.is_frameless) {
+            const int *callee_saved = BE(c)->conv->callee_saved_gpr;
+            int count = BE(c)->conv->callee_saved_gpr_count;
+            uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
+            for (int k = 0; k < count; k++) {
+                int reg = callee_saved[k];
+                if (!((mask >> reg) & 1u)) continue;
+                int offset = BE(c)->conv->callee_save_slot_offsets[k];
+                BE(c)->emit_load(c, reg, zero_cc_frame_base_reg(c), (int32_t)zero_cc_frame_disp(c, -offset));
+            }
+            if (BE(c)->emit_leave) {
+                BE(c)->emit_leave(c);
+            }
+        }
+        BE(c)->emit_tail_jmp(c, fn_name);
+        return;
+    }
+
     if (!fn_name && indirect_callee_temp >= 0 && BE(c)->emit_call_reg) {
         BE(c)->emit_call_reg(c, BE(c)->scratch_reg2 /* r11 */);
     } else {

@@ -1740,6 +1740,51 @@ static void x86_emit_call(ZeroCCCompiler *c, const char *fn_name) {
     }
 }
 
+static void x86_emit_tail_jmp(ZeroCCCompiler *c, const char *fn_name) {
+    ZeroCCFunction *fn = zero_cc_find_function_by_symbol(c, fn_name);
+    bool is_external = (!fn || fn->is_prototype);
+
+    if (is_external && c->jit_mode) {
+        me_emit_u8(c, 0x49);              /* REX.WR */
+        me_emit_u8(c, 0xBB);              /* mov r11, imm64 */
+        size_t patch_pos = me_get_offset(c);
+        me_emit_u64(c, 0);                /* placeholder target address (8 bytes) */
+        me_emit_u8(c, 0x41);              /* REX.B */
+        me_emit_u8(c, 0xFF);              /* jmp *r/m64 */
+        me_emit_u8(c, 0xE3);              /* r11 (scratch_reg2) */
+        if (c->reloc_count < ZERO_CC_MAX_RELOCS) {
+            ZeroCCReloc *r = &c->relocs[c->reloc_count++];
+            r->text_patch_offset = patch_pos;
+            snprintf(r->target_symbol, sizeof(r->target_symbol), "%s", fn_name);
+            r->is_call = false;
+            r->is_abs_call = true;
+        } else {
+            zero_cc_reloc_overflow_note(c);
+        }
+        return;
+    }
+
+    /* Relative jump (E9 rel32) */
+    me_emit_u8(c, 0xE9);
+    size_t patch_pos = me_get_offset(c);
+
+    int32_t rel = 0;
+    if (fn && !fn->is_prototype && (!fn->lto_defer || fn->lto_lowered)) {
+        rel = (int32_t)(fn->text_offset - (patch_pos + 4));
+    }
+    me_emit_u32(c, (uint32_t)rel);
+
+    if (c->reloc_count < ZERO_CC_MAX_RELOCS) {
+        ZeroCCReloc *r = &c->relocs[c->reloc_count++];
+        r->text_patch_offset = patch_pos;
+        snprintf(r->target_symbol, sizeof(r->target_symbol), "%s", fn_name);
+        r->is_call = true;
+        r->is_tls = false;
+    } else {
+        zero_cc_reloc_overflow_note(c);
+    }
+}
+
 static void x86_emit_stack_guard_init(ZeroCCCompiler *c, int32_t slot_off) {
     /* mov %fs:40, %r11: 64 4c 8b 1c 25 28 00 00 00 */
     const uint8_t fs_load_r11[] = {0x64, 0x4c, 0x8b, 0x1c, 0x25, 0x28, 0x00, 0x00, 0x00};
@@ -3123,6 +3168,7 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_jcond = x86_emit_jcond,
     .emit_call = x86_emit_call,
     .emit_call_reg = x86_emit_call_reg,
+    .emit_tail_jmp = x86_emit_tail_jmp,
     .emit_jmp_reg = x86_emit_jmp_reg,
     .emit_lea_label = x86_emit_lea_label,
     .emit_ret = x86_emit_ret,

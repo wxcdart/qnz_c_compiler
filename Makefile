@@ -104,6 +104,8 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	src/zero_cc/opt/opt_copy_prop.o \
 	src/zero_cc/opt/opt_profile.o \
 	src/zero_cc/opt/opt_loop.o \
+	src/zero_cc/opt/opt_loop_idiom.o \
+	src/zero_cc/opt/opt_escape.o \
 	src/zero_cc/opt/opt_loop_fusion.o \
 	src/zero_cc/opt/opt_loop_collapse.o \
 	src/zero_cc/opt/opt_loop_unswitch.o \

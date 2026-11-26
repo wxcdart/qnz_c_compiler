@@ -4,7 +4,7 @@ title: Optimization Passes & Safety Invariants
 description: Active IR optimization pipeline (Constant Folding, CopyProp, CSE, GVN, DCE, Mem2Reg, LICM, Auto-Vectorization) and their correctness invariants.
 resource: middleend/optimization-passes
 tags: [optimizations, mem2reg, licm, vectorization, gvn, cse, dce]
-timestamp: 2026-11-25T20:25:17Z
+timestamp: 2026-11-26T00:52:35Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -256,11 +256,17 @@ Sprint 219 extends the loop auto-vectorizer (`opt_vectorize.c`) with conditional
 - **Arena-rebuild remap**: LICM, branchless, and the DCE compaction each remap the `IRAsmArgs` `instr_index` entries through their new arena (the same invariant as `IRCallArgs`). Forgetting one (DCE's compaction was the first miss) silently drops the template from the `.s` while the post-asm store still writes the uninitialized output temp.
 - **Gate**: `make test-asm` (`tools/asm_diff.py`) differential-tests the `-S` path at `-O0..-O3` against a host-`gcc -O2` reference; `test/jit/inline_asm_barrier.c` sweeps the JIT-safe empty-template forms in `make test-opt`.
 
-### Tail Call Optimization (TCO & Sibling Calls, Sprint 229)
+### Tail Call Optimization (TCO & General Sibling Calls, Sprint 229 & 234)
 - Automatically detects self-tail calls in `return fn(...);` and void tail calls in `ast_lowering_stmt.c`.
 - Emits a dedicated entry label (`tail_call_entry_label`) at the start of the function body following parameter initialization.
 - Evaluates arguments into temporary virtual registers and assigns them directly into parameter slots or promoted vregs (`arg_temps`).
 - Emits an unconditional jump back to `tail_call_entry_label`, executing recursive algorithms with $O(1)$ stack consumption and avoiding stack overflow.
+- **General Sibling Call Optimization (Sprint 234)**:
+  - Extends TCO across distinct functions (`callee != cur_fn`) at tail position.
+  - Verifies compatible return types and sizes, non-variadic callees, non-sret returns, and argument counts fitting registers ($\le 6$).
+  - Recursively audits call argument expressions (`zc_expr_has_local_addr`) to guarantee no pointer to the caller's stack frame escapes to the callee.
+  - Lowers sibling calls with `ZC_CALL_FLAG_SIBLING`: tears down caller's stack frame (restores callee-saved registers and stack pointer via `emit_leave` / `leave`) and emits a direct tail jump (`jmp <callee>` or JIT relocation via `emit_tail_jmp`).
+  - Enables deep mutual recursion with $O(1)$ stack space.
 
 ### Classical Reverse-Mark Aggressive Dead Code Elimination (ADCE, Sprint 230)
 - Registered at priority 54 (`opt_adce.c`), operating on CFG post-dominator analysis.
@@ -277,6 +283,30 @@ Sprint 219 extends the loop auto-vectorizer (`opt_vectorize.c`) with conditional
   - Backward dataflow analysis (`opt_dse.c`) on CFG over non-escaping scalar locals and SROA slots.
   - Slices stores overwritten by subsequent stores to the same slot without an intervening read.
   - Guards loop-carried induction slots (`slot_in_loop`) to maintain correctness across unrolling and auto-vectorization.
+
+### Loop Idiom Recognition & Memcpy/Memset Synthesis (Sprint 232)
+- Registered at priority 57 (`opt_loop_idiom.c`), executing at `-O2` and `-O3`.
+- Analyzes natural countable loops detected by CFG loop analysis.
+- Identifies loop induction variables, trip limits, step sizes, and zero-trip guards (`guard_cond`).
+- **Memset Idiom Recognition**:
+  - Detects loops writing invariant/constant values into contiguous memory buffers (`dst[i] = val`).
+  - Synthesizes optimized calls to `memset(dst, val, n * elem_size)`.
+- **Memcopy Idiom Recognition**:
+  - Detects loops copying contiguous elements between distinct base memory buffers (`dst[i] = src[i]`).
+  - Synthesizes optimized calls to `memcpy(dst, src, n * elem_size)`.
+- Replaces entire loop bodies and backedge branches with synthesized libc calls, dramatically reducing instruction counts and branch penalties.
+
+### Intra-Function Escape Analysis & Heap-to-Stack Promotion (Sprint 233)
+- Registered at priority 43 (`opt_escape.c`), executing at `-O2` and `-O3`.
+- Analyzes intra-procedural dynamic allocations via `malloc(size)`.
+- Traces allocation sizes backward through constant evaluation to determine static size bounds ($\le 4096$ bytes).
+- Implements backward-search origin tracking (`escape_traces_to_malloc`) immune to virtual register ID reuse across basic blocks.
+- Verifies pointer non-escape invariants: ensures pointer is not returned, not stored to global memory or memory dereferences, not passed to non-`free` functions, and not used in indirect calls/asm.
+- **Heap-to-Stack Promotion**:
+  - Replaces non-escaping `malloc(size)` with stack frame allocation (`c->current_stack_frame`) and `OP_LEA dest, [rbp - slot]`.
+  - NOPs all matching calls to `free(ptr)`.
+- **Dead Allocation Elimination**:
+  - Detects promoted buffers with zero memory reads or writes and eliminates both allocation and deallocation without consuming stack space.
 
 ## Known Issues Surfaced During Sprint 39 (ALL RESOLVED in Sprint 40)
 

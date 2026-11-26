@@ -93,12 +93,28 @@ static bool zc_stmt_always_terminates(ZeroCCCompiler *c, ZeroCCASTArena *arena,
     }
 }
 
-/* Sprint 229: Tail Call Optimization (TCO) helper for self-tail calls */
-static bool zc_try_lower_tail_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *call_node) {
+static bool zc_expr_has_local_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
+    if (ref == AST_NULL) return false;
+    ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
+    if (!n) return false;
+    if (n->tag == NODE_UNOP && n->aux.op == TK_AMP) return true;
+    if (n->tag == NODE_IDENT && n->s.str) {
+        ZeroCCSym *sym = zero_cc_find_local(c, n->s.str);
+        if (sym && (sym->addr_taken || sym->type.tag == TYPE_ARRAY ||
+                    sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION)) {
+            return true;
+        }
+    }
+    return zc_expr_has_local_addr(c, arena, n->left) ||
+           zc_expr_has_local_addr(c, arena, n->right) ||
+           zc_expr_has_local_addr(c, arena, (ASTRef)n->aux.alt);
+}
+
+/* Sprint 229 & 234: Tail Call Optimization (TCO) helper for self and sibling tail calls */
+static bool zc_try_lower_tail_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef call_ref, ZeroCCASTNode *call_node) {
     if (!c || !call_node || c->opt_level < OPT_LEVEL_O1) return false;
     if (c->lowering.inlining.active_depth > 0) return false;
     if (c->lowering.vla.has_runtime_vla) return false;
-    if (c->lowering.tail_call_entry_label == 0) return false;
 
     ZeroCCFunction *cur_fn = zero_cc_get_current_fn(c);
     if (!cur_fn || cur_fn->is_variadic) return false;
@@ -114,7 +130,69 @@ static bool zc_try_lower_tail_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, Zer
     }
     if (!callee || callee->tag != NODE_IDENT || !callee->s.str) return false;
     ZeroCCFunction *callee_fn = zero_cc_resolve_callee(c, callee->s.str);
-    if (!callee_fn || callee_fn != cur_fn) return false;
+    if (!callee_fn) return false;
+
+    if (callee_fn != cur_fn) {
+        /* General Sibling Call Optimization (TCO Phase 2 - Sprint 234) */
+        if (strcmp(cur_fn->name, "main") == 0) return false;
+        if (callee_fn->is_variadic) return false;
+        if (zero_cc_abi_type_uses_sret(c, &callee_fn->return_type)) return false;
+        if (c->lowering.has_stack_protector) return false;
+
+        /* Return types compatibility */
+        if (cur_fn->return_type.tag == TYPE_VOID) {
+            /* Allowed: callee result discarded or void */
+        } else {
+            if (callee_fn->return_type.tag == TYPE_VOID) return false;
+            if (cur_fn->return_type.size != callee_fn->return_type.size) return false;
+            bool cur_is_fp = (cur_fn->return_type.tag == TYPE_FLOAT || cur_fn->return_type.tag == TYPE_DOUBLE);
+            bool cal_is_fp = (callee_fn->return_type.tag == TYPE_FLOAT || callee_fn->return_type.tag == TYPE_DOUBLE);
+            if (cur_is_fp != cal_is_fp) return false;
+        }
+
+        /* Argument checks: up to 6 register arguments, none taking address of local variable */
+        size_t arg_count = 0;
+        ASTRef arg_ref = call_node->right;
+        while (arg_ref != AST_NULL) {
+            ZeroCCASTNode *an = zero_cc_ast_get(arena, arg_ref);
+            if (!an) break;
+            if (zc_expr_has_local_addr(c, arena, arg_ref)) return false;
+            arg_count++;
+            arg_ref = an->next;
+        }
+        if (arg_count > 6) return false;
+
+        /* Emit the call */
+        size_t before_count = ir_get_count(c);
+        uint32_t val_temp = lower_expr(c, arena, call_ref);
+        size_t after_count = ir_get_count(c);
+
+        /* Mark the OP_CALL as sibling tail call */
+        bool found = false;
+        for (size_t i = before_count; i < after_count; i++) {
+            Instr *ins = (Instr*)&ir_get_buffer(c)[i];
+            if (ins->op == OP_CALL) {
+                ins->alias_group |= ZC_CALL_FLAG_SIBLING;
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            /* Call was inlined! Emit the return of the inlined result */
+            if (cur_fn->return_type.tag != TYPE_VOID) {
+                if (c->last_expr_is_float) {
+                    ir_emit_fmov(c, VREG_0, val_temp);
+                } else {
+                    ir_emit_mov_reg(c, VREG_0, val_temp);
+                }
+            }
+            ir_emit_ret(c);
+            return true;
+        }
+        return true;
+    }
+
+    if (c->lowering.tail_call_entry_label == 0) return false;
 
     /* Count arguments */
     size_t arg_count = 0;
@@ -235,7 +313,7 @@ void lower_stmt_block(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
                 if (is_tail) {
                     ZeroCCFunction *cfn = zero_cc_get_current_fn(c);
                     if (cfn && cfn->return_type.tag == TYPE_VOID) {
-                        if (zc_try_lower_tail_call(c, arena, enode)) {
+                        if (zc_try_lower_tail_call(c, arena, snode->left, enode)) {
                             if (nxt && nxt->tag == NODE_RETURN) stmt = nxt->next;
                             else break;
                             continue;
@@ -1628,7 +1706,7 @@ void lower_stmt_return(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *
     if (node && node->left != AST_NULL) {
         ZeroCCASTNode *ret_expr = zero_cc_ast_get(arena, node->left);
         if (ret_expr && ret_expr->tag == NODE_CALL) {
-            if (zc_try_lower_tail_call(c, arena, ret_expr)) {
+            if (zc_try_lower_tail_call(c, arena, node->left, ret_expr)) {
                 return;
             }
         }

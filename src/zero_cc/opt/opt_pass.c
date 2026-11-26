@@ -10,6 +10,8 @@
 #include "zero_cc/opt/opt_loop_fusion.h"
 #include "zero_cc/opt/opt_loop_collapse.h"
 #include "zero_cc/opt/opt_loop_unswitch.h"
+#include "zero_cc/opt/opt_loop_idiom.h"
+#include "zero_cc/opt/opt_escape.h"
 #include "zero_cc/opt/opt_loop_unroll.h"
 #include "zero_cc/opt/opt_vectorize.h"
 #include "zero_cc/opt/opt_slp.h"
@@ -28,12 +30,14 @@ static void opt_pass_flag_dce(ZeroCCCompiler *c);
 static void opt_pass_dce(ZeroCCCompiler *c);
 static void opt_pass_mem2reg(ZeroCCCompiler *c);
 static void opt_pass_dse(ZeroCCCompiler *c);
+static void opt_pass_escape(ZeroCCCompiler *c);
 static void opt_pass_copy_prop(ZeroCCCompiler *c);
 static void opt_pass_cse(ZeroCCCompiler *c);
 static void opt_pass_gvn(ZeroCCCompiler *c);
 static void opt_pass_adce(ZeroCCCompiler *c);
 static void opt_pass_licm(ZeroCCCompiler *c);
 static void opt_pass_loop_unswitch(ZeroCCCompiler *c);
+static void opt_pass_loop_idiom(ZeroCCCompiler *c);
 static void opt_pass_branchless(ZeroCCCompiler *c);
 static void opt_pass_strength_reduction(ZeroCCCompiler *c);
 static void opt_pass_branch_simplify(ZeroCCCompiler *c);
@@ -53,11 +57,13 @@ static const OptPass g_opt_passes[] = {
     { "copy_prop", opt_pass_copy_prop, 1, 35, OPT_LEVEL_O1 },
     { "mem2reg", opt_pass_mem2reg, 1, 40, OPT_LEVEL_O1 },
     { "dse", opt_pass_dse, 1, 42, OPT_LEVEL_O1 },
+    { "escape", opt_pass_escape, 1, 43, OPT_LEVEL_O2 },
     { "cse", opt_pass_cse, 1, 45, OPT_LEVEL_O2 },
     { "gvn", opt_pass_gvn, 1, 50, OPT_LEVEL_O2 },
     { "adce", opt_pass_adce, 1, 52, OPT_LEVEL_O2 },
     { "licm", opt_pass_licm, 1, 55, OPT_LEVEL_O2 },
     { "loop_unswitch", opt_pass_loop_unswitch, 1, 56, OPT_LEVEL_O3 },
+    { "loop_idiom", opt_pass_loop_idiom, 1, 57, OPT_LEVEL_O2 },
     { "branchless", opt_pass_branchless, 1, 58, OPT_LEVEL_O3 },
     { "strength_reduction", opt_pass_strength_reduction, 1, 60, OPT_LEVEL_O3 },
     { "branch_simplify", opt_pass_branch_simplify, 1, 65, OPT_LEVEL_O3 },
@@ -133,11 +139,13 @@ static void opt_pass_dce(ZeroCCCompiler *c) { opt_eliminate_dead_code(c); }
 static void opt_pass_copy_prop(ZeroCCCompiler *c) { opt_copy_propagate(c); }
 static void opt_pass_mem2reg(ZeroCCCompiler *c) { opt_promote_mem2reg(c); }
 static void opt_pass_dse(ZeroCCCompiler *c) { opt_dse(c); }
+static void opt_pass_escape(ZeroCCCompiler *c) { opt_escape(c); }
 static void opt_pass_cse(ZeroCCCompiler *c) { opt_eliminate_cse(c); }
 static void opt_pass_gvn(ZeroCCCompiler *c) { opt_eliminate_gvn(c); }
 static void opt_pass_adce(ZeroCCCompiler *c) { opt_adce(c); }
 static void opt_pass_licm(ZeroCCCompiler *c) { opt_licm(c); }
 static void opt_pass_loop_unswitch(ZeroCCCompiler *c) { opt_loop_unswitch(c); }
+static void opt_pass_loop_idiom(ZeroCCCompiler *c) { opt_loop_idiom(c); }
 static void opt_pass_branchless(ZeroCCCompiler *c) { opt_branchless_select(c); }
 static void opt_pass_strength_reduction(ZeroCCCompiler *c) { opt_strength_reduction(c); }
 static void opt_pass_branch_simplify(ZeroCCCompiler *c) { opt_branch_simplify(c); }

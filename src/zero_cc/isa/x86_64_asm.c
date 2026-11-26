@@ -928,6 +928,42 @@ static void x86_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int arg_
         if (need_variadic_al && fp_arg_idx > 0) {
             fprintf(out, "\tmovb\t$%d, %%al\n", fp_arg_idx);
         }
+        if (c->lowering.current_call_is_sibling) {
+            if (!c->lowering.is_frameless) {
+                const int *callee_saved = BE(c)->conv->callee_saved_gpr;
+                int count = BE(c)->conv->callee_saved_gpr_count;
+                uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
+                const char *base_name = BE(c)->get_hw_reg_name(zero_cc_frame_base_reg(c));
+                for (int cs = 0; cs < count; cs++) {
+                    int reg = callee_saved[cs];
+                    if (!((mask >> reg) & 1u)) continue;
+                    const char *reg_name = BE(c)->get_hw_reg_name(reg);
+                    int offset = BE(c)->conv->callee_save_slot_offsets[cs];
+                    fprintf(out, "\tmovq\t%d(%%%s), %%%s\n", (int)zero_cc_frame_disp(c, -offset), base_name, reg_name);
+                }
+                if (c->lowering.omit_frame_pointer) {
+                    if (c->lowering.frame_align > 16) {
+                        fprintf(out, "\tleave\n");
+                    } else {
+                        size_t X = (size_t)c->lowering.frame_delta + 8;
+                        if (X > 0) {
+                            fprintf(out, "\taddq\t$%zu, %%rsp\n", X);
+                        }
+                    }
+                } else {
+                    fprintf(out, "\tleave\n");
+                }
+            }
+            if (c->reloc_count < ZERO_CC_MAX_RELOCS && func_name && func_name[0]) {
+                ZeroCCReloc *r = &c->relocs[c->reloc_count++];
+                r->text_patch_offset = 0;
+                snprintf(r->target_symbol, sizeof(r->target_symbol), "%s", func_name);
+                r->is_call = true;
+                r->is_tls = false;
+            }
+            fprintf(out, "\tjmp\t%s\n", func_name);
+            return;
+        }
         fprintf(out, "\tcall\t%s\n", func_name);
     }
 
