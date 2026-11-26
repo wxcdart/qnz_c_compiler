@@ -616,6 +616,7 @@ int64_t zero_cc_cpp_eval_expr(ZeroCCPreprocessor *cpp, const char *expr) {
                         if (*ip == delim) ip++;
 
                         int64_t embed_limit = -1;
+                        int64_t embed_offset = 0;
                         while (*ip && *ip != '\0') {
                             while (*ip && isspace((unsigned char)*ip)) ip++;
                             if (*ip == '\0') break;
@@ -631,6 +632,10 @@ int64_t zero_cc_cpp_eval_expr(ZeroCCPreprocessor *cpp, const char *expr) {
                                 if (strcmp(pname, "limit") == 0 && parg) {
                                     int64_t lim = zero_cc_cpp_eval_expr(cpp, parg);
                                     embed_limit = (lim >= 0) ? lim : 0;
+                                } else if ((strcmp(pname, "offset") == 0 || strcmp(pname, "gnu::offset") == 0 ||
+                                            strcmp(pname, "__gnu__::__offset__") == 0) && parg) {
+                                    int64_t off = zero_cc_cpp_eval_expr(cpp, parg);
+                                    embed_offset = (off >= 0) ? off : 0;
                                 }
                                 if (parg) free(parg);
                             } else {
@@ -641,7 +646,8 @@ int64_t zero_cc_cpp_eval_expr(ZeroCCPreprocessor *cpp, const char *expr) {
                         size_t rsz = 0;
                         unsigned char *rdata = zero_cc_cpp_read_binary_resource(cpp, asset_name, is_sys, &rsz, NULL, 0);
                         if (rdata) {
-                            if (rsz == 0 || embed_limit == 0) res_code = 2; /* __STDC_EMBED_EMPTY__ */
+                            size_t avail = (embed_offset > 0 && (size_t)embed_offset < rsz) ? (rsz - (size_t)embed_offset) : (embed_offset >= (int64_t)rsz ? 0 : rsz);
+                            if (avail == 0 || embed_limit == 0) res_code = 2; /* __STDC_EMBED_EMPTY__ */
                             else res_code = 1; /* __STDC_EMBED_FOUND__ */
                             free(rdata);
                         }

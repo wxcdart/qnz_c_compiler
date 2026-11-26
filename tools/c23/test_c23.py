@@ -474,6 +474,68 @@ int main(void) {
     return 0;
 }
 """, dialects=["gnu23"]),
+
+    # -------------------------------------------------------------
+    # C23 #embed prefix, suffix, limit, and if_empty parameters
+    # -------------------------------------------------------------
+    C23Case("embed_standard_params", "embed", """
+int main(void) {
+    unsigned char full_bytes[] = {
+#embed __FILE__ limit(2) prefix(0xAA, 0xBB,) suffix(, 0xCC, 0xDD)
+    };
+    if (full_bytes[0] != 0xAA) return 1;
+    if (full_bytes[1] != 0xBB) return 2;
+    if (full_bytes[4] != 0xCC) return 3;
+    if (full_bytes[5] != 0xDD) return 4;
+
+    unsigned char empty_bytes[] = {
+#embed __FILE__ limit(0) if_empty(77, 88)
+    };
+    if (empty_bytes[0] != 77 || empty_bytes[1] != 88) return 5;
+    return 0;
+}
+""", dialects=["gnu23"]),
+
+    # -------------------------------------------------------------
+    # C23 Empty Parameter Lists () as (void) (C23 6.7.6.3p14)
+    # -------------------------------------------------------------
+    C23Case("c23_empty_param_valid", "c23_misc", """
+int no_args() {
+    return 42;
+}
+int main(void) {
+    if (no_args() != 42) return 1;
+    return 0;
+}
+""", dialects=["gnu23"]),
+
+    C23Case("c23_empty_param_rejected", "c23_misc", """
+int no_args() {
+    return 42;
+}
+int main(void) {
+    return no_args(1);
+}
+""", dialects=["gnu23"], expect_compile=False,
+      expect_error_substr="argument count mismatch"),
+
+    # -------------------------------------------------------------
+    # C23 typeof_unqual qualifier stripping (C23 6.7.2.5)
+    # -------------------------------------------------------------
+    C23Case("c23_typeof_unqual_assign", "c23_misc", """
+int main(void) {
+    const volatile int orig = 100;
+    typeof_unqual(orig) modifiable = orig;
+    modifiable += 50;
+    if (modifiable != 150) return 1;
+
+    const char * const ptr = "hello";
+    typeof_unqual(ptr) mod_ptr = ptr;
+    mod_ptr = "world";
+    if (mod_ptr[0] != 'w') return 2;
+    return 0;
+}
+""", dialects=["gnu23"]),
 ]
 
 # The suppressed-warning case needs a NEGATIVE stderr check (the message

@@ -197,6 +197,12 @@ static inline void zero_cc_parse_param_list(
     while (c->token_pos < c->token_count) {
         skip_c23_attributes(c);
         if (c->tokens[c->token_pos].type == TK_RPAREN) {
+            /* C23 6.7.6.3p14: an empty parameter list `()` specifies that the
+             * function has no parameters, exactly equivalent to `(void)`.
+             * Earlier standards (C89/C99/C11) treated `()` as unprototyped. */
+            if (first_param && (c->std_dialect == ZC_STD_C23 || c->std_dialect == ZC_STD_GNU23)) {
+                fn_chunk->has_prototype = true;
+            }
             break;
         }
         if (!first_param) {

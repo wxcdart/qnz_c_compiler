@@ -1037,6 +1037,7 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                     if (*dp == delim_end) dp++;
 
                     int64_t limit_val = -1;
+                    int64_t offset_val = 0;
                     char *prefix_tokens = NULL;
                     char *suffix_tokens = NULL;
                     char *if_empty_tokens = NULL;
@@ -1057,6 +1058,12 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                                 if (inner) {
                                     int64_t lim = zero_cc_cpp_eval_expr(cpp, inner);
                                     limit_val = (lim >= 0) ? lim : 0;
+                                }
+                            } else if (strcmp(pname, "offset") == 0 || strcmp(pname, "gnu::offset") == 0 ||
+                                       strcmp(pname, "__gnu__::__offset__") == 0) {
+                                if (inner) {
+                                    int64_t off = zero_cc_cpp_eval_expr(cpp, inner);
+                                    offset_val = (off >= 0) ? off : 0;
                                 }
                             } else if (strcmp(pname, "prefix") == 0) {
                                 if (prefix_tokens) free(prefix_tokens);
@@ -1091,7 +1098,10 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                         if (resolved_file[0]) {
                             zero_cc_cpp_add_dependency(cpp, resolved_file);
                         }
-                        size_t emit_len = rsz;
+                        size_t start_off = (offset_val > 0) ? (size_t)offset_val : 0;
+                        if (start_off > rsz) start_off = rsz;
+                        size_t avail = rsz - start_off;
+                        size_t emit_len = avail;
                         if (limit_val >= 0 && (size_t)limit_val < emit_len) {
                             emit_len = (size_t)limit_val;
                         }
@@ -1105,7 +1115,7 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                             }
                             for (size_t i = 0; i < emit_len; i++) {
                                 char buf[16];
-                                snprintf(buf, sizeof(buf), "%u%s", rdata[i], (i + 1 < emit_len) ? ", " : "");
+                                snprintf(buf, sizeof(buf), "%u%s", rdata[start_off + i], (i + 1 < emit_len) ? ", " : "");
                                 zero_cc_buf_puts(out, buf);
                             }
                             if (suffix_tokens) {
