@@ -18,6 +18,7 @@
 #include "zero_cc/lexer/lexer.h"   /* first: establishes the scan.h statics before next.h's calls */
 #include "zero_cc/types/symbols.h" /* pulls parser.h (ZeroCCASTArena + arena prototypes) via expr.h */
 #include "zero_cc/lexer/tokenize.h"
+#include "zero_cc/opt/opt_pgo.h"
 
 /* NOTE: struct/union member arrays are freed per-compilation by
  * zero_cc_free_all_struct_arrays (compile_unit.h teardown) — they must go
@@ -83,6 +84,12 @@ void zero_cc_compiler_free(ZeroCCCompiler *c) {
     free(c->temp_type_tags);
     c->temp_type_tags = NULL;
     c->temp_type_tags_hi = 0;
+
+    /* PGO Profile */
+    if (c->pgo_profile) {
+        zc_pgo_free_profile(c->pgo_profile);
+        c->pgo_profile = NULL;
+    }
 
     /* Translation-unit AST arena (inlinable function bodies / LTO deferred bodies) */
     if (c->tu_ast_arena) {

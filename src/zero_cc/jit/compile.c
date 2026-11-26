@@ -26,6 +26,7 @@
 #include "zero_cc/ir/ir_emitter.h"
 #include "zero_cc/ir/regalloc.h"
 #include "zero_cc/ir/abi_classify.h"
+#include "zero_cc/opt/opt_pgo.h"
 #include "zero_cc/jit/compile.h"
 
 static inline void zero_cc_ensure_param_cap(SemContext *ctx, ZeroCCType **types, const char ***names, size_t *cap, size_t needed) {
@@ -1262,6 +1263,14 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
                 ZeroCCASTArena *tu_arena = (ZeroCCASTArena *)c->tu_ast_arena;
                 size_t node_count = zero_cc_ast_node_count(&arena, body);
                 size_t max_nodes = (fn_inline || c->opt_level >= OPT_LEVEL_O3) ? 100 : 60;
+                if (c->profile_use && c->pgo_profile && fn->name) {
+                    uint64_t fn_hits = zc_pgo_get_fn_count(c->pgo_profile, fn->name);
+                    if (fn_hits == 0 && !fn_inline) {
+                        max_nodes = 0; /* Cold function: avoid inlining */
+                    } else if (fn_hits >= 10) {
+                        max_nodes = 250; /* Hot function: expand inline budget */
+                    }
+                }
                 bool inline_ok = (node_count > 0 && node_count <= max_nodes &&
                                   !zero_cc_ast_has_call(&arena, body, fn->name));
                 if (inline_ok) {

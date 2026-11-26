@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-26T11:04:27Z
+timestamp: 2026-11-26T11:22:54Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1731,3 +1731,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-26 — Updated `build-and-verification.md`
 - Sprint 243: Add test-lto gate and verify cross-TU Link-Time Optimization
+
+## 2026-11-26 — Updated `build-and-verification.md`
+- Sprint 244: Implement Profile-Guided Optimization (-fprofile-generate / -fprofile-use)

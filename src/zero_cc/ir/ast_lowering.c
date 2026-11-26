@@ -18,6 +18,7 @@
 #include "zero_cc/ir/asm_emitter.h"
 #include "zero_cc/opt/opt_pass.h"
 #include "zero_cc/opt/opt_temp_renumber.h"
+#include "zero_cc/opt/opt_pgo.h"
 #include "zero_cc/dwarf/dwarf.h"
 
 /* =========================================================================
@@ -415,6 +416,8 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     regalloc_set_isa(&c->regalloc, c->isa);  /* Set target ISA and reserved registers */
     c->next_temp_id = VREG_USER_START;
     c->ir_next_label = 0;
+    c->pgo_block_seq = 0;
+    c->pgo_fn_name_rodata_offset = (size_t)-1;
 
     /* Reset label patcher state */
     label_patcher_init(&c->label_patcher);
@@ -1035,6 +1038,27 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     /* Tail call entry label (Sprint 229) */
     c->lowering.tail_call_entry_label = c->ir_next_label++;
     ir_emit_label(c, c->lowering.tail_call_entry_label);
+
+    /* PGO Function Entry Hit */
+    if (c->profile_generate && lowering_fn && lowering_fn->name) {
+        if (strcmp(lowering_fn->name, "main") == 0 && c->profile_file &&
+            strcmp(c->profile_file, "default.zcprof") != 0) {
+            size_t ro_off = c->rodata_section.length;
+            zero_cc_buf_put_bytes(&c->rodata_section, c->profile_file, strlen(c->profile_file) + 1);
+            int t_path = zc_alloc_temp(c);
+            ir_emit_lea_rip(c, t_path, ro_off);
+            ir_emit_call(c, "__zc_pgo_set_file");
+            if (ir_get_count(c) > 0) {
+                Instr *last = (Instr*)&ir_get_buffer(c)[ir_get_count(c) - 1];
+                last->temp_dest = 1;
+                last->temp_src1 = (uint32_t)t_path;
+                last->imm = 0x000000FF;
+                last->cond = 0;
+                last->width = 0;
+            }
+        }
+        zc_pgo_emit_hit(c, lowering_fn->name, 0);
+    }
 
     /* Lower AST to IR (instruction selection) */
     lower_node(c, arena, root);

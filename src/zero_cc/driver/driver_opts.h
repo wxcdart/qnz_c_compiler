@@ -62,6 +62,10 @@ typedef struct {
     const char *undefined_syms[32]; /* -u <sym> / --undefined <sym> */
     int undefined_sym_count;
     int lto;                /* -flto: whole-program link-time optimization */
+    int profile_generate;   /* -fprofile-generate[=path] */
+    const char *profile_generate_path;
+    int profile_use;        /* -fprofile-use[=path] */
+    const char *profile_use_path;
     int has_avx;            /* -mavx: enable 256-bit AVX vectors */
     int has_avx2;           /* -mavx2: enable AVX2 instructions */
     int has_avx512f;        /* -mavx512f: enable 512-bit AVX-512 foundation */
@@ -283,6 +287,28 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
         }
         else if (strcmp(arg, "-fno-lto") == 0) {
             opts->lto = 0;
+        }
+        else if (strcmp(arg, "-fprofile-generate") == 0) {
+            opts->profile_generate = 1;
+            opts->profile_generate_path = "default.zcprof";
+        }
+        else if (strncmp(arg, "-fprofile-generate=", 19) == 0) {
+            opts->profile_generate = 1;
+            opts->profile_generate_path = arg + 19;
+        }
+        else if (strcmp(arg, "-fno-profile-generate") == 0) {
+            opts->profile_generate = 0;
+        }
+        else if (strcmp(arg, "-fprofile-use") == 0) {
+            opts->profile_use = 1;
+            opts->profile_use_path = "default.zcprof";
+        }
+        else if (strncmp(arg, "-fprofile-use=", 14) == 0) {
+            opts->profile_use = 1;
+            opts->profile_use_path = arg + 14;
+        }
+        else if (strcmp(arg, "-fno-profile-use") == 0) {
+            opts->profile_use = 0;
         }
         else if (strcmp(arg, "-mavx") == 0) {
             opts->has_avx = 1;

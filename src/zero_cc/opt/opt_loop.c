@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "zero_cc/opt/opt_profile.h"
+#include "zero_cc/opt/opt_pgo.h"
 #include "zero_cc/opt/cfg.h"
 #include "zero_cc/ir/ir.h"
 #include "zero_cc/ir/ir_emitter.h"
@@ -960,17 +961,27 @@ void opt_strength_reduction(ZeroCCCompiler *c) {
  * Branch simplification: remove dead branches and simplify constant conditions
  */
 void opt_branch_simplify(ZeroCCCompiler *c) {
-    (void)c;
-
+    if (!c) return;
     int count = (int)ir_get_count(c);
 
     for (int i = 0; i < count; i++) {
         Instr *instr = ir_get(c, i);
-        if (!instr) continue;
+        if (!instr || instr->op == OP_DEAD) continue;
 
-        // Look for conditional jumps with known conditions
-        // This would require constant propagation data
-        // For now, this is a simplified placeholder
+        /* Redundant jump to immediate next label */
+        if (instr->op == OP_JMP || instr->op == OP_JE || instr->op == OP_JNE ||
+            instr->op == OP_JL || instr->op == OP_JLE || instr->op == OP_JG) {
+            int next_idx = i + 1;
+            while (next_idx < count && ir_get(c, next_idx)->op == OP_DEAD) {
+                next_idx++;
+            }
+            if (next_idx < count) {
+                Instr *next = ir_get(c, next_idx);
+                if (next && next->op == OP_LABEL && next->label_idx == instr->label_idx) {
+                    instr->op = OP_DEAD;
+                }
+            }
+        }
     }
 }
 

@@ -358,6 +358,12 @@ typedef struct ZeroCCCompiler {
     int sanitize_overflow;        /* -fsanitize=undefined: emit OP_OVF_TRAP after signed add/sub/mul */
     int sanitize_report;          /* -fsanitize-trap: report (UBSan-style) before each zero_san trap */
     int stack_protector;          /* -fstack-protector[-all|-strong]: 0=off, 1=basic, 2=all, 3=strong */
+    int profile_generate;         /* -fprofile-generate: instrument execution profile */
+    int profile_use;              /* -fprofile-use: guide optimizations with profile */
+    const char *profile_file;     /* profile file path (default.zcprof) */
+    uint32_t pgo_block_seq;       /* per-function sequence number for PGO block IDs */
+    size_t pgo_fn_name_rodata_offset; /* cached rodata offset of current function's name */
+    struct ZeroCCPGOProfile *pgo_profile; /* loaded profile for -fprofile-use */
 
     /* IR arena - dynamic instruction buffer */
     IRArena ir_arena;              /* IR instruction arena */

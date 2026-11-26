@@ -11,6 +11,7 @@
 
 #include "zero_cc/ir/ast_lowering_internal.h"
 #include "zero_cc/core/lto.h"
+#include "zero_cc/opt/opt_pgo.h"
 
 static int lower_condition_as_int(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef expr_ref) {
     TypeInfo *cond_ti = (expr_ref != AST_NULL) ? ast_node_get_typeinfo(c, zero_cc_ast_get(arena, expr_ref)) : NULL;
@@ -80,10 +81,16 @@ void lower_stmt_if(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *node
     int cond_temp = lower_condition_as_int(c, arena, node->left);
     uint16_t else_label = c->ir_next_label++;
     uint16_t end_label = c->ir_next_label++;
+    uint32_t then_block = ++c->pgo_block_seq;
+    uint32_t else_block = ++c->pgo_block_seq;
+    const char *fn_name = zero_cc_get_current_fn(c) ? zero_cc_get_current_fn(c)->name : NULL;
+
     ir_emit_je(c, (uint32_t)cond_temp, else_label);
+    zc_pgo_emit_hit(c, fn_name, then_block);
     lower_node(c, arena, node->right);
     ir_emit_jmp(c, end_label);
     ir_emit_label(c, else_label);
+    zc_pgo_emit_hit(c, fn_name, else_block);
     if (node->aux.alt != AST_NULL) {
         lower_node(c, arena, node->aux.alt);
     }
@@ -95,10 +102,13 @@ void lower_stmt_while(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
     if (!node) return;
     uint16_t loop_start = c->ir_next_label++;
     uint16_t loop_exit = c->ir_next_label++;
+    uint32_t body_block = ++c->pgo_block_seq;
+    const char *fn_name = zero_cc_get_current_fn(c) ? zero_cc_get_current_fn(c)->name : NULL;
     label_patcher_enter_loop(&c->label_patcher, loop_exit, loop_start);
     ir_emit_label(c, loop_start);
     int cond_temp = lower_condition_as_int(c, arena, node->left);
     ir_emit_je(c, (uint32_t)cond_temp, loop_exit);
+    zc_pgo_emit_hit(c, fn_name, body_block);
     lower_node(c, arena, node->right);
     ir_emit_jmp(c, loop_start);
     ir_emit_label(c, loop_exit);
@@ -114,6 +124,9 @@ void lower_stmt_do_while(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode
     uint16_t loop_exit = c->ir_next_label++;
     label_patcher_enter_loop(&c->label_patcher, loop_exit, loop_cond);
     ir_emit_label(c, loop_start);
+    uint32_t body_block = ++c->pgo_block_seq;
+    const char *fn_name = zero_cc_get_current_fn(c) ? zero_cc_get_current_fn(c)->name : NULL;
+    zc_pgo_emit_hit(c, fn_name, body_block);
     lower_node(c, arena, node->right);
     ir_emit_label(c, loop_cond);
     int cond_temp = lower_condition_as_int(c, arena, node->left);
@@ -134,12 +147,15 @@ void lower_stmt_for(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
     uint16_t loop_start = c->ir_next_label++;
     uint16_t loop_step = c->ir_next_label++;
     uint16_t loop_exit = c->ir_next_label++;
+    uint32_t body_block = ++c->pgo_block_seq;
+    const char *fn_name = zero_cc_get_current_fn(c) ? zero_cc_get_current_fn(c)->name : NULL;
     label_patcher_enter_loop(&c->label_patcher, loop_exit, loop_step);
     ir_emit_label(c, loop_start);
     if (node->right != AST_NULL) {
         int cond_temp = lower_condition_as_int(c, arena, node->right);
         ir_emit_je(c, (uint32_t)cond_temp, loop_exit);
     }
+    zc_pgo_emit_hit(c, fn_name, body_block);
     if (node->aux.alt != AST_NULL) {
         lower_node(c, arena, node->aux.alt);
     }

@@ -20,6 +20,7 @@
 #include "zero_cc.h"
 #include "zero_cc/opt/opt_pass.h"
 #include "zero_cc/opt/opt_profile.h"
+#include "zero_cc/opt/opt_pgo.h"
 #include "zero_cc/ir/ir_arena.h"
 #include "zero_cc/jit/elf_writer.h"
 #include "zero_cc/isa/isa_backend.h"
@@ -32,6 +33,10 @@
 #include "zero_cc/linker/ar_reader.h"
 #include "zero_cc/linker/linker.h"
 #include "zero_cc/linker/ar_writer.h"
+
+void __zc_pgo_reset(void);
+void __zc_pgo_set_file(const char *path);
+void __zc_pgo_dump(void);
 
 #include "zero_cc/driver/driver_opts.h"
 #include "zero_cc/driver/driver_asm.h"
@@ -381,6 +386,12 @@ static ZeroCCCompiler *jit_compile_tu(CompileOptions *opts, const char *input, i
     comp->has_sve = opts->has_sve != 0;
     comp->has_sve2 = opts->has_sve2 != 0;
     comp->has_rvv = opts->has_rvv != 0;
+    comp->profile_generate = opts->profile_generate;
+    comp->profile_use = opts->profile_use;
+    comp->profile_file = opts->profile_generate ? opts->profile_generate_path : opts->profile_use_path;
+    if (opts->profile_use && opts->profile_use_path && !comp->pgo_profile) {
+        comp->pgo_profile = zc_pgo_load_profile(opts->profile_use_path);
+    }
     comp->source_filename = input;
     static char cwd_buf[1024];
     if (getcwd(cwd_buf, sizeof(cwd_buf))) {
@@ -453,6 +464,12 @@ static ZeroCCCompiler *lto_compile_tu_phase1(CompileOptions *opts, const char *s
     comp->has_sve = opts->has_sve != 0;
     comp->has_sve2 = opts->has_sve2 != 0;
     comp->has_rvv = opts->has_rvv != 0;
+    comp->profile_generate = opts->profile_generate;
+    comp->profile_use = opts->profile_use;
+    comp->profile_file = opts->profile_generate ? opts->profile_generate_path : opts->profile_use_path;
+    if (opts->profile_use && opts->profile_use_path && !comp->pgo_profile) {
+        comp->pgo_profile = zc_pgo_load_profile(opts->profile_use_path);
+    }
     comp->source_filename = zero_cc_intern_string(comp, source_name ? source_name : "<lto>");
     static char cwd_buf[1024];
     if (getcwd(cwd_buf, sizeof(cwd_buf))) {
@@ -533,7 +550,14 @@ static int compile_jit(CompileOptions *opts) {
         }
         base->jit_argc = opts->jit_argc;
         base->jit_argv = opts->jit_argv;
+        if (opts->profile_generate) {
+            __zc_pgo_reset();
+            if (opts->profile_generate_path) __zc_pgo_set_file(opts->profile_generate_path);
+        }
         int result = zero_cc_execute_jit(base, NULL);
+        if (opts->profile_generate) {
+            __zc_pgo_dump();
+        }
         if (opts->verbose) {
             printf("JIT execution result: %d\n", result);
         }
@@ -583,7 +607,14 @@ static int compile_jit(CompileOptions *opts) {
             return 1;
         }
 
+        if (opts->profile_generate) {
+            __zc_pgo_reset();
+            if (opts->profile_generate_path) __zc_pgo_set_file(opts->profile_generate_path);
+        }
         int result = zero_cc_execute_jit(comp, NULL);
+        if (opts->profile_generate) {
+            __zc_pgo_dump();
+        }
         if (opts->verbose) {
             printf("JIT execution result: %d\n", result);
         }
@@ -597,7 +628,14 @@ static int compile_jit(CompileOptions *opts) {
         opt_profile_dump(stderr);
     }
 
+    if (opts->profile_generate) {
+        __zc_pgo_reset();
+        if (opts->profile_generate_path) __zc_pgo_set_file(opts->profile_generate_path);
+    }
     int result = zero_cc_execute_jit(comp, NULL);
+    if (opts->profile_generate) {
+        __zc_pgo_dump();
+    }
     if (opts->verbose) {
         printf("JIT execution result: %d\n", result);
     }
@@ -846,6 +884,12 @@ static int compile_object_single(CompileOptions *opts, const char *input,
     comp->has_sve = opts->has_sve != 0;
     comp->has_sve2 = opts->has_sve2 != 0;
     comp->has_rvv = opts->has_rvv != 0;
+    comp->profile_generate = opts->profile_generate;
+    comp->profile_use = opts->profile_use;
+    comp->profile_file = opts->profile_generate ? opts->profile_generate_path : opts->profile_use_path;
+    if (opts->profile_use && opts->profile_use_path && !comp->pgo_profile) {
+        comp->pgo_profile = zc_pgo_load_profile(opts->profile_use_path);
+    }
     comp->source_filename = input;
     static char cwd_buf[1024];
     if (getcwd(cwd_buf, sizeof(cwd_buf))) {
@@ -2398,9 +2442,26 @@ static int compile_and_link(CompileOptions *opts) {
         if (!opts->no_zerocc_rt && rt_path[0] && access(rt_path, R_OK) == 0) {
             snprintf(rt_arg, sizeof(rt_arg), " %s", rt_path);
         }
+        char pgo_arg[1024] = "";
+        if (opts->profile_generate) {
+            char self_exe[512];
+            ssize_t n_self = readlink("/proc/self/exe", self_exe, sizeof(self_exe) - 1);
+            if (n_self > 0) {
+                self_exe[n_self] = '\0';
+                char *slash = strrchr(self_exe, '/');
+                if (slash) {
+                    *slash = '\0';
+                    char pgo_obj[1024];
+                    snprintf(pgo_obj, sizeof(pgo_obj), "%s/../obj/src/zero_cc/jit/pgo_runtime.o", self_exe);
+                    if (access(pgo_obj, R_OK) == 0) {
+                        snprintf(pgo_arg, sizeof(pgo_arg), " %s", pgo_obj);
+                    }
+                }
+            }
+        }
         snprintf(cmd, sizeof(cmd),
-                 "%s %s %s -Wl,--defsym=link_error=0 -o %s %s -lc -lm%s%s%s 2>&1",
-                 linker, abi_flags, static_flag, output, all_objs, rt_arg, lib_args, gc_args);
+                 "%s %s %s -Wl,--defsym=link_error=0 -o %s %s%s -lc -lm%s%s%s 2>&1",
+                 linker, abi_flags, static_flag, output, all_objs, pgo_arg, rt_arg, lib_args, gc_args);
     }
 
     if (opts->verbose) {

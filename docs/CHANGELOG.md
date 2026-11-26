@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## [Sprint 244] - 2026-11-26 - Profile-Guided Optimization (PGO)
+
+- **Profile-Guided Optimization Engine (`driver/driver_opts.h`, `opt/opt_pgo.h`, `opt/opt_pgo.c`, `jit/pgo_runtime.c`, `zero_rt/core/pgo.c`)**:
+  - Implemented `-fprofile-generate[=path]` and `-fprofile-use[=path]` driver options with full JIT (`--run`) and AOT (`-o`) support.
+  - Runtime instrumentation (`__zc_pgo_hit`, `__zc_pgo_dump`, `__zc_pgo_set_file`, `__zc_pgo_reset`): records function entries and basic block/branch execution frequencies at runtime; automatically dumps profile data to `.zcprof` upon program termination via `atexit` or on JIT completion.
+  - Implemented environment variable override via `ZERO_CC_PROFILE_FILE`.
+- **Profile-Guided Optimization Transformations (`jit/compile.c`, `opt/opt_loop.c`, `opt/opt_loop_unroll.c`, `ir/ast_lowering_call.c`)**:
+  - **Hot Function Inlining**: Inliner scales AST node budget from 60/100 up to 250 for functions with high execution frequency (`hits >= 10`); suppresses inlining for cold functions (`hits == 0`).
+  - **Branch Simplification & Fallthrough Layout (`opt_branch_simplify`)**: Eliminates redundant jumps to immediate successor labels and guides branch placement.
+  - **Loop Unrolling Frequency Scaling (`opt_loop_unroll.c`)**: Boosts loop unroll trip cap from 8 up to 16 for hot loop bodies.
+- **Verification Battery (`tools/verify/pgo_tests.py`, `Makefile`)**:
+  - Added comprehensive PGO test battery `make test-pgo` covering direct JIT generation, direct AOT generation, profile-use execution across `-O0..-O3`, hot/cold inlining decisions, loop unrolling under profile frequency, environment variable overrides, and multi-TU PGO workflows.
+  - All 7 PGO battery tests pass cleanly across JIT and AOT modes.
+
 ## [Sprint 243] - 2026-11-26 - Cross-TU Link-Time Optimization (-flto) Verification Battery
 
 - **Cross-TU Link-Time Optimization Verification (`tools/verify/lto_tests.py`, `Makefile`)**:

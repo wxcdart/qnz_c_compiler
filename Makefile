@@ -120,6 +120,8 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	src/zero_cc/opt/opt_vectorize.o \
 	src/zero_cc/opt/opt_slp.o \
 	src/zero_cc/opt/cfg.o \
+	src/zero_cc/opt/opt_pgo.o \
+	src/zero_cc/jit/pgo_runtime.o \
 	src/zero_cc/core/pragma_state.o \
 	src/zero_cc/isa/backend_registry.o \
 	src/zero_cc/isa/x86_64.o \
@@ -141,7 +143,7 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	asan asan-unit asan-semantic asan-abi asan-jit \
 	test-asan test-asan-unit test-asan-semantic test-asan-abi test-asan-jit \
 	test-project-diff test-project-runs \
-	test-isa-qemu test-isa128 test-dlfcn-isa test-driver test-linker test-lto \
+	test-isa-qemu test-isa128 test-dlfcn-isa test-driver test-linker test-lto test-pgo \
 	test-c23 test-asm test-opt test-san test-preproc test-fuzz test-perf \
 	audit-self-host stage1 test-stage1 stage2 test-stage2 test-self-host \
 	stage1-ownlink test-stage1-ownlink stage2-ownlink test-stage2-ownlink test-self-host-ownlink \
@@ -385,6 +387,11 @@ test-linker: $(ZC_BIN)
 # elimination, constant propagation, Fat-LTO .o/.a archives, and mixed objects.
 test-lto: $(ZC_BIN)
 	@python3 tools/verify/lto_tests.py
+
+# Profile-Guided Optimization (-fprofile-generate / -fprofile-use) tests:
+# execution profiling, profile dumping, hot inlining, and branch layout.
+test-pgo: $(ZC_BIN)
+	@python3 tools/verify/pgo_tests.py
 
 # Embedded Baremetal CPU tests: linker scripts, LMA/VMA separation, boundary symbols,
 # freestanding environment, and capacity overflow checks across all target ISAs.

@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 165-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-11-26T11:04:27Z
+timestamp: 2026-11-26T11:22:54Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -107,6 +107,22 @@ make asan-semantic   # 17/17 as of Sprint 100
 # (opt_loop.c loop_analysis_free).  Every in-process compile is destroyed
 # via zero_cc_compiler_free, so this gate also catches new per-compile leaks.
 make asan
+```
+
+### Profile-Guided Optimization battery (`make test-pgo`, Sprint 244)
+
+`tools/verify/pgo_tests.py` verifies ZeroCC's Profile-Guided Optimization (`-fprofile-generate` / `-fprofile-use`):
+- Instrumentation emission and profile file recording in both in-memory JIT (`--run`) and AOT (`-o`) modes.
+- Profile loading and guided optimizations across `-O0..-O3`.
+- Hot function inlining budget scaling (up to 250 AST nodes) and cold function inlining suppression.
+- Loop unrolling trip cap expansion for hot loop headers.
+- Branch execution frequency tracking and branch simplification.
+- Multi-translation unit profile accumulation and consumption.
+- Runtime profile output path customization via `-fprofile-generate=<path>` and `ZERO_CC_PROFILE_FILE`.
+
+```bash
+make test-pgo
+python3 tools/verify/pgo_tests.py
 ```
 
 ### Link-Time Optimization battery (`make test-lto`, Sprint 243)

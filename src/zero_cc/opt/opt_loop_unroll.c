@@ -10,6 +10,7 @@
 #include "zero_cc/opt/opt_loop.h"
 #include "zero_cc/opt/opt_constant_fold.h"
 #include "zero_cc/opt/opt_profile.h"
+#include "zero_cc/opt/opt_pgo.h"
 #include "zero_cc/ir/ir.h"
 #include "zero_cc/ir/ir_arena.h"
 #include "zero_cc/ir/ir_emitter.h"
@@ -840,7 +841,11 @@ static bool lu_analyze(ZeroCCCompiler *c, const LoopAnalysisState *state,
                         if (plan->cc == CC_LT) trip = plan->bound - plan->init;
                         else if (plan->cc == CC_LE) trip = plan->bound - plan->init + 1;
                         else hdr_ok = false;
-                        if (hdr_ok && (trip < 1 || trip > LU_MAX_TRIP)) hdr_ok = false;
+                        int max_trip = LU_MAX_TRIP;
+                        if (c->profile_use && c->pgo_profile) {
+                            max_trip = 16;
+                        }
+                        if (hdr_ok && (trip < 1 || trip > max_trip)) hdr_ok = false;
                         if (hdr_ok && (E - H + 1) > LU_MAX_BODY) hdr_ok = false;  /* full unroll cap */
                         if (hdr_ok &&
                             (plan->bound < -2147483648LL || plan->bound > 2147483647LL ||
