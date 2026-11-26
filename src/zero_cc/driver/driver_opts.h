@@ -75,6 +75,8 @@ typedef struct {
     int has_sve2;           /* -msve2: enable ARM SVE2 */
     int has_rvv;            /* -mrvv: enable RISC-V Vector Extension (RVV 1.0) */
     int is_pe;              /* --pe / -mpe / Windows PE32+ output */
+    int is_shared;          /* -shared: emit dynamic library (.so / .dll) */
+    int is_windows_gui;     /* -mwindows: Windows GUI subsystem (subsystem = 2) */
     int jit_argc;           /* JIT main argc */
     char **jit_argv;        /* JIT main argv */
 } CompileOptions;
@@ -387,6 +389,13 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
         else if (strcmp(arg, "--pe") == 0 || strcmp(arg, "-mpe") == 0) {
             opts->is_pe = 1;
         }
+        else if (strcmp(arg, "-mwindows") == 0) {
+            opts->is_pe = 1;
+            opts->is_windows_gui = 1;
+        }
+        else if (strcmp(arg, "-mconsole") == 0) {
+            opts->is_windows_gui = 0;
+        }
         else if ((strcmp(arg, "--target") == 0 && i + 1 < argc) || strncmp(arg, "--target=", 9) == 0) {
             if (strncmp(arg, "--target=", 9) == 0) {
                 opts->target_arch = arg + 9;
@@ -602,8 +611,11 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
                 fprintf(stderr, "zerocc: warning: unknown standard '%s' (targeting C99/C11)\n", v);
             }
         }
+        else if (strcmp(arg, "-shared") == 0) {
+            opts->is_shared = 1;
+        }
         else if (strcmp(arg, "-pthread") == 0 || strcmp(arg, "-pipe") == 0 ||
-                 strcmp(arg, "-static") == 0 || strcmp(arg, "-shared") == 0 ||
+                 strcmp(arg, "-static") == 0 ||
                  strcmp(arg, "-pie") == 0 || strcmp(arg, "-no-pie") == 0) {
             if (opts->verbose) fprintf(stderr, "zerocc: note: ignoring '%s' (not applicable to zerocc's static output)\n", arg);
         }
@@ -644,8 +656,14 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
         if (olen >= 4 && (strcmp(opts->output_file + olen - 4, ".exe") == 0 ||
                           strcmp(opts->output_file + olen - 4, ".EXE") == 0 ||
                           strcmp(opts->output_file + olen - 4, ".obj") == 0 ||
-                          strcmp(opts->output_file + olen - 4, ".OBJ") == 0)) {
+                          strcmp(opts->output_file + olen - 4, ".OBJ") == 0 ||
+                          strcmp(opts->output_file + olen - 4, ".dll") == 0 ||
+                          strcmp(opts->output_file + olen - 4, ".DLL") == 0)) {
             opts->is_pe = 1;
+            if (strcmp(opts->output_file + olen - 4, ".dll") == 0 ||
+                strcmp(opts->output_file + olen - 4, ".DLL") == 0) {
+                opts->is_shared = 1;
+            }
         }
     }
 

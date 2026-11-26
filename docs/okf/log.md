@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-26T12:49:17Z
+timestamp: 2026-11-26T13:08:32Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1746,3 +1746,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-26 — Updated `frontend-and-types.md`
 - Sprint 248: ISO C23 #embed & Modern C23 Dialect Completion (empty param lists as void in C23, embed params, typeof_unqual)
+
+## 2026-11-26 — Updated `build-and-verification.md`
+- Sprint 249: Windows PE/COFF Toolchain Expansion (.dll, .edata, msvcrt, -mwindows)

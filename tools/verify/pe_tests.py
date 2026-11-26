@@ -229,6 +229,114 @@ def test_optimization_sweep():
             report(f"PE32+ compilation at {opt}", ok, proc.stderr)
 
 
+def test_dll_exports_and_headers():
+    """Verify Windows DLL (.dll) emission with .edata export table (Sprint 249)."""
+    with tempfile.TemporaryDirectory() as td:
+        src = Path(td) / "math.c"
+        dll = Path(td) / "math.dll"
+        src.write_text("""
+        int add(int a, int b) { return a + b; }
+        int mul(int a, int b) { return a * b; }
+        """)
+
+        cmd = [str(ZEROCC), "-shared", str(src), "-o", str(dll)]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        report("DLL compilation with -shared", proc.returncode == 0, proc.stderr)
+        if proc.returncode != 0:
+            return
+
+        data = dll.read_bytes()
+        e_lfanew, = struct.unpack_from("<I", data, 60)
+        coff_offset = e_lfanew + 4
+        machine, num_sec, _, _, _, opt_size, charact = struct.unpack_from("<HHIIIHH", data, coff_offset)
+
+        report("DLL IMAGE_FILE_DLL characteristic (0x2000)", bool(charact & 0x2000), f"charact=0x{charact:04X}")
+        report("DLL section count == 5 (with .edata)", num_sec == 5, f"got {num_sec}")
+
+        # Section headers inspection
+        sec_offset = coff_offset + 20 + opt_size
+        names = []
+        for i in range(num_sec):
+            name_raw = data[sec_offset + i * 40 : sec_offset + i * 40 + 8]
+            names.append(name_raw.split(b"\x00")[0].decode("ascii", errors="ignore"))
+        report("Section table contains .edata", ".edata" in names, f"sections={names}")
+
+        # Private headers via objdump -p
+        dump_p = subprocess.run(["objdump", "-p", str(dll)], capture_output=True, text=True)
+        report("objdump -p recognizes DLL export table",
+               "The Export Tables" in dump_p.stdout and "math.dll" in dump_p.stdout,
+               dump_p.stdout[:300])
+        report("Export table contains 'add' and 'mul'",
+               "add" in dump_p.stdout and "mul" in dump_p.stdout,
+               dump_p.stdout[:300])
+
+
+def test_gui_subsystem():
+    """Verify -mwindows GUI subsystem flag and WinMain entry point (Sprint 249)."""
+    with tempfile.TemporaryDirectory() as td:
+        src = Path(td) / "gui.c"
+        exe = Path(td) / "gui.exe"
+        src.write_text("""
+        int WinMain(void) {
+            return 77;
+        }
+        """)
+
+        cmd = [str(ZEROCC), "-mwindows", str(src), "-o", str(exe)]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        report("GUI executable compilation (-mwindows)", proc.returncode == 0, proc.stderr)
+        if proc.returncode != 0:
+            return
+
+        data = exe.read_bytes()
+        e_lfanew, = struct.unpack_from("<I", data, 60)
+        opt_offset = e_lfanew + 4 + 20
+        subsys, = struct.unpack_from("<H", data, opt_offset + 68)
+        report("Subsystem Windows GUI == 2", subsys == 2, f"got {subsys}")
+
+        dump_d = subprocess.run(["objdump", "-d", str(exe)], capture_output=True, text=True)
+        report("CRT stub disassembles and invokes WinMain",
+               dump_d.returncode == 0 and "call" in dump_d.stdout,
+               dump_d.stderr[:200])
+
+
+def test_multi_dll_msvcrt_imports():
+    """Verify multi-DLL import routing (KERNEL32.dll + msvcrt.dll) and IAT thunks (Sprint 249)."""
+    with tempfile.TemporaryDirectory() as td:
+        src = Path(td) / "app.c"
+        exe = Path(td) / "app.exe"
+        src.write_text("""
+        extern int puts(const char *);
+        extern void *malloc(unsigned long);
+        extern void free(void *);
+        int main(void) {
+            puts("Hello Windows PE");
+            void *p = malloc(64);
+            free(p);
+            return 0;
+        }
+        """)
+
+        cmd = [str(ZEROCC), str(src), "-o", str(exe)]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        report("Multi-DLL app compilation with CRT calls", proc.returncode == 0, proc.stderr)
+        if proc.returncode != 0:
+            return
+
+        dump_p = subprocess.run(["objdump", "-p", str(exe)], capture_output=True, text=True)
+        report("Imports KERNEL32.dll (ExitProcess)",
+               "KERNEL32.dll" in dump_p.stdout and "ExitProcess" in dump_p.stdout,
+               dump_p.stdout[:300])
+        report("Imports msvcrt.dll (puts, malloc, free)",
+               "msvcrt.dll" in dump_p.stdout and "puts" in dump_p.stdout and "malloc" in dump_p.stdout,
+               dump_p.stdout[:300])
+
+        dump_d = subprocess.run(["objdump", "-d", str(exe)], capture_output=True, text=True)
+        report("Disassembly contains IAT indirect jump thunks",
+               "jmp" in dump_d.stdout and "(%rip)" in dump_d.stdout,
+               dump_d.stdout[:300])
+
+
 def main():
     if not ZEROCC.exists():
         print(f"Error: {ZEROCC} not found. Run make first.", file=sys.stderr)
@@ -239,6 +347,9 @@ def main():
     test_objdump_inspection()
     test_cli_flags()
     test_optimization_sweep()
+    test_dll_exports_and_headers()
+    test_gui_subsystem()
+    test_multi_dll_msvcrt_imports()
 
     total = passed + failed
     print(f"\nResults: {passed}/{total} passed, {failed} failed.")

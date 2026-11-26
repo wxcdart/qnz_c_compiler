@@ -1941,7 +1941,7 @@ static bool find_rv32_musl_prefix(char *out, size_t out_len) {
 static int compile_and_link(CompileOptions *opts) {
     if (opts->is_pe) {
         if (opts->input_count == 0) return 1;
-        const char *output = opts->output_file ? opts->output_file : "a.exe";
+        const char *output = opts->output_file ? opts->output_file : (opts->is_shared ? "a.dll" : "a.exe");
         ZeroCCCompiler *comp = jit_compile_tu(opts, opts->input_files[0], 0);
         if (!comp) return 1;
         for (int i = 1; i < opts->input_count; i++) {
@@ -1959,14 +1959,19 @@ static int compile_and_link(CompileOptions *opts) {
             }
             zero_cc_compiler_free(tu);
         }
-        bool ok = zero_cc_pe_write_exe_from_comp(output, comp);
+        ZeroCCPeOptions pe_opts;
+        memset(&pe_opts, 0, sizeof(pe_opts));
+        pe_opts.is_dll = (opts->is_shared != 0);
+        pe_opts.is_gui = (opts->is_windows_gui != 0);
+        pe_opts.dll_name = output;
+        bool ok = zero_cc_pe_write_binary_from_comp(output, comp, &pe_opts);
         zero_cc_compiler_free(comp);
         if (!ok) {
-            fprintf(stderr, "zerocc: error writing PE executable: %s\n", output);
+            fprintf(stderr, "zerocc: error writing PE %s: %s\n", opts->is_shared ? "DLL" : "executable", output);
             return 1;
         }
         if (opts->verbose) {
-            printf("Successfully generated PE32+ executable: %s\n", output);
+            printf("Successfully generated PE32+ %s: %s\n", opts->is_shared ? "DLL" : "executable", output);
         }
         return 0;
     }

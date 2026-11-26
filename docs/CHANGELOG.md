@@ -1,5 +1,25 @@
 # CHANGELOG
 
+## [Sprint 249] - 2026-11-26 - Windows PE/COFF Toolchain Expansion (.dll, .edata, msvcrt, -mwindows)
+
+- **PE32+ DLL & Export Table Emission (`linker/pe_writer.h`, `linker/pe_writer.c`, `main.c`, `driver/driver_opts.h`)**:
+  - Implemented Windows PE32+ DLL emission (`-shared`, `-shared -mpe`, or `-o *.dll`).
+  - Added `IMAGE_FILE_DLL` (`0x2000`) flag to `IMAGE_FILE_HEADER.Characteristics`.
+  - Implemented `.edata` export table generation: `ZeroCCExportDirectory` (`IMAGE_EXPORT_DIRECTORY`), Export Address Table (EAT), Export Name Pointer Table (ENT, ASCII sorted), Export Ordinal Table (EOT), and string pool.
+  - Linked `IMAGE_DIRECTORY_ENTRY_EXPORT` (`DataDirectory[0]`) to `.edata` RVA and size.
+  - Added DLL entry point stub (`mov eax, 1; ret`) and `DllMain` entry resolution.
+- **Windows GUI Subsystem (`-mwindows`, `driver/driver_opts.h`, `linker/pe_writer.c`)**:
+  - Added `-mwindows` (GUI subsystem = 2) and `-mconsole` (CUI subsystem = 3) options.
+  - Added entry point resolution for `WinMain` in GUI mode with fallback to `main`.
+- **Multi-DLL Import Routing & CRT Thunks (`linker/pe_writer.c`)**:
+  - Extended `.idata` section to support multiple dynamic libraries (`KERNEL32.dll`, `msvcrt.dll`, `USER32.dll`).
+  - Implemented automatic symbol classification for C standard library functions (`puts`, `malloc`, `free`, `printf`, `exit`, etc.) to `msvcrt.dll`.
+  - Emitted indirect jump thunks in `.text` (`jmp *[rip + disp32]`) targeting resolved IAT entries for both relative (`is_call`) and absolute (`is_abs_call`) calls.
+- **Verification Battery (`tools/verify/pe_tests.py`, `Makefile`)**:
+  - Expanded `tools/verify/pe_tests.py` with DLL export table validation, GUI subsystem verification, and multi-DLL import routing tests.
+  - All 44/44 PE verification checks pass (up from 31/31).
+  - Verified regression gates: `make test-pe` (44/44 passed), `make test` (277/277 passed), `python3 tools/verify/style_check.py` (0 errors, 0 warnings), `python3 tools/okf/okf.py lint` (23/23 reachable).
+
 ## [Sprint 246] - 2026-11-26 - Cross-Platform Native Binary Output (T3-Win PE/COFF)
 
 - **Windows PE32+ Executable Writer (`linker/pe_writer.h`, `linker/pe_writer.c`, `main.c`, `driver/driver_opts.h`)**:

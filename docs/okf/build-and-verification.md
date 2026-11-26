@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 165-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-11-26T12:04:21Z
+timestamp: 2026-11-26T13:08:32Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -125,16 +125,17 @@ make test-pgo
 python3 tools/verify/pgo_tests.py
 ```
 
-### Windows PE/COFF Native Output battery (`make test-pe`, Sprint 246)
+### Windows PE/COFF Native Output battery (`make test-pe`, Sprint 246, Sprint 249)
 
 `tools/verify/pe_tests.py` verifies ZeroCC's cross-platform Windows PE/COFF binary output:
 - Standalone PE32+ console executables (`.exe`) with DOS "MZ" header, DOS stub, PE signature ("PE\0\0"), COFF file header (`IMAGE_FILE_MACHINE_AMD64`), and 64-bit optional header (`IMAGE_SUBSYSTEM_WINDOWS_CUI`, default image base `0x140000000`).
-- Section table layout: `.text`, `.rdata`, `.data`, `.idata` with page alignment (4 KB) and file sector alignment (512 B).
-- Dynamic import table for `KERNEL32.dll` and `ExitProcess` (ILT, IAT, hint/name entries).
-- Integrated CRT entry point stub that executes `main` and passes its exit code to `ExitProcess`.
+- Windows PE32+ dynamic link libraries (`.dll`, `-shared`): `IMAGE_FILE_DLL` (0x2000), `.edata` export table with Export Directory Table (`IMAGE_DIRECTORY_ENTRY_EXPORT`), Export Address Table (EAT), Export Name Pointer Table (ENT, ASCII-sorted), and Export Ordinal Table (EOT).
+- Windows GUI subsystem (`-mwindows`): Optional Header subsystem `IMAGE_SUBSYSTEM_WINDOWS_GUI` (2) and `WinMain` entry point resolution.
+- Multi-DLL import routing in `.idata`: `KERNEL32.dll` (`ExitProcess`), `msvcrt.dll` (standard C library functions: `puts`, `malloc`, `free`, `printf`, etc.), and IAT indirect jump thunks (`jmp *[rip + disp]`) emitted in `.text`.
+- Section table layout: `.text`, `.rdata`, `.data`, `.idata`, `.edata` with page alignment (4 KB) and file sector alignment (512 B).
 - Relocatable COFF object files (`.obj`) with section headers, symbol table, and relocation records.
 - Cross-checking via host binutils `objdump` (`pei-x86-64` and `pe-x86-64`).
-- CLI driver options (`--pe`, `-mpe`, `--target=x86_64-w64-mingw32`, `--target=pe-x86-64`, `-o *.exe`, `-c -o *.obj`).
+- CLI driver options (`--pe`, `-mpe`, `-shared`, `-mwindows`, `-mconsole`, `--target=x86_64-w64-mingw32`, `--target=pe-x86-64`, `-o *.exe`, `-o *.dll`, `-c -o *.obj`).
 - Optimization sweep across `-O0..-O3`.
 
 ```bash

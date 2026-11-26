@@ -28,12 +28,19 @@ typedef struct ZeroCCCompiler ZeroCCCompiler;
 #define ZERO_CC_PE_SIGNATURE             0x00004550 /* "PE\0\0" */
 #define ZERO_CC_IMAGE_FILE_MACHINE_AMD64 0x8664
 #define ZERO_CC_PE32PLUS_MAGIC           0x020B
+#define ZERO_CC_IMAGE_SUBSYSTEM_WINDOWS_GUI 2   /* Windows GUI Subsystem */
 #define ZERO_CC_IMAGE_SUBSYSTEM_WINDOWS_CUI 3   /* Windows Console Subsystem */
 
 /* Characteristics */
 #define ZERO_CC_IMAGE_FILE_RELOCS_STRIPPED     0x0001
 #define ZERO_CC_IMAGE_FILE_EXECUTABLE_IMAGE    0x0002
 #define ZERO_CC_IMAGE_FILE_LARGE_ADDRESS_AWARE 0x0020
+#define ZERO_CC_IMAGE_FILE_DLL                 0x2000
+
+/* Data Directory Indices */
+#define ZERO_CC_IMAGE_DIRECTORY_ENTRY_EXPORT   0
+#define ZERO_CC_IMAGE_DIRECTORY_ENTRY_IMPORT   1
+#define ZERO_CC_IMAGE_DIRECTORY_ENTRY_IAT      12
 
 /* Section Characteristics */
 #define ZERO_CC_IMAGE_SCN_CNT_CODE               0x00000020
@@ -173,7 +180,27 @@ typedef struct {
     uint16_t type;
 } ZeroCCCoffReloc;
 
+typedef struct {
+    uint32_t characteristics;
+    uint32_t time_date_stamp;
+    uint16_t major_version;
+    uint16_t minor_version;
+    uint32_t name_rva;
+    uint32_t ordinal_base;
+    uint32_t number_of_functions;
+    uint32_t number_of_names;
+    uint32_t address_of_functions;
+    uint32_t address_of_names;
+    uint32_t address_of_name_ordinals;
+} ZeroCCExportDirectory;
+
 #pragma pack(pop)
+
+typedef struct {
+    bool is_dll;            /* Emit DLL instead of EXE */
+    bool is_gui;            /* Windows GUI subsystem instead of CUI */
+    const char *dll_name;   /* Basename for export table */
+} ZeroCCPeOptions;
 
 /**
  * @brief Emit a standalone Windows PE32+ executable (.exe).
@@ -189,6 +216,18 @@ bool zero_cc_pe_write_exe(const char *filename,
  * @brief Emit a standalone Windows PE32+ executable (.exe) directly from a ZeroCCCompiler.
  */
 bool zero_cc_pe_write_exe_from_comp(const char *filename, ZeroCCCompiler *comp);
+
+/**
+ * @brief Emit a Windows PE32+ DLL (.dll) directly from a ZeroCCCompiler.
+ */
+bool zero_cc_pe_write_dll_from_comp(const char *filename, ZeroCCCompiler *comp);
+
+/**
+ * @brief Emit a Windows PE32+ executable or DLL with configurable options from a ZeroCCCompiler.
+ */
+bool zero_cc_pe_write_binary_from_comp(const char *filename,
+                                       ZeroCCCompiler *comp,
+                                       const ZeroCCPeOptions *opts);
 
 /**
  * @brief Emit a relocatable COFF object file (.obj) for x86-64.
