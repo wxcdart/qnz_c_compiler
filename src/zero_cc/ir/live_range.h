@@ -510,7 +510,7 @@ static void live_range_compute(LiveRangeAnalyzer *lra, RegAllocator *ra, ZeroCCC
         }
 
         if (param_slot >= 0 && int_idx >= 0) {
-            if (!spans_call && !clash) {
+            if ((ra->target_isa != ISA_X86_64 || param_slot != 1) && !spans_call && !clash) {
                 /* Pre-color the whole interval to the ABI slot: no
                  * materialization move is needed, and the conflict check keeps
                  * every other interval off the slot during the live window. */

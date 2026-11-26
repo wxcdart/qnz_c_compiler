@@ -1,5 +1,28 @@
 # CHANGELOG
 
+## [Sprint 242] - 2026-11-26 - Inline Asm RCX Constraint & Multidimensional Array Param Declarator
+
+- **Inline Assembly Fixed Constraint `c` / `%rcx` (`ir/ast_lowering_stmt.c`, `isa/target_traits.h`, `ir/live_range.h`)**:
+  - Enabled fixed-register inline assembly constraint `c` (`"=c"`, `"+c"`, `"c"`) targeting `%rcx` on x86-64.
+  - Added `(1u << 1)` to `allocatable_gpr_mask` in `target_traits.h` while keeping it strictly excluded from general allocation pools (`s_x86_alloc_pool`, `s_x86_pair_cs_pool`, `s_x86_pair_gp_pool`) to prevent general variable assignment.
+  - Guarded ABI argument slot 1 (%rcx) in `live_range.h` so incoming 4th arguments on x86-64 continue to materialize into general registers via `OP_PARAM_LOAD` without colliding with variable shift operations.
+  - Unblocked GCC c-torture test `compile/asmgoto-3.c` across all optimization levels (`-O0..-O3`) in both AOT and JIT modes.
+- **Multidimensional Array Parameter Declarator Scanner (`parser/zero_cc_declarator_stack.h`)**:
+  - Fixed parenthesized pointer-to-array declarator scanner (`(*p)[N]`) to consume all chained dimension brackets (`(*p)[N][M][K]`) using a `while` loop rather than stopping at the first dimension.
+  - Unblocked GCC c-torture test `compile/pr77754-6.c` (`void fn4(int (*)[fn3 ()][fn3 () + 1][fn3 () + 2], ...)`).
+- **GCC `c-torture` Classification Updates (`tools/verify/torture_run.py`, `test/torture/baseline.json`, `docs/okf/c-torture-gate.md`)**:
+  - Added `"dfp"` and `"dfprt"` (ISO/IEC TR 24732 Decimal Floating-Point) to `UNSUPPORTED_TARGETS`, cleanly classifying `execute/pr80692.c` (`_Decimal64`) as `SKIP-TARGET:dfp`.
+  - Added `"-fgimple"` (GCC internal intermediate representation dialect) to `SKIP_OPTION_SUBSTR`, cleanly classifying `compile/pr115143-2.c` and `compile/pr115143-3.c` as `SKIP-REFSEM`.
+  - Reduced `SKIP-C89` from 8 down to **3** (a 62.5% burn-down of the remaining bucket), setting a new all-time high of **3,808 PASS / 3 SKIP-C89 / 0 MISCOMPILE / 0 REJECT**.
+  - Documented the architectural requirements of the final 3 `SKIP-C89` tests:
+    - `compile/pr108892.c`: 64-byte AVX-512 GNU vector extensions (`__builtin_shufflevector`, vector modulo, vector bitwise logic).
+    - `execute/pr41935.c`: GNU dynamic offsetof with variable array subscript (`__builtin_offsetof(struct S, b[i][j])`).
+    - `execute/pr82210.c`: GNU variably modified struct members with subsequent members requiring dynamic member offsets (`struct S { struct T a[size]; int b[size]; }`).
+- **Verification & Test Coverage**:
+  - Regression suite (`make test`): 277/277 passed in 7.65s.
+  - Code style check (`style_check.py`): 221 files checked, 0 errors, 0 warnings.
+  - OKF validation (`okf.py lint`): all 23 nodes reachable, schema valid.
+
 ## [Sprint 241] - 2026-11-26 - Multi-TU JIT Layout & GCC c-torture SKIP-C89 Burn-Down
 
 - **Multi-TU In-Memory JIT for Large Projects (`core/multi_tu.h`, `jit/execution.h`, `jit/compile_unit.c`, `tools/verify/project_runs.py`)**:

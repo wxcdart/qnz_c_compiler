@@ -358,22 +358,16 @@ static int zc_asm_fixed_letter_reg(const char ch) {
 }
 
 /* Resolve a fixed-register constraint letter to an allocatable hardware
- * register. 'c' is rejected: RCX is reserved for the shift count, so it can
- * never hold an asm operand. Returns 1 on success (pool set), 0 after
+ * register (a/b/c/d/S/D). Returns 1 on success (pool set), 0 after
  * reporting a clean diagnostic. */
 static int zc_asm_fixed_letter_ok(ZeroCCCompiler *c, char body, int *pool) {
     if (BE(c)->isa != ISA_X86_64) {
-        diag_report_error_at_token(c, "fixed-register asm constraints (a/b/d/S/D) are x86-64 specific");
+        diag_report_error_at_token(c, "fixed-register asm constraints (a/b/c/d/S/D) are x86-64 specific");
         return 0;
     }
     int p = zc_asm_fixed_letter_reg(body);
     if (p < 0) {
-        diag_report_error_at_token(c, "asm constraint not supported (r/m/a/b/d/S/D)");
-        return 0;
-    }
-    if (p == 1) {
-        diag_report_error_at_token(c,
-            "asm constraint 'c' (rcx) not supported: rcx is reserved for shift counts");
+        diag_report_error_at_token(c, "asm constraint not supported (r/m/a/b/c/d/S/D)");
         return 0;
     }
     *pool = p;

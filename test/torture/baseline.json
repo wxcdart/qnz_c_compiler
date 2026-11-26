@@ -6195,12 +6195,12 @@
    "note": ""
   },
   "compile/asmgoto-3.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "    ^; Compile error: asm constraint 'c' (rcx) not supported: rcx is reserved for shift counts | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/asmgoto-4.c": {
    "class": "PASS",
@@ -8748,20 +8748,14 @@
    "note": ""
   },
   "compile/pr115143-2.c": {
-   "class": "SKIP-C89",
-   "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
-   },
-   "note": "          ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "class": "SKIP-REFSEM",
+   "configs": {},
+   "note": ""
   },
   "compile/pr115143-3.c": {
-   "class": "SKIP-C89",
-   "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
-   },
-   "note": "          ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "class": "SKIP-REFSEM",
+   "configs": {},
+   "note": ""
   },
   "compile/pr115881.c": {
    "class": "PASS",
@@ -13738,12 +13732,12 @@
    "note": ""
   },
   "compile/pr77754-6.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "         ^; Compile error: unexpected token at file scope | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr77901.c": {
    "class": "PASS",
@@ -35009,7 +35003,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                                  ^; Compile error: redefinition of 'struct S' with a different layout is not supported | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "                                               ^; Compile error: variable index in offsetof is not supported | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr42006.c": {
    "class": "PASS",
@@ -39002,18 +38996,9 @@
    "note": ""
   },
   "execute/pr80692.c": {
-   "class": "SKIP-C89",
-   "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
-   },
-   "note": "            ^; Compile error: expected ';' after declaration of 'd64' (near 'DD') | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "class": "SKIP-TARGET:dfp",
+   "configs": {},
+   "note": ""
   },
   "execute/pr81281.c": {
    "class": "PASS",
@@ -39139,7 +39124,7 @@
     "O3-aot": "REJECT",
     "O3-jit": "REJECT"
    },
-   "note": "                          ^; Compile error: unexpected token in struct/union definition | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": "           ^; Compile error: member following variably modified member in struct is not supported | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
   },
   "execute/pr82387.c": {
    "class": "PASS",
@@ -42146,15 +42131,16 @@
  "totals": {
   "EXPECTED-REJECT": 4,
   "NO-REF": 1,
-  "PASS": 3806,
+  "PASS": 3808,
   "REF-BUG": 11,
   "SKIP-BOGUS": 1,
-  "SKIP-C89": 8,
+  "SKIP-C89": 3,
   "SKIP-PTR": 1,
-  "SKIP-REFSEM": 7,
+  "SKIP-REFSEM": 9,
   "SKIP-SUPPORT": 87,
   "SKIP-TARGET:arm": 1,
   "SKIP-TARGET:bfloat16_runtime": 1,
+  "SKIP-TARGET:dfp": 1,
   "SKIP-TARGET:float128x_runtime": 1,
   "SKIP-TARGET:float16_runtime": 1,
   "SKIP-TARGET:ia64": 1,

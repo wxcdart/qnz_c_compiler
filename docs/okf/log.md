@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-26T08:23:40Z
+timestamp: 2026-11-26T10:43:49Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1722,3 +1722,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-26 — Updated `c-torture-gate.md`
 - Burn down 25 SKIP-C89 tests (33 -> 8); PASS 3781 -> 3806
+
+## 2026-11-26 — Updated `c-torture-gate.md`
+- Sprint 242: SKIP-C89 Burn-Down to 3 tests, inline asm =c RCX constraint, multidimensional array param declarators
+
+## 2026-11-26 — Updated `inline-assembly-roadmap.md`
+- Sprint 242: Enable fixed register constraint c (%rcx) in inline assembly

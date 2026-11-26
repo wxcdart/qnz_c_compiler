@@ -565,10 +565,10 @@ static inline void zero_cc_parse_param_list(
                     c->token_pos++;
                 }
             }
-            /* Trailing array dim on the parenthesized pointer: `(*p)[N]`
-             * (pointer to array), not a function pointee. Consume it so the
+            /* Trailing array dims on the parenthesized pointer: `(*p)[N]` / `(*p)[N][M]`
+             * (pointer to array), not a function pointee. Consume them so the
              * declarator re-parse below stops where the quick scan left off. */
-            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACKET) {
+            while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACKET) {
                 int bdepth = 1;
                 c->token_pos++;
                 while (c->token_pos < c->token_count && bdepth > 0) {

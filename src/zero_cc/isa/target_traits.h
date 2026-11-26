@@ -183,7 +183,7 @@ static inline const TargetTraits *zero_cc_get_target_traits(ZeroCCISA isa) {
                 .text_sym_reloc_field = 8,
                 .complex_float_in_single_fp_reg = true,
                 .regs = {
-                    .allocatable_gpr_mask = (1u<<0)|(1u<<2)|(1u<<3)|(1u<<6)|(1u<<7)|(1u<<8)|(1u<<9)|(1u<<12)|(1u<<13)|(1u<<14)|(1u<<15),
+                    .allocatable_gpr_mask = (1u<<0)|(1u<<1)|(1u<<2)|(1u<<3)|(1u<<6)|(1u<<7)|(1u<<8)|(1u<<9)|(1u<<12)|(1u<<13)|(1u<<14)|(1u<<15),
                     .callee_saved_gpr_mask = (1u<<3)|(1u<<12)|(1u<<13)|(1u<<14)|(1u<<15),
                     .reserved_gpr_mask = (1u<<1)|(1u<<4)|(1u<<5)|(1u<<10)|(1u<<11),
                     .initial_used_callee_saved_mask = 0,

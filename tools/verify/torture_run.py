@@ -315,11 +315,15 @@ UNSUPPORTED_TARGETS = {
     "float16_runtime",
     "bfloat16_runtime",
     "float128x_runtime",
+    # ISO/IEC TR 24732 Decimal Floating-Point (_Decimal32/_Decimal64/_Decimal128)
+    "dfp",
+    "dfprt",
 }
 
 # dg-options that change the reference's observable semantics in ways zerocc
-# cannot emulate (we have no x87 mode and no fast-math pipeline).
-SKIP_OPTION_SUBSTR = ("-mfpmath=", "-ffast-math", "-finstrument-functions")
+# cannot emulate (we have no x87 mode and no fast-math pipeline), or non-C
+# frontends/dialects (-fgimple: GCC internal GIMPLE intermediate representation).
+SKIP_OPTION_SUBSTR = ("-mfpmath=", "-ffast-math", "-finstrument-functions", "-fgimple")
 # NOTE: "-fsignaling-nans" was removed in Sprint 160 - its only corpus
 # users are the 9 execute/ieee/*-builtin-issignaling-1.c tests, which
 # construct NaN/inf constants via builtins and classify them with
