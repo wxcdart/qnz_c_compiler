@@ -117,10 +117,7 @@ CJ_UNITY_TESTS = [
 # tests that need cJSON_Utils.c
 CJ_UTILS_TESTS = {"cjson_add", "compare_tests", "json_patch_tests",
                   "misc_utils_tests", "old_utils_tests"}
-CJ_JIT = {"parse_number", "parse_array", "parse_string", "parse_object",
-          "parse_value", "print_number", "print_array", "print_string",
-          "print_object", "print_value", "readme_examples", "misc_tests",
-          "cjson_add", "compare_tests"}  # subset for JIT speed
+CJ_JIT = set(CJ_UNITY_TESTS)  # all 20 Unity test suites under JIT
 
 
 def cjson_case_tus(name):
@@ -302,6 +299,14 @@ def run_sqlite(jit, work):
     ok, det = compare("sqlite sql-suite", g_sql, z_sql)
     results.append(("sqlite sql-suite [aot]", ok, det))
 
+    # SQL suite directly in RAM (:memory:)
+    with open(suite, "rb") as f:
+        suite_data = f.read()
+    g_mem = run_bin(gb, [":memory:"], stdin_data=suite_data)
+    z_mem = run_bin(zg, [":memory:"], stdin_data=suite_data)
+    ok_mem, det_mem = compare("sqlite in-memory [aot]", g_mem, z_mem)
+    results.append(("sqlite in-memory [aot]", ok_mem, det_mem))
+
     if jit:
         zj_ver = run_jit(tus, [], args=["--version"])
         results.append(("sqlite --version [jit]",) + compare("sqlite --version", g_ver, zj_ver))
@@ -310,13 +315,15 @@ def run_sqlite(jit, work):
             db = os.path.join(work, f"sql_{tag}.db")
             if os.path.exists(db):
                 os.unlink(db)
-            with open(suite, "rb") as f:
-                suite_data = f.read()
             return run_jit(tus, [], args=[db], stdin_data=suite_data)
 
         zj_sql = sql_jit_pair("zj")
         ok_j, det_j = compare("sqlite sql-suite [jit]", g_sql, zj_sql)
         results.append(("sqlite sql-suite [jit]", ok_j, det_j))
+
+        zj_mem = run_jit(tus, [], args=[":memory:"], stdin_data=suite_data)
+        ok_jm, det_jm = compare("sqlite in-memory [jit]", g_mem, zj_mem)
+        results.append(("sqlite in-memory [jit]", ok_jm, det_jm))
 
     return results
 

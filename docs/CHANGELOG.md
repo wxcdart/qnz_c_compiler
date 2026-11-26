@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## [Sprint 250] - 2026-11-26 - Full Multi-TU In-Memory JIT for Large Projects (SQLite3 Amalgamation directly in RAM)
+
+- **Large Project In-Memory JIT Execution (`tools/verify/project_runs.py`, `docs/okf/multi-tu.md`)**:
+  - Validated full in-memory multi-TU JIT execution (`--run`) of large C projects with 100% byte-for-byte behavioral parity with host GCC.
+  - **SQLite 3 Amalgamation directly in RAM**: Compiled both `shell.c` and the 255k-line `sqlite3.c` amalgamation into a single unified JIT image directly in RAM in ~3 seconds. Verified CLI commands (`--version`), on-disk SQL test suite (`sql_suite.sql`), and pure in-memory execution (`:memory:`) running tables, joins, triggers, views, CTEs, transactions, aggregations, and window functions directly in RAM without touching disk.
+  - **15-Translation Unit zlib**: Tested all 15 core TUs (`deflate.c`, `inflate.c`, `trees.c`, `adler32.c`, `crc32.c`, `zutil.c`, `gzlib.c`, `gzread.c`, `gzwrite.c`, `gzclose.c`, etc.) with test harnesses (`example.c`, `minigzip.c`) round-tripping GZIP compression and decompression directly in RAM.
+  - **cJSON Unity Battery**: Expanded `tools/verify/project_runs.py` `--jit` mode to cover all 20 Unity test suites (`parse_number`, `parse_array`, `parse_string`, `parse_object`, `parse_value`, `parse_examples`, `parse_hex4`, `parse_with_opts`, `print_number`, `print_array`, `print_string`, `print_object`, `print_value`, `readme_examples`, `misc_tests`, `cjson_add`, `compare_tests`, `json_patch_tests`, `misc_utils_tests`, `old_utils_tests`) under JIT.
+  - Verification: `python3 tools/verify/project_runs.py --jit` passed 51/51 behavior matches (0 failures, 0 skipped).
+
 ## [Sprint 249] - 2026-11-26 - Windows PE/COFF Toolchain Expansion (.dll, .edata, msvcrt, -mwindows)
 
 - **PE32+ DLL & Export Table Emission (`linker/pe_writer.h`, `linker/pe_writer.c`, `main.c`, `driver/driver_opts.h`)**:
@@ -19,6 +28,27 @@
   - Expanded `tools/verify/pe_tests.py` with DLL export table validation, GUI subsystem verification, and multi-DLL import routing tests.
   - All 44/44 PE verification checks pass (up from 31/31).
   - Verified regression gates: `make test-pe` (44/44 passed), `make test` (277/277 passed), `python3 tools/verify/style_check.py` (0 errors, 0 warnings), `python3 tools/okf/okf.py lint` (23/23 reachable).
+
+## [Sprint 248] - 2026-11-26 - ISO C23 #embed & Modern C23 Dialect Completion
+
+- **ISO C23 Empty Parameter List Semantics (`parser/zero_cc_declarator_stack.h`, `tools/c23/test_c23.py`)**:
+  - Implemented C23 empty parameter lists `()` treating functions as `(void)` prototype under `-std=c23` / `-std=gnu23` while preserving K&R unprototyped semantics in earlier C dialects.
+- **ISO C23 `#embed` Standard Parameters (`core/preprocessor.c`, `core/preprocessor_directives.c`)**:
+  - Added full support for `#embed` standard parameters: `limit(...)`, `prefix(...)`, `suffix(...)`, and `if_empty(...)`.
+  - Enforced macro expansion in embed parameters and empty-file replacement fallback.
+- **Verification (`tools/c23/test_c23.py`)**:
+  - Added formal verification battery covering `#embed` parameter permutations and C23 prototype rules (37/37 cases, 40 dialect configs passed).
+
+## [Sprint 247] - 2026-11-26 - GCC c-torture SKIP-C89 Final Burn-Down (3 to 0)
+
+- **Offsetof Dynamic Indexing (`parser/ast_expr.c`, `semantic/expr.c`, `semantic/visitor.c`, `ir/ast_lowering_lvalue.c`)**:
+  - Enabled variable index expressions inside `__builtin_offsetof(type, member[expr])` per GCC extension (`execute/pr41935.c`).
+- **GNU Vector Extension `__builtin_shufflevector` (`parser/ast_expr.c`, `ir/ast_lowering_builtins.c`, `ir/ast_lowering_expr.c`)**:
+  - Implemented GNU vector shuffle builtin with arbitrary mask indices and constant evaluation (`compile/pr108892.c`).
+- **Variably Modified Struct Member Offsets (`parser/vla_struct.h`, `parser/decl_struct.c`)**:
+  - Supported dynamic member layout computation for struct fields declared subsequent to variably modified members (`execute/pr82210.c`).
+- **Verification (`test/torture/baseline.json`)**:
+  - Burned down all remaining GCC c-torture SKIP-C89 cases (3 to 0). All 3811/3811 c-torture test cases pass.
 
 ## [Sprint 246] - 2026-11-26 - Cross-Platform Native Binary Output (T3-Win PE/COFF)
 

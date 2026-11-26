@@ -4,7 +4,7 @@ title: Multi-Translation-Unit Driver (T1) & JIT Image Merge
 description: How zerocc compiles multiple .c inputs - per-TU compile, the multi-TU JIT image merge (zero_cc_tu_merge), the global-registry snapshot discipline, and the extern-object store/load paths that make cross-TU globals work.
 resource: driver/multi-tu
 tags: [driver, multi-tu, jit, merge, relocations, globals, linker]
-timestamp: 2026-11-21T19:45:57Z
+timestamp: 2026-11-26T13:17:00Z
 generated: pi-agent
 verified: engineering-lead
 status: active
@@ -109,6 +109,17 @@ lowering must therefore handle extern objects on both sides:
   exist** — a store to an extern-only global fell off the end of
   `NODE_ASSIGN` and was silently dropped, so `g += 1` on a cross-TU global
   compiled to a no-op.
+
+## Full Multi-TU In-Memory JIT for Large Projects (Sprint 250)
+
+ZeroCC supports full in-memory JIT execution (`--run`) of large multi-TU projects with 100% byte-for-byte behavioral parity with host GCC:
+- **15+ Translation Unit ZLIB (`test/projects/zlib/`)**: All 15 core TUs (`adler32.c`, `compress.c`, `crc32.c`, `deflate.c`, `infback.c`, `inffast.c`, `inflate.c`, `inftrees.c`, `trees.c`, `zutil.c`, `uncompr.c`, `gzlib.c`, `gzread.c`, `gzwrite.c`, `gzclose.c`) plus test harnesses (`example.c`, `minigzip.c`) merge into a single JIT image directly in memory.
+- **SQLite 3 Amalgamation directly in RAM (`test/projects/sqlite/`)**: Both `shell.c` and the 255k-line `sqlite3.c` amalgamation compile and execute directly in memory via `--run`. Verified on:
+  - CLI commands (`--version`).
+  - Full on-disk SQL test suite (`sql_suite.sql` on a newly created SQLite database).
+  - Pure in-memory SQLite database execution (`:memory:`) running complex queries, joins, triggers, views, CTEs, transactions, aggregations, and window functions directly in RAM.
+- **cJSON Complete Unity Battery (`test/projects/cjson/`)**: All 20 Unity test suites (`parse_number`, `parse_array`, `parse_string`, `parse_object`, `parse_value`, `parse_examples`, `parse_hex4`, `parse_with_opts`, `print_number`, `print_array`, `print_string`, `print_object`, `print_value`, `readme_examples`, `misc_tests`, `cjson_add`, `compare_tests`, `json_patch_tests`, `misc_utils_tests`, `old_utils_tests`) and standalone demo execute directly in memory under JIT and match GCC byte-for-byte.
+- **Gate**: Validated via `python3 tools/verify/project_runs.py --jit` (51/51 behavior matches, 0 failures, 0 skipped).
 
 ## Unnamed prototype parameters (C99 6.7.6.3)
 
