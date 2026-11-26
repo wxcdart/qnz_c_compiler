@@ -638,9 +638,10 @@ static inline ZeroCCType zero_cc_type_of_primary(ZeroCCCompiler *c, size_t *pos)
         if (fn) {
             return zc_type_from_function(fn);
         }
-        /* Check for typedef/struct */
+        /* Check for typedef/struct/enum */
         ZeroCCType *tdef = zero_cc_find_typedef(c, name);
         if (!tdef) tdef = zero_cc_find_struct(c, name);
+        if (!tdef) tdef = zero_cc_find_enum(c, name);
         if (tdef) {
             ZeroCCType ty = *tdef;
             /* Handle member access on type name (e.g., S.x) */
@@ -653,6 +654,9 @@ static inline ZeroCCType zero_cc_type_of_primary(ZeroCCCompiler *c, size_t *pos)
                 }
             }
             return ty;
+        }
+        if (zero_cc_find_enum_const(c, name)) {
+            return zero_cc_type_int();
         }
         /* Unknown identifier */
         diag_report_error_at_token(c, "unknown identifier '%s'", c->tokens[*pos - 1].str_val);
@@ -1099,7 +1103,10 @@ static inline ZeroCCType zc_parse_enum_spec(ZeroCCCompiler *c, size_t *pos)
     ZCEnumUnderlying und = zero_cc_parse_enum_underlying(c);
     if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACE) {
         c->token_pos++;
-        ty = zero_cc_type_enum(ename[0] ? ename : NULL);
+        if (!ename[0]) {
+            snprintf(ename, sizeof(ename), "__anon_enum_%zu", c->anon_struct_seq++);
+        }
+        ty = zero_cc_type_enum(ename);
         zc_enum_apply_underlying(&ty, &und);
         zero_cc_parse_enum_members(c, &und);
         if (ename[0] != '\0') {

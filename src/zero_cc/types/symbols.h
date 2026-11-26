@@ -106,9 +106,11 @@ typedef struct ZeroCCCompiler {
     ZeroCCType (*parse_struct_body)(struct ZeroCCCompiler *c, bool is_union);
     ZeroCCTypedef typedefs[ZERO_CC_MAX_TYPEDEFS];
     size_t typedef_count;
+    size_t fn_typedef_base;
 
     ZeroCCStructDef structs[ZERO_CC_MAX_STRUCTS];
     size_t struct_count;
+    size_t fn_struct_base;
 
     /* Struct/union member-array ownership (make asan / LeakSanitizer):
      * every member array reachable from the live tables or the type pool
@@ -267,6 +269,8 @@ typedef struct ZeroCCCompiler {
     /* Backend pointers */
     const ZeroCCTLSBackend *tls_backend;  /* TLS variable handling */
     int jit_mode;                         /* 1 when compiling for --run JIT */
+    int jit_argc;                         /* JIT main argc (if >0) */
+    char **jit_argv;                      /* JIT main argv */
     int had_error;
     /* Legacy display buffer. Sized to hold a formatted message plus the
      * "(near '<token>')" suffix that diag_report_error_at_token appends

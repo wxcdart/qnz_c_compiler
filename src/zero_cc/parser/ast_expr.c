@@ -486,6 +486,22 @@ ASTRef parse_primary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
                 return ref;
             }
 
+            /* Check for __builtin_types_compatible_p(type1, type2) */
+            if (strcmp(tok->str_val, "__builtin_types_compatible_p") == 0) {
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) c->token_pos++;
+                ZeroCCType t1 = zero_cc_parse_type_name_at_pos(c, &c->token_pos);
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++;
+                ZeroCCType t2 = zero_cc_parse_type_name_at_pos(c, &c->token_pos);
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
+                bool compat = zero_cc_types_compatible_builtin(t1, t2);
+                ASTRef ref = zero_cc_ast_alloc_node(arena, NODE_INT);
+                ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
+                n->line = (uint32_t)tok->line;
+                n->col = (uint32_t)tok->col;
+                n->int_val = compat ? 1 : 0;
+                return ref;
+            }
+
             /* __builtin_convertvector(expr, dest_type) - GNU vector conversion.
              * The second argument is a TYPE name, not an expression (c-torture
              * compile/pr96426: `__builtin_convertvector (*v, W);` where W is a
@@ -552,10 +568,13 @@ ASTRef parse_primary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
                 /* Parse the va_list argument (ap) */
                 va_start_node->left = parse_assignment_ast(c, arena);
 
-                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) c->token_pos++; /* skip ',' */
-
-                /* Parse the last fixed argument */
-                va_start_node->right = parse_assignment_ast(c, arena);
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) {
+                    c->token_pos++; /* skip ',' */
+                    /* Parse the last fixed argument */
+                    va_start_node->right = parse_assignment_ast(c, arena);
+                } else {
+                    va_start_node->right = AST_NULL;
+                }
 
                 if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++; /* skip ')' */
 

@@ -299,8 +299,11 @@ static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
         int (*jit_main_ctx)(void *) = (int (*)(void *))((char*)mem + main_offset);
         result = jit_main_ctx(context);
     } else {
-        int (*jit_main_args)(int, char **) = (int (*)(int, char **))((char*)mem + main_offset);
-        result = jit_main_args(1, default_argv);
+        extern char **environ;
+        int (*jit_main_args)(int, char **, char **) = (int (*)(int, char **, char **))((char*)mem + main_offset);
+        int argc = c->jit_argc > 0 ? c->jit_argc : 1;
+        char **argv = (c->jit_argc > 0 && c->jit_argv) ? c->jit_argv : default_argv;
+        result = jit_main_args(argc, argv, environ);
     }
     zero_cc_jit_atexit_run();
     zero_mmap_free(mem, total_sz);

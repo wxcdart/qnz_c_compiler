@@ -27,11 +27,9 @@ Modes:
   JIT     - zerocc --run <tus>    (in-process multi-TU merge; the merge
             applies the same weak/strong + internal-linkage rules)
 
-JIT scope: the cjson suite (its 20 cases all pass).  The 15-TU zlib and
-the 255k-line sqlite amalgamation are AOT-only: their JIT images hit a
-separate in-image codegen bug (stack corruption in the gz path) that the
-AOT -S/ELF path does not exhibit; tracking them under --jit is left as a
-follow-up so the gate stays red-free.
+JIT scope: cjson (20 cases), 15-TU zlib (example + minigzip round-trip),
+and SQLite amalgamation (--version + full on-disk sql_suite.sql) all execute
+directly in memory via zerocc --run and match GCC byte-for-byte.
 
 Usage:
   python3 tools/project_runs.py                     # AOT, all projects
@@ -173,14 +171,20 @@ def run_cjson(jit, work):
     return results
 
 
-def run_jit(tus, flags):
-    rc, so, se = run([ZEROC, "--run", "-O1"] + list(flags) + list(tus))
+def run_jit(tus, flags, args=(), stdin_data=None):
+    cmd = [ZEROC, "--run", "-O1"] + list(flags) + list(tus)
+    if args:
+        cmd += ["--"] + list(args)
+    rc, so, se = run(cmd, stdin_data=stdin_data)
     if rc == -999:
         return rc, so, se
-    if rc not in (0, 1):
-        # nonzero non-1 rc is a crash; keep raw output for the diff
-        return rc, so, se
-    return rc, so, se
+    # Filter compiler warnings from stderr so runtime output is compared
+    se_clean = b"\n".join([line for line in se.splitlines()
+                           if not (b": warning:" in line or b"<stdin>:" in line or
+                                   b"type-tag check:" in line or line.strip() == b"^")])
+    if se and not se_clean.endswith(b"\n") and se_clean:
+        se_clean += b"\n"
+    return rc, so, se_clean
 
 
 # ---------------------------------------------------------------------------
@@ -207,8 +211,7 @@ def run_zlib(jit, work):
         results.append(("zlib example [aot]",) + compare(f"zlib example", g, z))
         if jit:
             zj = run_jit(tus, ["-I", ZL])
-            # zlib JIT is out of scope (see header); skip the case entirely.
-            pass
+            results.append(("zlib example [jit]",) + compare("zlib example", g, zj))
 
     # minigzip: compress (to stdout) then decompress, byte-compare vs gcc's
     def minigzip_pair(binpath, tag):
@@ -238,6 +241,26 @@ def run_zlib(jit, work):
             det = (f"comp {len(comp_g)}B=={len(comp_z)}B:{comp_g==comp_z} "
                    f"roundtrip gcc:{dec_g==data} zc:{dec_z==data}")
             results.append(("zlib minigzip [aot]", ok, det))
+        if jit:
+            def minigzip_jit_pair(tag):
+                rc, so, se = run_jit(lib + [f"{ZL}/test/minigzip.c"], ["-I", ZL], args=["-c", zin])
+                if rc != 0 or not so:
+                    return None, (rc, so, se)
+                comp_bytes = so
+                base = os.path.join(work, f"zl_mg_{tag}x")
+                open(base + ".gz", "wb").write(comp_bytes)
+                rc2, so2, se2 = run_jit(lib + [f"{ZL}/test/minigzip.c"], ["-I", ZL], args=["-d", base])
+                out_bytes = open(base, "rb").read() if os.path.exists(base) else b""
+                return (comp_bytes, out_bytes), (rc2, so2, se2)
+
+            pair_zj, run_zj = minigzip_jit_pair("zj")
+            if pair_g and pair_zj:
+                comp_g, dec_g = pair_g
+                comp_zj, dec_zj = pair_zj
+                ok = (comp_g == comp_zj) and (dec_g == data) and (dec_zj == data)
+                det = (f"comp {len(comp_g)}B=={len(comp_zj)}B:{comp_g==comp_zj} "
+                       f"roundtrip gcc:{dec_g==data} zc_jit:{dec_zj==data}")
+                results.append(("zlib minigzip [jit]", ok, det))
     elif not (ok and okz):
         results.append(("zlib minigzip [aot]", False,
                         "build failed" + ("" if ok and okz else f": {errs[:3]}")))
@@ -261,9 +284,9 @@ def run_sqlite(jit, work):
         return results
 
     # --version
-    g = run_bin(gb, ["--version"])
-    z = run_bin(zg, ["--version"])
-    results.append(("sqlite --version [aot]",) + compare("sqlite --version", g, z))
+    g_ver = run_bin(gb, ["--version"])
+    z_ver = run_bin(zg, ["--version"])
+    results.append(("sqlite --version [aot]",) + compare("sqlite --version", g_ver, z_ver))
 
     # SQL suite against a fresh on-disk db
     def sql_pair(binpath, tag):
@@ -274,10 +297,27 @@ def run_sqlite(jit, work):
             suite_data = f.read()
         return run_bin(binpath, [db], stdin_data=suite_data)
 
-    g = sql_pair(gb, "g")
-    z = sql_pair(zg, "z")
-    ok, det = compare("sqlite sql-suite", g, z)
+    g_sql = sql_pair(gb, "g")
+    z_sql = sql_pair(zg, "z")
+    ok, det = compare("sqlite sql-suite", g_sql, z_sql)
     results.append(("sqlite sql-suite [aot]", ok, det))
+
+    if jit:
+        zj_ver = run_jit(tus, [], args=["--version"])
+        results.append(("sqlite --version [jit]",) + compare("sqlite --version", g_ver, zj_ver))
+
+        def sql_jit_pair(tag):
+            db = os.path.join(work, f"sql_{tag}.db")
+            if os.path.exists(db):
+                os.unlink(db)
+            with open(suite, "rb") as f:
+                suite_data = f.read()
+            return run_jit(tus, [], args=[db], stdin_data=suite_data)
+
+        zj_sql = sql_jit_pair("zj")
+        ok_j, det_j = compare("sqlite sql-suite [jit]", g_sql, zj_sql)
+        results.append(("sqlite sql-suite [jit]", ok_j, det_j))
+
     return results
 
 

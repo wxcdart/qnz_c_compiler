@@ -257,10 +257,18 @@ static void zero_cc_setup_bitfield_type(ZeroCCCompiler *c, ZeroCCStructMember *m
 ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
     ZeroCCType st; memset(&st, 0, sizeof(st));
     st.tag = is_union ? TYPE_UNION : TYPE_STRUCT;
+    bool is_packed = (c->default_pack == 1);
+    while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT &&
+           strcmp(c->tokens[c->token_pos].str_val, "__zc_packed__") == 0) {
+        is_packed = true;
+        c->token_pos++;
+    }
+    int orig_pack = c->default_pack;
     /* Resolve #pragma pack in effect at this token position */
     c->default_pack = 0;
     for (size_t pi = 0; pi < c->pack_ev_n && c->pack_ev_tok[pi] <= c->token_pos; pi++)
         c->default_pack = c->pack_ev_val[pi];
+    if (is_packed) c->default_pack = 1;
     size_t current_offset = 0;
     size_t max_size = 0;
     st.align = 1;
@@ -275,6 +283,12 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
 
     while (c->tokens[c->token_pos].type != TK_RBRACE && c->tokens[c->token_pos].type != TK_EOF) {
         skip_c23_attributes(c);
+        for (size_t mi = 0; mi < st.member_count; mi++) {
+            if (st.members[mi].is_vla) {
+                diag_report_error_at_token(c, "member following variably modified member in struct is not supported");
+                break;
+            }
+        }
         size_t iter_start = c->token_pos;
         size_t member_align = 0;
         if (c->tokens[c->token_pos].type == TK_ALIGNAS) {
@@ -284,6 +298,12 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                 int64_t align_val = zero_cc_eval_const_expr(c);
                 if (align_val > 0) member_align = (size_t)align_val;
                 if (c->tokens[c->token_pos].type == TK_RPAREN) c->token_pos++;
+            }
+        }
+        {
+            size_t probe = 0;
+            while (zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) {
+                if (probe > member_align) member_align = probe;
             }
         }
         /* GNU vector member: `__attribute__((__vector_size__(N))) float mVec;`
@@ -368,9 +388,21 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                 c->token_pos++;
             }
             c->token_pos++;
+            bool nested_packed = false;
+            while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT &&
+                   strcmp(c->tokens[c->token_pos].str_val, "__zc_packed__") == 0) {
+                nested_packed = true;
+                c->token_pos++;
+            }
             char inner_tag[128] = "";
-            if (c->tokens[c->token_pos].type == TK_IDENT) {
+            if (c->tokens[c->token_pos].type == TK_IDENT &&
+                strcmp(c->tokens[c->token_pos].str_val, "__zc_packed__") != 0) {
                 snprintf(inner_tag, sizeof(inner_tag), "%s", c->tokens[c->token_pos].str_val);
+                c->token_pos++;
+            }
+            while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT &&
+                   strcmp(c->tokens[c->token_pos].str_val, "__zc_packed__") == 0) {
+                nested_packed = true;
                 c->token_pos++;
             }
             ZeroCCType inner_type;
@@ -395,7 +427,11 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
                         zero_cc_register_enum(c, inner_tag, inner_type);
                     }
                 } else {
+                    int saved_p = c->default_pack;
+                    if (nested_packed) c->default_pack = 1;
                     inner_type = zero_cc_parse_struct_body(c, inner_is_union);
+                    if (nested_packed) inner_type.align = 1;
+                    c->default_pack = saved_p;
                     if (inner_tag[0] != '\0') {
                         snprintf(inner_type.struct_name, sizeof(inner_type.struct_name), "%s", inner_tag);
                         zero_cc_register_struct(c, inner_tag, inner_type);
@@ -462,6 +498,13 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
             }
 
             /* Named struct/union member */
+            {
+                size_t probe = 0;
+                while (zero_cc_parse_aligned_attr(c, &c->token_pos, &probe)) {
+                    if (probe > member_align) member_align = probe;
+                }
+                zero_cc_skip_mode_attr(c);
+            }
             bool is_ptr = false;
             int ptr_depth = 0;
             while (c->tokens[c->token_pos].type == TK_STAR) {
@@ -2166,10 +2209,21 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
     /* Apply #pragma pack to final struct alignment */
     if (c->default_pack > 0 && st.align > (size_t)c->default_pack) {
         st.align = (size_t)c->default_pack;
-        st.size = (current_offset + st.align - 1) & ~(st.align - 1);
+        st.size = is_union ? ((max_size + st.align - 1) & ~(st.align - 1))
+                           : ((current_offset + st.align - 1) & ~(st.align - 1));
     }
     if (st.align == 0) st.align = 1;
     if (c->tokens[c->token_pos].type == TK_RBRACE) c->token_pos++;
+    while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT &&
+           strcmp(c->tokens[c->token_pos].str_val, "__zc_packed__") == 0) {
+        is_packed = true;
+        c->token_pos++;
+    }
+    if (is_packed) {
+        st.align = 1;
+        st.size = is_union ? max_size : current_offset;
+    }
+    c->default_pack = orig_pack;
     return st;
 }
 

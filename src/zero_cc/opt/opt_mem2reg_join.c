@@ -123,6 +123,21 @@ bool opt_promote_mem2reg_join(ZeroCCCompiler *c) {
             }
             if (store_before_load || first_load_idx < 0) continue;
 
+            /* Verify that all loads of this slot in the entire function are inside block b */
+            bool load_outside_b = false;
+            for (int ob = 0; ob < cfg->block_count; ob++) {
+                if (ob == b) continue;
+                for (size_t i = cfg->blocks[ob].start; i < cfg->blocks[ob].end; i++) {
+                    Instr *ins = ir_get(c, i);
+                    if (ins && ins->op == OP_MOV && ins->temp_src1 == TEMP_NONE && ins->imm64 == target_offset) {
+                        load_outside_b = true;
+                        break;
+                    }
+                }
+                if (load_outside_b) break;
+            }
+            if (load_outside_b) continue;
+
             /* Slot S is stored on both diamond paths and consumed at the join!
              * Promote slot S into a unified join temporary. */
             int t_join = zc_alloc_temp(c);

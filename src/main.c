@@ -531,6 +531,8 @@ static int compile_jit(CompileOptions *opts) {
         if (opts->profile_opts) {
             opt_profile_dump(stderr);
         }
+        base->jit_argc = opts->jit_argc;
+        base->jit_argv = opts->jit_argv;
         int result = zero_cc_execute_jit(base, NULL);
         if (opts->verbose) {
             printf("JIT execution result: %d\n", result);
@@ -543,6 +545,8 @@ static int compile_jit(CompileOptions *opts) {
     if (!comp) {
         return 1;
     }
+    comp->jit_argc = opts->jit_argc;
+    comp->jit_argv = opts->jit_argv;
 
     if (opts->input_count > 1) {
         /* Multi-TU (T1): merge each remaining TU into the first one, then

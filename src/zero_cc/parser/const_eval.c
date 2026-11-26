@@ -1590,17 +1590,63 @@ ZCConstVal parse_unary(ZeroCCCompiler *c, size_t *pos)
                 return base_ptr;
             }
             ZeroCCGlobalVar *gv = find_global_var(c, name);
-            if (gv && gv->size > 0 && gv->data_offset + gv->size <= c->data_section.length) {
+            if (gv && gv->size > 0) {
                 (*pos)++;
-                ZeroCCType et = (gv->type.tag == TYPE_ARRAY && gv->type.base) ? *gv->type.base : gv->type;
+                ZeroCCType ty = gv->type;
+                ZeroCCType et = (ty.tag == TYPE_ARRAY && ty.base) ? *ty.base : ty;
                 uint32_t esz = (et.size > 0) ? (uint32_t)et.size : 4;
                 uint8_t etag = (uint8_t)et.tag;
-                ZCConstVal base_ptr = zc_cv_ptr((uint8_t *)c->data_section.data + gv->data_offset, esz, etag);
-                if (*pos < c->token_count && c->tokens[*pos].type == TK_LBRACKET) {
-                    (*pos)++;
-                    ZCConstVal sub = parse_conditional(c, pos);
-                    if (*pos < c->token_count && c->tokens[*pos].type == TK_RBRACKET) (*pos)++;
-                    return zc_cv_add(base_ptr, sub);
+                uint8_t *ptr = (c->data_section.data && gv->data_offset + gv->size <= c->data_section.length)
+                               ? (uint8_t *)c->data_section.data + gv->data_offset
+                               : (uint8_t *)(uintptr_t)(0x10000000ULL + gv->data_offset);
+                ZCConstVal base_ptr = zc_cv_ptr(ptr, esz, etag);
+                while (*pos < c->token_count) {
+                    if (c->tokens[*pos].type == TK_ARROW || c->tokens[*pos].type == TK_DOT) {
+                        (*pos)++;
+                        if (*pos < c->token_count && c->tokens[*pos].type == TK_IDENT) {
+                            const char *mname = c->tokens[*pos].str_val;
+                            (*pos)++;
+                            bool found = false;
+                            if (ty.tag == TYPE_PTR && ty.base) ty = *ty.base;
+                            if (ty.tag == TYPE_STRUCT || ty.tag == TYPE_UNION) {
+                                for (size_t m = 0; m < ty.member_count; m++) {
+                                    if (strcmp(ty.members[m].name, mname) == 0) {
+                                        base_ptr = zc_cv_add(base_ptr, zc_cv_int((int64_t)ty.members[m].offset));
+                                        if (ty.members[m].base && (ty.members[m].tag == TYPE_STRUCT || ty.members[m].tag == TYPE_UNION)) {
+                                            ty = *ty.members[m].base;
+                                        } else if (ty.members[m].base && ty.members[m].tag == TYPE_ARRAY) {
+                                            ty.base = ty.members[m].base;
+                                            ty.tag = TYPE_ARRAY;
+                                            ty.size = ty.members[m].size;
+                                        } else {
+                                            ty.tag = ty.members[m].tag;
+                                            ty.size = ty.members[m].size;
+                                            ty.base = ty.members[m].base;
+                                            ty.member_count = 0;
+                                        }
+                                        base_ptr.ptr_elem_size = (ty.size > 0) ? (uint32_t)ty.size : 1;
+                                        base_ptr.ptr_elem_tag = (uint8_t)ty.tag;
+                                        found = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (!found) break;
+                        } else {
+                            break;
+                        }
+                    } else if (c->tokens[*pos].type == TK_LBRACKET) {
+                        (*pos)++;
+                        int64_t idx = parse_equality(c, pos).i;
+                        if (*pos < c->token_count && c->tokens[*pos].type == TK_RBRACKET) (*pos)++;
+                        size_t elem_sz = (ty.base && ty.base->size > 0) ? ty.base->size : (ty.size > 0 ? ty.size : 1);
+                        base_ptr = zc_cv_add(base_ptr, zc_cv_int(idx * (int64_t)elem_sz));
+                        if (ty.base) ty = *ty.base;
+                        base_ptr.ptr_elem_size = (ty.size > 0) ? (uint32_t)ty.size : 1;
+                        base_ptr.ptr_elem_tag = (uint8_t)ty.tag;
+                    } else {
+                        break;
+                    }
                 }
                 return base_ptr;
             }
@@ -1674,6 +1720,10 @@ int64_t zero_cc_eval_builtin_offsetof(ZeroCCCompiler *c, size_t *pos)
             }
         } else if (*pos < c->token_count && c->tokens[*pos].type == TK_LBRACKET) {
             (*pos)++; /* consume '[' */
+            if (!zc_typedef_dim_is_const(c, *pos)) {
+                diag_report_error_at_token(c, "variable index in offsetof is not supported");
+                return 0;
+            }
             int64_t idx = parse_equality(c, pos).i;
             if (*pos < c->token_count && c->tokens[*pos].type == TK_RBRACKET) {
                 (*pos)++; /* consume ']' */
@@ -1853,6 +1903,16 @@ ZCConstVal parse_primary(ZeroCCCompiler *c, size_t *pos)
             *pos = a1;
             if (*pos < c->token_count && c->tokens[*pos].type == TK_RPAREN) (*pos)++;
             return zc_cv_int(const_ok ? 1 : 0);
+        }
+        if (strcmp(c->tokens[*pos].str_val, "__builtin_types_compatible_p") == 0) {
+            (*pos)++;
+            if (*pos < c->token_count && c->tokens[*pos].type == TK_LPAREN) (*pos)++;
+            ZeroCCType t1 = zero_cc_parse_type_name_at_pos(c, pos);
+            if (*pos < c->token_count && c->tokens[*pos].type == TK_COMMA) (*pos)++;
+            ZeroCCType t2 = zero_cc_parse_type_name_at_pos(c, pos);
+            if (*pos < c->token_count && c->tokens[*pos].type == TK_RPAREN) (*pos)++;
+            bool compat = zero_cc_types_compatible_builtin(t1, t2);
+            return zc_cv_int(compat ? 1 : 0);
         }
         if (strcmp(c->tokens[*pos].str_val, "__builtin_choose_expr") == 0) {
             /* GCC extension: __builtin_choose_expr(cond, a, b) picks a or b

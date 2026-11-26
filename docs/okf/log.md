@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-26T02:55:27Z
+timestamp: 2026-11-26T08:23:40Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1719,3 +1719,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-26 — Updated `optimization-passes.md`
 - Complete Sprints 238-240: Dead Loop Deletion, Join/Diamond Mem2Reg, Advanced Algebraic & Peephole Simplification
+
+## 2026-11-26 — Updated `c-torture-gate.md`
+- Burn down 25 SKIP-C89 tests (33 -> 8); PASS 3781 -> 3806

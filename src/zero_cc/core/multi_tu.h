@@ -139,6 +139,7 @@ static inline int zero_cc_tu_merge(ZeroCCCompiler *base, ZeroCCCompiler *tu,
     size_t text_base = zero_cc_align_up(base->text_section.length, 16);
     size_t rodata_base = zero_cc_align_up(base->rodata_section.length, 8);
     size_t data_base = zero_cc_align_up(base->data_section.length, 8);
+    size_t bss_base = zero_cc_align_up(base->bss_size, 8);
 
     /* Alignment padding + section append. */
     if (zero_cc_buf_append_zeros(&base->text_section, text_base - base->text_section.length) != 0 ||
@@ -271,16 +272,22 @@ static inline int zero_cc_tu_merge(ZeroCCCompiler *base, ZeroCCCompiler *tu,
             base->data_relocs[base->data_reloc_count].rodata_offset += rodata_base;
         } else if (base->data_relocs[base->data_reloc_count].target_kind == 1 ||
                    base->data_relocs[base->data_reloc_count].target_kind == 4) {
+            bool target_is_bss = false;
             if (base->data_relocs[base->data_reloc_count].target_kind == 1 &&
                 base->data_relocs[base->data_reloc_count].target_global_idx >= 0) {
+                int old_gi = base->data_relocs[base->data_reloc_count].target_global_idx;
+                if ((size_t)old_gi < tu->global_var_count) {
+                    target_is_bss = tu->global_vars[old_gi].is_bss;
+                }
                 base->data_relocs[base->data_reloc_count].target_global_idx += g_offset;
             }
-            /* Kind 1: target global's data offset rebases with the data base.
+            /* Kind 1: target global's data offset rebases with data/bss base.
              * Kind 4: absolute in-TU .data offset (static local) - the
              * target moves with the patch site. The (size_t)-1 "global
              * base" sentinel is resolved at patch time, not rebased. */
             if (base->data_relocs[base->data_reloc_count].target_data_offset != (size_t)-1)
-                base->data_relocs[base->data_reloc_count].target_data_offset += data_base;
+                base->data_relocs[base->data_reloc_count].target_data_offset +=
+                    target_is_bss ? bss_base : data_base;
         }
         base->data_reloc_count++;
     }
@@ -289,7 +296,11 @@ static inline int zero_cc_tu_merge(ZeroCCCompiler *base, ZeroCCCompiler *tu,
     if (zero_cc_global_vars_reserve(base, tu->global_var_count) == 0) {
         for (size_t g = 0; g < tu->global_var_count; g++) {
             ZeroCCGlobalVar gv = tu->global_vars[g];
-            gv.data_offset += data_base;
+            if (gv.is_bss) {
+                gv.data_offset += bss_base;
+            } else {
+                gv.data_offset += data_base;
+            }
             base->global_vars[base->global_var_count] = gv;
             if (!gv.lto_eliminated) {
                 zero_cc_gname_hash_insert(base, gv.name, base->global_var_count, base->global_var_count + 1);
@@ -297,6 +308,7 @@ static inline int zero_cc_tu_merge(ZeroCCCompiler *base, ZeroCCCompiler *tu,
             base->global_var_count++;
         }
     }
+    base->bss_size = bss_base + tu->bss_size;
 
     return 0;
 }

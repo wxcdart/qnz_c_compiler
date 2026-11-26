@@ -1,5 +1,28 @@
 # CHANGELOG
 
+## [Sprint 241] - 2026-11-26 - Multi-TU JIT Layout & GCC c-torture SKIP-C89 Burn-Down
+
+- **Multi-TU In-Memory JIT for Large Projects (`core/multi_tu.h`, `jit/execution.h`, `jit/compile_unit.c`, `tools/verify/project_runs.py`)**:
+  - Root-caused and resolved multi-TU in-memory JIT execution image layout for 15+ translation units.
+  - Aligned page protection boundaries and in-image memory layout for in-memory execution (`--run`) of large multi-TU projects.
+  - Validated full in-memory execution of the SQLite 3 amalgamation test suite directly in RAM.
+- **GCC `c-torture` SKIP-C89 Burn-Down (`test/torture/baseline.json`, `docs/okf/c-torture-gate.md`)**:
+  - Burned down 25 `SKIP-C89` tests, reducing the bucket from 33 to 8 tests (75.8% burn-down) and setting a new all-time high of **3,806 PASS / 0 MISCOMPILE / 0 REJECT**.
+  - `execute/builtin-types-compatible-p.c`: Implemented `__builtin_types_compatible_p` in AST and constant evaluation (`ast_expr.c`, `const_eval.c`); added `zero_cc_types_compatible_builtin` in `symbol_mgmt.h` stripping top-level qualifiers from both types; assigned distinct anonymous tags (`__anon_enum_*`) in `decl_enum.h` and `type_parser.h`.
+  - `execute/misalign.c`: Full pipeline support for `__attribute__((packed))` via preprocessor marker `__zc_packed__` (`preprocessor.c`) and unpadded struct layout in `decl_struct.c`.
+  - `compile/pr98096.c`: Lowered `asm goto` with in-out `"+r"` operands accounting for implicit input slots in bounds checking and label operand indexing (`ast_lowering_stmt.c`, `x86_64_asm.c`).
+  - `compile/pr38789.c`: Accepted immediate integer constant constraints `"i"` and `"n"` as scalar register inputs in inline assembly lowering (`ast_lowering_stmt.c`).
+  - `compile/pr50565-1.c` & `compile/pr50565-2.c`: Added member (`.` / `->`) and array subscript (`[...]`) traversal to address-of global variables in compile-time constant expression difference (`const_eval.c`).
+  - `compile/pr55851.c`: Supported constant initializers on enum variable definitions (`decl_enum.h`).
+  - `compile/pr17408.c`: Bypassed extern declaration swallowing on `=` lookahead so definitions (`extern int t = 0;`) fall through to global variable parsing (`compile_unit.c`).
+  - `execute/20070919-1.c`: Implemented `fn_struct_base` scoping in `compile.c` and `registry.h` allowing legal C block-scope tag redefinitions across sibling functions.
+  - `execute/pr117432.c`: Supported C23 bare variadics `(...)` and single-arg `va_start(ap)` in preprocessor and virtual headers.
+- **Verification & Test Coverage**:
+  - Verified full test suite (`make test`): 277/277 passed.
+  - Verified optimizer sweep (`make test-opt`): 177 passed across all `-O0..-O3` levels in JIT and AOT.
+  - Code style check passed (`style_check.py`): 0 errors, 0 warnings.
+  - OKF validation passed (`okf.py lint`): all 23 nodes reachable, schema valid.
+
 ## [Sprint 240] - 2026-11-25 - Advanced Algebraic & Peephole Simplification
 
 Implements Phase 3 (Advanced Algebraic & Peephole Simplification, Tier 1 Item #2):

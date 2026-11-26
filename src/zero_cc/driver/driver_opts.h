@@ -70,6 +70,8 @@ typedef struct {
     int has_sve;            /* -msve: enable ARM Scalable Vector Extension */
     int has_sve2;           /* -msve2: enable ARM SVE2 */
     int has_rvv;            /* -mrvv: enable RISC-V Vector Extension (RVV 1.0) */
+    int jit_argc;           /* JIT main argc */
+    char **jit_argv;        /* JIT main argv */
 } CompileOptions;
 
 static void print_usage(const char *prog) {
@@ -174,6 +176,18 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
         else if (strcmp(arg, "--version") == 0) {
             print_version();
             return 0;
+        }
+        else if (strcmp(arg, "--") == 0) {
+            i++;
+            int extra = argc - i;
+            opts->jit_argc = 1 + extra;
+            opts->jit_argv = (char **)malloc((opts->jit_argc + 1) * sizeof(char *));
+            opts->jit_argv[0] = (opts->input_count > 0) ? (char *)opts->input_files[0] : (char *)argv[0];
+            for (int k = 0; k < extra; k++) {
+                opts->jit_argv[k + 1] = (char *)argv[i + k];
+            }
+            opts->jit_argv[opts->jit_argc] = NULL;
+            break;
         }
         else if (strcmp(arg, "-h") == 0 || strcmp(arg, "--help") == 0) {
             print_usage(argv[0]);

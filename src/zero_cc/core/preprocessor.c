@@ -175,6 +175,27 @@ void zero_cc_cpp_define_func1(ZeroCCPreprocessor *cpp, const char *name, const c
     cpp->hash_buckets[b] = (int32_t)idx;
 }
 
+void zero_cc_cpp_define_func1_var(ZeroCCPreprocessor *cpp, const char *name, const char *p1, const char *value) {
+    if (!cpp || !name) return;
+    if (cpp->macro_count >= cpp->macro_capacity) {
+        cpp->macro_capacity *= 2;
+        cpp->macros = (ZeroCCMacro *)realloc(cpp->macros, cpp->macro_capacity * sizeof(ZeroCCMacro));
+        cpp->hash_next = (int32_t *)realloc(cpp->hash_next, cpp->macro_capacity * sizeof(int32_t));
+    }
+    size_t idx = cpp->macro_count++;
+    ZeroCCMacro *m = &cpp->macros[idx];
+    memset(m, 0, sizeof(*m));
+    snprintf(m->name, sizeof(m->name), "%s", name);
+    m->param_count = 2;
+    m->params[0] = strdup(p1 ? p1 : "a1");
+    m->params[1] = strdup("__VA_ARGS__");
+    m->is_variadic = true;
+    m->replacement = strdup(value ? value : "");
+    uint32_t b = (uint32_t)(zero_cc_hash64(name) & 4095);
+    cpp->hash_next[idx] = cpp->hash_buckets[b];
+    cpp->hash_buckets[b] = (int32_t)idx;
+}
+
 void zero_cc_cpp_define_func2(ZeroCCPreprocessor *cpp, const char *name, const char *p1, const char *p2, const char *value) {
     if (!cpp || !name) return;
     if (cpp->macro_count >= cpp->macro_capacity) {
@@ -419,12 +440,11 @@ void zero_cc_cpp_define_builtin_macros(ZeroCCPreprocessor *cpp, const char *std_
     zero_cc_cpp_define_obj(cpp, "__ATOMIC_ACQUIRE", "2");
     zero_cc_cpp_define_obj(cpp, "__ATOMIC_RELEASE", "3");
     zero_cc_cpp_define_obj(cpp, "__ATOMIC_ACQ_REL", "4");
-    zero_cc_cpp_define_func2(cpp, "__builtin_va_start", "ap", "last", "__builtin_va_start(ap, last)");
+    zero_cc_cpp_define_func1_var(cpp, "va_start", "ap", "__builtin_va_start(ap, ##__VA_ARGS__)");
     zero_cc_cpp_define_func2(cpp, "__builtin_va_arg", "ap", "type", "__builtin_va_arg(ap, type)");
     zero_cc_cpp_define_func1(cpp, "__builtin_va_end", "ap", "((void)0)");
     zero_cc_cpp_define_func2(cpp, "__builtin_va_copy", "dest", "src", "((void)((dest) = (src)))");
     zero_cc_cpp_define_func2(cpp, "__va_copy", "dest", "src", "((void)((dest) = (src)))");
-    zero_cc_cpp_define_func2(cpp, "va_start", "ap", "last", "__builtin_va_start(ap, last)");
     zero_cc_cpp_define_func2(cpp, "va_arg", "ap", "type", "__builtin_va_arg(ap, type)");
     zero_cc_cpp_define_func1(cpp, "va_end", "ap", "((void)0)");
     zero_cc_cpp_define_func2(cpp, "va_copy", "dest", "src", "((void)((dest) = (src)))");
@@ -796,6 +816,7 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                         bool is_var = false;
                         while (*p && *p != ')') {
                             while (*p && (isspace((unsigned char)*p) || *p == ',')) p++;
+                            if (*p == ')' || !*p) break;
                             /* Phase-2 splice (C99 5.1.1.2): a backslash+
                              * newline inside the parameter list is deleted
                              * before the list is parsed (`#define CHAIN(a, \\
@@ -1690,7 +1711,9 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                                                        (namelen == 11 && strncmp(nam, "__section__", 11) == 0);
                                         bool is_wk = (namelen == 4 && strncmp(nam, "weak", 4) == 0) ||
                                                       (namelen == 8 && strncmp(nam, "__weak__", 8) == 0);
-                                        if (is_vs || is_al || is_as || is_md || is_sso || is_sec || is_wk) {
+                                        bool is_pk = (namelen == 6 && strncmp(nam, "packed", 6) == 0) ||
+                                                      (namelen == 10 && strncmp(nam, "__packed__", 10) == 0);
+                                        if (is_vs || is_al || is_as || is_md || is_sso || is_sec || is_wk || is_pk) {
                                             /* find the matching ')' */
                                             int nest = 0;
                                             const char *close = NULL;
@@ -1701,7 +1724,7 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                                             if (close) {
                                                 ex = q + 1;
                                                 el = (size_t)(close - ex);
-                                                ex_marker = is_vs ? 1 : (is_al ? 2 : (is_as ? 3 : (is_md ? 4 : (is_sso ? 5 : (is_sec ? 6 : 7)))));
+                                                ex_marker = is_vs ? 1 : (is_al ? 2 : (is_as ? 3 : (is_md ? 4 : (is_sso ? 5 : (is_sec ? 6 : (is_wk ? 7 : 8))))));
                                             }
                                             break;
                                         }
@@ -1738,6 +1761,12 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                                         el = 0;
                                         ex_marker = 7;
                                         break;
+                                    } else if ((len == 6 && strncmp(start, "packed", 6) == 0) ||
+                                                 (len == 10 && strncmp(start, "__packed__", 10) == 0)) {
+                                        ex = "";
+                                        el = 0;
+                                        ex_marker = 8;
+                                        break;
                                     }
                                     if (q == start) q++;
                                 }
@@ -1756,10 +1785,8 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                             if (ex_marker == 5) {
                                 if (strstr(expr_text, "big-endian") == NULL) continue;
                             }
-                            /* weak: no argument - bare marker identifier
-                             * (consumed by the file-scope loop, which marks
-                             * the next function/object symbol weak). */
-                            if (ex_marker == 7) el = 0;
+                            /* weak / packed: no argument - bare marker identifier */
+                            if (ex_marker == 7 || ex_marker == 8) el = 0;
                             /* Expand macros inside the size expression
                              * (e.g. __vector_size__(sizeof(__INTPTR_TYPE__))). */
                             ZeroCCBuffer expr_buf;
@@ -1772,9 +1799,9 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                             size_t el2 = expr_buf.length;
                             char *et2 = expr_buf.data;
                             char marker[600];
-                            const char *mk = (ex_marker == 1) ? "__zc_vector_size__" : (ex_marker == 2 ? "__zc_aligned__" : (ex_marker == 3 ? "__zc_alias__" : (ex_marker == 4 ? "__zc_mode__" : (ex_marker == 6 ? "__zc_section__" : (ex_marker == 7 ? "__zc_weak__" : "__zc_sso_be__")))));
+                            const char *mk = (ex_marker == 1) ? "__zc_vector_size__" : (ex_marker == 2 ? "__zc_aligned__" : (ex_marker == 3 ? "__zc_alias__" : (ex_marker == 4 ? "__zc_mode__" : (ex_marker == 6 ? "__zc_section__" : (ex_marker == 7 ? "__zc_weak__" : (ex_marker == 8 ? "__zc_packed__" : "__zc_sso_be__"))))));
                             if (el2 > sizeof(marker) - 22) { el2 = sizeof(marker) - 22; }
-                            if (ex_marker == 5 || ex_marker == 7) {
+                            if (ex_marker == 5 || ex_marker == 7 || ex_marker == 8) {
                                 /* No argument: bare marker identifier. */
                                 snprintf(marker, sizeof(marker), "%s", mk);
                             } else {

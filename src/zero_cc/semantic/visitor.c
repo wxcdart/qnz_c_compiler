@@ -262,8 +262,18 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
              * (0x12345678ABCDEF0LLU is unsigned long long, not int) — this
              * drives usual-arithmetic-conversion widths for the whole
              * enclosing expression. */
-            res = type_int_literal(ctx->perm_arena,
-                                   (uint8_t)(node->flags & 7u), node->int_val);
+            TypeInfo *el = type_int_literal(ctx->perm_arena,
+                                            (uint8_t)(node->flags & 7u), node->int_val);
+            if (node->flags & 8u) {
+                res = type_new(ctx->perm_arena);
+                if (res) {
+                    res->kind = TYPE_KIND_COMPLEX;
+                    res->details.array.base = el;
+                    res->details.array.count = 2;
+                }
+            } else {
+                res = el;
+            }
             break;
         }
         case NODE_FLOAT: {

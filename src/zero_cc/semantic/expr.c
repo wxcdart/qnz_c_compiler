@@ -83,11 +83,22 @@ TypeInfo *expr_handle_literal(SemContext *ctx, ZeroCCASTNode *node) {
     TypeInfo *res = NULL;
 
     switch (node->tag) {
-        case NODE_INT:
+        case NODE_INT: {
             /* Suffix/value-driven literal type (C99 6.4.4.1) */
-            res = type_int_literal(ctx->perm_arena,
-                                   (uint8_t)(node->flags & 7u), node->int_val);
+            TypeInfo *el = type_int_literal(ctx->perm_arena,
+                                            (uint8_t)(node->flags & 7u), node->int_val);
+            if (node->flags & 8u) {
+                res = type_new(ctx->perm_arena);
+                if (res) {
+                    res->kind = TYPE_KIND_COMPLEX;
+                    res->details.array.base = el;
+                    res->details.array.count = 2;
+                }
+            } else {
+                res = el;
+            }
             break;
+        }
         case NODE_FLOAT: {
             /* C99 6.2.5: a float literal with the imaginary suffix bit
              * (lexer int_suffix bit3, carried in node->flags) is a complex
@@ -687,11 +698,13 @@ TypeInfo *expr_handle_va_start(SemContext *ctx, ZeroCCASTNode *node) {
         return NULL;
     }
 
-    /* Second argument is the last fixed parameter (used for context, not value) */
-    ZeroCCASTNode *last_expr = expr_get_node(ctx, node->right);
-    if (!last_expr) {
-        expr_error(ctx, node, "va_start missing last parameter");
-        return NULL;
+    /* Second argument is the last fixed parameter (used for context, not value, optional in C23) */
+    if (node->right != AST_NULL) {
+        ZeroCCASTNode *last_expr = expr_get_node(ctx, node->right);
+        if (!last_expr) {
+            expr_error(ctx, node, "va_start missing last parameter");
+            return NULL;
+        }
     }
 
     /* The result type is void (it's a statement expression) */

@@ -35,7 +35,11 @@ static inline void zero_cc_stmt_typedef_enum(ZeroCCCompiler *c) {
             et.tag = TYPE_ENUM;
             et.size = 4;
             et.align = 4;
-            snprintf(et.struct_name, sizeof(et.struct_name), "%s", en_name);
+            if (en_name[0] != '\0') {
+                snprintf(et.struct_name, sizeof(et.struct_name), "%s", en_name);
+            } else {
+                snprintf(et.struct_name, sizeof(et.struct_name), "__anon_enum_%zu", c->anon_struct_seq++);
+            }
             zc_enum_apply_underlying(&et, &und);
             zero_cc_parse_enum_members(c, &und);
             if (en_name[0] != '\0') {
@@ -95,7 +99,11 @@ static inline void zero_cc_stmt_enum(ZeroCCCompiler *c) {
         et.tag = TYPE_ENUM;
         et.size = 4;
         et.align = 4;
-        snprintf(et.struct_name, sizeof(et.struct_name), "%s", en_name);
+        if (en_name[0] != '\0') {
+            snprintf(et.struct_name, sizeof(et.struct_name), "%s", en_name);
+        } else {
+            snprintf(et.struct_name, sizeof(et.struct_name), "__anon_enum_%zu", c->anon_struct_seq++);
+        }
         zc_enum_apply_underlying(&et, &und);
         zero_cc_parse_enum_members(c, &und);
         if (en_name[0] != '\0') {
@@ -107,13 +115,20 @@ static inline void zero_cc_stmt_enum(ZeroCCCompiler *c) {
             char var_name[128];
             snprintf(var_name, sizeof(var_name), "%s", c->tokens[c->token_pos].str_val);
             c->token_pos++;
+            bool has_init = false;
+            int64_t init_val = 0;
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_ASSIGN) {
+                c->token_pos++;
+                init_val = zero_cc_eval_const_expr(c);
+                has_init = true;
+            }
             /* Register as a variable of the enum type */
             size_t var_offset = c->data_section.length;
-            /* Emit zero-initialized data for the enum variable (4 bytes) */
+            /* Emit data for the enum variable */
             for (size_t i = 0; i < et.size; i++) {
-                zero_cc_emit_u8(&c->data_section, 0);
+                zero_cc_emit_u8(&c->data_section, (uint8_t)((uint64_t)init_val >> (8 * i)));
             }
-            if (add_global_var(c, var_name, et, var_offset, et.size, false, false) < 0) {
+            if (add_global_var(c, var_name, et, var_offset, et.size, false, has_init) < 0) {
                 diag_report_error_at_token(c, "out of memory registering global variable");
             }
             if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) {

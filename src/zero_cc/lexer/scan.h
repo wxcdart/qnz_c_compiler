@@ -551,6 +551,9 @@ static int zero_cc_scan_number(ZeroCCLexer *lx, ZeroCCToken *tok) {
         } else if (*p == 'l' || *p == 'L') {
             suf |= 2;
             p++; offset++; col++;
+        } else if (*p == 'i' || *p == 'I' || *p == 'j' || *p == 'J') {
+            suf |= 8;
+            p++; offset++; col++;
         } else {
             break;
         }

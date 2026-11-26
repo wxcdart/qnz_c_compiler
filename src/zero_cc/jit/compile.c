@@ -1062,6 +1062,13 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
             fn->sret_stack_offset = 0;
         }
 
+        size_t prev_fn_struct_base = c->fn_struct_base;
+        size_t prev_fn_typedef_base = c->fn_typedef_base;
+        size_t saved_struct_count = c->struct_count;
+        size_t saved_typedef_count = c->typedef_count;
+        c->fn_struct_base = saved_struct_count;
+        c->fn_typedef_base = saved_typedef_count;
+
         /* Parameters and locals are allocated stack offsets in c->current_stack_frame.
          * The function prologue and parameter save instructions will be emitted into IR in zero_cc_lower_ast(). */
         int xmm_reg_idx = 0;
@@ -1632,6 +1639,9 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
 
         // Consume closing brace if present
         if (c->tokens[c->token_pos].type == TK_RBRACE) c->token_pos++;
+
+        c->fn_struct_base = prev_fn_struct_base;
+        c->fn_typedef_base = prev_fn_typedef_base;
     }
 }
 

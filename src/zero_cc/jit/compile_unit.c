@@ -631,6 +631,24 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
 
         /* Extern symbol declarations */
         if (c->tokens[c->token_pos].type == TK_EXTERN) {
+            /* Probe ahead: if there is an '=' before ';', this is an initialized
+             * definition (C99 6.9.2p2: "extern int t = 0;"), not an external
+             * declaration. Let the global variable parser handle it. */
+            size_t probe_eq = c->token_pos + 1;
+            int p_paren = 0, p_brace = 0;
+            bool has_assign = false;
+            while (probe_eq < c->token_count && (c->tokens[probe_eq].type != TK_SEMI || p_paren > 0 || p_brace > 0)) {
+                if (c->tokens[probe_eq].type == TK_LPAREN) p_paren++;
+                else if (c->tokens[probe_eq].type == TK_RPAREN) { if (p_paren > 0) p_paren--; }
+                else if (c->tokens[probe_eq].type == TK_LBRACE) p_brace++;
+                else if (c->tokens[probe_eq].type == TK_RBRACE) { if (p_brace > 0) p_brace--; }
+                else if (c->tokens[probe_eq].type == TK_ASSIGN && p_paren == 0 && p_brace == 0) {
+                    has_assign = true;
+                    break;
+                }
+                probe_eq++;
+            }
+            if (!has_assign) {
             c->token_pos++; /* skip extern */
             if (c->token_pos < c->token_count &&
                 c->tokens[c->token_pos].type == TK_THREAD_LOCAL) {
@@ -669,7 +687,9 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
             while (c->token_pos < c->token_count &&
                    (c->tokens[c->token_pos].type == TK_CONST ||
                     c->tokens[c->token_pos].type == TK_VOLATILE ||
-                    c->tokens[c->token_pos].type == TK_RESTRICT)) c->token_pos++;
+                    c->tokens[c->token_pos].type == TK_RESTRICT ||
+                    c->tokens[c->token_pos].type == TK_INLINE ||
+                    c->tokens[c->token_pos].type == TK_NORETURN)) c->token_pos++;
             /* C89 parenthesized declarator: `extern int (f) (int);` */
             zc_unparen_declarator(c);
             ZeroCCType base_ext_type = (ext_type.tag == TYPE_PTR && ext_type.base) ? *ext_type.base : ext_type;
@@ -829,6 +849,7 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                 if (c->tokens[c->token_pos].type == TK_SEMI) c->token_pos++;
                 continue;
             }
+            }
         }
 
         /* C89-style implicit-int function definition: an unknown identifier
@@ -857,6 +878,7 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                 c->tokens[probe + 2].type != TK_STAR &&
                 strcmp(c->tokens[probe].str_val, "__zc_vector_size__") != 0 &&
                 strcmp(c->tokens[probe].str_val, "__zc_aligned__") != 0 &&
+                strcmp(c->tokens[probe].str_val, "__zc_packed__") != 0 &&
                 strcmp(c->tokens[probe].str_val, "__zc_mode__") != 0);
         }
 
@@ -1009,7 +1031,12 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
             while (c->token_pos < c->token_count &&
                    (c->tokens[c->token_pos].type == TK_CONST ||
                     c->tokens[c->token_pos].type == TK_VOLATILE ||
-                    c->tokens[c->token_pos].type == TK_RESTRICT)) {
+                    c->tokens[c->token_pos].type == TK_RESTRICT ||
+                    c->tokens[c->token_pos].type == TK_STATIC ||
+                    c->tokens[c->token_pos].type == TK_INLINE ||
+                    c->tokens[c->token_pos].type == TK_EXTERN ||
+                    c->tokens[c->token_pos].type == TK_NORETURN)) {
+                if (c->tokens[c->token_pos].type == TK_STATIC) is_static = true;
                 c->token_pos++;
             }
             if (global_align > 0) {

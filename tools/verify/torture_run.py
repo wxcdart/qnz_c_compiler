@@ -508,10 +508,6 @@ def skip_reason(path, d):
         # Fresh AOT process gets zeroed pages from the kernel, but in-process JIT
         # execution reuses dirty heap chunks. Nondeterministic stdout under JIT.
         return "SKIP-UB"
-    if rel.as_posix() == "execute/misalign.c":
-        # Requires GNU __attribute__((mode(...))) on typedefs and packed unaligned
-        # struct layout; ZeroCC strips mode attributes and does not pack structs.
-        return "SKIP-C89"
     top = rel.parts[0]
     if top in ("compat", "unsorted"):
         return "SKIP-DIR:%s" % top

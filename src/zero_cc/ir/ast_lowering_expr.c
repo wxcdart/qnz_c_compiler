@@ -235,6 +235,24 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
 
     switch (node->tag) {
         case NODE_INT: {
+            if (node->flags & 8u) {
+                /* Imaginary integer literal (e.g. 200i, 2i):
+                 * Materialize address-form complex object: (0, val). */
+                size_t cesz = (node->flags & 4u) ? 8 : ((node->flags & 2u) ? 8 : 4);
+                c->current_stack_frame = (c->current_stack_frame + 15) & ~15;
+                c->current_stack_frame = (c->current_stack_frame + (int32_t)(cesz * 2) + 7) & ~7;
+                int32_t coff = c->current_stack_frame;
+                int ca = zc_alloc_temp(c);
+                ir_emit_lea(c, ca, BE(c)->fp_reg, -coff);
+                int zr = zc_alloc_temp(c);
+                ir_emit_mov_imm(c, zr, 0);
+                int vi = zc_alloc_temp(c);
+                ir_emit_mov_imm(c, vi, node->int_val);
+                ir_emit_store(c, zr, BE(c)->fp_reg, -coff);
+                ir_emit_store(c, vi, BE(c)->fp_reg, -coff + (int)cesz);
+                c->last_expr_is_float = 0;
+                return ca;
+            }
             int us = 0;
             int w = zero_cc_expr_int_info(c, arena, ref, &us);
             if (zc_target_is_32bit(c) && w == 8) {

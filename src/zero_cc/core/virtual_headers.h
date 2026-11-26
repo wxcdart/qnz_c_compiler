@@ -281,7 +281,7 @@ static inline char* zero_cc_cpp_get_virtual_header(const char *name, ZeroCCStdDi
              * stream is exhausted (ptr == end) reads continue from ovf, the
              * shared stack-overflow area (fp+16), in argument order. */
             "typedef struct { unsigned long long *gp; unsigned long long *gp_end; unsigned long long *fp; unsigned long long *fp_end; unsigned long long *ovf; } va_list;\n"
-            "#define va_start(ap, last) __builtin_va_start(ap, last)\n"
+            "#define va_start(ap, ...) __builtin_va_start(ap, ##__VA_ARGS__)\n"
             "#define va_arg(ap, type) __builtin_va_arg(ap, type)\n"
             /* Evaluate the argument (C99 7.15.1.1: va_end(ap) may evaluate
              * ap - tests like c-torture va-arg-21 rely on the side effect,

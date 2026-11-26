@@ -107,6 +107,16 @@ int lower_member_chain_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTN
         }
         if (addr == TEMP_NONE) {
             addr = lower_expr(c, arena, base_ref);
+            if (!innermost_is_ptr && !ast_expr_is_struct_addr(c, arena, base_ref)) {
+                c->current_stack_frame = (c->current_stack_frame + 15) & ~15;
+                c->current_stack_frame += 16;
+                int32_t spill_slot = c->current_stack_frame;
+                ir_emit_store(c, addr, BE(c)->fp_reg, -spill_slot);
+                ir_emit_store(c, VREG_2, BE(c)->fp_reg, -(spill_slot - 8));
+                int struct_addr = zc_alloc_temp(c);
+                ir_emit_lea(c, struct_addr, BE(c)->fp_reg, -spill_slot);
+                addr = struct_addr;
+            }
         }
         if (addr == TEMP_NONE) return TEMP_NONE;
     }
@@ -244,6 +254,16 @@ int zero_cc_lower_lvalue_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef r
         }
         if (base_ptr == TEMP_NONE) {
             base_ptr = lower_expr(c, arena, base_ref);
+            if (!base_is_ptr && !ast_expr_is_struct_addr(c, arena, base_ref)) {
+                c->current_stack_frame = (c->current_stack_frame + 15) & ~15;
+                c->current_stack_frame += 16;
+                int32_t spill_slot = c->current_stack_frame;
+                ir_emit_store(c, base_ptr, BE(c)->fp_reg, -spill_slot);
+                ir_emit_store(c, VREG_2, BE(c)->fp_reg, -(spill_slot - 8));
+                int struct_addr = zc_alloc_temp(c);
+                ir_emit_lea(c, struct_addr, BE(c)->fp_reg, -spill_slot);
+                base_ptr = struct_addr;
+            }
         }
         if (member_offset != 0) {
             int off_temp = zc_alloc_temp(c);

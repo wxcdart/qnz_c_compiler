@@ -2528,6 +2528,34 @@ static void x86_emit_inline_asm_asm(ZeroCCCompiler *c, size_t idx, FILE *out) {
                 else if (*p == 'w') { p++; width = 16; }
                 else if (*p == 'b' || *p == 'c') { p++; width = 8; }
                 if (n >= aa->op_count) {
+                    int inout_count = 0;
+                    for (int k = 0; k < aa->op_count; k++) {
+                        if (aa->ops[k].kind == ZC_ASM_OP_INOUT_R) inout_count++;
+                    }
+                    if (n < aa->op_count + inout_count) {
+                        int inout_idx = n - aa->op_count;
+                        int found_idx = 0;
+                        const IRAsmOperand *target_op = NULL;
+                        for (int k = 0; k < aa->op_count; k++) {
+                            if (aa->ops[k].kind == ZC_ASM_OP_INOUT_R) {
+                                if (found_idx == inout_idx) { target_op = &aa->ops[k]; break; }
+                                found_idx++;
+                            }
+                        }
+                        if (target_op) {
+                            int phys = regalloc_get_reg_for_temp(&c->regalloc, target_op->temp);
+                            fprintf(out, "%%%s", x86_asm_operand_reg_name(phys,
+                                width ? width : (target_op->width ? target_op->width : 64)));
+                            continue;
+                        }
+                    }
+                    int label_idx = n - (aa->op_count + inout_count);
+                    if (label_idx < 0) label_idx = n - aa->op_count;
+                    if (label_idx >= 0 && label_idx < aa->goto_label_count) {
+                        int target_lbl = (int)aa->goto_labels[label_idx];
+                        fprintf(out, ".L%zu_%u", (size_t)c->lowering.current_func_idx, (unsigned)target_lbl);
+                        continue;
+                    }
                     fprintf(out, "%%bad");
                     continue;
                 }

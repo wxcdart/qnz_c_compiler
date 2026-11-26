@@ -98,7 +98,7 @@ bool zc_init_member_leaf_count(const ZeroCCStructMember *m, size_t *out) {
     if (m->tag == TYPE_ARRAY && m->base && m->base->size > 0) {
         size_t count = m->size / m->base->size;
         *out = count * zc_object_count_scalar_leaves(m->base);
-        if (*out == 0) *out = count;
+        if (*out == 0) *out = m->is_flexible ? 1 : count;
         return true;
     }
     if ((m->tag == TYPE_STRUCT || m->tag == TYPE_UNION) && m->base && m->base->member_count > 0) {
@@ -247,6 +247,7 @@ bool zc_init_resolve_positional(const ZeroCCType *t, size_t *cursor, size_t base
                     out->val_type.size = m->size;
                     out->val_type.align = m->align;
                     out->val_type.array_len = 2;
+                    out->val_type.is_complex = true;
                     ZeroCCType cx_el;
                     memset(&cx_el, 0, sizeof(cx_el));
                     cx_el.tag = m->tag;
@@ -316,6 +317,39 @@ bool zc_init_resolve_positional(const ZeroCCType *t, size_t *cursor, size_t base
                 (el->base->tag == TYPE_INT8 || el->base->tag == TYPE_UINT8)) {
                 out->arr_ctx_off = base_off + ei * el->size;
                 out->arr_ctx_size = el->size;
+            } else if ((el->tag == TYPE_STRUCT || el->tag == TYPE_UNION) && el->members) {
+                size_t m_start = 0;
+                for (size_t mi = 0; mi < el->member_count; mi++) {
+                    const ZeroCCStructMember *m = &el->members[mi];
+                    if (m->is_flexible) continue;
+                    size_t leaves_m = 1;
+                    zc_init_member_leaf_count(m, &leaves_m);
+                    if (out->local_leaf >= m_start && out->local_leaf < m_start + leaves_m) {
+                        size_t local = out->local_leaf - m_start;
+                        if (m->tag == TYPE_ARRAY && m->base && m->base->size > 0) {
+                            const ZeroCCType *mel = m->base;
+                            if (mel->tag == TYPE_INT8 || mel->tag == TYPE_UINT8 ||
+                                ((mel->tag == TYPE_INT32 || mel->tag == TYPE_UINT32) &&
+                                 tok && tok_pos < tok_count && tok[tok_pos].type == TK_STRING && tok[tok_pos].is_wide)) {
+                                out->arr_ctx_off = base_off + ei * el->size + m->offset;
+                                out->arr_ctx_size = m->size;
+                                out->abs_off = base_off + ei * el->size + m->offset + local * mel->size;
+                                out->in_member = true;
+                                out->advance = leaves_m;
+                            } else if (mel->tag == TYPE_ARRAY && mel->base &&
+                                       (mel->base->tag == TYPE_INT8 || mel->base->tag == TYPE_UINT8)) {
+                                size_t per_row = mel->array_len ? mel->array_len : 1;
+                                out->arr_ctx_off = base_off + ei * el->size + m->offset + (local / per_row) * mel->size;
+                                out->arr_ctx_size = mel->size;
+                                out->abs_off = base_off + ei * el->size + m->offset + local * mel->base->size;
+                                out->in_member = true;
+                                out->advance = per_row;
+                            }
+                        }
+                        break;
+                    }
+                    m_start += leaves_m;
+                }
             }
         }
         return true;
@@ -454,12 +488,6 @@ bool zc_init_parse_designators(ZeroCCCompiler *c, size_t *pos,
                 for (size_t mi = 0; mi < cur->member_count; mi++) {
                     if (strcmp(cur->members[mi].name, name) == 0) {
                         const ZeroCCStructMember *m = &cur->members[mi];
-                        if (m->is_flexible) {
-                            diag_report_error_at_token(c,
-                                "initialization of flexible array member '%s'", name);
-                            desig_err = true;
-                            break;
-                        }
                         tgt->abs_off += m->offset;
                         tgt->leaf_idx += zc_init_member_leaf_start(cur, mi);
                         ZeroCCType vt = zc_init_member_value_type(m);
@@ -579,13 +607,8 @@ bool zc_init_parse_designators(ZeroCCCompiler *c, size_t *pos,
                     desig_err = true;
                 } else {
                     const ZeroCCStructMember *m = &tgt->val_type.members[dlo];
-                    if (m->is_flexible) {
-                        diag_report_error_at_token(c,
-                            "initialization of flexible array member '%s'", m->name);
-                        desig_err = true;
-                    } else {
-                        tgt->abs_off = base_off + m->offset;
-                        tgt->leaf_idx = zc_init_member_leaf_start(&tgt->val_type, dlo);
+                    tgt->abs_off = base_off + m->offset;
+                    tgt->leaf_idx = zc_init_member_leaf_start(&tgt->val_type, dlo);
                         ZeroCCType vt = zc_init_member_value_type(m);
                         size_t adv;
                         zc_init_member_leaf_count(m, &adv);
@@ -616,7 +639,6 @@ bool zc_init_parse_designators(ZeroCCCompiler *c, size_t *pos,
                             tgt->scalar_sz = 0;
                         }
                         *lo = 0; *hi = 0; *is_range = false; *step = 0;
-                    }
                 }
                 first_step = false;
             } else {
@@ -889,10 +911,13 @@ int zero_cc_eval_const_expr_complex(ZeroCCCompiler *c, double *re, double *im) {
 size_t zc_measure_fam_init_bytes(ZeroCCCompiler *c, const ZeroCCType *st) {
     if (!st || (st->tag != TYPE_STRUCT && st->tag != TYPE_UNION) || !st->members) return 0;
     size_t fam_esz = 0;
+    const char *fam_name = NULL;
     for (size_t mi = 0; mi < st->member_count; mi++) {
         const ZeroCCStructMember *m = &st->members[mi];
-        if (m->is_flexible && m->tag == TYPE_ARRAY && m->base && m->base->size > 0)
+        if (m->is_flexible && m->tag == TYPE_ARRAY && m->base && m->base->size > 0) {
             fam_esz = m->base->size;
+            fam_name = m->name;
+        }
     }
     if (fam_esz == 0) return 0;
     if (c->token_pos >= c->token_count || c->tokens[c->token_pos].type != TK_LBRACE) return 0;
@@ -908,28 +933,47 @@ size_t zc_measure_fam_init_bytes(ZeroCCCompiler *c, const ZeroCCType *st) {
     }
     size_t bytes = 0;
     if (last_start < c->token_count) {
-        int tt = c->tokens[last_start].type;
-        if (tt == TK_STRING) {
-            bytes = zero_cc_token_str_len(&c->tokens[last_start]) + 1;
-        } else if (tt == TK_LBRACE) {
-            size_t p = last_start + 1;
-            int d = 0;
-            size_t count = 0;
-            bool any = false;
-            while (p < c->token_count) {
-                int t2 = c->tokens[p].type;
-                if (t2 == TK_LBRACE) d++;
-                else if (t2 == TK_RBRACE) { if (d == 0) break; d--; }
-                else if (d == 0) {
-                    if (t2 == TK_COMMA) { if (any) count++; }
-                    else if (t2 != TK_ASSIGN && t2 != TK_DOT) any = true;
+        size_t p = last_start;
+        /* Skip designator if present: `.fam = ...` or `fam: ...` */
+        if (p < c->token_count && c->tokens[p].type == TK_DOT) {
+            p++;
+            if (p < c->token_count && c->tokens[p].type == TK_IDENT) {
+                if (fam_name && strcmp(c->tokens[p].str_val, fam_name) != 0) {
+                    return 0;
                 }
                 p++;
             }
-            if (any) count++;
-            bytes = count * fam_esz;
-        } else if (tt != TK_RBRACE) {
-            bytes = fam_esz; /* single scalar (char literal / int / enum) */
+            if (p < c->token_count && (c->tokens[p].type == TK_ASSIGN || c->tokens[p].type == TK_COLON)) p++;
+        } else if (p + 1 < c->token_count && c->tokens[p].type == TK_IDENT && c->tokens[p + 1].type == TK_COLON) {
+            if (fam_name && strcmp(c->tokens[p].str_val, fam_name) != 0) {
+                return 0;
+            }
+            p += 2;
+        }
+        if (p < c->token_count) {
+            int tt = c->tokens[p].type;
+            if (tt == TK_STRING) {
+                bytes = zero_cc_token_str_len(&c->tokens[p]) + 1;
+            } else if (tt == TK_LBRACE) {
+                size_t lp = p + 1;
+                int d = 0;
+                size_t count = 0;
+                bool any = false;
+                while (lp < c->token_count) {
+                    int t2 = c->tokens[lp].type;
+                    if (t2 == TK_LBRACE) d++;
+                    else if (t2 == TK_RBRACE) { if (d == 0) break; d--; }
+                    else if (d == 0) {
+                        if (t2 == TK_COMMA) { if (any) count++; }
+                        else if (t2 != TK_ASSIGN && t2 != TK_DOT) any = true;
+                    }
+                    lp++;
+                }
+                if (any) count++;
+                bytes = count * fam_esz;
+            } else if (tt != TK_RBRACE) {
+                bytes = fam_esz; /* single scalar (char literal / int / enum) */
+            }
         }
     }
     return bytes;
@@ -1063,6 +1107,50 @@ void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType obj_type,
                 break;
             }
             if (cursor) *cursor = cur;
+        }
+
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_LBRACE && tgt.val_type.is_complex) {
+            size_t save_pos = c->token_pos;
+            double cre = 0.0, cim = 0.0;
+            if (zero_cc_eval_const_expr_complex(c, &cre, &cim)) {
+                size_t half = tgt.val_type.size / 2;
+                if (half == 1) {
+                    int8_t r8 = (int8_t)cre, i8 = (int8_t)cim;
+                    if (tgt.abs_off < buf_cap) buf[tgt.abs_off] = (uint8_t)r8;
+                    if (tgt.abs_off + 1 < buf_cap) buf[tgt.abs_off + 1] = (uint8_t)i8;
+                } else if (half == 2) {
+                    int16_t r16 = (int16_t)cre, i16 = (int16_t)cim;
+                    if (tgt.abs_off + 2 <= buf_cap) memcpy(buf + tgt.abs_off, &r16, 2);
+                    if (tgt.abs_off + 4 <= buf_cap) memcpy(buf + tgt.abs_off + 2, &i16, 2);
+                } else if (half == 4) {
+                    if (tgt.val_type.base && (tgt.val_type.base->tag == TYPE_FLOAT)) {
+                        float rf = (float)cre, iff = (float)cim;
+                        if (tgt.abs_off + 4 <= buf_cap) memcpy(buf + tgt.abs_off, &rf, 4);
+                        if (tgt.abs_off + 8 <= buf_cap) memcpy(buf + tgt.abs_off + 4, &iff, 4);
+                    } else {
+                        int32_t r32 = (int32_t)cre, i32 = (int32_t)cim;
+                        if (tgt.abs_off + 4 <= buf_cap) memcpy(buf + tgt.abs_off, &r32, 4);
+                        if (tgt.abs_off + 8 <= buf_cap) memcpy(buf + tgt.abs_off + 4, &i32, 4);
+                    }
+                } else {
+                    if (tgt.val_type.base && (tgt.val_type.base->tag == TYPE_DOUBLE || tgt.val_type.base->tag == TYPE_FLOAT)) {
+                        if (tgt.abs_off + 8 <= buf_cap) memcpy(buf + tgt.abs_off, &cre, 8);
+                        if (tgt.abs_off + 16 <= buf_cap) memcpy(buf + tgt.abs_off + 8, &cim, 8);
+                    } else {
+                        int64_t r64 = (int64_t)cre, i64 = (int64_t)cim;
+                        if (tgt.abs_off + 8 <= buf_cap) memcpy(buf + tgt.abs_off, &r64, 8);
+                        if (tgt.abs_off + 16 <= buf_cap) memcpy(buf + tgt.abs_off + 8, &i64, 8);
+                    }
+                }
+                if (cursor) {
+                    *cursor += tgt.advance;
+                }
+                if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) {
+                    c->token_pos++;
+                }
+                continue;
+            }
+            c->token_pos = save_pos;
         }
 
         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACE) {
@@ -1307,16 +1395,34 @@ void zero_cc_emit_brace_init_global(ZeroCCCompiler *c, ZeroCCType obj_type,
                 ZeroCCFunction *rfn = rgv ? NULL : zero_cc_find_function(c, refn);
                 ap++; /* past the ident */
                 size_t addoff = 0;
-                if (ap < c->token_count && c->tokens[ap].type == TK_LBRACKET) {
-                    ZeroCCType rtt = rgv ? rgv->type : (rfn ? rfn->return_type : zero_cc_type_char());
-                    int64_t resz = (rtt.tag == TYPE_ARRAY && rtt.base && rtt.base->size > 0) ?
-                        (int64_t)rtt.base->size : (int64_t)(rtt.size > 0 ? rtt.size : 1);
-                    ap++; /* past '[' */
-                    c->token_pos = ap;
-                    int64_t n = zero_cc_eval_const_expr(c);
-                    ap = c->token_pos;
-                    if (ap < c->token_count && c->tokens[ap].type == TK_RBRACKET) ap++;
-                    addoff = (size_t)(n * (resz > 0 ? resz : 1));
+                ZeroCCType cur_t = rgv ? rgv->type : (rfn ? rfn->return_type : zero_cc_type_char());
+                while (ap < c->token_count && (c->tokens[ap].type == TK_DOT || c->tokens[ap].type == TK_LBRACKET)) {
+                    if (c->tokens[ap].type == TK_DOT) {
+                        ap++; /* past '.' */
+                        if (ap < c->token_count && c->tokens[ap].type == TK_IDENT) {
+                            const char *mn = c->tokens[ap].str_val;
+                            ap++;
+                            if (cur_t.tag == TYPE_STRUCT || cur_t.tag == TYPE_UNION) {
+                                for (size_t mi = 0; mi < cur_t.member_count; mi++) {
+                                    if (strcmp(cur_t.members[mi].name, mn) == 0) {
+                                        addoff += cur_t.members[mi].offset;
+                                        cur_t = zc_init_member_value_type(&cur_t.members[mi]);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    } else if (c->tokens[ap].type == TK_LBRACKET) {
+                        int64_t resz = (cur_t.tag == TYPE_ARRAY && cur_t.base && cur_t.base->size > 0) ?
+                            (int64_t)cur_t.base->size : (int64_t)(cur_t.size > 0 ? cur_t.size : 1);
+                        ap++; /* past '[' */
+                        c->token_pos = ap;
+                        int64_t n = zero_cc_eval_const_expr(c);
+                        ap = c->token_pos;
+                        if (ap < c->token_count && c->tokens[ap].type == TK_RBRACKET) ap++;
+                        addoff += (size_t)(n * (resz > 0 ? resz : 1));
+                        if (cur_t.base) cur_t = *cur_t.base;
+                    }
                 }
                 while (pdepth > 0 && ap < c->token_count && c->tokens[ap].type == TK_RPAREN) {
                     pdepth--;

@@ -7,7 +7,8 @@
 
 /* Struct Registry */
 static inline void zero_cc_register_struct(ZeroCCCompiler *c, const char *name, ZeroCCType type) {
-    for (size_t i = 0; i < c->struct_count; i++) {
+    size_t start = c ? c->fn_struct_base : 0;
+    for (size_t i = start; c && i < c->struct_count; i++) {
         if (strcmp(c->structs[i].name, name) == 0) {
             ZeroCCType *prev = &c->structs[i].type;
             /* Block-scope tag redefinition (C11 6.7.2.1 / GCC extension):
@@ -52,7 +53,7 @@ static inline void zero_cc_register_struct(ZeroCCCompiler *c, const char *name, 
             return;
         }
     }
-    if (c->struct_count < ZERO_CC_MAX_STRUCTS) {
+    if (c && c->struct_count < ZERO_CC_MAX_STRUCTS) {
         snprintf(c->structs[c->struct_count].name, 128, "%s", name);
         c->structs[c->struct_count].type = type;
         c->struct_count++;
@@ -60,9 +61,10 @@ static inline void zero_cc_register_struct(ZeroCCCompiler *c, const char *name, 
 }
 
 static inline ZeroCCType* zero_cc_find_struct(ZeroCCCompiler *c, const char *name) {
-    for (size_t i = 0; i < c->struct_count; i++) {
-        if (strcmp(c->structs[i].name, name) == 0) {
-            return &c->structs[i].type;
+    if (!c) return NULL;
+    for (size_t i = c->struct_count; i > 0; i--) {
+        if (strcmp(c->structs[i - 1].name, name) == 0) {
+            return &c->structs[i - 1].type;
         }
     }
     return NULL;
@@ -106,7 +108,8 @@ static inline void zero_cc_sync_typedefs_with_struct(ZeroCCCompiler *c, const ch
 
 /* Typedef Registry */
 static inline void zero_cc_register_typedef(ZeroCCCompiler *c, const char *alias, ZeroCCType type) {
-    for (size_t i = 0; i < c->typedef_count; i++) {
+    size_t start = c ? c->fn_typedef_base : 0;
+    for (size_t i = start; c && i < c->typedef_count; i++) {
         if (strcmp(c->typedefs[i].alias, alias) == 0) {
             /* Retired-array recording: see zero_cc_register_struct. */
             zero_cc_note_members_array(c, c->typedefs[i].type.members);
@@ -114,7 +117,7 @@ static inline void zero_cc_register_typedef(ZeroCCCompiler *c, const char *alias
             return;
         }
     }
-    if (c->typedef_count < ZERO_CC_MAX_TYPEDEFS) {
+    if (c && c->typedef_count < ZERO_CC_MAX_TYPEDEFS) {
         snprintf(c->typedefs[c->typedef_count].alias, 128, "%s", alias);
         c->typedefs[c->typedef_count].type = type;
         c->typedef_count++;
@@ -122,9 +125,10 @@ static inline void zero_cc_register_typedef(ZeroCCCompiler *c, const char *alias
 }
 
 static inline ZeroCCType* zero_cc_find_typedef(ZeroCCCompiler *c, const char *alias) {
-    for (size_t i = 0; i < c->typedef_count; i++) {
-        if (strcmp(c->typedefs[i].alias, alias) == 0) {
-            return &c->typedefs[i].type;
+    if (!c) return NULL;
+    for (size_t i = c->typedef_count; i > 0; i--) {
+        if (strcmp(c->typedefs[i - 1].alias, alias) == 0) {
+            return &c->typedefs[i - 1].type;
         }
     }
     return NULL;

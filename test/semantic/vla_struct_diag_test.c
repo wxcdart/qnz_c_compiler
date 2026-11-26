@@ -52,11 +52,16 @@ static int run_case(const char *src, ExpectKind expect, const char *expect_subst
 int main(void) {
     int fails = 0;
 
-    /* 1. Same tag, different layouts in sibling scopes (20070919-1). */
+    /* 1. Same tag, different layouts in sibling scopes (20070919-1) - legal C. */
     fails += run_case(
         "int f1 (int y) { struct S { char w[y]; } a; return a.w[0]; }\n"
         "int f2 (void) { struct S { char w[8]; } b; return b.w[0]; }\n"
         "int main (void) { return f2(); }\n",
+        WANT_OK, NULL);
+
+    /* 1b. Same scope redefinition with different layouts - must be rejected. */
+    fails += run_case(
+        "int f1 (void) { struct S { char w[4]; } a; struct S { char w[8]; } b; return 0; }\n",
         WANT_ERROR, "redefinition of 'struct S'");
 
     /* 2. Same tag, same layout in sibling scopes - legal. */

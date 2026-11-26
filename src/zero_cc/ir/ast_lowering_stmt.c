@@ -93,8 +93,8 @@ static bool zc_stmt_always_terminates(ZeroCCCompiler *c, ZeroCCASTArena *arena,
     }
 }
 
-static bool zc_expr_has_local_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
-    if (ref == AST_NULL) return false;
+static bool zc_expr_has_local_addr_depth(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref, int depth) {
+    if (ref == AST_NULL || depth > 32) return (depth > 32);
     ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
     if (!n) return false;
     if (n->tag == NODE_UNOP && n->aux.op == TK_AMP) return true;
@@ -105,9 +105,16 @@ static bool zc_expr_has_local_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, AST
             return true;
         }
     }
-    return zc_expr_has_local_addr(c, arena, n->left) ||
-           zc_expr_has_local_addr(c, arena, n->right) ||
-           zc_expr_has_local_addr(c, arena, (ASTRef)n->aux.alt);
+    if (zc_expr_has_local_addr_depth(c, arena, n->left, depth + 1)) return true;
+    if (zc_expr_has_local_addr_depth(c, arena, n->right, depth + 1)) return true;
+    if (n->tag == NODE_TERNARY && n->aux.alt != AST_NULL) {
+        if (zc_expr_has_local_addr_depth(c, arena, (ASTRef)n->aux.alt, depth + 1)) return true;
+    }
+    return false;
+}
+
+static bool zc_expr_has_local_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref) {
+    return zc_expr_has_local_addr_depth(c, arena, ref, 0);
 }
 
 /* Sprint 229 & 234: Tail Call Optimization (TCO) helper for self and sibling tail calls */
@@ -167,10 +174,10 @@ static bool zc_try_lower_tail_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, AST
         uint32_t val_temp = lower_expr(c, arena, call_ref);
         size_t after_count = ir_get_count(c);
 
-        /* Mark the OP_CALL as sibling tail call */
+        /* Mark the outermost OP_CALL as sibling tail call (search backward) */
         bool found = false;
-        for (size_t i = before_count; i < after_count; i++) {
-            Instr *ins = (Instr*)&ir_get_buffer(c)[i];
+        for (size_t i = after_count; i > before_count; i--) {
+            Instr *ins = (Instr*)&ir_get_buffer(c)[i - 1];
             if (ins->op == OP_CALL) {
                 ins->alias_group |= ZC_CALL_FLAG_SIBLING;
                 found = true;
@@ -597,13 +604,13 @@ static void lower_asm_stmt(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNo
             c->had_error = 1;
             return;
         }
-        if (cs[1] != '\0' && body != 'r' && body != 'm') {
-            diag_report_error_at_token(c, "asm constraint not supported in Phase 1 (r/m/a/b/c/d/S/D/0-7)");
+        if (cs[1] != '\0' && body != 'r' && body != 'm' && body != 'i' && body != 'n') {
+            diag_report_error_at_token(c, "asm constraint not supported in Phase 1 (r/m/a/b/c/d/S/D/0-7/i/n)");
             c->had_error = 1;
             return;
         }
         int ok = 1;
-        if (body == 'r') {
+        if (body == 'r' || body == 'i' || body == 'n') {
             int w = zc_asm_r_operand_width(c, zero_cc_ast_get(arena, as->in_exprs[i]), &ok);
             if (!ok) {
                 diag_report_error_at_token(c, "asm r operand must be an integer or pointer scalar");
@@ -777,7 +784,11 @@ static void lower_asm_stmt(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNo
             }
         }
         if (tp[1] < '0' || tp[1] > '9') continue;
-        if (tp[1] - '0' >= aa.op_count + aa.goto_label_count) {
+        int inout_cnt = 0;
+        for (int oi = 0; oi < as->out_count; oi++) {
+            if (as->out_constraints[oi] && as->out_constraints[oi][0] == '+') inout_cnt++;
+        }
+        if (tp[1] - '0' >= aa.op_count + inout_cnt + aa.goto_label_count) {
             diag_report_error_at_token(c, "asm template references an out-of-range operand");
             c->had_error = 1;
             return;
@@ -857,15 +868,11 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
          * falling back to s.str (synthetic definition node). */
         const char *def_tag = node->s.str;
         TypeInfo *def_ti = ast_node_get_typeinfo(c, node);
-        if (def_ti) {
-            if (def_ti->kind == TYPE_KIND_STRUCT || def_ti->kind == TYPE_KIND_UNION) {
-                if (def_ti->details.record.tag) def_tag = def_ti->details.record.tag;
-            } else if (type_is_array(def_ti) && def_ti->details.array.base &&
-                       (def_ti->details.array.base->kind == TYPE_KIND_STRUCT ||
-                        def_ti->details.array.base->kind == TYPE_KIND_UNION)) {
-                if (def_ti->details.array.base->details.record.tag)
-                    def_tag = def_ti->details.array.base->details.record.tag;
-            }
+        while (def_ti && (type_is_pointer(def_ti) || type_is_array(def_ti))) {
+            def_ti = type_is_pointer(def_ti) ? def_ti->details.pointer.base : def_ti->details.array.base;
+        }
+        if (def_ti && (def_ti->kind == TYPE_KIND_STRUCT || def_ti->kind == TYPE_KIND_UNION)) {
+            if (def_ti->details.record.tag) def_tag = def_ti->details.record.tag;
         }
         if (!def_tag[0]) return;
         ZeroCCType *dreg = zero_cc_find_struct(c, def_tag);

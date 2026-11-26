@@ -479,7 +479,7 @@ static inline int zero_cc_types_compatible_inner(ZeroCCType a, ZeroCCType b) {
             if (a.struct_name[0] && b.struct_name[0]) {
                 return strcmp(a.struct_name, b.struct_name) == 0;
             }
-            return a.size == b.size;
+            return 0;
         case TYPE_PTR:
             if (!a.base || !b.base) return 0;
             if (a.is_func_ptr) {
@@ -547,6 +547,15 @@ static inline int zero_cc_types_compatible(ZeroCCType a, ZeroCCType b) {
     a = zero_cc_type_normalize_array_qualifiers(a);
     b = zero_cc_type_normalize_array_qualifiers(b);
     a = zero_cc_type_strip_qualifiers(a);
+    return zero_cc_types_compatible_inner(a, b);
+}
+
+/* GCC __builtin_types_compatible_p: top-level qualifiers stripped from BOTH types. */
+static inline int zero_cc_types_compatible_builtin(ZeroCCType a, ZeroCCType b) {
+    a = zero_cc_type_normalize_array_qualifiers(a);
+    b = zero_cc_type_normalize_array_qualifiers(b);
+    a = zero_cc_type_strip_qualifiers(a);
+    b = zero_cc_type_strip_qualifiers(b);
     return zero_cc_types_compatible_inner(a, b);
 }
 
