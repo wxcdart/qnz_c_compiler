@@ -12,6 +12,8 @@
 #include "zero_cc/opt/opt_loop_unswitch.h"
 #include "zero_cc/opt/opt_loop_idiom.h"
 #include "zero_cc/opt/opt_escape.h"
+#include "zero_cc/opt/opt_ivsr.h"
+#include "zero_cc/opt/opt_sccp.h"
 #include "zero_cc/opt/opt_loop_unroll.h"
 #include "zero_cc/opt/opt_vectorize.h"
 #include "zero_cc/opt/opt_slp.h"
@@ -35,6 +37,7 @@ static void opt_pass_copy_prop(ZeroCCCompiler *c);
 static void opt_pass_cse(ZeroCCCompiler *c);
 static void opt_pass_gvn(ZeroCCCompiler *c);
 static void opt_pass_adce(ZeroCCCompiler *c);
+static void opt_pass_sccp(ZeroCCCompiler *c);
 static void opt_pass_licm(ZeroCCCompiler *c);
 static void opt_pass_loop_unswitch(ZeroCCCompiler *c);
 static void opt_pass_loop_idiom(ZeroCCCompiler *c);
@@ -59,6 +62,7 @@ static const OptPass g_opt_passes[] = {
     { "dse", opt_pass_dse, 1, 42, OPT_LEVEL_O1 },
     { "escape", opt_pass_escape, 1, 43, OPT_LEVEL_O2 },
     { "cse", opt_pass_cse, 1, 45, OPT_LEVEL_O2 },
+    { "sccp", opt_pass_sccp, 1, 48, OPT_LEVEL_O2 },
     { "gvn", opt_pass_gvn, 1, 50, OPT_LEVEL_O2 },
     { "adce", opt_pass_adce, 1, 52, OPT_LEVEL_O2 },
     { "licm", opt_pass_licm, 1, 55, OPT_LEVEL_O2 },
@@ -143,11 +147,15 @@ static void opt_pass_escape(ZeroCCCompiler *c) { opt_escape(c); }
 static void opt_pass_cse(ZeroCCCompiler *c) { opt_eliminate_cse(c); }
 static void opt_pass_gvn(ZeroCCCompiler *c) { opt_eliminate_gvn(c); }
 static void opt_pass_adce(ZeroCCCompiler *c) { opt_adce(c); }
+static void opt_pass_sccp(ZeroCCCompiler *c) { opt_sccp(c); }
 static void opt_pass_licm(ZeroCCCompiler *c) { opt_licm(c); }
 static void opt_pass_loop_unswitch(ZeroCCCompiler *c) { opt_loop_unswitch(c); }
 static void opt_pass_loop_idiom(ZeroCCCompiler *c) { opt_loop_idiom(c); }
 static void opt_pass_branchless(ZeroCCCompiler *c) { opt_branchless_select(c); }
-static void opt_pass_strength_reduction(ZeroCCCompiler *c) { opt_strength_reduction(c); }
+static void opt_pass_strength_reduction(ZeroCCCompiler *c) {
+    opt_strength_reduction(c);
+    opt_ivsr(c);
+}
 static void opt_pass_branch_simplify(ZeroCCCompiler *c) { opt_branch_simplify(c); }
 static void opt_pass_loop_peel(ZeroCCCompiler *c) { opt_loop_peel(c); }
 static void opt_pass_loop_fusion(ZeroCCCompiler *c) { opt_loop_fusion(c); }

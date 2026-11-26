@@ -4,7 +4,7 @@ title: Optimization Passes & Safety Invariants
 description: Active IR optimization pipeline (Constant Folding, CopyProp, CSE, GVN, DCE, Mem2Reg, LICM, Auto-Vectorization) and their correctness invariants.
 resource: middleend/optimization-passes
 tags: [optimizations, mem2reg, licm, vectorization, gvn, cse, dce]
-timestamp: 2026-11-26T00:52:35Z
+timestamp: 2026-11-26T02:22:35Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -307,6 +307,31 @@ Sprint 219 extends the loop auto-vectorizer (`opt_vectorize.c`) with conditional
   - NOPs all matching calls to `free(ptr)`.
 - **Dead Allocation Elimination**:
   - Detects promoted buffers with zero memory reads or writes and eliminates both allocation and deallocation without consuming stack space.
+
+### Loop Induction Variable Strength Reduction (IVSR, Sprint 235)
+- Registered at priority 60 (`opt_ivsr.c`) under `opt_pass_strength_reduction`, executing at `-O3`.
+- Detects natural loops with primary induction variables `counter` and addressing computations `addr = base + counter * scale` (`OP_SHL` / `OP_MUL` + `OP_ADD`).
+- Performs Two-Pass Arena Rebuild:
+  - Preheader: materializes induction pointer `ptr = base`.
+  - Loop body: replaces address computation with direct pointer `addr = ptr` and eliminates dead shifts/multiplications.
+  - Latch: advances pointer at loop backedge `ptr += step * scale`.
+
+### Type-Based Alias Analysis (TBAA, Sprint 236)
+- Implemented in `opt_alias.c` / `opt_alias.h` and integrated into `opt_gvn.c` memory forwarding.
+- Implements ISO C99 6.5p7 strict aliasing rules:
+  - Disjoint scalar types (e.g. `int*` vs `double*`, `short*` vs `int*`) cannot alias.
+  - Character types (`char`, `uint8_t`, `int8_t`) universally alias any type.
+  - Distinct C99 `restrict` groups cannot alias.
+  - Distinct stack slots and disjoint global variables/rodata cannot alias.
+- Integrated into `opt_restrict_memory_forward`: stores only invalidate conflicting loads, preserving independent loads across stores.
+
+### Sparse Conditional Constant Propagation (SCCP, Sprint 237)
+- Registered at priority 48 (`opt_sccp.c`), executing at `-O2` and `-O3`.
+- Implements Wegman-Zadeck 3-level lattice (`TOP`, `CONST`, `BOT`).
+- Simultaneously evaluates constants through arithmetic/comparisons and discovers executable control flow edges across basic blocks.
+- Folds constant branches (`OP_JE`/`OP_JNE` with known boolean conditions) into unconditional jumps or NOPs.
+- Prunes unreachable basic blocks with `OP_NOP` while respecting functions with computed gotos (`OP_JMP_INDIRECT`).
+- Folds proven constant ALU operations into `OP_MOV_IMM`.
 
 ## Known Issues Surfaced During Sprint 39 (ALL RESOLVED in Sprint 40)
 

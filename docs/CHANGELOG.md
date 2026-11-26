@@ -1,5 +1,47 @@
 # CHANGELOG
 
+## [Sprint 237] - 2026-11-25 - Sparse Conditional Constant Propagation (SCCP)
+
+Implements Option 3 (Sparse Conditional Constant Propagation, Tier 2 Item #8):
+- **Sparse Conditional Constant Propagation (`opt/opt_sccp.c`, `opt/opt_sccp.h`, `opt/opt_pass.c`, `Makefile`)**:
+  - Registered at priority 48 (`OPT_LEVEL_O2`+).
+  - Implements Wegman-Zadeck algorithm with 3-level lattice (`TOP`, `CONST`, `BOT`).
+  - Evaluates constants across basic blocks, evaluates conditional branch targets, and folds constant paths.
+  - Replaces proved constant conditional branches (`OP_JE`/`OP_JNE`) with unconditional jumps or NOPs.
+  - Prunes dead basic blocks by zeroing dead instructions to `OP_NOP` while preserving computed goto targets (`OP_JMP_INDIRECT`).
+  - Correctly maps condition codes (`CC_EQ`, `CC_NE`, `CC_LT`, `CC_LE`, `CC_GT`, `CC_GE`, `CC_FLT_*`) for conditional sets.
+  - Replaces folded constant ALU operations with `OP_MOV_IMM`.
+- **Verification & Test Coverage**:
+  - Added unit test `test/jit/sccp_test.c` verifying constant branch folding, dead block pruning, dead loop elimination, dynamic annihilators, and multi-block propagation across AOT and JIT at `-O0`, `-O2`, `-O3`.
+
+
+## [Sprint 236] - 2026-11-25 - Type-Based Alias Analysis (TBAA)
+
+Implements Option 2 (Type-Based Alias Analysis, Tier 3 Item #15):
+- **Type-Based Alias Analysis (`opt/opt_alias.c`, `opt/opt_alias.h`, `opt/opt_gvn.c`, `Makefile`)**:
+  - Implements C99 6.5p7 strict aliasing rules:
+    - Disjoint scalar types (e.g. `int*` vs `double*`, `int*` vs `short*`) cannot alias.
+    - Character types (`char`, `uint8_t`, `int8_t`) universally alias any type.
+    - C99 `restrict` qualifiers with distinct groups cannot alias.
+    - Distinct stack slots and disjoint globals/.Lrodata cannot alias.
+  - Integrated into GVN store-to-load forwarding (`opt_restrict_memory_forward`): stores only invalidate conflicting loads, preserving non-aliasing loads across stores.
+- **Verification & Test Coverage**:
+  - Added unit test `test/jit/tbaa_test.c` verifying load preservation across non-aliasing stores, character pointer aliasing, and distinct global separation across AOT and JIT at `-O0`, `-O2`, `-O3`.
+
+
+## [Sprint 235] - 2026-11-25 - Loop Induction Variable Strength Reduction (IVSR)
+
+Implements Option 1 (Loop Induction Variable Strength Reduction, Tier 4 Item #18):
+- **Loop Induction Variable Strength Reduction (`opt/opt_ivsr.c`, `opt/opt_ivsr.h`, `opt/opt_pass.c`, `Makefile`)**:
+  - Registered at priority 60 under `opt_pass_strength_reduction` (`OPT_LEVEL_O3`).
+  - Analyzes natural loops for primary induction variables and array indexing calculations `addr = base + i * scale` (`OP_SHL` / `OP_MUL` + `OP_ADD`).
+  - Uses Two-Pass Arena Rebuild:
+    - Preheader: materializes induction pointer `ptr = base`.
+    - Body: replaces address calculation with direct pointer `addr = ptr` and removes redundant shifts/multiplications.
+    - Latch: advances pointer at backedge `ptr += step * scale`.
+- **Verification & Test Coverage**:
+  - Added unit test `test/jit/ivsr_test.c` verifying 1D/2D array indexing strength reduction, variable strides, and multi-loop accumulators across AOT and JIT at `-O0`, `-O2`, `-O3`.
+
 ## [Sprint 234] - 2026-11-25 - General Sibling Call Optimization (TCO Phase 2)
 
 Implements Option 3 (TCO Phase 2 - General Sibling Calls, Tier 2 Item #11):

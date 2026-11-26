@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "zero_cc/opt/opt_profile.h"
+#include "zero_cc/opt/opt_alias.h"
 #include "zero_cc/ir/ir.h"
 #include "zero_cc/types/symbols.h"
 #include "zero_cc/common/hash_table.h"
@@ -347,7 +348,20 @@ static void opt_restrict_memory_forward(ZeroCCCompiler *c) {
         if (in->op == OP_STORE_BYTE || in->op == OP_STORE_16 ||
             in->op == OP_STORE_32 || in->op == OP_STORE_64) {
             if (in->alias_group == 0) {
-                g_mf_n = 0;
+                /* TBAA: preserve pending loads that cannot alias this store */
+                uint32_t s_addr = (in->temp_src2 != TEMP_NONE) ?
+                    canon_get((uint16_t)in->temp_src2) : TEMP_NONE;
+                int write_idx = 0;
+                for (int e = 0; e < g_mf_n; e++) {
+                    AliasResult ar = zero_cc_alias_query(c,
+                        in->op, s_addr, in->alias_group,
+                        g_mf[e].op, g_mf[e].addr, g_mf[e].group);
+                    if (ar == ALIAS_NO) {
+                        if (write_idx != e) g_mf[write_idx] = g_mf[e];
+                        write_idx++;
+                    }
+                }
+                g_mf_n = write_idx;
                 g_slot_n = 0;
             } else {
                 mf_remove_if_group(in->alias_group);
