@@ -4,7 +4,7 @@ title: Optimization Passes & Safety Invariants
 description: Active IR optimization pipeline (Constant Folding, CopyProp, CSE, GVN, DCE, Mem2Reg, LICM, Auto-Vectorization) and their correctness invariants.
 resource: middleend/optimization-passes
 tags: [optimizations, mem2reg, licm, vectorization, gvn, cse, dce]
-timestamp: 2026-11-26T02:22:35Z
+timestamp: 2026-11-26T02:55:27Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -332,6 +332,33 @@ Sprint 219 extends the loop auto-vectorizer (`opt_vectorize.c`) with conditional
 - Folds constant branches (`OP_JE`/`OP_JNE` with known boolean conditions) into unconditional jumps or NOPs.
 - Prunes unreachable basic blocks with `OP_NOP` while respecting functions with computed gotos (`OP_JMP_INDIRECT`).
 - Folds proven constant ALU operations into `OP_MOV_IMM`.
+
+### Dead Loop Deletion (Sprint 238)
+- Registered at priority 59 (`opt_loop_delete.c`), executing at `-O3`. Completes Tier 4 (Item #20).
+- Identifies countable, single-entry natural loops in CFG that compute pure values without observable external side effects.
+- Purity checks: guarantees zero calls, external/heap/global stores, inline assembly, volatile operations, or traps.
+- Liveness & escape verification:
+  - Ensures no temporary defined inside the loop span escapes to any instruction outside the loop.
+  - Ensures any stack slot stored within the loop is never loaded or address-taken outside the loop.
+- Loop elimination: replaces loop entry with an unconditional jump (`OP_JMP`) to the loop exit label, and zeroes out the loop body and backedge into `OP_NOP`. Subsequent DCE and DSE passes remove dead preheader initializers.
+
+### Join / Diamond-Merging Mem2Reg Promotion (Sprint 239)
+- Implemented in `opt_mem2reg_join.c` and integrated into `opt_pass_mem2reg`, executing at `-O1`+. Extends Tier 2 (Item #7).
+- Detects if-then-else diamond control flow where mutually exclusive branches store values into the same non-escaped stack slot $S$.
+- Lowers SSA $\phi$-nodes into virtual registers:
+  - Allocates a unified temporary `t_join = zc_alloc_temp(c)`.
+  - Rewrites store instructions at the end of both diamond branches to copy directly into `t_join` (`OP_MOV_REG t_join, src`).
+  - Rewrites loads in the join block to read `t_join`, eliminating memory stores and loads across diamond branches.
+
+### Advanced Algebraic & Peephole Simplification (Sprint 240)
+- Registered at priority 15 (`opt_peephole.c`), executing at `-O1`+. Completes Tier 1 (Item #2).
+- Applies mathematical identities and peephole simplifications strictly scoped to scalar integer/pointer GPR temporaries:
+  - Self-identities: $x - x \to 0$, $x \oplus x \to 0$, $x \land x \to x$, $x \lor x \to x$.
+  - Neutral elements: $x + 0 \to x$, $x - 0 \to x$, $0 - x \to -x$, $x \times 1 \to x$, $x / 1 \to x$, $x \lor 0 \to x$, $x \oplus 0 \to x$, $x \land -1 \to x$, $x \ll 0 \to x$, $x \gg 0 \to x$.
+  - Annihilators: $x \times 0 \to 0$, $x \land 0 \to 0$.
+  - Inverses: $-(-x) \to x$, $\sim(\sim x) \to x$.
+  - Redundant operations: self register copies `MOV_REG x, x -> NOP`.
+- Basic block containment: constant and definition resolutions are strictly scoped within local basic blocks, preventing unsound cross-branch value assumptions.
 
 ## Known Issues Surfaced During Sprint 39 (ALL RESOLVED in Sprint 40)
 

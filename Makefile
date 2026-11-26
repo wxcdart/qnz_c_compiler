@@ -94,10 +94,12 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	src/zero_cc/dwarf/dwarf.o \
 	src/zero_cc/opt/opt_pass.o \
 	src/zero_cc/opt/opt_constant_fold.o \
+	src/zero_cc/opt/opt_peephole.o \
 	src/zero_cc/opt/opt_dce.o \
 	src/zero_cc/opt/opt_dse.o \
 	src/zero_cc/opt/opt_adce.o \
 	src/zero_cc/opt/opt_mem2reg.o \
+	src/zero_cc/opt/opt_mem2reg_join.o \
 	src/zero_cc/opt/opt_cse.o \
 	src/zero_cc/opt/opt_gvn.o \
 	src/zero_cc/opt/opt_branchless.o \
@@ -105,6 +107,7 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	src/zero_cc/opt/opt_profile.o \
 	src/zero_cc/opt/opt_loop.o \
 	src/zero_cc/opt/opt_loop_idiom.o \
+	src/zero_cc/opt/opt_loop_delete.o \
 	src/zero_cc/opt/opt_escape.o \
 	src/zero_cc/opt/opt_ivsr.o \
 	src/zero_cc/opt/opt_alias.o \

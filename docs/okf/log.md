@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-26T02:22:35Z
+timestamp: 2026-11-26T02:55:27Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1716,3 +1716,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-26 — Updated `optimization-passes.md`
 - Add Sprints 235 (IVSR), 236 (TBAA), and 237 (SCCP)
+
+## 2026-11-26 — Updated `optimization-passes.md`
+- Complete Sprints 238-240: Dead Loop Deletion, Join/Diamond Mem2Reg, Advanced Algebraic & Peephole Simplification

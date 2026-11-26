@@ -1,6 +1,44 @@
 # CHANGELOG
 
-## [Sprint 237] - 2026-11-25 - Sparse Conditional Constant Propagation (SCCP)
+## [Sprint 240] - 2026-11-25 - Advanced Algebraic & Peephole Simplification
+
+Implements Phase 3 (Advanced Algebraic & Peephole Simplification, Tier 1 Item #2):
+- **Advanced Algebraic & Peephole Simplification (`opt/opt_peephole.c`, `opt/opt_peephole.h`, `opt/opt_pass.c`, `Makefile`)**:
+  - Registered at priority 15 (`OPT_LEVEL_O1`+).
+  - Applies algebraic identities and peephole simplifications strictly scoped to scalar integer/pointer GPR temporaries:
+    - Self-identities: `x - x -> 0`, `x ^ x -> 0`, `x & x -> x`, `x | x -> x`.
+    - Neutral elements: `x + 0 -> x`, `x - 0 -> x`, `0 - x -> -x`, `x * 1 -> x`, `x / 1 -> x`, `x | 0 -> x`, `x ^ 0 -> x`, `x & -1 -> x`, `x << 0 -> x`, `x >> 0 -> x`.
+    - Annihilators: `x * 0 -> 0`, `x & 0 -> 0`.
+    - Inverses: `-(-x) -> x`, `~(~x) -> x`.
+    - Self moves: `MOV_REG x, x -> NOP`.
+  - Scopes constant and definition resolutions strictly within local basic blocks to prevent cross-branch value corruption.
+- **Verification & Test Coverage**:
+  - Added unit test `test/jit/peephole_test.c` verifying all algebraic identities, neutral elements, annihilators, and inverse simplifications across AOT and JIT at `-O0`, `-O1`, `-O2`, `-O3`.
+
+## [Sprint 239] - 2026-11-25 - Join / Diamond-Merging Mem2Reg Promotion
+
+Implements Phase 2 (Join / Diamond-Merging Mem2Reg Promotion, Tier 2 Item #7):
+- **Join / Diamond-Merging Mem2Reg Promotion (`opt/opt_mem2reg_join.c`, `opt/opt_mem2reg_join.h`, `opt/opt_pass.c`, `Makefile`)**:
+  - Integrated into `opt_pass_mem2reg` (`OPT_LEVEL_O1`+).
+  - Detects if-then-else diamond control flow where both branches store values to the same non-address-taken stack slot $S$.
+  - Lowers SSA $\phi$-nodes across the join block:
+    - Allocates a unified join virtual register `t_join = zc_alloc_temp(c)`.
+    - Rewrites stores at the end of both diamond branches to copy directly into `t_join` (`OP_MOV_REG t_join, src`).
+    - Rewrites loads from slot $S$ in the join block to read `t_join`, eliminating memory traffic across diamond branches.
+- **Verification & Test Coverage**:
+  - Added unit test `test/jit/mem2reg_join_test.c` verifying single-variable diamonds, multi-variable diamonds, nested diamonds, and diamonds inside loops across AOT and JIT at `-O0`, `-O1`, `-O2`, `-O3`.
+
+## [Sprint 238] - 2026-11-25 - Dead Loop Deletion
+
+Implements Phase 1 (Dead Loop Deletion, Tier 4 Item #20):
+- **Dead Loop Deletion (`opt/opt_loop_delete.c`, `opt/opt_loop_delete.h`, `opt/opt_pass.c`, `Makefile`)**:
+  - Registered at priority 59 (`OPT_LEVEL_O3`).
+  - Detects single-entry countable natural loops with clean CFG structure.
+  - Verifies loop purity: zero external calls, memory stores, inline asm, volatiles, or traps.
+  - Verifies liveness: no temporary defined within the loop escapes outside the loop, and no stack slot written in the loop is loaded or address-taken outside.
+  - Eliminates dead loops completely: replaces loop entry with an unconditional jump (`OP_JMP`) to the exit label, and zeroes the loop body and backedge into `OP_NOP`.
+- **Verification & Test Coverage**:
+  - Added unit test `test/jit/loop_delete_test.c` verifying empty loops, pure arithmetic loops, dead accumulators, and safety guards preventing deletion of side-effecting loops across AOT and JIT at `-O0`, `-O3`.
 
 Implements Option 3 (Sparse Conditional Constant Propagation, Tier 2 Item #8):
 - **Sparse Conditional Constant Propagation (`opt/opt_sccp.c`, `opt/opt_sccp.h`, `opt/opt_pass.c`, `Makefile`)**:
