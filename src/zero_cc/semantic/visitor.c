@@ -647,17 +647,29 @@ TypeInfo *sem_analyze_node(SemContext *ctx, ZeroCCASTNode *node) {
                 }
             }
             expr_node_set_type(ctx, node, res);
-            /* __builtin_shuffle(a, b) and __builtin_zerocc_v*(a, ...): the
+            /* __builtin_shuffle(a, b), __builtin_shufflevector(a, b, ...), and __builtin_zerocc_v*(a, ...): the
              * result carries the first vector argument's VectorTypeInfo, not
              * the implicit int return of an undeclared builtin. */
             if (arg_count >= 1 && res && !type_is_vector(res)) {
                 ZeroCCASTNode *cn = sem_get_node(ctx, node->left);
                 if (cn && cn->tag == NODE_IDENT && cn->s.str &&
-                    ((arg_count == 2 && strcmp(cn->s.str, "__builtin_shuffle") == 0) ||
+                    (((arg_count == 2 && strcmp(cn->s.str, "__builtin_shuffle") == 0) ||
+                      (arg_count >= 2 && strcmp(cn->s.str, "__builtin_shufflevector") == 0)) ||
                      (strncmp(cn->s.str, "__builtin_zerocc_v", 18) == 0 &&
                       !(strlen(cn->s.str) >= 5 && strcmp(cn->s.str + strlen(cn->s.str) - 5, "_mask") == 0)))) {
                     if (first_arg_t && type_is_vector(first_arg_t)) {
-                        res = first_arg_t;
+                        if (strcmp(cn->s.str, "__builtin_shufflevector") == 0 && first_arg_t->details.array.base) {
+                            size_t elsz = type_size(first_arg_t->details.array.base);
+                            size_t n_indices = (arg_count >= 2) ? (arg_count - 2) : 0;
+                            size_t total_sz = n_indices * elsz;
+                            if (total_sz > 0 && total_sz != type_size(first_arg_t)) {
+                                res = type_vector(ctx->perm_arena, first_arg_t->details.array.base, total_sz);
+                            } else {
+                                res = first_arg_t;
+                            }
+                        } else {
+                            res = first_arg_t;
+                        }
                         expr_node_set_type(ctx, node, res);
                     } else if (vec_arg_t) {
                         res = vec_arg_t;

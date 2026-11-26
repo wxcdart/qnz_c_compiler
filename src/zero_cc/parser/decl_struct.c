@@ -283,12 +283,6 @@ ZeroCCType zero_cc_parse_struct_body(ZeroCCCompiler *c, bool is_union) {
 
     while (c->tokens[c->token_pos].type != TK_RBRACE && c->tokens[c->token_pos].type != TK_EOF) {
         skip_c23_attributes(c);
-        for (size_t mi = 0; mi < st.member_count; mi++) {
-            if (st.members[mi].is_vla) {
-                diag_report_error_at_token(c, "member following variably modified member in struct is not supported");
-                break;
-            }
-        }
         size_t iter_start = c->token_pos;
         size_t member_align = 0;
         if (c->tokens[c->token_pos].type == TK_ALIGNAS) {

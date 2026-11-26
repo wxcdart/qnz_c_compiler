@@ -8356,12 +8356,12 @@
    "note": ""
   },
   "compile/pr108892.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O2-aot": "REJECT"
+    "O0-aot": "OK",
+    "O2-aot": "OK"
    },
-   "note": "                       ^; Compile error: incompatible initializer type for variable 'v' | cfgs: O0-aot,O2-aot"
+   "note": ""
   },
   "compile/pr109604-1.c": {
    "class": "PASS",
@@ -34992,18 +34992,18 @@
    "note": ""
   },
   "execute/pr41935.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "                                               ^; Compile error: variable index in offsetof is not supported | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr42006.c": {
    "class": "PASS",
@@ -39113,18 +39113,18 @@
    "note": ""
   },
   "execute/pr82210.c": {
-   "class": "SKIP-C89",
+   "class": "PASS",
    "configs": {
-    "O0-aot": "REJECT",
-    "O0-jit": "REJECT",
-    "O1-aot": "REJECT",
-    "O1-jit": "REJECT",
-    "O2-aot": "REJECT",
-    "O2-jit": "REJECT",
-    "O3-aot": "REJECT",
-    "O3-jit": "REJECT"
+    "O0-aot": "OK",
+    "O0-jit": "OK",
+    "O1-aot": "OK",
+    "O1-jit": "OK",
+    "O2-aot": "OK",
+    "O2-jit": "OK",
+    "O3-aot": "OK",
+    "O3-jit": "OK"
    },
-   "note": "           ^; Compile error: member following variably modified member in struct is not supported | cfgs: O0-aot,O0-jit,O1-aot,O1-jit,O2-aot,O2-jit,O3-aot,O3-jit"
+   "note": ""
   },
   "execute/pr82387.c": {
    "class": "PASS",
@@ -42131,10 +42131,9 @@
  "totals": {
   "EXPECTED-REJECT": 4,
   "NO-REF": 1,
-  "PASS": 3808,
+  "PASS": 3811,
   "REF-BUG": 11,
   "SKIP-BOGUS": 1,
-  "SKIP-C89": 3,
   "SKIP-PTR": 1,
   "SKIP-REFSEM": 9,
   "SKIP-SUPPORT": 87,

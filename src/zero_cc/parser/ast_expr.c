@@ -363,6 +363,112 @@ ASTRef parse_brace_init_list_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena,
     return head_expr;
 }
 
+static inline ASTRef zc_offsetof_binop(ZeroCCASTArena *arena, ASTRef left, ASTRef right, uint32_t op) {
+    ZeroCCASTNode *ln = zero_cc_ast_get(arena, left);
+    ZeroCCASTNode *rn = zero_cc_ast_get(arena, right);
+    if (ln && rn && ln->tag == NODE_INT && rn->tag == NODE_INT) {
+        if (op == (uint32_t)TK_PLUS) {
+            ln->int_val += rn->int_val;
+            return left;
+        } else if (op == (uint32_t)TK_STAR) {
+            ln->int_val *= rn->int_val;
+            return left;
+        }
+    }
+    ASTRef bin_ref = zero_cc_ast_alloc_node(arena, NODE_BINOP);
+    ZeroCCASTNode *bn = zero_cc_ast_get(arena, bin_ref);
+    bn->left = left;
+    bn->right = right;
+    bn->aux.op = op;
+    return bin_ref;
+}
+
+static ASTRef parse_builtin_offsetof_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
+    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LPAREN) {
+        c->token_pos++;
+    }
+    ZeroCCType ty = zero_cc_parse_type_name_at_pos(c, &c->token_pos);
+    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) {
+        c->token_pos++;
+    }
+
+    ASTRef offset_expr = zero_cc_ast_alloc_node(arena, NODE_INT);
+    zero_cc_ast_get(arena, offset_expr)->int_val = 0;
+
+    ZeroCCType cur_ty = ty;
+
+    while (c->token_pos < c->token_count && c->tokens[c->token_pos].type != TK_RPAREN) {
+        if (c->tokens[c->token_pos].type == TK_DOT) {
+            c->token_pos++;
+        }
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_IDENT) {
+            const char *mname = c->tokens[c->token_pos].str_val;
+            c->token_pos++;
+            bool found = false;
+            if (cur_ty.tag == TYPE_STRUCT || cur_ty.tag == TYPE_UNION) {
+                for (size_t m = 0; m < cur_ty.member_count; m++) {
+                    if (strcmp(cur_ty.members[m].name, mname) == 0) {
+                        int64_t m_off = (int64_t)cur_ty.members[m].offset;
+                        if (m_off != 0) {
+                            ASTRef off_node = zero_cc_ast_alloc_node(arena, NODE_INT);
+                            zero_cc_ast_get(arena, off_node)->int_val = m_off;
+                            offset_expr = zc_offsetof_binop(arena, offset_expr, off_node, (uint32_t)TK_PLUS);
+                        }
+                        if (cur_ty.members[m].base && (cur_ty.members[m].tag == TYPE_STRUCT || cur_ty.members[m].tag == TYPE_UNION)) {
+                            cur_ty = *cur_ty.members[m].base;
+                        } else if (cur_ty.members[m].base && cur_ty.members[m].tag == TYPE_ARRAY) {
+                            cur_ty.base = cur_ty.members[m].base;
+                            cur_ty.tag = TYPE_ARRAY;
+                            cur_ty.size = cur_ty.members[m].size;
+                            cur_ty.is_vla = cur_ty.members[m].is_vla;
+                            cur_ty.vla_dim = cur_ty.members[m].vla_dim;
+                        } else {
+                            cur_ty.tag = cur_ty.members[m].tag;
+                            cur_ty.size = cur_ty.members[m].size;
+                            cur_ty.base = cur_ty.members[m].base;
+                            cur_ty.is_vla = cur_ty.members[m].is_vla;
+                            cur_ty.vla_dim = cur_ty.members[m].vla_dim;
+                            cur_ty.member_count = 0;
+                        }
+                        found = true;
+                        break;
+                    }
+                }
+            }
+            if (!found) break;
+        } else if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACKET) {
+            c->token_pos++; /* consume '[' */
+            ASTRef idx_ast = parse_assignment_ast(c, arena);
+            if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACKET) {
+                c->token_pos++; /* consume ']' */
+            }
+            ASTRef stride_ast = AST_NULL;
+            if (cur_ty.base && cur_ty.base->is_vla && cur_ty.base->vla_dim != 0) {
+                size_t sub_elem_sz = (cur_ty.base->size > 0) ? cur_ty.base->size : 4;
+                ASTRef sub_sz_node = zero_cc_ast_alloc_node(arena, NODE_INT);
+                zero_cc_ast_get(arena, sub_sz_node)->int_val = (int64_t)sub_elem_sz;
+                stride_ast = zc_offsetof_binop(arena, (ASTRef)cur_ty.base->vla_dim, sub_sz_node, (uint32_t)TK_STAR);
+            } else {
+                size_t elem_sz = (cur_ty.base && cur_ty.base->size > 0) ? cur_ty.base->size : (cur_ty.size > 0 ? cur_ty.size : 4);
+                stride_ast = zero_cc_ast_alloc_node(arena, NODE_INT);
+                zero_cc_ast_get(arena, stride_ast)->int_val = (int64_t)elem_sz;
+            }
+            ASTRef term = zc_offsetof_binop(arena, idx_ast, stride_ast, (uint32_t)TK_STAR);
+            offset_expr = zc_offsetof_binop(arena, offset_expr, term, (uint32_t)TK_PLUS);
+            if (cur_ty.base) {
+                cur_ty = *cur_ty.base;
+            }
+        } else {
+            break;
+        }
+    }
+
+    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RPAREN) {
+        c->token_pos++;
+    }
+    return offset_expr;
+}
+
 /* Primary Expressions: literals, identifiers, parenthesized expressions */
 ASTRef parse_primary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
     if (c->token_pos >= c->token_count) return AST_NULL;
@@ -475,15 +581,7 @@ ASTRef parse_primary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
             c->token_pos++;
             /* Check for __builtin_offsetof(type, member) */
             if (strcmp(tok->str_val, "__builtin_offsetof") == 0) {
-                size_t p = c->token_pos - 1;
-                int64_t off = zero_cc_eval_builtin_offsetof(c, &p);
-                c->token_pos = p;
-                ASTRef ref = zero_cc_ast_alloc_node(arena, NODE_INT);
-                ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
-                n->line = (uint32_t)tok->line;
-                n->col = (uint32_t)tok->col;
-                n->int_val = off;
-                return ref;
+                return parse_builtin_offsetof_ast(c, arena);
             }
 
             /* Check for __builtin_types_compatible_p(type1, type2) */

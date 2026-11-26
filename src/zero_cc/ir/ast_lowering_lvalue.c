@@ -210,12 +210,26 @@ int zero_cc_lower_lvalue_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef r
             ZeroCCSym *sym = zero_cc_find_local(c, base_node->s.str);
             if (sym && !sym->is_extern) {
                 if (sym->is_vla_struct) {
+                    int off_temp = TEMP_NONE;
+                    const char *mname = innermost ? innermost->member_name : NULL;
+                    const ZeroCCType *st = zc_find_vla_struct(&sym->type);
+                    if (!st && sym->type.struct_name[0]) st = zero_cc_find_struct(c, sym->type.struct_name);
+                    if (st && mname) {
+                        ASTRef off_ast = zc_vla_struct_member_offset_ast(arena, (ZeroCCASTArena *)c->tu_ast_arena, st, st->struct_name, mname);
+                        if (off_ast != AST_NULL) {
+                            off_temp = lower_expr(c, arena, off_ast);
+                        }
+                    }
                     ir_emit_load(c, addr_temp, BE(c)->fp_reg, -sym->stack_offset);
-                    if (member_offset != 0) {
-                        int off_temp = zc_alloc_temp(c);
-                        ir_emit_mov_imm(c, off_temp, member_offset);
+                    if (off_temp != TEMP_NONE) {
                         int sum_temp = zc_alloc_temp(c);
                         ir_emit_add(c, sum_temp, addr_temp, off_temp);
+                        return sum_temp;
+                    } else if (member_offset != 0) {
+                        int off_imm = zc_alloc_temp(c);
+                        ir_emit_mov_imm(c, off_imm, member_offset);
+                        int sum_temp = zc_alloc_temp(c);
+                        ir_emit_add(c, sum_temp, addr_temp, off_imm);
                         return sum_temp;
                     }
                     return addr_temp;

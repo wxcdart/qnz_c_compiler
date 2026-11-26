@@ -557,15 +557,27 @@ TypeInfo *expr_handle_call(SemContext *ctx, ZeroCCASTNode *node) {
         }
     }
 
-    /* __builtin_shuffle(a, b) and __builtin_zerocc_v*(a, ...) yield the
+    /* __builtin_shuffle(a, b), __builtin_shufflevector(a, b, ...), and __builtin_zerocc_v*(a, ...) yield the
      * first vector operand's type rather than the implicit int fallback. */
     if (arg_count >= 1 &&
         callee && callee->tag == NODE_IDENT && callee->s.str &&
-        ((arg_count == 2 && strcmp(callee->s.str, "__builtin_shuffle") == 0) ||
+        (((arg_count == 2 && strcmp(callee->s.str, "__builtin_shuffle") == 0) ||
+          (arg_count >= 2 && strcmp(callee->s.str, "__builtin_shufflevector") == 0)) ||
          (strncmp(callee->s.str, "__builtin_zerocc_v", 18) == 0 &&
           !(strlen(callee->s.str) >= 5 && strcmp(callee->s.str + strlen(callee->s.str) - 5, "_mask") == 0)))) {
         if (first_arg_t && type_is_vector(first_arg_t)) {
-            res = first_arg_t;
+            if (strcmp(callee->s.str, "__builtin_shufflevector") == 0 && first_arg_t->details.array.base) {
+                size_t elsz = type_size(first_arg_t->details.array.base);
+                size_t n_indices = (arg_count >= 2) ? (arg_count - 2) : 0;
+                size_t total_sz = n_indices * elsz;
+                if (total_sz > 0 && total_sz != type_size(first_arg_t)) {
+                    res = type_vector(ctx->perm_arena, first_arg_t->details.array.base, total_sz);
+                } else {
+                    res = first_arg_t;
+                }
+            } else {
+                res = first_arg_t;
+            }
         } else if (vec_arg_t) {
             res = vec_arg_t;
         }

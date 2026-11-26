@@ -3370,6 +3370,126 @@ bool lower_expr_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
             }
         }
 
+        /* __builtin_shufflevector(a, b, idx0, idx1, ...) - lane selection:
+         * result[i] = (idx < n) ? a[idx] : (idx < 2n) ? b[idx - n] : 0.
+         * The index arguments are compile-time integer constants. */
+        if (callee_is_ident && callee->s.str &&
+            strcmp(callee->s.str, "__builtin_shufflevector") == 0) {
+            ASTRef sh_a_ref = node->right;
+            ZeroCCASTNode *sh_a = sh_a_ref ? zero_cc_ast_get(arena, sh_a_ref) : NULL;
+            ZeroCCASTNode *sh_b = (sh_a && sh_a->next != AST_NULL) ?
+                zero_cc_ast_get(arena, sh_a->next) : NULL;
+            if (sh_a && sh_b) {
+                ZeroCCType sh_a_t;
+                memset(&sh_a_t, 0, sizeof(sh_a_t));
+                bool have_a_t = false;
+                TypeInfo *a_ti = ast_node_get_typeinfo(c, sh_a);
+                ZeroCCType sh_el_t;
+                if (a_ti && type_is_vector(a_ti)) {
+                    sh_a_t.tag = TYPE_USER_0;
+                    sh_a_t.size = (int32_t)type_size(a_ti);
+                    if (a_ti->details.array.base) {
+                        sh_el_t = typeinfo_to_zero_cc_type(a_ti->details.array.base);
+                        sh_a_t.base = &sh_el_t;
+                    }
+                    have_a_t = true;
+                } else if (sh_a->tag == NODE_IDENT) {
+                    ZeroCCSym *as = zero_cc_find_local(c, sh_a->s.str);
+                    ZeroCCGlobalVar *ag = as ? NULL : find_global_var(c, sh_a->s.str);
+                    if (as && as->type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&as->type)) {
+                        sh_a_t = as->type; have_a_t = true;
+                    } else if (ag && ag->type.tag == TYPE_USER_0 && zero_cc_type_is_vector(&ag->type)) {
+                        sh_a_t = ag->type; have_a_t = true;
+                    }
+                }
+                if (have_a_t && sh_a_t.size >= 1 && sh_a_t.size <= 128) {
+                    size_t a_sz = (size_t)sh_a_t.size;
+                    const ZeroCCType *ael = sh_a_t.base;
+                    size_t elsz = (ael && ael->size > 0) ? ael->size : 4;
+                    size_t n = a_sz / (elsz ? elsz : 1);
+
+                    size_t num_indices = 0;
+                    ASTRef cur_idx_ref = sh_b->next;
+                    while (cur_idx_ref != AST_NULL) {
+                        num_indices++;
+                        ZeroCCASTNode *in = zero_cc_ast_get(arena, cur_idx_ref);
+                        cur_idx_ref = in ? in->next : AST_NULL;
+                    }
+
+                    if (n >= 1 && num_indices >= 1 && num_indices <= 64) {
+                        int a_addr = lower_expr(c, arena, sh_a_ref);
+                        int b_addr = lower_expr(c, arena, sh_a->next);
+                        size_t res_size = num_indices * elsz;
+                        if (res_size > 16) c->current_stack_frame = (c->current_stack_frame + 15) & ~15;
+                        c->current_stack_frame = (c->current_stack_frame + (int32_t)res_size + 7) & ~7;
+                        int32_t res_off = c->current_stack_frame;
+
+                        cur_idx_ref = sh_b->next;
+                        for (size_t k = 0; k < num_indices && cur_idx_ref != AST_NULL; k++) {
+                            ZeroCCASTNode *in = zero_cc_ast_get(arena, cur_idx_ref);
+                            int64_t idx_val = -1;
+                            if (in && in->tag == NODE_INT) {
+                                idx_val = in->int_val;
+                            } else if (in) {
+                                idx_val = (int64_t)lower_expr(c, arena, cur_idx_ref);
+                            }
+
+                            int val_lane = zc_alloc_temp(c);
+                            if (idx_val >= 0 && (size_t)idx_val < n) {
+                                int aa = zc_alloc_temp(c);
+                                if (idx_val == 0) {
+                                    ir_emit_mov_reg(c, aa, a_addr);
+                                } else {
+                                    int off = zc_alloc_temp(c);
+                                    ir_emit_mov_imm(c, off, (int32_t)(idx_val * elsz));
+                                    ir_emit_add(c, aa, a_addr, off);
+                                }
+                                if (elsz == 1) { ir_emit_load_byte(c, val_lane, aa); ir_emit_zext(c, val_lane, 1); }
+                                else if (elsz == 2) { ir_emit_load_16(c, val_lane, aa); ir_emit_zext(c, val_lane, 2); }
+                                else if (elsz == 4) { ir_emit_load_32(c, val_lane, aa); ir_emit_zext(c, val_lane, 4); }
+                                else { ir_emit_deref(c, val_lane, aa); }
+                            } else if (idx_val >= (int64_t)n && (size_t)idx_val < 2 * n) {
+                                size_t b_idx = (size_t)idx_val - n;
+                                int ba = zc_alloc_temp(c);
+                                if (b_idx == 0) {
+                                    ir_emit_mov_reg(c, ba, b_addr);
+                                } else {
+                                    int off = zc_alloc_temp(c);
+                                    ir_emit_mov_imm(c, off, (int32_t)(b_idx * elsz));
+                                    ir_emit_add(c, ba, b_addr, off);
+                                }
+                                if (elsz == 1) { ir_emit_load_byte(c, val_lane, ba); ir_emit_zext(c, val_lane, 1); }
+                                else if (elsz == 2) { ir_emit_load_16(c, val_lane, ba); ir_emit_zext(c, val_lane, 2); }
+                                else if (elsz == 4) { ir_emit_load_32(c, val_lane, ba); ir_emit_zext(c, val_lane, 4); }
+                                else { ir_emit_deref(c, val_lane, ba); }
+                            } else {
+                                ir_emit_mov_imm(c, val_lane, 0);
+                            }
+
+                            int ra = zc_alloc_temp(c);
+                            if (k == 0) {
+                                ir_emit_lea(c, ra, BE(c)->fp_reg, -res_off);
+                            } else {
+                                ir_emit_lea(c, ra, BE(c)->fp_reg, -(int32_t)(res_off - (int32_t)(k * elsz)));
+                            }
+                            if (elsz == 1) ir_emit_store_byte(c, val_lane, ra);
+                            else if (elsz == 2) ir_emit_store_16(c, val_lane, ra);
+                            else if (elsz == 4) ir_emit_store_32(c, val_lane, ra);
+                            else ir_emit_store_64(c, val_lane, ra);
+
+                            cur_idx_ref = in ? in->next : AST_NULL;
+                        }
+
+                        int addr = zc_alloc_temp(c);
+                        ir_emit_lea(c, addr, BE(c)->fp_reg, -res_off);
+                        c->last_expr_is_float = 0;
+                        *out_temp = addr;
+                        return true;
+                    }
+                }
+            }
+        }
+
         /* __builtin_unreachable() / __builtin_trap() - no value, no libc
          * symbol: emit the target's trap instruction (x86-64 ud2,
          * AArch64 brk #0, RISC-V unimp). Reaching __builtin_unreachable
