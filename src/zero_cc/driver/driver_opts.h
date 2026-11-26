@@ -75,7 +75,8 @@ typedef struct {
     int has_sve2;           /* -msve2: enable ARM SVE2 */
     int has_rvv;            /* -mrvv: enable RISC-V Vector Extension (RVV 1.0) */
     int is_pe;              /* --pe / -mpe / Windows PE32+ output */
-    int is_shared;          /* -shared: emit dynamic library (.so / .dll) */
+    int is_macho;           /* --macho / -mmacho / macOS Mach-O 64-bit output */
+    int is_shared;          /* -shared: emit dynamic library (.so / .dll / .dylib) */
     int is_windows_gui;     /* -mwindows: Windows GUI subsystem (subsystem = 2) */
     int jit_argc;           /* JIT main argc */
     char **jit_argv;        /* JIT main argv */
@@ -389,6 +390,9 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
         else if (strcmp(arg, "--pe") == 0 || strcmp(arg, "-mpe") == 0) {
             opts->is_pe = 1;
         }
+        else if (strcmp(arg, "--macho") == 0 || strcmp(arg, "-mmacho") == 0) {
+            opts->is_macho = 1;
+        }
         else if (strcmp(arg, "-mwindows") == 0) {
             opts->is_pe = 1;
             opts->is_windows_gui = 1;
@@ -406,6 +410,12 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
                 strstr(opts->target_arch, "mingw") ||
                 strstr(opts->target_arch, "windows")) {
                 opts->is_pe = 1;
+            }
+            if (strstr(opts->target_arch, "macho") ||
+                strstr(opts->target_arch, "darwin") ||
+                strstr(opts->target_arch, "macos") ||
+                strstr(opts->target_arch, "apple")) {
+                opts->is_macho = 1;
             }
             if (strstr(opts->target_arch, "-none-") ||
                 strstr(opts->target_arch, "-elf") ||
@@ -662,6 +672,15 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
             opts->is_pe = 1;
             if (strcmp(opts->output_file + olen - 4, ".dll") == 0 ||
                 strcmp(opts->output_file + olen - 4, ".DLL") == 0) {
+                opts->is_shared = 1;
+            }
+        }
+        if (olen >= 6 && (strcmp(opts->output_file + olen - 6, ".dylib") == 0 ||
+                          strcmp(opts->output_file + olen - 6, ".DYLIB") == 0 ||
+                          strcmp(opts->output_file + olen - 6, ".macho") == 0)) {
+            opts->is_macho = 1;
+            if (strcmp(opts->output_file + olen - 6, ".dylib") == 0 ||
+                strcmp(opts->output_file + olen - 6, ".DYLIB") == 0) {
                 opts->is_shared = 1;
             }
         }

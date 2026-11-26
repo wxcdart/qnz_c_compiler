@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-26T16:32:51Z
+timestamp: 2026-11-26T16:58:46Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1761,3 +1761,9 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-26 — Updated `own-linker.md`
 - Document Windows PE/COFF (pe_writer) native binary output
+
+## 2026-11-26 — Updated `build-and-verification.md`
+- Add macOS Mach-O 64-bit verification battery (Sprint 251)
+
+## 2026-11-26 — Updated `own-linker.md`
+- Add macOS Mach-O 64-bit writer documentation (Sprint 251)

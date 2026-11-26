@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 165-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-11-26T16:32:51Z
+timestamp: 2026-11-26T16:58:46Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -141,6 +141,25 @@ python3 tools/verify/pgo_tests.py
 ```bash
 make test-pe
 python3 tools/verify/pe_tests.py
+```
+
+### macOS Mach-O 64-bit Native Output battery (`make test-macho`, Sprint 251)
+
+`tools/verify/macho_tests.py` verifies ZeroCC's cross-platform macOS Mach-O 64-bit binary output for Darwin:
+- Standalone 64-bit executables (`MH_EXECUTE`) with `MH_MAGIC_64` (0xfeedfacf), `__PAGEZERO` segment (4GB null guard page), `__TEXT` (`__text`, `__cstring`), `__DATA` (`__data`, `__bss`), and `__LINKEDIT` segments.
+- Dynamic libraries (`MH_DYLIB` / `.dylib`, `-shared`) with `LC_ID_DYLIB`, export tables, and dynamic link commands.
+- Relocatable object files (`MH_OBJECT` / `.o`, `-c`) with sections and symbol table.
+- Darwin dynamic loader load commands: `LC_LOAD_DYLINKER` (`/usr/lib/dyld`), `LC_LOAD_DYLIB` (`/usr/lib/libSystem.B.dylib`), and `LC_MAIN` entry point offset.
+- Symbol tables: `LC_SYMTAB` and `LC_DYSYMTAB` emitting `ZeroCCNlist64` (`struct nlist_64`) symbols decorated with standard Darwin leading underscores (`_main`, global symbols).
+- Target architectures: x86-64 (`CPU_TYPE_X86_64`) and Apple Silicon ARM64 (`CPU_TYPE_ARM64`).
+- Multi-TU object merging into unified Mach-O binaries.
+- Host Linux `file` utility parsing and classification (`Mach-O 64-bit executable`, `Mach-O 64-bit object`, `Mach-O 64-bit dynamically linked shared library`).
+- CLI driver options: `--macho`, `-mmacho`, `--target=x86_64-apple-darwin`, `--target=aarch64-apple-darwin`, and `.dylib` auto-detection.
+- Optimization sweep across `-O0..-O3`.
+
+```bash
+make test-macho
+python3 tools/verify/macho_tests.py
 ```
 
 ### Link-Time Optimization battery (`make test-lto`, Sprint 243)

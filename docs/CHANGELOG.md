@@ -1,5 +1,27 @@
 # CHANGELOG
 
+## [Sprint 251] - 2026-11-26 - macOS Mach-O 64-bit Native Binary Output (MH_EXECUTE, MH_DYLIB, MH_OBJECT)
+
+- **macOS Mach-O 64-bit Binary Writer (`linker/macho_writer.h`, `linker/macho_writer.c`, `main.c`, `driver/driver_opts.h`)**:
+  - Implemented complete native Mach-O 64-bit output supporting standalone executables (`MH_EXECUTE`), dynamic libraries (`MH_DYLIB` / `.dylib`), and relocatable objects (`MH_OBJECT` / `.o`).
+  - Emitted standard Mach-O 64 header (`MH_MAGIC_64 = 0xfeedfacf`) with target architecture support for both `CPU_TYPE_X86_64` (x86-64) and `CPU_TYPE_ARM64` (Apple Silicon).
+  - Implemented 64-bit segment and section emission (`LC_SEGMENT_64`):
+    - `__PAGEZERO` segment (4GB null guard page with `VM_PROT_NONE`).
+    - `__TEXT` segment (`VM_PROT_READ | VM_PROT_EXECUTE`) containing `__text` instructions and `__cstring` literal pools.
+    - `__DATA` segment (`VM_PROT_READ | VM_PROT_WRITE`) containing initialized globals (`__data`) and zerofill memory (`__bss`).
+    - `__LINKEDIT` segment containing symbol tables and string tables.
+  - Implemented standard Darwin dynamic loader commands:
+    - `LC_LOAD_DYLINKER` loading `/usr/lib/dyld`.
+    - `LC_LOAD_DYLIB` linking `/usr/lib/libSystem.B.dylib`.
+    - `LC_ID_DYLIB` establishing identity for `.dylib` dynamic shared libraries.
+    - `LC_MAIN` configuring the entry point offset directly to `_main`.
+  - Implemented full symbol table emission (`LC_SYMTAB` & `LC_DYSYMTAB`) generating `ZeroCCNlist64` (`struct nlist_64`) entries with Darwin leading underscores (`_main`, `_counter`, exported symbols).
+  - Integrated multi-TU merge into Mach-O binaries, resolving internal cross-TU function calls and static data references.
+  - Driver CLI options: `--macho`, `-mmacho`, `--target=*-apple-darwin`, and `.dylib` auto-detection.
+- **Verification Battery (`tools/verify/macho_tests.py`, `Makefile`)**:
+  - Added test battery `tools/verify/macho_tests.py` (`make test-macho`) covering headers, segments, dynamic libraries, relocatable objects, Apple Silicon ARM64 targets, CLI options, optimization sweep (`-O0..-O3`), multi-TU linking, and host Linux `file` utility parsing.
+  - All 44/44 Mach-O verification checks pass.
+
 ## [Sprint 250] - 2026-11-26 - Full Multi-TU In-Memory JIT for Large Projects (SQLite3 Amalgamation directly in RAM)
 
 - **Large Project In-Memory JIT Execution (`tools/verify/project_runs.py`, `docs/okf/multi-tu.md`)**:

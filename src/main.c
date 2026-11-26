@@ -34,6 +34,7 @@
 #include "zero_cc/linker/linker.h"
 #include "zero_cc/linker/ar_writer.h"
 #include "zero_cc/linker/pe_writer.h"
+#include "zero_cc/linker/macho_writer.h"
 
 void __zc_pgo_reset(void);
 void __zc_pgo_set_file(const char *path);
@@ -983,6 +984,14 @@ static int write_compiled_object(ZeroCCCompiler *comp, CompileOptions *opts,
     if (opts->is_pe) {
         if (!zero_cc_pe_write_coff_obj_from_comp(output_path, comp)) {
             fprintf(stderr, "zerocc: error writing COFF object file: %s\n", output_path);
+            return 1;
+        }
+        return 0;
+    }
+
+    if (opts->is_macho) {
+        if (!zero_cc_macho_write_obj_from_comp(output_path, comp)) {
+            fprintf(stderr, "zerocc: error writing Mach-O object file: %s\n", output_path);
             return 1;
         }
         return 0;
@@ -1976,6 +1985,43 @@ static int compile_and_link(CompileOptions *opts) {
         return 0;
     }
 
+    if (opts->is_macho) {
+        if (opts->input_count == 0) return 1;
+        const char *output = opts->output_file ? opts->output_file : (opts->is_shared ? "a.dylib" : "a.out");
+        ZeroCCCompiler *comp = jit_compile_tu(opts, opts->input_files[0], 0);
+        if (!comp) return 1;
+        for (int i = 1; i < opts->input_count; i++) {
+            ZeroCCCompiler *tu = jit_compile_tu(opts, opts->input_files[i], i);
+            if (!tu) {
+                zero_cc_compiler_free(comp);
+                return 1;
+            }
+            char err[256];
+            if (zero_cc_tu_merge(comp, tu, err, sizeof(err)) != 0) {
+                fprintf(stderr, "zerocc: error: %s\n", err);
+                zero_cc_compiler_free(comp);
+                zero_cc_compiler_free(tu);
+                return 1;
+            }
+            zero_cc_compiler_free(tu);
+        }
+        ZeroCCMachoOptions macho_opts;
+        memset(&macho_opts, 0, sizeof(macho_opts));
+        macho_opts.is_dylib = (opts->is_shared != 0);
+        macho_opts.dylib_name = output;
+        macho_opts.cputype = (comp->isa == ISA_AARCH64) ? ZERO_CC_CPU_TYPE_ARM64 : ZERO_CC_CPU_TYPE_X86_64;
+        bool ok = zero_cc_macho_write_binary_from_comp(output, comp, &macho_opts);
+        zero_cc_compiler_free(comp);
+        if (!ok) {
+            fprintf(stderr, "zerocc: error writing Mach-O %s: %s\n", opts->is_shared ? "dylib" : "executable", output);
+            return 1;
+        }
+        if (opts->verbose) {
+            printf("Successfully generated Mach-O 64 %s: %s\n", opts->is_shared ? "dylib" : "executable", output);
+        }
+        return 0;
+    }
+
     /* Get target ISA (also decides the intermediate-object strategy below). */
     ZeroCCISA target_isa = parse_target_arch(opts->target_arch);
 
@@ -2625,8 +2671,8 @@ int main(int argc, char **argv) {
         } else {
             rc = compile_object(&opts);
         }
-    } else if (opts.output_file || opts.is_pe) {
-        /* Generate executable via system linker or PE writer */
+    } else if (opts.output_file || opts.is_pe || opts.is_macho) {
+        /* Generate executable via system linker or PE/Mach-O writer */
         rc = compile_and_link(&opts);
     } else {
         rc = compile_jit(&opts);
