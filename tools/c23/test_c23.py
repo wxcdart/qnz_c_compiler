@@ -536,6 +536,151 @@ int main(void) {
     return 0;
 }
 """, dialects=["gnu23"]),
+
+    # -------------------------------------------------------------
+    # C23 Fixed Underlying Enum Types (C23 6.7.2.2)
+    # -------------------------------------------------------------
+    C23Case("c23_enum_underlying", "c23_misc", """
+#include <stdint.h>
+#include <assert.h>
+
+typedef uint8_t my_u8_t;
+
+enum E8 : uint8_t {
+    E8_A = 10,
+    E8_B = 255
+};
+
+enum ES8 : int8_t {
+    ES8_POS = 127,
+    ES8_NEG = -128
+};
+
+enum E16 : uint16_t {
+    E16_VAL = 0xABCD
+};
+
+enum E64 : uint64_t {
+    E64_VAL = 0x123456789ABCDEF0ULL
+};
+
+enum EUser : my_u8_t {
+    EUser_X = 5
+};
+
+enum EFwd : uint8_t;
+enum EFwd : uint8_t {
+    EFwd_One = 1
+};
+
+typedef enum : uint8_t {
+    Anon_A = 42
+} anon_t;
+
+int main(void) {
+    static_assert(sizeof(enum E8) == 1, "E8 size");
+    static_assert(sizeof(enum ES8) == 1, "ES8 size");
+    static_assert(sizeof(enum E16) == 2, "E16 size");
+    static_assert(sizeof(enum E64) == 8, "E64 size");
+    static_assert(sizeof(enum EUser) == 1, "EUser size");
+    static_assert(sizeof(enum EFwd) == 1, "EFwd size");
+    static_assert(sizeof(anon_t) == 1, "anon_t size");
+
+    if (E8_A != 10) return 1;
+    if (E8_B != 255) return 2;
+    if (ES8_POS != 127) return 3;
+    if (ES8_NEG != -128) return 4;
+    if (E16_VAL != 0xABCD) return 5;
+    if (E64_VAL != 0x123456789ABCDEF0ULL) return 6;
+    if (EUser_X != 5) return 7;
+    if (EFwd_One != 1) return 8;
+    if (Anon_A != 42) return 9;
+    return 0;
+}
+""", dialects=["gnu23"]),
+
+    C23Case("c23_enum_conflicting_types", "c23_misc", """
+#include <stdint.h>
+enum Bad : uint8_t;
+enum Bad : uint16_t { BAD_A };
+int main(void) { return 0; }
+""", dialects=["gnu23"], expect_compile=False,
+      expect_error_substr="conflicting underlying type for enum"),
+
+    # -------------------------------------------------------------
+    # C23 Standard Attributes (C23 6.7.13)
+    # -------------------------------------------------------------
+    C23Case("c23_standard_attributes", "c23_misc", """
+#include <stdint.h>
+
+[[nodiscard]] int func_nodiscard(int x) {
+    return x * 2;
+}
+
+[[nodiscard("must check return value")]] int func_nodiscard_msg(int x) {
+    return x * 3;
+}
+
+[[deprecated]] int func_deprecated(int x) {
+    return x + 1;
+}
+
+[[deprecated("use new_func instead")]] int func_deprecated_msg(int x) {
+    return x + 2;
+}
+
+[[maybe_unused]] static int global_unused = 123;
+[[deprecated]] static int global_dep = 456;
+
+int func_params([[maybe_unused]] int a, [[deprecated]] int b) {
+    return a + b;
+}
+
+enum [[maybe_unused]] AttrEnum : uint8_t {
+    AE_FIRST [[deprecated]] = 1,
+    AE_SECOND [[maybe_unused]] = 2,
+    AE_THIRD [[nodiscard]] = 3
+};
+
+int test_fallthrough(int x) {
+    int res = 0;
+    switch (x) {
+    case 1:
+        res += 10;
+        [[fallthrough]];
+    case 2:
+        res += 20;
+        break;
+    default:
+        res = -1;
+        break;
+    }
+    return res;
+}
+
+int main(void) {
+    [[maybe_unused]] int local_unused = 99;
+    [[deprecated]] int local_dep = 88;
+    int x [[maybe_unused]] = 10, y [[deprecated]] = 20;
+
+    int r1 = func_nodiscard(5);
+    int r2 = func_nodiscard_msg(5);
+    int r3 = func_deprecated(10);
+    int r4 = func_deprecated_msg(10);
+    int r5 = func_params(x, y);
+    int r6 = test_fallthrough(1);
+    int r7 = test_fallthrough(2);
+
+    if (r1 != 10) return 1;
+    if (r2 != 15) return 2;
+    if (r3 != 11) return 3;
+    if (r4 != 12) return 4;
+    if (r5 != 30) return 5;
+    if (r6 != 30) return 6;
+    if (r7 != 20) return 7;
+    return 0;
+}
+""", dialects=["gnu23"]),
 ]
 
 # The suppressed-warning case needs a NEGATIVE stderr check (the message

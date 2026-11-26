@@ -17,6 +17,7 @@ int64_t eval_sizeof(ZeroCCCompiler *c, size_t *pos);
 int64_t eval_alignof(ZeroCCCompiler *c, size_t *pos);
 int64_t zero_cc_eval_const_expr(ZeroCCCompiler *c);
 void skip_c23_attributes(ZeroCCCompiler *c);
+void skip_c23_attributes_at(ZeroCCCompiler *c, size_t *pos);
 int zero_cc_parse_aligned_attr(ZeroCCCompiler *c, size_t *pos, size_t *out_align);
 int zero_cc_parse_vector_attr(ZeroCCCompiler *c, size_t *pos, size_t *out_size);
 int zero_cc_parse_mode_attr(ZeroCCCompiler *c, size_t *pos, size_t *out_bytes);
@@ -68,6 +69,7 @@ static inline ZCEnumUnderlying zero_cc_parse_enum_underlying(ZeroCCCompiler *c) 
     if (c->token_pos >= c->token_count ||
         c->tokens[c->token_pos].type != TK_COLON) return u;
     c->token_pos++;
+    skip_c23_attributes(c);
     bool is_bool = false, is_char = false, is_short = false;
     int long_count = 0;
     int signedness = 0; /* 0 none, +1 signed, -1 unsigned */
@@ -95,6 +97,53 @@ static inline ZCEnumUnderlying zero_cc_parse_enum_underlying(ZeroCCCompiler *c) 
             signedness = -1; saw_any = true; c->token_pos++;
         } else if (t == TK_CONST || t == TK_VOLATILE) {
             c->token_pos++; /* qualifier: accepted, no effect on width */
+        } else if (t == TK_IDENT) {
+            if (strcmp(s, "uint8_t") == 0) {
+                is_char = true; signedness = -1; saw_any = true; c->token_pos++; break;
+            } else if (strcmp(s, "int8_t") == 0) {
+                is_char = true; signedness = 1; saw_any = true; c->token_pos++; break;
+            } else if (strcmp(s, "uint16_t") == 0) {
+                is_short = true; signedness = -1; saw_any = true; c->token_pos++; break;
+            } else if (strcmp(s, "int16_t") == 0) {
+                is_short = true; signedness = 1; saw_any = true; c->token_pos++; break;
+            } else if (strcmp(s, "uint32_t") == 0) {
+                signedness = -1; saw_any = true; c->token_pos++; break;
+            } else if (strcmp(s, "int32_t") == 0) {
+                signedness = 1; saw_any = true; c->token_pos++; break;
+            } else if (strcmp(s, "uint64_t") == 0 || strcmp(s, "size_t") == 0 || strcmp(s, "uintptr_t") == 0) {
+                long_count = 1; signedness = -1; saw_any = true; c->token_pos++; break;
+            } else if (strcmp(s, "int64_t") == 0 || strcmp(s, "ptrdiff_t") == 0 || strcmp(s, "intptr_t") == 0) {
+                long_count = 1; signedness = 1; saw_any = true; c->token_pos++; break;
+            } else {
+                ZeroCCType *td = zero_cc_find_typedef(c, s);
+                if (td) {
+                    if (td->tag == TYPE_BOOL) {
+                        is_bool = true; saw_any = true; c->token_pos++; break;
+                    } else if (td->tag == TYPE_INT8 || td->tag == TYPE_UINT8) {
+                        is_char = true;
+                        signedness = (td->tag == TYPE_UINT8) ? -1 : 1;
+                        saw_any = true; c->token_pos++; break;
+                    } else if (td->tag == TYPE_INT16 || td->tag == TYPE_UINT16) {
+                        is_short = true;
+                        signedness = (td->tag == TYPE_UINT16) ? -1 : 1;
+                        saw_any = true; c->token_pos++; break;
+                    } else if (td->tag == TYPE_INT32 || td->tag == TYPE_UINT32) {
+                        signedness = (td->tag == TYPE_UINT32) ? -1 : 1;
+                        saw_any = true; c->token_pos++; break;
+                    } else if (td->tag == TYPE_INT64 || td->tag == TYPE_UINT64) {
+                        long_count = 1;
+                        signedness = (td->tag == TYPE_UINT64) ? -1 : 1;
+                        saw_any = true; c->token_pos++; break;
+                    } else if (td->size > 0 && td->size <= 8 && td->tag != TYPE_STRUCT &&
+                               td->tag != TYPE_UNION && td->tag != TYPE_FLOAT && td->tag != TYPE_DOUBLE) {
+                        if (td->size == 1) is_char = true;
+                        else if (td->size == 2) is_short = true;
+                        else if (td->size == 8) long_count = 1;
+                        saw_any = true; c->token_pos++; break;
+                    }
+                }
+            }
+            break;
         } else {
             break;
         }
@@ -103,6 +152,7 @@ static inline ZCEnumUnderlying zero_cc_parse_enum_underlying(ZeroCCCompiler *c) 
         diag_report_error_at_token(c, "expected fixed integer type in enum declaration");
         return u;
     }
+    skip_c23_attributes(c);
     if (is_bool) {
         u.size = 1; u.is_bool = true; return u;
     }
@@ -139,6 +189,7 @@ static inline void zc_enum_apply_underlying(ZeroCCType *et, const ZCEnumUnderlyi
     if (u && u->size) {
         et->size = u->size;
         et->align = u->size; /* scalar int alignment == size on all targets */
+        et->is_fixed_enum = true;
     }
 }
 
@@ -1094,18 +1145,29 @@ static inline ZeroCCType zc_parse_enum_spec(ZeroCCCompiler *c, size_t *pos)
 {
     ZeroCCType ty;
     (*pos)++; /* consume enum */
+    skip_c23_attributes_at(c, pos);
     char ename[128] = "";
     if (*pos < c->token_count && c->tokens[*pos].type == TK_IDENT) {
         snprintf(ename, sizeof(ename), "%s", c->tokens[*pos].str_val);
         (*pos)++;
     }
+    skip_c23_attributes_at(c, pos);
     size_t save = c->token_pos;
     c->token_pos = *pos;
     ZCEnumUnderlying und = zero_cc_parse_enum_underlying(c);
+    skip_c23_attributes(c);
     if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACE) {
         c->token_pos++;
         if (!ename[0]) {
             snprintf(ename, sizeof(ename), "__anon_enum_%zu", c->anon_struct_seq++);
+        }
+        ZeroCCType *existing = (ename[0] != '\0') ? zero_cc_find_enum(c, ename) : NULL;
+        if (existing && existing->is_fixed_enum && und.size == 0) {
+            diag_report_error_at_token(c, "enum declared with but defined without fixed underlying type");
+        } else if (existing && !existing->is_fixed_enum && und.size) {
+            diag_report_error_at_token(c, "enum declared without but defined with fixed underlying type");
+        } else if (existing && existing->is_fixed_enum && und.size && existing->size != und.size) {
+            diag_report_error_at_token(c, "conflicting underlying type for enum");
         }
         ty = zero_cc_type_enum(ename);
         zc_enum_apply_underlying(&ty, &und);
@@ -1118,9 +1180,16 @@ static inline ZeroCCType zc_parse_enum_spec(ZeroCCCompiler *c, size_t *pos)
         if (!et) et = zero_cc_find_typedef(c, ename);
         if (et) {
             ty = *et;
+            if (und.size) {
+                if (et->is_fixed_enum && et->size != und.size) {
+                    diag_report_error_at_token(c, "conflicting underlying type for enum");
+                }
+                zc_enum_apply_underlying(&ty, &und);
+            }
         } else {
             ty = zero_cc_type_enum(ename);
             zc_enum_apply_underlying(&ty, &und);
+            zero_cc_register_enum(c, ename, ty);
         }
     } else {
         ty = zero_cc_type_enum(NULL);

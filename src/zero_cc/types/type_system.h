@@ -122,6 +122,7 @@ typedef struct ZeroCCType {
      * A function suffix applied to a base type sets this flag; a pointer
      * chunk then converts it. */
     bool is_func;
+    bool is_fixed_enum; /* C23 fixed underlying type specified */
 
     /* Declared prototype of a function (type) / function pointer (type
      * held in the pointer's `base`): the pointee's parameter types, so

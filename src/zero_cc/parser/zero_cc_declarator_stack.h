@@ -209,6 +209,7 @@ static inline void zero_cc_parse_param_list(
         if (!first_param) {
             if (c->tokens[c->token_pos].type == TK_COMMA) {
                 c->token_pos++;
+                skip_c23_attributes(c);
             } else {
                 break;
             }
@@ -1040,13 +1041,20 @@ static inline bool zero_cc_parse_declarator_internal(
         d->name_tok_pos = c->token_pos;
         d->name_level = level;
         c->token_pos++;
+        skip_c23_attributes(c);
     } else {
         d->is_abstract = true;
     }
 
     /* 3. Suffixes (arrays and functions) at this level */
     while (c->token_pos < c->token_count) {
+        skip_c23_attributes(c);
         if (c->tokens[c->token_pos].type == TK_LBRACKET) {
+            if (c->token_pos + 1 < c->token_count &&
+                c->tokens[c->token_pos + 1].type == TK_LBRACKET) {
+                skip_c23_attributes(c);
+                continue;
+            }
             c->token_pos++; /* consume '[' */
             ZeroCCDeclaratorChunk arr_chunk;
             memset(&arr_chunk, 0, sizeof(arr_chunk));

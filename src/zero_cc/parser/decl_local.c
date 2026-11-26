@@ -1738,11 +1738,13 @@ bool zero_cc_parse_local_decl(ZeroCCCompiler *c,  /* Sprint 114: defined in decl
 
                 while (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) {
                     c->token_pos++; /* consume ',' */
+                    skip_c23_attributes(c);
                     ZeroCCDeclarator next_decl;
                     zero_cc_declarator_init(&next_decl);
                     if (!zero_cc_parse_declarator(c, arena, ctx, &next_decl, false) || !next_decl.name) {
                         break;
                     }
+                    skip_c23_attributes(c);
                     if (!zero_cc_declarator_validate(c, &next_decl)) {
                         *out_ref = AST_NULL; return true;
                     }

@@ -1,5 +1,29 @@
 # CHANGELOG
 
+## [Sprint 254] - 2026-11-26 - Full ISO C23 Standard Attribute & Enum Syntax Completion
+
+- **Fixed Underlying Enum Types (`enum E : <type>`) (`type_parser.h`, `decl_enum.h`, `decl_struct.c`, `zero_cc_declarator_stack.h`, `type_system.h`)**:
+  - Implemented full support for fixed underlying enum types (`enum E : uint8_t { ... }`, `enum E : int16_t`, `enum E : uint64_t`, `typedef enum : uint8_t { ... }`, etc.).
+  - Extended `zero_cc_parse_enum_underlying` to resolve identifier tokens against standard fixed-width integer types (`uint8_t`, `int8_t`, `uint16_t`, `int16_t`, `uint32_t`, `int32_t`, `uint64_t`, `int64_t`, `size_t`, `ptrdiff_t`, `uintptr_t`, `intptr_t`) and user typedefs via `zero_cc_find_typedef`.
+  - Added `is_fixed_enum` tracking on `ZeroCCType` to validate C23 enum declaration and definition consistency:
+    - Diagnoses conflicting underlying types between declaration and definition (`conflicting underlying type for enum`).
+    - Diagnoses enums declared with fixed underlying type but defined without (`enum declared with but defined without fixed underlying type`).
+    - Diagnoses enums declared without fixed underlying type but defined with (`enum declared without but defined with fixed underlying type`).
+  - Added support for forward declarations of fixed underlying enums (`enum E : uint8_t;`) registering exact size and alignment.
+- **C23 Standard Attributes (`[[...]]`) (`type_parser.h`, `decl_enum.h`, `zero_cc_declarator_stack.h`, `decl_local.c`, `compile.c`)**:
+  - Full syntactic support and whitespace/attribute skipping for ISO C23 standard attributes:
+    - `[[nodiscard]]` and `[[nodiscard("reason")]]` on function declarations and definitions.
+    - `[[deprecated]]` and `[[deprecated("reason")]]` on functions, global variables, local variables, parameters, and enum types.
+    - `[[maybe_unused]]` on variables, function parameters, declarations, and enumerator values.
+    - `[[fallthrough]];` in switch statements.
+  - Ensured `[[` tokens trailing declarators are not misinterpreted as array subscripts in declarator parsing.
+  - Extended `skip_c23_attributes` across comma-separated declarator lists, parameter declarators, enum tags, and function headers.
+- **Verification & Gates (`test/jit/c23_enum_attributes.c`, `tools/c23/test_c23.py`, `Makefile`)**:
+  - Added C23 differential test cases in `tools/c23/test_c23.py`: `c23_enum_underlying`, `c23_enum_conflicting_types`, and `c23_standard_attributes`.
+  - Added regression test `test/jit/c23_enum_attributes.c` verifying fixed-width enum sizes, forward declarations, value wrapping, `static_assert(sizeof(...))`, `[[nodiscard]]`, `[[deprecated]]`, `[[maybe_unused]]`, and `[[fallthrough]];`.
+  - `make test-c23` passes 40/40 test cases across all 43 dialect configs in both AOT and JIT across `-O0..-O3`.
+  - All 279 regression tests in `make test` pass cleanly. Style check: 0 errors, 0 warnings.
+
 ## [Sprint 253] - 2026-11-26 - Microsoft x64 Native Calling Convention (ABI_WIN64 / `__attribute__((ms_abi))` / `-mabi=ms`)
 
 - **Microsoft x64 Calling Convention Implementation (`x86_64.c`, `x86_64_asm.c`, `ast_lowering_call.c`, `ast_lowering_mc_call.c`, `ast_lowering.c`, `compile.c`, `compile_unit.c`, `zero_cc_declarator_stack.h`, `abi_classify.h`)**:

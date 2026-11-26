@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-26T19:27:46Z
+timestamp: 2026-11-26T19:45:03Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1773,3 +1773,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-26 — Updated `abi-sysv-x86_64.md`
 - Sprint 253: Microsoft x64 Native Calling Convention (ABI_WIN64 / ms_abi / -mabi=ms)
+
+## 2026-11-26 — Updated `frontend-and-types.md`
+- Sprint 254: Full ISO C23 Standard Attribute & Enum Syntax Completion

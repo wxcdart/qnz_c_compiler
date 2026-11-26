@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-11-26T12:49:17Z
+timestamp: 2026-11-26T19:45:03Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -600,8 +600,14 @@ ZeroCC supports key C23 language and preprocessor features verified by the diffe
   - `__has_embed(...)`: returns `__STDC_EMBED_FOUND__` (1), `__STDC_EMBED_EMPTY__` (2), or `__STDC_EMBED_NOT_FOUND__` (0). Supports macro expansion of arguments and parameter checks (e.g. `limit(0)`).
   - `__has_c_attribute(attr)`: evaluates standard attributes (`nodiscard`, `maybe_unused`, `deprecated`, `fallthrough`, `reproducible`, `unsequenced`, and `__...__` variants) to `202311L`, and unknown attributes to `0`.
   - `#elifdef` and `#elifndef` directives: supported in conditional compilation, with `defined()`, `#ifdef`, and `#ifndef` recognizing built-in operators.
-- **C23 Attributes Grammar (`[[...]]`)**:
-  - Standard double-bracket attribute syntax accepted on function parameters, struct/union members, enum specifiers, and enumerators (following the identifier, e.g. `NAME [[deprecated]] = val`).
+- **C23 Attributes Grammar (`[[...]]`, Sprint 254)**:
+  - Standard double-bracket attribute syntax accepted and parsed across all standard positions: function declarations and definitions (`[[nodiscard]]`, `[[nodiscard("reason")]]`), variables and parameters (`[[maybe_unused]]`, `[[deprecated]]`), enum specifiers, enumerator constants (`A [[deprecated]] = 1`), and statement-level null statements (`[[fallthrough]];` in `switch`).
+  - Declarator suffix parsing explicitly discriminates array indexing `[` from attribute prefix `[[`.
+- **C23 Fixed Underlying Enum Types (`enum E : <type>`, Sprint 254)**:
+  - Supports fixed integer underlying types (`enum E : uint8_t { ... }`, `enum E : int16_t`, `enum E : uint64_t`, `typedef enum : uint8_t { ... }`) resolving standard fixed-width typedefs and user-defined typedefs.
+  - Forward declarations (`enum E : uint8_t;`) register exact underlying size and alignment.
+  - Declarations and definitions validate underlying type consistency, diagnosing mismatches, missing fixed underlying types on definitions, and conflicting re-declarations.
+  - Enumerator values wrap modulo underlying type range (e.g. 256 wraps to 0 in `uint8_t`, two's complement wrapping).
 - **Standard Library Headers (`<stddef.h>`)**:
   - `nullptr_t` (typedef of `typeof(nullptr)`), `unreachable()` (`__builtin_unreachable()`), and `max_align_t`.
 

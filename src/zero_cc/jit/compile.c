@@ -939,6 +939,8 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
         }
     }
 
+    skip_c23_attributes(c);
+
     if (c->tokens[c->token_pos].type == TK_SEMI) {
         /* Function prototype declaration: record prototype, no code emit */
         if (c->function_count < ZERO_CC_MAX_FUNCTIONS) {
