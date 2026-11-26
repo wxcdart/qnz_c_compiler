@@ -8,8 +8,9 @@ ZeroCC is a lightweight, embeddable C99/C11/C23 compiler (with GNU extensions) w
 - **Preprocessor**: full `#define`/`#if`/`#include`/`#pragma` with `-E` preprocess-only mode, gcc-differential conformance (`make test-preproc` gate: `zerocc -E` vs `gcc -E` over `test/preproc/` — C11 6.10.3.1p2 stringify/paste order, `##` token fusion, GNU `x, ##__VA_ARGS__` comma drop, phase-2 splices)
 - **Differential fuzzing** (`make test-fuzz` gate): seeded random-C generator scoped to the supported feature set (integers incl. `__int128`, structs, VLAs, pointers, control flow, recursion, K&R, `sizeof`, designated init, compound literals); each generated program self-checks against a Python model of the same AST and is differential-executed vs a reference gcc at `-O0` AOT + `-O0` JIT; failing seeds ratchet into `test/fuzz/baseline.json`
 - **Compile-performance budget** (`make test-perf` gate): ratcheted compile-time budgets over a fixed increasing-size corpus (bench workloads, the temp-id churn stress, cJSON, zlib `deflate.c`, the 255k-line `sqlite3.c`, and a pinned 20-file c-torture sample) — tracks wall time per `-O` level plus per-pass optimizer time via `--profile-opts`, median of 5-7 runs, ratcheted against `test/perf/baseline.json`; guards against compile-speed regressions (and the c-torture sweep's wall time)
-- **C23 Conformance**: `constexpr` data declarations, `nullptr`, `true`/`false` keywords, `typeof`/`typeof_unqual`, `#warning` (C23 6.9.1), empty `{}` initializers, `[[attr]]` attributes, designator-based unsized array sizing (`make test-c23` gate vs gcc-15)
-- **Multi-project validation**: sqlite3.c amalgamation (255k lines), 15-TU zlib, and cJSON compiled under zerocc at `-O0` and `-O2` (`make test-project-diff`)
+- **C23 Conformance**: ISO C23 `#embed` with standard parameters (`limit`, `prefix`, `suffix`, `if_empty`), C23 empty parameter list `()` prototype semantics (`(void)` in C23 mode), bit-precise integer suffixes `wb`/`uwb`, static compound literals, `constexpr` data declarations, `nullptr`, `true`/`false` keywords, `typeof`/`typeof_unqual`, `#warning` (C23 6.9.1), empty `{}` initializers, `[[attr]]` attributes, designator-based unsized array sizing (`make test-c23` gate vs gcc-15)
+- **Multi-project validation & Full In-Memory JIT (Sprint 250)**: sqlite3.c amalgamation (255k lines), 15-TU zlib, and cJSON compiled under zerocc at `-O0` and `-O2` (`make test-project-diff`). All projects execute directly in memory via `--run`: SQLite3 executes both on-disk and pure in-memory (`:memory:`) SQL suites directly in RAM, zlib compresses and decompresses in RAM, and all 20 Unity suites of cJSON pass (`python3 tools/verify/project_runs.py --jit`, 51/51 behavior matches vs GCC)
+- **Windows PE/COFF Native Binary Output (Sprint 246 & 249)**: Standalone PE32+ console executables (`.exe`), dynamic link libraries (`.dll`, `-shared`), and relocatable COFF objects (`.obj`, `-c`). Emits standard MS-DOS header ("MZ"), PE header (`IMAGE_FILE_MACHINE_AMD64 = 0x8664`), 64-bit Optional Header, `.text`, `.rdata`, `.data`, `.edata` export table with Export Address/Name/Ordinal Tables (`IMAGE_DIRECTORY_ENTRY_EXPORT`), and `.idata` multi-DLL dynamic import table routing C standard library calls to `msvcrt.dll` and process controls to `KERNEL32.dll` via IAT indirect jump thunks. Supports GUI subsystem 2 (`-mwindows`, resolving `WinMain`) and CUI subsystem 3 (`-mconsole`). Validated via `make test-pe` (44/44 checks).
 - **`__zerocc_syscall(number, a, b, c, d, e, f)`** and **`__zerocc_clone(...)`** — direct OS-syscall and thread-clone builtins (`OP_SYSCALL`, `OP_CLONE`) across all 4 ISAs (the `zero_rt` OS boundary)
 - **Multi-ISA Target Architecture**: x86-64, AArch64, AArch32 (ARMv7-A), RISC-V 64, RISC-V 32 (`--target`); every ISA has an assembly-text path (`-S`) and a raw binary emitter (`-c`, `--zerocc-link`), differential-tested under QEMU
 - **Modular Multi-ISA Architecture (Sprint 186–217 Refactoring, Phases 1–5 Complete)**:
@@ -112,7 +113,7 @@ ZeroCC is a lightweight, embeddable C99/C11/C23 compiler (with GNU extensions) w
 - **Compiler diagnostics** — gcc-style caret errors, C99 constraint checking,
   "did you mean" suggestions, multi-error recovery
 - **Conformance gate** ratcheted against GCC's `gcc.c-torture` corpus
-  (3,940 tests; 3,781 PASS / 0 bad at HEAD; see `make test-torture`)
+  (3,940 tests; 3,811 PASS / 0 bad / 0 SKIP-C89 at HEAD; see `make test-torture`)
 
 ## Quick Start
 
@@ -154,6 +155,10 @@ zerocc [options] <source.c> [more.c ...]
   -D<macro>  -U<macro>     Define / undefine a macro
   -include <file>          Force-include a file before the main source
   -run, --run     Run in JIT mode (default)
+  --pe, -mpe      Emit Windows PE32+ executable (.exe) or DLL (.dll with -shared)
+  -shared         Produce a shared library / Windows DLL
+  -mwindows       Windows GUI subsystem application (resolves WinMain entry point)
+  -mconsole       Windows console subsystem application (default)
   --target <arch> Target architecture (x86-64, aarch64, aarch32, riscv64, riscv32)
   --baremetal     Baremetal / embedded CPU target mode
   -ffreestanding  Freestanding execution environment (__STDC_HOSTED__=0, __BAREMETAL__=1)

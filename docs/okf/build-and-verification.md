@@ -4,7 +4,7 @@ title: Build, Test & Verification Guide for Agents
 description: Practical commands and rules for building ZeroCC, running the 165-test suite, the optimizer sweep, C99/C11 verifiers, testing JIT vs AOT compilation, and running ABI/OKF verifiers.
 resource: workflows/build-and-verification
 tags: [build, testing, verification, makefile, sret, c11, vla, okf, opt-sweep]
-timestamp: 2026-11-26T13:08:32Z
+timestamp: 2026-11-26T16:32:51Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -490,13 +490,15 @@ python3 tools/verify/torture_run.py --quick
 make test-project-diff
 python3 tools/verify/project_diff.py --levels 0 2 3
 
-# Project run + behavior-diff gate (Verification & Scale #1, phases 2/3):
+# Project run + behavior-diff gate (Verification & Scale #1, phases 2/3, Sprint 250):
 # builds each project's own test program with BOTH host gcc and zerocc,
 # runs both on identical inputs, diffs stdout/stderr/exit-code (+ produced
-# file bytes). cjson (demo + 19 Unity suites) and zlib (example + minigzip
-# round-trip) match gcc AOT; cjson also passes under --jit. The sqlite
-# on-disk SQL suite is SKIPPED (not failed) while a pre-existing pager
-# write-path fd-corruption bug is open.
+# file bytes). cjson (demo + 20 Unity suites) and zlib (example + minigzip
+# round-trip) match gcc AOT and JIT. SQLite3 (255k-line amalgamation)
+# executes CLI commands (--version), the full on-disk SQL suite, and
+# pure in-memory (:memory:) queries directly in RAM under JIT (--run)
+# with 100% byte-for-byte fidelity with host GCC.
+# All 51/51 runs pass with 0 failures and 0 skipped.
 make test-project-runs
 python3 tools/verify/project_runs.py
 python3 tools/verify/project_runs.py --jit

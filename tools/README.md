@@ -34,7 +34,8 @@ All tools are **stdlib-only** (see [`tools/requirements.txt`](./requirements.txt
 | [`linker_tests.py`](./verify/linker_tests.py) | Own-linker (T2) differential battery | `python3 tools/verify/linker_tests.py` |
 | [`lto_tests.py`](./verify/lto_tests.py) | Cross-TU Link-Time Optimization (-flto) battery | `python3 tools/verify/lto_tests.py` / `make test-lto` |
 | [`pgo_tests.py`](./verify/pgo_tests.py) | Profile-Guided Optimization (-fprofile-generate/-use) battery | `python3 tools/verify/pgo_tests.py` / `make test-pgo` |
-| [`pe_tests.py`](./verify/pe_tests.py) | Windows PE/COFF native output (PE32+ .exe / COFF .obj) battery | `python3 tools/verify/pe_tests.py` / `make test-pe` |
+| [`pe_tests.py`](./verify/pe_tests.py) | Windows PE/COFF native output (PE32+ .exe / .dll with .edata export table / COFF .obj) battery | `python3 tools/verify/pe_tests.py` / `make test-pe` |
+| [`project_runs.py`](./verify/project_runs.py) | Real-world project run & behavior-diff gate (cJSON, zlib, SQLite3 amalgamation in RAM) | `python3 tools/verify/project_runs.py --jit` / `make test-project-runs` |
 | [`baremetal_test.py`](./verify/baremetal_test.py) | Embedded baremetal CPU verification gate (linker scripts, LMA/VMA, boundary symbols) | `python3 tools/verify/baremetal_test.py` / `make test-baremetal` |
 | [`abi_interop.py`](./verify/abi_interop.py) | External ABI interop: zerocc.o <-> gcc.o linking | `python3 tools/verify/abi_interop.py` |
 | [`asm_diff.py`](./verify/asm_diff.py) | Inline-assembly Phase 1 differential gate (`-S` text path) | `python3 tools/verify/asm_diff.py` |

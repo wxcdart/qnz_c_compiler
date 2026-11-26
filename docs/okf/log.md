@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-26T13:17:00Z
+timestamp: 2026-11-26T16:32:51Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1752,3 +1752,12 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-26 — Updated `multi-tu.md`
 - Sprint 250: Full Multi-TU In-Memory JIT for Large Projects (SQLite3 Amalgamation directly in RAM)
+
+## 2026-11-26 — Updated `c-torture-gate.md`
+- Update c-torture gate statistics: 3,811 PASS / 0 bad / 0 SKIP-C89 (Sprint 247)
+
+## 2026-11-26 — Updated `build-and-verification.md`
+- Update project_runs (51/51 JIT + AOT) and Windows PE/COFF verification battery
+
+## 2026-11-26 — Updated `own-linker.md`
+- Document Windows PE/COFF (pe_writer) native binary output
