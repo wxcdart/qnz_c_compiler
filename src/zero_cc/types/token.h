@@ -54,7 +54,7 @@ typedef struct ZeroCCToken {
     ZeroCCTokType type;
     int64_t num_val;
     double float_val;
-    uint8_t int_suffix; /* bitflags: 1=U,2=L,4=LL */
+    uint8_t int_suffix; /* bitflags: 1=U, 2=L, 4=LL, 8=complex, 16=WB (C23) */
     uint8_t is_wide;    /* 1 for wide character/string literals (L'x', L"str") */
     char str_val[128];
     char *allocated_str; /* for long strings (> 127 chars) */

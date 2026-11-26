@@ -892,6 +892,44 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                 if (node->left != AST_NULL) return lower_expr(c, arena, node->left);
                 return TEMP_NONE;
             }
+            if (sym->is_static_local) {
+                ZeroCCGlobalVar *gv = find_global_var(c, sym->static_global_name);
+                int addr_temp = zc_alloc_temp(c);
+                ir_emit_global_addr(c, addr_temp, gv);
+                if (sym->type.tag == TYPE_ARRAY) {
+                    c->last_expr_is_float = 0;
+                    return addr_temp;
+                }
+                if (sym->type.tag == TYPE_STRUCT || sym->type.tag == TYPE_UNION) {
+                    if (sym->type.size <= 8) {
+                        int val_temp = zc_alloc_temp(c);
+                        ir_emit_load(c, val_temp, addr_temp, 0);
+                        c->last_expr_is_float = 0;
+                        return val_temp;
+                    } else if (sym->type.size <= 16) {
+                        int val_temp = zc_alloc_temp(c);
+                        ir_emit_load(c, val_temp, addr_temp, 0);
+                        ir_emit_load(c, VREG_2, addr_temp, 8);
+                        c->last_expr_is_float = 0;
+                        return val_temp;
+                    } else {
+                        c->last_expr_is_float = 0;
+                        return addr_temp;
+                    }
+                }
+                int val_temp = zc_alloc_temp(c);
+                if (sym->type.size == 1) {
+                    ir_emit_load_byte(c, val_temp, addr_temp);
+                } else if (sym->type.size == 2) {
+                    ir_emit_load_16(c, val_temp, addr_temp);
+                } else if (sym->type.size == 4) {
+                    ir_emit_load_32(c, val_temp, addr_temp);
+                } else {
+                    ir_emit_load(c, val_temp, addr_temp, 0);
+                }
+                c->last_expr_is_float = (sym->type.tag == TYPE_FLOAT || sym->type.tag == TYPE_DOUBLE);
+                return val_temp;
+            }
             /* C99: zero-initialize entire object before designated/positional stores */
             size_t total_size = sym->type.size ? sym->type.size : 4;
             if (total_size > 0) {

@@ -113,6 +113,9 @@ typedef struct ZeroCCType {
      * `*base` (re-tagged), size 2 * element.  Lowering intercepts
      * arithmetic/comparisons and the __real__/__imag__ operators. */
     bool is_complex;
+    /* C23 static/constexpr compound literal storage flags (Sprint 245). */
+    bool is_static;
+    bool is_constexpr;
     /* Function type marker: the type denotes a function, not an object
      * (e.g. the alias in `typedef int f(void);`).  Applying a pointer
      * declarator on top of it yields a function pointer (is_func_ptr).

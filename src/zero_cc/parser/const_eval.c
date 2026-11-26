@@ -727,6 +727,7 @@ bool zero_cc_tok_is_type_start(ZeroCCCompiler *c, size_t pos) {
         t == TK_BOOL_KW || t == TK_SIGNED || t == TK_UNSIGNED ||
         t == TK_SHORT || t == TK_LONG || t == TK_ATOMIC ||
         t == TK_CONST || t == TK_VOLATILE || t == TK_RESTRICT ||
+        t == TK_STATIC || t == TK_CONSTEXPR || t == TK_THREAD_LOCAL ||
         t == TK_TYPEOF || t == TK_TYPEOF_UNQUAL) {
         return true;
     }

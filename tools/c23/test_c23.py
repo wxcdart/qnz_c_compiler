@@ -435,6 +435,45 @@ int main(void) {
     return 0;
 }
 """, dialects=["gnu23"]),
+
+    # -------------------------------------------------------------
+    # C23 bit-precise integer suffixes wb / uwb (C23 6.4.4.1)
+    # -------------------------------------------------------------
+    C23Case("c23_bit_precise_suffixes", "c23_misc", """
+int main(void) {
+    long a = 123wb;
+    unsigned long b = 456uwb;
+    long c = 0x10wb;
+    unsigned long d = 0b1101uwb;
+    long e = -50wb;
+    unsigned long f = 999WBU;
+    if (a != 123 || b != 456 || c != 16 || d != 13 || e != -50 || f != 999) return 1;
+    return 0;
+}
+""", dialects=["gnu23"]),
+
+    # -------------------------------------------------------------
+    # C23 static and constexpr compound literals (C23 6.5.2.5)
+    # -------------------------------------------------------------
+    C23Case("c23_static_compound_literals", "c23_misc", """
+int *get_static_arr(void) {
+    return (static int[]){10, 20, 30};
+}
+const int *get_constexpr_arr(void) {
+    return (static constexpr int[]){100, 200, 300};
+}
+int main(void) {
+    int *p1 = get_static_arr();
+    int *p2 = get_static_arr();
+    if (p1 != p2) return 1;
+    if (p1[0] != 10 || p1[1] != 20 || p1[2] != 30) return 2;
+    const int *c1 = get_constexpr_arr();
+    const int *c2 = get_constexpr_arr();
+    if (c1 != c2) return 3;
+    if (c1[0] != 100 || c1[1] != 200 || c1[2] != 300) return 4;
+    return 0;
+}
+""", dialects=["gnu23"]),
 ]
 
 # The suppressed-warning case needs a NEGATIVE stderr check (the message

@@ -92,7 +92,11 @@ int lower_member_chain_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTN
         ZeroCCSym *sym = lowering_local_sym(c, base_node, base_node->s.str);
         if (sym) {
             addr = zc_alloc_temp(c);
-            ir_emit_lea(c, addr, BE(c)->fp_reg, -sym->stack_offset);
+            if (sym->is_static_local) {
+                ir_emit_global_addr(c, addr, find_global_var(c, sym->static_global_name));
+            } else {
+                ir_emit_lea(c, addr, BE(c)->fp_reg, -sym->stack_offset);
+            }
         } else {
             generic_base = true;
         }
@@ -174,7 +178,11 @@ int zero_cc_lower_lvalue_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef r
         ZeroCCSym *sym = lowering_local_sym(c, operand, operand->s.str);
         if (sym) {
             int addr_temp = zc_alloc_temp(c);
-            ir_emit_lea(c, addr_temp, TEMP_NONE, -sym->stack_offset);
+            if (sym->is_static_local) {
+                ir_emit_global_addr(c, addr_temp, find_global_var(c, sym->static_global_name));
+            } else {
+                ir_emit_lea(c, addr_temp, TEMP_NONE, -sym->stack_offset);
+            }
             return addr_temp;
         }
     } else if (operand->tag == NODE_MEMBER) {

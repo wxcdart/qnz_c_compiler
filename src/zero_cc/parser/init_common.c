@@ -1915,6 +1915,19 @@ bool zero_cc_static_local_patch_init(ZeroCCCompiler *c, ZeroCCSym *sym) {
                                        0, &cursor, 0);
         return true;
     }
+    if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_LBRACE &&
+        sym->type.tag != TYPE_ARRAY && sym->type.tag != TYPE_STRUCT &&
+        sym->type.tag != TYPE_UNION) {
+        c->token_pos++; /* consume '{' */
+        int64_t val = zero_cc_eval_const_expr(c);
+        if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_RBRACE) {
+            c->token_pos++;
+        }
+        size_t sz = sym->type.size ? sym->type.size : 4;
+        uint8_t *dst = (uint8_t *)c->data_section.data + sym->static_data_offset;
+        memcpy(dst, &val, sz <= 8 ? sz : 8);
+        return true;
+    }
     if (c->token_pos + 1 < c->token_count &&
         c->tokens[c->token_pos].type == TK_LBRACE &&
         c->tokens[c->token_pos + 1].type == TK_RBRACE) {

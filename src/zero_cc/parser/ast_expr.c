@@ -698,6 +698,16 @@ ASTRef parse_primary_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena) {
                     char clit_name[48];
                     snprintf(clit_name, sizeof(clit_name), "__clit_%u", s_clit_id++);
                     ZeroCCSym *sym = zero_cc_add_local(c, clit_name, lit_type);
+                    if (sym && lit_type.is_static) {
+                        sym->is_static_local = true;
+                        sym->static_addr_taken = true;
+                        zero_cc_static_local_register(c, sym);
+                        if (lit_type.is_constexpr) sym->is_const = true;
+                        size_t cur = c->token_pos;
+                        c->token_pos = after_rparen;
+                        zero_cc_static_local_patch_init(c, sym);
+                        c->token_pos = cur;
+                    }
 
                     ASTRef comp_ref = zero_cc_ast_alloc_node(arena, NODE_COMPOUND_LIT);
                     ZeroCCASTNode *cn = zero_cc_ast_get(arena, comp_ref);
@@ -1401,6 +1411,7 @@ bool is_type_specifier_at(ZeroCCCompiler *c, size_t pos, ZeroCCTokType t) {
         t == TK_SIGNED || t == TK_UNSIGNED || t == TK_SHORT || t == TK_LONG ||
         t == TK_AUTO || t == TK_ATOMIC ||
         t == TK_CONST || t == TK_VOLATILE || t == TK_RESTRICT ||
+        t == TK_STATIC || t == TK_CONSTEXPR || t == TK_THREAD_LOCAL ||
         t == TK_TYPEOF || t == TK_TYPEOF_UNQUAL) {
         return true;
     }

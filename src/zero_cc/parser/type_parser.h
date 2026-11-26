@@ -357,6 +357,7 @@ static inline ZeroCCType zero_cc_type_of_primary(ZeroCCCompiler *c, size_t *pos)
         uint8_t suf = c->tokens[*pos].int_suffix;
         int64_t v = c->tokens[*pos].num_val;
         (*pos)++;
+        if (suf & 16) return (suf & 0x01) ? zero_cc_type_uint64() : zero_cc_type_int64();
         if (suf & 0x04) return (suf & 0x01) ? zero_cc_type_uint64() : zero_cc_type_int64();
         if (suf & 0x02) {
             if (zc_target_is_32bit(c)) return (suf & 0x01) ? zero_cc_type_uint32() : zero_cc_type_int();
@@ -1153,14 +1154,18 @@ static inline ZeroCCType zc_type_from_function(const ZeroCCFunction *fn)
 static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_t *pos)
 {
     ZeroCCType ty;
-    /* Type qualifiers may precede the type name (C99 6.7.3: const int, etc.) */
+    /* Type qualifiers and storage specifiers may precede the type name (C99 6.7.3, C23 6.5.2.5) */
     bool q_const = false, q_volatile = false, q_restrict = false;
+    bool q_static = false, q_constexpr = false;
     while (*pos < c->token_count &&
            (c->tokens[*pos].type == TK_CONST || c->tokens[*pos].type == TK_VOLATILE ||
-            c->tokens[*pos].type == TK_RESTRICT)) {
+            c->tokens[*pos].type == TK_RESTRICT || c->tokens[*pos].type == TK_STATIC ||
+            c->tokens[*pos].type == TK_CONSTEXPR || c->tokens[*pos].type == TK_THREAD_LOCAL)) {
         if (c->tokens[*pos].type == TK_CONST) q_const = true;
         else if (c->tokens[*pos].type == TK_VOLATILE) q_volatile = true;
-        else q_restrict = true;
+        else if (c->tokens[*pos].type == TK_RESTRICT) q_restrict = true;
+        else if (c->tokens[*pos].type == TK_STATIC) q_static = true;
+        else if (c->tokens[*pos].type == TK_CONSTEXPR) { q_constexpr = true; q_const = true; }
         (*pos)++;
     }
     /* GNU vector attribute marker (`__attribute__((__vector_size__(N)))`,
@@ -1299,6 +1304,8 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
     if (q_const) ty.is_const = true;
     if (q_volatile) ty.is_volatile = true;
     if (q_restrict) ty.is_restrict = true;
+    if (q_static) ty.is_static = true;
+    if (q_constexpr) { ty.is_constexpr = true; ty.is_const = true; }
     /* Vector attribute trailing the base specifier:
      * `short __attribute__((__vector_size__(16)))` / `V __zc_vector_size__(16)`.
      * Wraps the base type in a 128-bit vector before any pointer/array
@@ -1344,6 +1351,8 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
     if (q_const) ty.is_const = true;
     if (q_volatile) ty.is_volatile = true;
     if (q_restrict) ty.is_restrict = true;
+    if (q_static) ty.is_static = true;
+    if (q_constexpr) { ty.is_constexpr = true; ty.is_const = true; }
     /* Declarator suffixes (C99 6.7.5): parenthesized abstract
      * declarators (`(*)(void)`, `(*)[4]`, `(*[3])(float)`) and pointer
      * stars may alternate in any order - `int *(*)(long)`,
@@ -1395,6 +1404,8 @@ static inline ZeroCCType zero_cc_parse_type_name_at_pos(ZeroCCCompiler *c, size_
         }
     }
     (void)q_const; (void)q_volatile; (void)q_restrict; /* applied at the base type */
+    if (q_static) ty.is_static = true;
+    if (q_constexpr) ty.is_constexpr = true;
     return ty;
 }
 
@@ -1463,12 +1474,18 @@ static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c) {
     }
     /* Handle type qualifiers (const, volatile, restrict) at the start */
     bool q_const = false, q_volatile = false, q_restrict = false;
+    bool q_static = false, q_constexpr = false;
     while (c->tokens[c->token_pos].type == TK_CONST ||
            c->tokens[c->token_pos].type == TK_VOLATILE ||
-           c->tokens[c->token_pos].type == TK_RESTRICT) {
+           c->tokens[c->token_pos].type == TK_RESTRICT ||
+           c->tokens[c->token_pos].type == TK_STATIC ||
+           c->tokens[c->token_pos].type == TK_CONSTEXPR ||
+           c->tokens[c->token_pos].type == TK_THREAD_LOCAL) {
         if (c->tokens[c->token_pos].type == TK_CONST) q_const = true;
         else if (c->tokens[c->token_pos].type == TK_VOLATILE) q_volatile = true;
-        else q_restrict = true;
+        else if (c->tokens[c->token_pos].type == TK_RESTRICT) q_restrict = true;
+        else if (c->tokens[c->token_pos].type == TK_STATIC) q_static = true;
+        else if (c->tokens[c->token_pos].type == TK_CONSTEXPR) { q_constexpr = true; q_const = true; }
         c->token_pos++;
     }
     /* GNU vector attribute marker (`__attribute__((__vector_size__(N)))`),
@@ -1636,6 +1653,8 @@ static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c) {
     if (q_const) ty.is_const = true;
     if (q_volatile) ty.is_volatile = true;
     if (q_restrict) ty.is_restrict = true;
+    if (q_static) ty.is_static = true;
+    if (q_constexpr) { ty.is_constexpr = true; ty.is_const = true; }
     /* Vector attribute trailing the base specifier: consume it (otherwise
      * the marker identifier would be read as the variable name) and wrap
      * the base type in a vector. Same for aligned(N): raise the type's
@@ -1755,6 +1774,8 @@ static inline ZeroCCType zero_cc_parse_type_name(ZeroCCCompiler *c) {
         }
     }
     (void)q_const; (void)q_volatile; (void)q_restrict; /* applied at the base type */
+    if (q_static) ty.is_static = true;
+    if (q_constexpr) ty.is_constexpr = true;
     return ty;
 }
 

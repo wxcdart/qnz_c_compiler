@@ -352,6 +352,9 @@ static int zero_cc_scan_number(ZeroCCLexer *lx, ZeroCCToken *tok) {
             } else if (*s == 'l' || *s == 'L') {
                 suf |= 2;
                 s++; offset++; col++;
+            } else if ((*s == 'w' || *s == 'W') && (s[1] == 'b' || s[1] == 'B')) {
+                suf |= 16;
+                s += 2; offset += 2; col += 2;
             } else {
                 break;
             }
@@ -554,6 +557,9 @@ static int zero_cc_scan_number(ZeroCCLexer *lx, ZeroCCToken *tok) {
         } else if (*p == 'i' || *p == 'I' || *p == 'j' || *p == 'J') {
             suf |= 8;
             p++; offset++; col++;
+        } else if ((*p == 'w' || *p == 'W') && (p[1] == 'b' || p[1] == 'B')) {
+            suf |= 16;
+            p += 2; offset += 2; col += 2;
         } else {
             break;
         }

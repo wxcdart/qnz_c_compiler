@@ -76,6 +76,9 @@ TypeInfo *type_uint128(Arena *perm) {
  * hex/binary constants that wrap past 2^63 arrive negative and are
  * unsigned long long. */
 TypeInfo *type_int_literal(Arena *perm, uint8_t suffix, int64_t value) {
+    if (suffix & 16) {                   /* wb / uwb: C23 bit-precise integer */
+        return (suffix & 0x01) ? type_ulong(perm) : type_long(perm);
+    }
     if (suffix & 0x06) {                 /* l / ll: 64-bit on LP64 */
         return (suffix & 0x01) ? type_ulong(perm) : type_long(perm);
     }

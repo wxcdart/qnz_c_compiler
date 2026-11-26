@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## [Sprint 245] - 2026-11-26 - C23 Standard Feature Completion (wb/uwb Suffixes & Static Compound Literals)
+
+- **C23 Bit-Precise Integer Suffixes (`lexer/scan.h`, `parser/type_parser.h`, `semantic/type.c`, `types/token.h`)**:
+  - Implemented ISO C23 (N2648) bit-precise integer literal suffixes `wb` and `WB` (signed) as well as `uwb`, `uWB`, `Uwb`, `UWB`, `wbu`, `wbU`, `WBu`, `WBU` (unsigned) across decimal, hex (`0x...`), and binary (`0b...`) integer literals.
+  - Stamped `int_suffix` with flag `16` (`0x10`), propagated through semantic analysis (`type_int_literal`) and type evaluation (`type_from_num_suffix`).
+- **C23 Static & Constexpr Compound Literals (`parser/ast_expr.c`, `parser/type_parser.h`, `parser/const_eval.c`, `parser/init_common.c`, `ir/ast_lowering_expr.c`, `ir/ast_lowering_lvalue.c`)**:
+  - Supported storage-class specifiers in compound literals (ISO C23 §6.5.2.5): `(static type){...}` and `(static constexpr type){...}`.
+  - Allowed `TK_STATIC`, `TK_CONSTEXPR`, and `TK_THREAD_LOCAL` in `is_type_specifier_at` and `zero_cc_tok_is_type_start`.
+  - Statically allocated compound literals with `static` specifier directly into `.data` via `zero_cc_static_local_register` and evaluated initializers at compile time with `zero_cc_static_local_patch_init`.
+  - Lowered `NODE_COMPOUND_LIT` for static compound literals to emit direct global addresses via `ir_emit_global_addr` rather than per-call stack frame copies, guaranteeing persistent static storage duration across function calls in both JIT and AOT.
+- **Verification & Conformance Suite (`tools/c23/test_c23.py`)**:
+  - Integrated differential test cases for `wb`/`uwb` and static/constexpr compound literals into the C23 conformance gate (`make test-c23`), diffed against reference `gcc-15 -std=gnu23`.
+  - All 33 C23 test cases (36 dialect configs) pass cleanly across JIT and AOT at `-O0..-O3`.
+  - Full test suite passes: `make test` (277/277 passed), `python3 tools/verify/style_check.py` (0 errors), `python3 tools/okf/okf.py lint` (23/23 reachable).
+
 ## [Sprint 244] - 2026-11-26 - Profile-Guided Optimization (PGO)
 
 - **Profile-Guided Optimization Engine (`driver/driver_opts.h`, `opt/opt_pgo.h`, `opt/opt_pgo.c`, `jit/pgo_runtime.c`, `zero_rt/core/pgo.c`)**:
