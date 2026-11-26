@@ -86,6 +86,10 @@ typedef struct ZeroCCCompiler {
      * of calls to this function in constant-expression contexts. */
     int pending_constexpr_fn;
 
+    /* Embedded ISR: set by file-scope loop when __zc_interrupt__ marker is found */
+    int pending_interrupt;
+    char pending_interrupt_mode[32];
+
     ZeroCCSym *locals;
     size_t local_count;
     size_t local_capacity;

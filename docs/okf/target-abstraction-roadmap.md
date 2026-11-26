@@ -4,7 +4,7 @@ title: Multi-ISA Target Architecture & Modular Backend Roadmap
 description: Architectural roadmap for decoupling ZeroCC's multi-ISA backends via TargetTraits, table-driven regalloc, modular linker ops, baremetal CPU support, and separate zero_gpu repository boundary.
 resource: backend/target-abstraction-roadmap
 tags: [multi-isa, target-traits, architecture, roadmap, baremetal, modularity, refactoring]
-timestamp: 2026-11-24T13:11:46Z
+timestamp: 2026-11-26T17:26:29Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -18,7 +18,7 @@ status: active
 > - **Phase 3 (Decoupled ABI Calling Conventions)**: Completed. `abi_classify_arg` and `abi_classify_return` in `src/zero_cc/ir/abi_classify.h`, with `sret_consumes_arg0` and `vararg_floats_in_gpr` declarative traits in `ast_lowering_call.c` and `ast_lowering_varargs.c`.
 > - **Phase 4 (Modular Linker Relocation Ops)**: Completed. `TargetLinkerOps` (`apply_reloc`, `emit_start_stub`, `default_text_base`, `default_elf_flags`, `plt_stub_size`) in `src/zero_cc/linker/linker_reloc.h` and `src/zero_cc/linker/linker.c`. Replaced ~260 lines of cascading architecture relocation code.
 > - **Phase 5 (Clean ASM Emitter Separation)**: Completed. Added `emit_load_sized_asm`, `emit_store_sized_asm`, `emit_test_zero_asm`, and `emit_cmp_regs_asm` in `src/zero_cc/ir/asm_emitter.c`. Replaced redundant per-ISA switch blocks in memory load/store and conditional branch opcodes.
-> - **Baremetal CPU Scope**: Completed & Verified. Added linker script parser (`src/zero_cc/linker/linker_script.h`) supporting `MEMORY { FLASH, RAM }`, `ORIGIN`, `LENGTH`, `ENTRY`, and `_stack_top`. Implemented LMA vs VMA separation in `src/zero_cc/linker/linker.c` with correct ELF `p_paddr` vs `p_vaddr` Program Headers, boundary symbols (`_sidata`, `_sdata`, `_edata`, `_sbss`, `_ebss`, `_stack_top`), and freestanding CLI driver flags (`--baremetal`, `-ffreestanding`, `-T`, `-nostdlib`). Verified across all 5 architectures via `tools/verify/baremetal_test.py` (`make test-baremetal`).
+> - **Baremetal CPU & ISR Scope (Sprint 252)**: Completed & Verified. Added linker script parser (`src/zero_cc/linker/linker_script.h`) supporting `MEMORY { FLASH, RAM }`, `ORIGIN`, `LENGTH`, `ENTRY`, and `_stack_top`. Implemented LMA vs VMA separation in `src/zero_cc/linker/linker.c` with correct ELF `p_paddr` vs `p_vaddr` Program Headers, boundary symbols (`_sidata`, `_sdata`, `_edata`, `_sbss`, `_ebss`, `_stack_top`), and freestanding CLI driver flags (`--baremetal`, `-ffreestanding`, `-T`, `-nostdlib`). Implemented hardware interrupt handlers (`__attribute__((interrupt))`) across RISC-V (rv32/rv64) and ARM (aarch32) with caller-saved register preservation frames and mode-specific returns (`mret`/`sret`/`uret` and `subs pc, lr, #4`). Verified across all 5 architectures via `tools/verify/baremetal_test.py` (`make test-baremetal`).
 > - **GPU Scope (`zero_gpu`)**: *Separate Dedicated Repository*. Standalone project with its own repository for SSA IR, SIMT divergence analysis, multiple address spaces, and PTX / SPIR-V bytecode generation.
 
 ---

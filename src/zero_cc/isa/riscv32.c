@@ -18,6 +18,7 @@
 /* Shared 64-bit immediate loader (also used by the RV32 prologue for
  * large frames); defined in riscv64.c. */
 extern void riscv64_emit_mov_imm(ZeroCCCompiler *c, int dst_reg, int64_t imm);
+extern void riscv64_emit_ret(ZeroCCCompiler *c);
 
 /* Sprint 170 (rv32 i64): the 64-bit (lo,hi) pair emitters, installed on
  * the RV32 vtable below. */
@@ -273,8 +274,21 @@ static const ISACallingConvention riscv32_conv = {
 
 /* RISC-V 32-bit backend (for ESP32-C3/C6/H2, rv32gc) */
 static void riscv32_emit_prologue(ZeroCCCompiler *c, size_t stack_size, uint32_t callee_save_mask) {
-    if (c->lowering.is_frameless) return;
+    ZeroCCFunction *cur_fn = (c->function_count > 0 && c->lowering.current_func_idx < c->function_count)
+                             ? &c->functions[c->lowering.current_func_idx] : NULL;
+    bool is_isr = cur_fn && cur_fn->is_interrupt;
+
+    if (c->lowering.is_frameless && !is_isr) return;
     (void)callee_save_mask;
+
+    if (is_isr) {
+        static const int caller_regs[15] = {5, 6, 7, 10, 11, 12, 13, 14, 15, 16, 17, 28, 29, 30, 31};
+        riscv_emit_u32(c, rv64_I(RV64_SP, RV64_SP, 0, (int16_t)(-16 * 4), 0x13));
+        for (int r = 0; r < 15; r++) {
+            riscv_emit_u32(c, rv64_S(RV64_SP, caller_regs[r], 2, (int16_t)(r * 4), 0x23));
+        }
+        if (c->lowering.is_frameless) return;
+    }
 
     if (c->lowering.frame_align > 16) {
         /* C11 _Alignas(N) realign mode (32-bit variant): save the ra/s0 pair,
@@ -326,16 +340,28 @@ static void riscv32_emit_prologue(ZeroCCCompiler *c, size_t stack_size, uint32_t
 }
 
 static void riscv32_emit_leave(ZeroCCCompiler *c) {
-    if (c->lowering.is_frameless) return;
-    riscv_emit_u32(c, rv64_I(RV64_SP, RV64_S0, 0, 0, 0x13));  /* addi sp, s0, 0 */
-    riscv_emit_u32(c, rv64_I(RV64_RA, RV64_SP, 2, 4, 0x03));  /* lw ra, 4(sp) */
-    riscv_emit_u32(c, rv64_I(RV64_S0, RV64_SP, 2, 0, 0x03));  /* lw s0, 0(sp) */
-    riscv_emit_u32(c, rv64_I(RV64_SP, RV64_SP, 0, 16, 0x13)); /* addi sp, sp, 16 */
+    ZeroCCFunction *cur_fn = (c->function_count > 0 && c->lowering.current_func_idx < c->function_count)
+                             ? &c->functions[c->lowering.current_func_idx] : NULL;
+    bool is_isr = cur_fn && cur_fn->is_interrupt;
+
+    if (!c->lowering.is_frameless) {
+        riscv_emit_u32(c, rv64_I(RV64_SP, RV64_S0, 0, 0, 0x13));  /* addi sp, s0, 0 */
+        riscv_emit_u32(c, rv64_I(RV64_RA, RV64_SP, 2, 4, 0x03));  /* lw ra, 4(sp) */
+        riscv_emit_u32(c, rv64_I(RV64_S0, RV64_SP, 2, 0, 0x03));  /* lw s0, 0(sp) */
+        riscv_emit_u32(c, rv64_I(RV64_SP, RV64_SP, 0, 16, 0x13)); /* addi sp, sp, 16 */
+    }
+    if (is_isr) {
+        static const int caller_regs[15] = {5, 6, 7, 10, 11, 12, 13, 14, 15, 16, 17, 28, 29, 30, 31};
+        for (int r = 0; r < 15; r++) {
+            riscv_emit_u32(c, rv64_I(caller_regs[r], RV64_SP, 2, (int16_t)(r * 4), 0x03));
+        }
+        riscv_emit_u32(c, rv64_I(RV64_SP, RV64_SP, 0, (int16_t)(16 * 4), 0x13));
+    }
 }
 
 static void riscv32_emit_epilogue(ZeroCCCompiler *c) {
     riscv32_emit_leave(c);
-    riscv_emit_u32(c, 0x00008067); /* ret: jalr zero, 0(ra) */
+    riscv64_emit_ret(c);
 }
 
 static void riscv32_emit_push_reg(ZeroCCCompiler *c, int reg) {

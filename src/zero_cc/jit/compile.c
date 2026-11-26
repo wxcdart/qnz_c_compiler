@@ -960,6 +960,20 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
             fn->is_inline = fn_inline;
             fn->is_static = fn_static;
             fn->is_constexpr = c->pending_constexpr_fn;
+            fn->is_interrupt = c->pending_interrupt;
+            if (c->pending_interrupt) {
+                if (strcasecmp(c->pending_interrupt_mode, "FIQ") == 0) {
+                    fn->interrupt_mode = 1;
+                } else if (strcasecmp(c->pending_interrupt_mode, "user") == 0 || strcasecmp(c->pending_interrupt_mode, "u") == 0) {
+                    fn->interrupt_mode = 2;
+                } else if (strcasecmp(c->pending_interrupt_mode, "supervisor") == 0 || strcasecmp(c->pending_interrupt_mode, "s") == 0) {
+                    fn->interrupt_mode = 3;
+                } else {
+                    fn->interrupt_mode = 0;
+                }
+                c->pending_interrupt = 0;
+                c->pending_interrupt_mode[0] = '\0';
+            }
             fn->align = fn_align;
             if (first_param_count > 0) {
                 Arena *farena = zero_cc_get_fn_arena(c);
@@ -1004,6 +1018,20 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
         /* GNU __attribute__((weak)): STB_WEAK at AOT -c so a strong
          * definition in another TU wins at link time (Unity setup stubs). */
         fn->is_weak = c->pending_weak;
+        fn->is_interrupt = c->pending_interrupt;
+        if (c->pending_interrupt) {
+            if (strcasecmp(c->pending_interrupt_mode, "FIQ") == 0) {
+                fn->interrupt_mode = 1;
+            } else if (strcasecmp(c->pending_interrupt_mode, "user") == 0 || strcasecmp(c->pending_interrupt_mode, "u") == 0) {
+                fn->interrupt_mode = 2;
+            } else if (strcasecmp(c->pending_interrupt_mode, "supervisor") == 0 || strcasecmp(c->pending_interrupt_mode, "s") == 0) {
+                fn->interrupt_mode = 3;
+            } else {
+                fn->interrupt_mode = 0; /* default (machine / IRQ) */
+            }
+            c->pending_interrupt = 0;
+            c->pending_interrupt_mode[0] = '\0';
+        }
         fn->param_count = param_count;
         fn->return_type = fn_ret_type;
         fn->returns_struct = (fn_ret_type.tag == TYPE_STRUCT || fn_ret_type.tag == TYPE_UNION ||

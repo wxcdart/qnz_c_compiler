@@ -237,6 +237,81 @@ int baremetal_ok = 1;
         assert "baremetal_ok" in res.stdout
         print("ok   freestanding macro environment (__STDC_HOSTED__=0, __BAREMETAL__=1)")
 
+def test_interrupt_handlers():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+        c_file = tmp / "isr.c"
+        c_file.write_text("""
+volatile int g_flag;
+
+__attribute__((interrupt)) void isr_default(void) {
+    g_flag = 1;
+}
+
+__attribute__((interrupt("supervisor"))) void isr_sup(void) {
+    g_flag = 2;
+}
+
+__attribute__((interrupt("user"))) void isr_usr(void) {
+    g_flag = 3;
+}
+
+__attribute__((interrupt("IRQ"))) void isr_arm_irq(void) {
+    g_flag = 4;
+}
+""")
+
+        # 1. RISC-V 32 ASM & ELF
+        s_rv32 = tmp / "isr_rv32.s"
+        res = subprocess.run([str(ZEROCC), "-S", "--target=riscv32", str(c_file), "-o", str(s_rv32)], capture_output=True, text=True)
+        assert res.returncode == 0, f"RISC-V 32 asm emission failed: {res.stderr}"
+        txt = s_rv32.read_text()
+        assert "mret" in txt, "Expected mret in RISC-V 32 ISR"
+        assert "sret" in txt, "Expected sret in RISC-V 32 supervisor ISR"
+        assert "uret" in txt, "Expected uret in RISC-V 32 user ISR"
+        assert "addi\tsp, sp, -64" in txt, "Expected caller-saved stack allocation in RISC-V 32 ISR"
+
+        obj_rv32 = tmp / "isr_rv32.o"
+        res = subprocess.run([str(ZEROCC), "-c", "--target=riscv32", str(c_file), "-o", str(obj_rv32)], capture_output=True, text=True)
+        assert res.returncode == 0, f"RISC-V 32 object emission failed: {res.stderr}"
+        data_rv32 = obj_rv32.read_bytes()
+        assert b"\x73\x00\x20\x30" in data_rv32, "mret opcode 0x30200073 not found in RISC-V 32 binary"
+        assert b"\x73\x00\x20\x10" in data_rv32, "sret opcode 0x10200073 not found in RISC-V 32 binary"
+
+        # 2. RISC-V 64 ASM & ELF
+        s_rv64 = tmp / "isr_rv64.s"
+        res = subprocess.run([str(ZEROCC), "-S", "--target=riscv64", str(c_file), "-o", str(s_rv64)], capture_output=True, text=True)
+        assert res.returncode == 0, f"RISC-V 64 asm emission failed: {res.stderr}"
+        txt = s_rv64.read_text()
+        assert "mret" in txt, "Expected mret in RISC-V 64 ISR"
+        assert "sret" in txt, "Expected sret in RISC-V 64 supervisor ISR"
+        assert "uret" in txt, "Expected uret in RISC-V 64 user ISR"
+        assert "addi\tsp, sp, -128" in txt, "Expected caller-saved stack allocation in RISC-V 64 ISR"
+
+        obj_rv64 = tmp / "isr_rv64.o"
+        res = subprocess.run([str(ZEROCC), "-c", "--target=riscv64", str(c_file), "-o", str(obj_rv64)], capture_output=True, text=True)
+        assert res.returncode == 0, f"RISC-V 64 object emission failed: {res.stderr}"
+        data_rv64 = obj_rv64.read_bytes()
+        assert b"\x73\x00\x20\x30" in data_rv64, "mret opcode not found in RISC-V 64 binary"
+
+        # 3. ARM (AArch32) ASM & ELF
+        s_arm = tmp / "isr_arm.s"
+        res = subprocess.run([str(ZEROCC), "-S", "--target=arm", str(c_file), "-o", str(s_arm)], capture_output=True, text=True)
+        assert res.returncode == 0, f"ARM asm emission failed: {res.stderr}"
+        txt = s_arm.read_text()
+        assert "subs\tpc, lr, #4" in txt, "Expected subs pc, lr, #4 in ARM ISR"
+        assert "push\t{r0, r1, r2, r3, r12}" in txt, "Expected push {r0..r3, r12} in ARM ISR"
+        assert "pop\t{r0, r1, r2, r3, r12}" in txt, "Expected pop {r0..r3, r12} in ARM ISR"
+
+        obj_arm = tmp / "isr_arm.o"
+        res = subprocess.run([str(ZEROCC), "-c", "--target=arm", str(c_file), "-o", str(obj_arm)], capture_output=True, text=True)
+        assert res.returncode == 0, f"ARM object emission failed: {res.stderr}"
+        data_arm = obj_arm.read_bytes()
+        assert b"\x04\xf0\x5e\xe2" in data_arm, "subs pc, lr, #4 opcode not found in ARM binary"
+        assert b"\x0f\x10\x2d\xe9" in data_arm, "push {r0-r3, r12} opcode not found in ARM binary"
+
+        print("ok   interrupt handlers & ISR prologues/epilogues (__attribute__((interrupt)) rv32/rv64/arm)")
+
 def test_baremetal_execution():
     test_src = """
 int puts(const char *s);
@@ -499,6 +574,7 @@ def main():
     assert ZEROCC.exists(), f"Compiler binary {ZEROCC} does not exist"
 
     test_baremetal_preproc()
+    test_interrupt_handlers()
     test_overflow_check()
 
     for isa in ("x86-64", "aarch64", "aarch32", "riscv32", "riscv64"):

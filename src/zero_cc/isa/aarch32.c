@@ -279,8 +279,17 @@ static void aarch32_emit_mov_imm(ZeroCCCompiler *c, int dst_reg, int64_t imm) {
  * Prologue / Epilogue / Leave
  * ========================================================================= */
 static void aarch32_emit_prologue(ZeroCCCompiler *c, size_t stack_size, uint32_t callee_save_mask) {
-    if (c->lowering.is_frameless) return;
+    ZeroCCFunction *cur_fn = (c->function_count > 0 && c->lowering.current_func_idx < c->function_count)
+                             ? &c->functions[c->lowering.current_func_idx] : NULL;
+    bool is_isr = cur_fn && cur_fn->is_interrupt;
+
+    if (c->lowering.is_frameless && !is_isr) return;
     (void)callee_save_mask;
+
+    if (is_isr) {
+        arm32_emit_u32(c, 0xE92D100Fu); /* push {r0-r3, r12} */
+        if (c->lowering.is_frameless) return;
+    }
 
     /* AAPCS requires 8-byte stack alignment at call sites */
     stack_size = (stack_size + 7) & ~7;
@@ -330,17 +339,26 @@ static void aarch32_emit_prologue(ZeroCCCompiler *c, size_t stack_size, uint32_t
 }
 
 static void aarch32_emit_leave(ZeroCCCompiler *c) {
-    if (c->lowering.is_frameless) return;
-    /* ADD sp, r11, #0  (restore sp from fp) */
-    arm32_emit_u32(c, 0xE28BD000u);
-    /* LDMIA sp!, {r11, lr}  (pop {r11, lr}) */
-    arm32_emit_u32(c, 0xE8BD4800u);
+    ZeroCCFunction *cur_fn = (c->function_count > 0 && c->lowering.current_func_idx < c->function_count)
+                             ? &c->functions[c->lowering.current_func_idx] : NULL;
+    bool is_isr = cur_fn && cur_fn->is_interrupt;
+
+    if (!c->lowering.is_frameless) {
+        /* ADD sp, r11, #0  (restore sp from fp) */
+        arm32_emit_u32(c, 0xE28BD000u);
+        /* LDMIA sp!, {r11, lr}  (pop {r11, lr}) */
+        arm32_emit_u32(c, 0xE8BD4800u);
+    }
+    if (is_isr) {
+        arm32_emit_u32(c, 0xE8BD100Fu); /* pop {r0-r3, r12} */
+    }
 }
+
+static void aarch32_emit_ret(ZeroCCCompiler *c); /* fwd */
 
 static void aarch32_emit_epilogue(ZeroCCCompiler *c) {
     aarch32_emit_leave(c);
-    /* BX lr  (return) */
-    arm32_emit_u32(c, 0xE12FFF1Eu);
+    aarch32_emit_ret(c);
 }
 
 /* =========================================================================
@@ -765,6 +783,16 @@ static size_t aarch32_emit_lea_label(ZeroCCCompiler *c, int dst_reg) {
 }
 
 static void aarch32_emit_ret(ZeroCCCompiler *c) {
+    ZeroCCFunction *cur_fn = (c->function_count > 0 && c->lowering.current_func_idx < c->function_count)
+                             ? &c->functions[c->lowering.current_func_idx] : NULL;
+    if (cur_fn && cur_fn->is_interrupt) {
+        if (cur_fn->interrupt_mode <= 1) {
+            arm32_emit_u32(c, 0xE25EF004u); /* subs pc, lr, #4 */
+        } else {
+            arm32_emit_u32(c, 0xE1B0F00Eu); /* movs pc, lr */
+        }
+        return;
+    }
     arm32_emit_u32(c, 0xE12FFF1Eu);  /* BX lr */
 }
 
@@ -1464,6 +1492,14 @@ static void aarch32_emit_lea_asm(ZeroCCCompiler *c, int dst, int base, int32_t o
 
 static void aarch32_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
     FILE *out = c->asm_out ? c->asm_out : stdout;
+    ZeroCCFunction *cur_fn = (c->function_count > 0 && c->lowering.current_func_idx < c->function_count)
+                             ? &c->functions[c->lowering.current_func_idx] : NULL;
+    bool is_isr = cur_fn && cur_fn->is_interrupt;
+    if (c->lowering.is_frameless && !is_isr) return;
+    if (is_isr) {
+        fprintf(out, "\tpush\t{r0, r1, r2, r3, r12}\n");
+        if (c->lowering.is_frameless) return;
+    }
     if (c->lowering.frame_align > 16) {
         size_t frame = (size_t)c->lowering.frame_delta;
         uint32_t N = (uint32_t)c->lowering.frame_align;
@@ -1515,21 +1551,39 @@ static void aarch32_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
 }
 static void aarch32_emit_epilogue_asm(ZeroCCCompiler *c) {
     FILE *out = c->asm_out ? c->asm_out : stdout;
-    uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
-    if (mask && BE(c)->conv && BE(c)->conv->callee_saved_gpr) {
-        const int *callee_saved = BE(c)->conv->callee_saved_gpr;
-        const int32_t *slot_offsets = BE(c)->conv->callee_save_slot_offsets;
-        int count = BE(c)->conv->callee_saved_gpr_count;
-        for (int i = 0; i < count; i++) {
-            int reg = callee_saved[i];
-            if (reg == 11) continue;
-            if (!((mask >> reg) & 1u)) continue;
-            int32_t slot = slot_offsets ? slot_offsets[i] : (8 + (i * 8));
-            aarch32_emit_load_asm(c, reg, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot), out);
-        }
+    ZeroCCFunction *cur_fn = (c->function_count > 0 && c->lowering.current_func_idx < c->function_count)
+                             ? &c->functions[c->lowering.current_func_idx] : NULL;
+    bool is_isr = cur_fn && cur_fn->is_interrupt;
+    if (c->lowering.is_frameless && !is_isr) {
+        fprintf(out, "\tmov\tpc, lr\n");
+        return;
     }
-    fprintf(out, "\tmov\tsp, r11\n");
-    fprintf(out, "\tpop\t{r11, lr}\n");
+    if (!c->lowering.is_frameless) {
+        uint32_t mask = c->regalloc.used_callee_saved_gpr_mask;
+        if (mask && BE(c)->conv && BE(c)->conv->callee_saved_gpr) {
+            const int *callee_saved = BE(c)->conv->callee_saved_gpr;
+            const int32_t *slot_offsets = BE(c)->conv->callee_save_slot_offsets;
+            int count = BE(c)->conv->callee_saved_gpr_count;
+            for (int i = 0; i < count; i++) {
+                int reg = callee_saved[i];
+                if (reg == 11) continue;
+                if (!((mask >> reg) & 1u)) continue;
+                int32_t slot = slot_offsets ? slot_offsets[i] : (8 + (i * 8));
+                aarch32_emit_load_asm(c, reg, zero_cc_frame_base_reg(c), zero_cc_frame_disp(c, -slot), out);
+            }
+        }
+        fprintf(out, "\tmov\tsp, r11\n");
+        fprintf(out, "\tpop\t{r11, lr}\n");
+    }
+    if (is_isr) {
+        fprintf(out, "\tpop\t{r0, r1, r2, r3, r12}\n");
+        if (cur_fn->interrupt_mode <= 1) {
+            fprintf(out, "\tsubs\tpc, lr, #4\n");
+        } else {
+            fprintf(out, "\tmovs\tpc, lr\n");
+        }
+        return;
+    }
     fprintf(out, "\tmov\tpc, lr\n");
 }
 static void aarch32_emit_stack_guard_init_asm(ZeroCCCompiler *c, int32_t slot_off, FILE *out) {
@@ -2067,7 +2121,16 @@ static void aarch32_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int 
     }
 }
 static void aarch32_emit_ret_asm(ZeroCCCompiler *c, FILE *out) {
-    (void)c;
+    ZeroCCFunction *cur_fn = (c->function_count > 0 && c->lowering.current_func_idx < c->function_count)
+                             ? &c->functions[c->lowering.current_func_idx] : NULL;
+    if (cur_fn && cur_fn->is_interrupt) {
+        if (cur_fn->interrupt_mode <= 1) {
+            fprintf(out, "\tsubs\tpc, lr, #4\n");
+        } else {
+            fprintf(out, "\tmovs\tpc, lr\n");
+        }
+        return;
+    }
     fprintf(out, "\tbx\tlr\n");
 }
 static void aarch32_emit_label_asm(ZeroCCCompiler *c, const char *label, FILE *out) {

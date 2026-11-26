@@ -351,6 +351,8 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
         c->pending_section[0] = '\0';
         c->pending_weak = 0;
         c->pending_constexpr_fn = 0;
+        c->pending_interrupt = 0;
+        c->pending_interrupt_mode[0] = '\0';
         {
             size_t dstart = c->token_pos;
             int paren = 0, brace = 0;
@@ -418,6 +420,53 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                         memmove(&c->tokens[p], &c->tokens[after], (c->token_count - after) * sizeof(c->tokens[0]));
                         c->token_count--;
                         dend--;
+                        break;
+                    }
+                }
+            }
+        }
+        /* GNU __attribute__((interrupt(...))): the preprocessor rewrites it to
+         * `__zc_interrupt__("mode")` or bare `__zc_interrupt__`. Consume marker
+         * before dispatch and record it so the function is registered as an ISR. */
+        {
+            size_t dstart = c->token_pos;
+            int paren = 0, brace = 0;
+            size_t dend = c->token_count;
+            for (size_t p = dstart; p < c->token_count; p++) {
+                ZeroCCTokType tt = c->tokens[p].type;
+                if (tt == TK_LPAREN) paren++;
+                else if (tt == TK_RPAREN) { if (paren > 0) paren--; }
+                else if (tt == TK_LBRACE) brace++;
+                else if (tt == TK_RBRACE) {
+                    if (brace > 0) brace--;
+                    if (brace == 0 && paren == 0) { dend = p + 1; break; }
+                }
+                else if (tt == TK_SEMI && paren == 0 && brace == 0) { dend = p + 1; break; }
+            }
+            for (size_t p = dstart; p < dend; p++) {
+                if (c->tokens[p].type == TK_IDENT) {
+                    const char *id = c->tokens[p].allocated_str ? c->tokens[p].allocated_str : c->tokens[p].str_val;
+                    if (id && strcmp(id, "__zc_interrupt__") == 0) {
+                        c->pending_interrupt = 1;
+                        if (p + 3 < dend &&
+                            c->tokens[p + 1].type == TK_LPAREN &&
+                            (c->tokens[p + 2].type == TK_STRING || c->tokens[p + 2].type == TK_IDENT) &&
+                            c->tokens[p + 3].type == TK_RPAREN) {
+                            const char *sv = c->tokens[p + 2].allocated_str ? c->tokens[p + 2].allocated_str : c->tokens[p + 2].str_val;
+                            if (sv) {
+                                strncpy(c->pending_interrupt_mode, sv, sizeof(c->pending_interrupt_mode) - 1);
+                                c->pending_interrupt_mode[sizeof(c->pending_interrupt_mode) - 1] = '\0';
+                            }
+                            size_t after = p + 4;
+                            memmove(&c->tokens[p], &c->tokens[after], (c->token_count - after) * sizeof(c->tokens[0]));
+                            c->token_count -= 4;
+                            dend -= 4;
+                        } else {
+                            size_t after = p + 1;
+                            memmove(&c->tokens[p], &c->tokens[after], (c->token_count - after) * sizeof(c->tokens[0]));
+                            c->token_count--;
+                            dend--;
+                        }
                         break;
                     }
                 }

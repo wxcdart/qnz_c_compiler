@@ -323,6 +323,8 @@ typedef struct ZeroCCFunction {
     bool is_nested;                       /* True for GNU nested functions defined inside a block (Phase 1 trampolines) */
     size_t align;                         /* __attribute__((aligned(N))) on prototype/definition (0 = default) */
     bool can_inline;                      /* Eligible for small function inlining */
+    bool is_interrupt;                    /* Embedded ISR: __attribute__((interrupt)) */
+    int interrupt_mode;                   /* 0 = default (machine/IRQ), 1 = FIQ, 2 = user, 3 = supervisor */
     uint32_t inline_body;                 /* ASTRef root of function body in compiler's tu_ast_arena */
     void *ast_arena;                      /* Pointer to ZeroCCASTArena owning inline_body */
     uint32_t *param_dim_exprs;    /* C99 6.7.6.2: VLA parameter dimension expressions (ASTRef),

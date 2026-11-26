@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-26T16:58:46Z
+timestamp: 2026-11-26T17:26:29Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1767,3 +1767,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-26 — Updated `own-linker.md`
 - Add macOS Mach-O 64-bit writer documentation (Sprint 251)
+
+## 2026-11-26 — Updated `target-abstraction-roadmap.md`
+- Sprint 252: Embedded hardware interrupts (__attribute__((interrupt))) across RISC-V and ARM baremetal targets

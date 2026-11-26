@@ -1723,7 +1723,9 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                                                       (namelen == 8 && strncmp(nam, "__weak__", 8) == 0);
                                         bool is_pk = (namelen == 6 && strncmp(nam, "packed", 6) == 0) ||
                                                       (namelen == 10 && strncmp(nam, "__packed__", 10) == 0);
-                                        if (is_vs || is_al || is_as || is_md || is_sso || is_sec || is_wk || is_pk) {
+                                        bool is_intr = (namelen == 9 && strncmp(nam, "interrupt", 9) == 0) ||
+                                                       (namelen == 13 && strncmp(nam, "__interrupt__", 13) == 0);
+                                        if (is_vs || is_al || is_as || is_md || is_sso || is_sec || is_wk || is_pk || is_intr) {
                                             /* find the matching ')' */
                                             int nest = 0;
                                             const char *close = NULL;
@@ -1734,7 +1736,7 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                                             if (close) {
                                                 ex = q + 1;
                                                 el = (size_t)(close - ex);
-                                                ex_marker = is_vs ? 1 : (is_al ? 2 : (is_as ? 3 : (is_md ? 4 : (is_sso ? 5 : (is_sec ? 6 : (is_wk ? 7 : 8))))));
+                                                ex_marker = is_vs ? 1 : (is_al ? 2 : (is_as ? 3 : (is_md ? 4 : (is_sso ? 5 : (is_sec ? 6 : (is_wk ? 7 : (is_pk ? 8 : 9)))))));
                                             }
                                             break;
                                         }
@@ -1777,6 +1779,12 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                                         el = 0;
                                         ex_marker = 8;
                                         break;
+                                    } else if ((len == 9 && strncmp(start, "interrupt", 9) == 0) ||
+                                               (len == 13 && strncmp(start, "__interrupt__", 13) == 0)) {
+                                        ex = "";
+                                        el = 0;
+                                        ex_marker = 9;
+                                        break;
                                     }
                                     if (q == start) q++;
                                 }
@@ -1795,7 +1803,7 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                             if (ex_marker == 5) {
                                 if (strstr(expr_text, "big-endian") == NULL) continue;
                             }
-                            /* weak / packed: no argument - bare marker identifier */
+                            /* weak / packed / bare interrupt: no argument - bare marker identifier */
                             if (ex_marker == 7 || ex_marker == 8) el = 0;
                             /* Expand macros inside the size expression
                              * (e.g. __vector_size__(sizeof(__INTPTR_TYPE__))). */
@@ -1809,9 +1817,16 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                             size_t el2 = expr_buf.length;
                             char *et2 = expr_buf.data;
                             char marker[600];
-                            const char *mk = (ex_marker == 1) ? "__zc_vector_size__" : (ex_marker == 2 ? "__zc_aligned__" : (ex_marker == 3 ? "__zc_alias__" : (ex_marker == 4 ? "__zc_mode__" : (ex_marker == 6 ? "__zc_section__" : (ex_marker == 7 ? "__zc_weak__" : (ex_marker == 8 ? "__zc_packed__" : "__zc_sso_be__"))))));
+                            const char *mk = (ex_marker == 1) ? "__zc_vector_size__" :
+                                             (ex_marker == 2 ? "__zc_aligned__" :
+                                             (ex_marker == 3 ? "__zc_alias__" :
+                                             (ex_marker == 4 ? "__zc_mode__" :
+                                             (ex_marker == 6 ? "__zc_section__" :
+                                             (ex_marker == 7 ? "__zc_weak__" :
+                                             (ex_marker == 8 ? "__zc_packed__" :
+                                             (ex_marker == 9 ? "__zc_interrupt__" : "__zc_sso_be__")))))));
                             if (el2 > sizeof(marker) - 22) { el2 = sizeof(marker) - 22; }
-                            if (ex_marker == 5 || ex_marker == 7 || ex_marker == 8) {
+                            if (ex_marker == 5 || ex_marker == 7 || ex_marker == 8 || (ex_marker == 9 && el2 == 0)) {
                                 /* No argument: bare marker identifier. */
                                 snprintf(marker, sizeof(marker), "%s", mk);
                             } else {

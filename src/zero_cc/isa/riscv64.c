@@ -12,10 +12,24 @@
 void riscv64_emit_mov_imm(ZeroCCCompiler *c, int dst_reg, int64_t imm);  /* fwd (big frames); extern: also used by riscv32.c prologue */
 void riscv64_emit_mov_reg(ZeroCCCompiler *c, int dst, int src);          /* fwd */
 static void riscv64_emit_leave(ZeroCCCompiler *c);                               /* fwd */
+void riscv64_emit_ret(ZeroCCCompiler *c);                                        /* fwd */
 
 static void riscv64_emit_prologue(ZeroCCCompiler *c, size_t stack_size, uint32_t callee_save_mask) {
-    if (c->lowering.is_frameless) return;
+    ZeroCCFunction *cur_fn = (c->function_count > 0 && c->lowering.current_func_idx < c->function_count)
+                             ? &c->functions[c->lowering.current_func_idx] : NULL;
+    bool is_isr = cur_fn && cur_fn->is_interrupt;
+
+    if (c->lowering.is_frameless && !is_isr) return;
     (void)callee_save_mask;
+
+    if (is_isr) {
+        static const int caller_regs[15] = {5, 6, 7, 10, 11, 12, 13, 14, 15, 16, 17, 28, 29, 30, 31};
+        riscv_emit_u32(c, rv64_I(RV64_SP, RV64_SP, 0, (int16_t)(-16 * 8), 0x13));
+        for (int r = 0; r < 15; r++) {
+            riscv_emit_u32(c, rv64_S(RV64_SP, caller_regs[r], 3, (int16_t)(r * 8), 0x23));
+        }
+        if (c->lowering.is_frameless) return;
+    }
 
     if (c->lowering.frame_align > 16) {
         /* C11 _Alignas(N) realign mode: save the ra/s0 pair (16 bytes),
@@ -85,26 +99,39 @@ static void riscv64_emit_prologue(ZeroCCCompiler *c, size_t stack_size, uint32_t
 
 static void riscv64_emit_epilogue(ZeroCCCompiler *c) {
     riscv64_emit_leave(c);
-    /* ret: jalr zero, 0(ra) */
-    riscv_emit_u32(c, 0x00008067);
+    riscv64_emit_ret(c);
 }
 
 static void riscv64_emit_leave(ZeroCCCompiler *c) {
-    if (c->lowering.is_frameless) return;
-    if (c->lowering.omit_frame_pointer && c->lowering.frame_align <= 16) {
-        /* Option 4: no s0. aligned = frame_delta (decision in
-         * ast_lowering.c guarantees aligned+16 <= 2047). */
-        int aligned = (int)c->lowering.frame_delta;
-        int f3 = (c->isa == ISA_RISCV32) ? 2 : 3;  /* lw (32-bit) vs ld (64-bit) */
-        riscv_emit_u32(c, rv64_I(RV64_RA, RV64_SP, f3, (int16_t)(aligned + 8), 0x03));  /* l ra, aligned+8(sp) */
-        riscv_emit_u32(c, rv64_I(RV64_SP, RV64_SP, 0, (int16_t)(aligned + 16), 0x13));  /* addi sp, sp, aligned+16 */
-        return;
+    ZeroCCFunction *cur_fn = (c->function_count > 0 && c->lowering.current_func_idx < c->function_count)
+                             ? &c->functions[c->lowering.current_func_idx] : NULL;
+    bool is_isr = cur_fn && cur_fn->is_interrupt;
+
+    if (!c->lowering.is_frameless) {
+        if (c->lowering.omit_frame_pointer && c->lowering.frame_align <= 16) {
+            /* Option 4: no s0. aligned = frame_delta (decision in
+             * ast_lowering.c guarantees aligned+16 <= 2047). */
+            int aligned = (int)c->lowering.frame_delta;
+            int f3 = (c->isa == ISA_RISCV32) ? 2 : 3;  /* lw (32-bit) vs ld (64-bit) */
+            riscv_emit_u32(c, rv64_I(RV64_RA, RV64_SP, f3, (int16_t)(aligned + 8), 0x03));  /* l ra, aligned+8(sp) */
+            riscv_emit_u32(c, rv64_I(RV64_SP, RV64_SP, 0, (int16_t)(aligned + 16), 0x13));  /* addi sp, sp, aligned+16 */
+            if (is_isr) goto restore_isr;
+            return;
+        }
+        /* Deallocate the frame without knowing its size: s0 = entry_sp - 16. */
+        riscv_emit_u32(c, rv64_I(RV64_SP, RV64_S0, 0, 0, 0x13));  /* addi sp, s0, 0 */
+        riscv_emit_u32(c, rv64_I(RV64_RA, RV64_SP, 3, 8, 0x03));  /* ld ra, 8(sp) */
+        riscv_emit_u32(c, rv64_I(RV64_S0, RV64_SP, 3, 0, 0x03));  /* ld s0, 0(sp) */
+        riscv_emit_u32(c, rv64_I(RV64_SP, RV64_SP, 0, 16, 0x13)); /* addi sp, sp, 16 */
     }
-    /* Deallocate the frame without knowing its size: s0 = entry_sp - 16. */
-    riscv_emit_u32(c, rv64_I(RV64_SP, RV64_S0, 0, 0, 0x13));  /* addi sp, s0, 0 */
-    riscv_emit_u32(c, rv64_I(RV64_RA, RV64_SP, 3, 8, 0x03));  /* ld ra, 8(sp) */
-    riscv_emit_u32(c, rv64_I(RV64_S0, RV64_SP, 3, 0, 0x03));  /* ld s0, 0(sp) */
-    riscv_emit_u32(c, rv64_I(RV64_SP, RV64_SP, 0, 16, 0x13)); /* addi sp, sp, 16 */
+restore_isr:
+    if (is_isr) {
+        static const int caller_regs[15] = {5, 6, 7, 10, 11, 12, 13, 14, 15, 16, 17, 28, 29, 30, 31};
+        for (int r = 0; r < 15; r++) {
+            riscv_emit_u32(c, rv64_I(caller_regs[r], RV64_SP, 3, (int16_t)(r * 8), 0x03));
+        }
+        riscv_emit_u32(c, rv64_I(RV64_SP, RV64_SP, 0, (int16_t)(16 * 8), 0x13));
+    }
 }
 
 /* RISC-V register info */
@@ -530,7 +557,19 @@ static void riscv_emit_stack_guard_check(ZeroCCCompiler *c, int32_t slot_off) {
     riscv64_emit_call(c, "__stack_chk_fail");
 }
 
-static void riscv64_emit_ret(ZeroCCCompiler *c) {
+void riscv64_emit_ret(ZeroCCCompiler *c) {
+    ZeroCCFunction *cur_fn = (c->function_count > 0 && c->lowering.current_func_idx < c->function_count)
+                             ? &c->functions[c->lowering.current_func_idx] : NULL;
+    if (cur_fn && cur_fn->is_interrupt) {
+        if (cur_fn->interrupt_mode == 2) {
+            riscv_emit_u32(c, 0x00200073); /* uret */
+        } else if (cur_fn->interrupt_mode == 3) {
+            riscv_emit_u32(c, 0x10200073); /* sret */
+        } else {
+            riscv_emit_u32(c, 0x30200073); /* mret */
+        }
+        return;
+    }
     /* jalr zero, 0(ra) */
     riscv_emit_u32(c, 0x00008067);
 }

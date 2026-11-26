@@ -1,5 +1,22 @@
 # CHANGELOG
 
+## [Sprint 252] - 2026-11-26 - Embedded Hardware Interrupts & ISRs (`__attribute__((interrupt))`) across RISC-V and ARM
+
+- **Embedded Hardware Interrupts & ISR Epilogue/Prologue Support (`preprocessor.c`, `type_system.h`, `symbols.h`, `compile_unit.c`, `compile.c`, `riscv32.c`, `riscv64.c`, `riscv_asm.c`, `aarch32.c`)**:
+  - Implemented GNU C `__attribute__((interrupt))` attribute parsing and token markers in the preprocessor and frontend for both bare attributes (`__attribute__((interrupt))`) and mode-qualified attributes (`__attribute__((interrupt("IRQ")))`, `__attribute__((interrupt("FIQ")))`, `__attribute__((interrupt("machine")))`, `__attribute__((interrupt("supervisor")))`, `__attribute__((interrupt("user")))`).
+  - Added `is_interrupt` and `interrupt_mode` fields to `ZeroCCFunction` and compiler symbol tables.
+  - **RISC-V (rv32 / rv64) Interrupt Frame Codegen**:
+    - Prologue: Automatically preserves all 15 caller-saved general-purpose registers (`t0-t2`, `a0-a7`, `t3-t6`) onto the stack frame (64 bytes on rv32, 128 bytes on rv64) in both assembly text (`-S`) and machine code (`-c` / raw ELF).
+    - Epilogue: Restores all 15 caller-saved registers and stack pointer.
+    - Return instructions: Emits mode-specific privileged return instructions: `mret` (`0x30200073`) for machine mode / default, `sret` (`0x10200073`) for supervisor mode, and `uret` (`0x00200073`) for user mode.
+  - **ARM (AArch32) Interrupt Frame Codegen**:
+    - Prologue: Automatically pushes caller-saved registers `r0-r3, r12` (`push {r0-r3, r12}` / `0xE92D100F`).
+    - Epilogue: Pops caller-saved registers `r0-r3, r12` (`pop {r0-r3, r12}` / `0xE8BD100F`).
+    - Return instructions: Emits pipeline-adjusted return `subs pc, lr, #4` (`0xE25EF004`) for IRQ and FIQ modes, or `movs pc, lr` (`0xE1B0F00E`) for non-IRQ interrupt modes.
+- **Baremetal Test Verification (`tools/verify/baremetal_test.py`, `Makefile`)**:
+  - Expanded `tools/verify/baremetal_test.py` (`make test-baremetal`) with `test_interrupt_handlers()`, verifying assembly instructions (`mret`, `sret`, `uret`, `subs pc, lr, #4`, caller-saved register save/restore sequences) and exact raw ELF machine-code opcodes across RISC-V 32, RISC-V 64, and ARM AArch32.
+  - All tests in `make test-baremetal` passed.
+
 ## [Sprint 251] - 2026-11-26 - macOS Mach-O 64-bit Native Binary Output (MH_EXECUTE, MH_DYLIB, MH_OBJECT)
 
 - **macOS Mach-O 64-bit Binary Writer (`linker/macho_writer.h`, `linker/macho_writer.c`, `main.c`, `driver/driver_opts.h`)**:

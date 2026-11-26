@@ -43,8 +43,27 @@ static const char *riscv_get_vec_reg_name(int vec_reg_idx) {
 
 /* Prologue: allocate frame with s0 (fp) at top of local frame so negative offsets -off(s0) lie above sp */
 static void riscv_emit_prologue_asm(ZeroCCCompiler *c, size_t stack_size) {
-    if (c->lowering.is_frameless) return;
+    ZeroCCFunction *cur_fn = (c->function_count > 0 && c->lowering.current_func_idx < c->function_count)
+                             ? &c->functions[c->lowering.current_func_idx] : NULL;
+    bool is_isr = cur_fn && cur_fn->is_interrupt;
+
+    if (c->lowering.is_frameless && !is_isr) return;
     FILE *out = c->asm_out ? c->asm_out : stdout;
+
+    if (is_isr) {
+        const char *st_op = zc_target_is_32bit(c) ? "sw" : "sd";
+        int slot_sz = zc_target_slot_size(c);
+        static const char *caller_regs[] = {
+            "t0", "t1", "t2", "a0", "a1", "a2", "a3", "a4",
+            "a5", "a6", "a7", "t3", "t4", "t5", "t6"
+        };
+        fprintf(out, "\taddi\tsp, sp, -%d\n", 16 * slot_sz);
+        for (int r = 0; r < 15; r++) {
+            fprintf(out, "\t%s\t%s, %d(sp)\n", st_op, caller_regs[r], r * slot_sz);
+        }
+        if (c->lowering.is_frameless) return;
+    }
+
     size_t aligned_sz = (stack_size + 15) & ~((size_t)15);
     size_t total_alloc = aligned_sz + 16; /* 16 bytes for ra and s0 above s0 */
 
@@ -205,11 +224,38 @@ static void riscv_emit_stack_guard_check_asm(ZeroCCCompiler *c, int32_t slot_off
     fprintf(out, ".LSP_ok_%zu:\n", fn_idx);
 }
 
+static void riscv_emit_return_asm(ZeroCCCompiler *c, ZeroCCFunction *cur_fn, FILE *out) {
+    bool is_isr = cur_fn && cur_fn->is_interrupt;
+    if (is_isr) {
+        const char *ld_op = zc_target_is_32bit(c) ? "lw" : "ld";
+        int slot_sz = zc_target_slot_size(c);
+        static const char *caller_regs[] = {
+            "t0", "t1", "t2", "a0", "a1", "a2", "a3", "a4",
+            "a5", "a6", "a7", "t3", "t4", "t5", "t6"
+        };
+        for (int r = 0; r < 15; r++) {
+            fprintf(out, "\t%s\t%s, %d(sp)\n", ld_op, caller_regs[r], r * slot_sz);
+        }
+        fprintf(out, "\taddi\tsp, sp, %d\n", 16 * slot_sz);
+        if (cur_fn->interrupt_mode == 2) {
+            fprintf(out, "\turet\n");
+        } else if (cur_fn->interrupt_mode == 3) {
+            fprintf(out, "\tsret\n");
+        } else {
+            fprintf(out, "\tmret\n");
+        }
+        return;
+    }
+    fprintf(out, "\tret\n");
+}
+
 /* Epilogue: restore callee-saved, restore ra/s0, deallocate frame, ret */
 static void riscv_emit_epilogue_asm(ZeroCCCompiler *c) {
     FILE *out = c->asm_out ? c->asm_out : stdout;
+    ZeroCCFunction *cur_fn = (c->function_count > 0 && c->lowering.current_func_idx < c->function_count)
+                             ? &c->functions[c->lowering.current_func_idx] : NULL;
     if (c->lowering.is_frameless) {
-        fprintf(out, "\tret\n");
+        riscv_emit_return_asm(c, cur_fn, out);
         return;
     }
 
@@ -234,7 +280,7 @@ static void riscv_emit_epilogue_asm(ZeroCCCompiler *c) {
 
         fprintf(out, "\t%s\tra, %zu(sp)\n", l, aligned_sz + 8);
         fprintf(out, "\taddi\tsp, sp, %zu\n", aligned_sz + 16);
-        fprintf(out, "\tret\n");
+        riscv_emit_return_asm(c, cur_fn, out);
         return;
     }
 
@@ -272,7 +318,7 @@ static void riscv_emit_epilogue_asm(ZeroCCCompiler *c) {
     fprintf(out, "\t%s\tra, %d(sp)\n", ld_op, zc_target_slot_size(c));
     fprintf(out, "\t%s\ts0, 0(sp)\n", ld_op);
     fprintf(out, "\taddi\tsp, sp, 16\n");
-    fprintf(out, "\tret\n");
+    riscv_emit_return_asm(c, cur_fn, out);
 }
 
 /* MOV_IMM: li dst, imm */
@@ -792,9 +838,11 @@ static void riscv_emit_call_asm(ZeroCCCompiler *c, const char *func_name, int ar
     }
 }
 
-/* RET: ret (jalr zero, ra) */
-static void riscv_emit_ret_asm(ZeroCCCompiler *, FILE *out) {
-    fprintf(out, "\tret\n");
+/* RET: ret (jalr zero, ra) or mret/sret/uret */
+static void riscv_emit_ret_asm(ZeroCCCompiler *c, FILE *out) {
+    ZeroCCFunction *cur_fn = (c->function_count > 0 && c->lowering.current_func_idx < c->function_count)
+                             ? &c->functions[c->lowering.current_func_idx] : NULL;
+    riscv_emit_return_asm(c, cur_fn, out);
 }
 
 /* OS syscall (GAS text form). Same ABI and clobber logic as
