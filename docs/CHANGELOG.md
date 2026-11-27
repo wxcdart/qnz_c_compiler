@@ -1,5 +1,35 @@
 # CHANGELOG
 
+## [Sprint 258] - 2026-11-27 - DWARF 5 Debug Information Architecture (-gdwarf-5, .debug_line_str, .debug_rnglists)
+
+- **Driver & Frontend CLI Options (`src/zero_cc/driver/driver_opts.h`, `src/zero_cc/types/symbols.h`, `src/main.c`)**:
+  - Added `-gdwarf-5` / `-gdwarf5` option parsing, setting `opts->dwarf_version = 5`.
+  - Added backwards compatibility mappings for `-gdwarf-4`, `-gdwarf-3`, `-gdwarf-2`, and standard `-g` (defaulting to DWARF 4).
+  - Propagated `comp->dwarf_version` across JIT TU compilation, single object compilation, and LTO phase 1 compiler initialization.
+- **DWARF 5 Specifications & Constants (`src/zero_cc/dwarf/dwarf.h`)**:
+  - Added DWARF 5 unit header constants (`DW_UT_compile = 0x01`).
+  - Added DWARF 5 forms: `DW_FORM_strx` (0x1a), `DW_FORM_addrx` (0x1b), `DW_FORM_line_strp` (0x1f), `DW_FORM_rnglistx` (0x23).
+  - Added DWARF 5 line table content type codes: `DW_LNCT_path` (0x01), `DW_LNCT_directory_index` (0x02), `DW_LNCT_timestamp` (0x03), `DW_LNCT_size` (0x04), `DW_LNCT_MD5` (0x05).
+  - Added DWARF 5 range list entry encodings: `DW_RLE_end_of_list` (0x00), `DW_RLE_base_addressx` (0x01), `DW_RLE_startx_endx` (0x02), `DW_RLE_startx_length` (0x03), `DW_RLE_offset_pair` (0x04), `DW_RLE_base_address` (0x05), `DW_RLE_start_end` (0x06), `DW_RLE_start_length` (0x07).
+- **DWARF 5 Section Generation & ELF Integration (`src/zero_cc/dwarf/dwarf.c`)**:
+  - **Line Table Program (`.debug_line` & `.debug_line_str`)**:
+    - Emits DWARF 5 line table header: `version = 5`, `address_size` (target ptr size), `segment_selector_size = 0`.
+    - Generates format-described Directory Table (`DW_LNCT_path` / `DW_FORM_line_strp` pointing to compilation and file directories).
+    - Generates format-described File Name Table (`DW_LNCT_path` / `DW_FORM_line_strp`, `DW_LNCT_directory_index` / `DW_FORM_udata`), maintaining Entry 0 for the CU primary source file and Entry 1 for DIE `decl_file` references.
+    - Emits `DW_LNS_set_file 1` to ensure initial line machine register binds to file 1.
+  - **Range Lists (`.debug_rnglists`)**:
+    - Generates `.debug_rnglists` contribution with header (`unit_length`, `version = 5`, `address_size`, `segment_selector_size = 0`, `offset_entry_count = 0`).
+    - Emits `DW_RLE_start_length` entry relocatable against `.text` + 0 with text length and terminated by `DW_RLE_end_of_list`.
+  - **Debug Info Compilation Unit (`.debug_info` & `.debug_abbrev`)**:
+    - Emits DWARF 5 CU header: `unit_length`, `version = 5`, `unit_type = DW_UT_compile`, `address_size`, `debug_abbrev_offset`.
+    - CU DIE uses `DW_FORM_line_strp` for `DW_AT_name` and `DW_AT_comp_dir`.
+    - Emits `DW_AT_ranges` (`DW_FORM_sec_offset`) pointing to offset 0x0c in `.debug_rnglists`.
+  - **ELF Writer Registration**:
+    - Emits `.debug_line_str` and `.debug_rnglists` sections with section symbols and relocations (`R_X86_64_32/64`, `R_AARCH64_ABS32/64`, `R_RISCV_32/64`).
+- **Driver Verification Battery & GDB Stepping (`tools/verify/driver_tests.py`)**:
+  - Added DWARF 5 test suite covering section presence (`.debug_line_str`, `.debug_rnglists`), `readelf -wi` unit header verification (`Version: 5`, `DW_UT_compile`), cross-target emission (`aarch64`, `riscv64`), and automated GDB interactive debugging session (breakpoints, line stepping, struct inspection, enum symbols, backtraces).
+  - All 54 driver tests passed (54/54). Full compiler regression suite passed: 280/280 tests passed. Style check: 0 errors, 0 warnings.
+
 ## [Sprint 257] - 2026-11-27 - Extended GNU Linker Script Support for Baremetal Firmware (MEMORY, AT>, ALIGN, NOLOAD)
 
 - **Extended GNU Linker Script Parser (`src/zero_cc/linker/linker_script.h`)**:

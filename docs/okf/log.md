@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-27T07:16:21Z
+timestamp: 2026-11-27T07:33:35Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1785,3 +1785,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-27 — Updated `target-abstraction-roadmap.md`
 - Sprint 257: Extended GNU Linker Script Support for Baremetal Firmware (MEMORY blocks, AT>, ALIGN, NOLOAD, PROVIDE/PROVIDE_HIDDEN)
+
+## 2026-11-27 — Updated `dwarf-debug-info.md`
+- Sprint 258: DWARF 5 Debug Information Architecture (-gdwarf-5, .debug_line_str, .debug_rnglists)

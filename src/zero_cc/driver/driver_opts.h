@@ -21,6 +21,7 @@ typedef struct {
     int run_mode;         /* --run */
     int verbose;          /* -v */
     int debug_info;       /* -g */
+    int dwarf_version;    /* 4 (default) or 5 (-gdwarf-5) */
     int opt_level;        /* 0-3 for -O0 to -O3 */
     int omit_frame_pointer; /* -1 = default (omit at -O1+), 0 = keep, 1 = omit */
     char *include_dirs[32]; /* -I directories (Sprint 41: real search paths) */
@@ -601,8 +602,18 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
         else if (arg[0] == '-' && arg[1] == 'g') {
             if (strcmp(arg, "-g0") == 0) {
                 opts->debug_info = 0;
+            } else if (strcmp(arg, "-gdwarf-5") == 0 || strcmp(arg, "-gdwarf5") == 0) {
+                opts->debug_info = 1;
+                opts->dwarf_version = 5;
+            } else if (strcmp(arg, "-gdwarf-4") == 0 || strcmp(arg, "-gdwarf4") == 0) {
+                opts->debug_info = 1;
+                opts->dwarf_version = 4;
+            } else if (strcmp(arg, "-gdwarf-3") == 0 || strcmp(arg, "-gdwarf-2") == 0) {
+                opts->debug_info = 1;
+                opts->dwarf_version = 4;
             } else {
                 opts->debug_info = 1;
+                if (!opts->dwarf_version) opts->dwarf_version = 4;
             }
         }
         else if (arg[0] == '-' && arg[1] == 'W' && arg[2]) {

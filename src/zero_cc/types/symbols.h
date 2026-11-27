@@ -311,6 +311,7 @@ typedef struct ZeroCCCompiler {
     bool emit_asm; /* Emit assembly (-S flag) */
     FILE *asm_out; /* Assembly output file (NULL = stdout) */
     int debug_info;                        /* 1 = emit DWARF debug info (-g) */
+    int dwarf_version;                     /* 4 (default) or 5 (-gdwarf-5) */
     int function_sections;                 /* -ffunction-sections: emit each function in .text.<name> */
     int data_sections;                     /* -fdata-sections: emit each global var in .data/.bss/.rodata.<name> */
     bool has_avx;                          /* -mavx: enable 256-bit AVX vectors */

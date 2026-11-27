@@ -56,8 +56,12 @@ extern "C" {
 #define DW_AT_external              0x3f
 #define DW_AT_frame_base            0x40
 #define DW_AT_type                  0x49
+#define DW_AT_ranges                0x55
 
-/* DWARF 4 Form constants */
+/* DWARF 5 Unit Types */
+#define DW_UT_compile               0x01
+
+/* DWARF 4 & 5 Form constants */
 #define DW_FORM_addr                0x01
 #define DW_FORM_data2               0x05
 #define DW_FORM_data4               0x06
@@ -72,6 +76,27 @@ extern "C" {
 #define DW_FORM_sec_offset          0x17
 #define DW_FORM_exprloc             0x18
 #define DW_FORM_flag_present        0x19
+#define DW_FORM_strx                0x1a
+#define DW_FORM_addrx               0x1b
+#define DW_FORM_line_strp           0x1f
+#define DW_FORM_rnglistx            0x23
+
+/* DWARF 5 Line Number Content Types */
+#define DW_LNCT_path                0x01
+#define DW_LNCT_directory_index     0x02
+#define DW_LNCT_timestamp           0x03
+#define DW_LNCT_size                0x04
+#define DW_LNCT_MD5                 0x05
+
+/* DWARF 5 Range List Entry Encodings */
+#define DW_RLE_end_of_list          0x00
+#define DW_RLE_base_addressx        0x01
+#define DW_RLE_startx_endx          0x02
+#define DW_RLE_startx_length        0x03
+#define DW_RLE_offset_pair          0x04
+#define DW_RLE_base_address         0x05
+#define DW_RLE_start_end            0x06
+#define DW_RLE_start_length         0x07
 
 /* DWARF 4 Standard Opcode constants */
 #define DW_LNS_copy                 1

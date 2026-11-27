@@ -455,6 +455,72 @@ def main():
             else:
                 check(f"dwarf-cross-{tgt}", rc == 0, err)
 
+        # 4b. DWARF 5 (-gdwarf-5) debug info tests
+        d5_obj = os.path.join(tmp, "dwarf5_test.o")
+        rc, out, err = run_zerocc(["-gdwarf-5", "-c", dwarf_src, "-o", d5_obj])
+        if rc == 0 and readelf:
+            p = subprocess.run([readelf, "-S", d5_obj], capture_output=True, text=True)
+            has_d5_sections = (".debug_info" in p.stdout and ".debug_line" in p.stdout and
+                               ".debug_line_str" in p.stdout and ".debug_rnglists" in p.stdout)
+            check("dwarf5-sections-present", has_d5_sections, p.stdout)
+
+            pi = subprocess.run([readelf, "-wi", d5_obj], capture_output=True, text=True)
+            check("dwarf5-version-5", "Version:       5" in pi.stdout and "DW_UT_compile" in pi.stdout, pi.stdout)
+        else:
+            check("dwarf5-sections-present", rc == 0, err)
+
+        if gdb:
+            d5_exe = os.path.join(tmp, "dwarf5_test_exe")
+            rc, out, err = run_zerocc(["-gdwarf-5", dwarf_src, "-o", d5_exe])
+            if rc == 0:
+                gdb_cmd_d5 = [
+                    gdb, "--batch",
+                    "-ex", "b main",
+                    "-ex", "r",
+                    "-ex", "n",
+                    "-ex", "print x",
+                    "-ex", "n",
+                    "-ex", "print pt.x",
+                    "-ex", "print pt.y",
+                    "-ex", "print pt",
+                    "-ex", "n",
+                    "-ex", "print st",
+                    "-ex", "ptype struct Point",
+                    "-ex", "b square",
+                    "-ex", "c",
+                    "-ex", "print a",
+                    "-ex", "bt",
+                    "-ex", "print global_val",
+                    "-ex", "c",
+                    d5_exe
+                ]
+                gp5 = subprocess.run(gdb_cmd_d5, capture_output=True, text=True, timeout=30)
+                gdb5_ok = (gp5.returncode == 0 and
+                           "$1 = 5" in gp5.stdout and
+                           "$2 = 10" in gp5.stdout and
+                           "$3 = 20" in gp5.stdout and
+                           "$4 = {x = 10, y = 20}" in gp5.stdout and
+                           "$5 = STATUS_BUSY" in gp5.stdout and
+                           "struct Point" in gp5.stdout and
+                           "$6 = 5" in gp5.stdout and
+                           "$7 = 42" in gp5.stdout and
+                           "#0  square" in gp5.stdout and
+                           "in main ()" in gp5.stdout)
+                check("dwarf5-gdb-session", gdb5_ok, f"gdb out={gp5.stdout!r}")
+            else:
+                check("dwarf5-gdb-session", False, f"compile failed: {err}")
+
+        for tgt in ("aarch64", "riscv64"):
+            tgt_d5 = os.path.join(tmp, f"dwarf5_{tgt}.o")
+            rc, out, err = run_zerocc(["--target", tgt, "-gdwarf-5", "-c", dwarf_src, "-o", tgt_d5])
+            if rc == 0 and readelf:
+                p = subprocess.run([readelf, "-S", tgt_d5], capture_output=True, text=True)
+                has_secs = (".debug_info" in p.stdout and ".debug_line_str" in p.stdout and
+                            ".debug_rnglists" in p.stdout)
+                check(f"dwarf5-cross-{tgt}", has_secs, p.stdout)
+            else:
+                check(f"dwarf5-cross-{tgt}", rc == 0, err)
+
         # 5. Cross-TU LTO (-flto): cross-TU inlining, IPCP, const globals,
         # dead branch/function/global elimination, and static isolation.
         lto_dir = os.path.join(tmp, "lto")

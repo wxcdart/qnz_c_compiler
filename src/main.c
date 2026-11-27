@@ -380,6 +380,7 @@ static ZeroCCCompiler *jit_compile_tu(CompileOptions *opts, const char *input, i
     comp->stack_protector = opts->stack_protector;
     comp->std_dialect = opts->std_dialect;
     comp->debug_info = opts->debug_info;
+    comp->dwarf_version = opts->dwarf_version ? opts->dwarf_version : 4;
     comp->function_sections = opts->function_sections;
     comp->data_sections = opts->data_sections;
     comp->has_avx = opts->has_avx != 0;
@@ -460,6 +461,7 @@ static ZeroCCCompiler *lto_compile_tu_phase1(CompileOptions *opts, const char *s
     comp->stack_protector = opts->stack_protector;
     comp->std_dialect = opts->std_dialect;
     comp->debug_info = opts->debug_info;
+    comp->dwarf_version = opts->dwarf_version ? opts->dwarf_version : 4;
     comp->function_sections = opts->function_sections;
     comp->data_sections = opts->data_sections;
     comp->has_avx = opts->has_avx != 0;
@@ -882,6 +884,7 @@ static int compile_object_single(CompileOptions *opts, const char *input,
     comp->stack_protector = opts->stack_protector;
     comp->std_dialect = opts->std_dialect;
     comp->debug_info = opts->debug_info;
+    comp->dwarf_version = opts->dwarf_version ? opts->dwarf_version : 4;
     comp->function_sections = opts->function_sections;
     comp->data_sections = opts->data_sections;
     comp->has_avx = opts->has_avx != 0;

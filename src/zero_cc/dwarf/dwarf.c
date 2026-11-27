@@ -242,18 +242,22 @@ void zero_cc_dwarf_add_line(ZeroCCCompiler *c, size_t text_offset,
 }
 
 /* Generate .debug_abbrev section content */
-static void dwarf_generate_abbrev(ZeroCCBuffer *out) {
+static void dwarf_generate_abbrev(ZeroCCCompiler *c, ZeroCCBuffer *out) {
+    bool is_d5 = (c && c->dwarf_version >= 5);
     /* Abbrev 1: DW_TAG_compile_unit (children = yes) */
     dwarf_emit_uleb128(out, ABBREV_COMPILE_UNIT);
     dwarf_emit_uleb128(out, DW_TAG_compile_unit);
     dwarf_emit_u8(out, DW_CHILDREN_yes);
     dwarf_emit_uleb128(out, DW_AT_producer);  dwarf_emit_uleb128(out, DW_FORM_strp);
     dwarf_emit_uleb128(out, DW_AT_language);  dwarf_emit_uleb128(out, DW_FORM_data1);
-    dwarf_emit_uleb128(out, DW_AT_name);      dwarf_emit_uleb128(out, DW_FORM_strp);
-    dwarf_emit_uleb128(out, DW_AT_comp_dir);  dwarf_emit_uleb128(out, DW_FORM_strp);
+    dwarf_emit_uleb128(out, DW_AT_name);      dwarf_emit_uleb128(out, is_d5 ? DW_FORM_line_strp : DW_FORM_strp);
+    dwarf_emit_uleb128(out, DW_AT_comp_dir);  dwarf_emit_uleb128(out, is_d5 ? DW_FORM_line_strp : DW_FORM_strp);
     dwarf_emit_uleb128(out, DW_AT_low_pc);    dwarf_emit_uleb128(out, DW_FORM_addr);
     dwarf_emit_uleb128(out, DW_AT_high_pc);   dwarf_emit_uleb128(out, DW_FORM_data8);
     dwarf_emit_uleb128(out, DW_AT_stmt_list); dwarf_emit_uleb128(out, DW_FORM_sec_offset);
+    if (is_d5) {
+        dwarf_emit_uleb128(out, DW_AT_ranges); dwarf_emit_uleb128(out, DW_FORM_sec_offset);
+    }
     dwarf_emit_uleb128(out, 0);               dwarf_emit_uleb128(out, 0);
 
     /* Abbrev 2: DW_TAG_base_type (children = no) */
@@ -484,14 +488,25 @@ static void dwarf_generate_abbrev(ZeroCCBuffer *out) {
 /* Generate .debug_line section content */
 static void dwarf_generate_line_table(ZeroCCCompiler *c,
                                       ZeroCCBuffer *out,
+                                      ZeroCCBuffer *line_str_buf,
                                       uint16_t debug_line_idx,
+                                      uint32_t rel_sec_type,
                                       uint32_t rel_addr_type,
                                       DwarfRelocList *relocs) {
+    bool is_d5 = (c && c->dwarf_version >= 5);
+    int addr_size = zc_target_ptr_size(c);
     size_t unit_length_pos = out->length;
     dwarf_emit_u32(out, 0);  /* unit_length placeholder */
 
-    /* Version 4 */
-    dwarf_emit_u16(out, 4);
+    if (is_d5) {
+        /* DWARF 5 Line Table Header */
+        dwarf_emit_u16(out, 5);
+        dwarf_emit_u8(out, (uint8_t)addr_size);
+        dwarf_emit_u8(out, 0);  /* segment_selector_size */
+    } else {
+        /* Version 4 */
+        dwarf_emit_u16(out, 4);
+    }
 
     size_t header_length_pos = out->length;
     dwarf_emit_u32(out, 0);  /* header_length placeholder */
@@ -510,8 +525,11 @@ static void dwarf_generate_line_table(ZeroCCCompiler *c,
 
     /* Source file and directory resolution */
     const char *src_file = c->source_filename ? c->source_filename : "source.c";
+    const char *comp_dir = c->comp_dir ? c->comp_dir : ".";
     const char *slash = strrchr(src_file, '/');
     char dir_buf[1024];
+    const char *fname = src_file;
+    const char *file_dir = comp_dir;
     uint32_t dir_idx = 0;
 
     if (slash) {
@@ -524,21 +542,65 @@ static void dwarf_generate_line_table(ZeroCCCompiler *c,
             memcpy(dir_buf, src_file, dirlen);
             dir_buf[dirlen] = '\0';
         }
-        dwarf_emit_string(out, dir_buf);
-        dwarf_emit_u8(out, 0);  /* End of directories */
+        file_dir = dir_buf;
+        fname = slash + 1;
         dir_idx = 1;
-    } else {
-        dwarf_emit_u8(out, 0);  /* Empty directory table */
-        dir_idx = 0;
     }
 
-    /* File names table */
-    const char *fname = slash ? slash + 1 : src_file;
-    dwarf_emit_string(out, fname);
-    dwarf_emit_uleb128(out, dir_idx);  /* Directory index */
-    dwarf_emit_uleb128(out, 0);        /* Time */
-    dwarf_emit_uleb128(out, 0);        /* Size */
-    dwarf_emit_u8(out, 0);             /* End of file names */
+    if (is_d5) {
+        /* Directory Table in DWARF 5:
+         * directory_entry_format_count = 1
+         * format: DW_LNCT_path (0x01), DW_FORM_line_strp (0x1f)
+         * directories_count = 2:
+         *   Entry 0: comp_dir (compilation directory)
+         *   Entry 1: file_dir (source file directory) */
+        dwarf_emit_u8(out, 1);
+        dwarf_emit_uleb128(out, DW_LNCT_path);
+        dwarf_emit_uleb128(out, DW_FORM_line_strp);
+        dwarf_emit_uleb128(out, 2);
+        uint32_t cdir_off = dwarf_str_add(line_str_buf, comp_dir);
+        dwarf_relocs_add(relocs, debug_line_idx, out->length, ".debug_line_str", rel_sec_type, cdir_off);
+        dwarf_emit_u32(out, cdir_off);
+        uint32_t fdir_off = dwarf_str_add(line_str_buf, file_dir);
+        dwarf_relocs_add(relocs, debug_line_idx, out->length, ".debug_line_str", rel_sec_type, fdir_off);
+        dwarf_emit_u32(out, fdir_off);
+
+        /* File Name Table in DWARF 5:
+         * file_name_entry_format_count = 2
+         * format: DW_LNCT_path (DW_FORM_line_strp), DW_LNCT_directory_index (DW_FORM_udata)
+         * file_names_count = 2:
+         *   Entry 0: primary CU source file (dir index 1)
+         *   Entry 1: file 1 for DIE decl_file references (dir index 1) */
+        dwarf_emit_u8(out, 2);
+        dwarf_emit_uleb128(out, DW_LNCT_path);
+        dwarf_emit_uleb128(out, DW_FORM_line_strp);
+        dwarf_emit_uleb128(out, DW_LNCT_directory_index);
+        dwarf_emit_uleb128(out, DW_FORM_udata);
+        dwarf_emit_uleb128(out, 2);
+        uint32_t file_off = dwarf_str_add(line_str_buf, fname);
+        /* Entry 0 */
+        dwarf_relocs_add(relocs, debug_line_idx, out->length, ".debug_line_str", rel_sec_type, file_off);
+        dwarf_emit_u32(out, file_off);
+        dwarf_emit_uleb128(out, 1); /* dir index 1 */
+        /* Entry 1 */
+        dwarf_relocs_add(relocs, debug_line_idx, out->length, ".debug_line_str", rel_sec_type, file_off);
+        dwarf_emit_u32(out, file_off);
+        dwarf_emit_uleb128(out, 1); /* dir index 1 */
+    } else {
+        if (dir_idx > 0) {
+            dwarf_emit_string(out, dir_buf);
+            dwarf_emit_u8(out, 0);  /* End of directories */
+        } else {
+            dwarf_emit_u8(out, 0);  /* Empty directory table */
+        }
+
+        /* File names table */
+        dwarf_emit_string(out, fname);
+        dwarf_emit_uleb128(out, dir_idx);  /* Directory index */
+        dwarf_emit_uleb128(out, 0);        /* Time */
+        dwarf_emit_uleb128(out, 0);        /* Size */
+        dwarf_emit_u8(out, 0);             /* End of file names */
+    }
 
     /* Patch header length */
     size_t header_len = out->length - header_start;
@@ -549,8 +611,6 @@ static void dwarf_generate_line_table(ZeroCCCompiler *c,
     int32_t cur_line = 1;
     uint32_t cur_col = 0;
 
-    int addr_size = zc_target_ptr_size(c);
-
     /* Set starting address with relocation to .text + 0 */
     dwarf_emit_u8(out, 0);
     dwarf_emit_uleb128(out, addr_size + 1);
@@ -560,6 +620,10 @@ static void dwarf_generate_line_table(ZeroCCCompiler *c,
         dwarf_emit_u32(out, 0);
     } else {
         dwarf_emit_u64(out, 0);
+    }
+    if (is_d5) {
+        dwarf_emit_u8(out, DW_LNS_set_file);
+        dwarf_emit_uleb128(out, 1);
     }
 
     for (size_t i = 0; i < c->dwarf_line_count; i++) {
@@ -819,10 +883,44 @@ static uint8_t dwarf_frame_base_op(const ZeroCCCompiler *c) {
     return (uint8_t)(0x50 + zc_target_dwarf_fp_reg(c));
 }
 
+/* Generate .debug_rnglists section content (DWARF 5) */
+static void dwarf_generate_rnglists(ZeroCCCompiler *c,
+                                    ZeroCCBuffer *out,
+                                    uint16_t debug_rnglists_idx,
+                                    uint32_t rel_addr_type,
+                                    DwarfRelocList *relocs) {
+    int addr_size = zc_target_ptr_size(c);
+    size_t unit_length_pos = out->length;
+    dwarf_emit_u32(out, 0); /* unit_length placeholder */
+    dwarf_emit_u16(out, 5); /* version 5 */
+    dwarf_emit_u8(out, (uint8_t)addr_size);
+    dwarf_emit_u8(out, 0);  /* segment_selector_size */
+    dwarf_emit_u32(out, 0); /* offset_entry_count */
+
+    /* Range entry 1: DW_RLE_start_length (.text) */
+    dwarf_emit_u8(out, DW_RLE_start_length);
+    dwarf_relocs_add(relocs, debug_rnglists_idx, out->length, ".text", rel_addr_type, 0);
+    if (addr_size == 4) {
+        dwarf_emit_u32(out, 0);
+    } else {
+        dwarf_emit_u64(out, 0);
+    }
+    size_t text_sz = c->text_section.length ? c->text_section.length : 0x10;
+    dwarf_emit_uleb128(out, (uint64_t)text_sz);
+
+    /* End of list */
+    dwarf_emit_u8(out, DW_RLE_end_of_list);
+
+    /* Patch unit length */
+    size_t ulen = out->length - unit_length_pos - 4;
+    *(uint32_t *)(out->data + unit_length_pos) = (uint32_t)ulen;
+}
+
 /* Generate .debug_info section content */
 static void dwarf_generate_info(ZeroCCCompiler *c,
                                 ZeroCCBuffer *info,
                                 ZeroCCBuffer *str_buf,
+                                ZeroCCBuffer *line_str_buf,
                                 uint16_t debug_info_idx,
                                 uint32_t rel_sec_type,
                                 uint32_t rel_addr_type,
@@ -830,23 +928,34 @@ static void dwarf_generate_info(ZeroCCCompiler *c,
     size_t unit_length_pos = info->length;
     dwarf_emit_u32(info, 0);  /* unit_length placeholder */
 
-    /* Version 4 */
-    dwarf_emit_u16(info, 4);
-
-    /* debug_abbrev_offset (relocation against .debug_abbrev + 0) */
-    dwarf_relocs_add(relocs, debug_info_idx, info->length, ".debug_abbrev", rel_sec_type, 0);
-    dwarf_emit_u32(info, 0);
-
-    /* Address size */
+    bool is_d5 = (c && c->dwarf_version >= 5);
     int addr_size = zc_target_ptr_size(c);
-    dwarf_emit_u8(info, (uint8_t)addr_size);
+
+    if (is_d5) {
+        /* DWARF 5 Compilation Unit Header */
+        dwarf_emit_u16(info, 5);
+        dwarf_emit_u8(info, DW_UT_compile);
+        dwarf_emit_u8(info, (uint8_t)addr_size);
+        /* debug_abbrev_offset (relocation against .debug_abbrev + 0) */
+        dwarf_relocs_add(relocs, debug_info_idx, info->length, ".debug_abbrev", rel_sec_type, 0);
+        dwarf_emit_u32(info, 0);
+    } else {
+        /* Version 4 */
+        dwarf_emit_u16(info, 4);
+        /* debug_abbrev_offset (relocation against .debug_abbrev + 0) */
+        dwarf_relocs_add(relocs, debug_info_idx, info->length, ".debug_abbrev", rel_sec_type, 0);
+        dwarf_emit_u32(info, 0);
+        /* Address size */
+        dwarf_emit_u8(info, (uint8_t)addr_size);
+    }
 
     /* String offsets */
     uint32_t prod_off = dwarf_str_add(str_buf, "ZeroCC 0.1");
     const char *src_file = c->source_filename ? c->source_filename : "source.c";
-    uint32_t name_off = dwarf_str_add(str_buf, src_file);
     const char *comp_dir = c->comp_dir ? c->comp_dir : ".";
-    uint32_t dir_off = dwarf_str_add(str_buf, comp_dir);
+
+    uint32_t name_off = is_d5 ? dwarf_str_add(line_str_buf, src_file) : dwarf_str_add(str_buf, src_file);
+    uint32_t dir_off = is_d5 ? dwarf_str_add(line_str_buf, comp_dir) : dwarf_str_add(str_buf, comp_dir);
 
     /* Compile Unit DIE (Abbrev 1) */
     dwarf_emit_uleb128(info, ABBREV_COMPILE_UNIT);
@@ -856,10 +965,10 @@ static void dwarf_generate_info(ZeroCCCompiler *c,
     /* DW_AT_language (C99) */
     dwarf_emit_u8(info, DW_LANG_C99);
     /* DW_AT_name */
-    dwarf_relocs_add(relocs, debug_info_idx, info->length, ".debug_str", rel_sec_type, name_off);
+    dwarf_relocs_add(relocs, debug_info_idx, info->length, is_d5 ? ".debug_line_str" : ".debug_str", rel_sec_type, name_off);
     dwarf_emit_u32(info, name_off);
     /* DW_AT_comp_dir */
-    dwarf_relocs_add(relocs, debug_info_idx, info->length, ".debug_str", rel_sec_type, dir_off);
+    dwarf_relocs_add(relocs, debug_info_idx, info->length, is_d5 ? ".debug_line_str" : ".debug_str", rel_sec_type, dir_off);
     dwarf_emit_u32(info, dir_off);
     /* DW_AT_low_pc (.text + 0) */
     dwarf_relocs_add(relocs, debug_info_idx, info->length, ".text", rel_addr_type, 0);
@@ -873,6 +982,11 @@ static void dwarf_generate_info(ZeroCCCompiler *c,
     /* DW_AT_stmt_list (.debug_line + 0) */
     dwarf_relocs_add(relocs, debug_info_idx, info->length, ".debug_line", rel_sec_type, 0);
     dwarf_emit_u32(info, 0);
+    if (is_d5) {
+        /* DW_AT_ranges (offset 12 in .debug_rnglists) */
+        dwarf_relocs_add(relocs, debug_info_idx, info->length, ".debug_rnglists", rel_sec_type, 12);
+        dwarf_emit_u32(info, 12);
+    }
 
     /* Base types */
     enum { NUM_BASE = 14 };
@@ -1102,6 +1216,8 @@ static void dwarf_generate_info(ZeroCCCompiler *c,
 bool zero_cc_dwarf_emit(ZeroCCCompiler *c, ElfWriterCtx *elf_ctx) {
     if (!c || !elf_ctx || !c->debug_info) return true;
 
+    bool is_d5 = (c && c->dwarf_version >= 5);
+
     ZeroCCBuffer line_buf;
     zero_cc_buf_init(&line_buf, 1024);
 
@@ -1110,6 +1226,12 @@ bool zero_cc_dwarf_emit(ZeroCCCompiler *c, ElfWriterCtx *elf_ctx) {
 
     ZeroCCBuffer str_buf;
     zero_cc_buf_init(&str_buf, 1024);
+
+    ZeroCCBuffer line_str_buf;
+    zero_cc_buf_init(&line_str_buf, 512);
+
+    ZeroCCBuffer rnglists_buf;
+    zero_cc_buf_init(&rnglists_buf, 256);
 
     ZeroCCBuffer info_buf;
     zero_cc_buf_init(&info_buf, 2048);
@@ -1123,7 +1245,7 @@ bool zero_cc_dwarf_emit(ZeroCCCompiler *c, ElfWriterCtx *elf_ctx) {
     uint32_t rel_addr_type = traits->dwarf_addr_reloc; /* Address reloc for .text/.data references */
 
     /* 1. Generate .debug_abbrev */
-    dwarf_generate_abbrev(&abbrev_buf);
+    dwarf_generate_abbrev(c, &abbrev_buf);
 
     /* 2. Add sections to ELF writer first to obtain section indices */
     elf_writer_add_section(elf_ctx, ".debug_abbrev",
@@ -1142,16 +1264,35 @@ bool zero_cc_dwarf_emit(ZeroCCCompiler *c, ElfWriterCtx *elf_ctx) {
                            ELF_SHT_PROGBITS, 0, 1);
     uint16_t debug_str_idx = elf_writer_section_index(elf_ctx, ".debug_str");
 
+    uint16_t debug_line_str_idx = 0;
+    uint16_t debug_rnglists_idx = 0;
+    if (is_d5) {
+        elf_writer_add_section(elf_ctx, ".debug_line_str",
+                               (const uint8_t *)"", 1,
+                               ELF_SHT_PROGBITS, 0, 1);
+        debug_line_str_idx = elf_writer_section_index(elf_ctx, ".debug_line_str");
+
+        elf_writer_add_section(elf_ctx, ".debug_rnglists",
+                               (const uint8_t *)"", 1,
+                               ELF_SHT_PROGBITS, 0, 1);
+        debug_rnglists_idx = elf_writer_section_index(elf_ctx, ".debug_rnglists");
+    }
+
     elf_writer_add_section(elf_ctx, ".debug_info",
                            (const uint8_t *)"", 1,
                            ELF_SHT_PROGBITS, 0, 1);
     uint16_t debug_info_idx = elf_writer_section_index(elf_ctx, ".debug_info");
 
     /* 3. Generate .debug_line */
-    dwarf_generate_line_table(c, &line_buf, debug_line_idx, rel_addr_type, &relocs);
+    dwarf_generate_line_table(c, &line_buf, is_d5 ? &line_str_buf : &str_buf,
+                              debug_line_idx, rel_sec_type, rel_addr_type, &relocs);
 
-    /* 4. Generate .debug_info and .debug_str */
-    dwarf_generate_info(c, &info_buf, &str_buf, debug_info_idx, rel_sec_type, rel_addr_type, &relocs);
+    /* 4. Generate .debug_rnglists and .debug_info */
+    if (is_d5) {
+        dwarf_generate_rnglists(c, &rnglists_buf, debug_rnglists_idx, rel_addr_type, &relocs);
+    }
+    dwarf_generate_info(c, &info_buf, &str_buf, &line_str_buf,
+                        debug_info_idx, rel_sec_type, rel_addr_type, &relocs);
 
     /* 5. Update section payloads with generated buffers */
     if (debug_line_idx > 0 && debug_line_idx <= (uint16_t)elf_ctx->section_count) {
@@ -1176,6 +1317,28 @@ bool zero_cc_dwarf_emit(ZeroCCCompiler *c, ElfWriterCtx *elf_ctx) {
             sec->size = str_buf.length;
         }
     }
+    if (is_d5 && debug_line_str_idx > 0 && debug_line_str_idx <= (uint16_t)elf_ctx->section_count) {
+        ElfWriterSection *sec = &elf_ctx->sections[debug_line_str_idx - 1];
+        if (sec->capacity < line_str_buf.length) {
+            uint8_t *nd = (uint8_t *)realloc(sec->data, line_str_buf.length);
+            if (nd) { sec->data = nd; sec->capacity = line_str_buf.length; }
+        }
+        if (sec->data) {
+            memcpy(sec->data, line_str_buf.data, line_str_buf.length);
+            sec->size = line_str_buf.length;
+        }
+    }
+    if (is_d5 && debug_rnglists_idx > 0 && debug_rnglists_idx <= (uint16_t)elf_ctx->section_count) {
+        ElfWriterSection *sec = &elf_ctx->sections[debug_rnglists_idx - 1];
+        if (sec->capacity < rnglists_buf.length) {
+            uint8_t *nd = (uint8_t *)realloc(sec->data, rnglists_buf.length);
+            if (nd) { sec->data = nd; sec->capacity = rnglists_buf.length; }
+        }
+        if (sec->data) {
+            memcpy(sec->data, rnglists_buf.data, rnglists_buf.length);
+            sec->size = rnglists_buf.length;
+        }
+    }
     if (debug_info_idx > 0 && debug_info_idx <= (uint16_t)elf_ctx->section_count) {
         ElfWriterSection *sec = &elf_ctx->sections[debug_info_idx - 1];
         if (sec->capacity < info_buf.length) {
@@ -1193,6 +1356,10 @@ bool zero_cc_dwarf_emit(ZeroCCCompiler *c, ElfWriterCtx *elf_ctx) {
     elf_writer_add_symbol(elf_ctx, ".debug_str", ELF_STB_LOCAL, ELF_STT_SECTION, debug_str_idx, 0, 0);
     elf_writer_add_symbol(elf_ctx, ".debug_abbrev", ELF_STB_LOCAL, ELF_STT_SECTION, debug_abbrev_idx, 0, 0);
     elf_writer_add_symbol(elf_ctx, ".debug_info", ELF_STB_LOCAL, ELF_STT_SECTION, debug_info_idx, 0, 0);
+    if (is_d5) {
+        elf_writer_add_symbol(elf_ctx, ".debug_line_str", ELF_STB_LOCAL, ELF_STT_SECTION, debug_line_str_idx, 0, 0);
+        elf_writer_add_symbol(elf_ctx, ".debug_rnglists", ELF_STB_LOCAL, ELF_STT_SECTION, debug_rnglists_idx, 0, 0);
+    }
 
     /* 7. Emit relocations into elf_ctx */
     for (size_t r = 0; r < relocs.count; r++) {
@@ -1218,6 +1385,8 @@ bool zero_cc_dwarf_emit(ZeroCCCompiler *c, ElfWriterCtx *elf_ctx) {
     zero_cc_buf_free(&line_buf);
     zero_cc_buf_free(&abbrev_buf);
     zero_cc_buf_free(&str_buf);
+    zero_cc_buf_free(&line_str_buf);
+    zero_cc_buf_free(&rnglists_buf);
     zero_cc_buf_free(&info_buf);
 
     return true;
