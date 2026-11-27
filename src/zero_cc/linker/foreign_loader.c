@@ -145,10 +145,31 @@ __attribute__((ms_abi)) static int win_snprintf(char *str, size_t size, const ch
     return snprintf(str, size, fmt, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7]);
 }
 
+__attribute__((ms_abi)) static uint32_t win_GetLastError(void) {
+    return 0;
+}
+
+__attribute__((ms_abi)) static void win_SetLastError(uint32_t dwErrCode) {
+    (void)dwErrCode;
+}
+
+__attribute__((ms_abi)) static void *win_GetStdHandle(uint32_t nStdHandle) {
+    (void)nStdHandle;
+    return (void *)(uintptr_t)1;
+}
+
+__attribute__((ms_abi)) static void win_Sleep(uint32_t dwMilliseconds) {
+    (void)dwMilliseconds;
+}
+
 static void *resolve_pe_symbol(const char *dll, const char *name) {
     (void)dll;
     if (!name) return NULL;
     if (strcmp(name, "ExitProcess") == 0) return (void *)win_ExitProcess;
+    if (strcmp(name, "GetLastError") == 0) return (void *)win_GetLastError;
+    if (strcmp(name, "SetLastError") == 0) return (void *)win_SetLastError;
+    if (strcmp(name, "GetStdHandle") == 0) return (void *)win_GetStdHandle;
+    if (strcmp(name, "Sleep") == 0) return (void *)win_Sleep;
     if (strcmp(name, "exit") == 0) return (void *)win_exit;
     if (strcmp(name, "abort") == 0) return (void *)win_abort;
     if (strcmp(name, "printf") == 0) return (void *)win_printf;

@@ -94,6 +94,10 @@ typedef struct ZeroCCCompiler {
     int pending_ms_abi;
     bool is_win64_abi;
 
+    /* Windows PE/COFF declspec attributes */
+    int pending_dllimport;
+    int pending_dllexport;
+
     ZeroCCSym *locals;
     size_t local_count;
     size_t local_capacity;

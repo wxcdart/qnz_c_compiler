@@ -328,6 +328,8 @@ typedef struct ZeroCCFunction {
     bool is_interrupt;                    /* Embedded ISR: __attribute__((interrupt)) */
     int interrupt_mode;                   /* 0 = default (machine/IRQ), 1 = FIQ, 2 = user, 3 = supervisor */
     bool is_ms_abi;                       /* Microsoft x64 calling convention (__attribute__((ms_abi))) */
+    bool is_dllimport;                    /* Windows PE/COFF __declspec(dllimport) */
+    bool is_dllexport;                    /* Windows PE/COFF __declspec(dllexport) */
     uint32_t inline_body;                 /* ASTRef root of function body in compiler's tu_ast_arena */
     void *ast_arena;                      /* Pointer to ZeroCCASTArena owning inline_body */
     uint32_t *param_dim_exprs;    /* C99 6.7.6.2: VLA parameter dimension expressions (ASTRef),

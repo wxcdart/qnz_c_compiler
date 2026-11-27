@@ -24,6 +24,8 @@ struct ZeroCCGlobalVar {
     char section[64];         /* __attribute__((section("name"))): named ELF section (AOT -c); empty = default */
     size_t named_sec_off;    /* offset of this object within its named section (AOT -c emission) */
     int is_weak;              /* GNU __attribute__((weak)): STB_WEAK binding at AOT -c */
+    bool is_dllimport;        /* Windows PE/COFF __declspec(dllimport) */
+    bool is_dllexport;        /* Windows PE/COFF __declspec(dllexport) */
     /* LTO (Link-Time Optimization, -flto) state */
     int owner_tu;             /* Owning translation unit index */
     bool lto_is_const_val;    /* Cross-TU constant global scalar propagation */
@@ -139,6 +141,8 @@ static inline int add_global_var(ZeroCCCompiler *c, const char *name, ZeroCCType
             c->global_vars[existing].section[sizeof(c->global_vars[existing].section) - 1] = '\0';
         }
         if (c->pending_weak) c->global_vars[existing].is_weak = 1;
+        if (c->pending_dllimport) c->global_vars[existing].is_dllimport = true;
+        if (c->pending_dllexport) c->global_vars[existing].is_dllexport = true;
         return (int)existing;
     }
     if (c->global_var_count >= c->global_var_capacity) {
@@ -166,6 +170,8 @@ static inline int add_global_var(ZeroCCCompiler *c, const char *name, ZeroCCType
         gv->section[sizeof(gv->section) - 1] = '\0';
     }
     gv->is_weak = c->pending_weak;
+    gv->is_dllimport = c->pending_dllimport ? true : false;
+    gv->is_dllexport = c->pending_dllexport ? true : false;
     zero_cc_gname_hash_insert(c, name, c->global_var_count - 1, c->global_var_count);
     return (int)(c->global_var_count - 1);
 }

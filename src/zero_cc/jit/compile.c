@@ -964,6 +964,8 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
             fn->is_static = fn_static;
             fn->is_constexpr = c->pending_constexpr_fn;
             fn->is_interrupt = c->pending_interrupt;
+            fn->is_dllimport = (c->pending_dllimport != 0);
+            fn->is_dllexport = (c->pending_dllexport != 0);
             if (c->pending_ms_abi == 1) fn->is_ms_abi = true;
             else if (c->pending_ms_abi == 2) fn->is_ms_abi = false;
             else fn->is_ms_abi = c->is_win64_abi;
@@ -1026,6 +1028,8 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
          * definition in another TU wins at link time (Unity setup stubs). */
         fn->is_weak = c->pending_weak;
         fn->is_interrupt = c->pending_interrupt;
+        fn->is_dllimport = (c->pending_dllimport != 0);
+        fn->is_dllexport = (c->pending_dllexport != 0);
         if (c->pending_ms_abi == 1) fn->is_ms_abi = true;
         else if (c->pending_ms_abi == 2) fn->is_ms_abi = false;
         else fn->is_ms_abi = c->is_win64_abi;

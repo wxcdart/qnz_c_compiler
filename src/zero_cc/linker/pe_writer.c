@@ -317,6 +317,7 @@ static const char *pe_get_dll_basename(const char *path) {
 
 static const char *pe_classify_symbol_dll(const char *sym) {
     if (!sym) return "msvcrt.dll";
+    if (strncmp(sym, "__imp_", 6) == 0) sym += 6;
     if (strcmp(sym, "ExitProcess") == 0 ||
         strcmp(sym, "GetModuleHandleA") == 0 ||
         strcmp(sym, "GetModuleHandleW") == 0 ||
@@ -327,6 +328,8 @@ static const char *pe_classify_symbol_dll(const char *sym) {
         strcmp(sym, "VirtualFree") == 0 ||
         strcmp(sym, "Sleep") == 0 ||
         strcmp(sym, "GetLastError") == 0 ||
+        strcmp(sym, "SetLastError") == 0 ||
+        strcmp(sym, "GetStdHandle") == 0 ||
         strcmp(sym, "CreateFileA") == 0 ||
         strcmp(sym, "CloseHandle") == 0 ||
         strcmp(sym, "ReadFile") == 0 ||
@@ -341,10 +344,17 @@ static const char *pe_classify_symbol_dll(const char *sym) {
     return "msvcrt.dll";
 }
 
-static int compare_export_functions(const void *a, const void *b) {
-    const ZeroCCFunction *fa = *(const ZeroCCFunction **)a;
-    const ZeroCCFunction *fb = *(const ZeroCCFunction **)b;
-    return strcmp(fa->name, fb->name);
+typedef struct {
+    char name[128];
+    uint32_t rva_target_kind; /* 0 = function text_offset, 1 = global data_offset */
+    uint32_t offset;
+    bool is_bss;
+} PeExportItem;
+
+static int compare_export_items(const void *a, const void *b) {
+    const PeExportItem *ea = (const PeExportItem *)a;
+    const PeExportItem *eb = (const PeExportItem *)b;
+    return strcmp(ea->name, eb->name);
 }
 
 bool zero_cc_pe_write_binary_from_comp(const char *filename,
@@ -368,24 +378,39 @@ bool zero_cc_pe_write_binary_from_comp(const char *filename,
         }
     }
 
-    /* 2. Collect Exports (for DLL, or non-static functions if DLL) */
-    ZeroCCFunction *exports[1024];
+    /* 2. Collect Exports (for DLL, or non-static functions if DLL, or __declspec(dllexport)) */
+    PeExportItem exports[1024];
     size_t num_exports = 0;
-    if (is_dll) {
-        for (size_t i = 0; i < comp->function_count; i++) {
-            ZeroCCFunction *f = &comp->functions[i];
-            if (f->name[0] && !f->is_prototype && !f->is_external &&
-                !f->is_static && !f->is_object && !f->lto_eliminated) {
-                if (num_exports < 1024) {
-                    exports[num_exports++] = f;
-                }
-            }
-        }
-        if (num_exports > 1) {
-            qsort(exports, num_exports, sizeof(ZeroCCFunction *), compare_export_functions);
+    for (size_t i = 0; i < comp->function_count; i++) {
+        ZeroCCFunction *f = &comp->functions[i];
+        if (!f->name[0] || f->is_prototype || f->is_external || f->is_object || f->lto_eliminated) continue;
+        bool do_export = f->is_dllexport || (is_dll && !f->is_static);
+        if (do_export && num_exports < 1024) {
+            strncpy(exports[num_exports].name, f->name, sizeof(exports[num_exports].name) - 1);
+            exports[num_exports].name[sizeof(exports[num_exports].name) - 1] = '\0';
+            exports[num_exports].rva_target_kind = 0;
+            exports[num_exports].offset = (uint32_t)f->text_offset;
+            exports[num_exports].is_bss = false;
+            num_exports++;
         }
     }
-    bool has_edata = is_dll;
+    for (size_t i = 0; i < comp->global_var_count; i++) {
+        ZeroCCGlobalVar *gv = &comp->global_vars[i];
+        if (!gv->name[0] || gv->lto_eliminated || gv->is_tls) continue;
+        bool do_export = gv->is_dllexport || (is_dll && !gv->is_static);
+        if (do_export && num_exports < 1024) {
+            strncpy(exports[num_exports].name, gv->name, sizeof(exports[num_exports].name) - 1);
+            exports[num_exports].name[sizeof(exports[num_exports].name) - 1] = '\0';
+            exports[num_exports].rva_target_kind = 1;
+            exports[num_exports].offset = (uint32_t)gv->data_offset;
+            exports[num_exports].is_bss = gv->is_bss;
+            num_exports++;
+        }
+    }
+    if (num_exports > 1) {
+        qsort(exports, num_exports, sizeof(PeExportItem), compare_export_items);
+    }
+    bool has_edata = is_dll || (num_exports > 0);
 
     /* 3. Entry point detection */
     uint32_t entry_offset = 0;
@@ -461,10 +486,11 @@ bool zero_cc_pe_write_binary_from_comp(const char *filename,
         ZeroCCReloc *r = &comp->relocs[i];
         if (r->is_call || r->is_abs_call) {
             const char *sym = r->target_symbol;
+            if (strncmp(sym, "__imp_", 6) == 0) sym += 6;
             const char *alias = (strncmp(sym, "__builtin_", 10) == 0) ? sym + 10 : NULL;
             ZeroCCFunction *tgt = zero_cc_find_function_by_symbol(comp, sym);
             if ((!tgt || tgt->is_prototype) && alias) tgt = zero_cc_find_function_by_symbol(comp, alias);
-            if (!tgt || tgt->is_prototype) {
+            if (!tgt || tgt->is_prototype || tgt->is_dllimport) {
                 bool found = false;
                 for (size_t j = 0; j < num_imports; j++) {
                     if (strcmp(imports[j].name, sym) == 0) {
@@ -478,6 +504,21 @@ bool zero_cc_pe_write_binary_from_comp(const char *filename,
                     imports[num_imports].dll = pe_classify_symbol_dll(sym);
                     num_imports++;
                 }
+            }
+        } else if (strncmp(r->target_symbol, "__imp_", 6) == 0) {
+            const char *sym = r->target_symbol + 6;
+            bool found = false;
+            for (size_t j = 0; j < num_imports; j++) {
+                if (strcmp(imports[j].name, sym) == 0) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found && num_imports < 256) {
+                strncpy(imports[num_imports].name, sym, sizeof(imports[num_imports].name) - 1);
+                imports[num_imports].name[sizeof(imports[num_imports].name) - 1] = '\0';
+                imports[num_imports].dll = pe_classify_symbol_dll(sym);
+                num_imports++;
             }
         }
     }
@@ -614,7 +655,7 @@ bool zero_cc_pe_write_binary_from_comp(const char *filename,
         uint32_t exp_name_offsets[1024];
         for (size_t i = 0; i < num_exports; i++) {
             exp_name_offsets[i] = cur_str;
-            cur_str += (uint32_t)(strlen(exports[i]->name) + 1);
+            cur_str += (uint32_t)(strlen(exports[i].name) + 1);
         }
 
         total_edata_bytes = cur_str;
@@ -642,8 +683,14 @@ bool zero_cc_pe_write_binary_from_comp(const char *filename,
         memcpy(edata_buf + off_edata_dll_name, dll_name, strlen(dll_name) + 1);
 
         for (size_t i = 0; i < num_exports; i++) {
-            uint32_t func_rva = text_rva + (uint32_t)stub_size + (uint32_t)exports[i]->text_offset;
-            memcpy(edata_buf + off_eat + i * 4, &func_rva, 4);
+            uint32_t sym_rva = 0;
+            if (exports[i].rva_target_kind == 0) {
+                sym_rva = text_rva + (uint32_t)stub_size + exports[i].offset;
+            } else {
+                sym_rva = data_rva + exports[i].offset;
+                if (exports[i].is_bss) sym_rva += (uint32_t)comp->data_section.length;
+            }
+            memcpy(edata_buf + off_eat + i * 4, &sym_rva, 4);
 
             uint32_t name_rva = edata_rva + exp_name_offsets[i];
             memcpy(edata_buf + off_ent + i * 4, &name_rva, 4);
@@ -651,7 +698,7 @@ bool zero_cc_pe_write_binary_from_comp(const char *filename,
             uint16_t ordinal = (uint16_t)i;
             memcpy(edata_buf + off_eot + i * 2, &ordinal, 2);
 
-            memcpy(edata_buf + exp_name_offsets[i], exports[i]->name, strlen(exports[i]->name) + 1);
+            memcpy(edata_buf + exp_name_offsets[i], exports[i].name, strlen(exports[i].name) + 1);
         }
     }
 
@@ -712,15 +759,17 @@ bool zero_cc_pe_write_binary_from_comp(const char *filename,
         ZeroCCReloc *r = &comp->relocs[i];
         if (r->is_call) {
             const char *sym = r->target_symbol;
-            const char *alias = (strncmp(sym, "__builtin_", 10) == 0) ? sym + 10 : NULL;
-            ZeroCCFunction *tgt = zero_cc_find_function_by_symbol(comp, sym);
+            const char *lookup_sym = sym;
+            if (strncmp(lookup_sym, "__imp_", 6) == 0) lookup_sym += 6;
+            const char *alias = (strncmp(lookup_sym, "__builtin_", 10) == 0) ? lookup_sym + 10 : NULL;
+            ZeroCCFunction *tgt = zero_cc_find_function_by_symbol(comp, lookup_sym);
             if ((!tgt || tgt->is_prototype) && alias) tgt = zero_cc_find_function_by_symbol(comp, alias);
-            if (tgt && !tgt->is_prototype) {
+            if (tgt && !tgt->is_prototype && !tgt->is_dllimport) {
                 int32_t rel = (int32_t)(tgt->text_offset - (r->text_patch_offset + 4));
                 memcpy(full_text + stub_size + r->text_patch_offset, &rel, 4);
             } else {
                 for (size_t k = 0; k < num_imports; k++) {
-                    if (strcmp(imports[k].name, sym) == 0) {
+                    if (strcmp(imports[k].name, lookup_sym) == 0) {
                         int32_t rel = (int32_t)((imports[k].thunk_offset - stub_size) - (r->text_patch_offset + 4));
                         memcpy(full_text + stub_size + r->text_patch_offset, &rel, 4);
                         break;
@@ -729,15 +778,17 @@ bool zero_cc_pe_write_binary_from_comp(const char *filename,
             }
         } else if (r->is_abs_call) {
             const char *sym = r->target_symbol;
-            const char *alias = (strncmp(sym, "__builtin_", 10) == 0) ? sym + 10 : NULL;
-            ZeroCCFunction *tgt = zero_cc_find_function_by_symbol(comp, sym);
+            const char *lookup_sym = sym;
+            if (strncmp(lookup_sym, "__imp_", 6) == 0) lookup_sym += 6;
+            const char *alias = (strncmp(lookup_sym, "__builtin_", 10) == 0) ? lookup_sym + 10 : NULL;
+            ZeroCCFunction *tgt = zero_cc_find_function_by_symbol(comp, lookup_sym);
             if ((!tgt || tgt->is_prototype) && alias) tgt = zero_cc_find_function_by_symbol(comp, alias);
-            if (tgt && !tgt->is_prototype) {
+            if (tgt && !tgt->is_prototype && !tgt->is_dllimport) {
                 uint64_t va = ZERO_CC_PE_DEFAULT_IMAGE_BASE + text_rva + (uint64_t)stub_size + (uint64_t)tgt->text_offset;
                 memcpy(full_text + stub_size + r->text_patch_offset, &va, 8);
             } else {
                 for (size_t k = 0; k < num_imports; k++) {
-                    if (strcmp(imports[k].name, sym) == 0) {
+                    if (strcmp(imports[k].name, lookup_sym) == 0) {
                         uint64_t va = ZERO_CC_PE_DEFAULT_IMAGE_BASE + text_rva + (uint64_t)imports[k].thunk_offset;
                         memcpy(full_text + stub_size + r->text_patch_offset, &va, 8);
                         break;
@@ -751,6 +802,15 @@ bool zero_cc_pe_write_binary_from_comp(const char *filename,
                 if (gv->is_bss) target_rva += (uint32_t)comp->data_section.length;
                 int32_t rel = (int32_t)(target_rva - (text_rva + stub_size + r->text_patch_offset + 4));
                 memcpy(full_text + stub_size + r->text_patch_offset, &rel, 4);
+            }
+        } else if (strncmp(r->target_symbol, "__imp_", 6) == 0) {
+            const char *sym = r->target_symbol + 6;
+            for (size_t k = 0; k < num_imports; k++) {
+                if (strcmp(imports[k].name, sym) == 0) {
+                    uint64_t va = ZERO_CC_PE_DEFAULT_IMAGE_BASE + imports[k].iat_rva;
+                    memcpy(full_text + stub_size + r->text_patch_offset, &va, 8);
+                    break;
+                }
             }
         } else {
             ZeroCCGlobalVar *gv = find_global_var(comp, r->target_symbol);

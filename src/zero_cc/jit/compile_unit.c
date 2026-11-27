@@ -376,6 +376,8 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
         c->pending_interrupt = 0;
         c->pending_interrupt_mode[0] = '\0';
         c->pending_ms_abi = 0;
+        c->pending_dllimport = 0;
+        c->pending_dllexport = 0;
         {
             size_t dstart = c->token_pos;
             size_t dend = zero_cc_find_decl_header_end(c, dstart);
@@ -479,6 +481,24 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                     }
                     if (id && strcmp(id, "__zc_sysv_abi__") == 0) {
                         c->pending_ms_abi = 2;
+                        size_t after = p + 1;
+                        memmove(&c->tokens[p], &c->tokens[after], (c->token_count - after) * sizeof(c->tokens[0]));
+                        c->token_count--;
+                        dend--;
+                        p--;
+                        continue;
+                    }
+                    if (id && strcmp(id, "__zc_dllimport__") == 0) {
+                        c->pending_dllimport = 1;
+                        size_t after = p + 1;
+                        memmove(&c->tokens[p], &c->tokens[after], (c->token_count - after) * sizeof(c->tokens[0]));
+                        c->token_count--;
+                        dend--;
+                        p--;
+                        continue;
+                    }
+                    if (id && strcmp(id, "__zc_dllexport__") == 0) {
+                        c->pending_dllexport = 1;
                         size_t after = p + 1;
                         memmove(&c->tokens[p], &c->tokens[after], (c->token_count - after) * sizeof(c->tokens[0]));
                         c->token_count--;
@@ -791,6 +811,8 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                         fn->is_external = true;
                         fn->is_prototype = true;
                         fn->is_object = true; /* extern variable, not a function */
+                        fn->is_dllimport = (c->pending_dllimport != 0);
+                        fn->is_dllexport = (c->pending_dllexport != 0);
                     }
                     zero_cc_ast_arena_free(&darena);
                     /* Comma declarators share the applied type. */
@@ -859,6 +881,8 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                         fn->is_external = true;
                         fn->is_prototype = true;
                         fn->is_object = true; /* extern variable, not a function */
+                        fn->is_dllimport = (c->pending_dllimport != 0);
+                        fn->is_dllexport = (c->pending_dllexport != 0);
                     }
                     /* GNU alias: `extern int b __attribute__((alias("a")));`
                      * - b is a synonym for a's storage.  Register a shadow

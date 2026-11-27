@@ -1,5 +1,26 @@
 # CHANGELOG
 
+## [Sprint 263] - 2026-11-28 - Windows PE/COFF Dynamic Linking, Import Table (.idata), and __declspec(dllimport/dllexport)
+
+- **Microsoft C Extension Support (`src/zero_cc/core/preprocessor.c`, `src/zero_cc/jit/compile_unit.c`, `src/zero_cc/jit/compile.c`)**:
+  - Added preprocessor and parser support for `__declspec(dllimport)`, `__declspec(dllexport)`, `_declspec(dllimport)`, `_declspec(dllexport)`, and `__declspec(align(N))`.
+  - Added internal attributes `__zc_dllimport__` and `__zc_dllexport__` mapped from both `__attribute__((dllimport/dllexport))` and `__declspec(dllimport/dllexport)`.
+  - Propagated `is_dllimport` and `is_dllexport` flags to functions (`ZeroCCFunction`) and global variables (`ZeroCCGlobalVar`) across declarations, prototypes, definitions, and external variable registrations.
+- **Import Address Table & Relocation Lowering (`src/zero_cc/ir/ast_lowering_internal.h`, `src/zero_cc/linker/pe_writer.c`)**:
+  - Implemented indirect import pointer addressing in `ir_emit_global_addr`: `__declspec(dllimport)` global variables emit `ir_emit_mov_global` with symbol prefix `__imp_<name>` followed by `ir_emit_deref` to resolve the variable's address through the IAT.
+  - Updated PE binary writer to scan relocations for `__imp_` prefixes, classify their originating DLLs (KERNEL32, USER32, MSVCRT), and allocate hint/name and IAT slots in `.idata`.
+  - Routed `__imp_` data relocations to the computed virtual address of the matching IAT slot in `.idata`.
+  - Updated PE call relocations to invoke IAT jump thunks (`jmp *__imp_fn(%rip)`) for all imported or dllimport functions.
+- **Export Address Table (.edata) Expansion (`src/zero_cc/linker/pe_writer.c`)**:
+  - Extended `.edata` generation to support both functions and global variables with `__declspec(dllexport)` in executables as well as shared DLLs.
+  - Sized and populated Export Address Table (EAT), Export Name Table (ENT), and Export Ordinal Table (EOT) sorted lexicographically by export name with proper RVA mapping into `.text` or `.data`/`.bss`.
+- **In-Process PE Execution Shims (`src/zero_cc/linker/foreign_loader.c`)**:
+  - Added MS ABI shims for Win32 API functions `GetLastError`, `SetLastError`, `GetStdHandle`, and `Sleep` in the Linux-host foreign loader.
+- **Verification (`tools/verify/pe_tests.py`, `tools/verify/foreign_exec_tests.py`)**:
+  - Added `test_pe_dllimport_dllexport` verifying DLL compilation with exported functions/variables and application compilation with imported symbols.
+  - Added `test_pe_dllimport_execution` verifying in-process execution of PE binaries utilizing `__declspec(dllimport)` Win32 APIs.
+  - 63/63 tests pass in `pe_tests.py`; 18/18 tests pass in `foreign_exec_tests.py`.
+
 ## [Sprint 262] - 2026-11-28 - RV32 Variadic Calling Convention, Raw-Binary Spilling & Builtin Freestanding CRT0 Runtime
 
 - **RV32 Variadic Spilling Architecture (`src/zero_cc/isa/riscv64.c`, `src/zero_cc/isa/riscv_asm.c`, `src/zero_cc/isa/backend_registry.c`)**:

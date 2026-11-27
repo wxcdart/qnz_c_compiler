@@ -567,6 +567,12 @@ static inline bool ast_expr_is_vector_addr(ZeroCCCompiler *c, ZeroCCASTArena *ar
 static inline void ir_emit_global_addr(ZeroCCCompiler *c, uint32_t temp, const ZeroCCGlobalVar *gv) {
     if (!gv) return;
     if (gv->is_tls && !c->jit_mode) ir_emit_tls_lea(c, temp, gv->name);
+    else if (gv->is_dllimport) {
+        char imp_name[140];
+        snprintf(imp_name, sizeof(imp_name), "__imp_%s", gv->name);
+        ir_emit_mov_global(c, temp, imp_name);
+        ir_emit_deref(c, (int)temp, (int)temp);
+    }
     else ir_emit_mov_global(c, temp, gv->name);
 }
 

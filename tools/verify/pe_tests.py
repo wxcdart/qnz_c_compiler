@@ -476,6 +476,46 @@ def test_mixed_c_and_obj_linking():
                exe.exists() and exe.read_bytes()[:2] == b"MZ")
 
 
+def test_pe_dllimport_dllexport():
+    """Verify __declspec(dllexport) and __declspec(dllimport) handling."""
+    with tempfile.TemporaryDirectory() as td:
+        lib_c = Path(td) / "lib.c"
+        lib_dll = Path(td) / "lib.dll"
+        app_c = Path(td) / "app.c"
+        app_exe = Path(td) / "app.exe"
+
+        lib_c.write_text("""
+        __declspec(dllexport) int export_var = 123;
+        __declspec(dllexport) int export_func(int x) {
+            return x + 5;
+        }
+        """)
+
+        cmd_dll = [str(ZEROCC), "-shared", "-mpe", str(lib_c), "-o", str(lib_dll)]
+        proc_dll = subprocess.run(cmd_dll, capture_output=True, text=True)
+        report("Compile DLL with __declspec(dllexport)", proc_dll.returncode == 0, proc_dll.stderr)
+
+        if lib_dll.exists():
+            proc_dump = subprocess.run(["objdump", "-p", str(lib_dll)], capture_output=True, text=True)
+            report("Export table contains export_func", "export_func" in proc_dump.stdout)
+            report("Export table contains export_var", "export_var" in proc_dump.stdout)
+
+        app_c.write_text("""
+        __declspec(dllimport) extern int export_var;
+        __declspec(dllimport) int export_func(int x);
+        int main(void) {
+            return export_func(10);
+        }
+        """)
+
+        cmd_app = [str(ZEROCC), "-mpe", str(app_c), "-o", str(app_exe)]
+        proc_app = subprocess.run(cmd_app, capture_output=True, text=True)
+        report("Compile app with __declspec(dllimport)", proc_app.returncode == 0, proc_app.stderr)
+        if app_exe.exists():
+            proc_app_dump = subprocess.run(["objdump", "-p", str(app_exe)], capture_output=True, text=True)
+            report("Import table contains export_func", "export_func" in proc_app_dump.stdout)
+
+
 def main():
     if not ZEROCC.exists():
         print(f"Error: {ZEROCC} not found. Run make first.", file=sys.stderr)
@@ -492,6 +532,7 @@ def main():
     test_multi_tu_source_linking()
     test_multi_tu_obj_linking()
     test_mixed_c_and_obj_linking()
+    test_pe_dllimport_dllexport()
 
     total = passed + failed
     print(f"\nResults: {passed}/{total} passed, {failed} failed.")

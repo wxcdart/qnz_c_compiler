@@ -107,6 +107,32 @@ def test_pe_ms_abi_shims():
                f"rc={run_res.returncode}, stdout={run_res.stdout.strip()!r}")
 
 
+def test_pe_dllimport_execution():
+    """Verify in-process execution of PE with __declspec(dllimport) Win32 APIs."""
+    code = """
+    __declspec(dllimport) unsigned int GetLastError(void);
+    __declspec(dllimport) void Sleep(unsigned int ms);
+    int main(void) {
+        Sleep(1);
+        unsigned int err = GetLastError();
+        if (err != 0) return 1;
+        return 42;
+    }
+    """
+    with tempfile.TemporaryDirectory() as td:
+        src = Path(td) / "import_test.c"
+        exe = Path(td) / "import_test.exe"
+        src.write_text(code)
+
+        res = subprocess.run([str(ZEROCC), "--pe", "-o", str(exe), str(src)], capture_output=True, text=True)
+        if res.returncode != 0:
+            report("PE dllimport build", False, res.stderr)
+            return
+
+        run_res = subprocess.run([str(ZEROCC), "--run", str(exe)], capture_output=True, text=True)
+        report("PE __declspec(dllimport) execution", run_res.returncode == 42, f"rc={run_res.returncode}")
+
+
 def test_pe_opt_levels():
     """Verify PE execution across optimization levels -O0 to -O3."""
     code = """
@@ -212,6 +238,7 @@ def main():
     print("=== Foreign Binary In-Process Execution Battery (Sprint 261) ===")
     test_pe_basic_exit()
     test_pe_ms_abi_shims()
+    test_pe_dllimport_execution()
     test_pe_opt_levels()
     test_macho_basic_exit()
     test_macho_opt_levels()

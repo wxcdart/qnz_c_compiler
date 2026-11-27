@@ -450,6 +450,8 @@ void zero_cc_cpp_define_builtin_macros(ZeroCCPreprocessor *cpp, const char *std_
     zero_cc_cpp_define_func2(cpp, "va_copy", "dest", "src", "((void)((dest) = (src)))");
     zero_cc_cpp_define_func1(cpp, "__attribute__", "x", "");
     zero_cc_cpp_define_func1(cpp, "__attribute", "x", "");
+    zero_cc_cpp_define_func1(cpp, "__declspec", "x", "");
+    zero_cc_cpp_define_func1(cpp, "_declspec", "x", "");
     zero_cc_cpp_define_obj(cpp, "__extension__", "");
     zero_cc_cpp_define_obj(cpp, "__restrict", "restrict");
     zero_cc_cpp_define_obj(cpp, "__restrict__", "restrict");
@@ -1673,7 +1675,8 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                      * erase behavior. */
                     bool vec_marker_done = false;
                     if (arg_count > 0 &&
-                        (strcmp(m->name, "__attribute__") == 0 || strcmp(m->name, "__attribute") == 0)) {
+                        (strcmp(m->name, "__attribute__") == 0 || strcmp(m->name, "__attribute") == 0 ||
+                         strcmp(m->name, "__declspec") == 0 || strcmp(m->name, "_declspec") == 0)) {
                         for (int k = 0; k < arg_count && !vec_marker_done; k++) {
                             const char *a = args[k];
                             size_t al = strlen(a);
@@ -1762,7 +1765,8 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                                     while (q < it + il && (isalnum((unsigned char)*q) || *q == '_')) q++;
                                     size_t len = (size_t)(q - start);
                                     if ((len == 7 && strncmp(start, "aligned", 7) == 0) ||
-                                        (len == 11 && strncmp(start, "__aligned__", 11) == 0)) {
+                                        (len == 11 && strncmp(start, "__aligned__", 11) == 0) ||
+                                        (len == 5 && strncmp(start, "align", 5) == 0)) {
                                         const char *nxt = q;
                                         while (nxt < it + il && (*nxt == ' ' || *nxt == '\t')) nxt++;
                                         if (nxt >= it + il || *nxt != '(') {
@@ -1800,6 +1804,18 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                                         ex = "";
                                         el = 0;
                                         ex_marker = 11;
+                                        break;
+                                    } else if ((len == 9 && strncmp(start, "dllimport", 9) == 0) ||
+                                               (len == 13 && strncmp(start, "__dllimport__", 13) == 0)) {
+                                        ex = "";
+                                        el = 0;
+                                        ex_marker = 12;
+                                        break;
+                                    } else if ((len == 9 && strncmp(start, "dllexport", 9) == 0) ||
+                                               (len == 13 && strncmp(start, "__dllexport__", 13) == 0)) {
+                                        ex = "";
+                                        el = 0;
+                                        ex_marker = 13;
                                         break;
                                     }
                                     if (q == start) q++;
@@ -1844,8 +1860,10 @@ void zero_cc_cpp_process_text(ZeroCCPreprocessor *cpp, const char *src, ZeroCCBu
                             else if (ex_marker == 9) mk = "__zc_interrupt__";
                             else if (ex_marker == 10) mk = "__zc_ms_abi__";
                             else if (ex_marker == 11) mk = "__zc_sysv_abi__";
+                            else if (ex_marker == 12) mk = "__zc_dllimport__";
+                            else if (ex_marker == 13) mk = "__zc_dllexport__";
                             if (el2 > sizeof(marker) - 22) { el2 = sizeof(marker) - 22; }
-                            if (ex_marker == 5 || ex_marker == 7 || ex_marker == 8 || ex_marker == 10 || ex_marker == 11 || (ex_marker == 9 && el2 == 0)) {
+                            if (ex_marker == 5 || ex_marker == 7 || ex_marker == 8 || ex_marker == 10 || ex_marker == 11 || ex_marker == 12 || ex_marker == 13 || (ex_marker == 9 && el2 == 0)) {
                                 /* No argument: bare marker identifier. */
                                 snprintf(marker, sizeof(marker), "%s", mk);
                             } else {
