@@ -1,5 +1,35 @@
 # CHANGELOG
 
+## [Sprint 256] - 2026-11-27 - Target AddressSanitizer (ASan) Shadow Memory & Redzones (`-fsanitize=address`)
+
+- **Target AddressSanitizer Frontend & Options (`driver_opts.h`, `symbols.h`, `main.c`)**:
+  - Added `-fsanitize=address` and `-fno-sanitize=address` driver options.
+  - Propagated `comp->sanitize_address` to JIT and AOT compiler instances.
+- **Shadow Memory Architecture & Runtime (`zero_rt/core/asan.h`, `zero_rt/core/asan.c`, `zero_rt/jit/asan_host.c`)**:
+  - Implemented 8:1 direct shadow byte memory mapping (`(addr >> 3) + __asan_shadow_offset`).
+  - Pre-allocated 512 MB shadow memory mapping covering user addresses.
+  - Stack redzone byte tags (0xF1: stack left redzone, 0xF3: stack right redzone, 0x00: unpoisoned, 1..7: k-byte partial).
+  - Runtime API: `__asan_init`, `__asan_poison_stack_var`, `__asan_unpoison_stack_frame`, `__asan_report_error`, `__asan_check_memory_access`.
+  - Structured error diagnostic report printing faulting memory address, access size, access type (read/write), instruction pointer, and shadow memory state inspection.
+  - Dual runtime implementations: host JIT twin in `zero_rt/jit/asan_host.c` using raw syscalls/`write(2)` and target freestanding/AOT twin in `zero_rt/core/asan.c`.
+- **IR & Codegen Instrumentation (`ast_lowering_mc.c`, `asm_emitter.c`, `ast_lowering.c`)**:
+  - Added `OP_ASAN_CHECK` opcode in `src/zero_cc/ir/ir.h` and `src/zero_cc/ir/ir.c`.
+  - Lowered checks for array subscripts, pointer dereferences, and assignment store targets.
+  - Side-effect classification in `opt_dce.c`, `opt_adce.c`, `opt_loop_delete.c`, `opt_loop.c`, `opt_loop_unroll.c` to protect checks against dead-code elimination at `-O2`/`-O3`.
+  - Machine code emitter (`ast_lowering_mc.c`):
+    - Emits inline shadow memory validation using dedicated scratch registers (`%r10`, `%r11`), preserving all caller-saved registers during loop execution.
+    - Encodes 64-bit load with REX.W/R/X/B prefix (`movzbq (%r10, %r11), %r10`).
+    - Handles JIT mode (direct host pointer) and AOT mode (`R_X86_64_64` relocation against `__asan_shadow_offset`).
+    - Sets up diagnostic arguments and invokes `__asan_report_error` before executing fatal exit/trap on violation.
+  - Epilogue stack unpoisoning (`ast_lowering.c`):
+    - Enforces frame-pointer preservation (`omit_wanted = false`).
+    - Emits entry poisoning for stack buffer/array/struct variables with 32-byte redzone padding.
+    - Emits inline unpoisoning loop in machine code and text assembly before function epilogue return.
+- **Verification (`tools/verify/asan_tests.py`, `Makefile`)**:
+  - Added `make test-target-asan` target.
+  - Comprehensive battery (`tools/verify/asan_tests.py`) testing clean buffer execution and out-of-bounds overflow trapping across `-O0..-O3` in both JIT and AOT modes (16/16 tests passing). Style check: 0 errors, 0 warnings.
+
+
 ## [Sprint 255] - 2026-11-26 - Mach-O 64-bit Multi-TU Native Object Linking Parity (`MH_OBJECT` Linking & Relocation Resolution)
 
 - **Mach-O 64-bit Object Reader (`macho_reader.h`, `macho_reader.c`)**:

@@ -76,7 +76,7 @@ static int lu_has_side_effect(uint16_t op) {
         case OP_VSTORESS_RAW: case OP_STORE128:
         case OP_ATOMIC_XADD: case OP_ATOMIC_CMPXCHG: case OP_ATOMIC_CMPXCHG_BOOL:
         case OP_ATOMIC_XCHG: case OP_ATOMIC_OR: case OP_ATOMIC_AND: case OP_ATOMIC_XOR:
-        case OP_MFENCE: case OP_TRAP: case OP_OVF_TRAP:
+        case OP_MFENCE: case OP_TRAP: case OP_OVF_TRAP: case OP_ASAN_CHECK:
         case OP_CALL: case OP_CALL_INDIRECT: case OP_SYSCALL: case OP_CLONE:
         case OP_ASM: case OP_VLA_ALLOC:
         case OP_PROLOGUE: case OP_EPILOGUE:

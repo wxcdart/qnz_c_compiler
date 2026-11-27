@@ -162,6 +162,7 @@ static int instr_has_side_effects(Instr *instr) {
         case OP_ATOMIC_XCHG:
         case OP_MFENCE:
         case OP_TRAP:
+        case OP_ASAN_CHECK:
         case OP_ASM:  /* Sprint 135: the template executes unconditionally */
         case OP_ASM_ARG:   /* Sprint 154: payload pseudo-instruction (travels
                             * with its OP_ASM anchor, never deleted alone) */

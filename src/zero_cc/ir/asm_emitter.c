@@ -306,6 +306,37 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             return;
         }
 
+        case OP_ASAN_CHECK: {
+            const char *reg = BE(c)->get_hw_reg_name(phys_src1);
+            int size = (int)instr->imm;
+            int is_write = (int)instr->imm64;
+            uint32_t check_id = c->asm_san_check_seq++;
+            if (c->isa == ISA_X86_64) {
+                fprintf(out, "\t# AddressSanitizer memory access check\n");
+                fprintf(out, "\tmovq\t%%%s, %%r11\n", reg);
+                fprintf(out, "\tshrq\t$3, %%r11\n");
+                fprintf(out, "\tmovq\t__asan_shadow_offset(%%rip), %%r10\n");
+                fprintf(out, "\tmovzbq\t(%%r10, %%r11), %%r10\n");
+                fprintf(out, "\ttestq\t%%r10, %%r10\n");
+                fprintf(out, "\tjz\t.Lasan_ok_%u\n", check_id);
+                fprintf(out, "\tcmpq\t$7, %%r10\n");
+                fprintf(out, "\tja\t.Lasan_fail_%u\n", check_id);
+                fprintf(out, "\tmovq\t%%%s, %%r11\n", reg);
+                fprintf(out, "\tandq\t$7, %%r11\n");
+                fprintf(out, "\taddq\t$%d, %%r11\n", size);
+                fprintf(out, "\tcmpq\t%%r10, %%r11\n");
+                fprintf(out, "\tjbe\t.Lasan_ok_%u\n", check_id);
+                fprintf(out, ".Lasan_fail_%u:\n", check_id);
+                fprintf(out, "\tmovq\t%%%s, %%rdi\n", reg);
+                fprintf(out, "\tmovq\t$%d, %%rsi\n", size);
+                fprintf(out, "\tmovl\t$%d, %%edx\n", is_write);
+                fprintf(out, "\tmovl\t%%r10d, %%ecx\n");
+                fprintf(out, "\tcall\t__asan_report_error\n");
+                fprintf(out, ".Lasan_ok_%u:\n", check_id);
+            }
+            return;
+        }
+
         case OP_MUL:
             if (BE(c)->emit_mul_asm) {
                 BE(c)->emit_mul_asm(c, phys_dst, phys_src1, phys_src2, out);
@@ -2676,6 +2707,23 @@ void emit_ir_to_asm(ZeroCCCompiler *c, int32_t spill_base_offset) {
     }
 
     /* Emit epilogue */
+    if (c->sanitize_address && c->current_stack_frame > 0 && c->isa == ISA_X86_64) {
+        FILE *out = c->asm_out ? c->asm_out : stdout;
+        size_t fsize = (size_t)c->current_stack_frame;
+        uint32_t unp_id = c->asm_san_check_seq++;
+        fprintf(out, "\t# AddressSanitizer unpoison stack frame\n");
+        fprintf(out, "\tmovq\t%%rbp, %%r11\n");
+        fprintf(out, "\tsubq\t$%zu, %%r11\n", fsize);
+        fprintf(out, "\tshrq\t$3, %%r11\n");
+        fprintf(out, "\tmovq\t__asan_shadow_offset(%%rip), %%r10\n");
+        fprintf(out, "\taddq\t%%r10, %%r11\n");
+        fprintf(out, "\tmovq\t$%zu, %%r10\n", (fsize + 7) / 8);
+        fprintf(out, ".Lasan_unp_%u:\n", unp_id);
+        fprintf(out, "\tmovb\t$0, (%%r11)\n");
+        fprintf(out, "\tincq\t%%r11\n");
+        fprintf(out, "\tdecq\t%%r10\n");
+        fprintf(out, "\tjnz\t.Lasan_unp_%u\n", unp_id);
+    }
     if (c->lowering.has_stack_protector && BE(c)->emit_stack_guard_check_asm) {
         FILE *out = c->asm_out ? c->asm_out : stdout;
         BE(c)->emit_stack_guard_check_asm(c, c->lowering.canary_stack_off, out);

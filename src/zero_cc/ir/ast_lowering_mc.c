@@ -845,6 +845,84 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 break;
             }
 
+            case OP_ASAN_CHECK: {
+                int phys = phys_src1;
+                int size = (int)instr->imm;
+                int is_write = (int)instr->imm64;
+                if (c->isa == ISA_X86_64) {
+                    uint8_t rex_mov = 0x49 | ((phys >= 8) ? 0x04 : 0);
+                    /* mov %phys, %r11 */
+                    me_emit_u8(c, rex_mov);
+                    me_emit_u8(c, 0x89);
+                    me_emit_u8(c, 0xC0 | ((phys & 7) << 3) | 3);
+                    /* shrq $3, %r11 */
+                    me_emit_u8(c, 0x49); me_emit_u8(c, 0xC1); me_emit_u8(c, 0xEB); me_emit_u8(c, 0x03);
+                    /* movabsq $&__asan_shadow_offset, %r10 */
+                    me_emit_u8(c, 0x49); me_emit_u8(c, 0xBA);
+                    if (c->jit_mode) {
+                        extern uintptr_t __asan_shadow_offset;
+                        uintptr_t s_off_addr = (uintptr_t)&__asan_shadow_offset;
+                        zero_cc_emit_u64(&c->text_section, s_off_addr);
+                    } else {
+                        zero_cc_emit_u64(&c->text_section, 0);
+                        if (c->reloc_count < ZERO_CC_MAX_RELOCS) {
+                            ZeroCCReloc *r = &c->relocs[c->reloc_count++];
+                            r->text_patch_offset = c->text_section.length - 8;
+                            snprintf(r->target_symbol, sizeof(r->target_symbol), "__asan_shadow_offset");
+                            r->is_call = false;
+                            r->is_abs_call = false;
+                            r->is_tls = false;
+                        }
+                    }
+                    /* movq (%r10), %r10 */
+                    me_emit_u8(c, 0x4D); me_emit_u8(c, 0x8B); me_emit_u8(c, 0x12);
+                    /* movzbq (%r10, %r11), %r10 */
+                    me_emit_u8(c, 0x4F); me_emit_u8(c, 0x0F); me_emit_u8(c, 0xB6); me_emit_u8(c, 0x14); me_emit_u8(c, 0x1A);
+                    /* testq %r10, %r10 */
+                    me_emit_u8(c, 0x4D); me_emit_u8(c, 0x85); me_emit_u8(c, 0xD2);
+                    /* jz .ok */
+                    size_t jz_patch = c->text_section.length;
+                    me_emit_u8(c, 0x74); me_emit_u8(c, 0x00);
+                    /* cmpq $7, %r10 */
+                    me_emit_u8(c, 0x49); me_emit_u8(c, 0x83); me_emit_u8(c, 0xFA); me_emit_u8(c, 0x07);
+                    /* ja .fail */
+                    size_t ja_patch = c->text_section.length;
+                    me_emit_u8(c, 0x77); me_emit_u8(c, 0x00);
+                    /* mov %phys, %r11 */
+                    me_emit_u8(c, rex_mov); me_emit_u8(c, 0x89); me_emit_u8(c, 0xC0 | ((phys & 7) << 3) | 3);
+                    /* andq $7, %r11 */
+                    me_emit_u8(c, 0x49); me_emit_u8(c, 0x83); me_emit_u8(c, 0xE3); me_emit_u8(c, 0x07);
+                    /* addq $size, %r11 */
+                    me_emit_u8(c, 0x49); me_emit_u8(c, 0x83); me_emit_u8(c, 0xC3); me_emit_u8(c, (uint8_t)size);
+                    /* cmpq %r10, %r11 */
+                    me_emit_u8(c, 0x4D); me_emit_u8(c, 0x39); me_emit_u8(c, 0xD3);
+                    /* jbe .ok */
+                    size_t jbe_patch = c->text_section.length;
+                    me_emit_u8(c, 0x76); me_emit_u8(c, 0x00);
+
+                    /* .fail: call __asan_report_error(addr, size, is_write, poison) */
+                    size_t fail_loc = c->text_section.length;
+                    c->text_section.data[ja_patch + 1] = (uint8_t)(fail_loc - (ja_patch + 2));
+                    /* mov %phys, %rdi */
+                    uint8_t rex_rdi = 0x48 | ((phys >= 8) ? 0x04 : 0);
+                    me_emit_u8(c, rex_rdi); me_emit_u8(c, 0x89); me_emit_u8(c, 0xC0 | ((phys & 7) << 3) | 7);
+                    /* mov $size, %esi */
+                    me_emit_u8(c, 0xBE); me_emit_u32(c, (uint32_t)size);
+                    /* mov $is_write, %edx */
+                    me_emit_u8(c, 0xBA); me_emit_u32(c, (uint32_t)is_write);
+                    /* mov %r10, %rcx */
+                    me_emit_u8(c, 0x4C); me_emit_u8(c, 0x89); me_emit_u8(c, 0xD1);
+                    BE(c)->emit_call(c, "__asan_report_error");
+                    me_emit_u8(c, 0x0F); me_emit_u8(c, 0x0B); /* ud2 */
+
+                    /* .ok: */
+                    size_t ok_loc = c->text_section.length;
+                    c->text_section.data[jz_patch + 1] = (uint8_t)(ok_loc - (jz_patch + 2));
+                    c->text_section.data[jbe_patch + 1] = (uint8_t)(ok_loc - (jbe_patch + 2));
+                }
+                break;
+            }
+
             case OP_NEG:
                 if (BE(c)->emit_neg) {
                     BE(c)->emit_neg(c, phys_dst, phys_src1);

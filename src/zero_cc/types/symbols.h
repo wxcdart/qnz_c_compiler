@@ -336,6 +336,7 @@ typedef struct ZeroCCCompiler {
      * emit pass - indexes the lowering ir_ctx per-call tables
      * (call_fp_spills / call_range_*) that the call emitters read. */
     int asm_call_seq;
+    uint32_t asm_san_check_seq;
 
     /* CFG layer cache (Sprint 35 Phase 2): lazily built view over the IR,
      * invalidated whenever cfg_version is bumped (ir_reset, optimizer
@@ -365,6 +366,7 @@ typedef struct ZeroCCCompiler {
     char no_builtin_names[16][32];
     int sanitize_overflow;        /* -fsanitize=undefined: emit OP_OVF_TRAP after signed add/sub/mul */
     int sanitize_report;          /* -fsanitize-trap: report (UBSan-style) before each zero_san trap */
+    int sanitize_address;         /* -fsanitize=address: target AddressSanitizer */
     int stack_protector;          /* -fstack-protector[-all|-strong]: 0=off, 1=basic, 2=all, 3=strong */
     int profile_generate;         /* -fprofile-generate: instrument execution profile */
     int profile_use;              /* -fprofile-use: guide optimizations with profile */

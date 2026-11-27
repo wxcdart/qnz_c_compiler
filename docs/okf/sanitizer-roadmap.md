@@ -4,7 +4,7 @@ title: Target-Side Sanitizer (zero_san) Design & Roadmap
 description: Analysis and phased roadmap for an optional, parked target-side safety-check feature (zero_san) — a codegen-first UBSan-lite signed-overflow check, with bounds, leaks, and ASan/LSan scoped out and justified.
 resource: sanitizer/roadmap
 tags: [sanitizer, zero_san, codegen, ubsan, overflow, bounds, asan, lsan, leak, roadmap, design, safety]
-timestamp: 2026-11-13T05:32:40Z
+timestamp: 2026-11-27T06:46:52Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -449,6 +449,35 @@ Sprint 174 implements Phase 4 of [rv32-i64-roadmap.md](./rv32-i64-roadmap.md): e
   all register allocations across the check. Spill reloads properly restore high halves into `t0`/`t1`/`t3`.
 - **Gate:** `CROSS_WIDE_ISAS` in `tools/verify/san_sweep.py` extended with `"riscv32"`. `san_trap_cross_wide.c`
   traps with SIGILL (rc 132 / -4) across all optimization levels (`-O0..-O3`) in both raw and text paths under QEMU.
+
+### 4j. Sprint 256 — Target AddressSanitizer (ASan) Shadow Memory & Redzones (`-fsanitize=address`)
+
+Sprint 256 implements target-side AddressSanitizer (`-fsanitize=address`) for x86-64 in both JIT (`--run`) and AOT (`-S`, `-c`, `-o`) modes, bringing compiler-instrumented memory safety checks and stack redzones.
+
+- **Driver & Options (`driver_opts.h`, `symbols.h`, `main.c`)**:
+  - Flags: `-fsanitize=address` and `-fno-sanitize=address`.
+  - Configures `comp->sanitize_address` in both JIT and AOT instances.
+- **Shadow Memory Architecture (`zero_rt/core/asan.h`, `zero_rt/core/asan.c`, `zero_rt/jit/asan_host.c`)**:
+  - Direct 8-to-1 byte scale mapping: `shadow_addr = (addr >> 3) + __asan_shadow_offset`.
+  - 0: 8 unpoisoned bytes. 1..7: k unpoisoned bytes followed by redzone. Negative/0xF1..0xFF: poisoned redzones (stack left redzone 0xF1, stack right redzone 0xF3, freed heap 0xFD).
+  - Pre-allocated 512 MB shadow memory mapping covering user addresses.
+  - Runtime shims: `__asan_init()`, `__asan_poison_stack_var(addr, size, redzone_size)`, `__asan_unpoison_stack_frame(addr, total_size)`, `__asan_report_error(addr, size, is_write, ip)`, `__asan_check_memory_access(addr, size, is_write)`.
+  - Host runtime twin for JIT (`zero_rt/jit/asan_host.c`) and freestanding/AOT twin (`zero_rt/core/asan.c`).
+- **IR & Codegen Instrumentation (`ast_lowering_mc.c`, `asm_emitter.c`, `ast_lowering.c`)**:
+  - New opcode `OP_ASAN_CHECK` (`src/zero_cc/ir/ir.h`, `ir.c`) emitted for array indexing, pointer dereferences, and stores.
+  - Optimizer preservation: classified as having side-effects in `opt_dce.c`, `opt_adce.c`, `opt_loop_delete.c`, `opt_loop.c`, and `opt_loop_unroll.c` to prevent check elimination at `-O2`/`-O3`.
+  - Machine code lowering (`ast_lowering_mc.c`):
+    - Dedicated scratch register model using only `%r10` and `%r11` (preserves all caller-saved registers during loop execution).
+    - Checks `addr >> 3 + shadow_offset`; if non-zero, checks sub-byte remainder `(addr & 7) + size > shadow_byte`.
+    - Supports JIT direct host pointers and AOT relocations (`R_X86_64_64` against `__asan_shadow_offset`).
+    - Fatal path emits call to `__asan_report_error` followed by `ud2` / `_exit(1)`.
+  - Stack redzone layout & unpoisoning (`ast_lowering.c`):
+    - Enforces frame pointer allocation (`omit_wanted = false`).
+    - Padds stack buffers/arrays/structs with 32-byte redzones.
+    - Emits `__asan_poison_stack_var` at function entry.
+    - Emits inline machine code and assembly unpoisoning loops in the function epilogue before `leave`/`ret`.
+- **Verification (`tools/verify/asan_tests.py`, `Makefile`)**:
+  - Added `make test-target-asan` executing clean memory operations and buffer overflow trap tests across `-O0..-O3` in both JIT and AOT modes (16/16 green).
 
 ---
 

@@ -791,6 +791,7 @@ int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                         }
                     }
                 }
+                ir_emit_asan_check(c, (uint32_t)operand_temp, (uint32_t)(p_size ? p_size : 8), 0);
                 if (is_fp) {
                     if (p_size == 4) ir_emit_vloadss(c, (uint32_t)result_temp, (uint32_t)operand_temp);
                     else ir_emit_vloadsd(c, (uint32_t)result_temp, (uint32_t)operand_temp);

@@ -142,9 +142,18 @@ static inline ZeroCCSym* zero_cc_add_local(ZeroCCCompiler *c, const char *name, 
         type.is_vla = vla_chain; /* normalize: flag the outer type too */
     }
     if (type.is_vla) alloc_sz = 24; /* [0..7]=data ptr, [8..15]=saved SP, [16..23]=inner runtime stride */
+    bool add_rz = c->sanitize_address && (alloc_sz > 8 || type.tag == TYPE_ARRAY || type.tag == TYPE_STRUCT);
+    if (add_rz) {
+        c->current_stack_frame += 16; /* left redzone */
+        c->current_stack_frame = (c->current_stack_frame + (int32_t)alignment - 1) & ~((int32_t)alignment - 1);
+    }
     c->current_stack_frame += (int32_t)alloc_sz;
     c->current_stack_frame = (c->current_stack_frame + (int32_t)alignment - 1) & ~((int32_t)alignment - 1);
     sym->stack_offset = c->current_stack_frame;
+    if (add_rz) {
+        c->current_stack_frame += 16; /* right redzone */
+        c->current_stack_frame = (c->current_stack_frame + 15) & ~15;
+    }
     sym->is_param = false;
     sym->param_reg_idx = -1;
     sym->is_vla = type.is_vla;
@@ -385,6 +394,26 @@ static inline void* zero_cc_resolve_symbol(const char *name) {
     if (strcmp(name, "link_error") == 0) {
         extern void abort(void);
         return (void*)&abort;
+    }
+    if (strcmp(name, "__asan_init") == 0) {
+        extern void __asan_init(void);
+        return (void*)&__asan_init;
+    }
+    if (strcmp(name, "__asan_poison_stack_var") == 0) {
+        extern void __asan_poison_stack_var(void const volatile*, size_t, size_t);
+        return (void*)&__asan_poison_stack_var;
+    }
+    if (strcmp(name, "__asan_unpoison_stack_frame") == 0) {
+        extern void __asan_unpoison_stack_frame(void const volatile*, size_t);
+        return (void*)&__asan_unpoison_stack_frame;
+    }
+    if (strcmp(name, "__asan_report_error") == 0) {
+        extern void __asan_report_error(void*, size_t, int, int);
+        return (void*)&__asan_report_error;
+    }
+    if (strcmp(name, "__asan_check_memory_access") == 0) {
+        extern void __asan_check_memory_access(void const volatile*, size_t, int);
+        return (void*)&__asan_check_memory_access;
     }
     void *sym = dlsym(RTLD_DEFAULT, name);
     if (!sym) {

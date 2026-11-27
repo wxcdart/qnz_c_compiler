@@ -1574,6 +1574,7 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                 }
             }
 
+            ir_emit_asan_check(c, (uint32_t)addr_temp, (uint32_t)elem_size, 0);
             int result_temp = zc_alloc_temp(c);
             if (is_elem_float) {
                 if (elem_size == 4) {

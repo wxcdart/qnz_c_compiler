@@ -672,9 +672,9 @@ static void live_range_scan_ir(LiveRangeAnalyzer *lra, const Instr *instrs, size
             continue;
         }
 
-        /* OP_OVF_TRAP, OP_RVV_VSSE, OP_RVV_VSUXEI, and OP_V128_SCATTER only READ their operands (temp_dest is a value,
+        /* OP_OVF_TRAP, OP_ASAN_CHECK, OP_RVV_VSSE, OP_RVV_VSUXEI, and OP_V128_SCATTER only READ their operands (temp_dest is a value,
          * not a definition). Carry all present temps as uses. */
-        if (instr->op == OP_OVF_TRAP || instr->op == OP_RVV_VSSE || instr->op == OP_RVV_VSUXEI || instr->op == OP_V128_SCATTER) {
+        if (instr->op == OP_OVF_TRAP || instr->op == OP_ASAN_CHECK || instr->op == OP_RVV_VSSE || instr->op == OP_RVV_VSUXEI || instr->op == OP_V128_SCATTER) {
             if (instr->temp_dest != TEMP_NONE) {
                 live_range_add_use(lra, i, instr->temp_dest, false);
                 if (zc_temp_is_user(instr->temp_dest) && (size_t)instr->temp_dest < lra->temp_capacity) {

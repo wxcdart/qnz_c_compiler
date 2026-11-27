@@ -200,6 +200,20 @@ void ir_emit(ZeroCCCompiler *c, Instr instr) {
     }
 }
 
+void ir_emit_asan_check(ZeroCCCompiler *c, uint32_t addr_temp, uint32_t size, int is_write) {
+    if (!c || !c->sanitize_address) return;
+    ir_emit(c, (Instr){
+        .op = OP_ASAN_CHECK,
+        .temp_dest = TEMP_NONE,
+        .temp_src1 = addr_temp,
+        .temp_src2 = TEMP_NONE,
+        .imm = size,
+        .imm64 = is_write,
+        .label_idx = 0,
+        .width = (uint8_t)size
+    });
+}
+
 void ir_emit_label(ZeroCCCompiler *c, uint16_t label_idx) {
     Instr instr = {.op = OP_LABEL, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .cond = 0, .flags_out = 0xFF, .flags_in = 0xFF, .imm = 0, .imm64 = 0, .label_idx = label_idx};
     ir_emit(c, instr);
@@ -272,6 +286,8 @@ void ir_dump(const ZeroCCCompiler *c, FILE *f) {
                          break;
             case OP_OVF_TRAP: fprintf(f, "OVF_TRAP r%u [ovf=%d]", instr->temp_dest, (int)instr->imm);
                               break;
+            case OP_ASAN_CHECK: fprintf(f, "ASAN_CHECK r%u [sz=%u, write=%d]", instr->temp_src1, (unsigned)instr->imm, (int)instr->imm64);
+                                break;
             case OP_DIV: fprintf(f, "DIV r%u, r%u, r%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);
                          break;
             case OP_MOD: fprintf(f, "MOD r%u, r%u, r%u", instr->temp_dest, instr->temp_src1, instr->temp_src2);

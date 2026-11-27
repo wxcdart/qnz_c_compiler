@@ -842,6 +842,7 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                 }
             }
 
+            ir_emit_asan_check(c, (uint32_t)ptr_temp, (uint32_t)p_size, 1);
             ZeroCCASTNode *rhs_node = (node->right != AST_NULL) ? zero_cc_ast_get(arena, node->right) : NULL;
             int right_temp;
             if (p_size > 16 && rhs_node && rhs_node->tag == NODE_IDENT) {
@@ -1911,6 +1912,8 @@ int lower_expr_assign(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                     right_temp = op_res;
                 }
             }
+
+            ir_emit_asan_check(c, (uint32_t)addr_temp, (uint32_t)elem_size, 1);
 
             bool is_elem_float = false;
             if (elem_ti && type_is_floating(elem_ti)) {

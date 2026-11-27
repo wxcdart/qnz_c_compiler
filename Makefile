@@ -144,7 +144,7 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 
 .PHONY: all test clean golden_test test-unit test-semantic test-abi test-jit test-tap benchmark \
 	asan asan-unit asan-semantic asan-abi asan-jit \
-	test-asan test-asan-unit test-asan-semantic test-asan-abi test-asan-jit \
+	test-asan test-target-asan test-asan-unit test-asan-semantic test-asan-abi test-asan-jit \
 	test-project-diff test-project-runs \
 	test-isa-qemu test-isa128 test-dlfcn-isa test-driver test-linker test-lto test-pgo test-pe test-macho \
 	test-c23 test-asm test-opt test-san test-preproc test-fuzz test-perf \
@@ -311,6 +311,12 @@ $(JIT_SAN_OBJ): zero_rt/jit/san_report_host.c zero_rt/core/san_fmt.h $(ZC_CC)
 	@mkdir -p $(dir $@)
 	$(ZC_CC) $(CFLAGS) -c $< -o $@
 
+# Target AddressSanitizer host runtime for JIT --run (Sprint 256)
+JIT_ASAN_OBJ := $(BUILD_DIR)/obj/zero_rt/jit_asan.o
+$(JIT_ASAN_OBJ): zero_rt/jit/asan_host.c zero_rt/core/asan.h $(ZC_CC)
+	@mkdir -p $(dir $@)
+	$(ZC_CC) $(CFLAGS) -c $< -o $@
+
 # Sprint 153 (Host Runtime #11 Phase 1): pre-baked .symtab for zero_rt's
 # dlfcn. The generated file takes every symbol's address as a link-time
 # relocation, so it is always valid for the binary it is linked into.
@@ -341,21 +347,21 @@ $(EMBED_SYMS_OBJ): $(ZC_EMBED_SYMS) $(ZC_CC)
 	@mkdir -p $(dir $@)
 	$(ZC_CC) $(CFLAGS) -c $< -o $@
 
-$(ZC_BIN): $(MAIN_OBJ) $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ) $(JIT_SAN_OBJ) $(ZC_DLCFN_OBJ) $(ZC_DYNLINK_OBJ) $(ZC_COMPLEX_OBJ) $(EMBED_SYMS_OBJ) $(ZC_CC)
+$(ZC_BIN): $(MAIN_OBJ) $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ) $(JIT_SAN_OBJ) $(JIT_ASAN_OBJ) $(ZC_DLCFN_OBJ) $(ZC_DYNLINK_OBJ) $(ZC_COMPLEX_OBJ) $(EMBED_SYMS_OBJ) $(ZC_CC)
 	@mkdir -p $(dir $@)
-	$(ZC_CC) $(CFLAGS) $(ZC_MUSL_LINK) -o $@ $(MAIN_OBJ) $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ) $(JIT_SAN_OBJ) $(ZC_DLCFN_OBJ) $(ZC_DYNLINK_OBJ) $(ZC_COMPLEX_OBJ) $(EMBED_SYMS_OBJ) $(LDFLAGS)
+	$(ZC_CC) $(CFLAGS) $(ZC_MUSL_LINK) -o $@ $(MAIN_OBJ) $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ) $(JIT_SAN_OBJ) $(JIT_ASAN_OBJ) $(ZC_DLCFN_OBJ) $(ZC_DYNLINK_OBJ) $(ZC_COMPLEX_OBJ) $(EMBED_SYMS_OBJ) $(LDFLAGS)
 	@rc=0; python3 tools/toolchain/embed_symtab.py --bin $@ --out $(ZC_EMBED_SYMS) || rc=$$?; \
 	if [ $$rc -eq 3 ]; then \
 		echo "$(ZC_BIN): embedded symtab changed; relinking"; \
-		$(ZC_CC) $(CFLAGS) $(ZC_MUSL_LINK) -o $@ $(MAIN_OBJ) $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ) $(JIT_SAN_OBJ) $(ZC_DLCFN_OBJ) $(ZC_DYNLINK_OBJ) $(ZC_COMPLEX_OBJ) $(EMBED_SYMS_OBJ) $(LDFLAGS); \
+		$(ZC_CC) $(CFLAGS) $(ZC_MUSL_LINK) -o $@ $(MAIN_OBJ) $(ZEROCCLIB_OBJS) $(JIT_INT128_OBJ) $(JIT_SAN_OBJ) $(JIT_ASAN_OBJ) $(ZC_DLCFN_OBJ) $(ZC_DYNLINK_OBJ) $(ZC_COMPLEX_OBJ) $(EMBED_SYMS_OBJ) $(LDFLAGS); \
 	fi
 
 .PHONY: zerocc
 zerocc: $(ZC_BIN)
 
-$(TEST_BIN_DIR)/%: test/%.c $(ZC_CC) $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS) $(ZC_DLCFN_OBJ) $(ZC_DYNLINK_OBJ) $(ZC_COMPLEX_OBJ)
+$(TEST_BIN_DIR)/%: test/%.c $(ZC_CC) $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS) $(ZC_DLCFN_OBJ) $(ZC_DYNLINK_OBJ) $(ZC_COMPLEX_OBJ) $(JIT_INT128_OBJ) $(JIT_SAN_OBJ) $(JIT_ASAN_OBJ)
 	@mkdir -p $(dir $@)
-	$(ZC_CC) $(CFLAGS) $(ZC_MUSL_LINK) $< $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS) $(ZC_DLCFN_OBJ) $(ZC_DYNLINK_OBJ) $(ZC_COMPLEX_OBJ) $(LDFLAGS) -o $@
+	$(ZC_CC) $(CFLAGS) $(ZC_MUSL_LINK) $< $(TLS_OBJ) $(LEXER_OBJ) $(PARSER_OBJ) $(EXTRA_OBJS) $(ZC_DLCFN_OBJ) $(ZC_DYNLINK_OBJ) $(ZC_COMPLEX_OBJ) $(JIT_INT128_OBJ) $(JIT_SAN_OBJ) $(JIT_ASAN_OBJ) $(LDFLAGS) -o $@
 
 test: all
 	@python3 tools/verify/test_runner.py
@@ -374,6 +380,11 @@ test-opt: $(ZC_BIN)
 # qemu smoke (no x86 check bytes leak into aarch64/riscv binaries).
 test-san: $(ZC_BIN)
 	@python3 tools/verify/san_sweep.py
+
+# Target AddressSanitizer (-fsanitize=address) regression battery (Sprint 256):
+# verifies shadow memory tracking, stack redzone padding, and overflow detection.
+test-target-asan: $(ZC_BIN)
+	@python3 tools/verify/asan_tests.py
 
 # Multi-file driver tests (T1): run build/bin/zerocc on multiple .c inputs
 # (JIT --run, AOT -o, per-input -c/-S, duplicate-def / missing-main errors).
@@ -555,7 +566,8 @@ ZERO_RT_OBJS = $(BUILD_DIR)/obj/zero_rt/os.o \
                $(BUILD_DIR)/obj/zero_rt/d2s.o $(BUILD_DIR)/obj/zero_rt/d2fixed.o \
                $(BUILD_DIR)/obj/zero_rt/int128.o $(BUILD_DIR)/obj/zero_rt/errno.o \
                $(BUILD_DIR)/obj/zero_rt/complex.o $(BUILD_DIR)/obj/zero_rt/thread.o \
-               $(BUILD_DIR)/obj/zero_rt/san.o $(BUILD_DIR)/obj/zero_rt/dynlink.o \
+               $(BUILD_DIR)/obj/zero_rt/san.o $(BUILD_DIR)/obj/zero_rt/asan.o \
+               $(BUILD_DIR)/obj/zero_rt/dynlink.o \
                $(BUILD_DIR)/obj/zero_rt/dlfcn.o
 $(BUILD_DIR)/lib/zero_rt.a: $(ZERO_RT_OBJS) $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
@@ -594,6 +606,9 @@ $(BUILD_DIR)/obj/zero_rt/thread.o: zero_rt/core/thread.c zero_rt/rt_os.h $(BUILD
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc -c $< $(ZERO_RT_CFLAGS) -o $@
 $(BUILD_DIR)/obj/zero_rt/san.o: zero_rt/core/san_report.c zero_rt/core/san_fmt.h $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc -c $< $(ZERO_RT_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt/asan.o: zero_rt/core/asan.c zero_rt/core/asan.h zero_rt/core/san_fmt.h zero_rt/rt_os.h $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc -c $< $(ZERO_RT_CFLAGS) -o $@
 $(BUILD_DIR)/obj/zero_rt/dynlink.o: zero_rt/dlfcn/dynlink.c zero_rt/dlfcn/dynlink.h $(BUILD_DIR)/bin/zerocc

@@ -563,6 +563,7 @@ typedef enum {
     OP_SVE_SMAXV,      /* sve signed max reduction */
     OP_SVE_FMINV,      /* sve float min reduction */
     OP_SVE_FMAXV,      /* sve float max reduction */
+    OP_ASAN_CHECK,     /* target-side AddressSanitizer memory access check */
 } Opcode;
 
 #define OP_SVE_UADDV OP_SVE_ADDV
@@ -907,6 +908,7 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_SVE_SMAXV: return "SVE_SMAXV";
         case OP_SVE_FMINV: return "SVE_FMINV";
         case OP_SVE_FMAXV: return "SVE_FMAXV";
+        case OP_ASAN_CHECK: return "ASAN_CHECK";
         default: return "UNKNOWN";
     }
 }
@@ -1224,7 +1226,7 @@ static inline int zc_op_can_define_narrow_int(uint16_t op) {
 static inline int zc_mark_extend(const Instr *instr, int *w_out, int *sign_out) {
     if (!instr || instr->temp_dest == TEMP_NONE) return 0;
     if (instr->width == 0) return 0;
-    if (instr->op == OP_OVF_TRAP || instr->op == OP_CALL ||
+    if (instr->op == OP_OVF_TRAP || instr->op == OP_ASAN_CHECK || instr->op == OP_CALL ||
         instr->op == OP_SYSCALL || instr->op == OP_CLONE ||
         instr->op == OP_CALL_ARG || instr->op == OP_ASM ||
         instr->op == OP_ASM_ARG || instr->op == OP_ASM_LABEL) {
@@ -1390,6 +1392,9 @@ static inline void ir_emit_prologue(ZeroCCCompiler *c, int64_t frame_size) {
 static inline void ir_emit_epilogue(ZeroCCCompiler *c) {
     ir_emit(c, (Instr){.op = OP_EPILOGUE, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = 0, .label_idx = 0});
 }
+
+/* Emit AddressSanitizer memory access check */
+void ir_emit_asan_check(ZeroCCCompiler *c, uint32_t addr_temp, uint32_t size, int is_write);
 
 static inline void ir_emit_param_save_int(ZeroCCCompiler *c, int reg_idx, int32_t offset) {
     ir_emit(c, (Instr){.op = OP_PARAM_SAVE_INT, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = (int16_t)reg_idx, .imm64 = (int64_t)offset, .label_idx = 0});

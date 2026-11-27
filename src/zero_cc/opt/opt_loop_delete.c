@@ -25,7 +25,7 @@ static bool loop_delete_has_external_side_effect(uint16_t op) {
         case OP_ASM: case OP_VLA_ALLOC:
         case OP_PROLOGUE: case OP_EPILOGUE: case OP_RET:
         case OP_SETJMP: case OP_LONGJMP: case OP_NONLOCAL_GOTO:
-        case OP_TRAP: case OP_OVF_TRAP: case OP_MFENCE:
+        case OP_TRAP: case OP_OVF_TRAP: case OP_ASAN_CHECK: case OP_MFENCE:
         case OP_ATOMIC_XADD: case OP_ATOMIC_CMPXCHG: case OP_ATOMIC_CMPXCHG_BOOL:
         case OP_ATOMIC_XCHG: case OP_ATOMIC_OR: case OP_ATOMIC_AND: case OP_ATOMIC_XOR:
         case OP_STORE_BYTE: case OP_STORE_16: case OP_STORE_32: case OP_STORE_64:

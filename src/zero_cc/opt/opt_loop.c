@@ -361,6 +361,7 @@ static bool instr_has_moving_side_effects(Instr *instr) {
         case OP_ATOMIC_XCHG:
         case OP_MFENCE:
         case OP_TRAP:
+        case OP_ASAN_CHECK:
         case OP_ASM:  /* Sprint 135: template may touch anything */
         case OP_LABEL:
         case OP_JMP:

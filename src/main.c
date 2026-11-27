@@ -376,6 +376,7 @@ static ZeroCCCompiler *jit_compile_tu(CompileOptions *opts, const char *input, i
     }
     comp->sanitize_overflow = opts->sanitize_overflow != 0;
     comp->sanitize_report = opts->sanitize_report != 0;
+    comp->sanitize_address = opts->sanitize_address != 0;
     comp->stack_protector = opts->stack_protector;
     comp->std_dialect = opts->std_dialect;
     comp->debug_info = opts->debug_info;
@@ -455,6 +456,7 @@ static ZeroCCCompiler *lto_compile_tu_phase1(CompileOptions *opts, const char *s
     }
     comp->sanitize_overflow = opts->sanitize_overflow != 0;
     comp->sanitize_report = opts->sanitize_report != 0;
+    comp->sanitize_address = opts->sanitize_address != 0;
     comp->stack_protector = opts->stack_protector;
     comp->std_dialect = opts->std_dialect;
     comp->debug_info = opts->debug_info;
@@ -876,6 +878,7 @@ static int compile_object_single(CompileOptions *opts, const char *input,
     }
     comp->sanitize_overflow = opts->sanitize_overflow != 0;
     comp->sanitize_report = opts->sanitize_report != 0;
+    comp->sanitize_address = opts->sanitize_address != 0;
     comp->stack_protector = opts->stack_protector;
     comp->std_dialect = opts->std_dialect;
     comp->debug_info = opts->debug_info;

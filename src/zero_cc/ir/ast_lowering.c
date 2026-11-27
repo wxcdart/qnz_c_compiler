@@ -1118,6 +1118,34 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         zc_pgo_emit_hit(c, lowering_fn->name, 0);
     }
 
+    /* AddressSanitizer: poison stack variable redzones at function entry */
+    if (c->sanitize_address) {
+        for (size_t li = 0; li < c->local_count; li++) {
+            ZeroCCSym *sym = &c->locals[li];
+            if (!sym->is_param && !sym->is_extern && !sym->is_static_local && sym->stack_offset > 0) {
+                size_t sz = sym->type.size;
+                if (sz > 8 || sym->type.tag == TYPE_ARRAY || sym->type.tag == TYPE_STRUCT) {
+                    int t_addr = zc_alloc_temp(c);
+                    int t_sz = zc_alloc_temp(c);
+                    int t_rz = zc_alloc_temp(c);
+                    ir_emit_lea(c, t_addr, BE(c)->fp_reg, -sym->stack_offset);
+                    ir_emit_mov_imm(c, t_sz, (int64_t)sz);
+                    ir_emit_mov_imm(c, t_rz, 16);
+                    ir_emit(c, (Instr){
+                        .op = OP_CALL,
+                        .temp_dest = 3,
+                        .temp_src1 = (uint32_t)t_addr,
+                        .temp_src2 = (uint32_t)t_sz,
+                        .imm = IR_CALL_ARG01_REG,
+                        .imm64 = (int64_t)(intptr_t)"__asan_poison_stack_var",
+                        .label_idx = 0
+                    });
+                    ir_emit_call_arg(c, (uint32_t)t_rz, 0, 255);
+                }
+            }
+        }
+    }
+
     /* Lower AST to IR (instruction selection) */
     lower_node(c, arena, root);
     /* C99 5.1.2.2.3p1: reaching the '}' that terminates main returns 0.
@@ -1438,11 +1466,14 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
             ir_buf[i].op == OP_VLA_ALLOC || ir_buf[i].op == OP_SYSCALL ||
             ir_buf[i].op == OP_CLONE ||
             ir_buf[i].op == OP_SETJMP || ir_buf[i].op == OP_LONGJMP ||
+            ir_buf[i].op == OP_ASAN_CHECK ||
             (ir_buf[i].op == OP_OVF_TRAP && c->sanitize_report)) {
             is_leaf = false;
             break;
         }
     }
+
+    if (c->sanitize_address) is_leaf = false;
 
     /* Option 1: Leaf functions with no stack needs are frameless */
     c->lowering.is_frameless = (!c->lowering.has_stack_protector &&
@@ -1484,8 +1515,8 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     c->lowering.omit_frame_pointer = false;
     c->lowering.frame_delta = 0;
     {
-        bool omit_wanted = c->omit_frame_pointer == 1 ||
-                           (c->omit_frame_pointer < 0 && c->opt_level >= OPT_LEVEL_O1 && !c->debug_info);
+        bool omit_wanted = (c->omit_frame_pointer == 1 ||
+                           (c->omit_frame_pointer < 0 && c->opt_level >= OPT_LEVEL_O1 && !c->debug_info)) && !c->sanitize_address;
         /* Disable frame pointer omission for variadic functions:
          * va_start offset computation assumes a stable frame pointer. */
         bool is_variadic_fn = (lowering_fn != NULL) && lowering_fn->is_variadic;
@@ -1571,6 +1602,78 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     /* Callee-saved register loads are now handled by OP_CALLEE_SAVE_LOADS IR instruction */
 
     /* Emit epilogue */
+    if (c->sanitize_address && alloc_frame_size > 0 && c->isa == ISA_X86_64) {
+        /* AddressSanitizer: unpoison stack frame before leave */
+        size_t fsize = alloc_frame_size;
+        if (c->emit_asm) {
+            FILE *out = c->asm_out ? c->asm_out : stdout;
+            uint32_t seq = c->asm_san_check_seq++;
+            fprintf(out, "\t# AddressSanitizer: unpoison stack frame\n");
+            fprintf(out, "\tmovq\t%%rbp, %%r11\n");
+            fprintf(out, "\tsubq\t$%zu, %%r11\n", fsize);
+            fprintf(out, "\tshrq\t$3, %%r11\n");
+            fprintf(out, "\tmovq\t__asan_shadow_offset(%%rip), %%r10\n");
+            fprintf(out, "\taddq\t%%r10, %%r11\n");
+            fprintf(out, "\tmovq\t$%zu, %%r10\n", (fsize + 7) / 8);
+            fprintf(out, ".Lasan_unp_%u:\n", seq);
+            fprintf(out, "\tmovb\t$0, (%%r11)\n");
+            fprintf(out, "\tincq\t%%r11\n");
+            fprintf(out, "\tdecq\t%%r10\n");
+            fprintf(out, "\tjnz\t.Lasan_unp_%u\n", seq);
+        } else {
+            zero_cc_emit_u8(&c->text_section, 0x49);
+            zero_cc_emit_u8(&c->text_section, 0x89);
+            zero_cc_emit_u8(&c->text_section, 0xEB); /* movq %rbp, %r11 */
+            zero_cc_emit_u8(&c->text_section, 0x49);
+            zero_cc_emit_u8(&c->text_section, 0x81);
+            zero_cc_emit_u8(&c->text_section, 0xEB);
+            zero_cc_emit_u32(&c->text_section, (uint32_t)fsize); /* subq $fsize, %r11 */
+            zero_cc_emit_u8(&c->text_section, 0x49);
+            zero_cc_emit_u8(&c->text_section, 0xC1);
+            zero_cc_emit_u8(&c->text_section, 0xEB);
+            zero_cc_emit_u8(&c->text_section, 0x03); /* shrq $3, %r11 */
+            zero_cc_emit_u8(&c->text_section, 0x49);
+            zero_cc_emit_u8(&c->text_section, 0xBA);
+            if (c->jit_mode) {
+                extern uintptr_t __asan_shadow_offset;
+                uintptr_t s_off_addr = (uintptr_t)&__asan_shadow_offset;
+                zero_cc_emit_u64(&c->text_section, s_off_addr); /* movabsq $&s_off, %r10 */
+            } else {
+                zero_cc_emit_u64(&c->text_section, 0);
+                if (c->reloc_count < ZERO_CC_MAX_RELOCS) {
+                    ZeroCCReloc *r = &c->relocs[c->reloc_count++];
+                    r->text_patch_offset = c->text_section.length - 8;
+                    snprintf(r->target_symbol, sizeof(r->target_symbol), "__asan_shadow_offset");
+                    r->is_call = false;
+                    r->is_abs_call = false;
+                    r->is_tls = false;
+                }
+            }
+            zero_cc_emit_u8(&c->text_section, 0x4D);
+            zero_cc_emit_u8(&c->text_section, 0x8B);
+            zero_cc_emit_u8(&c->text_section, 0x12); /* movq (%r10), %r10 */
+            zero_cc_emit_u8(&c->text_section, 0x4D);
+            zero_cc_emit_u8(&c->text_section, 0x01);
+            zero_cc_emit_u8(&c->text_section, 0xD3); /* addq %r10, %r11 */
+            zero_cc_emit_u8(&c->text_section, 0x49);
+            zero_cc_emit_u8(&c->text_section, 0xC7);
+            zero_cc_emit_u8(&c->text_section, 0xC2);
+            zero_cc_emit_u32(&c->text_section, (uint32_t)((fsize + 7) / 8)); /* movq $count, %r10 */
+            /* loop: */
+            zero_cc_emit_u8(&c->text_section, 0x41);
+            zero_cc_emit_u8(&c->text_section, 0xC6);
+            zero_cc_emit_u8(&c->text_section, 0x03);
+            zero_cc_emit_u8(&c->text_section, 0x00); /* movb $0, (%r11) */
+            zero_cc_emit_u8(&c->text_section, 0x49);
+            zero_cc_emit_u8(&c->text_section, 0xFF);
+            zero_cc_emit_u8(&c->text_section, 0xC3); /* incq %r11 */
+            zero_cc_emit_u8(&c->text_section, 0x49);
+            zero_cc_emit_u8(&c->text_section, 0xFF);
+            zero_cc_emit_u8(&c->text_section, 0xCA); /* decq %r10 */
+            zero_cc_emit_u8(&c->text_section, 0x75);
+            zero_cc_emit_u8(&c->text_section, 0xF4); /* jnz loop */
+        }
+    }
     if (!c->emit_asm && c->lowering.has_stack_protector && BE(c)->emit_stack_guard_check) {
         BE(c)->emit_stack_guard_check(c, c->lowering.canary_stack_off);
     }

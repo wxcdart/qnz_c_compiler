@@ -72,6 +72,7 @@ static bool instr_is_adce_root(Instr *instr) {
         case OP_ATOMIC_XCHG:
         case OP_MFENCE:
         case OP_TRAP:
+        case OP_ASAN_CHECK:
         case OP_SETJMP:
         case OP_LONGJMP:
         case OP_NONLOCAL_GOTO:
