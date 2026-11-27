@@ -16,21 +16,29 @@ int __asan_is_initialized = 0;
 void __asan_init(void) {
     if (__asan_is_initialized) return;
 
-    size_t shadow_sz = (size_t)64 * 1024 * 1024 * 1024ULL;
+#if defined(__LP64__) || defined(_LP64) || defined(__x86_64__) || defined(__aarch64__) || (defined(__riscv_xlen) && (__riscv_xlen == 64))
+    size_t shadow_sz = (size_t)16 * 1024 * 1024 * 1024 * 1024ULL; /* 16 TB virtual address space */
+#else
+    size_t shadow_sz = (size_t)512 * 1024 * 1024ULL; /* 512 MB for 32-bit address space */
+#endif
     #ifndef MAP_NORESERVE
     #define MAP_NORESERVE 0x4000
     #endif
     void *shadow_mem = mmap(NULL, shadow_sz, PROT_READ | PROT_WRITE,
                             MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
     if (shadow_mem == MAP_FAILED || shadow_mem == NULL) {
-        shadow_sz = 64 * 1024 * 1024;
+        shadow_sz = (size_t)2 * 1024 * 1024 * 1024 * 1024ULL; /* 2 TB fallback */
+        shadow_mem = mmap(NULL, shadow_sz, PROT_READ | PROT_WRITE,
+                          MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
+    }
+    if (shadow_mem == MAP_FAILED || shadow_mem == NULL) {
+        shadow_sz = 512 * 1024 * 1024;
         shadow_mem = mmap(NULL, shadow_sz, PROT_READ | PROT_WRITE,
                           MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     }
 
     if (shadow_mem != MAP_FAILED && shadow_mem != NULL) {
-        uintptr_t ref_stack = (uintptr_t)&ref_stack;
-        __asan_shadow_offset = (uintptr_t)shadow_mem + (shadow_sz / 2) - (ref_stack >> ASAN_SHADOW_SCALE);
+        __asan_shadow_offset = (uintptr_t)shadow_mem;
     }
     __asan_is_initialized = 1;
 }
@@ -102,6 +110,47 @@ void __asan_unpoison_stack_frame(void const volatile *frame_bottom, size_t frame
     }
 }
 
+void __asan_poison_global_var(void const volatile *addr, size_t size, size_t rz) {
+    if (!__asan_is_initialized) __asan_init();
+    uintptr_t a = (uintptr_t)addr;
+    /* Unpoison valid payload [a, a + size) */
+    uintptr_t end = a + size;
+    for (uintptr_t p = (a & ~7ULL); p < end; p += 8) {
+        uint8_t *s = (uint8_t *)((p >> ASAN_SHADOW_SCALE) + __asan_shadow_offset);
+        if (p + 8 <= end) {
+            *s = ASAN_VALID;
+        } else {
+            *s = (uint8_t)(end - p);
+        }
+    }
+    /* Poison right redzone [end, end + rz) with ASAN_GLOBAL_RZ */
+    uintptr_t rz_end = end + rz;
+    for (uintptr_t p = ((end + 7) & ~7ULL); p < rz_end; p += 8) {
+        uint8_t *s = (uint8_t *)((p >> ASAN_SHADOW_SCALE) + __asan_shadow_offset);
+        *s = ASAN_GLOBAL_RZ;
+    }
+}
+
+void __asan_register_globals(struct __asan_global const *globals, size_t n) {
+    if (!globals || n == 0) return;
+    for (size_t i = 0; i < n; i++) {
+        if (!globals[i].beg) continue;
+        size_t rz = globals[i].size_with_redzone > globals[i].size ?
+                    (globals[i].size_with_redzone - globals[i].size) : 32;
+        __asan_poison_global_var((void *)globals[i].beg, globals[i].size, rz);
+    }
+}
+
+void __asan_unregister_globals(struct __asan_global const *globals, size_t n) {
+    if (!globals || n == 0 || !__asan_is_initialized) return;
+    for (size_t i = 0; i < n; i++) {
+        if (!globals[i].beg) continue;
+        size_t total = globals[i].size_with_redzone > globals[i].size ?
+                       globals[i].size_with_redzone : (globals[i].size + 32);
+        __asan_unpoison_memory_region((void *)globals[i].beg, total);
+    }
+}
+
 void __asan_report_error(void *addr, size_t size, int is_write, int poison_val) {
     const char *desc = "buffer-overflow";
     if (poison_val == (int)(uint8_t)ASAN_STACK_LEFT_RZ) desc = "stack-buffer-underflow";
@@ -109,6 +158,7 @@ void __asan_report_error(void *addr, size_t size, int is_write, int poison_val) 
     else if (poison_val == (int)(uint8_t)ASAN_STACK_RIGHT_RZ) desc = "stack-buffer-overflow";
     else if (poison_val == (int)(uint8_t)ASAN_STACK_USE_AFTER_SCOPE) desc = "stack-use-after-scope";
     else if (poison_val == (int)(uint8_t)ASAN_HEAP_USE_AFTER_FREE) desc = "heap-use-after-free";
+    else if (poison_val == (int)(uint8_t)ASAN_GLOBAL_RZ) desc = "global-buffer-overflow";
     else if (poison_val > 0 && poison_val < 8) desc = "stack-buffer-overflow";
 
     char buf[512];

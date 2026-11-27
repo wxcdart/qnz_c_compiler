@@ -970,6 +970,54 @@ static void aarch64_emit_stack_guard_check(ZeroCCCompiler *c, int32_t slot_off) 
     aarch64_emit_call(c, "__stack_chk_fail");
 }
 
+static void aarch64_emit_asan_check(ZeroCCCompiler *c, int phys, int size, int is_write) {
+    /* 1. lsr x16, phys, #3 (UBFM x16, phys, #3, #63) */
+    arm64_emit_u32(c, 0xD343FC00u | ((uint32_t)(phys & 0x1F) << 5) | 16u);
+    /* 2. adrp x17, 0; add x17, x17, 0; reloc __asan_shadow_offset */
+    uint32_t adrp = 0x90000000u | 17u;
+    uint32_t add  = 0x91000000u | (17u << 5) | 17u;
+    arm64_emit_u32(c, adrp);
+    arm64_emit_u32(c, add);
+    if (c->reloc_count < ZERO_CC_MAX_RELOCS) {
+        ZeroCCReloc *r = &c->relocs[c->reloc_count++];
+        r->text_patch_offset = me_get_offset(c) - 4;
+        snprintf(r->target_symbol, sizeof(r->target_symbol), "__asan_shadow_offset");
+        r->is_call = false;
+        r->is_abs_call = false;
+        r->is_tls = false;
+    }
+    /* 3. ldr x17, [x17] */
+    arm64_emit_u32(c, 0xF9400231u);
+    /* 4. ldrb w17, [x17, x16] (register offset LDRB) */
+    arm64_emit_u32(c, 0x38706A31u);
+    /* 5. cbz w17, .ok (skip 11 instructions to .ok -> offset = 12 * 4 = 48 -> imm19 = 12) */
+    arm64_emit_u32(c, 0x34000000u | ((uint32_t)12 << 5) | 17u);
+    /* 6. cmp w17, #7 (subs wzr, w17, #7) */
+    arm64_emit_u32(c, 0x71001E3Fu);
+    /* 7. b.hi .fail (skip 4 instructions -> offset = 5 * 4 = 20 -> imm19 = 5) */
+    arm64_emit_u32(c, 0x54000008u | ((uint32_t)5 << 5));
+    /* 8. and x16, phys, #7 */
+    arm64_emit_u32(c, 0x92400800u | ((uint32_t)(phys & 0x1F) << 5) | 16u);
+    /* 9. add x16, x16, #size */
+    arm64_emit_u32(c, 0x91000000u | ((uint32_t)(size & 0xFFF) << 10) | (16u << 5) | 16u);
+    /* 10. cmp x16, x17 (subs xzr, x16, x17) */
+    arm64_emit_u32(c, 0xEB11021Fu);
+    /* 11. b.ls .ok (skip 5 instructions -> offset = 6 * 4 = 24 -> imm19 = 6) */
+    arm64_emit_u32(c, 0x54000009u | ((uint32_t)6 << 5));
+    /* .fail: */
+    /* 12. mov x0, phys */
+    arm64_emit_u32(c, 0xAA0003E0u | ((uint32_t)(phys & 0x1F) << 16));
+    /* 13. mov x1, #size */
+    arm64_emit_u32(c, 0xD2800000u | ((uint32_t)(size & 0xFFFF) << 5) | 1u);
+    /* 14. mov x2, #is_write */
+    arm64_emit_u32(c, 0xD2800000u | ((uint32_t)(is_write & 0xFFFF) << 5) | 2u);
+    /* 15. mov x3, x17 */
+    arm64_emit_u32(c, 0xAA1103E3u);
+    /* 16. bl __asan_report_error */
+    aarch64_emit_call(c, "__asan_report_error");
+    /* .ok: */
+}
+
 /* OS syscall (Linux AArch64 ABI): number in x8, args 1-6 in x0-x5, result
  * in x0 (= VREG_0, no fix-up needed). The kernel clobbers x0-x17 (x18 is
  * preserved), so every clobbered register that may hold a caller value is
@@ -2666,6 +2714,7 @@ ZeroCCISABackend aarch64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_mfence = aarch64_emit_mfence,
     .emit_trap = aarch64_emit_trap,
     .emit_ovf_trap = aarch64_emit_ovf_trap,
+    .emit_asan_check = aarch64_emit_asan_check,
     .emit_trap_asm = aarch64_emit_trap_asm,
 
     /* Assembly emission for IR instructions (Option A) */

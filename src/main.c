@@ -1098,7 +1098,7 @@ static int write_compiled_object(ZeroCCCompiler *comp, CompileOptions *opts,
         if (comp->global_vars[i].is_bss && !comp->global_vars[i].is_tls &&
             !comp->global_vars[i].lto_eliminated) {
             if (!comp->global_vars[i].section[0]) has_default_bss = true;
-            size_t end = comp->global_vars[i].data_offset + comp->global_vars[i].size;
+            size_t end = comp->global_vars[i].data_offset + comp->global_vars[i].size + (comp->sanitize_address ? 32 : 0);
             if (end > bss_total) bss_total = end;
             size_t ga = comp->global_vars[i].type.align > 0 ? comp->global_vars[i].type.align : 8;
             if (ga > bss_align) bss_align = ga;

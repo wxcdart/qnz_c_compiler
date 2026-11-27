@@ -2450,6 +2450,30 @@ static void riscv64_emit_ovf_trap_asm(ZeroCCCompiler *c, int res, int a, int b,
     BE(c)->emit_label_asm(c, L, out);                   /* L: */
 }
 
+static void riscv64_emit_asan_check_asm(ZeroCCCompiler *c, int phys, int size, int is_write, FILE *out) {
+    const char *reg = BE(c)->get_hw_reg_name(phys);
+    uint32_t check_id = c->asm_san_check_seq++;
+    fprintf(out, "\t# AddressSanitizer memory access check\n");
+    fprintf(out, "\tsrli\tt3, %s, 3\n", reg);
+    fprintf(out, "\tla\tt4, __asan_shadow_offset\n");
+    fprintf(out, "\tld\tt4, 0(t4)\n");
+    fprintf(out, "\tadd\tt3, t4, t3\n");
+    fprintf(out, "\tlbu\tt4, 0(t3)\n");
+    fprintf(out, "\tbeqz\tt4, .Lasan_ok_%u\n", check_id);
+    fprintf(out, "\tli\tt3, 7\n");
+    fprintf(out, "\tbgtu\tt4, t3, .Lasan_fail_%u\n", check_id);
+    fprintf(out, "\tandi\tt3, %s, 7\n", reg);
+    fprintf(out, "\taddi\tt3, t3, %d\n", size);
+    fprintf(out, "\tbleu\tt3, t4, .Lasan_ok_%u\n", check_id);
+    fprintf(out, ".Lasan_fail_%u:\n", check_id);
+    fprintf(out, "\tmv\ta0, %s\n", reg);
+    fprintf(out, "\tli\ta1, %d\n", size);
+    fprintf(out, "\tli\ta2, %d\n", is_write);
+    fprintf(out, "\tmv\ta3, t4\n");
+    fprintf(out, "\tcall\t__asan_report_error\n");
+    fprintf(out, ".Lasan_ok_%u:\n", check_id);
+}
+
 static void riscv32_emit_ovf_trap64_asm(ZeroCCCompiler *c, int rlo, int rhi,
                                         int alo, int ahi, int blo, int bhi,
                                         int width, int op, FILE *out) {
@@ -2620,6 +2644,7 @@ void riscv64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_or_asm = riscv_emit_or_asm;
     be->emit_xor_asm = riscv_emit_xor_asm;
     be->emit_ovf_trap_asm = riscv64_emit_ovf_trap_asm;
+    be->emit_asan_check_asm = riscv64_emit_asan_check_asm;
     be->emit_shl_asm = riscv_emit_shl_asm;
     be->emit_shr_asm = riscv_emit_shr_asm;
     be->emit_sar_asm = riscv_emit_sar_asm;

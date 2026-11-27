@@ -1144,6 +1144,28 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
                 }
             }
         }
+        if (lowering_fn && strcmp(lowering_fn->name, "main") == 0) {
+            for (size_t gi = 0; gi < c->global_var_count; gi++) {
+                ZeroCCGlobalVar *gv = &c->global_vars[gi];
+                if (!gv->name[0] || gv->lto_eliminated || gv->is_tls || gv->alias_target[0] || gv->size == 0) continue;
+                int t_addr = zc_alloc_temp(c);
+                int t_sz = zc_alloc_temp(c);
+                int t_rz = zc_alloc_temp(c);
+                ir_emit_global_addr(c, (uint32_t)t_addr, gv);
+                ir_emit_mov_imm(c, t_sz, (int64_t)gv->size);
+                ir_emit_mov_imm(c, t_rz, 32);
+                ir_emit(c, (Instr){
+                    .op = OP_CALL,
+                    .temp_dest = 3,
+                    .temp_src1 = (uint32_t)t_addr,
+                    .temp_src2 = (uint32_t)t_sz,
+                    .imm = IR_CALL_ARG01_REG,
+                    .imm64 = (int64_t)(intptr_t)"__asan_poison_global_var",
+                    .label_idx = 0
+                });
+                ir_emit_call_arg(c, (uint32_t)t_rz, 0, 255);
+            }
+        }
     }
 
     /* Lower AST to IR (instruction selection) */

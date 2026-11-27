@@ -1430,6 +1430,9 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                     if (add_global_var(c, d.name, decl_type, voff, vsize, is_static, vinit) < 0) {
                         diag_report_error_at_token(c, "out of memory registering global variable");
                     }
+                    if (c->sanitize_address) {
+                        for (size_t rzi = 0; rzi < 32; rzi++) zero_cc_emit_u8(&c->data_section, 0);
+                    }
                     zero_cc_ast_arena_free(&darena);
                     if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) {
                         c->token_pos++; /* next declarator with the same base type */
@@ -2554,6 +2557,7 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                                 c->bss_size += bss_pad;
                                 var_offset = c->bss_size;
                                 c->bss_size += size;
+                                if (c->sanitize_address) c->bss_size += 32;
                             } else {
                                 for (size_t i = 0; i < size; i++) {
                                     zero_cc_emit_u8(&c->data_section, 0);
@@ -2563,6 +2567,9 @@ void zero_cc_compile_c99(ZeroCCCompiler *c) {
                         #undef CV_WRITE_SCALAR
 
                         zc_ptr_init_done:
+                        if (c->sanitize_address && (has_initializer || size < ZERO_CC_BSS_THRESHOLD)) {
+                            for (size_t rzi = 0; rzi < 32; rzi++) zero_cc_emit_u8(&c->data_section, 0);
+                        }
                         /* Consume trailing comma (multi-declarator) or semicolon */
                         if (c->token_pos < c->token_count && c->tokens[c->token_pos].type == TK_COMMA) {
                             /* Register this declarator before parsing the next */

@@ -295,6 +295,15 @@ static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
     static char default_prog_name[] = "zerocc";
     static char *default_argv[] = { default_prog_name, NULL };
     int result;
+    if (c->sanitize_address) {
+        extern void __asan_poison_global_var(void const volatile *addr, size_t size, size_t rz);
+        for (size_t i = 0; i < c->global_var_count; i++) {
+            ZeroCCGlobalVar *gv = &c->global_vars[i];
+            if (!gv->name[0] || gv->lto_eliminated || gv->is_tls || gv->alias_target[0] || gv->size == 0) continue;
+            uintptr_t addr = (uintptr_t)mem + (gv->is_bss ? bss_offset : data_offset) + gv->data_offset;
+            __asan_poison_global_var((void *)addr, gv->size, 32);
+        }
+    }
     if (context) {
         int (*jit_main_ctx)(void *) = (int (*)(void *))((char*)mem + main_offset);
         result = jit_main_ctx(context);
@@ -304,6 +313,15 @@ static inline int zero_cc_execute_jit(ZeroCCCompiler *c, void *context) {
         int argc = c->jit_argc > 0 ? c->jit_argc : 1;
         char **argv = (c->jit_argc > 0 && c->jit_argv) ? c->jit_argv : default_argv;
         result = jit_main_args(argc, argv, environ);
+    }
+    if (c->sanitize_address) {
+        extern void __asan_unpoison_memory_region(void const volatile *addr, size_t size);
+        for (size_t i = 0; i < c->global_var_count; i++) {
+            ZeroCCGlobalVar *gv = &c->global_vars[i];
+            if (!gv->name[0] || gv->lto_eliminated || gv->is_tls || gv->alias_target[0] || gv->size == 0) continue;
+            uintptr_t addr = (uintptr_t)mem + (gv->is_bss ? bss_offset : data_offset) + gv->data_offset;
+            __asan_unpoison_memory_region((void *)addr, gv->size + 32);
+        }
     }
     zero_cc_jit_atexit_run();
     zero_mmap_free(mem, total_sz);

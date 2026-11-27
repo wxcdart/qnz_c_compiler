@@ -333,6 +333,8 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
                 fprintf(out, "\tmovl\t%%r10d, %%ecx\n");
                 fprintf(out, "\tcall\t__asan_report_error\n");
                 fprintf(out, ".Lasan_ok_%u:\n", check_id);
+            } else if (BE(c)->emit_asan_check_asm) {
+                BE(c)->emit_asan_check_asm(c, phys_src1, size, is_write, out);
             }
             return;
         }

@@ -231,7 +231,7 @@ static inline void emit_asm_data_sections(ZeroCCCompiler *comp) {
                 fprintf(comp->asm_out, "\t.globl\t%s\n", gv->name);
             }
             fprintf(comp->asm_out, "%s:\n", gv->name);
-            fprintf(comp->asm_out, "\t.zero\t%zu\n", gv->size);
+            fprintf(comp->asm_out, "\t.zero\t%zu\n", gv->size + (comp->sanitize_address ? 32 : 0));
         }
     }
 

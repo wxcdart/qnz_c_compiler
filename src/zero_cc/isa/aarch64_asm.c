@@ -833,6 +833,30 @@ static void aarch64asm_emit_san_report_block(ZeroCCCompiler *c, int res,
     fprintf(out, "\tbl\t__zerocsan_report\n");
 }
 
+static void aarch64_emit_asan_check_asm(ZeroCCCompiler *c, int phys, int size, int is_write, FILE *out) {
+    const char *reg = BE(c)->get_hw_reg_name(phys);
+    uint32_t check_id = c->asm_san_check_seq++;
+    fprintf(out, "\t# AddressSanitizer memory access check\n");
+    fprintf(out, "\tlsr\tx16, %s, #3\n", reg);
+    fprintf(out, "\tadrp\tx17, __asan_shadow_offset\n");
+    fprintf(out, "\tldr\tx17, [x17, :lo12:__asan_shadow_offset]\n");
+    fprintf(out, "\tldrb\tw17, [x17, x16]\n");
+    fprintf(out, "\tcbz\tw17, .Lasan_ok_%u\n", check_id);
+    fprintf(out, "\tcmp\tw17, #7\n");
+    fprintf(out, "\tb.hi\t.Lasan_fail_%u\n", check_id);
+    fprintf(out, "\tand\tx16, %s, #7\n", reg);
+    fprintf(out, "\tadd\tx16, x16, #%d\n", size);
+    fprintf(out, "\tcmp\tx16, x17\n");
+    fprintf(out, "\tb.ls\t.Lasan_ok_%u\n", check_id);
+    fprintf(out, ".Lasan_fail_%u:\n", check_id);
+    fprintf(out, "\tmov\tx0, %s\n", reg);
+    fprintf(out, "\tmov\tx1, #%d\n", size);
+    fprintf(out, "\tmov\tx2, #%d\n", is_write);
+    fprintf(out, "\tmov\tx3, x17\n");
+    fprintf(out, "\tbl\t__asan_report_error\n");
+    fprintf(out, ".Lasan_ok_%u:\n", check_id);
+}
+
 /* zero_san (Sprint 163+): compare-based signed-overflow check + trap (text).
  * Mirrors aarch64_emit_ovf_trap (raw). Uses a self-contained label for the
  * branch. Sprint 168: check temporaries live in x16/x17 (never allocated to
@@ -2142,6 +2166,7 @@ void aarch64_init_asm_emission(ZeroCCISABackend *be) {
     be->emit_or_asm = aarch64_emit_or_asm;
     be->emit_xor_asm = aarch64_emit_xor_asm;
     be->emit_ovf_trap_asm = aarch64_emit_ovf_trap_asm;
+    be->emit_asan_check_asm = aarch64_emit_asan_check_asm;
     be->emit_shl_asm = aarch64_emit_shl_asm;
     be->emit_shr_asm = aarch64_emit_shr_asm;
     be->emit_sar_asm = aarch64_emit_sar_asm;

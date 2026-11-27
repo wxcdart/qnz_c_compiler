@@ -919,6 +919,8 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                     size_t ok_loc = c->text_section.length;
                     c->text_section.data[jz_patch + 1] = (uint8_t)(ok_loc - (jz_patch + 2));
                     c->text_section.data[jbe_patch + 1] = (uint8_t)(ok_loc - (jbe_patch + 2));
+                } else if (BE(c)->emit_asan_check) {
+                    BE(c)->emit_asan_check(c, phys, size, is_write);
                 }
                 break;
             }

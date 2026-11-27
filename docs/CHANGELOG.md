@@ -1,5 +1,28 @@
 # CHANGELOG
 
+## [Sprint 260] - 2026-11-28 - Target AddressSanitizer Global Variable Redzones & Multi-ISA Support (-fsanitize=address)
+
+- **Global Variable Redzone Layout (`src/zero_cc/jit/compile_unit.c`, `src/zero_cc/driver/driver_asm.h`, `src/main.c`)**:
+  - Implemented 32-byte physical redzone padding around global and static variables in both `.data` and `.bss` sections under `-fsanitize=address`.
+  - In JIT/AOT data layout: appends 32 zero bytes after each initialized or uninitialized `.data` global symbol.
+  - In BSS layout: inflates `.bss` allocations by 32 bytes (`c->bss_size += 32`, `.zero %zu + 32`, and ELF writer `bss_total`) ensuring physical spacing between consecutive variables.
+- **ASan Runtime Global Poisoning & Linear Shadow Mapping (`zero_rt/core/asan.c`, `zero_rt/core/asan.h`, `zero_rt/jit/asan_host.c`)**:
+  - Added `struct __asan_global` and runtime functions `__asan_poison_global_var`, `__asan_register_globals`, and `__asan_unregister_globals`.
+  - Implemented linear shadow memory mapping (`__asan_shadow_offset = (uintptr_t)shadow_mem` over 16 TB virtual address space via `mmap(MAP_NORESERVE)` on 64-bit platforms and 512 MB on 32-bit platforms), unifying stack, heap, and global variable shadow addressing without unmapped gaps or address space wrap-arounds.
+  - Diagnostic crash reporting (`__asan_report_error`) recognizes `ASAN_GLOBAL_RZ` (0xFA) and reports `==ERROR: AddressSanitizer: global-buffer-overflow`.
+- **Global Startup Poisoning (`src/zero_cc/jit/execution.h`, `src/zero_cc/ir/ast_lowering.c`)**:
+  - JIT mode: poisons global variable redzones via `__asan_poison_global_var` before invoking `jit_main`, and cleanly unpoisons memory upon return.
+  - AOT mode: lowers runtime calls to `__asan_poison_global_var` at the entry of `main()` for all global data/bss symbols.
+- **Multi-ISA AddressSanitizer Codegen (`src/zero_cc/isa/` & `src/zero_cc/ir/`)**:
+  - Added `emit_asan_check` and `emit_asan_check_asm` backend hooks to `ZeroCCISABackend`.
+  - **AArch64**: Implemented `aarch64_emit_asan_check` (raw machine code) and `aarch64_emit_asan_check_asm` (assembly) using intra-procedure scratch registers `x16` and `x17` with `__asan_shadow_offset` lookup, byte shadow validation, partial byte length check, and call to `__asan_report_error`.
+  - **RISC-V 64**: Implemented `riscv64_emit_asan_check` (raw machine code) and `riscv64_emit_asan_check_asm` (assembly) using scratch registers `t3` (x28) and `t4` (x29) with `__asan_shadow_offset` PC-relative relocation, byte shadow testing, and `__asan_report_error` call dispatch.
+- **ASan Verification Battery (`tools/verify/asan_tests.py`, `test/jit/asan_global_clean.c`, `test/san/asan_global_overflow.c`)**:
+  - Added global variable clean tests (verified at -O0..-O3 in JIT and AOT).
+  - Added global variable overflow tests (verified at -O0..-O3 in JIT and AOT).
+  - Integrated cross-ISA QEMU execution (`qemu-aarch64-static`, `qemu-riscv64-static`) for clean runs and global overflow trapping.
+  - All 36/36 tests in the target ASan test suite pass cleanly.
+
 ## [Sprint 259] - 2026-11-27 - Windows PE/COFF Multi-TU Native Linking Parity (COFF .obj Linker & Relocation Resolution)
 
 - **COFF Relocatable Object Reader (`src/zero_cc/linker/coff_reader.h`, `src/zero_cc/linker/coff_reader.c`)**:

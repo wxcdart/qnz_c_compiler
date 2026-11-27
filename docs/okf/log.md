@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-27T15:00:43Z
+timestamp: 2026-11-27T16:22:26Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1791,3 +1791,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-27 — Updated `target-abstraction-roadmap.md`
 - Sprint 259: Windows PE/COFF Multi-TU Native Linking Parity
+
+## 2026-11-27 — Updated `sanitizer-roadmap.md`
+- Sprint 260: Target ASan Global Variable Redzones & Multi-ISA Support

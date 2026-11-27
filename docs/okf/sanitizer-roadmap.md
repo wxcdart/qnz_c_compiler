@@ -4,7 +4,7 @@ title: Target-Side Sanitizer (zero_san) Design & Roadmap
 description: Analysis and phased roadmap for an optional, parked target-side safety-check feature (zero_san) — a codegen-first UBSan-lite signed-overflow check, with bounds, leaks, and ASan/LSan scoped out and justified.
 resource: sanitizer/roadmap
 tags: [sanitizer, zero_san, codegen, ubsan, overflow, bounds, asan, lsan, leak, roadmap, design, safety]
-timestamp: 2026-11-27T06:46:52Z
+timestamp: 2026-11-27T16:22:26Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active

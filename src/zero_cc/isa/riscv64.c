@@ -1848,6 +1848,53 @@ static void riscv64_emit_ovf_trap(ZeroCCCompiler *c, int res, int a, int b,
     riscv_emit_u32(c, 0xC0001073u);                                                  /* unimp */
 }
 
+static void riscv64_emit_asan_check(ZeroCCCompiler *c, int phys, int size, int is_write) {
+    /* 1. srli t3, phys, 3 */
+    riscv_emit_u32(c, rv64_I(RV_REG(28), RV_REG(phys), 5, 3, 0x13));
+    /* 2. auipc t4, 0; addi t4, t4, 0 with reloc __asan_shadow_offset */
+    uint32_t auipc = (uint32_t)(((uint32_t)RV_REG(29) << 7) | 0x17u);
+    uint32_t addi  = (uint32_t)(((uint32_t)RV_REG(29) << 15) | ((uint32_t)RV_REG(29) << 7) | 0x13u);
+    riscv_emit_u32(c, auipc);
+    riscv_emit_u32(c, addi);
+    if (c->reloc_count < ZERO_CC_MAX_RELOCS) {
+        ZeroCCReloc *r = &c->relocs[c->reloc_count++];
+        r->text_patch_offset = me_get_offset(c) - 4;
+        snprintf(r->target_symbol, sizeof(r->target_symbol), "__asan_shadow_offset");
+        r->is_call = false;
+        r->is_abs_call = false;
+        r->is_tls = false;
+    }
+    riscv_emit_u32(c, rv64_I(RV_REG(29), RV_REG(29), 3, 0, 0x03)); /* ld t4, 0(t4) */
+    /* 3. add t3, t4, t3 */
+    riscv_emit_u32(c, rv64_R(RV_REG(28), RV_REG(29), RV_REG(28), 0, 0));
+    /* 4. lbu t4, 0(t3) */
+    riscv_emit_u32(c, rv64_I(RV_REG(29), RV_REG(28), 4, 0, 0x03));
+    /* 5. beqz t4, .ok (+44 bytes) */
+    riscv_emit_u32(c, rv64_B(RV_REG(29), 0, 0, 44));
+    /* 6. li t3, 7 */
+    riscv_emit_u32(c, rv64_I(RV_REG(28), 0, 0, 7, 0x13));
+    /* 7. bltu t3, t4, .fail (+16 bytes) */
+    riscv_emit_u32(c, rv64_B(RV_REG(28), RV_REG(29), 6, 16));
+    /* 8. andi t3, phys, 7 */
+    riscv_emit_u32(c, rv64_I(RV_REG(28), RV_REG(phys), 7, 7, 0x13));
+    /* 9. addi t3, t3, size */
+    riscv_emit_u32(c, rv64_I(RV_REG(28), RV_REG(28), 0, size, 0x13));
+    /* 10. bgeu t4, t3, .ok (+24 bytes) */
+    riscv_emit_u32(c, rv64_B(RV_REG(29), RV_REG(28), 7, 24));
+    /* .fail: */
+    /* 11. mv a0, phys */
+    riscv_emit_u32(c, rv64_I(RV_REG(10), RV_REG(phys), 0, 0, 0x13));
+    /* 12. li a1, size */
+    riscv_emit_u32(c, rv64_I(RV_REG(11), 0, 0, size, 0x13));
+    /* 13. li a2, is_write */
+    riscv_emit_u32(c, rv64_I(RV_REG(12), 0, 0, is_write, 0x13));
+    /* 14. mv a3, t4 */
+    riscv_emit_u32(c, rv64_I(RV_REG(13), RV_REG(29), 0, 0, 0x13));
+    /* 15. call __asan_report_error */
+    riscv64_emit_call(c, "__asan_report_error");
+    /* .ok: */
+}
+
 /* =====================================================================
  * Phase 3b (cross-ISA): trampoline stub for a capturing nested function.
  *
@@ -2517,6 +2564,7 @@ ZeroCCISABackend riscv64_backend = {  /* writable: ASM emit pointers are filled 
     .emit_mfence = riscv64_emit_mfence,
     .emit_trap = riscv64_emit_trap,
     .emit_ovf_trap = riscv64_emit_ovf_trap,
+    .emit_asan_check = riscv64_emit_asan_check,
     .emit_trap_asm = riscv64_emit_trap_asm,
 
     .get_int_reg = riscv_get_int_reg,
