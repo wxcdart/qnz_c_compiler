@@ -89,6 +89,7 @@ typedef struct {
     uint64_t sec_off;   /* for section symbols: offset within the section */
     uint64_t size;
     uint8_t stype;      /* STT for the output symtab */
+    bool is_hidden;     /* STV_HIDDEN visibility in output symtab */
 } ZcLinkSym;
 
 typedef struct {
@@ -579,13 +580,21 @@ static int outsec_for_name(const char *name) {
     if (strncmp(name, ".bss", 4) == 0) return 3;
     if (strncmp(name, ".isr_vector", 11) == 0) return 0;
     if (strncmp(name, ".vectors", 8) == 0) return 0;
+    if (strncmp(name, ".noinit", 7) == 0) return 3;
+    if (strncmp(name, ".sdata", 6) == 0) return 2;
+    if (strncmp(name, ".sbss", 5) == 0) return 3;
     return -1;
 }
 
 static int outsec_for_section(const ZcLink *L, const ZcSection *sec) {
+    if (L && L->has_script) {
+        const ZcScriptSection *ss = zc_script_find_section(&L->script, sec->name);
+        if (ss && ss->is_noload) return 3;
+    }
     int out = outsec_for_name(sec->name);
     if (out >= 0) return out;
     if (L && L->has_script) {
+        if (sec->type == SHT_NOBITS) return 3;
         if (sec->flags & SHF_EXECINSTR) return 0;
         if (sec->flags & SHF_WRITE) return 2;
         return 1;
@@ -949,14 +958,14 @@ static int layout_sections(ZcLink *L, char *err, size_t errsz) {
             L->map[L->map_count].insec = si;
             L->map[L->map_count].out_off = os->cursor;
             L->map_count++;
-            if (ins->type == SHT_PROGBITS) {
+            if (ins->type == SHT_PROGBITS && !os->nobits) {
                 if (outsec_add(os, L->objs[oi]->data + ins->offset,
                                ins->size) != 0) {
                     snprintf(err, errsz, "out of memory");
                     return -1;
                 }
             } else {
-                /* NOBITS (.bss): no file content, but the address space is
+                /* NOBITS (.bss / NOLOAD): no file content, but the address space is
                  * consumed - advance the cursor so successive objects' BSS
                  * sections are laid out back-to-back, not on top of each
                  * other (which silently aliased their symbols). The output
@@ -975,74 +984,151 @@ static int layout_sections(ZcLink *L, char *err, size_t errsz) {
     }
 
     /* VMAs & LMAs:
-     * When a linker script with explicit FLASH and RAM regions is present,
-     * lay out .text and .rodata in FLASH (LMA == VMA), .data in RAM (VMA)
-     * with load image in FLASH (LMA), and .bss in RAM (VMA, NOBITS).
+     * When a linker script with explicit memory regions is present,
+     * lay out output sections according to script mappings or standard baremetal
+     * rules (.text/.rodata in FLASH/ROM, .data in RAM with load image in FLASH,
+     * and .bss in RAM as NOBITS), with per-region capacity overflow checking.
      * Otherwise, apply conventional static layout (base 0 for static PIE). */
-    if (L->has_script && L->script.has_flash && L->script.has_ram) {
-        uint64_t flash_base = L->script.flash.origin;
-        uint64_t ram_base = L->script.ram.origin;
+    if (L->has_script && (L->script.has_flash || L->script.has_ram || L->script.region_count > 0)) {
+        ZcLinkScript script_copy = L->script;
+        if (script_copy.region_count == 0) {
+            if (script_copy.has_flash) {
+                script_copy.regions[script_copy.region_count++] = script_copy.flash;
+            }
+            if (script_copy.has_ram) {
+                script_copy.regions[script_copy.region_count++] = script_copy.ram;
+            }
+        }
 
-        /* .text in Flash */
-        L->outsec[0].vma = flash_base;
-        L->outsec[0].lma = flash_base;
-        L->outsec[0].size = L->outsec[0].cursor;
-        uint64_t flash_curr = flash_base + L->outsec[0].size;
+        uint64_t reg_curr[ZC_SCRIPT_MAX_REGIONS];
+        for (int r = 0; r < script_copy.region_count; r++) {
+            reg_curr[r] = script_copy.regions[r].origin;
+        }
 
-        /* .rodata packed in Flash */
-        if (L->outsec[1].cursor > 0) {
-            uint64_t al = L->outsec[1].max_align;
+        const ZcMemoryRegion *flash_reg = zc_script_find_region(&script_copy, "FLASH");
+        if (!flash_reg && script_copy.region_count > 0) flash_reg = &script_copy.regions[0];
+        const ZcMemoryRegion *ram_reg = zc_script_find_region(&script_copy, "RAM");
+        if (!ram_reg) {
+            for (int r = 0; r < script_copy.region_count; r++) {
+                if (script_copy.regions[r].flags & 2) {
+                    ram_reg = &script_copy.regions[r];
+                    break;
+                }
+            }
+            if (!ram_reg && script_copy.region_count > 1) ram_reg = &script_copy.regions[1];
+        }
+
+        for (int i = 0; i < 4; i++) {
+            const ZcScriptSection *ss = zc_script_find_section(&script_copy, L->outsec[i].name);
+            if (ss) {
+                if (ss->is_noload) L->outsec[i].nobits = true;
+                if (ss->align > L->outsec[i].max_align) L->outsec[i].max_align = ss->align;
+            }
+
+            const char *vreg_name = NULL;
+            if (ss && ss->has_vma_region) {
+                vreg_name = ss->vma_region;
+            } else if (i == 0 || i == 1) {
+                vreg_name = flash_reg ? flash_reg->name : "FLASH";
+            } else {
+                vreg_name = ram_reg ? ram_reg->name : "RAM";
+            }
+
+            const char *lreg_name = NULL;
+            if (L->outsec[i].nobits) {
+                lreg_name = NULL;
+            } else if (ss && ss->has_lma_region) {
+                lreg_name = ss->lma_region;
+            } else if (ss && ss->has_vma_region) {
+                lreg_name = vreg_name;
+            } else if (i == 0 || i == 1) {
+                lreg_name = flash_reg ? flash_reg->name : "FLASH";
+            } else {
+                lreg_name = flash_reg ? flash_reg->name : "FLASH";
+            }
+
+            int vidx = -1;
+            if (vreg_name) {
+                for (int r = 0; r < script_copy.region_count; r++) {
+                    if (strcasecmp(script_copy.regions[r].name, vreg_name) == 0) {
+                        vidx = r;
+                        break;
+                    }
+                }
+                if (vidx < 0) {
+                    const ZcMemoryRegion *vr = zc_script_find_region(&script_copy, vreg_name);
+                    if (vr) {
+                        for (int r = 0; r < script_copy.region_count; r++) {
+                            if (strcasecmp(script_copy.regions[r].name, vr->name) == 0) {
+                                vidx = r;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            int lidx = -1;
+            if (lreg_name) {
+                for (int r = 0; r < script_copy.region_count; r++) {
+                    if (strcasecmp(script_copy.regions[r].name, lreg_name) == 0) {
+                        lidx = r;
+                        break;
+                    }
+                }
+                if (lidx < 0) {
+                    const ZcMemoryRegion *lr = zc_script_find_region(&script_copy, lreg_name);
+                    if (lr) {
+                        for (int r = 0; r < script_copy.region_count; r++) {
+                            if (strcasecmp(script_copy.regions[r].name, lr->name) == 0) {
+                                lidx = r;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            uint64_t al = L->outsec[i].max_align;
             if (al < 8) al = 8;
-            flash_curr = align_up(flash_curr, al);
-            L->outsec[1].vma = flash_curr;
-            L->outsec[1].lma = flash_curr;
-            L->outsec[1].size = L->outsec[1].cursor;
-            flash_curr += L->outsec[1].size;
-        } else {
-            L->outsec[1].vma = flash_curr;
-            L->outsec[1].lma = flash_curr;
-            L->outsec[1].size = 0;
+
+            /* VMA allocation */
+            if (ss && ss->has_explicit_vma) {
+                L->outsec[i].vma = ss->explicit_vma;
+            } else if (vidx >= 0) {
+                reg_curr[vidx] = align_up(reg_curr[vidx], al);
+                L->outsec[i].vma = reg_curr[vidx];
+                uint64_t adv = L->outsec[i].nobits ? L->outsec[i].memsz : L->outsec[i].cursor;
+                reg_curr[vidx] += adv;
+            }
+
+            /* LMA allocation */
+            if (L->outsec[i].nobits) {
+                L->outsec[i].lma = 0;
+                L->outsec[i].size = 0;
+            } else if (ss && ss->has_explicit_lma) {
+                L->outsec[i].lma = ss->explicit_lma;
+                L->outsec[i].size = L->outsec[i].cursor;
+            } else if (lidx == vidx && vidx >= 0) {
+                L->outsec[i].lma = L->outsec[i].vma;
+                L->outsec[i].size = L->outsec[i].cursor;
+            } else if (lidx >= 0) {
+                reg_curr[lidx] = align_up(reg_curr[lidx], al);
+                L->outsec[i].lma = reg_curr[lidx];
+                L->outsec[i].size = L->outsec[i].cursor;
+                reg_curr[lidx] += L->outsec[i].cursor;
+            }
         }
 
-        /* .data in RAM (VMA) loaded from Flash (LMA) */
-        uint64_t ram_curr = ram_base;
-        if (L->outsec[2].cursor > 0) {
-            uint64_t al = L->outsec[2].max_align;
-            if (al < 8) al = 8;
-            ram_curr = align_up(ram_curr, al);
-            flash_curr = align_up(flash_curr, al);
-            L->outsec[2].vma = ram_curr;
-            L->outsec[2].lma = flash_curr;
-            L->outsec[2].size = L->outsec[2].cursor;
-            ram_curr += L->outsec[2].size;
-            flash_curr += L->outsec[2].size;
-        } else {
-            L->outsec[2].vma = ram_curr;
-            L->outsec[2].lma = flash_curr;
-            L->outsec[2].size = 0;
-        }
-
-        /* .bss in RAM (NOBITS) */
-        uint64_t bss_al = L->outsec[3].max_align;
-        if (bss_al < 8) bss_al = 8;
-        ram_curr = align_up(ram_curr, bss_al);
-        L->outsec[3].vma = ram_curr;
-        L->outsec[3].lma = 0;
-        L->outsec[3].size = 0;
-        if (L->have_bss) {
-            ram_curr += L->outsec[3].memsz;
-        }
-
-        /* Capacity checks */
-        if (flash_curr > L->script.flash.origin + L->script.flash.length) {
-            snprintf(err, errsz, "region FLASH overflowed by %llu bytes",
-                     (unsigned long long)(flash_curr - (L->script.flash.origin + L->script.flash.length)));
-            return -1;
-        }
-        if (ram_curr > L->script.ram.origin + L->script.ram.length) {
-            snprintf(err, errsz, "region RAM overflowed by %llu bytes",
-                     (unsigned long long)(ram_curr - (L->script.ram.origin + L->script.ram.length)));
-            return -1;
+        /* Capacity checks across all regions */
+        for (int r = 0; r < script_copy.region_count; r++) {
+            uint64_t lim = script_copy.regions[r].origin + script_copy.regions[r].length;
+            if (reg_curr[r] > lim) {
+                snprintf(err, errsz, "region %s overflowed by %llu bytes",
+                         script_copy.regions[r].name,
+                         (unsigned long long)(reg_curr[r] - lim));
+                return -1;
+            }
         }
     } else {
         const TargetLinkerOps *lops = zero_cc_get_linker_ops(L->machine);
@@ -1182,6 +1268,67 @@ static int layout_sections(ZcLink *L, char *err, size_t errsz) {
             }
             ls->vma = val;
             ls->obj = 0;
+        }
+    }
+
+    /* Script-defined symbols (PROVIDE, PROVIDE_HIDDEN, sym = expr, .) */
+    if (L->has_script) {
+        for (int si = 0; si < L->script.symbol_count; si++) {
+            const ZcScriptSymbol *ss = &L->script.symbols[si];
+            ZcLinkSym *ls = ss->is_provide ? sym_find(L, ss->name) :
+                            (L->baremetal ? sym_get(L, ss->name) : sym_find(L, ss->name));
+            if (!ls) continue;
+            if (ss->is_provide && ls->obj >= 0) continue;
+
+            uint64_t val = 0;
+            const char *ep = ss->expr_str;
+            while (*ep && isspace((unsigned char)*ep)) ep++;
+
+            if (strncasecmp(ep, "LOADADDR", 8) == 0) {
+                const char *lp = strchr(ep, '(');
+                if (lp) {
+                    char sname[32];
+                    size_t sl = 0;
+                    lp++;
+                    while (*lp && *lp != ')' && !isspace((unsigned char)*lp) &&
+                           sl + 1 < sizeof(sname)) {
+                        sname[sl++] = *lp++;
+                    }
+                    sname[sl] = '\0';
+                    int out = outsec_for_name(sname);
+                    if (out >= 0) val = L->outsec[out].lma;
+                }
+            } else if (strncasecmp(ep, "ADDR", 4) == 0) {
+                const char *lp = strchr(ep, '(');
+                if (lp) {
+                    char sname[32];
+                    size_t sl = 0;
+                    lp++;
+                    while (*lp && *lp != ')' && !isspace((unsigned char)*lp) &&
+                           sl + 1 < sizeof(sname)) {
+                        sname[sl++] = *lp++;
+                    }
+                    sname[sl] = '\0';
+                    int out = outsec_for_name(sname);
+                    if (out >= 0) val = L->outsec[out].vma;
+                }
+            } else if (strcmp(ep, ".") == 0) {
+                int out = ss->section_ref[0] ? outsec_for_name(ss->section_ref) : -1;
+                if (out >= 0) {
+                    val = L->outsec[out].vma;
+                    if (ss->is_at_end) {
+                        val += (out == 3 ? L->outsec[out].memsz : L->outsec[out].size);
+                    }
+                }
+            } else {
+                zc_parse_expr(ep, &L->script, &val);
+            }
+
+            ls->vma = val;
+            ls->obj = 0; /* mark as defined */
+            if (ss->is_hidden) {
+                ls->is_hidden = true;
+            }
         }
     }
     return 0;
@@ -2007,7 +2154,7 @@ static int emit_exec(ZcLink *L, const char *out_path, uint64_t entry,
                     put32(&sp, (uint32_t)ls->vma);
                     put32(&sp, (uint32_t)ls->size);
                     *sp++ = (uint8_t)((ZC_STB_GLOBAL << 4) | ls->stype);
-                    *sp++ = 0;
+                    *sp++ = (uint8_t)(ls->is_hidden ? 2 : 0);
                     uint16_t shndx = 0;
                     for (int k = 0; k < 4; k++) {
                         ZcOutSec *os = &L->outsec[k];
@@ -2067,7 +2214,7 @@ static int emit_exec(ZcLink *L, const char *out_path, uint64_t entry,
                     put32(&sp, sym_stroff[i]);
                     *sp = (uint8_t)((ZC_STB_GLOBAL << 4) | ls->stype);
                     sp++;
-                    *sp = 0; sp++;
+                    *sp = (uint8_t)(ls->is_hidden ? 2 : 0); sp++;
                     uint16_t shndx = 0;
                     for (int k = 0; k < 4; k++) {
                         ZcOutSec *os = &L->outsec[k];

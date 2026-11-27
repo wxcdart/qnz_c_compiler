@@ -1,5 +1,24 @@
 # CHANGELOG
 
+## [Sprint 257] - 2026-11-27 - Extended GNU Linker Script Support for Baremetal Firmware (MEMORY, AT>, ALIGN, NOLOAD)
+
+- **Extended GNU Linker Script Parser (`src/zero_cc/linker/linker_script.h`)**:
+  - Full recursive arithmetic expression parser supporting operators (`+`, `-`, `*`, `/`), parentheses `(expr)`, `ORIGIN(name)`, `LENGTH(name)`, and `ALIGN(expr)` calls.
+  - Multi-region `MEMORY { ... }` parsing: collects up to 16 named memory regions (`ROM`, `FLASH`, `RAM`, `SRAM`, `CCMRAM`) with origin, length, and permissions.
+  - Section definitions in `SECTIONS { ... }`: parses output section definitions with explicit VMA/LMA, `(NOLOAD)` attribute, `ALIGN(expr)`, `SUBALIGN(expr)`, `> REGION`, and `AT> LMA_REGION`.
+  - Symbol assignment directives: supports `PROVIDE(sym = expr);`, `PROVIDE_HIDDEN(sym = expr);`, unconditional `sym = expr;`, location counter assignments (`. = ALIGN(expr);`), and boundary symbols (`LOADADDR(.sec)`, `ADDR(.sec)`, `.` section-relative location).
+- **Linker Section Layout & Multi-Region Management (`src/zero_cc/linker/linker.c`)**:
+  - General multi-region memory allocation tracking each region's active cursor.
+  - Maps sections to designated VMA regions (`> REGION`) and load-copy LMA regions (`AT> LMA_REGION`).
+  - NOBITS output section routing: `(NOLOAD)` and `.noinit` sections route to NOBITS output sections, advancing memory size without taking image file space.
+  - Per-region capacity overflow checking across all regions defined in `MEMORY`, reporting `region <NAME> overflowed by X bytes`.
+  - Symbol resolution for script-defined symbols (`PROVIDE`, `PROVIDE_HIDDEN`, `.` location counter, `LOADADDR`, `ADDR`, `ALIGN`).
+  - Implemented `STV_HIDDEN` symbol table visibility byte emission (`st_other = 2`) for `PROVIDE_HIDDEN` symbols in 32-bit and 64-bit ELF output.
+- **Baremetal Verification Battery (`tools/verify/baremetal_test.py`)**:
+  - Added `test_extended_linker_script()` testing a multi-region firmware layout (`ROM`, `RAM`, `CCMRAM`), `> RAM AT> ROM`, `(NOLOAD)` `.noinit`, `ALIGN(8)`, `PROVIDE`, and `PROVIDE_HIDDEN` with `STV_HIDDEN` visibility checks and `CCMRAM` capacity overflow verification.
+  - Full regression pass: 280/280 main test suite pass, all baremetal tests pass, 0 style check errors/warnings.
+
+
 ## [Sprint 256] - 2026-11-27 - Target AddressSanitizer (ASan) Shadow Memory & Redzones (`-fsanitize=address`)
 
 - **Target AddressSanitizer Frontend & Options (`driver_opts.h`, `symbols.h`, `main.c`)**:

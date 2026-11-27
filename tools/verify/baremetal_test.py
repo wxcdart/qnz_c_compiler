@@ -107,7 +107,7 @@ def parse_elf(path):
             name_end = strtab.find(b"\0", st_name)
             sym_name = strtab[st_name:name_end].decode("ascii", errors="replace") if name_end >= 0 else ""
             if sym_name:
-                syms[sym_name] = {"value": st_value, "size": st_size, "shndx": st_shndx}
+                syms[sym_name] = {"value": st_value, "size": st_size, "shndx": st_shndx, "other": st_other}
 
     return {
         "is_32": is_32,
@@ -209,6 +209,130 @@ MEMORY {
         assert res.returncode != 0, "Expected link to fail on region overflow"
         assert "region FLASH overflowed" in res.stderr, f"Expected overflow message in stderr, got: {res.stderr}"
         print("ok   region capacity overflow check")
+
+def test_extended_linker_script():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+        ld_path = tmp / "firmware.ld"
+        ld_path.write_text("""
+MEMORY {
+    ROM (rx)     : ORIGIN = 0x08000000, LENGTH = 256K
+    RAM (rwx)    : ORIGIN = 0x20000000, LENGTH = 64K
+    CCMRAM (rw)  : ORIGIN = 0x10000000, LENGTH = 16K
+}
+
+ENTRY(Reset_Handler)
+
+SECTIONS {
+    .text : ALIGN(8) {
+        _stext = .;
+        KEEP(*(.isr_vector))
+        *(.text*)
+        *(.rodata*)
+        _etext = .;
+    } > ROM
+
+    .data : ALIGN(8) {
+        _sdata = .;
+        *(.data*)
+        _edata = .;
+    } > RAM AT> ROM
+
+    .bss (NOLOAD) : ALIGN(8) {
+        _sbss = .;
+        *(.bss*)
+        _ebss = .;
+    } > RAM
+
+    .noinit (NOLOAD) : ALIGN(8) {
+        _snoinit = .;
+        *(.noinit*)
+        _enoinit = .;
+    } > CCMRAM
+
+    _sidata = LOADADDR(.data);
+    _stack_top = ORIGIN(RAM) + LENGTH(RAM);
+
+    PROVIDE(prov_sym = 0x1234);
+    PROVIDE_HIDDEN(prov_hidden_sym = 0x5678);
+}
+""")
+        c_path = tmp / "main.c"
+        c_path.write_text("""
+extern int prov_sym;
+extern int prov_hidden_sym;
+__attribute__((section(".noinit"))) int uninit_buf[16];
+int my_data = 42;
+int my_bss;
+
+void Reset_Handler(void) {
+    uninit_buf[0] = prov_sym + prov_hidden_sym + my_data + my_bss;
+}
+""")
+        out_elf = tmp / "firmware.elf"
+        cmd = [
+            str(ZEROCC),
+            str(c_path),
+            "-T", str(ld_path),
+            "-o", str(out_elf)
+        ]
+        res = subprocess.run(cmd, capture_output=True, text=True)
+        assert res.returncode == 0, f"Compilation failed: {res.stderr}\n{res.stdout}"
+        assert out_elf.exists(), f"Output binary {out_elf} not found"
+
+        elf = parse_elf(out_elf)
+
+        # 1. Check entry point
+        assert "Reset_Handler" in elf["syms"], "Reset_Handler missing"
+        assert elf["entry"] == elf["syms"]["Reset_Handler"]["value"]
+        assert 0x08000000 <= elf["entry"] < 0x08040000, "Reset_Handler not in ROM"
+
+        # 2. Check PROVIDE and PROVIDE_HIDDEN symbols
+        assert "prov_sym" in elf["syms"], "prov_sym missing"
+        assert elf["syms"]["prov_sym"]["value"] == 0x1234, f"prov_sym value != 0x1234"
+        assert (elf["syms"]["prov_sym"]["other"] & 3) == 0, "prov_sym should have STV_DEFAULT visibility"
+
+        assert "prov_hidden_sym" in elf["syms"], "prov_hidden_sym missing"
+        assert elf["syms"]["prov_hidden_sym"]["value"] == 0x5678, f"prov_hidden_sym value != 0x5678"
+        assert (elf["syms"]["prov_hidden_sym"]["other"] & 3) == 2, "prov_hidden_sym should have STV_HIDDEN visibility (st_other=2)"
+
+        # 3. Check stack top
+        assert "_stack_top" in elf["syms"], "_stack_top missing"
+        assert elf["syms"]["_stack_top"]["value"] == 0x20010000, f"_stack_top != 0x20010000"
+
+        # 4. Check boundaries and LMA/VMA
+        assert "_sidata" in elf["syms"]
+        assert "_sdata" in elf["syms"]
+        assert elf["syms"]["_sdata"]["value"] == 0x20000000
+
+        # 5. Check multi-region overflow check on CCMRAM
+        ld_tiny_ccm = tmp / "tiny_ccm.ld"
+        ld_tiny_ccm.write_text("""
+MEMORY {
+    ROM (rx)     : ORIGIN = 0x08000000, LENGTH = 256K
+    RAM (rwx)    : ORIGIN = 0x20000000, LENGTH = 64K
+    CCMRAM (rw)  : ORIGIN = 0x10000000, LENGTH = 4
+}
+ENTRY(Reset_Handler)
+SECTIONS {
+    .text : { *(.text*) } > ROM
+    .data : { *(.data*) } > RAM AT> ROM
+    .bss (NOLOAD) : { *(.bss*) } > CCMRAM
+    PROVIDE(prov_sym = 0);
+    PROVIDE_HIDDEN(prov_hidden_sym = 0);
+}
+""")
+        cmd2 = [
+            str(ZEROCC),
+            str(c_path),
+            "-T", str(ld_tiny_ccm),
+            "-o", str(tmp / "overflow_ccm.elf")
+        ]
+        res2 = subprocess.run(cmd2, capture_output=True, text=True)
+        assert res2.returncode != 0, "Expected link failure on CCMRAM overflow"
+        assert "region CCMRAM overflowed" in res2.stderr, f"Expected CCMRAM overflow message, got: {res2.stderr}"
+
+        print("ok   extended linker script (MEMORY, > REGION AT> LMA, NOLOAD, PROVIDE/PROVIDE_HIDDEN, ALIGN)")
 
 def test_baremetal_preproc():
     # Test __STDC_HOSTED__=0 and __BAREMETAL__=1 in -ffreestanding mode
@@ -576,6 +700,7 @@ def main():
     test_baremetal_preproc()
     test_interrupt_handlers()
     test_overflow_check()
+    test_extended_linker_script()
 
     for isa in ("x86-64", "aarch64", "aarch32", "riscv32", "riscv64"):
         test_baremetal_pipeline(isa)
