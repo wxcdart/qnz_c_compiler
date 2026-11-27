@@ -138,6 +138,7 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	src/zero_cc/linker/ar_writer.o \
 	src/zero_cc/linker/linker.o \
 	src/zero_cc/linker/pe_writer.o \
+	src/zero_cc/linker/coff_reader.o \
 	src/zero_cc/linker/macho_writer.o \
 	src/zero_cc/linker/macho_reader.o \
 	src/zero_cc/types/string_pool.o)

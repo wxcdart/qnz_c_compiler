@@ -1,5 +1,30 @@
 # CHANGELOG
 
+## [Sprint 259] - 2026-11-27 - Windows PE/COFF Multi-TU Native Linking Parity (COFF .obj Linker & Relocation Resolution)
+
+- **COFF Relocatable Object Reader (`src/zero_cc/linker/coff_reader.h`, `src/zero_cc/linker/coff_reader.c`)**:
+  - Implemented standalone COFF object reader `zero_cc_coff_read_object_mem` and `zero_cc_coff_read_object_file` supporting `IMAGE_FILE_MACHINE_AMD64` (0x8664).
+  - Robust section header parsing (.text, .rdata, .data, .bss) with short name and string-table `/offset` long name resolution.
+  - COFF symbol table (`ZeroCCCoffSymbol`) and string table parsing with auxiliary symbol skip alignment.
+  - Section relocation parsing (`ZeroCCCoffReloc`) collecting relocation records per section.
+- **PE Multi-Object Native Linker (`src/zero_cc/linker/pe_writer.h`, `src/zero_cc/linker/pe_writer.c`)**:
+  - Implemented `zero_cc_pe_link_objects` to combine sections (.text, .rdata, .data, .bss) from arbitrary collections of COFF relocatable objects (.obj).
+  - Cross-object global symbol resolution linking defined functions, variables, and constants across translation units.
+  - Automatic unresolved external routing: maps Windows API calls to `KERNEL32.dll` and standard C runtime calls (`printf`, `puts`, `malloc`, `free`) to `msvcrt.dll`.
+  - Multi-DLL `.idata` section synthesis: generates Import Directory Table, Import Lookup Tables (ILT), Import Address Tables (IAT), and Hint/Name tables.
+  - Import jump stubs (thunks): synthesizes x86-64 `jmp *__imp_func(%rip)` (0xFF 0x25) stubs in `.text` for transparent indirect call resolution.
+  - COFF AMD64 in-place relocation engine supporting `IMAGE_REL_AMD64_REL32`, `IMAGE_REL_AMD64_ADDR64`, `IMAGE_REL_AMD64_ADDR32NB`, and `IMAGE_REL_AMD64_ADDR32`.
+  - CRT startup stub emission for Windows CUI executables, GUI executables (`-mwindows`), and DLLs (`-shared`).
+- **CLI Driver Multi-TU Integration (`src/main.c`)**:
+  - Wired multi-input compilation and linking for PE targets (`-mpe`, `--pe`, `--target x86_64-windows`): compiles any `.c` inputs into temporary `.obj` files and invokes `zero_cc_pe_link_objects`.
+  - Supports direct `.obj` linking, multi `.c` linking, and mixed `.c` + `.obj` compilation in a single driver invocation.
+- **PE Verification Battery (`tools/verify/pe_tests.py`)**:
+  - Added `test_multi_tu_source_linking` (multi-file C source compilation and linking).
+  - Added `test_multi_tu_obj_linking` (separate `.obj` generation and subsequent PE multi-object linking).
+  - Added `test_mixed_c_and_obj_linking` (mixed `.c` and `.obj` linking).
+  - All 58 PE tests passed (58/58). All 280 regression tests passed. Style check: 0 errors, 0 warnings.
+
+
 ## [Sprint 258] - 2026-11-27 - DWARF 5 Debug Information Architecture (-gdwarf-5, .debug_line_str, .debug_rnglists)
 
 - **Driver & Frontend CLI Options (`src/zero_cc/driver/driver_opts.h`, `src/zero_cc/types/symbols.h`, `src/main.c`)**:

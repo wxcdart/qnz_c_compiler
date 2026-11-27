@@ -1960,23 +1960,101 @@ static int compile_and_link(CompileOptions *opts) {
     if (opts->is_pe) {
         if (opts->input_count == 0) return 1;
         const char *output = opts->output_file ? opts->output_file : (opts->is_shared ? "a.dll" : "a.exe");
+
+        bool has_obj_input = false;
+        for (int i = 0; i < opts->input_count; i++) {
+            const char *in = opts->input_files[i];
+            size_t len = strlen(in);
+            if ((len >= 2 && strcmp(in + len - 2, ".o") == 0) ||
+                (len >= 4 && strcmp(in + len - 4, ".obj") == 0)) {
+                has_obj_input = true;
+                break;
+            }
+            FILE *fprobe = fopen(in, "rb");
+            if (fprobe) {
+                uint16_t machine = 0;
+                if (fread(&machine, 2, 1, fprobe) == 1 && machine == ZERO_CC_IMAGE_FILE_MACHINE_AMD64) {
+                    has_obj_input = true;
+                }
+                fclose(fprobe);
+                if (has_obj_input) break;
+            }
+        }
+
+        if (has_obj_input || opts->input_count > 1) {
+            char obj_paths[ZERO_CC_MAX_INPUTS][512];
+            int obj_temp[ZERO_CC_MAX_INPUTS];
+            int obj_count = 0;
+            CompileOptions obj_opts = *opts;
+            obj_opts.emit_object = 1;
+            obj_opts.emit_asm = 0;
+            obj_opts.output_file = NULL;
+            obj_opts.verbose = 0;
+
+            for (int i = 0; i < opts->input_count; i++) {
+                const char *in = opts->input_files[i];
+                size_t len = strlen(in);
+                bool is_obj = (len >= 2 && strcmp(in + len - 2, ".o") == 0) ||
+                              (len >= 4 && strcmp(in + len - 4, ".obj") == 0);
+                if (!is_obj) {
+                    FILE *fp = fopen(in, "rb");
+                    if (fp) {
+                        uint16_t machine = 0;
+                        if (fread(&machine, 2, 1, fp) == 1 && machine == ZERO_CC_IMAGE_FILE_MACHINE_AMD64) {
+                            is_obj = true;
+                        }
+                        fclose(fp);
+                    }
+                }
+
+                if (is_obj) {
+                    snprintf(obj_paths[obj_count], sizeof(obj_paths[0]), "%s", in);
+                    obj_temp[obj_count] = 0;
+                    obj_count++;
+                } else {
+                    snprintf(obj_paths[obj_count], sizeof(obj_paths[0]), "/tmp/zerocc_pe_%d_%d.obj",
+                             getpid(), obj_count);
+                    obj_temp[obj_count] = 1;
+                    int r = compile_object_single(&obj_opts, in, obj_paths[obj_count]);
+                    if (r != 0) {
+                        for (int k = 0; k < obj_count; k++) {
+                            if (obj_temp[k]) unlink(obj_paths[k]);
+                        }
+                        return r;
+                    }
+                    obj_count++;
+                }
+            }
+
+            const char *obj_ptrs[ZERO_CC_MAX_INPUTS];
+            for (int i = 0; i < obj_count; i++) obj_ptrs[i] = obj_paths[i];
+
+            ZeroCCPeOptions pe_opts;
+            memset(&pe_opts, 0, sizeof(pe_opts));
+            pe_opts.is_dll = (opts->is_shared != 0);
+            pe_opts.is_gui = (opts->is_windows_gui != 0);
+            pe_opts.dll_name = output;
+
+            bool ok = zero_cc_pe_link_objects(output, obj_ptrs, (size_t)obj_count, &pe_opts);
+
+            for (int k = 0; k < obj_count; k++) {
+                if (obj_temp[k]) unlink(obj_paths[k]);
+            }
+
+            if (!ok) {
+                fprintf(stderr, "zerocc: error linking PE %s: %s\n",
+                        opts->is_shared ? "DLL" : "executable", output);
+                return 1;
+            }
+            if (opts->verbose) {
+                printf("Successfully generated PE32+ %s: %s\n",
+                       opts->is_shared ? "DLL" : "executable", output);
+            }
+            return 0;
+        }
+
         ZeroCCCompiler *comp = jit_compile_tu(opts, opts->input_files[0], 0);
         if (!comp) return 1;
-        for (int i = 1; i < opts->input_count; i++) {
-            ZeroCCCompiler *tu = jit_compile_tu(opts, opts->input_files[i], i);
-            if (!tu) {
-                zero_cc_compiler_free(comp);
-                return 1;
-            }
-            char err[256];
-            if (zero_cc_tu_merge(comp, tu, err, sizeof(err)) != 0) {
-                fprintf(stderr, "zerocc: error: %s\n", err);
-                zero_cc_compiler_free(comp);
-                zero_cc_compiler_free(tu);
-                return 1;
-            }
-            zero_cc_compiler_free(tu);
-        }
         ZeroCCPeOptions pe_opts;
         memset(&pe_opts, 0, sizeof(pe_opts));
         pe_opts.is_dll = (opts->is_shared != 0);

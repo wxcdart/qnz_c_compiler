@@ -242,6 +242,24 @@ bool zero_cc_pe_write_coff_obj(const char *filename,
  */
 bool zero_cc_pe_write_coff_obj_from_comp(const char *filename, ZeroCCCompiler *comp);
 
+/**
+ * @brief Link multiple COFF relocatable object files (.obj) into a PE32+ executable or DLL.
+ *
+ * Combines .text, .rdata, .data, and .bss across all input objects, resolves global
+ * and external symbols, resolves imports against KERNEL32.dll / msvcrt.dll, applies
+ * x86-64 COFF relocations (REL32, ADDR64, ADDR32NB), and writes the final PE binary.
+ *
+ * @param filename Output PE executable (.exe) or DLL (.dll) path.
+ * @param obj_files Array of input COFF object file paths.
+ * @param obj_count Number of input object files.
+ * @param opts PE options (is_dll, is_gui, dll_name).
+ * @return true on success, false on error.
+ */
+bool zero_cc_pe_link_objects(const char *filename,
+                             const char **obj_files,
+                             size_t obj_count,
+                             const ZeroCCPeOptions *opts);
+
 #ifdef __cplusplus
 }
 #endif

@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include "zero_cc/linker/coff_reader.h"
 #include "zero_cc.h"
 #include "zero_cc/types/global_vars.h"
 
@@ -1103,6 +1104,10 @@ bool zero_cc_pe_write_coff_obj_from_comp(const char *filename, ZeroCCCompiler *c
     /* String relocations (.rdata symbol is index 2) */
     for (size_t i = 0; i < comp->str_reloc_count && text_reloc_count < MAX_COFF_RELOCS; i++) {
         ZeroCCStringReloc *sr = &comp->str_relocs[i];
+        if (comp->text_section.data && sr->text_patch_offset + 4 <= comp->text_section.length) {
+            uint32_t val = (uint32_t)sr->rodata_offset;
+            memcpy(comp->text_section.data + sr->text_patch_offset, &val, 4);
+        }
         text_relocs[text_reloc_count].virtual_address = (uint32_t)sr->text_patch_offset;
         text_relocs[text_reloc_count].symbol_table_index = 2;
         text_relocs[text_reloc_count].type = ZERO_CC_IMAGE_REL_AMD64_REL32;
@@ -1211,5 +1216,671 @@ bool zero_cc_pe_write_coff_obj_from_comp(const char *filename, ZeroCCCompiler *c
     }
 
     fclose(f);
+    return true;
+}
+
+/* ========================================================================= */
+/* Windows PE/COFF Multi-TU Relocatable Object Linker (Sprint 259)           */
+/* ========================================================================= */
+
+typedef struct {
+    char name[128];
+    int sec_type; /* 1 = .text, 2 = .rdata, 3 = .data, 4 = .bss */
+    uint32_t offset;
+    uint32_t rva;
+    bool is_defined;
+} PeLinkSym;
+
+typedef struct {
+    char name[128];
+    char dll[64];
+    uint32_t iat_rva;
+    uint32_t ilt_rva;
+    uint32_t hint_name_rva;
+    uint32_t hint_name_offset;
+    uint32_t stub_rva;
+    uint32_t stub_text_offset;
+} PeLinkImport;
+
+typedef struct {
+    char name[64];
+    size_t first_imp;
+    size_t imp_count;
+    uint32_t desc_rva;
+    uint32_t dll_name_rva;
+    uint32_t dll_name_offset;
+    uint32_t ilt_rva;
+    uint32_t ilt_offset;
+    uint32_t iat_rva;
+    uint32_t iat_offset;
+} PeLinkDll;
+
+bool zero_cc_pe_link_objects(const char *filename,
+                             const char **obj_files,
+                             size_t obj_count,
+                             const ZeroCCPeOptions *opts)
+{
+    if (!filename || !obj_files || obj_count == 0) return false;
+
+    ZeroCCCoffParsedObject *objs = (ZeroCCCoffParsedObject *)calloc(obj_count, sizeof(ZeroCCCoffParsedObject));
+    if (!objs) return false;
+
+    char err[256];
+    for (size_t i = 0; i < obj_count; i++) {
+        if (!zero_cc_coff_read_object_file(obj_files[i], &objs[i], err, sizeof(err))) {
+            fprintf(stderr, "zerocc: error reading COFF object '%s': %s\n", obj_files[i], err);
+            for (size_t k = 0; k < i; k++) zero_cc_coff_parsed_object_free(&objs[k]);
+            free(objs);
+            return false;
+        }
+    }
+
+    bool is_dll = (opts && opts->is_dll);
+    bool is_gui = (opts && opts->is_gui);
+    size_t stub_size = is_dll ? 16 : 32;
+
+    uint32_t *text_offs = (uint32_t *)calloc(obj_count, sizeof(uint32_t));
+    uint32_t *rdata_offs = (uint32_t *)calloc(obj_count, sizeof(uint32_t));
+    uint32_t *data_offs = (uint32_t *)calloc(obj_count, sizeof(uint32_t));
+    uint32_t *bss_offs = (uint32_t *)calloc(obj_count, sizeof(uint32_t));
+
+    uint32_t total_text_size = (uint32_t)stub_size;
+    uint32_t total_rdata_size = 0;
+    uint32_t total_data_size = 0;
+    uint32_t total_bss_size = 0;
+
+    for (size_t i = 0; i < obj_count; i++) {
+        const ZeroCCCoffSectParsed *st = zero_cc_coff_find_section(&objs[i], ".text");
+        if (st && st->size_of_raw_data > 0) {
+            total_text_size = pe_align_up(total_text_size, 16);
+            text_offs[i] = total_text_size;
+            total_text_size += st->size_of_raw_data;
+        }
+        const ZeroCCCoffSectParsed *sr = zero_cc_coff_find_section(&objs[i], ".rdata");
+        if (sr && sr->size_of_raw_data > 0) {
+            total_rdata_size = pe_align_up(total_rdata_size, 16);
+            rdata_offs[i] = total_rdata_size;
+            total_rdata_size += sr->size_of_raw_data;
+        }
+        const ZeroCCCoffSectParsed *sd = zero_cc_coff_find_section(&objs[i], ".data");
+        if (sd && sd->size_of_raw_data > 0) {
+            total_data_size = pe_align_up(total_data_size, 16);
+            data_offs[i] = total_data_size;
+            total_data_size += sd->size_of_raw_data;
+        }
+        const ZeroCCCoffSectParsed *sb = zero_cc_coff_find_section(&objs[i], ".bss");
+        if (sb && sb->size_of_raw_data > 0) {
+            total_bss_size = pe_align_up(total_bss_size, 16);
+            bss_offs[i] = total_bss_size;
+            total_bss_size += sb->size_of_raw_data;
+        }
+    }
+
+    #define MAX_PE_SYMS 8192
+    PeLinkSym *syms = (PeLinkSym *)calloc(MAX_PE_SYMS, sizeof(PeLinkSym));
+    size_t sym_count = 0;
+
+    for (size_t i = 0; i < obj_count; i++) {
+        for (size_t s = 0; s < objs[i].symbol_count; s++) {
+            ZeroCCCoffSymParsed *cs = &objs[i].symbols[s];
+            if (cs->section_number > 0 && cs->name[0] != '\0') {
+                int16_t sidx = cs->section_number - 1;
+                if (sidx >= 0 && (size_t)sidx < objs[i].section_count) {
+                    const char *sname = objs[i].sections[sidx].name;
+                    int sec_type = 0;
+                    uint32_t sym_offset = 0;
+                    if (strcmp(sname, ".text") == 0) {
+                        sec_type = 1;
+                        sym_offset = text_offs[i] + cs->value;
+                    } else if (strcmp(sname, ".rdata") == 0) {
+                        sec_type = 2;
+                        sym_offset = rdata_offs[i] + cs->value;
+                    } else if (strcmp(sname, ".data") == 0) {
+                        sec_type = 3;
+                        sym_offset = data_offs[i] + cs->value;
+                    } else if (strcmp(sname, ".bss") == 0) {
+                        sec_type = 4;
+                        sym_offset = bss_offs[i] + cs->value;
+                    }
+                    if (sec_type > 0 && sym_count < MAX_PE_SYMS) {
+                        bool exists = false;
+                        for (size_t k = 0; k < sym_count; k++) {
+                            if (strcmp(syms[k].name, cs->name) == 0) {
+                                exists = true;
+                                break;
+                            }
+                        }
+                        if (!exists) {
+                            strncpy(syms[sym_count].name, cs->name, sizeof(syms[sym_count].name) - 1);
+                            syms[sym_count].sec_type = sec_type;
+                            syms[sym_count].offset = sym_offset;
+                            syms[sym_count].is_defined = true;
+                            sym_count++;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #define MAX_PE_IMPORTS 512
+    PeLinkImport *imports = (PeLinkImport *)calloc(MAX_PE_IMPORTS, sizeof(PeLinkImport));
+    size_t num_imports = 0;
+
+    if (!is_dll) {
+        strncpy(imports[num_imports].name, "ExitProcess", sizeof(imports[0].name) - 1);
+        strncpy(imports[num_imports].dll, "KERNEL32.dll", sizeof(imports[0].dll) - 1);
+        num_imports++;
+    }
+
+    for (size_t i = 0; i < obj_count; i++) {
+        for (size_t s = 0; s < objs[i].section_count; s++) {
+            ZeroCCCoffSectParsed *sec = &objs[i].sections[s];
+            for (size_t r = 0; r < sec->reloc_count; r++) {
+                ZeroCCCoffRelocParsed *rel = &sec->relocs[r];
+                if (rel->symbol_index >= objs[i].symbol_count) continue;
+                ZeroCCCoffSymParsed *cs = &objs[i].symbols[rel->symbol_index];
+                if (cs->section_number == 0 && cs->name[0] != '\0') {
+                    const char *target = cs->name;
+                    if (strncmp(target, "__imp_", 6) == 0) target += 6;
+                    bool found = false;
+                    for (size_t k = 0; k < sym_count; k++) {
+                        if (strcmp(syms[k].name, target) == 0) {
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        bool already = false;
+                        for (size_t m = 0; m < num_imports; m++) {
+                            if (strcmp(imports[m].name, target) == 0) {
+                                already = true;
+                                break;
+                            }
+                        }
+                        if (!already && num_imports < MAX_PE_IMPORTS) {
+                            strncpy(imports[num_imports].name, target, sizeof(imports[0].name) - 1);
+                            if (strcmp(target, "ExitProcess") == 0 ||
+                                strcmp(target, "GetStdHandle") == 0 ||
+                                strcmp(target, "WriteFile") == 0 ||
+                                strcmp(target, "GetCommandLineA") == 0 ||
+                                strcmp(target, "GetCommandLineW") == 0 ||
+                                strcmp(target, "GetModuleHandleA") == 0 ||
+                                strcmp(target, "GetModuleHandleW") == 0 ||
+                                strcmp(target, "Sleep") == 0 ||
+                                strcmp(target, "GetLastError") == 0 ||
+                                strcmp(target, "VirtualAlloc") == 0 ||
+                                strcmp(target, "VirtualFree") == 0) {
+                                strncpy(imports[num_imports].dll, "KERNEL32.dll", sizeof(imports[0].dll) - 1);
+                            } else if (strcmp(target, "MessageBoxA") == 0 || strcmp(target, "MessageBoxW") == 0) {
+                                strncpy(imports[num_imports].dll, "USER32.dll", sizeof(imports[0].dll) - 1);
+                            } else {
+                                strncpy(imports[num_imports].dll, "msvcrt.dll", sizeof(imports[0].dll) - 1);
+                            }
+                            num_imports++;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    uint32_t file_align = ZERO_CC_PE_FILE_ALIGNMENT;
+    uint32_t sec_align = ZERO_CC_PE_SECTION_ALIGNMENT;
+    uint32_t text_rva = sec_align;
+
+    /* Assign import stubs in .text */
+    for (size_t m = 0; m < num_imports; m++) {
+        total_text_size = pe_align_up(total_text_size, 16);
+        imports[m].stub_text_offset = total_text_size;
+        imports[m].stub_rva = text_rva + total_text_size;
+        total_text_size += 16;
+    }
+
+    uint32_t text_raw_size = pe_align_up(total_text_size, file_align);
+    uint32_t text_virt_size = pe_align_up(total_text_size, sec_align);
+
+    uint32_t rdata_rva = text_rva + text_virt_size;
+    uint32_t rdata_raw_size = pe_align_up(total_rdata_size, file_align);
+    uint32_t rdata_virt_size = pe_align_up(total_rdata_size > 0 ? total_rdata_size : 1, sec_align);
+
+    uint32_t data_rva = rdata_rva + rdata_virt_size;
+    uint32_t data_raw_size = pe_align_up(total_data_size, file_align);
+    uint32_t total_data_virt = total_data_size + total_bss_size;
+    uint32_t data_virt_size = pe_align_up(total_data_virt > 0 ? total_data_virt : 1, sec_align);
+
+    uint32_t idata_rva = data_rva + data_virt_size;
+
+    /* Update RVAs in syms */
+    for (size_t s = 0; s < sym_count; s++) {
+        if (syms[s].sec_type == 1) syms[s].rva = text_rva + syms[s].offset;
+        else if (syms[s].sec_type == 2) syms[s].rva = rdata_rva + syms[s].offset;
+        else if (syms[s].sec_type == 3) syms[s].rva = data_rva + syms[s].offset;
+        else if (syms[s].sec_type == 4) syms[s].rva = data_rva + total_data_size + syms[s].offset;
+    }
+
+    /* Group imports by DLL */
+    #define MAX_PE_DLLS 16
+    PeLinkDll dlls[MAX_PE_DLLS];
+    size_t num_dlls = 0;
+
+    PeLinkImport sorted_imports[MAX_PE_IMPORTS];
+    size_t sorted_count = 0;
+
+    for (size_t m = 0; m < num_imports; m++) {
+        const char *dname = imports[m].dll;
+        bool dll_seen = false;
+        for (size_t d = 0; d < num_dlls; d++) {
+            if (strcmp(dlls[d].name, dname) == 0) {
+                dll_seen = true;
+                break;
+            }
+        }
+        if (!dll_seen && num_dlls < MAX_PE_DLLS) {
+            strncpy(dlls[num_dlls].name, dname, sizeof(dlls[0].name) - 1);
+            num_dlls++;
+        }
+    }
+
+    for (size_t d = 0; d < num_dlls; d++) {
+        dlls[d].first_imp = sorted_count;
+        dlls[d].imp_count = 0;
+        for (size_t m = 0; m < num_imports; m++) {
+            if (strcmp(imports[m].dll, dlls[d].name) == 0) {
+                sorted_imports[sorted_count] = imports[m];
+                sorted_count++;
+                dlls[d].imp_count++;
+            }
+        }
+    }
+    for (size_t m = 0; m < sorted_count; m++) {
+        imports[m] = sorted_imports[m];
+    }
+
+    /* Calculate layout of .idata */
+    uint32_t cur_idata = (uint32_t)((num_dlls + 1) * sizeof(ZeroCCImportDescriptor));
+    for (size_t d = 0; d < num_dlls; d++) {
+        dlls[d].ilt_offset = cur_idata;
+        cur_idata += (uint32_t)((dlls[d].imp_count + 1) * 8);
+        dlls[d].iat_offset = cur_idata;
+        cur_idata += (uint32_t)((dlls[d].imp_count + 1) * 8);
+    }
+    for (size_t m = 0; m < num_imports; m++) {
+        imports[m].hint_name_offset = cur_idata;
+        uint32_t hn_len = 2 + (uint32_t)strlen(imports[m].name) + 1;
+        if (hn_len & 1) hn_len++;
+        cur_idata += hn_len;
+    }
+    for (size_t d = 0; d < num_dlls; d++) {
+        dlls[d].dll_name_offset = cur_idata;
+        cur_idata += (uint32_t)strlen(dlls[d].name) + 1;
+    }
+
+    uint32_t idata_raw_size = pe_align_up(cur_idata, file_align);
+    uint32_t idata_virt_size = pe_align_up(cur_idata, sec_align);
+
+    for (size_t d = 0; d < num_dlls; d++) {
+        dlls[d].desc_rva = idata_rva + (uint32_t)(d * sizeof(ZeroCCImportDescriptor));
+        dlls[d].ilt_rva = idata_rva + dlls[d].ilt_offset;
+        dlls[d].iat_rva = idata_rva + dlls[d].iat_offset;
+        dlls[d].dll_name_rva = idata_rva + dlls[d].dll_name_offset;
+        for (size_t k = 0; k < dlls[d].imp_count; k++) {
+            size_t m = dlls[d].first_imp + k;
+            imports[m].hint_name_rva = idata_rva + imports[m].hint_name_offset;
+            imports[m].ilt_rva = dlls[d].ilt_rva + (uint32_t)(k * 8);
+            imports[m].iat_rva = dlls[d].iat_rva + (uint32_t)(k * 8);
+        }
+    }
+
+    /* Allocate section buffers */
+    uint8_t *merged_text = (uint8_t *)calloc(1, text_raw_size > 0 ? text_raw_size : 16);
+    uint8_t *merged_rdata = (uint8_t *)calloc(1, rdata_raw_size > 0 ? rdata_raw_size : 16);
+    uint8_t *merged_data = (uint8_t *)calloc(1, data_raw_size > 0 ? data_raw_size : 16);
+    uint8_t *idata_buf = (uint8_t *)calloc(1, idata_raw_size > 0 ? idata_raw_size : 512);
+
+    /* Copy object payloads */
+    for (size_t i = 0; i < obj_count; i++) {
+        const ZeroCCCoffSectParsed *st = zero_cc_coff_find_section(&objs[i], ".text");
+        if (st && st->size_of_raw_data > 0 && st->data) {
+            memcpy(merged_text + text_offs[i], st->data, st->size_of_raw_data);
+        }
+        const ZeroCCCoffSectParsed *sr = zero_cc_coff_find_section(&objs[i], ".rdata");
+        if (sr && sr->size_of_raw_data > 0 && sr->data) {
+            memcpy(merged_rdata + rdata_offs[i], sr->data, sr->size_of_raw_data);
+        }
+        const ZeroCCCoffSectParsed *sd = zero_cc_coff_find_section(&objs[i], ".data");
+        if (sd && sd->size_of_raw_data > 0 && sd->data) {
+            memcpy(merged_data + data_offs[i], sd->data, sd->size_of_raw_data);
+        }
+    }
+
+    /* Build .idata */
+    for (size_t d = 0; d < num_dlls; d++) {
+        ZeroCCImportDescriptor *desc = (ZeroCCImportDescriptor *)(idata_buf + d * sizeof(ZeroCCImportDescriptor));
+        desc->original_first_thunk = dlls[d].ilt_rva;
+        desc->time_date_stamp = 0;
+        desc->forwarder_chain = 0;
+        desc->name_rva = dlls[d].dll_name_rva;
+        desc->first_thunk = dlls[d].iat_rva;
+
+        for (size_t k = 0; k < dlls[d].imp_count; k++) {
+            size_t m = dlls[d].first_imp + k;
+            uint64_t val = (uint64_t)imports[m].hint_name_rva;
+            memcpy(idata_buf + dlls[d].ilt_offset + k * 8, &val, 8);
+            memcpy(idata_buf + dlls[d].iat_offset + k * 8, &val, 8);
+        }
+        memcpy(idata_buf + dlls[d].dll_name_offset, dlls[d].name, strlen(dlls[d].name) + 1);
+    }
+    for (size_t m = 0; m < num_imports; m++) {
+        uint16_t hint = 0;
+        memcpy(idata_buf + imports[m].hint_name_offset, &hint, 2);
+        memcpy(idata_buf + imports[m].hint_name_offset + 2, imports[m].name, strlen(imports[m].name) + 1);
+    }
+
+    /* Build import jump stubs */
+    for (size_t m = 0; m < num_imports; m++) {
+        uint8_t *st = merged_text + imports[m].stub_text_offset;
+        st[0] = 0xFF;
+        st[1] = 0x25;
+        int32_t disp = (int32_t)(imports[m].iat_rva - (imports[m].stub_rva + 6));
+        memcpy(st + 2, &disp, 4);
+        for (size_t p = 6; p < 16; p++) st[p] = 0x90;
+    }
+
+    /* Build CRT entry stub */
+    if (is_dll) {
+        merged_text[0] = 0xB8; merged_text[1] = 0x01;
+        merged_text[2] = 0x00; merged_text[3] = 0x00;
+        merged_text[4] = 0x00; merged_text[5] = 0xC3;
+        for (size_t p = 6; p < stub_size; p++) merged_text[p] = 0x90;
+    } else {
+        uint32_t main_rva = text_rva + 32;
+        for (size_t s = 0; s < sym_count; s++) {
+            if (strcmp(syms[s].name, "main") == 0 ||
+                strcmp(syms[s].name, "_main") == 0 ||
+                strcmp(syms[s].name, "WinMain") == 0) {
+                main_rva = syms[s].rva;
+                break;
+            }
+        }
+        uint32_t exit_iat_rva = idata_rva;
+        for (size_t m = 0; m < num_imports; m++) {
+            if (strcmp(imports[m].name, "ExitProcess") == 0) {
+                exit_iat_rva = imports[m].iat_rva;
+                break;
+            }
+        }
+        merged_text[0] = 0x48; merged_text[1] = 0x83; merged_text[2] = 0xEC; merged_text[3] = 0x28;
+        merged_text[4] = 0xE8;
+        int32_t call_main_disp = (int32_t)(main_rva - (text_rva + 9));
+        memcpy(merged_text + 5, &call_main_disp, 4);
+        merged_text[9] = 0x89; merged_text[10] = 0xC1;
+        merged_text[11] = 0xFF; merged_text[12] = 0x15;
+        int32_t iat_disp = (int32_t)(exit_iat_rva - (text_rva + 17));
+        memcpy(merged_text + 13, &iat_disp, 4);
+        merged_text[17] = 0xC3;
+        for (size_t p = 18; p < stub_size; p++) merged_text[p] = 0x90;
+    }
+
+    /* Apply Relocations */
+    for (size_t i = 0; i < obj_count; i++) {
+        for (size_t s = 0; s < objs[i].section_count; s++) {
+            ZeroCCCoffSectParsed *sec = &objs[i].sections[s];
+            if (sec->reloc_count == 0) continue;
+
+            uint8_t *sec_buf = NULL;
+            uint32_t sec_base_rva = 0;
+            if (strcmp(sec->name, ".text") == 0) {
+                sec_buf = merged_text + text_offs[i];
+                sec_base_rva = text_rva + text_offs[i];
+            } else if (strcmp(sec->name, ".data") == 0) {
+                sec_buf = merged_data + data_offs[i];
+                sec_base_rva = data_rva + data_offs[i];
+            } else {
+                continue;
+            }
+
+            for (size_t r = 0; r < sec->reloc_count; r++) {
+                ZeroCCCoffRelocParsed *rel = &sec->relocs[r];
+                if (rel->virtual_address >= sec->size_of_raw_data) continue;
+                uint8_t *patch_loc = sec_buf + rel->virtual_address;
+                uint32_t src_rva = sec_base_rva + rel->virtual_address;
+
+                if (rel->symbol_index >= objs[i].symbol_count) continue;
+                ZeroCCCoffSymParsed *cs = &objs[i].symbols[rel->symbol_index];
+                uint32_t tgt_rva = 0;
+
+                if (cs->section_number > 0) {
+                    int16_t sidx = cs->section_number - 1;
+                    if (sidx >= 0 && (size_t)sidx < objs[i].section_count) {
+                        const char *sn = objs[i].sections[sidx].name;
+                        if (strcmp(sn, ".text") == 0) tgt_rva = text_rva + text_offs[i] + cs->value;
+                        else if (strcmp(sn, ".rdata") == 0) tgt_rva = rdata_rva + rdata_offs[i] + cs->value;
+                        else if (strcmp(sn, ".data") == 0) tgt_rva = data_rva + data_offs[i] + cs->value;
+                        else if (strcmp(sn, ".bss") == 0) tgt_rva = data_rva + total_data_size + bss_offs[i] + cs->value;
+                    }
+                } else {
+                    bool found = false;
+                    for (size_t k = 0; k < sym_count; k++) {
+                        if (strcmp(syms[k].name, cs->name) == 0) {
+                            tgt_rva = syms[k].rva;
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        const char *iname = cs->name;
+                        bool is_imp_sym = false;
+                        if (strncmp(iname, "__imp_", 6) == 0) {
+                            iname += 6;
+                            is_imp_sym = true;
+                        }
+                        for (size_t m = 0; m < num_imports; m++) {
+                            if (strcmp(imports[m].name, iname) == 0) {
+                                tgt_rva = is_imp_sym ? imports[m].iat_rva : imports[m].stub_rva;
+                                found = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (!found) {
+                        fprintf(stderr, "zerocc: undefined reference to '%s' in '%s'\n", cs->name, obj_files[i]);
+                    }
+                }
+
+                if (rel->type == ZERO_CC_IMAGE_REL_AMD64_REL32) {
+                    int32_t addend = 0;
+                    memcpy(&addend, patch_loc, 4);
+                    int32_t disp = (int32_t)(tgt_rva + addend - (src_rva + 4));
+                    memcpy(patch_loc, &disp, 4);
+                } else if (rel->type == ZERO_CC_IMAGE_REL_AMD64_ADDR64) {
+                    int64_t addend = 0;
+                    memcpy(&addend, patch_loc, 8);
+                    uint64_t va = ZERO_CC_PE_DEFAULT_IMAGE_BASE + tgt_rva + (uint64_t)addend;
+                    memcpy(patch_loc, &va, 8);
+                } else if (rel->type == ZERO_CC_IMAGE_REL_AMD64_ADDR32NB) {
+                    int32_t addend = 0;
+                    memcpy(&addend, patch_loc, 4);
+                    uint32_t rva = tgt_rva + (uint32_t)addend;
+                    memcpy(patch_loc, &rva, 4);
+                } else if (rel->type == ZERO_CC_IMAGE_REL_AMD64_ADDR32) {
+                    int32_t addend = 0;
+                    memcpy(&addend, patch_loc, 4);
+                    uint32_t va = (uint32_t)(ZERO_CC_PE_DEFAULT_IMAGE_BASE + tgt_rva + addend);
+                    memcpy(patch_loc, &va, 4);
+                }
+            }
+        }
+    }
+
+    /* Write headers & sections to output file */
+    FILE *f = fopen(filename, "wb");
+    if (!f) {
+        free(merged_text); free(merged_rdata); free(merged_data); free(idata_buf);
+        free(syms); free(imports);
+        free(text_offs); free(rdata_offs); free(data_offs); free(bss_offs);
+        for (size_t k = 0; k < obj_count; k++) zero_cc_coff_parsed_object_free(&objs[k]);
+        free(objs);
+        return false;
+    }
+
+    uint16_t num_sections = 4;
+    uint32_t raw_headers_size = (uint32_t)(sizeof(ZeroCCDosHeader) + 64 + 4 +
+                                           sizeof(ZeroCCCoffFileHeader) +
+                                           sizeof(ZeroCCOptionalHeader64) +
+                                           num_sections * sizeof(ZeroCCSectionHeader));
+    uint32_t headers_size_aligned = pe_align_up(raw_headers_size, file_align);
+
+    uint32_t text_raw_off = headers_size_aligned;
+    uint32_t rdata_raw_off = text_raw_off + text_raw_size;
+    uint32_t data_raw_off = rdata_raw_off + rdata_raw_size;
+    uint32_t idata_raw_off = data_raw_off + data_raw_size;
+
+    ZeroCCDosHeader dos;
+    memset(&dos, 0, sizeof(dos));
+    dos.e_magic = ZERO_CC_PE_DOS_MAGIC;
+    dos.e_cblp = 0x90;
+    dos.e_cp = 0x03;
+    dos.e_cparhdr = 0x04;
+    dos.e_maxalloc = 0xFFFF;
+    dos.e_sp = 0xB8;
+    dos.e_lfarlc = 0x40;
+    dos.e_lfanew = (uint32_t)(sizeof(ZeroCCDosHeader) + 64);
+
+    uint8_t dos_stub[64] = {
+        0x0e, 0x1f, 0xba, 0x0e, 0x00, 0xb4, 0x09, 0xcd, 0x21, 0xb8, 0x01, 0x4c, 0xcd, 0x21,
+        'T', 'h', 'i', 's', ' ', 'p', 'r', 'o', 'g', 'r', 'a', 'm', ' ', 'c', 'a', 'n', 'n',
+        'o', 't', ' ', 'b', 'e', ' ', 'r', 'u', 'n', ' ', 'i', 'n', ' ', 'D', 'O', 'S', ' ',
+        'm', 'o', 'd', 'e', '.', '\r', '\r', '\n', '$', 0, 0, 0, 0, 0, 0, 0
+    };
+
+    uint32_t pe_sig = ZERO_CC_PE_SIGNATURE;
+
+    ZeroCCCoffFileHeader coff;
+    memset(&coff, 0, sizeof(coff));
+    coff.machine = ZERO_CC_IMAGE_FILE_MACHINE_AMD64;
+    coff.number_of_sections = num_sections;
+    coff.time_date_stamp = (uint32_t)time(NULL);
+    coff.size_of_optional_header = (uint16_t)sizeof(ZeroCCOptionalHeader64);
+    coff.characteristics = ZERO_CC_IMAGE_FILE_EXECUTABLE_IMAGE | ZERO_CC_IMAGE_FILE_LARGE_ADDRESS_AWARE;
+    if (is_dll) coff.characteristics |= ZERO_CC_IMAGE_FILE_DLL;
+
+    ZeroCCOptionalHeader64 opt;
+    memset(&opt, 0, sizeof(opt));
+    opt.magic = ZERO_CC_PE32PLUS_MAGIC;
+    opt.major_linker_version = 1;
+    opt.minor_linker_version = 0;
+    opt.size_of_code = text_raw_size;
+    opt.size_of_initialized_data = rdata_raw_size + data_raw_size + idata_raw_size;
+    opt.size_of_uninitialized_data = (uint32_t)pe_align_up(total_bss_size, file_align);
+    opt.address_of_entry_point = text_rva;
+    opt.base_of_code = text_rva;
+    opt.image_base = ZERO_CC_PE_DEFAULT_IMAGE_BASE;
+    opt.section_alignment = sec_align;
+    opt.file_alignment = file_align;
+    opt.major_operating_system_version = 6;
+    opt.minor_operating_system_version = 0;
+    opt.major_image_version = 0;
+    opt.minor_image_version = 0;
+    opt.major_subsystem_version = 6;
+    opt.minor_subsystem_version = 0;
+    opt.size_of_image = idata_rva + idata_virt_size;
+    opt.size_of_headers = headers_size_aligned;
+    opt.subsystem = is_gui ? ZERO_CC_IMAGE_SUBSYSTEM_WINDOWS_GUI : ZERO_CC_IMAGE_SUBSYSTEM_WINDOWS_CUI;
+    opt.dll_characteristics = 0x8160;
+    opt.size_of_stack_reserve = 0x100000;
+    opt.size_of_stack_commit  = 0x10000;
+    opt.size_of_heap_reserve  = 0x100000;
+    opt.size_of_heap_commit   = 0x1000;
+    opt.number_of_rva_and_sizes = 16;
+
+    if (num_dlls > 0) {
+        opt.data_directory[ZERO_CC_IMAGE_DIRECTORY_ENTRY_IMPORT].virtual_address = idata_rva;
+        opt.data_directory[ZERO_CC_IMAGE_DIRECTORY_ENTRY_IMPORT].size = (uint32_t)((num_dlls + 1) * sizeof(ZeroCCImportDescriptor));
+
+        opt.data_directory[ZERO_CC_IMAGE_DIRECTORY_ENTRY_IAT].virtual_address = dlls[0].iat_rva;
+        uint32_t total_iat_len = (dlls[num_dlls - 1].iat_rva + (uint32_t)((dlls[num_dlls - 1].imp_count + 1) * 8)) - dlls[0].iat_rva;
+        opt.data_directory[ZERO_CC_IMAGE_DIRECTORY_ENTRY_IAT].size = total_iat_len;
+    }
+
+    ZeroCCSectionHeader sec[4];
+    memset(sec, 0, sizeof(sec));
+
+    /* 1. .text */
+    memcpy(sec[0].name, ".text\0\0\0", 8);
+    sec[0].virtual_size = total_text_size;
+    sec[0].virtual_address = text_rva;
+    sec[0].size_of_raw_data = text_raw_size;
+    sec[0].pointer_to_raw_data = text_raw_off;
+    sec[0].characteristics = ZERO_CC_IMAGE_SCN_CNT_CODE | ZERO_CC_IMAGE_SCN_MEM_EXECUTE | ZERO_CC_IMAGE_SCN_MEM_READ;
+
+    /* 2. .rdata */
+    memcpy(sec[1].name, ".rdata\0\0", 8);
+    sec[1].virtual_size = total_rdata_size > 0 ? total_rdata_size : 1;
+    sec[1].virtual_address = rdata_rva;
+    sec[1].size_of_raw_data = rdata_raw_size;
+    sec[1].pointer_to_raw_data = rdata_raw_size > 0 ? rdata_raw_off : 0;
+    sec[1].characteristics = ZERO_CC_IMAGE_SCN_CNT_INITIALIZED_DATA | ZERO_CC_IMAGE_SCN_MEM_READ;
+
+    /* 3. .data */
+    memcpy(sec[2].name, ".data\0\0\0", 8);
+    sec[2].virtual_size = total_data_virt > 0 ? total_data_virt : 1;
+    sec[2].virtual_address = data_rva;
+    sec[2].size_of_raw_data = data_raw_size;
+    sec[2].pointer_to_raw_data = data_raw_size > 0 ? data_raw_off : 0;
+    sec[2].characteristics = ZERO_CC_IMAGE_SCN_CNT_INITIALIZED_DATA | ZERO_CC_IMAGE_SCN_MEM_READ | ZERO_CC_IMAGE_SCN_MEM_WRITE;
+
+    /* 4. .idata */
+    memcpy(sec[3].name, ".idata\0\0", 8);
+    sec[3].virtual_size = idata_raw_size;
+    sec[3].virtual_address = idata_rva;
+    sec[3].size_of_raw_data = idata_raw_size;
+    sec[3].pointer_to_raw_data = idata_raw_off;
+    sec[3].characteristics = ZERO_CC_IMAGE_SCN_CNT_INITIALIZED_DATA | ZERO_CC_IMAGE_SCN_MEM_READ | ZERO_CC_IMAGE_SCN_MEM_WRITE;
+
+    fwrite(&dos, 1, sizeof(dos), f);
+    fwrite(dos_stub, 1, sizeof(dos_stub), f);
+    fwrite(&pe_sig, 1, sizeof(pe_sig), f);
+    fwrite(&coff, 1, sizeof(coff), f);
+    fwrite(&opt, 1, sizeof(opt), f);
+    fwrite(sec, 1, num_sections * sizeof(ZeroCCSectionHeader), f);
+
+    size_t written_hdr = sizeof(dos) + sizeof(dos_stub) + sizeof(pe_sig) +
+                         sizeof(coff) + sizeof(opt) + num_sections * sizeof(ZeroCCSectionHeader);
+    while (written_hdr < headers_size_aligned) {
+        fputc(0, f);
+        written_hdr++;
+    }
+
+    fwrite(merged_text, 1, total_text_size, f);
+    for (size_t i = total_text_size; i < text_raw_size; i++) fputc(0x90, f);
+
+    if (merged_rdata && total_rdata_size > 0) {
+        fwrite(merged_rdata, 1, total_rdata_size, f);
+    }
+    for (size_t i = total_rdata_size; i < rdata_raw_size; i++) fputc(0, f);
+
+    if (merged_data && total_data_size > 0) {
+        fwrite(merged_data, 1, total_data_size, f);
+    }
+    for (size_t i = total_data_size; i < data_raw_size; i++) fputc(0, f);
+
+    fwrite(idata_buf, 1, idata_raw_size, f);
+    fclose(f);
+
+    /* Free all resources */
+    free(merged_text);
+    free(merged_rdata);
+    free(merged_data);
+    free(idata_buf);
+    free(syms);
+    free(imports);
+    free(text_offs);
+    free(rdata_offs);
+    free(data_offs);
+    free(bss_offs);
+    for (size_t k = 0; k < obj_count; k++) zero_cc_coff_parsed_object_free(&objs[k]);
+    free(objs);
+
     return true;
 }

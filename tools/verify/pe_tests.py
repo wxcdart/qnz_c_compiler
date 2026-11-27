@@ -337,6 +337,145 @@ def test_multi_dll_msvcrt_imports():
                dump_d.stdout[:300])
 
 
+def test_multi_tu_source_linking():
+    """Verify multi-TU compilation and native PE linking from multiple .c sources (Sprint 259)."""
+    with tempfile.TemporaryDirectory() as td:
+        src1 = Path(td) / "main.c"
+        src2 = Path(td) / "helper.c"
+        exe = Path(td) / "multi.exe"
+
+        src1.write_text("""
+        extern int helper(int);
+        extern int g_shared_var;
+        int main(void) {
+            return helper(g_shared_var);
+        }
+        """)
+
+        src2.write_text("""
+        int g_shared_var = 40;
+        int helper(int a) {
+            return a + 2;
+        }
+        """)
+
+        cmd = [str(ZEROCC), "-mpe", str(src1), str(src2), "-o", str(exe)]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        report("Multi-TU .c source compilation and linking (-mpe)", proc.returncode == 0, proc.stderr)
+        if proc.returncode != 0:
+            return
+
+        report("Multi-TU executable generated with MZ magic",
+               exe.exists() and exe.read_bytes()[:2] == b"MZ")
+
+        dump_p = subprocess.run(["objdump", "-p", str(exe)], capture_output=True, text=True)
+        report("Multi-TU pei-x86-64 recognized by objdump",
+               dump_p.returncode == 0 and "pei-x86-64" in dump_p.stdout,
+               dump_p.stderr[:200])
+
+        dump_d = subprocess.run(["objdump", "-d", str(exe)], capture_output=True, text=True)
+        report("Multi-TU binary disassembles cleanly",
+               dump_d.returncode == 0 and "call" in dump_d.stdout,
+               dump_d.stderr[:200])
+
+
+def test_multi_tu_obj_linking():
+    """Verify separate compilation to COFF .obj and subsequent PE multi-object linking (Sprint 259)."""
+    with tempfile.TemporaryDirectory() as td:
+        src1 = Path(td) / "part1.c"
+        src2 = Path(td) / "part2.c"
+        obj1 = Path(td) / "part1.obj"
+        obj2 = Path(td) / "part2.obj"
+        exe = Path(td) / "app.exe"
+
+        src1.write_text("""
+        extern int compute(int x, int y);
+        extern const char *get_greeting(void);
+        int main(void) {
+            const char *msg = get_greeting();
+            return compute(10, 20) + (int)msg[0];
+        }
+        """)
+
+        src2.write_text("""
+        static const char message[] = "Hello Multi-TU COFF";
+        const char *get_greeting(void) {
+            return message;
+        }
+        int compute(int x, int y) {
+            return x * y + 5;
+        }
+        """)
+
+        # Compile part1.c -> part1.obj
+        cmd1 = [str(ZEROCC), "-mpe", "-c", str(src1), "-o", str(obj1)]
+        proc1 = subprocess.run(cmd1, capture_output=True, text=True)
+        report("Compile part1.c to part1.obj", proc1.returncode == 0, proc1.stderr)
+
+        # Compile part2.c -> part2.obj
+        cmd2 = [str(ZEROCC), "-mpe", "-c", str(src2), "-o", str(obj2)]
+        proc2 = subprocess.run(cmd2, capture_output=True, text=True)
+        report("Compile part2.c to part2.obj", proc2.returncode == 0, proc2.stderr)
+
+        # Verify .obj inspection with objdump
+        dump_x1 = subprocess.run(["objdump", "-x", str(obj1)], capture_output=True, text=True)
+        dump_x2 = subprocess.run(["objdump", "-x", str(obj2)], capture_output=True, text=True)
+        report("part1.obj has COFF symbol table", "SYMBOL TABLE" in dump_x1.stdout)
+        report("part2.obj has COFF symbol table", "SYMBOL TABLE" in dump_x2.stdout)
+
+        # Link part1.obj + part2.obj -> app.exe
+        cmd_link = [str(ZEROCC), "-mpe", str(obj1), str(obj2), "-o", str(exe)]
+        proc_link = subprocess.run(cmd_link, capture_output=True, text=True)
+        report("Link part1.obj + part2.obj to app.exe", proc_link.returncode == 0, proc_link.stderr)
+        if proc_link.returncode != 0:
+            return
+
+        report("Linked app.exe has MZ magic and size > 1KB",
+               exe.exists() and exe.stat().st_size > 1024 and exe.read_bytes()[:2] == b"MZ")
+
+        dump_p = subprocess.run(["objdump", "-p", str(exe)], capture_output=True, text=True)
+        report("Linked app.exe imports KERNEL32.dll ExitProcess",
+               "KERNEL32.dll" in dump_p.stdout and "ExitProcess" in dump_p.stdout,
+               dump_p.stdout[:300])
+
+
+def test_mixed_c_and_obj_linking():
+    """Verify mixed compilation and linking (.c + .obj) in a single driver invocation (Sprint 259)."""
+    with tempfile.TemporaryDirectory() as td:
+        src1 = Path(td) / "driver.c"
+        src2 = Path(td) / "module.c"
+        obj2 = Path(td) / "module.obj"
+        exe = Path(td) / "mixed.exe"
+
+        src1.write_text("""
+        extern int module_fn(void);
+        int main(void) {
+            return module_fn();
+        }
+        """)
+
+        src2.write_text("""
+        int module_fn(void) {
+            return 99;
+        }
+        """)
+
+        # Compile module.c to module.obj
+        cmd_obj = [str(ZEROCC), "-mpe", "-c", str(src2), "-o", str(obj2)]
+        proc_obj = subprocess.run(cmd_obj, capture_output=True, text=True)
+        report("Compile module.c to module.obj", proc_obj.returncode == 0, proc_obj.stderr)
+
+        # Compile driver.c + module.obj in one step
+        cmd_mixed = [str(ZEROCC), "-mpe", str(src1), str(obj2), "-o", str(exe)]
+        proc_mixed = subprocess.run(cmd_mixed, capture_output=True, text=True)
+        report("Mixed .c and .obj linking in single invocation", proc_mixed.returncode == 0, proc_mixed.stderr)
+        if proc_mixed.returncode != 0:
+            return
+
+        report("Mixed .exe has MZ header",
+               exe.exists() and exe.read_bytes()[:2] == b"MZ")
+
+
 def main():
     if not ZEROCC.exists():
         print(f"Error: {ZEROCC} not found. Run make first.", file=sys.stderr)
@@ -350,6 +489,9 @@ def main():
     test_dll_exports_and_headers()
     test_gui_subsystem()
     test_multi_dll_msvcrt_imports()
+    test_multi_tu_source_linking()
+    test_multi_tu_obj_linking()
+    test_mixed_c_and_obj_linking()
 
     total = passed + failed
     print(f"\nResults: {passed}/{total} passed, {failed} failed.")
