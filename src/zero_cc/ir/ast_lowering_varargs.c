@@ -35,7 +35,8 @@ int lower_expr_va_start(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode 
             for (size_t i = 0; i < c->local_count; i++) {
                 if (c->locals[i].stack_offset > top_local) top_local = c->locals[i].stack_offset;
             }
-            int32_t save_base = top_local + 8;
+            int slot_sz = zc_target_traits(c)->is_32bit ? 4 : 8;
+            int32_t save_base = top_local + slot_sz;
 
             /* Named params consume the GP/FP streams in order (mirror
              * the prologue's param-save loop, incl. the hidden sret
@@ -80,7 +81,18 @@ int lower_expr_va_start(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode 
                 } else if (pfp) {
                     if (fp_idx < fp_regs) fp_idx++; else stack_named++;
                 } else {
-                    if (gp_idx < gp_regs) gp_idx++; else stack_named++;
+                    if (zc_target_traits(c)->is_32bit && ps->type.size == 8) {
+                        if (gp_idx & 1) gp_idx++;
+                        if (gp_idx + 2 <= gp_regs) {
+                            gp_idx += 2;
+                        } else {
+                            gp_idx = gp_regs;
+                            if (stack_named & 1) stack_named++;
+                            stack_named += 2;
+                        }
+                    } else {
+                        if (gp_idx < gp_regs) gp_idx++; else stack_named++;
+                    }
                 }
             }
 
@@ -168,7 +180,8 @@ int lower_expr_va_arg(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
         }
 
         bool is_fp = t_t && (t_t->kind == TYPE_KIND_FLOAT || t_t->kind == TYPE_KIND_DOUBLE);
-        if (zc_target_traits(c)->va_layout == VA_LIST_LAYOUT_ARM32) {
+        if (zc_target_traits(c)->va_layout == VA_LIST_LAYOUT_ARM32 ||
+            zc_target_traits(c)->va_layout == VA_LIST_LAYOUT_RV32) {
             int result_temp = zc_alloc_temp(c);
             int ap_addr = zero_cc_lower_lvalue_addr(c, arena, node->left);
             bool is_8byte = (is_fp && t_t->kind == TYPE_KIND_DOUBLE) ||
@@ -191,10 +204,12 @@ int lower_expr_va_arg(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                 uint16_t ovf_label = c->ir_next_label++;
                 uint16_t end_label = c->ir_next_label++;
 
+                int gp_save_bytes = (zc_target_traits(c)->va_layout == VA_LIST_LAYOUT_RV32) ? 32 : 16;
+
                 if (is_8byte) {
                     /* Double or 64-bit int: 8-byte aligned, 8 bytes size.
-                     * In AAPCS32, an 8-byte argument in registers must begin in an even-numbered
-                     * register (r0 or r2). The register save area runs from (gp_end_val - 16) to
+                     * In AAPCS32/ILP32, an 8-byte argument in registers must begin in an even-numbered
+                     * register pair. The register save area runs from (gp_end_val - gp_save_bytes) to
                      * gp_end_val. If the current offset from start is odd ((offset & 4) != 0),
                      * skip to the next even register. */
                     int gp_val = zc_alloc_temp(c);
@@ -203,10 +218,10 @@ int lower_expr_va_arg(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *n
                     int gp_end_val = zc_alloc_temp(c);
                     ir_emit_deref(c, gp_end_val, addr_gp_end);
 
-                    int t16 = zc_alloc_temp(c);
-                    ir_emit_mov_imm(c, t16, 16);
+                    int t_sz = zc_alloc_temp(c);
+                    ir_emit_mov_imm(c, t_sz, gp_save_bytes);
                     int gp_start = zc_alloc_temp(c);
-                    ir_emit_sub(c, gp_start, gp_end_val, t16);
+                    ir_emit_sub(c, gp_start, gp_end_val, t_sz);
 
                     int reg_off = zc_alloc_temp(c);
                     ir_emit_sub(c, reg_off, gp_val, gp_start);

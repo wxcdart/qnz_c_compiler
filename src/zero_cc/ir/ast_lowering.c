@@ -951,16 +951,18 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         }
 
         if (fn->is_variadic) {
-            /* Save area: (int_arg_reg_count + fp_arg_reg_count) 8-byte slots
+            /* Save area: (int_arg_reg_count + fp_arg_reg_count) slots
              * above ALL named locals - the integer arg registers first, then
-             * the FP arg registers (16 slots on x86-64/AArch64/RV64).
+             * the FP arg registers (16 slots on x86-64/AArch64/RV64, 8 slots on RV32,
+             * 4 slots on AArch32).
              * va_start/va_arg walk them as two streams (see the NODE_VA_START
              * lowering below). Placed above the locals (not right after the
              * last parameter, as before) so body stores to locals cannot
              * clobber spilled variadic args. */
+            int slot_size = zc_target_traits(c)->is_32bit ? 4 : 8;
             int va_slots = BE(c)->conv->int_arg_reg_count + BE(c)->conv->fp_arg_reg_count;
-            int32_t base_spill_offset = c->current_stack_frame + 8;
-            c->current_stack_frame = (int32_t)(((size_t)(base_spill_offset + va_slots * 8) + 15) & ~(size_t)15);
+            int32_t base_spill_offset = c->current_stack_frame + slot_size;
+            c->current_stack_frame = (int32_t)(((size_t)(base_spill_offset + va_slots * slot_size) + 15) & ~(size_t)15);
             ir_emit_variadic_spill(c, (int)fn->param_count, base_spill_offset);
         }
 

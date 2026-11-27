@@ -1,5 +1,26 @@
 # CHANGELOG
 
+## [Sprint 262] - 2026-11-28 - RV32 Variadic Calling Convention, Raw-Binary Spilling & Builtin Freestanding CRT0 Runtime
+
+- **RV32 Variadic Spilling Architecture (`src/zero_cc/isa/riscv64.c`, `src/zero_cc/isa/riscv_asm.c`, `src/zero_cc/isa/backend_registry.c`)**:
+  - Implemented RV32 variadic argument spilling across both the raw binary emitter (`riscv64_emit_variadic_spill`) and text assembly emitter (`riscv_emit_variadic_spill_asm`), saving all 8 incoming integer/pointer argument registers (`a0..a7`) into the callee stack frame's 32-byte save area.
+  - Implemented `riscv32_emit_variadic_setup` in `backend_registry.c`, storing 32-bit pointers and bounds offsets into `ap` using 4-byte slot sizes and `ir_emit_store_32`.
+- **RISC-V ILP32 psABI 64-bit Alignment in Variadics (`src/zero_cc/ir/ast_lowering_varargs.c`)**:
+  - Enforced RISC-V ILP32 calling convention alignment requirements: 8-byte types (`long long`, `double`) must align to even GPR pairs (`a0:a1`, `a2:a3`, `a4:a5`, `a6:a7`) and 8-byte-aligned caller stack slots.
+  - Updated `lower_expr_va_start` named-parameter tracking to align `gp_idx` to even numbers when encountering 64-bit parameters on 32-bit architectures.
+  - Updated `lower_expr_va_arg` to calculate even alignment for 8-byte arguments in both in-register and overflow stack streams.
+- **Type System & Target Traits (`src/zero_cc/isa/target_traits.h`, `src/zero_cc/types/type_funcs.h`, `src/zero_cc/ir/ast_lowering.c`)**:
+  - Introduced `VA_LIST_LAYOUT_RV32` in `TargetTraits` and configured `ISA_RISCV32` to use `VA_LIST_LAYOUT_RV32`.
+  - Configured `zero_cc_type_va_list_arch` for RV32 with `size = 20` and `align = 4` (matching 5 32-bit pointer slots).
+  - Calculated stack frame variadic reservation using `slot_size` (4 bytes on 32-bit platforms, 8 bytes on 64-bit).
+- **Narrow Width Extension Bug Fix in RISC-V Assembler (`src/zero_cc/isa/riscv_asm.c`)**:
+  - Resolved critical sign-extension bug in `riscv_emit_extend_asm` where RV32 shifted by 31 and 30 bits instead of 24 and 16 bits, which caused 8-bit characters in boolean loops to be miscompiled as single-bit values.
+- **Freestanding Linux RV32 CRT0 Entry Point (`src/zero_cc/jit/elf_emitter.h`)**:
+  - Added `rv32_start` freestanding Linux CRT0 entry stub with 32-bit store words (`sw ra, 8(sp)` and `sw s0, 0(sp)`) replacing illegal 64-bit `sd` instructions in standalone executable mode.
+- **Verification (`test/jit/rv32_varargs.c`)**:
+  - Created comprehensive test suite verifying in-register variadic arguments (4 args), stack-overflow arguments (10 args), mixed 32-bit and 64-bit ILP32 arguments with alignment, and string pointer arguments.
+  - Verified across all optimization levels (`-O0`, `-O1`, `-O2`, `-O3`) in both raw binary and text assembly paths under `qemu-riscv32-static`.
+
 ## [Sprint 261] - 2026-11-28 - Linux-Host In-Process Execution Loader for PE32+ & Mach-O 64-bit Binaries
 
 - **In-Process Foreign Executable Loader (`src/zero_cc/linker/foreign_loader.h`, `src/zero_cc/linker/foreign_loader.c`)**:

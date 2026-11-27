@@ -131,6 +131,44 @@ static void aarch32_emit_variadic_setup(ZeroCCCompiler *c, int ap_addr, int32_t 
     ir_emit_store_32(c, t, ap_16);               /* +16 ovf */
 }
 
+static void riscv32_emit_variadic_setup(ZeroCCCompiler *c, int ap_addr, int32_t save_base,
+                                        int gp_idx, int fp_idx, int stack_named) {
+    (void)fp_idx;
+    int t = zc_alloc_temp(c);
+    ir_emit_lea(c, t, TEMP_NONE, -(save_base + 32 - gp_idx * 4));
+    ir_emit_store_32(c, t, ap_addr);             /* +0 gp */
+
+    t = zc_alloc_temp(c);
+    ir_emit_lea(c, t, TEMP_NONE, -save_base);
+    int off4 = zc_alloc_temp(c);
+    ir_emit_mov_imm(c, off4, 4);
+    int ap_4 = zc_alloc_temp(c);
+    ir_emit_add(c, ap_4, ap_addr, off4);
+    ir_emit_store_32(c, t, ap_4);                /* +4 gp_end */
+
+    int off8 = zc_alloc_temp(c);
+    ir_emit_mov_imm(c, off8, 8);
+    int ap_8 = zc_alloc_temp(c);
+    ir_emit_add(c, ap_8, ap_addr, off8);
+    ir_emit_store_32(c, t, ap_8);                /* +8 fp */
+
+    int off12 = zc_alloc_temp(c);
+    ir_emit_mov_imm(c, off12, 12);
+    int ap_12 = zc_alloc_temp(c);
+    ir_emit_add(c, ap_12, ap_addr, off12);
+    ir_emit_store_32(c, t, ap_12);               /* +12 fp_end */
+
+    t = zc_alloc_temp(c);
+    int ovf_start = zc_target_caller_arg_offset(c);
+    int ovf_step = 4;
+    ir_emit_lea(c, t, TEMP_NONE, ovf_start + ovf_step * stack_named);
+    int off16 = zc_alloc_temp(c);
+    ir_emit_mov_imm(c, off16, 16);
+    int ap_16 = zc_alloc_temp(c);
+    ir_emit_add(c, ap_16, ap_addr, off16);
+    ir_emit_store_32(c, t, ap_16);               /* +16 ovf */
+}
+
 static ABIStructClassification x86_64_classify_arg(const ZeroCCType *type) {
     return abi_classify_arg(ISA_X86_64, type);
 }
@@ -194,7 +232,7 @@ static void zero_cc_init_backends_once(void) {
     riscv64_backend.emit_variadic_setup = generic_emit_variadic_setup;
     riscv32_backend.classify_arg = riscv32_classify_arg;
     riscv32_backend.classify_return = riscv32_classify_return;
-    riscv32_backend.emit_variadic_setup = generic_emit_variadic_setup;
+    riscv32_backend.emit_variadic_setup = riscv32_emit_variadic_setup;
 
     ((ISARegInfo *)x86_64_backend.regs)->desc = &x86_64_backend.traits->regs;
     ((ISARegInfo *)aarch64_backend.regs)->desc = &aarch64_backend.traits->regs;

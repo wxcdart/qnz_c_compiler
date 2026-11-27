@@ -206,6 +206,15 @@ static inline bool zero_cc_emit_elf_exe(ZeroCCCompiler *c, const char *filepath)
         0x93, 0x08, 0xd0, 0x05,   /* li a7, 93 */
         0x73, 0x00, 0x00, 0x00    /* ecall */
     };
+    static const uint8_t rv32_start[] = {
+        0x13, 0x01, 0x01, 0xff,   /* addi sp, sp, -16 */
+        0x23, 0x24, 0x11, 0x00,   /* sw ra, 8(sp) */
+        0x23, 0x20, 0x81, 0x00,   /* sw s0, 0(sp) */
+        0xef, 0x00, 0x00, 0x00,   /* jal ra, 0 (patched below) */
+        0x13, 0x05, 0x05, 0x00,   /* mv a0, a0 */
+        0x93, 0x08, 0xd0, 0x05,   /* li a7, 93 */
+        0x73, 0x00, 0x00, 0x00    /* ecall */
+    };
     static const uint8_t x86_start[] = {
         0x31, 0xED,                                 /* xor ebp, ebp (mark outermost frame) */
         0x5F,                                       /* pop rdi (argc into 1st arg) */
@@ -222,8 +231,13 @@ static inline bool zero_cc_emit_elf_exe(ZeroCCCompiler *c, const char *filepath)
 
     if (c->isa == ISA_RISCV64 || c->isa == ISA_RISCV32) {
         /* Freestanding Linux RISC-V CRT0: align stack, call main, exit */
-        memcpy(start_code, rv_start, sizeof(rv_start));
-        start_len = sizeof(rv_start);
+        if (c->isa == ISA_RISCV32) {
+            memcpy(start_code, rv32_start, sizeof(rv32_start));
+            start_len = sizeof(rv32_start);
+        } else {
+            memcpy(start_code, rv_start, sizeof(rv_start));
+            start_len = sizeof(rv_start);
+        }
 
         /* Patch jal offset: jal at offset 12 in start_code.
          * Payload layout: start_code (16 bytes) + text_section

@@ -85,7 +85,7 @@ static inline ZeroCCType zero_cc_type_double(void) {
 static inline ZeroCCType zero_cc_type_va_list_arch(int isa) {
     ZeroCCType t; memset(&t, 0, sizeof(t));
     t.tag = TYPE_STRUCT;
-    if (isa == 2 /* ISA_AARCH32 */) {
+    if (isa == 2 /* ISA_AARCH32 */ || isa == 4 /* ISA_RISCV32 */) {
         t.size = 20; t.align = 4;
     } else {
         t.size = 40; t.align = 8;

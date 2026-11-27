@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-27T16:35:14Z
+timestamp: 2026-11-27T16:58:58Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1797,3 +1797,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-27 — Updated `build-and-verification.md`
 - Sprint 261: Linux-Host In-Process Execution Loader for PE32+ and Mach-O 64-bit Binaries (foreign_loader, ms_abi shims, foreign_exec_tests)
+
+## 2026-11-27 — Updated `rv32-i64-roadmap.md`
+- Sprint 262: RV32 Variadic Raw-Binary Spilling, Even-Odd Pair Alignment & CRT0 Runtime Fixes

@@ -473,13 +473,24 @@ static void riscv_emit_extend_asm(ZeroCCCompiler *c, int dst, int src, int width
         return;
     }
     int shamt = (width == 1) ? 56 : (width == 2) ? 48 : 32;
-    if (c->isa == ISA_RISCV32 && width == 4) {
-        /* 32-bit values already fill a RV32 register: extension is a no-op
-         * (slli x, x, 32 is illegal on RV32 - shamt field is 5 bits). */
-        return;
-    }
     if (c->isa == ISA_RISCV32) {
-        shamt = (width == 1) ? 31 : 30;
+        if (sign) {
+            int shamt = (width == 1) ? 24 : (width == 2) ? 16 : 0;
+            if (shamt > 0) {
+                fprintf(out, "\tslli\t%s, %s, %d\n", dst_name, src_name, shamt);
+                fprintf(out, "\tsrai\t%s, %s, %d\n", dst_name, dst_name, shamt);
+            } else if (dst != src) {
+                fprintf(out, "\tmv\t%s, %s\n", dst_name, src_name);
+            }
+        } else if (width == 1) {
+            fprintf(out, "\tandi\t%s, %s, 0xff\n", dst_name, src_name);
+        } else if (width == 2) {
+            fprintf(out, "\tslli\t%s, %s, 16\n", dst_name, src_name);
+            fprintf(out, "\tsrli\t%s, %s, 16\n", dst_name, dst_name);
+        } else if (dst != src) {
+            fprintf(out, "\tmv\t%s, %s\n", dst_name, src_name);
+        }
+        return;
     }
     if (sign) {
         fprintf(out, "\tslli\t%s, %s, %d\n", dst_name, src_name, shamt);
@@ -1138,7 +1149,15 @@ static void riscv_emit_fp_cmp_asm(ZeroCCCompiler *c, int src1, int src2, FILE *o
 /* VARIADIC_SPILL: spill incoming a0..a7 and fa0..fa7 into the 16-slot save area */
 static void riscv_emit_variadic_spill_asm(ZeroCCCompiler *c, int param_count, int32_t base_offset, FILE *out) {
     (void)param_count;
-    if (c->isa == ISA_RISCV32) return;
+    if (c->isa == ISA_RISCV32) {
+        int base = zero_cc_frame_base_reg(c);
+        int gp_regs = BE(c)->conv->int_arg_reg_count;
+        for (int i = 0; i < gp_regs; i++) {
+            int r = BE(c)->conv->int_arg_regs[i];
+            riscv_emit_store_asm(c, r, base, zero_cc_frame_disp(c, -(base_offset + 32 - (int32_t)i * 4)), out);
+        }
+        return;
+    }
     int base = zero_cc_frame_base_reg(c);
     int gp_regs = BE(c)->conv->int_arg_reg_count;
     int fp_regs = BE(c)->conv->fp_arg_reg_count;

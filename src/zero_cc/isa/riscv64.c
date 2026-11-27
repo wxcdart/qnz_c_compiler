@@ -1648,7 +1648,15 @@ static void riscv64_emit_param_save_fp(ZeroCCCompiler *c, int reg_idx, int slot,
  * no-op: the 8-byte slot model assumes LP64 pointers/args.) */
 static void riscv64_emit_variadic_spill(ZeroCCCompiler *c, int param_count, int32_t base_offset) {
     (void)param_count;
-    if (c->isa == ISA_RISCV32) return;
+    if (c->isa == ISA_RISCV32) {
+        int base = zero_cc_frame_base_reg(c);
+        int gp_regs = BE(c)->conv->int_arg_reg_count;
+        for (int i = 0; i < gp_regs; i++) {
+            int r = BE(c)->conv->int_arg_regs[i];
+            riscv64_emit_store(c, r, base, -(base_offset + 32 - (int32_t)i * 4));
+        }
+        return;
+    }
     int base = zero_cc_frame_base_reg(c);
     int gp_regs = BE(c)->conv->int_arg_reg_count;
     int fp_regs = BE(c)->conv->fp_arg_reg_count;

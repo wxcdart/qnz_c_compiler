@@ -4,7 +4,7 @@ title: RV32 64-bit Integer (long long) Support Roadmap
 description: Four-phase architectural roadmap for 64-bit integer arithmetic, ABI calling conventions, libgcc div/rem, and sanitizer integration on 32-bit RISC-V (rv32).
 resource: backend/rv32-i64-roadmap
 tags: [riscv32, rv32, i64, long-long, gpr-pair, abi, roadmap, sanitizer]
-timestamp: 2026-11-13T05:32:37Z
+timestamp: 2026-11-27T16:58:58Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -183,6 +183,23 @@ Phase 4 folds RV32 64-bit integer operations into the compiler's target-side und
 | **Phase 2** | Even-odd psABI pairs, function calls, `printf %lld` | Multi-function call tests, `test/jit/int128_args.c` adaptation | Static musl cross link, QEMU |
 | **Phase 3** | `__divdi3`, `__moddi3`, `__udivdi3`, `__umoddi3` | 64-bit division battery (corner cases: `LLONG_MIN / -1`, div-by-zero) | Static musl cross link with libgcc shim |
 | **Phase 4** | Width-8 signed overflow & shift traps | `test/san/san_trap_*.c` enabled at width 8 on RV32 | `make test-san` under QEMU |
+| **Variadic ABI (Sprint 262)** | 32-byte `a0..a7` variadic spill, even-odd 64-bit pair alignment, 32-bit `va_list` model, freestanding CRT0 `rv32_start` | `test/jit/rv32_varargs.c` (-O0..-O3, raw & text paths) | Standalone ELF & `-S` text link, QEMU RV32 static |
+
+---
+
+## 7. Variadic Functions & Calling Convention Parity (Sprint 262)
+
+Sprint 262 completed full variadic function calling convention support for RV32 (`<stdarg.h>`, `va_start`, `va_arg`, `va_end`):
+1. **Spill Area Geometry**:
+   - Spills all incoming variadic argument registers `a0..a7` into a dedicated 32-byte stack save area in both raw binary (`riscv64_emit_variadic_spill`) and text assembly (`riscv_emit_variadic_spill_asm`).
+   - Dedicated `riscv32_emit_variadic_setup` in `backend_registry.c` storing 32-bit offsets and pointers with `ir_emit_store_32`.
+2. **Even-Odd Register Alignment for 64-bit Arguments**:
+   - In accordance with the RISC-V ILP32 psABI, 8-byte types (`long long`, `double`) must be aligned to even register pairs (`a0:a1`, `a2:a3`, etc.) and 8-byte-aligned stack slots.
+   - `ast_lowering_varargs.c` (`lower_expr_va_start` and `lower_expr_va_arg`) aligns `gp_idx` and stack offsets when consuming 64-bit values on 32-bit architectures.
+3. **Type System & Freestanding Runtime**:
+   - `VA_LIST_LAYOUT_RV32` added to `target_traits.h` with size 20 and alignment 4 in `type_funcs.h`.
+   - Corrected 8-bit/16-bit sign-extension shifts in `riscv_asm.c` (24 and 16 bits instead of buggy 31 and 30 bits).
+   - Added `rv32_start` freestanding Linux CRT0 entry stub in `elf_emitter.h` using 32-bit `sw` instead of 64-bit `sd`.
 
 ---
 

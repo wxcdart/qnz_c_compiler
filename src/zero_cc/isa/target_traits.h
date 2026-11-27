@@ -47,6 +47,7 @@ typedef struct TargetRegDesc {
 typedef enum {
     VA_LIST_LAYOUT_STANDARD = 0, /* 5 x 8-byte pointer streams (gp, gp_end, fp, fp_end, ovf) */
     VA_LIST_LAYOUT_ARM32,        /* AAPCS32 32-bit streams (gp, gp_end, ovf) */
+    VA_LIST_LAYOUT_RV32,         /* RV32 32-bit streams (gp, gp_end, ovf with 8 GPRs) */
 } VAListLayout;
 
 /*
@@ -448,7 +449,7 @@ static inline const TargetTraits *zero_cc_get_target_traits(ZeroCCISA isa) {
                 .pass_large_struct_by_value_on_stack = false,
                 .struct_units_split_fp = false,
                 .has_sysv_va_list = false,
-                .va_layout = VA_LIST_LAYOUT_STANDARD,
+                .va_layout = VA_LIST_LAYOUT_RV32,
                 .max_promoted_int_params = 8,
                 .elf_machine = 243, /* ELF_MACHINE_RISCV */
                 .elf_class = 1,    /* ELF_CLASS_32 */
