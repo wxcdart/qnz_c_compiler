@@ -35,6 +35,7 @@
 #include "zero_cc/linker/ar_writer.h"
 #include "zero_cc/linker/pe_writer.h"
 #include "zero_cc/linker/macho_writer.h"
+#include "zero_cc/linker/foreign_loader.h"
 
 void __zc_pgo_reset(void);
 void __zc_pgo_set_file(const char *path);
@@ -2838,6 +2839,40 @@ int main(int argc, char **argv) {
         } else {
             rc = compile_object(&opts);
         }
+    } else if (opts.run_pe || opts.run_macho) {
+        if (opts.input_count == 0) {
+            fprintf(stderr, "zerocc: error: no input file specified\n");
+            rc = 1;
+        } else if (opts.run_pe) {
+            rc = zero_cc_run_pe_file(opts.input_files[0], opts.jit_argc, opts.jit_argv);
+        } else {
+            rc = zero_cc_run_macho_file(opts.input_files[0], opts.jit_argc, opts.jit_argv);
+        }
+    } else if (opts.run_mode && (opts.is_pe || opts.is_macho)) {
+        char tmp_exe[512];
+        const char *target_exe = opts.output_file;
+        bool is_temp = false;
+        if (!target_exe) {
+            snprintf(tmp_exe, sizeof(tmp_exe), "/tmp/zerocc_run_%d_%s",
+                     getpid(), opts.is_pe ? "bin.exe" : "bin.macho");
+            target_exe = tmp_exe;
+            opts.output_file = target_exe;
+            is_temp = true;
+        }
+        rc = compile_and_link(&opts);
+        if (rc == 0) {
+            if (opts.is_pe) {
+                rc = zero_cc_run_pe_file(target_exe, opts.jit_argc, opts.jit_argv);
+            } else {
+                rc = zero_cc_run_macho_file(target_exe, opts.jit_argc, opts.jit_argv);
+            }
+        }
+        if (is_temp) {
+            unlink(tmp_exe);
+        }
+    } else if (opts.run_mode && opts.input_count == 1 &&
+               zero_cc_is_foreign_binary(opts.input_files[0])) {
+        rc = zero_cc_run_foreign_file(opts.input_files[0], opts.jit_argc, opts.jit_argv);
     } else if (opts.output_file || opts.is_pe || opts.is_macho) {
         /* Generate executable via system linker or PE/Mach-O writer */
         rc = compile_and_link(&opts);

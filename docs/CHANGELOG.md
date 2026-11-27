@@ -1,5 +1,27 @@
 # CHANGELOG
 
+## [Sprint 261] - 2026-11-28 - Linux-Host In-Process Execution Loader for PE32+ & Mach-O 64-bit Binaries
+
+- **In-Process Foreign Executable Loader (`src/zero_cc/linker/foreign_loader.h`, `src/zero_cc/linker/foreign_loader.c`)**:
+  - Implemented standalone Linux-host in-process execution for Windows PE32+ (x86-64) and macOS Mach-O 64-bit (x86-64) executables without external emulators (Wine or Darwin).
+  - Memory mapping engine: maps binary segments with `mmap` conforming to virtual address specifications (`ImageBase` 0x140000000 for PE, `vmaddr` 0x100000000 for Mach-O) or dynamic base remapping.
+  - Granular page protections: configures section permissions (`PROT_READ`, `PROT_WRITE`, `PROT_EXEC`) per segment using `mprotect`.
+  - Windows x64 Microsoft ABI runtime shims: provides native `__attribute__((ms_abi))` bridges translating MS x64 argument passing (`rcx`, `rdx`, `r8`, `r9`, caller shadow stack) to Linux SysV AMD64 for standard library functions:
+    - Process termination: `ExitProcess`, `exit`, `abort` (interception via `setjmp`/`longjmp` returning process exit code cleanly).
+    - I/O: `puts`, `putchar`, `getchar`, `printf`, `sprintf`, `snprintf`.
+    - Memory management: `malloc`, `free`, `calloc`, `realloc`.
+    - Strings & memory: `strlen`, `strcmp`, `strncmp`, `strcpy`, `strncpy`, `memcpy`, `memset`, `memmove`, `memcmp`.
+    - Math & utility: `atoi`, `abs`, `rand`, `srand`.
+  - Mach-O execution engine: parses `ZeroCCMachHeader64`, traverses load commands (`LC_SEGMENT_64`, `LC_MAIN`), maps `__TEXT` and `__DATA` segments, applies permissions, and transfers control to `LC_MAIN` entry point with exit code propagation.
+- **Driver CLI Integration (`src/zero_cc/driver/driver_opts.h`, `src/main.c`)**:
+  - Added CLI flags `--run-pe` and `--run-macho` for explicit foreign executable loading.
+  - Transparent execution via `zerocc --run <file>`: automatic binary header sniffing detects PE DOS `MZ` or Mach-O `0xfeedfacf` signatures and dispatches directly to the foreign loader.
+  - On-the-fly cross-compilation & execution: `zerocc --pe --run <source.c>` compiles directly to PE32+ and executes in-process; `zerocc --macho --run <source.c>` compiles directly to Mach-O and executes in-process.
+- **Verification Suite & Automation (`tools/verify/foreign_exec_tests.py`, `Makefile`)**:
+  - Added test suite `tools/verify/foreign_exec_tests.py` verifying PE and Mach-O execution across basic exit codes, MS ABI stdio/malloc shims, and optimization levels `-O0` through `-O3`.
+  - Added `make test-foreign` target to `Makefile`.
+  - 17/17 tests pass in `foreign_exec_tests.py`; 58/58 pass in `pe_tests.py`; 57/57 pass in `macho_tests.py`.
+
 ## [Sprint 260] - 2026-11-28 - Target AddressSanitizer Global Variable Redzones & Multi-ISA Support (-fsanitize=address)
 
 - **Global Variable Redzone Layout (`src/zero_cc/jit/compile_unit.c`, `src/zero_cc/driver/driver_asm.h`, `src/main.c`)**:

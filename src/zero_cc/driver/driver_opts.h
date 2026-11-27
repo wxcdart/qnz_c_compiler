@@ -81,6 +81,8 @@ typedef struct {
     int is_shared;          /* -shared: emit dynamic library (.so / .dll / .dylib) */
     int is_windows_gui;     /* -mwindows: Windows GUI subsystem (subsystem = 2) */
     int is_win64_abi;       /* -mabi=ms / -mabi=win64: Microsoft x64 Calling Convention */
+    int run_pe;             /* --run-pe: execute PE32+ in-process (Sprint 261) */
+    int run_macho;          /* --run-macho: execute Mach-O 64-bit in-process (Sprint 261) */
     int jit_argc;           /* JIT main argc */
     char **jit_argv;        /* JIT main argv */
 } CompileOptions;
@@ -180,6 +182,14 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
             opts->emit_preproc = 1;
         }
         else if (strcmp(arg, "-run") == 0 || strcmp(arg, "--run") == 0) {
+            opts->run_mode = 1;
+        }
+        else if (strcmp(arg, "--run-pe") == 0) {
+            opts->run_pe = 1;
+            opts->run_mode = 1;
+        }
+        else if (strcmp(arg, "--run-macho") == 0) {
+            opts->run_macho = 1;
             opts->run_mode = 1;
         }
         else if (strcmp(arg, "-v") == 0 || strcmp(arg, "--verbose") == 0) {
