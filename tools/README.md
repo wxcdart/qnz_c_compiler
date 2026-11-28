@@ -35,7 +35,7 @@ All tools are **stdlib-only** (see [`tools/requirements.txt`](./requirements.txt
 | [`lto_tests.py`](./verify/lto_tests.py) | Cross-TU Link-Time Optimization (-flto) battery | `python3 tools/verify/lto_tests.py` / `make test-lto` |
 | [`pgo_tests.py`](./verify/pgo_tests.py) | Profile-Guided Optimization (-fprofile-generate/-use) battery | `python3 tools/verify/pgo_tests.py` / `make test-pgo` |
 | [`pe_tests.py`](./verify/pe_tests.py) | Windows PE/COFF native output (PE32+ .exe / .dll with .edata export table / COFF .obj) battery | `python3 tools/verify/pe_tests.py` / `make test-pe` |
-| [`macho_tests.py`](./verify/macho_tests.py) | macOS Mach-O 64-bit native output (MH_EXECUTE, MH_DYLIB, MH_OBJECT) battery | `python3 tools/verify/macho_tests.py` / `make test-macho` |
+| [`macho_tests.py`](./verify/macho_tests.py) | macOS Mach-O 64-bit native output (MH_EXECUTE, MH_DYLIB, MH_OBJECT, universal fat binaries) battery | `python3 tools/verify/macho_tests.py` / `make test-macho` |
 | [`project_runs.py`](./verify/project_runs.py) | Real-world project run & behavior-diff gate (cJSON, zlib, SQLite3 amalgamation in RAM) | `python3 tools/verify/project_runs.py --jit` / `make test-project-runs` |
 | [`baremetal_test.py`](./verify/baremetal_test.py) | Embedded baremetal CPU verification gate (linker scripts, LMA/VMA, boundary symbols) | `python3 tools/verify/baremetal_test.py` / `make test-baremetal` |
 | [`abi_interop.py`](./verify/abi_interop.py) | External ABI interop: zerocc.o <-> gcc.o linking | `python3 tools/verify/abi_interop.py` |
