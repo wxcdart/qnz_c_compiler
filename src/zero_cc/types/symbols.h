@@ -256,6 +256,7 @@ typedef struct ZeroCCCompiler {
     /* ISA backend */
     ZeroCCISA isa;                        /* Target ISA */
     const ZeroCCISABackend *isa_backend;  /* ISA-specific codegen backend */
+    bool is_thumb;                        /* ARM Thumb / Thumb-2 mode (Sprint 275) */
 
     ZeroCCBuffer text_section;            /* Machine bytecode (.text) */
     ZeroCCBuffer rodata_section;          /* Read-only string constants (.rodata) */

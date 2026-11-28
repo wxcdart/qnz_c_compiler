@@ -149,6 +149,59 @@ static inline int linker_reloc_arm(ZcLink *L, uint8_t *site, uint32_t type,
         nw = (w & ~0x000F0FFFu) | (((v16 >> 12) & 0xFu) << 16) | (v16 & 0xFFFu);
         break;
     }
+    case 47: /* R_ARM_THM_MOVW_ABS_NC */
+    {
+        uint16_t hw1 = (uint16_t)site[0] | ((uint16_t)site[1] << 8);
+        uint16_t hw2 = (uint16_t)site[2] | ((uint16_t)site[3] << 8);
+        uint32_t val = (uint32_t)(S + A) & 0xFFFFu;
+        uint32_t imm4 = (val >> 12) & 0xFu;
+        uint32_t i = (val >> 11) & 0x1u;
+        uint32_t imm3 = (val >> 8) & 0x7u;
+        uint32_t imm8 = val & 0xFFu;
+        hw1 = (uint16_t)((hw1 & ~0x040Fu) | (i << 10) | imm4);
+        hw2 = (uint16_t)((hw2 & ~0x70FFu) | (imm3 << 12) | imm8);
+        site[0] = (uint8_t)hw1; site[1] = (uint8_t)(hw1 >> 8);
+        site[2] = (uint8_t)hw2; site[3] = (uint8_t)(hw2 >> 8);
+        return 0;
+    }
+    case 48: /* R_ARM_THM_MOVT_ABS */
+    {
+        uint16_t hw1 = (uint16_t)site[0] | ((uint16_t)site[1] << 8);
+        uint16_t hw2 = (uint16_t)site[2] | ((uint16_t)site[3] << 8);
+        uint32_t val = ((uint32_t)(S + A) >> 16) & 0xFFFFu;
+        uint32_t imm4 = (val >> 12) & 0xFu;
+        uint32_t i = (val >> 11) & 0x1u;
+        uint32_t imm3 = (val >> 8) & 0x7u;
+        uint32_t imm8 = val & 0xFFu;
+        hw1 = (uint16_t)((hw1 & ~0x040Fu) | (i << 10) | imm4);
+        hw2 = (uint16_t)((hw2 & ~0x70FFu) | (imm3 << 12) | imm8);
+        site[0] = (uint8_t)hw1; site[1] = (uint8_t)(hw1 >> 8);
+        site[2] = (uint8_t)hw2; site[3] = (uint8_t)(hw2 >> 8);
+        return 0;
+    }
+    case 10: /* R_ARM_THM_CALL */
+    case 30: /* R_ARM_THM_JUMP24 */
+    {
+        uint16_t hw1 = (uint16_t)site[0] | ((uint16_t)site[1] << 8);
+        uint16_t hw2 = (uint16_t)site[2] | ((uint16_t)site[3] << 8);
+        int64_t d = (S + A) - (int64_t)(P + 4);
+        uint32_t S_bit = (uint32_t)((d >> 24) & 1);
+        uint32_t I1 = (uint32_t)((d >> 23) & 1);
+        uint32_t I2 = (uint32_t)((d >> 22) & 1);
+        uint32_t J1 = (~I1 ^ S_bit) & 1;
+        uint32_t J2 = (~I2 ^ S_bit) & 1;
+        uint32_t imm10 = (uint32_t)((d >> 12) & 0x3FF);
+        uint32_t imm11 = (uint32_t)((d >> 1) & 0x7FF);
+        hw1 = (uint16_t)((hw1 & 0xF800u) | (S_bit << 10) | imm10);
+        if (type == 10) {
+            hw2 = (uint16_t)((hw2 & 0xD000u) | (J1 << 13) | (1u << 12) | (J2 << 11) | imm11);
+        } else {
+            hw2 = (uint16_t)((hw2 & 0xD000u) | (J1 << 13) | (J2 << 11) | imm11);
+        }
+        site[0] = (uint8_t)hw1; site[1] = (uint8_t)(hw1 >> 8);
+        site[2] = (uint8_t)hw2; site[3] = (uint8_t)(hw2 >> 8);
+        return 0;
+    }
     default:
         snprintf(err, errsz,
                  "unsupported ARM relocation type %u in %s (%s)",
@@ -356,10 +409,20 @@ static inline void linker_stub_aarch64(uint8_t *st, uint64_t text_vma, uint64_t 
 }
 
 static inline void linker_stub_arm(uint8_t *st, uint64_t text_vma, uint64_t main_vma) {
-    int32_t rel = (int32_t)((main_vma - (text_vma + 8)) >> 2); /* PC is +8 from bl */
-    uint32_t bl = 0xEB000000u | (rel & 0xFFFFFF);
-    st[0] = (uint8_t)bl; st[1] = (uint8_t)(bl >> 8);
-    st[2] = (uint8_t)(bl >> 16); st[3] = (uint8_t)(bl >> 24);
+    if (main_vma & 1) {
+        /* Interworking: main is in Thumb mode, emit blx */
+        int64_t d = (int64_t)main_vma - (int64_t)(text_vma + 8);
+        uint32_t H = (uint32_t)((d >> 1) & 1);
+        uint32_t imm24 = (uint32_t)((d >> 2) & 0x00FFFFFFu);
+        uint32_t blx = 0xFA000000u | (H << 24) | imm24;
+        st[0] = (uint8_t)blx; st[1] = (uint8_t)(blx >> 8);
+        st[2] = (uint8_t)(blx >> 16); st[3] = (uint8_t)(blx >> 24);
+    } else {
+        int32_t rel = (int32_t)((main_vma - (text_vma + 8)) >> 2); /* PC is +8 from bl */
+        uint32_t bl = 0xEB000000u | (rel & 0xFFFFFF);
+        st[0] = (uint8_t)bl; st[1] = (uint8_t)(bl >> 8);
+        st[2] = (uint8_t)(bl >> 16); st[3] = (uint8_t)(bl >> 24);
+    }
     /* mov r7, #1: 0xE3A07001 */
     st[4] = 0x01; st[5] = 0x70; st[6] = 0xA0; st[7] = 0xE3;
     /* swi #0: 0xEF000000 */

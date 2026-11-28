@@ -65,6 +65,9 @@ void emit_function_label_asm(ZeroCCCompiler *c) {
         if (!c->functions[func_idx].is_static) {
             fprintf(out, "\t.globl %s\n", c->functions[func_idx].name);
         }
+        if (c->isa == ISA_AARCH32 && c->is_thumb) {
+            fprintf(out, "\t.thumb_func\n");
+        }
         fprintf(out, "%s:\n", c->functions[func_idx].name);
         fflush(out);
     }

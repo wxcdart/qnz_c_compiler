@@ -809,7 +809,8 @@ ZERO_RT_RISCV32_OBJS = $(BUILD_DIR)/obj/zero_rt_riscv32/os.o \
                        $(BUILD_DIR)/obj/zero_rt_riscv32/complex.o $(BUILD_DIR)/obj/zero_rt_riscv32/thread.o \
                        $(BUILD_DIR)/obj/zero_rt_riscv32/san.o $(BUILD_DIR)/obj/zero_rt_riscv32/asan.o \
                        $(BUILD_DIR)/obj/zero_rt_riscv32/dynlink.o \
-                       $(BUILD_DIR)/obj/zero_rt_riscv32/dlfcn.o
+                       $(BUILD_DIR)/obj/zero_rt_riscv32/dlfcn.o \
+                       $(BUILD_DIR)/obj/zero_rt_riscv32/soft_float.o
 $(BUILD_DIR)/lib/zero_rt_riscv32.a: $(ZERO_RT_RISCV32_OBJS) $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --ar rcs $@ $(ZERO_RT_RISCV32_OBJS)
@@ -856,6 +857,9 @@ $(BUILD_DIR)/obj/zero_rt_riscv32/dynlink.o: zero_rt/dlfcn/dynlink.c zero_rt/dlfc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --target riscv32 -c $< $(ZERO_RT_CFLAGS) -o $@
 $(BUILD_DIR)/obj/zero_rt_riscv32/dlfcn.o: zero_rt/dlfcn/dlfcn.c zero_rt/dlfcn/dynlink.h $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target riscv32 -c $< $(ZERO_RT_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_riscv32/soft_float.o: zero_rt/core/soft_float.c $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --target riscv32 -c $< $(ZERO_RT_CFLAGS) -o $@
 
@@ -916,7 +920,8 @@ ZERO_RT_BAREMETAL_RV32_OBJS = $(BUILD_DIR)/obj/zero_rt_baremetal_rv32/startup.o 
                               $(BUILD_DIR)/obj/zero_rt_baremetal_rv32/stdio.o \
                               $(BUILD_DIR)/obj/zero_rt_baremetal_rv32/errno.o \
                               $(BUILD_DIR)/obj/zero_rt_baremetal_rv32/int128.o \
-                              $(BUILD_DIR)/obj/zero_rt_baremetal_rv32/complex.o
+                              $(BUILD_DIR)/obj/zero_rt_baremetal_rv32/complex.o \
+                              $(BUILD_DIR)/obj/zero_rt_baremetal_rv32/soft_float.o
 $(BUILD_DIR)/lib/zero_rt_baremetal_rv32.a: $(ZERO_RT_BAREMETAL_RV32_OBJS) $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	@rm -f $@
@@ -949,6 +954,9 @@ $(BUILD_DIR)/obj/zero_rt_baremetal_rv32/int128.o: zero_rt/core/int128.c $(BUILD_
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --target riscv32 -c $< $(ZERO_RT_BAREMETAL_CFLAGS) -o $@
 $(BUILD_DIR)/obj/zero_rt_baremetal_rv32/complex.o: zero_rt/complex/complex.c $(BUILD_DIR)/bin/zerocc
+	@mkdir -p $(dir $@)
+	$(BUILD_DIR)/bin/zerocc --target riscv32 -c $< $(ZERO_RT_BAREMETAL_CFLAGS) -o $@
+$(BUILD_DIR)/obj/zero_rt_baremetal_rv32/soft_float.o: zero_rt/core/soft_float.c $(BUILD_DIR)/bin/zerocc
 	@mkdir -p $(dir $@)
 	$(BUILD_DIR)/bin/zerocc --target riscv32 -c $< $(ZERO_RT_BAREMETAL_CFLAGS) -o $@
 

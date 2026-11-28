@@ -366,6 +366,7 @@ static ZeroCCCompiler *jit_compile_tu(CompileOptions *opts, const char *input, i
 
     ZeroCCISA target_isa = parse_target_arch(opts->target_arch);
     zero_cc_init_compiler_with_target(comp, target_isa);
+    comp->is_thumb = (opts->is_thumb != 0);
     comp->is_win64_abi = opts->is_win64_abi || (opts->is_pe && (target_isa == ISA_X86_64));
     comp->emit_seh = (opts->emit_seh != 0);
     comp->opt_level = (OptLevel)opts->opt_level;
@@ -451,6 +452,7 @@ static ZeroCCCompiler *lto_compile_tu_phase1(CompileOptions *opts, const char *s
 
     ZeroCCISA target_isa = parse_target_arch(opts->target_arch);
     zero_cc_init_compiler_with_target(comp, target_isa);
+    comp->is_thumb = (opts->is_thumb != 0);
     comp->is_win64_abi = opts->is_win64_abi || (opts->is_pe && (target_isa == ISA_X86_64));
     comp->emit_seh = (opts->emit_seh != 0);
 
@@ -667,11 +669,11 @@ ZeroCCISA parse_target_arch(const char *target) {
     if (!target) return ISA_X86_64;  // Default
     if (strcmp(target, "x86-64") == 0 || strcmp(target, "x86_64") == 0) return ISA_X86_64;
     if (strcmp(target, "aarch64") == 0 || strcmp(target, "arm64") == 0) return ISA_AARCH64;
-    if (strcmp(target, "aarch32") == 0 || strcmp(target, "arm32") == 0 || strcmp(target, "armv7") == 0) return ISA_AARCH32;
+    if (strcmp(target, "aarch32") == 0 || strcmp(target, "arm32") == 0 || strcmp(target, "armv7") == 0 || strcmp(target, "thumb") == 0) return ISA_AARCH32;
     if (strcmp(target, "riscv64") == 0 || strcmp(target, "riscv") == 0) return ISA_RISCV64;
     if (strcmp(target, "riscv32") == 0) return ISA_RISCV32;
     if (strstr(target, "aarch64") || strstr(target, "arm64")) return ISA_AARCH64;
-    if (strstr(target, "arm") || strstr(target, "aarch32") || strstr(target, "cortex")) return ISA_AARCH32;
+    if (strstr(target, "arm") || strstr(target, "aarch32") || strstr(target, "cortex") || strstr(target, "thumb")) return ISA_AARCH32;
     if (strstr(target, "riscv32") || strstr(target, "rv32")) return ISA_RISCV32;
     if (strstr(target, "riscv64") || strstr(target, "rv64") || strstr(target, "riscv")) return ISA_RISCV64;
     if (strstr(target, "x86_64") || strstr(target, "x86-64")) return ISA_X86_64;
@@ -878,6 +880,7 @@ static int compile_object_single(CompileOptions *opts, const char *input,
     /* Initialize target ISA */
     ZeroCCISA target_isa = parse_target_arch(opts->target_arch);
     zero_cc_init_compiler_with_target(comp, target_isa);
+    comp->is_thumb = (opts->is_thumb != 0);
     comp->is_win64_abi = opts->is_win64_abi || (opts->is_pe && (target_isa == ISA_X86_64));
     comp->emit_seh = (opts->emit_seh != 0);
 
@@ -973,7 +976,11 @@ static int compile_object_single(CompileOptions *opts, const char *input,
             return 1;
         }
         if (comp->isa == ISA_AARCH32) {
-            fprintf(comp->asm_out, "\t.arch\tarmv7ve\n\t.fpu\tvfpv3-d16\n");
+            if (comp->is_thumb) {
+                fprintf(comp->asm_out, "\t.syntax\tunified\n\t.thumb\n");
+            } else {
+                fprintf(comp->asm_out, "\t.arch\tarmv7ve\n\t.fpu\tvfpv3-d16\n");
+            }
         }
         if (opts->verbose) {
             printf("Writing assembly to: %s\n", out_path);
@@ -1399,9 +1406,13 @@ static int write_compiled_object(ZeroCCCompiler *comp, CompileOptions *opts,
                  * emitted (zero size), fall through to .text where the code is. */
                 uint16_t nti = elf_writer_section_index(&elf_ctx, fn->section);
                 if (nti != 0) {
+                    uint64_t fn_val = fn->named_text_sec_off;
+                    if (comp->isa == ISA_AARCH32 && comp->is_thumb && !fn->is_prototype && !fn->is_external) {
+                        fn_val |= 1;
+                    }
                     elf_writer_add_symbol(&elf_ctx, fn_sym,
                                           binding, sym_type,
-                                          nti, fn->named_text_sec_off, fn_size);
+                                          nti, fn_val, fn_size);
                     continue;
                 }
             }
@@ -1409,10 +1420,14 @@ static int write_compiled_object(ZeroCCCompiler *comp, CompileOptions *opts,
             if (!fn->is_prototype && !fn->is_external) {
                 section_idx = text_idx;  // Compiled functions go in .text
             }
+            uint64_t fn_val = fn->text_offset;
+            if (comp->isa == ISA_AARCH32 && comp->is_thumb && !fn->is_prototype && !fn->is_external) {
+                fn_val |= 1;
+            }
             elf_writer_add_symbol(&elf_ctx, fn_sym,
                                   binding, sym_type,
                                   section_idx,
-                                  fn->text_offset,
+                                  fn_val,
                                   fn_size);
         }
     }
@@ -1493,8 +1508,13 @@ static int write_compiled_object(ZeroCCCompiler *comp, CompileOptions *opts,
             addend_rodata = 0;
             break;
         case ISA_AARCH32:
-            reloc_type_call = 28;   /* R_ARM_CALL */
-            reloc_type_rodata = 43; /* R_ARM_MOVW_ABS_NC */
+            if (comp->is_thumb) {
+                reloc_type_call = 10;   /* R_ARM_THM_CALL */
+                reloc_type_rodata = 47; /* R_ARM_THM_MOVW_ABS_NC */
+            } else {
+                reloc_type_call = 28;   /* R_ARM_CALL */
+                reloc_type_rodata = 43; /* R_ARM_MOVW_ABS_NC */
+            }
             addend_call = 0;
             addend_rodata = 0;
             break;
@@ -1620,17 +1640,17 @@ static int write_compiled_object(ZeroCCCompiler *comp, CompileOptions *opts,
             } else if (comp->isa == ISA_AARCH32 && r->text_patch_offset >= 4) {
                 uint16_t hi_sec = text_idx; uint64_t hi_off = r->text_patch_offset - 4;
                 resolve_text_reloc_loc(comp, &elf_ctx, order, extent_end, nreal, text_idx, r->text_patch_offset - 4, &hi_sec, &hi_off);
-                /* AArch32: movw at (patch_offset - 4) gets R_ARM_MOVW_ABS_NC (43),
-                 * movt at patch_offset gets R_ARM_MOVT_ABS (44). */
+                /* AArch32: movw at (patch_offset - 4) gets R_ARM_MOVW_ABS_NC (43) or R_ARM_THM_MOVW_ABS_NC (47),
+                 * movt at patch_offset gets R_ARM_MOVT_ABS (44) or R_ARM_THM_MOVT_ABS (48). */
                 elf_writer_add_relocation(&elf_ctx, hi_sec,
                                           hi_off,
                                           symbol_idx,
-                                          43 /* R_ARM_MOVW_ABS_NC */,
+                                          comp->is_thumb ? 47 /* R_ARM_THM_MOVW_ABS_NC */ : 43 /* R_ARM_MOVW_ABS_NC */,
                                           0);
                 elf_writer_add_relocation(&elf_ctx, cur_sec,
                                           cur_off,
                                           symbol_idx,
-                                          44 /* R_ARM_MOVT_ABS */,
+                                          comp->is_thumb ? 48 /* R_ARM_THM_MOVT_ABS */ : 44 /* R_ARM_MOVT_ABS */,
                                           0);
             } else {
                 int reloc_type_abs64 = (comp->isa == ISA_X86_64) ? 1 /* R_X86_64_64 */ : reloc_type_rodata;
@@ -1697,17 +1717,17 @@ static int write_compiled_object(ZeroCCCompiler *comp, CompileOptions *opts,
         } else if (comp->isa == ISA_AARCH32 && sr->text_patch_offset >= 4) {
             uint16_t hi_sec = text_idx; uint64_t hi_off = sr->text_patch_offset - 4;
             resolve_text_reloc_loc(comp, &elf_ctx, order, extent_end, nreal, text_idx, sr->text_patch_offset - 4, &hi_sec, &hi_off);
-            /* AArch32: movw at (patch_offset - 4) gets R_ARM_MOVW_ABS_NC (43),
-             * movt at patch_offset gets R_ARM_MOVT_ABS (44). */
+            /* AArch32: movw at (patch_offset - 4) gets R_ARM_MOVW_ABS_NC (43) or R_ARM_THM_MOVW_ABS_NC (47),
+             * movt at patch_offset gets R_ARM_MOVT_ABS (44) or R_ARM_THM_MOVT_ABS (48). */
             elf_writer_add_relocation(&elf_ctx, hi_sec,
                                       hi_off,
                                       rodata_symbol_idx,
-                                      43 /* R_ARM_MOVW_ABS_NC */,
+                                      comp->is_thumb ? 47 /* R_ARM_THM_MOVW_ABS_NC */ : 43 /* R_ARM_MOVW_ABS_NC */,
                                       (int64_t)sr->rodata_offset);
             elf_writer_add_relocation(&elf_ctx, cur_sec,
                                       cur_off,
                                       rodata_symbol_idx,
-                                      44 /* R_ARM_MOVT_ABS */,
+                                      comp->is_thumb ? 48 /* R_ARM_THM_MOVT_ABS */ : 44 /* R_ARM_MOVT_ABS */,
                                       (int64_t)sr->rodata_offset);
         } else {
             elf_writer_add_relocation(&elf_ctx, cur_sec,
@@ -2674,7 +2694,11 @@ static int compile_and_link(CompileOptions *opts) {
         static_flag = "-static";
     } else if (target_isa == ISA_AARCH32) {
         linker = "arm-linux-gnueabihf-gcc";
-        abi_flags = "-mabi=aapcs-linux -march=armv7ve -mfloat-abi=hard";
+        if (opts->is_thumb) {
+            abi_flags = "-mthumb";
+        } else {
+            abi_flags = "-mabi=aapcs-linux -march=armv7ve -mfloat-abi=hard";
+        }
         static_flag = "-static";
     }
 
@@ -2806,7 +2830,7 @@ static int compile_object_cross(CompileOptions *opts) {
                                              "riscv64-linux-gnu-as";
     const char *output = opts->output_file ? opts->output_file : "a.out";
     char cmd[2048];
-    snprintf(cmd, sizeof(cmd), "%s %s -o %s 2>&1", as, tmp_s, output);
+    snprintf(cmd, sizeof(cmd), "%s %s%s -o %s 2>&1", as, (opts->is_thumb ? "-mthumb " : ""), tmp_s, output);
 
     ret = system(cmd);
     unlink(tmp_s);

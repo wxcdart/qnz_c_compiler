@@ -84,6 +84,7 @@ typedef struct {
     int is_macho;           /* --macho / -mmacho / macOS Mach-O 64-bit output */
     int is_fat;             /* --fat / --macho-fat / --universal: package Mach-O slices into universal binary (Sprint 270) */
     int is_shared;          /* -shared: emit dynamic library (.so / .dll / .dylib) */
+    int is_thumb;           /* -mthumb: generate ARM Thumb / Thumb-2 code (Sprint 275) */
     int is_windows_gui;     /* -mwindows: Windows GUI subsystem (subsystem = 2) */
     int is_win64_abi;       /* -mabi=ms / -mabi=win64: Microsoft x64 Calling Convention */
     int emit_seh;           /* -fseh / -funwind-tables / -fexceptions: Windows x64 SEH unwind tables (.pdata / .xdata) */
@@ -129,6 +130,8 @@ static void print_usage(const char *prog) {
     fprintf(stderr, "  --version       Print version\n");
     fprintf(stderr, "  -h, --help      Show this help\n");
     fprintf(stderr, "  --target <arch> Target architecture (x86-64, aarch64, aarch32, riscv64, riscv32)\n");
+    fprintf(stderr, "  -mthumb         Generate ARM Thumb / Thumb-2 code (Sprint 275)\n");
+    fprintf(stderr, "  -marm           Generate ARM 32-bit code (default for AArch32)\n");
     fprintf(stderr, "  --baremetal     Baremetal / embedded CPU target mode\n");
     fprintf(stderr, "  -ffreestanding  Freestanding execution environment (__STDC_HOSTED__=0)\n");
     fprintf(stderr, "  -T <file>       Use specified linker script for section layout and regions\n");
@@ -472,6 +475,12 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
         else if (strcmp(arg, "-mabi=sysv") == 0) {
             opts->is_win64_abi = 0;
         }
+        else if (strcmp(arg, "-mthumb") == 0) {
+            opts->is_thumb = 1;
+        }
+        else if (strcmp(arg, "-marm") == 0) {
+            opts->is_thumb = 0;
+        }
         else if (strcmp(arg, "-fseh") == 0 || strcmp(arg, "-funwind-tables") == 0 || strcmp(arg, "-fexceptions") == 0) {
             opts->emit_seh = 1;
         }
@@ -500,6 +509,13 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
                 strstr(opts->target_arch, "-baremetal")) {
                 opts->baremetal = 1;
                 opts->no_zerocc_rt = 1;
+            }
+            if (strstr(opts->target_arch, "thumb") ||
+                strstr(opts->target_arch, "cortex-m") ||
+                strstr(opts->target_arch, "armv7-m") ||
+                strstr(opts->target_arch, "armv6-m") ||
+                strstr(opts->target_arch, "armv7e-m")) {
+                opts->is_thumb = 1;
             }
         }
         else if (strcmp(arg, "--baremetal") == 0 || strcmp(arg, "-ffreestanding") == 0) {

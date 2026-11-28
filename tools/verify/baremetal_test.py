@@ -702,7 +702,7 @@ def main():
     test_overflow_check()
     test_extended_linker_script()
 
-    for isa in ("x86-64", "aarch64", "aarch32", "riscv32", "riscv64"):
+    for isa in ("x86-64", "aarch64", "aarch32", "thumb", "riscv32", "riscv64"):
         test_baremetal_pipeline(isa)
 
     test_baremetal_execution()

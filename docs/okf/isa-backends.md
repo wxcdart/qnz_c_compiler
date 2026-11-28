@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-11-28T14:41:35Z
+timestamp: 2026-11-28T16:02:54Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -15,9 +15,9 @@ status: active
 ZeroCC abstracts target-specific code generation behind `ZeroCCISABackend` (`src/zero_cc/isa/isa_backend.h`), supporting four architecture families (5 targets):
 - **x86-64**: `src/zero_cc/isa/x86_64.c` (JIT binary emission) & `src/zero_cc/isa/x86_64_asm.c` (AOT `.s` assembly emission)
 - **AArch64**: `src/zero_cc/isa/aarch64.c` & `src/zero_cc/isa/aarch64_asm.c`
-- **AArch32 (ARMv7-A)**: `src/zero_cc/isa/aarch32.c` (Sprint 185: complete ARM32 MC encoder, AAPCS calling convention, ELF32 objects & own linker)
+- **AArch32 (ARMv7-A & Thumb-2 Cortex-M)**: `src/zero_cc/isa/aarch32.c` & `src/zero_cc/isa/aarch32_asm.c` (Sprint 185 ARM32 MC/AOT; Sprint 275 Thumb-2 `-mthumb` Cortex-M0/M3/M4/M7, IT blocks, interworking `blx`)
 - **RISC-V (RV64GC)**: `src/zero_cc/isa/riscv64.c` & `src/zero_cc/isa/riscv_asm.c`
-- **RISC-V (RV32GC)**: `src/zero_cc/isa/riscv32.c` (reuses the RV64 emitters; see below)
+- **RISC-V (RV32GC / RV32I Soft-Float)**: `src/zero_cc/isa/riscv32.c` (Sprint 170 rv32 i64 GPR64 pairs; Sprint 276 freestanding soft-float runtime in `zero_rt_riscv32.a`)
 - **Shared RISC-V encoders**: `src/zero_cc/isa/riscv_common.h`
 - **Backend registry**: `src/zero_cc/isa/backend_registry.c`
 
@@ -744,6 +744,32 @@ Sprint 217 completes Item #16 multi-ISA backend refactoring across linker reloca
 - See [System V AMD64 ABI & Struct Calling Conventions](./abi-sysv-x86_64.md)
 - See [Two-Pass IR & Register Allocation](./ir-and-regalloc.md)
 - See [Optimization Passes & Safety Invariants](./optimization-passes.md)
+
+### Cortex-M Thumb-2 Instruction Set & Baremetal Execution (-mthumb, Sprint 275)
+
+- **Target Detection & Options (`driver_opts.h`, `symbols.h`, `main.c`)**: `-mthumb` and `-marm` flags, auto-detected on `cortex-m`, `armv7-m`, `armv6-m`, `armv7e-m`, `thumb`. Sets `c->is_thumb = true`.
+- **Text Assembly & Function Symbols**:
+  - Emits `.syntax unified` and `.thumb` header in Thumb mode.
+  - Emits `.thumb_func` before function definitions.
+  - Sets bit 0 on defined function symbols in ELF symbol table (`fn_val |= 1`) indicating Thumb execution state.
+- **Instruction Encodings (`aarch32_asm.c`, `aarch32.c`)**:
+  - Text assembly extracted to `src/zero_cc/isa/aarch32_asm.c` with Thumb-2 prologue (`push {r11, lr}`, `mov r11, sp`), epilogue (`pop {r11, pc}` or `bx lr`), and Cortex-M ISR returns.
+  - IT blocks inserted for conditional operations in Thumb mode (`cond_set_asm` and `64_pred_asm`).
+  - MC encoders check `c->is_thumb` and emit 16-bit or 32-bit Thumb-2 opcodes (`thumb_emit_u16`, `thumb_emit_u32`).
+- **Relocations & Interworking (`linker_reloc.h`)**:
+  - Implemented `R_ARM_THM_CALL` (10), `R_ARM_THM_MOVW_ABS_NC` (47), `R_ARM_THM_MOVT_ABS` (48), and `R_ARM_THM_JUMP24` (30).
+  - `linker_stub_arm` checks `main_vma & 1` and emits `blx` for ARM-to-Thumb interworking.
+- **Verification**: `python3 tools/verify/baremetal_test.py` validates `thumb` target with entry `0x8000001` (bit 0 set), Flash LMA, RAM VMA, and MMIO UART output.
+
+### RV32 Standalone IEEE-754 Soft-Float Runtime (Sprint 276)
+
+- **Freestanding Soft-Float Implementation (`zero_rt/core/soft_float.c`)**:
+  - Single precision (binary32): `__addsf3`, `__subsf3`, `__mulsf3`, `__divsf3`, `__negsf2`, `__extendsfdf2`, `__fixsfsi`, `__fixunssfsi`, `__floatsisf`, `__floatunsisf`, `__fixsfdi`, `__fixunssfdi`, `__floatdisf`, `__floatundisf`, comparisons `__eqsf2`..`__unordsf2`.
+  - Double precision (binary64): `__adddf3`, `__subdf3`, `__muldf3`, `__divdf3`, `__negdf2`, `__truncdfsf2`, `__fixdfsi`, `__fixunsdfsi`, `__floatsidf`, `__floatunsidf`, `__fixdfdi`, `__fixunsdfdi`, `__floatdidf`, `__floatundidf`, comparisons `__eqdf2`..`__unorddf2`.
+  - IEEE-754 round-to-nearest-even semantics with guard, round, and sticky bits.
+  - Restoring binary division (27-bit for single, 56-bit for double) completely avoids calls to 64-bit software integer division helpers (`__udivdi3`/`__umoddi3`).
+  - Built into both `zero_rt_riscv32.a` and `zero_rt_baremetal_rv32.a`.
+- **Verification**: 2,512 test vectors covering basic arithmetic, edge cases (subnormals, NaNs, infinities, zeroes), conversions, and comparisons; executed natively and under `qemu-riscv32-static`.
 
 ### AVX-512 Verification Gate & Min/Max/Permute (Sprint 277)
 

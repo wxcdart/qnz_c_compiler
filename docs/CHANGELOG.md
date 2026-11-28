@@ -9,6 +9,38 @@
 - **Test**: `test/jit/avx512_ext_test.c` (INT_MIN/MAX, unsigned wrap, masked/zeroing, index wrap `&15`) passes JIT+AOT at `-O0..-O3` and on aarch64/riscv64 under QEMU via the emulation path.
 - **Deferred (not done this sprint)**: AVX-512VL (128/256-bit EVEX, `xmm/ymm16-31` and EVEX.X for rm>=16), AVX-512CD, gather/scatter with k-masks, compress/expand, embedded broadcast / rounding control, float min/max, 64-bit-lane min/max, BW 32/64-bit mask moves. Note `-mavx512vl`/`-mavx512cd` are still accepted-and-ignored.
 
+## [Sprint 276] - 2026-11-28 - RV32 Standalone IEEE-754 Soft-Float Runtime in zero_rt
+
+- **Standalone IEEE-754 Single & Double Soft-Float (`zero_rt/core/soft_float.c`)**:
+  - Implemented portable, freestanding bit-exact single (binary32) and double (binary64) routines with standard round-to-nearest-even semantics:
+    - Single-precision arithmetic: `__addsf3`, `__subsf3`, `__mulsf3`, `__divsf3`, `__negsf2`.
+    - Single-precision comparisons: `__eqsf2`, `__nesf2`, `__ltsf2`, `__lesf2`, `__gtsf2`, `__gesf2`, `__unordsf2`.
+    - Double-precision arithmetic: `__adddf3`, `__subdf3`, `__muldf3`, `__divdf3`, `__negdf2`.
+    - Double-precision comparisons: `__eqdf2`, `__nedf2`, `__ltdf2`, `__ledf2`, `__gtdf2`, `__gedf2`, `__unorddf2`.
+    - Precision conversions: `__extendsfdf2`, `__truncdfsf2`.
+    - Integer conversions (32-bit and 64-bit signed/unsigned): `__fixsfsi`, `__fixunssfsi`, `__floatsisf`, `__floatunsisf`, `__fixsfdi`, `__fixunssfdi`, `__floatdisf`, `__floatundisf`, `__fixdfsi`, `__fixunsdfsi`, `__floatsidf`, `__floatunsidf`, `__fixdfdi`, `__fixunsdfdi`, `__floatdidf`, `__floatundidf`.
+  - Division uses restoring binary division (27-bit for float, 56-bit for double) to eliminate any dependencies on 64-bit software integer division helpers (`__udivdi3` / `__umoddi3`).
+  - Integrated `soft_float.o` into both `zero_rt_riscv32.a` and `zero_rt_baremetal_rv32.a` in `Makefile`.
+- **Verification**:
+  - Comprehensive unit test harness exercising 2,512 test cases against host IEEE-754 operations (arithmetic, conversions, comparisons, edge cases, infinities, zeroes, NaNs, subnormals).
+  - Executed on RISC-V 32 under `qemu-riscv32-static` directly linked with `build/lib/zero_rt_riscv32.a`.
+
+## [Sprint 275] - 2026-11-28 - Cortex-M Thumb-2 Instruction Set & Baremetal Execution (-mthumb)
+
+- **Thumb-2 Target Support (`src/zero_cc/driver/driver_opts.h`, `src/zero_cc/types/symbols.h`, `src/main.c`)**:
+  - Added `-mthumb` and `-marm` driver options; auto-detected `-mthumb` for Cortex-M targets (`cortex-m`, `armv7-m`, `armv6-m`, `armv7e-m`, `thumb`).
+  - Registered `thumb` target string as `ISA_AARCH32` with `comp->is_thumb = true`.
+  - Emitted `.syntax unified` and `.thumb` assembly headers, `.thumb_func` on function definitions, and set bit 0 on defined function symbols in ELF symbol table (`fn_val |= 1`).
+- **Thumb-2 Unified Text Assembly & MC Codegen (`src/zero_cc/isa/aarch32_asm.c`, `src/zero_cc/isa/aarch32.c`)**:
+  - Extracted text assembly into `aarch32_asm.c` with Thumb-2 prologue (`push {r11, lr}`, `mov r11, sp`), epilogue (`pop {r11, pc}` or `bx lr`), and Cortex-M ISR returns.
+  - Inserted IT (If-Then) blocks for conditional operations in Thumb mode (`cond_set_asm` and `64_pred_asm`).
+  - Added Thumb-2 MC emission checks in `aarch32.c` (`thumb_emit_u16`, `thumb_emit_u32`) for branches, arithmetic, memory access, and function calls.
+- **Linker Relocations & Interworking (`src/zero_cc/linker/linker_reloc.h`)**:
+  - Added relocation support for `R_ARM_THM_MOVW_ABS_NC` (47), `R_ARM_THM_MOVT_ABS` (48), `R_ARM_THM_CALL` (10), and `R_ARM_THM_JUMP24` (30).
+  - `linker_stub_arm` detects Thumb target VMA (`main_vma & 1`) and emits `blx` for ARM-to-Thumb interworking.
+- **Verification (`tools/verify/baremetal_test.py`)**:
+  - Added `thumb` to the baremetal CPU verification battery: entry `0x8000001` (Thumb mode bit set), Flash LMA `0x8001000`, RAM VMA `0x20000000`, MMIO UART output, verified passing.
+
 ## [Sprint 274] - 2026-11-28 - Windows PE/COFF Structured Exception Handling (SEH) & Unwind Tables
 
 - **Windows x64 SEH Architecture & Data Structures (`src/zero_cc/linker/pe_writer.h`, `src/zero_cc/linker/pe_writer.c`)**:

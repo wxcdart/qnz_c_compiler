@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-28T14:41:35Z
+timestamp: 2026-11-28T16:02:54Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1836,3 +1836,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-28 — Updated `isa-backends.md`
 - Sprint 277: AVX-512 encoding differential gate; vpmin/vpmax/vperm ops
+
+## 2026-11-28 — Updated `isa-backends.md`
+- Sprint 275 Cortex-M Thumb-2 & Sprint 276 RV32 soft-float
