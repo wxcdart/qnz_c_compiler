@@ -358,6 +358,12 @@ typedef enum {
     OP_V512_PADDW,     /* 512-bit packed 16-bit int add */
     OP_V512_PSUBW,     /* 512-bit packed 16-bit int sub */
     OP_V512_PMULLW,    /* 512-bit packed 16-bit int mul */
+    OP_V512_PMINSD,    /* Sprint 277 */
+    OP_V512_PMAXSD,    /* Sprint 277 */
+    OP_V512_PMINUD,    /* Sprint 277 */
+    OP_V512_PMAXUD,    /* Sprint 277 */
+    OP_V512_PERMD,    /* Sprint 277 */
+    OP_V512_PERMPS,    /* Sprint 277 */
     /* ARM SVE Scalable Vector Extension Opcodes (Sprint 203) */
     OP_SVE_PTRUE,      /* sve ptrue predicate */
     OP_SVE_PFALSE,     /* sve pfalse predicate */
@@ -817,6 +823,12 @@ static inline const char* ir_opcode_name(Opcode op) {
         case OP_V512_PADDW: return "V512_PADDW";
         case OP_V512_PSUBW: return "V512_PSUBW";
         case OP_V512_PMULLW: return "V512_PMULLW";
+        case OP_V512_PMINSD: return "V512_PMINSD";
+        case OP_V512_PMAXSD: return "V512_PMAXSD";
+        case OP_V512_PMINUD: return "V512_PMINUD";
+        case OP_V512_PMAXUD: return "V512_PMAXUD";
+        case OP_V512_PERMD: return "V512_PERMD";
+        case OP_V512_PERMPS: return "V512_PERMPS";
         case OP_SVE_PTRUE: return "SVE_PTRUE";
         case OP_SVE_PFALSE: return "SVE_PFALSE";
         case OP_SVE_WHILELT: return "SVE_WHILELT";
@@ -1009,6 +1021,12 @@ static inline bool ir_opcode_is_simd(Opcode op) {
         case OP_V512_PANDD: case OP_V512_PORD: case OP_V512_PXORD: case OP_V512_PANDND:
         case OP_V512_PADDB: case OP_V512_PSUBB:
         case OP_V512_PADDW: case OP_V512_PSUBW: case OP_V512_PMULLW:
+        case OP_V512_PMINSD:
+        case OP_V512_PMAXSD:
+        case OP_V512_PMINUD:
+        case OP_V512_PMAXUD:
+        case OP_V512_PERMD:
+        case OP_V512_PERMPS:
         case OP_SVE_LD1: case OP_SVE_ST1:
         case OP_SVE_ADD: case OP_SVE_SUB: case OP_SVE_MUL: case OP_SVE_DIV:
         case OP_SVE_AND: case OP_SVE_ORR: case OP_SVE_EOR:

@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-28T03:40:56Z
+timestamp: 2026-11-28T14:41:35Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1833,3 +1833,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-28 — Updated `target-abstraction-roadmap.md`
 - Sprint 274: Windows PE/COFF Structured Exception Handling (SEH) & Unwind Tables
+
+## 2026-11-28 — Updated `isa-backends.md`
+- Sprint 277: AVX-512 encoding differential gate; vpmin/vpmax/vperm ops

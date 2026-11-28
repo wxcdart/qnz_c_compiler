@@ -562,6 +562,7 @@ make test-pe             # Windows PE/COFF native output battery
 make test-macho          # macOS Mach-O 64-bit native output battery
 make test-isa-qemu      # Raw-emitter QEMU gate (all ISAs; needs cross toolchains + QEMU)
 make test-isa128        # Cross-ISA __int128 gate
+make test-avx512        # AVX-512 EVEX encoding differential gate (objdump vs GNU as)
 make test-dlfcn-isa     # Cross-ISA dynamic loading gate (all ISAs under QEMU)
 make audit-self-host    # Self-hosting compilation audit of all 76 TUs with zerocc -c
 make test-self-host     # 3-stage self-hosting fixed-point bootstrap gate (Stage 1 == Stage 2)

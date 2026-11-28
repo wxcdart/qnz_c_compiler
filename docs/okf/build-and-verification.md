@@ -74,6 +74,7 @@ All project headers are included **relative to the include roots `-Isrc -Iinclud
 | **Core Build** | `make` (4.0+), Host `gcc` (13.0+), `python3` (3.8+), `git` | Building compiler binaries, `zero_rt` runtimes, test harnesses, and running test orchestration scripts. |
 | **Dialect Conformance** | `gcc-15` (15.0+), `gcc-14` / `gcc-13` | Differential verification across dialects (`-std=gnu23`, `c23`, `c11`, `c99`, `gnu89`) via `make test-c23` (`tools/c23/test_c23.py`) and diagnostic tests (`tools/verify/diag_battery.py`). Overridable via `C23_GCC`. |
 | **Cross-ISA Emulation** | `qemu-user-static` (8.0+), `aarch64-linux-gnu-gcc`, `riscv64-linux-gnu-gcc` | User-mode emulation under Linux for cross-ISA verification (`make test-isa128`). |
+make test-avx512
 | **Static Musl Reference** | `musl-gcc-<arch>` (in `~/.local/bin`, via `tools/setup_musl_cross.sh`) | Fully static reference binary generation for raw emitter differential testing (`make test-isa-qemu`); the x86_64 wrapper wraps `gcc-15` (Sprint 142), the cross wrappers wrap the installed cross gcc. |
 | **Workflow / Supervision** | `tmux` | Detaching and supervising long-running gates (such as `make test-torture`) without agent/shell command timeout. |
 | **Inspection & Profiling** | `gdb` (15+), `valgrind`, `perf` | JIT machine-code disassembly, stack-frame inspection, and `--profile-opts` pass timing. |

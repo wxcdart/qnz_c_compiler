@@ -314,6 +314,12 @@ typedef struct ZeroCCISABackend {
     void (*emit_v512_paddw_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out);
     void (*emit_v512_psubw_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out);
     void (*emit_v512_pmullw_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out);
+    void (*emit_v512_pminsd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out);
+    void (*emit_v512_pmaxsd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out);
+    void (*emit_v512_pminud_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out);
+    void (*emit_v512_pmaxud_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out);
+    void (*emit_v512_permd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out);
+    void (*emit_v512_permps_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out);
     /* ARM SVE Scalable Vector Extension (Sprint 203) */
     void (*emit_sve_ptrue_asm)(ZeroCCCompiler *c, int pd, int esz, int pat, FILE *out);
     void (*emit_sve_pfalse_asm)(ZeroCCCompiler *c, int pd, FILE *out);
@@ -665,6 +671,12 @@ typedef struct ZeroCCISABackend {
     void (*emit_v512_paddw)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode);
     void (*emit_v512_psubw)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode);
     void (*emit_v512_pmullw)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode);
+    void (*emit_v512_pminsd)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode);
+    void (*emit_v512_pmaxsd)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode);
+    void (*emit_v512_pminud)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode);
+    void (*emit_v512_pmaxud)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode);
+    void (*emit_v512_permd)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode);
+    void (*emit_v512_permps)(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode);
     /* ARM SVE Scalable Vector Extension (Sprint 203) */
     void (*emit_sve_ptrue)(ZeroCCCompiler *c, int pd, int esz, int pat);
     void (*emit_sve_pfalse)(ZeroCCCompiler *c, int pd);

@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## [Sprint 277] - 2026-11-28 - AVX-512 Encoding Differential Gate, Min/Max & Permutes
+
+- **Finding**: QEMU user-mode (TCG) cannot execute AVX-512 and the dev host has no AVX-512, so EVEX code cannot be run here. The gate therefore validates *encodings* with independent tools instead of execution (and executes + diffs against `gcc-15` automatically when the host really has `avx512f`).
+- **`make test-avx512` (`tools/verify/avx512_diff.py`)**: for every `test/jit/avx512_*.c` at `-O0..-O3`: raw EVEX bytes (`zerocc -c`) disassembled by `objdump` must (a) contain no `(bad)` decode and (b) match, instruction-for-instruction, the disassembly of the `-S` text output assembled by GNU as; plus a mnemonic-coverage floor (`REQUIRED_MNEMONICS`) so a silent fall-back to scalar emulation fails the gate. 20/20 runs, 58 distinct EVEX/mask mnemonics.
+- **New AVX-512F intrinsics (raw + `-S` emitters, mask/maskz via the existing `mask_mode`, scalar-emulation fallback on all ISAs)**: `_mm512_{min,max}_{epi32,epu32}` (+`mask_`/`maskz_`) -> `vpminsd/vpmaxsd/vpminud/vpmaxud`; `_mm512_permutexvar_{epi32,ps}` -> `vpermd/vpermps`. New opcodes `OP_V512_PMINSD/PMAXSD/PMINUD/PMAXUD/PERMD/PERMPS`.
+- **Emulation fix found while testing**: first draft used `OP_SEXT32_64` (a 32-bit-target register-pair op) on x86-64 and miscompiled; min/max now extend lane temps in place (`OP_SEXT32`/`OP_ZEXT32`) and use `m=(a-b)&((a-b)>>63)`.
+- **Test**: `test/jit/avx512_ext_test.c` (INT_MIN/MAX, unsigned wrap, masked/zeroing, index wrap `&15`) passes JIT+AOT at `-O0..-O3` and on aarch64/riscv64 under QEMU via the emulation path.
+- **Deferred (not done this sprint)**: AVX-512VL (128/256-bit EVEX, `xmm/ymm16-31` and EVEX.X for rm>=16), AVX-512CD, gather/scatter with k-masks, compress/expand, embedded broadcast / rounding control, float min/max, 64-bit-lane min/max, BW 32/64-bit mask moves. Note `-mavx512vl`/`-mavx512cd` are still accepted-and-ignored.
+
 ## [Sprint 274] - 2026-11-28 - Windows PE/COFF Structured Exception Handling (SEH) & Unwind Tables
 
 - **Windows x64 SEH Architecture & Data Structures (`src/zero_cc/linker/pe_writer.h`, `src/zero_cc/linker/pe_writer.c`)**:

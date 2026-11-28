@@ -238,6 +238,7 @@ With 3-stage self-hosting fixed-point convergence (Stage 1 == Stage 2 bit-for-bi
 - **Track 9 — Windows PE/COFF Structured Exception Handling (SEH) & Unwind Tables (Sprint 274)**: Generate `.pdata` and `.xdata` unwind tables for x86-64 PE binaries (`RUNTIME_FUNCTION`, `UNWIND_INFO`, `UNWIND_CODE`), tracking stack allocations and callee-saved register pushes in function prologues for Windows 64-bit unwinding.
 - **Track 10 — Cortex-M Thumb-2 (`-mthumb`) Baremetal Microcontroller Foundation (Sprint 275)**: Implement 16-bit / 32-bit Thumb-2 instruction encodings in `aarch32.c` / `aarch32_asm.c` for Cortex-M0/M3/M4/M7 targets.
 - **Track 11 — RISC-V 32 (`rv32`) Standalone Soft-Float IEEE-754 Runtime (`zero_rt`) (Sprint 276)**: Implement software floating-point routines (`__addsf3`, `__subsf3`, `__mulsf3`, `__divsf3`, etc.) in `zero_rt_riscv32.a` for freestanding RV32 targets without hardware FPU.
+- **Track 12 — AVX-512 Verification Gate & Coverage Expansion (Sprint 277, PARTIAL)**: `make test-avx512` encoding-differential gate (objdump vs GNU as, no QEMU/hardware needed) and `vpmin/vpmax{s,u}d` + `vpermd/vpermps` shipped. **Remaining**: AVX-512VL + `xmm/ymm16-31` (needs EVEX.X for rm>=16 and allocator support), CD, k-masked gather/scatter, compress/expand, embedded broadcast/rounding, float/64-bit min/max. Hardware execution diff activates automatically on an AVX-512 host.
 
 ---
 

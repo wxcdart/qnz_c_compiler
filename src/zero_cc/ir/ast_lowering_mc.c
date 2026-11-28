@@ -2333,6 +2333,12 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
             LOWER_V512_BINOP(OP_V512_PADDW, v512_paddw)
             LOWER_V512_BINOP(OP_V512_PSUBW, v512_psubw)
             LOWER_V512_BINOP(OP_V512_PMULLW, v512_pmullw)
+            LOWER_V512_BINOP(OP_V512_PMINSD, v512_pminsd)
+            LOWER_V512_BINOP(OP_V512_PMAXSD, v512_pmaxsd)
+            LOWER_V512_BINOP(OP_V512_PMINUD, v512_pminud)
+            LOWER_V512_BINOP(OP_V512_PMAXUD, v512_pmaxud)
+            LOWER_V512_BINOP(OP_V512_PERMD, v512_permd)
+            LOWER_V512_BINOP(OP_V512_PERMPS, v512_permps)
 #undef LOWER_V512_BINOP
 
             /* ARM SVE Scalable Vector Extension (Sprint 203) */

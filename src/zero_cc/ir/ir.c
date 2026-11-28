@@ -586,6 +586,12 @@ void ir_dump(const ZeroCCCompiler *c, FILE *f) {
             case OP_V512_PANDD: case OP_V512_PORD: case OP_V512_PXORD: case OP_V512_PANDND:
             case OP_V512_PADDB: case OP_V512_PSUBB:
             case OP_V512_PADDW: case OP_V512_PSUBW: case OP_V512_PMULLW:
+            case OP_V512_PMINSD:
+            case OP_V512_PMAXSD:
+            case OP_V512_PMINUD:
+            case OP_V512_PMAXUD:
+            case OP_V512_PERMD:
+            case OP_V512_PERMPS:
                 fprintf(f, "%s zmm%u, zmm%u, zmm%u%s", ir_opcode_name(instr->op), instr->temp_dest, instr->temp_src1, instr->temp_src2, instr->cond == 2 ? "{k1}{z}" : (instr->cond == 1 ? "{k1}" : ""));
                 break;
             case OP_SVE_PTRUE: case OP_SVE_PFALSE: case OP_SVE_WHILELT: case OP_SVE_CNT:

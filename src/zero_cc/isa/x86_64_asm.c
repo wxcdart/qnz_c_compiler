@@ -2303,6 +2303,24 @@ static void x86_emit_v512_psubw_asm(ZeroCCCompiler *c, int dst, int src1, int sr
 static void x86_emit_v512_pmullw_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out) {
     x86_emit_v512_int_binop_asm(c, "vpmullw", dst, src1, src2, mask_mode, out);
 }
+static void x86_emit_v512_pminsd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out) {
+    x86_emit_v512_int_binop_asm(c, "vpminsd", dst, src1, src2, mask_mode, out);
+}
+static void x86_emit_v512_pmaxsd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out) {
+    x86_emit_v512_int_binop_asm(c, "vpmaxsd", dst, src1, src2, mask_mode, out);
+}
+static void x86_emit_v512_pminud_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out) {
+    x86_emit_v512_int_binop_asm(c, "vpminud", dst, src1, src2, mask_mode, out);
+}
+static void x86_emit_v512_pmaxud_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out) {
+    x86_emit_v512_int_binop_asm(c, "vpmaxud", dst, src1, src2, mask_mode, out);
+}
+static void x86_emit_v512_permd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out) {
+    x86_emit_v512_int_binop_asm(c, "vpermd", dst, src1, src2, mask_mode, out);
+}
+static void x86_emit_v512_permps_asm(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode, FILE *out) {
+    x86_emit_v512_int_binop_asm(c, "vpermps", dst, src1, src2, mask_mode, out);
+}
 
 /* =========================================================================
  * GNU __int128 (Sprint 109): 128-bit ops, GAS text forms. Mirrors the raw

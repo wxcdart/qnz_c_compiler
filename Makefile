@@ -148,7 +148,7 @@ EXTRA_OBJS = $(addprefix $(OBJ_DIR)/, \
 	asan asan-unit asan-semantic asan-abi asan-jit \
 	test-asan test-target-asan test-asan-unit test-asan-semantic test-asan-abi test-asan-jit \
 	test-project-diff test-project-runs \
-	test-isa-qemu test-isa128 test-dlfcn-isa test-driver test-linker test-lto test-pgo test-pe test-macho test-foreign \
+	test-isa-qemu test-isa128 test-avx512 test-dlfcn-isa test-driver test-linker test-lto test-pgo test-pe test-macho test-foreign \
 	test-c23 test-asm test-opt test-san test-preproc test-fuzz test-perf \
 	audit-self-host stage1 test-stage1 stage2 test-stage2 test-self-host \
 	stage1-ownlink test-stage1-ownlink stage2-ownlink test-stage2-ownlink test-self-host-ownlink \
@@ -1018,6 +1018,9 @@ test-isa-qemu: $(ZC_BIN)
 # x86-64-only test-opt cannot see.
 test-isa128: $(ZC_BIN)
 	@python3 tools/verify/isa128_diff.py
+
+test-avx512: $(ZC_BIN)
+	@python3 tools/verify/avx512_diff.py
 
 # Cross-ISA dynamic loading differential gate (Sprint 182): tests in-process
 # dynamic loader (zero_rt/dlfcn/dynlink.c) across all 4 target ISAs (x86-64,

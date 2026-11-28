@@ -4,7 +4,7 @@ title: Multi-ISA Backends (x86-64, AArch64, RISC-V) & Linker/JIT
 description: Backend vtable interface (ZeroCCISABackend), JIT machine code emission, AOT assembly generation, parallel argument moves, and symbol relocation resolution.
 resource: backend/isa-backends
 tags: [backend, x86_64, aarch64, riscv, jit, aot, elf, relocations]
-timestamp: 2026-11-27T23:44:31Z
+timestamp: 2026-11-28T14:41:35Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -744,3 +744,10 @@ Sprint 217 completes Item #16 multi-ISA backend refactoring across linker reloca
 - See [System V AMD64 ABI & Struct Calling Conventions](./abi-sysv-x86_64.md)
 - See [Two-Pass IR & Register Allocation](./ir-and-regalloc.md)
 - See [Optimization Passes & Safety Invariants](./optimization-passes.md)
+
+### AVX-512 Verification Gate & Min/Max/Permute (Sprint 277)
+
+- **No execution oracle available**: QEMU TCG does not implement AVX-512 and the dev host lacks it. `make test-avx512` (`tools/verify/avx512_diff.py`) instead diffs the `objdump -d` of the raw EVEX object against the GNU-as assembly of the `-S` output (EVEX-bearing lines only), rejects `(bad)` decodes, and enforces a mnemonic coverage floor. On a host with real `avx512f` it also runs and diffs against `gcc-15 -O2`.
+- **New ops** (`x86_emit_v512_int_binop`, mm=0F38, pp=66, W0): `vpminsd` 39, `vpmaxsd` 3D, `vpminud` 3B, `vpmaxud` 3F, `vpermd` 36, `vpermps` 16 (`vvvv`=index, `rm`=data for the permutes). Scalar fallback in `ast_lowering_builtins.c`: `zc_simd_emul_minmax32` (64-bit-extended `m=(a-b)&((a-b)>>63)`), `zc_simd_emul_permute32` (index `&15`). Pitfall: `OP_SEXT32_64`/`OP_ZEXT32_64` are 32-bit-target register-pair ops - never use them for x86-64/AArch64/RV64 emulation; use in-place `OP_SEXT32`/`OP_ZEXT32`.
+- **Not yet implemented**: AVX-512VL / high vector registers (`x86_evex` never sets EVEX.X for rm>=16), CD, gather/scatter, compress/expand, `{1toN}`/`{sae}`.
+

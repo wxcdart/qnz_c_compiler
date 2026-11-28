@@ -224,6 +224,47 @@ static void zc_simd_copy512(ZeroCCCompiler *c, int dst_addr, int src_addr) {
     }
 }
 
+/* Scalar emulation of AVX-512 32-bit integer min/max (alu 8..11 = min_s, max_s,
+ * min_u, max_u).  Operates on 64-bit extended lane values so a-b cannot wrap:
+ * m = (a-b) & ((a-b)>>63); min = b + m; max = a - m. */
+static void zc_simd_emul_minmax32(ZeroCCCompiler *c, int vr, int va, int vb, int alu) {
+    bool is_signed = (alu == 8 || alu == 9);
+    bool is_max = (alu == 9 || alu == 11);
+    int a64 = va, b64 = vb; /* lane temps are scratch: extend in place to 64 bits */
+    if (is_signed) { ir_emit_sext(c, a64, 4); ir_emit_sext(c, b64, 4); }
+    else           { ir_emit_zext(c, a64, 4); ir_emit_zext(c, b64, 4); }
+    int diff = zc_alloc_temp(c), sh = zc_alloc_temp(c), s63 = zc_alloc_temp(c), m = zc_alloc_temp(c);
+    ir_emit_sub(c, (uint32_t)diff, (uint32_t)a64, (uint32_t)b64);
+    ir_emit_mov_imm(c, (uint32_t)s63, 63);
+    ir_emit_sar(c, sh, diff, s63);
+    ir_emit_and(c, m, diff, sh);
+    if (is_max) ir_emit_sub(c, (uint32_t)vr, (uint32_t)a64, (uint32_t)m);
+    else        ir_emit_add(c, (uint32_t)vr, (uint32_t)b64, (uint32_t)m);
+}
+
+/* Scalar emulation of vpermd/vpermps: res[i] = data[idx[i] & 15] (32-bit lanes). */
+static void zc_simd_emul_permute32(ZeroCCCompiler *c, int res_addr, int idx_addr, int data_addr) {
+    for (size_t i = 0; i < 16; i++) {
+        int li = zc_simd_lane_addr(c, idx_addr, i * 4);
+        int t_idx = zc_alloc_temp(c);
+        ir_emit_load_32(c, (uint32_t)t_idx, (uint32_t)li);
+        int t15 = zc_alloc_temp(c);
+        ir_emit_mov_imm(c, (uint32_t)t15, 15);
+        int t_and = zc_alloc_temp(c);
+        ir_emit_and(c, t_and, t_idx, t15);
+        int t2 = zc_alloc_temp(c);
+        ir_emit_mov_imm(c, (uint32_t)t2, 2);
+        int t_off = zc_alloc_temp(c);
+        ir_emit_shl(c, t_off, t_and, t2);
+        int t_src = zc_alloc_temp(c);
+        ir_emit_add(c, (uint32_t)t_src, (uint32_t)data_addr, (uint32_t)t_off);
+        int t_val = zc_alloc_temp(c);
+        ir_emit_load_32(c, (uint32_t)t_val, (uint32_t)t_src);
+        int lr = zc_simd_lane_addr(c, res_addr, i * 4);
+        ir_emit_store_32(c, t_val, lr);
+    }
+}
+
 /* Lower `__builtin_zerocc_v*` SIMD vendor intrinsic helpers. */
 static bool zc_lower_simd_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
                                   ZeroCCASTNode *node, const char *name,
@@ -273,6 +314,12 @@ static bool zc_lower_simd_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
             {"paddw",  OP_V512_PADDW,  0, 0, 2},
             {"psubw",  OP_V512_PSUBW,  1, 0, 2},
             {"pmullw", OP_V512_PMULLW, 2, 0, 2},
+            {"pminsd", OP_V512_PMINSD, 8, 0, 4},
+            {"pmaxsd", OP_V512_PMAXSD, 9, 0, 4},
+            {"pminud", OP_V512_PMINUD, 10, 0, 4},
+            {"pmaxud", OP_V512_PMAXUD, 11, 0, 4},
+            {"permd",  OP_V512_PERMD,  12, 0, 4},
+            {"permps", OP_V512_PERMPS, 12, 0, 4},
         };
         for (size_t k = 0; k < sizeof(binops512) / sizeof(binops512[0]); k++) {
             if (strcmp(s512, binops512[k].suffix) != 0) continue;
@@ -288,6 +335,8 @@ static bool zc_lower_simd_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
                 zc_simd_emit_v512_load(c, vb, b_addr);
                 zc_simd_emit_v512_bin(c, binops512[k].vop, vr, va, vb);
                 zc_simd_emit_v512_store(c, res_addr, vr);
+            } else if (binops512[k].alu == 12) {
+                zc_simd_emul_permute32(c, res_addr, a_addr, b_addr);
             } else {
                 size_t esz = binops512[k].esz;
                 size_t lanes = 64 / esz;
@@ -326,6 +375,7 @@ static bool zc_lower_simd_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
                         else if (binops512[k].alu == 5) ir_emit(c, (Instr){.op = OP_OR, .temp_dest = (uint32_t)vr, .temp_src1 = (uint32_t)va, .temp_src2 = (uint32_t)vb, .width = 4, .flags_out = 0xFF, .flags_in = 0xFF});
                         else if (binops512[k].alu == 6) ir_emit(c, (Instr){.op = OP_XOR, .temp_dest = (uint32_t)vr, .temp_src1 = (uint32_t)va, .temp_src2 = (uint32_t)vb, .width = 4, .flags_out = 0xFF, .flags_in = 0xFF});
                         else if (binops512[k].alu == 7) { ir_emit_not(c, vr, va); ir_emit_and(c, vr, vr, vb); }
+                        else if (binops512[k].alu >= 8 && binops512[k].alu <= 11) zc_simd_emul_minmax32(c, vr, va, vb, binops512[k].alu);
                         ir_emit_store_32(c, vr, lr);
                     } else if (esz == 2) {
                         ir_emit_load_16(c, va, la);
@@ -379,6 +429,10 @@ static bool zc_lower_simd_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
             {"paddw",  OP_V512_PADDW,  0, 0, 2},
             {"psubw",  OP_V512_PSUBW,  1, 0, 2},
             {"pmullw", OP_V512_PMULLW, 2, 0, 2},
+            {"pminsd", OP_V512_PMINSD, 8, 0, 4},
+            {"pmaxsd", OP_V512_PMAXSD, 9, 0, 4},
+            {"pminud", OP_V512_PMINUD, 10, 0, 4},
+            {"pmaxud", OP_V512_PMAXUD, 11, 0, 4},
         };
         for (size_t k = 0; k < sizeof(mask_binops512) / sizeof(mask_binops512[0]); k++) {
             bool is_mask = (strncmp(s512, "mask_", 5) == 0 && strcmp(s512 + 5, mask_binops512[k].suffix) == 0);
@@ -414,7 +468,7 @@ static bool zc_lower_simd_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
                 }
                 zc_simd_emit_v512_load(c, va, a_addr);
                 zc_simd_emit_v512_load(c, vb, b_addr);
-                bool is_new_int = (mask_binops512[k].vop >= OP_V512_PADDD && mask_binops512[k].vop <= OP_V512_PMULLW);
+                bool is_new_int = (mask_binops512[k].vop >= OP_V512_PADDD && mask_binops512[k].vop <= OP_V512_PERMPS);
                 uint8_t m_cond = is_new_int ? (uint8_t)(z ? 2 : 1) : 0;
                 int32_t m_imm = is_new_int ? 0 : (int32_t)z;
                 ir_emit(c, (Instr){.op = mask_binops512[k].vop, .temp_dest = (uint32_t)vr, .temp_src1 = (uint32_t)va, .temp_src2 = (uint32_t)vb, .imm = m_imm, .cond = m_cond, .flags_out = 0xFF, .flags_in = 0xFF});
@@ -475,6 +529,7 @@ static bool zc_lower_simd_builtin(ZeroCCCompiler *c, ZeroCCASTArena *arena,
                         else if (mask_binops512[k].alu == 5) ir_emit(c, (Instr){.op = OP_OR, .temp_dest = (uint32_t)vr, .temp_src1 = (uint32_t)va, .temp_src2 = (uint32_t)vb, .width = 4, .flags_out = 0xFF, .flags_in = 0xFF});
                         else if (mask_binops512[k].alu == 6) ir_emit(c, (Instr){.op = OP_XOR, .temp_dest = (uint32_t)vr, .temp_src1 = (uint32_t)va, .temp_src2 = (uint32_t)vb, .width = 4, .flags_out = 0xFF, .flags_in = 0xFF});
                         else if (mask_binops512[k].alu == 7) { ir_emit_not(c, vr, va); ir_emit_and(c, vr, vr, vb); }
+                        else if (mask_binops512[k].alu >= 8 && mask_binops512[k].alu <= 11) zc_simd_emul_minmax32(c, vr, va, vb, mask_binops512[k].alu);
                         ir_emit_store_32(c, vr, lr);
                     } else if (esz == 2) {
                         ir_emit_load_16(c, va, la);

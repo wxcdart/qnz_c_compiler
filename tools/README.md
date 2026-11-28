@@ -52,6 +52,7 @@ All tools are **stdlib-only** (see [`tools/requirements.txt`](./requirements.txt
 | [`type_tag_verifier.py`](./verify/type_tag_verifier.py) | Frontend type-tag vs backend IR width-mark cross-check | `python3 tools/verify/type_tag_verifier.py --verify-all` |
 | [`isa_qemu_diff.py`](./verify/isa_qemu_diff.py) | **Raw binary emitter** differential under QEMU (all 4 ISAs) | `python3 tools/verify/isa_qemu_diff.py --isa aarch64` |
 | [`isa128_diff.py`](./verify/isa128_diff.py) | Cross-ISA `__int128` differential gate (raw + `-S` paths) | `python3 tools/verify/isa128_diff.py --isa aarch64` |
+| [`avx512_diff.py`](./verify/avx512_diff.py) | AVX-512 EVEX encoding differential gate (raw vs `-S`+GNU as via objdump; hw exec diff when available) | `python3 tools/verify/avx512_diff.py` |
 | [`dlfcn_isa_diff.py`](./verify/dlfcn_isa_diff.py) | Cross-ISA dynamic loader differential gate across all 4 ISAs | `python3 tools/verify/dlfcn_isa_diff.py` / `make test-dlfcn-isa` |
 | [`licm_test_suite.py`](./verify/licm_test_suite.py) / [`licm_verifier.py`](./verify/licm_verifier.py) | LICM hoisting & safety verification | `python3 tools/verify/licm_test_suite.py` |
 

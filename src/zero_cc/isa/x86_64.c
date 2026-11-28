@@ -1327,6 +1327,31 @@ static void x86_emit_v512_pmullw(ZeroCCCompiler *c, int dst, int src1, int src2,
     x86_emit_v512_int_binop(c, dst, src1, src2, mask_mode, 1, 1, 0, 0xD5);
 }
 
+/* AVX-512 min/max/permute (Sprint 277) */
+static void x86_emit_v512_pminsd(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode) {
+    x86_emit_v512_int_binop(c, dst, src1, src2, mask_mode, 2, 1, 0, 0x39);
+}
+
+static void x86_emit_v512_pmaxsd(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode) {
+    x86_emit_v512_int_binop(c, dst, src1, src2, mask_mode, 2, 1, 0, 0x3D);
+}
+
+static void x86_emit_v512_pminud(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode) {
+    x86_emit_v512_int_binop(c, dst, src1, src2, mask_mode, 2, 1, 0, 0x3B);
+}
+
+static void x86_emit_v512_pmaxud(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode) {
+    x86_emit_v512_int_binop(c, dst, src1, src2, mask_mode, 2, 1, 0, 0x3F);
+}
+
+static void x86_emit_v512_permd(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode) {
+    x86_emit_v512_int_binop(c, dst, src1, src2, mask_mode, 2, 1, 0, 0x36);
+}
+
+static void x86_emit_v512_permps(ZeroCCCompiler *c, int dst, int src1, int src2, int mask_mode) {
+    x86_emit_v512_int_binop(c, dst, src1, src2, mask_mode, 2, 1, 0, 0x16);
+}
+
 static void x86_emit_neg(ZeroCCCompiler *c, int dst, int src);
 
 static void x86_emit_sub(ZeroCCCompiler *c, int dst, int src1, int src2) {
@@ -3274,6 +3299,12 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_v512_paddw = x86_emit_v512_paddw,
     .emit_v512_psubw = x86_emit_v512_psubw,
     .emit_v512_pmullw = x86_emit_v512_pmullw,
+    .emit_v512_pminsd = x86_emit_v512_pminsd,
+    .emit_v512_pmaxsd = x86_emit_v512_pmaxsd,
+    .emit_v512_pminud = x86_emit_v512_pminud,
+    .emit_v512_pmaxud = x86_emit_v512_pmaxud,
+    .emit_v512_permd = x86_emit_v512_permd,
+    .emit_v512_permps = x86_emit_v512_permps,
     .emit_cvtss2sd = x86_emit_fp_cvtss2sd,
     .emit_cvtsi2ss = x86_emit_fp_cvtsi2ss,
     .emit_cvtsd2ss = x86_emit_fp_cvtsd2ss,
@@ -3535,6 +3566,12 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_v512_paddw_asm = x86_emit_v512_paddw_asm,
     .emit_v512_psubw_asm = x86_emit_v512_psubw_asm,
     .emit_v512_pmullw_asm = x86_emit_v512_pmullw_asm,
+    .emit_v512_pminsd_asm = x86_emit_v512_pminsd_asm,
+    .emit_v512_pmaxsd_asm = x86_emit_v512_pmaxsd_asm,
+    .emit_v512_pminud_asm = x86_emit_v512_pminud_asm,
+    .emit_v512_pmaxud_asm = x86_emit_v512_pmaxud_asm,
+    .emit_v512_permd_asm = x86_emit_v512_permd_asm,
+    .emit_v512_permps_asm = x86_emit_v512_permps_asm,
     };
 
 /* NOTE (Sprint 114): the global ISA backend registry (zero_cc_get_backend,
