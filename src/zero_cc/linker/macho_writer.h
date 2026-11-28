@@ -60,8 +60,15 @@ typedef struct ZeroCCCompiler ZeroCCCompiler;
 #define ZERO_CC_MACHO_S_REGULAR                 0x00000000U
 #define ZERO_CC_MACHO_S_ZEROFILL                0x00000001U
 #define ZERO_CC_MACHO_S_CSTRING_LITERALS        0x00000002U
+#define ZERO_CC_MACHO_S_NON_LAZY_SYMBOL_POINTERS 0x00000006U
+#define ZERO_CC_MACHO_S_LAZY_SYMBOL_POINTERS     0x00000007U
+#define ZERO_CC_MACHO_S_SYMBOL_STUBS             0x00000008U
 #define ZERO_CC_MACHO_S_ATTR_SOME_INSTRUCTIONS  0x00000400U
 #define ZERO_CC_MACHO_S_ATTR_PURE_INSTRUCTIONS  0x80000000U
+
+/* Indirect Symbol Table Special Values */
+#define ZERO_CC_INDIRECT_SYMBOL_LOCAL           0x80000000U
+#define ZERO_CC_INDIRECT_SYMBOL_ABS             0x40000000U
 
 /* VM Protections */
 #define ZERO_CC_VM_PROT_NONE         0x0
@@ -219,6 +226,19 @@ bool zero_cc_macho_write_exe_arch(const char *filename,
                                   size_t bss_size,
                                   uint32_t entry_offset,
                                   uint32_t cputype);
+
+/**
+ * @brief Emit a standalone macOS Mach-O 64-bit executable with dynamic library imports and stubs.
+ */
+bool zero_cc_macho_write_exe_arch_ext(const char *filename,
+                                      const uint8_t *text, size_t text_size,
+                                      const uint8_t *rodata, size_t rodata_size,
+                                      const uint8_t *data, size_t data_size,
+                                      size_t bss_size,
+                                      uint32_t entry_offset,
+                                      uint32_t cputype,
+                                      const char **import_names, uint32_t import_count,
+                                      const char **extra_dylibs, uint32_t extra_dylib_count);
 
 /**
  * @brief Emit a standalone macOS Mach-O 64-bit executable directly from a ZeroCCCompiler.

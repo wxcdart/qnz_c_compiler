@@ -459,6 +459,100 @@ def test_macho_arm64_multi_object_linking():
         report("ARM64 linked executable cputype ARM64", hdr and hdr["cputype"] == CPU_TYPE_ARM64)
 
 
+def test_macho_dynamic_linking():
+    """Verify Mach-O 64 dynamic linking: stubs, indirect symbol table, and execution."""
+    with tempfile.TemporaryDirectory() as td:
+        src = Path(td) / "dyn_test.c"
+        exe = Path(td) / "dyn_test.macho"
+        src.write_text("""
+        int puts(const char *s);
+        int main(void) {
+            puts("Darwin Dyld Stub OK");
+            return 42;
+        }
+        """)
+
+        cmd = [str(ZEROCC), "--macho", str(src), "-o", str(exe)]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        report("Mach-O dynamic import compilation", proc.returncode == 0, proc.stderr)
+        if proc.returncode != 0:
+            return
+
+        data = exe.read_bytes()
+        hdr = parse_macho_header(data)
+        cmds = parse_load_commands(data, hdr["ncmds"])
+
+        # Check sections for __stubs and __la_symbol_ptr
+        found_stubs = False
+        found_la_syms = False
+        for c in cmds:
+            if c["cmd"] == LC_SEGMENT_64:
+                segname = c["raw"][8:24].split(b"\x00")[0].decode("ascii", errors="ignore")
+                nsects = struct.unpack_from("<I", c["raw"], 64)[0]
+                soff = 72
+                for _ in range(nsects):
+                    sname = c["raw"][soff:soff+16].split(b"\x00")[0].decode("ascii", errors="ignore")
+                    sflags, r1, r2 = struct.unpack_from("<III", c["raw"], soff + 64)
+                    sec_type = sflags & 0xFF
+                    if sname == "__stubs" and sec_type == 0x8:
+                        found_stubs = (r2 == 6) # x86-64 stub size
+                    elif sname == "__la_symbol_ptr" and sec_type == 0x7:
+                        found_la_syms = True
+                    soff += 80
+
+        report("Executable contains __stubs section (type S_SYMBOL_STUBS)", found_stubs)
+        report("Executable contains __la_symbol_ptr section (type S_LAZY_SYMBOL_POINTERS)", found_la_syms)
+
+        # Check indirect symbol table in LC_DYSYMTAB
+        dysym_cmd = next((c for c in cmds if c["cmd"] == LC_DYSYMTAB), None)
+        report("Executable has LC_DYSYMTAB with indirect symbols",
+               dysym_cmd is not None and struct.unpack_from("<II", dysym_cmd["raw"], 56)[1] > 0)
+
+        # Run via foreign loader (--run)
+        run_proc = subprocess.run([str(ZEROCC), "--run", str(exe)], capture_output=True, text=True)
+        report("Execute Mach-O with dynamic puts via foreign loader",
+               run_proc.returncode == 42 and "Darwin Dyld Stub OK" in run_proc.stdout,
+               f"rc={run_proc.returncode}, out={run_proc.stdout}")
+
+
+def test_macho_multi_object_dynamic_linking():
+    """Verify multi-object Mach-O linking with dynamic imports and cross-TU calls."""
+    with tempfile.TemporaryDirectory() as td:
+        tu1 = Path(td) / "tu1.c"
+        tu2 = Path(td) / "tu2.c"
+        o1 = Path(td) / "tu1.o"
+        o2 = Path(td) / "tu2.o"
+        exe = Path(td) / "merged.macho"
+
+        tu1.write_text("""
+        int helper(const char *msg);
+        int main(void) {
+            return helper("Multi-TU Mach-O Dynamic OK");
+        }
+        """)
+        tu2.write_text("""
+        int puts(const char *s);
+        int helper(const char *msg) {
+            puts(msg);
+            return 25;
+        }
+        """)
+
+        subprocess.run([str(ZEROCC), "--macho", "-c", str(tu1), "-o", str(o1)], check=True)
+        subprocess.run([str(ZEROCC), "--macho", "-c", str(tu2), "-o", str(o2)], check=True)
+
+        cmd = [str(ZEROCC), "--macho", str(o1), str(o2), "-o", str(exe)]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        report("Multi-object Mach-O link with dynamic imports", proc.returncode == 0, proc.stderr)
+        if proc.returncode != 0:
+            return
+
+        run_proc = subprocess.run([str(ZEROCC), "--run", str(exe)], capture_output=True, text=True)
+        report("Execute multi-object Mach-O binary via foreign loader",
+               run_proc.returncode == 25 and "Multi-TU Mach-O Dynamic OK" in run_proc.stdout,
+               f"rc={run_proc.returncode}, out={run_proc.stdout}")
+
+
 def test_host_file_utility():
     """Verify that host Linux 'file' utility identifies the emitted Mach-O artifacts."""
     with tempfile.TemporaryDirectory() as td:
@@ -502,6 +596,8 @@ def main():
     test_macho_mixed_c_and_object_linking()
     test_macho_multi_object_dylib()
     test_macho_arm64_multi_object_linking()
+    test_macho_dynamic_linking()
+    test_macho_multi_object_dynamic_linking()
     test_host_file_utility()
 
     print(f"\nResult: {passed} passed, {failed} failed")

@@ -1,5 +1,24 @@
 # CHANGELOG
 
+## [Sprint 265] - 2026-11-28 - Mach-O 64-bit Dynamic Linking, Dyld Stubs (__stubs) & Foreign Loader Resolution
+
+- **Mach-O 64-bit Dynamic Linking & Dyld Stubs (`src/zero_cc/linker/macho_writer.h`, `src/zero_cc/linker/macho_writer.c`)**:
+  - Implemented `zero_cc_macho_write_exe_arch_ext` generating dynamic executable layouts with `__stubs` in `__TEXT`, `__la_symbol_ptr` in `__DATA`, undefined dynamic symbols in `LC_SYMTAB`, and the indirect symbol table in `LC_DYSYMTAB`.
+  - Emitted x86-64 lazy binding stubs (`jmpq *__la_symbol_ptr(%rip)`) and ARM64 stubs (`adrp/ldr/br`) with proper section flags (`S_SYMBOL_STUBS`, `S_LAZY_SYMBOL_POINTERS`) and reserved parameters.
+  - Added dynamic load command `LC_LOAD_DYLIB` for `/usr/lib/libSystem.B.dylib` and custom dylibs.
+- **Relocation Resolution & Multi-Object Linking (`src/zero_cc/linker/macho_writer.c`)**:
+  - Updated `zero_cc_macho_write_binary_from_comp` and `zero_cc_macho_link_objects` to collect unresolved external functions from call relocations (`r->is_call` and `r->is_abs_call`), compute dynamic stub addresses, and patch call sites.
+  - Implemented section-relative string relocations (`comp->str_relocs`) targeting `__cstring` in relocatable objects (`.o`) and executables.
+  - Added global variable data relocation resolution (`__data_` symbols) in single-TU and multi-TU Mach-O pipelines.
+- **In-Process Mach-O Dynamic Loader (`src/zero_cc/linker/foreign_loader.c`)**:
+  - Enhanced `zero_cc_run_macho_mem` to parse `LC_SYMTAB` and `LC_DYSYMTAB`'s indirect symbol table.
+  - Implemented dynamic symbol resolution binding `__la_symbol_ptr` entries directly to host libc symbols via `dlsym(RTLD_DEFAULT, clean_name)` leveraging the shared System V AMD64 ABI between Darwin x86-64 and Linux x86-64.
+  - Implemented global exit interception (`macho_exit` / `macho_abort`) allowing Mach-O binaries executed via `./build/bin/zerocc --run` to return exit codes gracefully.
+- **Verification (`tools/verify/macho_tests.py`)**:
+  - Added `test_macho_dynamic_linking` validating `__stubs`, `__la_symbol_ptr`, `LC_DYSYMTAB`, and execution of dynamic calls (`puts`) via foreign loader.
+  - Added `test_macho_multi_object_dynamic_linking` validating multi-TU Mach-O object linking with cross-TU functions and dynamic libc imports.
+  - 64/64 tests pass cleanly in `macho_tests.py`.
+
 ## [Sprint 264] - 2026-11-28 - 256-bit AVX / AVX2 Vector Operations & Loop Auto-Vectorization
 
 - **AVX2 256-bit Integer IR Opcodes (`src/zero_cc/ir/ir.h`, `src/zero_cc/ir/ir.c`)**:

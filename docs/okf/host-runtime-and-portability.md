@@ -4,7 +4,7 @@ title: Host Runtime, In-Process Dynamic Loading & Portability Architecture
 description: Architecture of ZeroCC's static-musl host toolchain, self-hosting dlfcn, the in-process dynamic loader (musl dynlink.c adaptation), freestanding/baremetal runtime model, and cross-platform portability across Linux, macOS, Windows, and BSDs.
 resource: host-runtime-and-portability
 tags: [host-runtime, dlfcn, musl, static-linking, freestanding, baremetal, portability, macos, windows, bsd]
-timestamp: 2026-11-18T22:36:44Z
+timestamp: 2026-11-28T00:30:31Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -524,13 +524,15 @@ iOS devices run Apple's XNU kernel and enforce strict platform constraints that 
 
 ### 6.4. Linux-Host Cross-Compilation & Verification Strategy (`T3-Win` & `T4-Mac`)
 
-Both **PE/COFF + Win64 ABI (`T3-Win`)** and **Mach-O (`T4-Mac`)** can be implemented, structurally validated, and natively executed on an x86-64 Linux host without requiring Windows, Wine, or macOS hardware:
+Both **PE/COFF + Win64 ABI (`T3-Win`)** and **Mach-O (`T4-Mac`)** are fully implemented, structurally validated, and natively executed on an x86-64 Linux host without requiring Windows, Wine, or macOS hardware:
 
 1. **Host Binutils & Container Validation**:
    - Host GNU `objdump` and `ld` natively include `pe-x86-64`, `pei-x86-64`, and `i386pep` target support (`objdump -x -d -r` validates COFF headers, sections, relocations, and PE32+ `.idata` import tables; `ld -m i386pep` cross-links ZeroCC COFF `.obj` outputs).
-   - Mach-O 64 objects (`MH_OBJECT`) and executables (`MH_EXECUTE`) are verified using `file` and a stdlib Python structural parser checking `mach_header_64`, `LC_SEGMENT_64`, `LC_SYMTAB`, `LC_MAIN`, `LC_LOAD_DYLIB`, and section relocations.
+   - Mach-O 64 objects (`MH_OBJECT`), shared libraries (`MH_DYLIB`), and executables (`MH_EXECUTE`) are verified using `file` and `tools/verify/macho_tests.py` checking `mach_header_64`, `LC_SEGMENT_64`, `LC_SYMTAB`, `LC_DYSYMTAB`, `LC_MAIN`, `LC_LOAD_DYLIB`, and section relocations.
 2. **Bidirectional Win64 ABI Interop Gate (`__attribute__((ms_abi))`)**:
    - Host `gcc` on x86-64 Linux supports `__attribute__((ms_abi))` natively, emitting Microsoft Win64 calling conventions (`rcx`, `rdx`, `r8`, `r9`, `xmm0`–`xmm3`, 32-byte shadow space, `rdi`/`rsi` callee-saved) inside standard Linux objects.
    - Differential interop tests link ZeroCC Win64-ABI functions directly against GCC `ms_abi` callers/callees and execute them natively on Linux to validate multi-register arguments, shadow home slots, floating-point args, and by-value/`sret` structs.
-3. **In-Process Linux Execution Loader (`mmap` + IAT/Dyld Shim Binding)**:
-   - Because the machine instructions inside PE32+ x86-64 `.exe` and Mach-O x86-64 executables are standard x86-64 instructions (and Mach-O ARM64 executables contain standard AArch64 instructions runnable via `qemu-aarch64-static`), a Python verification harness maps the segments via `mmap` (`PROT_READ | PROT_WRITE | PROT_EXEC`), binds IAT / dynamic symbol stubs (`puts`, `printf`, `malloc`, `free`, `exit` / `ExitProcess`) to host shims, invokes the binary entry point on the host CPU, and diffs stdout and exit codes against reference host builds.
+3. **In-Process Linux Execution Loader (`mmap` + IAT/Dyld Shim Binding — Sprint 263 & Sprint 265)**:
+   - Because the machine instructions inside PE32+ x86-64 `.exe` and Mach-O x86-64 executables are standard x86-64 instructions, `src/zero_cc/linker/foreign_loader.c` maps image segments via `mmap` (`PROT_READ | PROT_WRITE | PROT_EXEC`).
+   - For PE/COFF, it parses the `.idata` import directory, binds IAT slots to `ms_abi` host shims (`ExitProcess`, `puts`, `printf`, `malloc`, `free`, `strlen`, etc.), and executes the binary entry point.
+   - For Darwin Mach-O 64-bit, because Darwin x86-64 and Linux x86-64 share the System V AMD64 ABI, `foreign_loader.c` reads `LC_DYSYMTAB`'s indirect symbol table, resolves external dynamic symbols (`puts`, `printf`, `exit`, etc.) via `dlsym(RTLD_DEFAULT, clean_name)`, populates `__la_symbol_ptr` in `__DATA`, and executes `LC_MAIN` via `zero_cc_run_macho_file` / `./build/bin/zerocc --run`. Multi-object linking routes unresolved symbols to `__stubs` (`jmpq *__la_symbol_ptr(%rip)`) with matching `LC_LOAD_DYLIB` (`/usr/lib/libSystem.B.dylib`).

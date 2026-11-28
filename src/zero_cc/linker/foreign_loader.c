@@ -18,6 +18,20 @@
 static jmp_buf g_pe_exit_env;
 static int g_pe_exit_code = 0;
 
+/* Global exit interception for Mach-O runtime */
+static jmp_buf g_macho_exit_env;
+static int g_macho_exit_code = 0;
+
+static void macho_exit(int code) {
+    g_macho_exit_code = code;
+    longjmp(g_macho_exit_env, 1);
+}
+
+static void macho_abort(void) {
+    g_macho_exit_code = 134;
+    longjmp(g_macho_exit_env, 1);
+}
+
 #if defined(__x86_64__) || defined(_M_X64)
 #if defined(__GNUC__) || defined(__clang__)
 #define HAS_MS_ABI 1
@@ -465,8 +479,10 @@ int zero_cc_run_macho_mem(const uint8_t *macho_data, size_t macho_size, int argc
     uint64_t max_vm = 0;
     uint64_t entry_off = 0;
     bool found_entry = false;
+    uint32_t symoff = 0, nsyms = 0, stroff = 0, strsize = 0;
+    uint32_t indirectsymoff = 0, nindirectsyms = 0;
 
-    /* Pass 1: find VM extent and LC_MAIN */
+    /* Pass 1: find VM extent, LC_MAIN, LC_SYMTAB, LC_DYSYMTAB */
     for (uint32_t i = 0; i < ncmds; i++) {
         if (cur_off + 8 > macho_size) break;
         uint32_t cmd = *(const uint32_t *)(macho_data + cur_off);
@@ -483,6 +499,16 @@ int zero_cc_run_macho_mem(const uint8_t *macho_data, size_t macho_size, int argc
             const ZeroCCEntryPointCommand *ep = (const ZeroCCEntryPointCommand *)(macho_data + cur_off);
             entry_off = ep->entryoff;
             found_entry = true;
+        } else if (cmd == ZERO_CC_LC_SYMTAB) {
+            const ZeroCCSymtabCommand *sc = (const ZeroCCSymtabCommand *)(macho_data + cur_off);
+            symoff = sc->symoff;
+            nsyms = sc->nsyms;
+            stroff = sc->stroff;
+            strsize = sc->strsize;
+        } else if (cmd == ZERO_CC_LC_DYSYMTAB) {
+            const ZeroCCDysymtabCommand *dc = (const ZeroCCDysymtabCommand *)(macho_data + cur_off);
+            indirectsymoff = dc->indirectsymoff;
+            nindirectsyms = dc->nindirectsyms;
         }
 
         cur_off += cmdsz;
@@ -530,6 +556,71 @@ int zero_cc_run_macho_mem(const uint8_t *macho_data, size_t macho_size, int argc
         cur_off += cmdsz;
     }
 
+    /* Pass 2b: Resolve dynamic symbol pointers in __DATA (__la_symbol_ptr / __nl_symbol_ptr) */
+    if (indirectsymoff > 0 && nindirectsyms > 0 && symoff > 0 && stroff > 0 &&
+        indirectsymoff + nindirectsyms * sizeof(uint32_t) <= macho_size &&
+        symoff + nsyms * sizeof(ZeroCCNlist64) <= macho_size &&
+        stroff + strsize <= macho_size) {
+        const uint32_t *indirect_table = (const uint32_t *)(macho_data + indirectsymoff);
+        const ZeroCCNlist64 *sym_table = (const ZeroCCNlist64 *)(macho_data + symoff);
+        const char *strtab = (const char *)(macho_data + stroff);
+
+        cur_off = sizeof(ZeroCCMachHeader64);
+        for (uint32_t i = 0; i < ncmds; i++) {
+            if (cur_off + 8 > macho_size) break;
+            uint32_t cmd = *(const uint32_t *)(macho_data + cur_off);
+            uint32_t cmdsz = *(const uint32_t *)(macho_data + cur_off + 4);
+            if (cmdsz < 8 || cur_off + cmdsz > macho_size) break;
+
+            if (cmd == ZERO_CC_LC_SEGMENT_64) {
+                const ZeroCCSegmentCommand64 *seg = (const ZeroCCSegmentCommand64 *)(macho_data + cur_off);
+                if (strcmp(seg->segname, "__PAGEZERO") != 0 && seg->vmsize > 0) {
+                    const ZeroCCSection64 *secs = (const ZeroCCSection64 *)(macho_data + cur_off + sizeof(ZeroCCSegmentCommand64));
+                    for (uint32_t s = 0; s < seg->nsects; s++) {
+                        uint32_t type = secs[s].flags & 0xFF;
+                        if (type == ZERO_CC_MACHO_S_LAZY_SYMBOL_POINTERS ||
+                            type == ZERO_CC_MACHO_S_NON_LAZY_SYMBOL_POINTERS) {
+                            uint32_t start_indirect = secs[s].reserved1;
+                            uint32_t num_ptrs = (uint32_t)(secs[s].size / 8);
+                            uint8_t *slot_base = (uint8_t *)base + (secs[s].addr - min_vm);
+
+                            for (uint32_t p = 0; p < num_ptrs; p++) {
+                                if (start_indirect + p >= nindirectsyms) break;
+                                uint32_t sym_idx = indirect_table[start_indirect + p];
+                                if (sym_idx == ZERO_CC_INDIRECT_SYMBOL_LOCAL ||
+                                    sym_idx == ZERO_CC_INDIRECT_SYMBOL_ABS) continue;
+                                if (sym_idx >= nsyms) continue;
+
+                                const ZeroCCNlist64 *sym = &sym_table[sym_idx];
+                                if (sym->n_strx >= strsize) continue;
+                                const char *sym_name = strtab + sym->n_strx;
+                                const char *clean_name = (sym_name[0] == '_') ? sym_name + 1 : sym_name;
+
+                                void *resolved = NULL;
+                                if (strcmp(clean_name, "exit") == 0) {
+                                    resolved = (void *)macho_exit;
+                                } else if (strcmp(clean_name, "abort") == 0) {
+                                    resolved = (void *)macho_abort;
+                                } else {
+                                    resolved = dlsym(RTLD_DEFAULT, clean_name);
+                                    if (!resolved && sym_name[0] == '_') {
+                                        resolved = dlsym(RTLD_DEFAULT, sym_name);
+                                    }
+                                }
+
+                                if (resolved) {
+                                    uint64_t *ptr_slot = (uint64_t *)(slot_base + p * 8);
+                                    *ptr_slot = (uint64_t)(uintptr_t)resolved;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            cur_off += cmdsz;
+        }
+    }
+
     /* Pass 3: set protections */
     cur_off = sizeof(ZeroCCMachHeader64);
     for (uint32_t i = 0; i < ncmds; i++) {
@@ -558,7 +649,14 @@ int zero_cc_run_macho_mem(const uint8_t *macho_data, size_t macho_size, int argc
     typedef int (*macho_main_fn)(int, char **);
     macho_main_fn entry_fn = (macho_main_fn)entry_addr;
 
-    int res = entry_fn(argc, argv);
+    int res = 0;
+    g_macho_exit_code = 0;
+    if (setjmp(g_macho_exit_env) == 0) {
+        res = entry_fn(argc, argv);
+    } else {
+        res = g_macho_exit_code;
+    }
+
     munmap(mapped, total_vmsize);
     return res;
 }
