@@ -85,6 +85,11 @@ typedef struct {
 #define ZC_OVF_OP_DIV_ZERO 3
 #define ZC_OVF_OP_REM_ZERO 4
 #define ZC_OVF_OP_SHIFT_COUNT 5
+/* UBSan checks (Sprint 266): null ptr, ptr overflow, vla bound, bool/enum */
+#define ZC_OVF_OP_NULL_PTR 6
+#define ZC_OVF_OP_PTR_OVERFLOW 7
+#define ZC_OVF_OP_VLA_BOUND 8
+#define ZC_OVF_OP_BOOL_ENUM 9
 
 typedef struct ZeroCCISABackend {
     ZeroCCISA isa;

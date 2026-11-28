@@ -923,6 +923,12 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
 
             /* 1. Evaluate outermost dimension expression */
             int count_temp = lower_expr(c, arena, node->right);
+            if (c->sanitize_vla_bound) {
+                int pw = zc_target_is_32bit(c) ? 4 : 8;
+                ir_emit(c, (Instr){.op = OP_OVF_TRAP, .temp_dest = (uint32_t)count_temp,
+                    .temp_src1 = TEMP_NONE, .temp_src2 = TEMP_NONE,
+                    .imm = ZC_OVF_OP_VLA_BOUND, .label_idx = 0, .width = (uint8_t)pw});
+            }
 
             /* 2. Multiply count by element/row size (handling runtime inner VLA dims) */
             int size_temp;
@@ -950,6 +956,12 @@ void lower_stmt_decl(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *no
                 while (it && it->tag == TYPE_ARRAY && it->is_vla) {
                     if (it->vla_dim != 0) {
                         int d_temp = lower_expr(c, arena, (ASTRef)it->vla_dim);
+                        if (c->sanitize_vla_bound) {
+                            int pw = zc_target_is_32bit(c) ? 4 : 8;
+                            ir_emit(c, (Instr){.op = OP_OVF_TRAP, .temp_dest = (uint32_t)d_temp,
+                                .temp_src1 = TEMP_NONE, .temp_src2 = TEMP_NONE,
+                                .imm = ZC_OVF_OP_VLA_BOUND, .label_idx = 0, .width = (uint8_t)pw});
+                        }
                         int prod = zc_alloc_temp(c);
                         ir_emit_mul(c, prod, stride_temp, d_temp);
                         stride_temp = prod;

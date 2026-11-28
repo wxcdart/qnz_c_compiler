@@ -2401,9 +2401,27 @@ static void riscv64_emit_ovf_trap_asm(ZeroCCCompiler *c, int res, int a, int b,
      * raw emitter; must precede the RV64 width<8 round-trip early-return).
      * The divisor/count temp is in temp_dest (`res`; src1 is TEMP_NONE for
      * these ops); the check precedes the div/shift. Both are skip-when-ok. */
-    if (op == ZC_OVF_OP_DIV_ZERO || op == ZC_OVF_OP_REM_ZERO) {
-        /* bne res, zero, L; unimp  (trap if divisor == 0) */
+    if (op == ZC_OVF_OP_DIV_ZERO || op == ZC_OVF_OP_REM_ZERO ||
+        op == ZC_OVF_OP_NULL_PTR || op == ZC_OVF_OP_PTR_OVERFLOW) {
+        /* bne res, zero, L; unimp  (trap if divisor/ptr == 0) */
         fprintf(out, "\tbne\t%s, zero, %s\n", rn, L);
+        if (c->sanitize_report)
+            riscvasm_emit_san_report_block(c, res, width, op, out);
+        BE(c)->emit_trap_asm(c, out);
+        BE(c)->emit_label_asm(c, L, out);
+        return;
+    }
+    if (op == ZC_OVF_OP_VLA_BOUND) {
+        fprintf(out, "\tbgt\t%s, zero, %s\n", rn, L);
+        if (c->sanitize_report)
+            riscvasm_emit_san_report_block(c, res, width, op, out);
+        BE(c)->emit_trap_asm(c, out);
+        BE(c)->emit_label_asm(c, L, out);
+        return;
+    }
+    if (op == ZC_OVF_OP_BOOL_ENUM) {
+        fprintf(out, "\tli\t%s, 1\n", BE(c)->get_hw_reg_name(29));
+        fprintf(out, "\tbleu\t%s, %s, %s\n", rn, BE(c)->get_hw_reg_name(29), L);
         if (c->sanitize_report)
             riscvasm_emit_san_report_block(c, res, width, op, out);
         BE(c)->emit_trap_asm(c, out);
@@ -2500,11 +2518,31 @@ static void riscv32_emit_ovf_trap64_asm(ZeroCCCompiler *c, int rlo, int rhi,
     char Lskip[32];
     snprintf(Lskip, sizeof Lskip, ".Lovf_%u", (unsigned)lbl);
 
-    if (op == ZC_OVF_OP_DIV_ZERO || op == ZC_OVF_OP_REM_ZERO) {
+    if (op == ZC_OVF_OP_DIV_ZERO || op == ZC_OVF_OP_REM_ZERO ||
+        op == ZC_OVF_OP_NULL_PTR || op == ZC_OVF_OP_PTR_OVERFLOW) {
         const char *rn_lo = BE(c)->get_hw_reg_name(rlo);
         const char *rn_hi = BE(c)->get_hw_reg_name(rhi);
         fprintf(out, "\tor\tt0, %s, %s\n", rn_lo, rn_hi);
         fprintf(out, "\tbne\tt0, zero, %s\n", Lskip);
+        if (c->sanitize_report)
+            riscvasm_emit_san_report_block(c, rlo, width, op, out);
+        BE(c)->emit_trap_asm(c, out);
+        BE(c)->emit_label_asm(c, Lskip, out);
+        return;
+    }
+    if (op == ZC_OVF_OP_VLA_BOUND) {
+        const char *rn_lo = BE(c)->get_hw_reg_name(rlo);
+        fprintf(out, "\tbgt\t%s, zero, %s\n", rn_lo, Lskip);
+        if (c->sanitize_report)
+            riscvasm_emit_san_report_block(c, rlo, width, op, out);
+        BE(c)->emit_trap_asm(c, out);
+        BE(c)->emit_label_asm(c, Lskip, out);
+        return;
+    }
+    if (op == ZC_OVF_OP_BOOL_ENUM) {
+        const char *rn_lo = BE(c)->get_hw_reg_name(rlo);
+        fprintf(out, "\tli\tt5, 1\n");
+        fprintf(out, "\tbleu\t%s, t5, %s\n", rn_lo, Lskip);
         if (c->sanitize_report)
             riscvasm_emit_san_report_block(c, rlo, width, op, out);
         BE(c)->emit_trap_asm(c, out);

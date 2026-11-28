@@ -792,6 +792,12 @@ int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                     }
                 }
                 ir_emit_asan_check(c, (uint32_t)operand_temp, (uint32_t)(p_size ? p_size : 8), 0);
+                if (c->sanitize_null) {
+                    int pw = zc_target_is_32bit(c) ? 4 : 8;
+                    ir_emit(c, (Instr){.op = OP_OVF_TRAP, .temp_dest = (uint32_t)operand_temp,
+                        .temp_src1 = TEMP_NONE, .temp_src2 = TEMP_NONE,
+                        .imm = ZC_OVF_OP_NULL_PTR, .label_idx = 0, .width = (uint8_t)pw});
+                }
                 if (is_fp) {
                     if (p_size == 4) ir_emit_vloadss(c, (uint32_t)result_temp, (uint32_t)operand_temp);
                     else ir_emit_vloadsd(c, (uint32_t)result_temp, (uint32_t)operand_temp);
@@ -816,6 +822,11 @@ int lower_expr_unop(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                 }
                 else ir_emit_deref(c, result_temp, operand_temp);
                 lower_extend_narrow(c, result_temp, ti);
+                if (c->sanitize_bool && ti && ti->kind == TYPE_KIND_BOOL) {
+                    ir_emit(c, (Instr){.op = OP_OVF_TRAP, .temp_dest = (uint32_t)result_temp,
+                        .temp_src1 = TEMP_NONE, .temp_src2 = TEMP_NONE,
+                        .imm = ZC_OVF_OP_BOOL_ENUM, .label_idx = 0, .width = 4});
+                }
                 break;
             }
             case TK_MINUS:  /* Negation */

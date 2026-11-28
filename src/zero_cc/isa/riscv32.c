@@ -189,9 +189,23 @@ void riscv32_emit_ovf_trap64(ZeroCCCompiler *c, int rlo, int rhi,
                              int width, int op) {
     int skip = c->sanitize_report ? 24 : 8;
 
-    if (op == ZC_OVF_OP_DIV_ZERO || op == ZC_OVF_OP_REM_ZERO) {
+    if (op == ZC_OVF_OP_DIV_ZERO || op == ZC_OVF_OP_REM_ZERO ||
+        op == ZC_OVF_OP_NULL_PTR || op == ZC_OVF_OP_PTR_OVERFLOW) {
         riscv64_emit_or(c, RV64_T0, rlo, rhi);
         riscv_emit_u32(c, rv64_B(RV64_T0, 0, 1, skip));
+        if (c->sanitize_report) riscv64_emit_san_report_block(c, rlo, width, op);
+        riscv_emit_u32(c, 0xC0001073u);
+        return;
+    }
+    if (op == ZC_OVF_OP_VLA_BOUND) {
+        riscv_emit_u32(c, rv64_B(0, RV_REG(rlo), 4, skip));
+        if (c->sanitize_report) riscv64_emit_san_report_block(c, rlo, width, op);
+        riscv_emit_u32(c, 0xC0001073u);
+        return;
+    }
+    if (op == ZC_OVF_OP_BOOL_ENUM) {
+        riscv_emit_u32(c, rv64_I(RV_REG(RV64_T5), 0, 0, 1, 0x13));
+        riscv_emit_u32(c, rv64_B(RV_REG(RV64_T5), RV_REG(rlo), 7, skip));
         if (c->sanitize_report) riscv64_emit_san_report_block(c, rlo, width, op);
         riscv_emit_u32(c, 0xC0001073u);
         return;

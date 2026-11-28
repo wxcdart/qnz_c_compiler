@@ -824,10 +824,12 @@ static void zc_emit_ovf_trap(ZeroCCCompiler *c, uint32_t result_temp,
          * sign-extension round-trip of the result (width 4); the operands
          * are not needed, so keep the trap operand-less (no extra
          * liveness). The op code still rides in .imm: DIV_ZERO/REM_ZERO/
-         * SHIFT_COUNT are register tests, not OF/round-trip checks, and
+         * SHIFT_COUNT and UBSan checks are register tests, not OF/round-trip checks, and
          * the emitters dispatch on it (Sprint 166 follow-on). */
+        uint32_t s1 = (op == ZC_OVF_OP_PTR_OVERFLOW) ? a_temp : TEMP_NONE;
+        uint32_t s2 = (op == ZC_OVF_OP_PTR_OVERFLOW) ? b_temp : TEMP_NONE;
         ir_emit(c, (Instr){.op = OP_OVF_TRAP, .temp_dest = result_temp,
-            .temp_src1 = TEMP_NONE, .temp_src2 = TEMP_NONE,
+            .temp_src1 = s1, .temp_src2 = s2,
             .imm = (int16_t)op,
             .label_idx = 0, .width = (uint8_t)w});
     } else {
@@ -857,7 +859,14 @@ void zc_maybe_emit_ovf_trap(ZeroCCCompiler *c, ZeroCCASTArena *arena,
                             int a_temp, int b_temp, int op) {
     if (!c->sanitize_overflow) return;
     if (zc_node_is_pointer(c, zero_cc_ast_get(arena, node->left)) ||
-        zc_node_is_pointer(c, zero_cc_ast_get(arena, node->right))) return;
+        zc_node_is_pointer(c, zero_cc_ast_get(arena, node->right))) {
+        if (c->sanitize_ptr_overflow && (op == ZC_OVF_OP_ADD || op == ZC_OVF_OP_SUB)) {
+            int pw = zc_target_is_32bit(c) ? 4 : 8;
+            zc_emit_ovf_trap(c, result_temp, (uint32_t)a_temp, (uint32_t)b_temp,
+                             pw, ZC_OVF_OP_PTR_OVERFLOW);
+        }
+        return;
+    }
     int lu = 0, ru = 0;
     int lw = zero_cc_expr_int_info(c, arena, node->left, &lu);
     int rw = zero_cc_expr_int_info(c, arena, node->right, &ru);

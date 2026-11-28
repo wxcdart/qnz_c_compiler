@@ -1419,10 +1419,27 @@ static void aarch32_emit_ovf_trap(ZeroCCCompiler *c, int res, int a, int b, int 
             aarch32_patch_jmp(c, br, c->text_section.length);
         }
     }
-    if (op == ZC_OVF_OP_DIV_ZERO || op == ZC_OVF_OP_REM_ZERO) {
+    if (op == ZC_OVF_OP_DIV_ZERO || op == ZC_OVF_OP_REM_ZERO ||
+        op == ZC_OVF_OP_NULL_PTR || op == ZC_OVF_OP_PTR_OVERFLOW) {
         aarch32_emit_cmp_zero(c, res);
         size_t br = c->text_section.length;
         arm32_emit_u32(c, ARM_COND(ARM_CC_NE) | 0x0A000000u);
+        aarch32_emit_trap(c);
+        aarch32_patch_jmp(c, br, c->text_section.length);
+    }
+    if (op == ZC_OVF_OP_VLA_BOUND) {
+        aarch32_emit_cmp_zero(c, res);
+        size_t br = c->text_section.length;
+        arm32_emit_u32(c, ARM_COND(ARM_CC_GT) | 0x0A000000u);
+        aarch32_emit_trap(c);
+        aarch32_patch_jmp(c, br, c->text_section.length);
+    }
+    if (op == ZC_OVF_OP_BOOL_ENUM) {
+        int t = BE(c)->scratch_reg1;
+        aarch32_emit_mov_imm(c, t, 1);
+        aarch32_emit_cmp(c, res, t);
+        size_t br = c->text_section.length;
+        arm32_emit_u32(c, ARM_COND(ARM_CC_LS) | 0x0A000000u);
         aarch32_emit_trap(c);
         aarch32_patch_jmp(c, br, c->text_section.length);
     }

@@ -4,7 +4,7 @@ title: Target-Side Sanitizer (zero_san) Design & Roadmap
 description: Analysis and phased roadmap for an optional, parked target-side safety-check feature (zero_san) — a codegen-first UBSan-lite signed-overflow check, with bounds, leaks, and ASan/LSan scoped out and justified.
 resource: sanitizer/roadmap
 tags: [sanitizer, zero_san, codegen, ubsan, overflow, bounds, asan, lsan, leak, roadmap, design, safety]
-timestamp: 2026-11-27T16:22:26Z
+timestamp: 2026-11-28T01:18:34Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -12,7 +12,7 @@ status: active
 
 # Target-Side Sanitizer (`zero_san`) — Design & Roadmap
 
-> **Status: Phase 1 IMPLEMENTED (Sprint 116, x86-64, both emitters, `-fsanitize=undefined`); cross-ISA extension (aarch64 / riscv64 / riscv32 width-4) SHIPPED in Sprint 163, §4c; div-by-zero / rem-by-zero / shift-count checks (all 4 ISAs) SHIPPED in Sprint 166 follow-on, §4e; `-fsanitize-trap` runtime diagnostics SHIPPED in Sprint 167, §4f; OVF-check live-operand clobber (the `f64loop` -O2/-O3 cross-ISA miscompile) FIXED in Sprint 168, §4g; `-fsanitize=leak` freestanding atexit leak report SHIPPED in Sprint 169, §4h; RV32 width-8 64-bit signed-overflow & UB checks SHIPPED in Sprint 174, §4i (Phase 4 of RV32 64-bit integer roadmap).**
+> **Status: Phase 1 IMPLEMENTED (Sprint 116, x86-64, both emitters, `-fsanitize=undefined`); cross-ISA extension (aarch64 / riscv64 / riscv32 width-4) SHIPPED in Sprint 163, §4c; div-by-zero / rem-by-zero / shift-count checks (all 4 ISAs) SHIPPED in Sprint 166 follow-on, §4e; `-fsanitize-trap` runtime diagnostics SHIPPED in Sprint 167, §4f; OVF-check live-operand clobber (the `f64loop` -O2/-O3 cross-ISA miscompile) FIXED in Sprint 168, §4g; `-fsanitize=leak` freestanding atexit leak report SHIPPED in Sprint 169, §4h; RV32 width-8 64-bit signed-overflow & UB checks SHIPPED in Sprint 174, §4i; Full UndefinedBehaviorSanitizer (UBSan) null pointer, vla bound, ptr overflow, and bool checks SHIPPED in Sprint 266, §4j.**
 > Sections below preserve the traced invariants and cost analysis; **§4-as-built** records the
 > shipped mechanism and the traps found while landing it. Phase 2 (bounds) remains parked;
 > ASan/LSan remain out of scope per §8.
@@ -478,6 +478,26 @@ Sprint 256 implements target-side AddressSanitizer (`-fsanitize=address`) for x8
     - Emits inline machine code and assembly unpoisoning loops in the function epilogue before `leave`/`ret`.
 - **Verification (`tools/verify/asan_tests.py`, `Makefile`)**:
   - Added `make test-target-asan` executing clean memory operations and buffer overflow trap tests across `-O0..-O3` in both JIT and AOT modes (16/16 green).
+
+### 4j. Sprint 266 — Full UndefinedBehaviorSanitizer (UBSan) Soundness & Trapping Battery
+
+Sprint 266 implements full GCC/Clang-compatible UBSan runtime checking and error reporting across all target ISAs:
+
+- **Check Categories Added (`src/zero_cc/isa/isa_backend.h`)**:
+  - `ZC_OVF_OP_NULL_PTR (6)`: null pointer dereference checking (`*p`, `p->field`, `*p = val`).
+  - `ZC_OVF_OP_PTR_OVERFLOW (7)`: pointer arithmetic wrap-around checking (`ptr + offset`).
+  - `ZC_OVF_OP_VLA_BOUND (8)`: non-positive runtime variable-length array bound evaluation (`size <= 0`).
+  - `ZC_OVF_OP_BOOL_ENUM (9)`: invalid boolean value checking (`(unsigned)val > 1`).
+- **Unified Diagnostic Reporting (`zero_rt/core/san_report.c`, `zero_rt/jit/san_report_host.c`)**:
+  - Stdio-free formatting via `san_fmt.h` printing directly to stderr (`fd 2`) prior to hardware trap.
+  - Generates standard GCC/Clang-compatible messages: `"zerocc: runtime error: null pointer dereference\n"`, `"zerocc: runtime error: variable length array bound evaluates to non-positive value\n"`, `"zerocc: runtime error: load of value <v> which is not a valid value for boolean type\n"`, and `"zerocc: runtime error: pointer index expression overflowed\n"`.
+- **Driver Flags & Lowering**:
+  - Extended driver with `-fsanitize=null`, `-fsanitize=vla-bound`, `-fsanitize=pointer-overflow`, `-fsanitize=bool`, and `-fno-sanitize=*` overrides.
+  - `-fsanitize=undefined` and `-fsanitize-trap` enable all undefined behavior checks.
+  - Guarded loop auto-vectorization (`opt_vectorize.c`) against vectorizing safety-instrumented loops.
+- **Verification (`test/san/`, `tools/verify/san_sweep.py`)**:
+  - Added `san_trap_null.c`, `san_trap_vla_bound.c`, `san_trap_bool.c`, and `san_ok_ubsan.c`.
+  - `make test-san` passes with 612 ok, 0 FAIL (592 flagged runs).
 
 ---
 

@@ -408,7 +408,14 @@ int zero_cc_lower_lvalue_addr(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef r
         }
         return addr_temp;
     } else if (operand->tag == NODE_UNOP && (operand->aux.op == '*' || operand->aux.op == TK_STAR)) {
-        return lower_expr(c, arena, operand->left);
+        int ptr_temp = lower_expr(c, arena, operand->left);
+        if (c->sanitize_null) {
+            int pw = zc_target_is_32bit(c) ? 4 : 8;
+            ir_emit(c, (Instr){.op = OP_OVF_TRAP, .temp_dest = (uint32_t)ptr_temp,
+                .temp_src1 = TEMP_NONE, .temp_src2 = TEMP_NONE,
+                .imm = ZC_OVF_OP_NULL_PTR, .label_idx = 0, .width = (uint8_t)pw});
+        }
+        return ptr_temp;
     } else if (operand->tag == NODE_CALL) {
         ZeroCCASTNode *cal = zero_cc_ast_get(arena, operand->left);
         if (cal && cal->tag == NODE_IDENT && cal->s.str &&

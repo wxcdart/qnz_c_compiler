@@ -551,6 +551,11 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                      * 64-bit width (sign/zero per type) so overflowed values
                      * compare and store correctly. No-op for ptr/8-byte. */
                     zero_cc_emit_int_extend(c, temp, &sym->type);
+                    if (c->sanitize_bool && sym->type.tag == TYPE_BOOL) {
+                        ir_emit(c, (Instr){.op = OP_OVF_TRAP, .temp_dest = (uint32_t)temp,
+                            .temp_src1 = TEMP_NONE, .temp_src2 = TEMP_NONE,
+                            .imm = ZC_OVF_OP_BOOL_ENUM, .label_idx = 0, .width = 4});
+                    }
                     if (sym->is_restrict && sym->type.tag == TYPE_PTR && temp < 256) {
                         /* Each restrict pointer gets its own alias group (locals index + 1) */
                         c->lowering.temp_alias_group[temp] = (uint8_t)((sym - c->locals) + 1);
@@ -625,6 +630,11 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
                     /* Width-aware loads zero-extend; complete sign extension
                      * for signed narrow ints (e.g. `int g=-1`). */
                     zero_cc_emit_int_extend(c, val_temp, &gv->type);
+                    if (c->sanitize_bool && gv->type.tag == TYPE_BOOL) {
+                        ir_emit(c, (Instr){.op = OP_OVF_TRAP, .temp_dest = (uint32_t)val_temp,
+                            .temp_src1 = TEMP_NONE, .temp_src2 = TEMP_NONE,
+                            .imm = ZC_OVF_OP_BOOL_ENUM, .label_idx = 0, .width = 4});
+                    }
                     c->last_expr_is_float = 0;
                     return val_temp;
                 }

@@ -1800,9 +1800,25 @@ static void riscv64_emit_ovf_trap(ZeroCCCompiler *c, int res, int a, int b,
      * TEMP_NONE for these ops); the check precedes the div/shift, so `res`
      * still holds the value. Must run before the width<8 result
      * round-trip below. */
-    if (op == ZC_OVF_OP_DIV_ZERO || op == ZC_OVF_OP_REM_ZERO) {
-        /* bne res, zero, skip; unimp  (trap if divisor == 0) */
+    if (op == ZC_OVF_OP_DIV_ZERO || op == ZC_OVF_OP_REM_ZERO ||
+        op == ZC_OVF_OP_NULL_PTR || op == ZC_OVF_OP_PTR_OVERFLOW) {
+        /* bne res, zero, skip; unimp  (trap if divisor/ptr == 0) */
         riscv_emit_u32(c, rv64_B(RV_REG(res), 0, 1, skip));
+        if (c->sanitize_report) riscv64_emit_san_report_block(c, res, width, op);
+        riscv_emit_u32(c, 0xC0001073u);
+        return;
+    }
+    if (op == ZC_OVF_OP_VLA_BOUND) {
+        /* blt zero, res, skip: res > 0 (bgt res, zero) */
+        riscv_emit_u32(c, rv64_B(0, RV_REG(res), 4, skip));
+        if (c->sanitize_report) riscv64_emit_san_report_block(c, res, width, op);
+        riscv_emit_u32(c, 0xC0001073u);
+        return;
+    }
+    if (op == ZC_OVF_OP_BOOL_ENUM) {
+        /* li t4, 1; bgeu t4, res, skip: res <= 1 (bleu res, t4) */
+        riscv_emit_u32(c, rv64_I(RV_REG(29), 0, 0, 1, 0x13));
+        riscv_emit_u32(c, rv64_B(RV_REG(29), RV_REG(res), 7, skip));
         if (c->sanitize_report) riscv64_emit_san_report_block(c, res, width, op);
         riscv_emit_u32(c, 0xC0001073u);
         return;

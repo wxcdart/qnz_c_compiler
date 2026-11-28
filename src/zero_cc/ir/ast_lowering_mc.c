@@ -769,15 +769,36 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                  * the divisor/count temp (set at lowering). */
                 int op = (int)instr->imm;
                 if (op == ZC_OVF_OP_DIV_ZERO || op == ZC_OVF_OP_REM_ZERO ||
-                    op == ZC_OVF_OP_SHIFT_COUNT) {
+                    op == ZC_OVF_OP_SHIFT_COUNT || op == ZC_OVF_OP_NULL_PTR ||
+                    op == ZC_OVF_OP_VLA_BOUND || op == ZC_OVF_OP_BOOL_ENUM ||
+                    op == ZC_OVF_OP_PTR_OVERFLOW) {
                     uint8_t rex = 0x48 | ((phys >= 8) ? 0x04 : 0) | ((phys >= 8) ? 0x01 : 0);
-                    if (op == ZC_OVF_OP_DIV_ZERO || op == ZC_OVF_OP_REM_ZERO) {
+                    if (op == ZC_OVF_OP_DIV_ZERO || op == ZC_OVF_OP_REM_ZERO ||
+                        op == ZC_OVF_OP_NULL_PTR || op == ZC_OVF_OP_PTR_OVERFLOW) {
                         /* test %phys,%phys  (REX + 0x85 /r, mod=11, reg=phys, r/m=phys) */
                         me_emit_u8(c, rex);
                         me_emit_u8(c, 0x85);
                         me_emit_u8(c, 0xC0 | ((phys & 7) << 3) | (phys & 7));
-                        /* jnz: skip the trap when divisor != 0 */
+                        /* jnz: skip the trap when ptr/divisor != 0 */
                         x86mc_emit_san_check_branch(c, 0x75, phys, width, op);
+                        break;
+                    } else if (op == ZC_OVF_OP_VLA_BOUND) {
+                        /* cmp $0,%phys; jg skip (0x7F) */
+                        uint8_t rex_cmp = 0x48 | ((phys >= 8) ? 0x01 : 0);
+                        me_emit_u8(c, rex_cmp);
+                        me_emit_u8(c, 0x83);
+                        me_emit_u8(c, 0xC0 | (7 << 3) | (phys & 7));
+                        me_emit_u8(c, 0x00);
+                        x86mc_emit_san_check_branch(c, 0x7F, phys, width, op);
+                        break;
+                    } else if (op == ZC_OVF_OP_BOOL_ENUM) {
+                        /* cmp $1,%phys; jbe skip (0x76) */
+                        uint8_t rex_cmp = 0x48 | ((phys >= 8) ? 0x01 : 0);
+                        me_emit_u8(c, rex_cmp);
+                        me_emit_u8(c, 0x83);
+                        me_emit_u8(c, 0xC0 | (7 << 3) | (phys & 7));
+                        me_emit_u8(c, 0x01);
+                        x86mc_emit_san_check_branch(c, 0x76, phys, width, op);
                         break;
                     } else { /* ZC_OVF_OP_SHIFT_COUNT */
                         /* Two skip-triplets (count bound = operand bits, width*8):

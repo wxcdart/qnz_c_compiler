@@ -41,6 +41,10 @@ typedef struct {
     int sanitize_report;   /* -fsanitize-trap: print a UBSan-style message before each trap */
     int sanitize_leak;     /* -fsanitize=leak: freestanding atexit leak report (--zerocc-link) */
     int sanitize_address;  /* -fsanitize=address: target AddressSanitizer (shadow memory & redzones) */
+    int sanitize_null;     /* -fsanitize=null */
+    int sanitize_vla_bound; /* -fsanitize=vla-bound */
+    int sanitize_ptr_overflow; /* -fsanitize=pointer-overflow */
+    int sanitize_bool;     /* -fsanitize=bool */
     ZeroCCStdDialect std_dialect;   /* -std= dialect (default ZC_STD_GNU11) */
     int link_mode;        /* Link with system linker (default when -o specified) */
     int zerocc_link;      /* --zerocc-link: link with ZeroCC's own linker (T2) */
@@ -264,12 +268,48 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
         }
         else if (strcmp(arg, "-fsanitize=undefined") == 0) {
             opts->sanitize_overflow = 1;
+            opts->sanitize_null = 1;
+            opts->sanitize_vla_bound = 1;
+            opts->sanitize_ptr_overflow = 1;
+            opts->sanitize_bool = 1;
+        }
+        else if (strcmp(arg, "-fsanitize=null") == 0) {
+            opts->sanitize_overflow = 1;
+            opts->sanitize_null = 1;
+        }
+        else if (strcmp(arg, "-fno-sanitize=null") == 0) {
+            opts->sanitize_null = 0;
+        }
+        else if (strcmp(arg, "-fsanitize=vla-bound") == 0) {
+            opts->sanitize_overflow = 1;
+            opts->sanitize_vla_bound = 1;
+        }
+        else if (strcmp(arg, "-fno-sanitize=vla-bound") == 0) {
+            opts->sanitize_vla_bound = 0;
+        }
+        else if (strcmp(arg, "-fsanitize=pointer-overflow") == 0) {
+            opts->sanitize_overflow = 1;
+            opts->sanitize_ptr_overflow = 1;
+        }
+        else if (strcmp(arg, "-fno-sanitize=pointer-overflow") == 0) {
+            opts->sanitize_ptr_overflow = 0;
+        }
+        else if (strcmp(arg, "-fsanitize=bool") == 0) {
+            opts->sanitize_overflow = 1;
+            opts->sanitize_bool = 1;
+        }
+        else if (strcmp(arg, "-fno-sanitize=bool") == 0) {
+            opts->sanitize_bool = 0;
         }
         else if (strcmp(arg, "-fsanitize-trap") == 0) {
             /* GCC/Clang-compatible: enable the zero_san checks in trap mode
              * with a UBSan-style report before the trap (Sprint 167). */
             opts->sanitize_overflow = 1;
             opts->sanitize_report = 1;
+            opts->sanitize_null = 1;
+            opts->sanitize_vla_bound = 1;
+            opts->sanitize_ptr_overflow = 1;
+            opts->sanitize_bool = 1;
         }
         else if (strcmp(arg, "-fno-sanitize-trap") == 0) {
             opts->sanitize_report = 0;

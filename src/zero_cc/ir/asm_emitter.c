@@ -244,7 +244,9 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
              * register to test. */
             int op = (int)instr->imm;
             if (op == ZC_OVF_OP_DIV_ZERO || op == ZC_OVF_OP_REM_ZERO ||
-                op == ZC_OVF_OP_SHIFT_COUNT) {
+                op == ZC_OVF_OP_SHIFT_COUNT || op == ZC_OVF_OP_NULL_PTR ||
+                op == ZC_OVF_OP_VLA_BOUND || op == ZC_OVF_OP_BOOL_ENUM ||
+                op == ZC_OVF_OP_PTR_OVERFLOW) {
                 if (op == ZC_OVF_OP_DIV_ZERO || op == ZC_OVF_OP_REM_ZERO) {
                     /* test %reg,%reg; jnz .Lskip  (trap if divisor == 0) */
                     fprintf(out, "\ttest\t%%%s,%%%s\n", reg, reg);
@@ -253,6 +255,64 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
                         x86asm_emit_san_report_block(c, reg, width, op, out);
                     fprintf(out, "\tud2\n");            /* trap: divisor == 0 */
                     fprintf(out, "%s:\n", lbl);
+                    return;
+                } else if (op == ZC_OVF_OP_NULL_PTR) {
+                    /* test %reg,%reg; jnz .Lskip  (trap if ptr == 0) */
+                    fprintf(out, "\ttest\t%%%s,%%%s\n", reg, reg);
+                    fprintf(out, "\tjnz\t%s\n", lbl);
+                    if (c->sanitize_report)
+                        x86asm_emit_san_report_block(c, reg, width, op, out);
+                    fprintf(out, "\tud2\n");            /* trap: null ptr */
+                    fprintf(out, "%s:\n", lbl);
+                    return;
+                } else if (op == ZC_OVF_OP_VLA_BOUND) {
+                    /* cmp $0,%reg; jg .Lskip  (trap if size <= 0) */
+                    fprintf(out, "\tcmp\t$0,%%%s\n", reg);
+                    fprintf(out, "\tjg\t%s\n", lbl);
+                    if (c->sanitize_report)
+                        x86asm_emit_san_report_block(c, reg, width, op, out);
+                    fprintf(out, "\tud2\n");            /* trap: size <= 0 */
+                    fprintf(out, "%s:\n", lbl);
+                    return;
+                } else if (op == ZC_OVF_OP_BOOL_ENUM) {
+                    /* cmp $1,%reg; jbe .Lskip  (trap if val > 1) */
+                    fprintf(out, "\tcmp\t$1,%%%s\n", reg);
+                    fprintf(out, "\tjbe\t%s\n", lbl);
+                    if (c->sanitize_report)
+                        x86asm_emit_san_report_block(c, reg, width, op, out);
+                    fprintf(out, "\tud2\n");            /* trap: val > 1 */
+                    fprintf(out, "%s:\n", lbl);
+                    return;
+                } else if (op == ZC_OVF_OP_PTR_OVERFLOW) {
+                    const char *rbase = (phys_src1 >= 0) ? BE(c)->get_hw_reg_name(phys_src1) : NULL;
+                    const char *roff = (phys_src2 >= 0) ? BE(c)->get_hw_reg_name(phys_src2) : NULL;
+                    if (rbase && roff) {
+                        uint16_t neg_lbl = c->ir_next_label++;
+                        char neg_lbl_s[32];
+                        snprintf(neg_lbl_s, sizeof(neg_lbl_s), ".Lovf_%u", (unsigned)neg_lbl);
+                        fprintf(out, "\tcmp\t$0,%%%s\n", roff);
+                        fprintf(out, "\tjl\t%s\n", neg_lbl_s);
+                        fprintf(out, "\tcmp\t%%%s,%%%s\n", rbase, reg);
+                        fprintf(out, "\tjae\t%s\n", lbl);
+                        if (c->sanitize_report)
+                            x86asm_emit_san_report_block(c, reg, width, op, out);
+                        fprintf(out, "\tud2\n");
+                        fprintf(out, "\tjmp\t%s\n", lbl);
+                        fprintf(out, "%s:\n", neg_lbl_s);
+                        fprintf(out, "\tcmp\t%%%s,%%%s\n", rbase, reg);
+                        fprintf(out, "\tjbe\t%s\n", lbl);
+                        if (c->sanitize_report)
+                            x86asm_emit_san_report_block(c, reg, width, op, out);
+                        fprintf(out, "\tud2\n");
+                        fprintf(out, "%s:\n", lbl);
+                    } else {
+                        fprintf(out, "\ttest\t%%%s,%%%s\n", reg, reg);
+                        fprintf(out, "\tjnz\t%s\n", lbl);
+                        if (c->sanitize_report)
+                            x86asm_emit_san_report_block(c, reg, width, op, out);
+                        fprintf(out, "\tud2\n");
+                        fprintf(out, "%s:\n", lbl);
+                    }
                     return;
                 } else { /* ZC_OVF_OP_SHIFT_COUNT */
                     /* Two independent skip-triplets (count bound is the

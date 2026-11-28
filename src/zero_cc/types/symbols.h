@@ -372,6 +372,10 @@ typedef struct ZeroCCCompiler {
     int sanitize_overflow;        /* -fsanitize=undefined: emit OP_OVF_TRAP after signed add/sub/mul */
     int sanitize_report;          /* -fsanitize-trap: report (UBSan-style) before each zero_san trap */
     int sanitize_address;         /* -fsanitize=address: target AddressSanitizer */
+    int sanitize_null;            /* -fsanitize=null: trap on NULL pointer dereference */
+    int sanitize_vla_bound;       /* -fsanitize=vla-bound: trap on non-positive VLA dimension */
+    int sanitize_ptr_overflow;    /* -fsanitize=pointer-overflow: trap on pointer index overflow */
+    int sanitize_bool;            /* -fsanitize=bool: trap on invalid bool value */
     int stack_protector;          /* -fstack-protector[-all|-strong]: 0=off, 1=basic, 2=all, 3=strong */
     int profile_generate;         /* -fprofile-generate: instrument execution profile */
     int profile_use;              /* -fprofile-use: guide optimizations with profile */

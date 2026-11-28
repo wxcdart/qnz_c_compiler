@@ -305,6 +305,9 @@ def check_function(fn, ins, tags, stats):
                     v.append("I2 r%s: OVF_TRAP [ovf=5] count tag=%s,%d "
                              "(must be a signed int)"
                              % (t, tag[0], tag[1]))
+            elif ovf in (6, 7, 8, 9):
+                # UBSan checks (Sprint 266): null ptr, ptr overflow, vla bound, bool
+                pass
             elif cls_of(tag) != "int" or tag[1] != cw:
                 v.append("I2 r%s: OVF_TRAP width %d but tag=%s,%d "
                          "(must be signed int of the check width)"
@@ -328,6 +331,9 @@ def check_function(fn, ins, tags, stats):
                         v.append("I2 r%s: OVF_TRAP [ovf=%d] temp != "
                                  "guarded op's src2 r%s"
                                  % (t, ovf, ns[2]))
+            elif ovf in (6, 7, 8, 9):
+                # Sprint 266 UBSan standalone checks: null ptr, ptr overflow, vla bound, bool
+                pass
             else:
                 prev = by_idx.get(idx - 1)
                 if prev is None or prev[1] not in ("ADD", "SUB", "MUL") \

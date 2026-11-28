@@ -22,9 +22,13 @@
 #define ZCSAN_OP_DIV_ZERO     3
 #define ZCSAN_OP_REM_ZERO     4
 #define ZCSAN_OP_SHIFT_COUNT  5
+#define ZCSAN_OP_NULL_PTR     6
+#define ZCSAN_OP_PTR_OVERFLOW 7
+#define ZCSAN_OP_VLA_BOUND    8
+#define ZCSAN_OP_BOOL_ENUM    9
 
 void __zerocsan_report(unsigned op, unsigned width, long v) {
-    char buf[128];
+    char buf[256];
     char *p = buf;
     long sv = v;
     if (width == 4) sv = (long)(int32_t)v;  /* count: contract to check width */
@@ -54,6 +58,16 @@ void __zerocsan_report(unsigned op, unsigned width, long v) {
             p = san_fmt_str(p, "'");
         }
         *p++ = '\n';
+    } else if (op == ZCSAN_OP_NULL_PTR) {
+        p = san_fmt_str(p, "zerocc: runtime error: null pointer dereference\n");
+    } else if (op == ZCSAN_OP_PTR_OVERFLOW) {
+        p = san_fmt_str(p, "zerocc: runtime error: pointer index expression overflowed\n");
+    } else if (op == ZCSAN_OP_VLA_BOUND) {
+        p = san_fmt_str(p, "zerocc: runtime error: variable length array bound evaluates to non-positive value\n");
+    } else if (op == ZCSAN_OP_BOOL_ENUM) {
+        p = san_fmt_str(p, "zerocc: runtime error: load of value ");
+        p = san_fmt_long(p, sv);
+        p = san_fmt_str(p, " which is not a valid value for boolean type\n");
     } else {
         p = san_fmt_str(p, "zerocc: runtime error: unknown zero_san check ");
         p = san_fmt_uint(p, op);

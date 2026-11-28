@@ -873,9 +873,30 @@ static void aarch64_emit_ovf_trap_asm(ZeroCCCompiler *c, int res, int a, int b,
     /* Follow-on (Sprint 166): div-by-zero / shift-count checks (mirrors the
      * raw emitter). The divisor/count temp is in temp_dest (`res`; src1 is
      * TEMP_NONE for these ops); the check precedes the div/shift. */
-    if (op == ZC_OVF_OP_DIV_ZERO || op == ZC_OVF_OP_REM_ZERO) {
-        /* cbnz res, L: skip brk when the divisor != 0 */
+    if (op == ZC_OVF_OP_DIV_ZERO || op == ZC_OVF_OP_REM_ZERO ||
+        op == ZC_OVF_OP_NULL_PTR || op == ZC_OVF_OP_PTR_OVERFLOW) {
+        /* cbnz res, L: skip brk when the divisor/ptr != 0 */
         fprintf(out, "\tcbnz\t%s, %s\n", BE(c)->get_hw_reg_name(res), L);
+        if (c->sanitize_report)
+            aarch64asm_emit_san_report_block(c, res, width, op, out);
+        BE(c)->emit_trap_asm(c, out);
+        BE(c)->emit_label_asm(c, L, out);
+        return;
+    }
+    if (op == ZC_OVF_OP_VLA_BOUND) {
+        const char *rn = BE(c)->get_hw_reg_name(res);
+        fprintf(out, "\tcmp\t%s, #0\n", rn);
+        fprintf(out, "\tb.gt\t%s\n", L);
+        if (c->sanitize_report)
+            aarch64asm_emit_san_report_block(c, res, width, op, out);
+        BE(c)->emit_trap_asm(c, out);
+        BE(c)->emit_label_asm(c, L, out);
+        return;
+    }
+    if (op == ZC_OVF_OP_BOOL_ENUM) {
+        const char *rn = BE(c)->get_hw_reg_name(res);
+        fprintf(out, "\tcmp\t%s, #1\n", rn);
+        fprintf(out, "\tb.ls\t%s\n", L);
         if (c->sanitize_report)
             aarch64asm_emit_san_report_block(c, res, width, op, out);
         BE(c)->emit_trap_asm(c, out);

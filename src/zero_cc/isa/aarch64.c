@@ -733,9 +733,26 @@ static void aarch64_emit_ovf_trap(ZeroCCCompiler *c, int res, int a, int b, int 
      * for these ops) and the check runs before the div/shift, so `res`
      * still holds the value. Must run before the width<8 result
      * round-trip below. */
-    if (op == ZC_OVF_OP_DIV_ZERO || op == ZC_OVF_OP_REM_ZERO) {
-        /* cbnz res, skip: no trap when the divisor != 0 */
+    if (op == ZC_OVF_OP_DIV_ZERO || op == ZC_OVF_OP_REM_ZERO ||
+        op == ZC_OVF_OP_NULL_PTR || op == ZC_OVF_OP_PTR_OVERFLOW) {
+        /* cbnz res, skip: no trap when the divisor/ptr != 0 */
         arm64_emit_u32(c, 0xB5000000u | ((uint32_t)skip << 5) | (uint32_t)(res & 0x1F));
+        if (c->sanitize_report) aarch64_emit_san_report_block(c, res, width, op);
+        arm64_emit_u32(c, 0xD4200000u);  /* brk #0 */
+        return;
+    }
+    if (op == ZC_OVF_OP_VLA_BOUND) {
+        /* cmp res, #0; b.gt skip (cond 12) */
+        arm64_emit_u32(c, 0xF100001Fu | ((uint32_t)(res & 0x1F) << 5));
+        arm64_emit_u32(c, 0x54000000u | ((uint32_t)skip << 5) | 12u);
+        if (c->sanitize_report) aarch64_emit_san_report_block(c, res, width, op);
+        arm64_emit_u32(c, 0xD4200000u);  /* brk #0 */
+        return;
+    }
+    if (op == ZC_OVF_OP_BOOL_ENUM) {
+        /* cmp res, #1; b.ls skip (cond 9) */
+        arm64_emit_u32(c, 0xF100001Fu | (1u << 10) | ((uint32_t)(res & 0x1F) << 5));
+        arm64_emit_u32(c, 0x54000000u | ((uint32_t)skip << 5) | 9u);
         if (c->sanitize_report) aarch64_emit_san_report_block(c, res, width, op);
         arm64_emit_u32(c, 0xD4200000u);  /* brk #0 */
         return;

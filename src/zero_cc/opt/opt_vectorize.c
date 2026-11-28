@@ -1115,7 +1115,9 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
         if (instr->op == OP_CALL || instr->op == OP_CALL_INDIRECT ||
             instr->op == OP_RET || instr->op == OP_SYSCALL ||
             instr->op == OP_CLONE || instr->op == OP_ASM ||
-            instr->op == OP_SETJMP || instr->op == OP_LONGJMP) {
+            instr->op == OP_SETJMP || instr->op == OP_LONGJMP ||
+            instr->op == OP_OVF_TRAP || instr->op == OP_TRAP ||
+            instr->op == OP_ASAN_CHECK) {
             has_call = true;
             continue;
         }

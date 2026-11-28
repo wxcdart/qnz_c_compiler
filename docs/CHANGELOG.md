@@ -1,5 +1,24 @@
 # CHANGELOG
 
+## [Sprint 266] - 2026-11-28 - Full UndefinedBehaviorSanitizer (UBSan) Soundness & Trapping Battery
+
+- **UBSan Check Additions (`src/zero_cc/isa/isa_backend.h`, `zero_rt/core/san_report.c`, `zero_rt/jit/san_report_host.c`)**:
+  - Implemented `ZC_OVF_OP_NULL_PTR (6)` checking for NULL pointer dereference (`*p`, `p->field`, `*p = val`).
+  - Implemented `ZC_OVF_OP_PTR_OVERFLOW (7)` checking for pointer arithmetic address-space wrap-around.
+  - Implemented `ZC_OVF_OP_VLA_BOUND (8)` checking for non-positive runtime variable-length array bounds (`size <= 0`).
+  - Implemented `ZC_OVF_OP_BOOL_ENUM (9)` checking for invalid boolean values (`(unsigned)val > 1`).
+  - Added GCC/Clang-compatible stderr diagnostics formatting via `__zerocsan_report` prior to fatal trap execution across all supported ISAs.
+- **Frontend & IR Lowering (`src/zero_cc/driver/driver_opts.h`, `src/zero_cc/ir/`)**:
+  - Added driver options `-fsanitize=null`, `-fsanitize=vla-bound`, `-fsanitize=pointer-overflow`, `-fsanitize=bool`, and propagated them through `ZeroCCCompiler`.
+  - Lowered pointer dereferences, VLA allocations, pointer arithmetic, and boolean loads to emit `OP_OVF_TRAP` with the corresponding check opcodes.
+  - Protected safety-instrumented loops in loop auto-vectorization (`opt_vectorize.c`) from vectorization clobbering.
+- **Multi-ISA Backend Lowering (`src/zero_cc/ir/asm_emitter.c`, `src/zero_cc/ir/ast_lowering_mc.c`, `src/zero_cc/isa/`)**:
+  - Implemented machine code and assembly trap sequences across x86-64, AArch64, RISC-V 64, RISC-V 32, and AArch32.
+  - Updated `type_tag_verifier.py` to recognize UBSan check opcodes 6..9.
+- **Verification (`test/san/`)**:
+  - Added `san_trap_null.c`, `san_trap_vla_bound.c`, `san_trap_bool.c`, and `san_ok_ubsan.c`.
+  - Regression sweep `make test-san` passes with 612 ok, 0 FAIL (592 flagged runs).
+
 ## [Sprint 265] - 2026-11-28 - Mach-O 64-bit Dynamic Linking, Dyld Stubs (__stubs) & Foreign Loader Resolution
 
 - **Mach-O 64-bit Dynamic Linking & Dyld Stubs (`src/zero_cc/linker/macho_writer.h`, `src/zero_cc/linker/macho_writer.c`)**:
