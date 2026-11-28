@@ -1,5 +1,64 @@
 # CHANGELOG
 
+## [Sprint 274] - 2026-11-28 - Windows PE/COFF Structured Exception Handling (SEH) & Unwind Tables
+
+- **Windows x64 SEH Architecture & Data Structures (`src/zero_cc/linker/pe_writer.h`, `src/zero_cc/linker/pe_writer.c`)**:
+  - Defined `IMAGE_DIRECTORY_ENTRY_EXCEPTION` (Data Directory index 3) and x64 unwind opcodes (`UWOP_PUSH_NONVOL`, `UWOP_ALLOC_LARGE`, `UWOP_ALLOC_SMALL`, `UWOP_SET_FPREG`).
+  - Added binary layout definitions for `ZeroCCRuntimeFunction` (`.pdata` 12-byte entries: `BeginAddress`, `EndAddress`, `UnwindInfoAddress`) and `ZeroCCUnwindInfoHeader` (`.xdata` 4-byte headers + variable-length 2-byte unwind code arrays).
+  - Implemented `.pdata` function table sorting in strictly ascending order of `BeginAddress` as mandated by the Windows x64 ABI.
+  - Handled prologue code sizing and encoding for frameless functions, frame-pointer setup (`mov rbp, rsp`), small allocations (<= 128B), and large frame allocations (<= 512KB).
+  - Integrated `.pdata` and `.xdata` sections into PE section headers, file offsets, virtual RVAs, `SizeOfInitializedData`, and Optional Header Data Directory index 3.
+- **Frontend & Driver CLI Options (`src/zero_cc/driver/driver_opts.h`, `src/main.c`, `src/zero_cc/types/type_system.h`, `src/zero_cc/types/symbols.h`, `src/zero_cc/ir/ast_lowering.c`)**:
+  - Added driver flags `-fseh`, `-funwind-tables`, `-fexceptions`, and negative forms `-fno-seh`, `-fno-unwind-tables`, `-fno-exceptions`.
+  - Added `stack_frame_size` and `is_frameless` tracking to `ZeroCCFunction` during AST lowering.
+- **Verification (`tools/verify/pe_tests.py`)**:
+  - Added `test_pe_seh_unwind_tables` compiling with `-mpe -fseh` and validating:
+    - Host binutils `objdump -p` recognition of `Exception Directory [.pdata]` and full parsing of `The Function Table (.pdata contents)`.
+    - Host binutils `objdump -p` decoding of `.xdata` prologue sizes, frame registers (`rbp`), and unwind operations (`push rbp`, `FPReg: rbp = rsp`, `alloc small area`).
+    - Raw PE header section count (6 sections), Exception Directory RVA/size (36 bytes for 3 functions), `.pdata` sorted ordering, and valid `.xdata` target RVAs.
+  - Verified: 73/73 tests pass in `pe_tests.py` (`make test-pe`).
+
+## [Sprint 273] - 2026-11-28 - Modern ISO C23 <stdbit.h> Type-Generic Bit Operations & Builtin Lowering
+
+- **Standard ISO C23 `<stdbit.h>` Header (`include/stdbit.h`, `src/zero_cc/core/virtual_headers.h`)**:
+  - Created standard ISO C23 `<stdbit.h>` providing `__STDC_VERSION_STDBIT_H__ 202311L`, endian macros (`__STDC_ENDIAN_LITTLE__`, `__STDC_ENDIAN_BIG__`, `__STDC_ENDIAN_NATIVE__`), and full function sets for unsigned integer widths: `unsigned char` (`_uc`), `unsigned short` (`_us`), `unsigned int` (`_ui`), `unsigned long` (`_ul`), `unsigned long long` (`_ull`).
+  - Implemented typed functions and C11/C23 `_Generic` macros for all 14 ISO C23 operations:
+    - `stdc_leading_zeros`, `stdc_leading_ones`
+    - `stdc_trailing_zeros`, `stdc_trailing_ones`
+    - `stdc_first_leading_zero`, `stdc_first_leading_one`
+    - `stdc_first_trailing_zero`, `stdc_first_trailing_one`
+    - `stdc_count_zeros`, `stdc_count_ones`
+    - `stdc_has_single_bit`, `stdc_bit_width`, `stdc_bit_floor`, `stdc_bit_ceil`
+  - Registered virtual embedded header `<stdbit.h>` in `src/zero_cc/core/virtual_headers.h`.
+- **Builtin Lowering Integration**:
+  - Mapped operation cores directly to compiler builtins: `__builtin_clz`, `__builtin_ctz`, and `__builtin_popcount` with width-specific zero-checks and sign-extensions.
+- **Verification (`tools/c23/test_c23.py`)**:
+  - Added comprehensive differential test suite `stdbit_generic_ops` validating all 14 type-generic macros against GCC 15 reference across `-O0..-O3` in both AOT and JIT modes.
+  - Verified: 42/42 cases pass in C23 conformance gate (`make test-c23`).
+
+## [Sprint 272] - 2026-11-28 - Whole-Program LTO Dead Global Data Stripping & Const Aggregate Propagation
+
+- **Whole-Program Constant Aggregate Propagation (`src/zero_cc/core/lto.h`, `src/zero_cc/ir/ast_lowering_expr.c`)**:
+  - Implemented `zero_cc_lto_eval_aggregate_access` and `zero_cc_lto_read_const_global_bytes` resolving constant struct member and array element index expressions across translation units at compile time.
+  - Enhanced constant global qualifier detection to inspect `gv->type.base->is_const` on array declarations.
+  - Folded cross-TU constant aggregate reads directly into `ir_emit_mov_imm` in AST lowering under `-flto`.
+- **Whole-Program Dead Global Data & BSS Stripping (`src/zero_cc/core/lto.h`, `src/zero_cc/jit/compile.c`)**:
+  - Tracked global variable address references and direct uses in `ZeroCCLTODemandCtx`.
+  - Stripped unreferenced non-extern, unexported static and internal global data and BSS symbols during LTO Phase 2 emission.
+- **Verification (`tools/verify/lto_tests.py`)**:
+  - Added `test_dead_global_data_stripping` and `test_const_aggregate_propagation`.
+  - Verified: 12/12 tests pass in `lto_tests.py` (`make test-lto`).
+
+## [Sprint 271] - 2026-11-28 - Target-Side AddressSanitizer (ASan) AArch32 Multi-ISA Completion
+
+- **AArch32 ASan Emitters (`src/zero_cc/isa/aarch32.c`, `src/zero_cc/ir/ast_lowering.c`, `src/zero_cc/ir/asm_emitter.c`)**:
+  - Implemented `OP_ASAN_CHECK` raw binary machine code and text assembly emission for AArch32: computing shadow byte address `(addr >> 3) + __asan_shadow_offset`, loading shadow byte, and checking poisoned state against `(addr & 7) >= val`.
+  - Implemented stack frame unpoisoning epilogue loops in AArch32 with zero-shadow guards.
+  - Normalized `zeroc_rt_mmap` across 32-bit and 64-bit architectures in `zero_rt/rt_os.h`, `zero_rt/linux/os.c`, `zero_rt/baremetal/os.c`.
+- **Verification (`tools/verify/asan_tests.py`)**:
+  - Completed the 5-ISA target ASan matrix (x86-64, AArch64, AArch32, RISC-V 64, RISC-V 32).
+  - Verified: 38/38 tests pass in `asan_tests.py` across all optimization levels and target ISAs.
+
 ## [Sprint 270] - 2026-11-28 - Mach-O Multi-Architecture Universal / Fat Binary Packaging
 
 - **Mach-O Universal Binary Architecture (`src/zero_cc/linker/macho_writer.h`, `src/zero_cc/linker/macho_writer.c`)**:

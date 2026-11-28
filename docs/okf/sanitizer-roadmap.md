@@ -4,7 +4,7 @@ title: Target-Side Sanitizer (zero_san) Design & Roadmap
 description: Analysis and phased roadmap for an optional, parked target-side safety-check feature (zero_san) — a codegen-first UBSan-lite signed-overflow check, with bounds, leaks, and ASan/LSan scoped out and justified.
 resource: sanitizer/roadmap
 tags: [sanitizer, zero_san, codegen, ubsan, overflow, bounds, asan, lsan, leak, roadmap, design, safety]
-timestamp: 2026-11-28T02:17:41Z
+timestamp: 2026-11-28T03:40:56Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -647,6 +647,14 @@ Sprint 268 brings full Target-Side ASan (`-fsanitize=address`) support to AArch6
 - **Stack Redzone Unpoisoning on Exit**: Implemented multi-ISA epilogue unpoisoning loops in `ast_lowering.c` and `asm_emitter.c` for x86-64, AArch64, and RISC-V 64 with zero-shadow check guard (`cbz x17` on AArch64, `beqz t4` on RISC-V 64, `testq %r10, %r10` on x86-64) to safely skip non-poisoned functions.
 - **Early `__asan_init` Entry Hook**: Emits `ir_emit_call(c, "__asan_init")` at `main` entry so shadow mapping is initialized deterministically before any stack unpoisoning occurs.
 - **Verified**: Fully verified under QEMU on stack overflow (`asan_overflow.c`), global overflow (`asan_global_overflow.c`), and clean execution (`san_ok_no_overflow.c`). Passed full `san_sweep.py` battery (786 ok, 0 FAIL).
+
+### 4h. Sprint 271 — Target-Side AddressSanitizer (ASan) AArch32 Multi-ISA Completion
+
+Sprint 271 completes the 5-ISA target ASan matrix by adding AArch32 raw and assembly emitters:
+- **AArch32 `OP_ASAN_CHECK` Emitter**: Implemented raw binary machine code and text assembly emission in `src/zero_cc/isa/aarch32.c`. Computes shadow byte address `(addr >> 3) + __asan_shadow_offset`, loads shadow byte, and checks poisoned state `(addr & 7) >= val`.
+- **AArch32 Epilogue Unpoisoning Loop**: Implemented stack frame unpoisoning epilogue loops in AArch32 with zero-shadow check guards in `ast_lowering.c` and `asm_emitter.c`.
+- **Runtime Normalization**: Normalized `zeroc_rt_mmap` signatures across 32-bit and 64-bit architectures in `zero_rt/rt_os.h`, `zero_rt/linux/os.c`, `zero_rt/baremetal/os.c`.
+- **Verified**: Full 5-ISA ASan matrix (x86-64, AArch64, AArch32, RISC-V 64, RISC-V 32) passes 38/38 in `tools/verify/asan_tests.py`.
 
 ## 8. Why ASan/LSan is out of scope (cost decomposition)
 

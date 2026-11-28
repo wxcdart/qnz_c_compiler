@@ -1456,7 +1456,7 @@ static inline void ir_emit_variadic_spill(ZeroCCCompiler *c, int param_count, in
 #define IR_CALL_ARG01_REG ((int32_t)(0xFF | (0xFF << 8)))
 
 static inline void ir_emit_call(ZeroCCCompiler *c, const char *fn_name) {
-    ir_emit(c, (Instr){.op = OP_CALL, .temp_dest= TEMP_NONE, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = IR_CALL_ARG01_REG, .imm64 = (int64_t)(intptr_t)fn_name, .label_idx = 0});
+    ir_emit(c, (Instr){.op = OP_CALL, .temp_dest = 0, .temp_src1= TEMP_NONE, .temp_src2= TEMP_NONE, .imm = IR_CALL_ARG01_REG, .imm64 = (int64_t)(intptr_t)fn_name, .label_idx = 0});
 }
 
 /* Emit the OS syscall intrinsic. Argument temps (syscall number first, then

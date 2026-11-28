@@ -357,6 +357,20 @@ static int compare_export_items(const void *a, const void *b) {
     return strcmp(ea->name, eb->name);
 }
 
+typedef struct {
+    uint32_t begin_rva;
+    uint32_t end_rva;
+    uint32_t unwind_info_off;
+} PeSehFunc;
+
+static int compare_seh_funcs(const void *a, const void *b) {
+    const PeSehFunc *fa = (const PeSehFunc *)a;
+    const PeSehFunc *fb = (const PeSehFunc *)b;
+    if (fa->begin_rva < fb->begin_rva) return -1;
+    if (fa->begin_rva > fb->begin_rva) return 1;
+    return 0;
+}
+
 bool zero_cc_pe_write_binary_from_comp(const char *filename,
                                        ZeroCCCompiler *comp,
                                        const ZeroCCPeOptions *opts)
@@ -548,13 +562,111 @@ bool zero_cc_pe_write_binary_from_comp(const char *filename,
     }
 
     /* 5. Section and Header Sizing */
+    bool has_seh = opts ? opts->emit_seh : false;
     uint16_t num_sections = has_edata ? 5 : 4;
+    if (has_seh) num_sections += 2;
     uint32_t file_align = ZERO_CC_PE_FILE_ALIGNMENT;
     uint32_t sec_align = ZERO_CC_PE_SECTION_ALIGNMENT;
 
     size_t stub_size = is_dll ? 16 : 32;
     size_t thunks_size = num_imports * 8;
     size_t total_text_size = stub_size + comp->text_section.length + thunks_size;
+
+    /* Build SEH .pdata/.xdata if requested */
+    PeSehFunc seh_funcs[1024];
+    size_t num_seh_funcs = 0;
+    uint8_t *xdata_buf = NULL;
+    size_t cur_xdata_len = 0;
+    size_t xdata_cap = 0;
+
+    if (has_seh) {
+        xdata_cap = 4096;
+        xdata_buf = (uint8_t *)calloc(1, xdata_cap);
+        for (size_t i = 0; i < comp->function_count; i++) {
+            ZeroCCFunction *f = &comp->functions[i];
+            if (!f->name[0] || f->is_prototype || f->is_external || f->is_object || f->lto_eliminated) continue;
+            if (f->text_size == 0) continue;
+            if (num_seh_funcs >= 1024) break;
+
+            while (cur_xdata_len % 4 != 0) {
+                if (cur_xdata_len >= xdata_cap) {
+                    xdata_cap *= 2;
+                    xdata_buf = (uint8_t *)realloc(xdata_buf, xdata_cap);
+                }
+                xdata_buf[cur_xdata_len++] = 0;
+            }
+            if (cur_xdata_len + 32 > xdata_cap) {
+                xdata_cap *= 2;
+                xdata_buf = (uint8_t *)realloc(xdata_buf, xdata_cap);
+            }
+
+            uint32_t uoff = (uint32_t)cur_xdata_len;
+            ZeroCCUnwindInfoHeader hdr;
+            memset(&hdr, 0, sizeof(hdr));
+            hdr.version_and_flags = 0x01; /* Version 1, Flags 0 */
+
+            uint16_t codes[8];
+            memset(codes, 0, sizeof(codes));
+            size_t n_codes = 0;
+
+            if (f->is_frameless) {
+                hdr.size_of_prolog = 0;
+                hdr.count_of_codes = 0;
+                hdr.frame_register_and_offset = 0;
+            } else if (f->stack_frame_size == 0) {
+                hdr.size_of_prolog = 4;
+                hdr.count_of_codes = 2;
+                hdr.frame_register_and_offset = 5; /* RBP, offset 0 */
+                codes[0] = (uint16_t)(4 | (ZERO_CC_UWOP_SET_FPREG << 8));
+                codes[1] = (uint16_t)(1 | (ZERO_CC_UWOP_PUSH_NONVOL << 8) | (5 << 12));
+                n_codes = 2;
+            } else {
+                hdr.size_of_prolog = 11;
+                hdr.frame_register_and_offset = 5; /* RBP, offset 0 */
+                size_t sz = f->stack_frame_size;
+                if (sz <= 128 && (sz % 8 == 0)) {
+                    uint8_t op_info = (uint8_t)((sz - 8) / 8);
+                    codes[0] = (uint16_t)(11 | (ZERO_CC_UWOP_ALLOC_SMALL << 8) | (op_info << 12));
+                    codes[1] = (uint16_t)(4 | (ZERO_CC_UWOP_SET_FPREG << 8));
+                    codes[2] = (uint16_t)(1 | (ZERO_CC_UWOP_PUSH_NONVOL << 8) | (5 << 12));
+                    codes[3] = 0; /* padding */
+                    hdr.count_of_codes = 3;
+                    n_codes = 4;
+                } else if (sz <= 512 * 1024 - 8) {
+                    codes[0] = (uint16_t)(11 | (ZERO_CC_UWOP_ALLOC_LARGE << 8));
+                    codes[1] = (uint16_t)(sz / 8);
+                    codes[2] = (uint16_t)(4 | (ZERO_CC_UWOP_SET_FPREG << 8));
+                    codes[3] = (uint16_t)(1 | (ZERO_CC_UWOP_PUSH_NONVOL << 8) | (5 << 12));
+                    hdr.count_of_codes = 4;
+                    n_codes = 4;
+                } else {
+                    codes[0] = (uint16_t)(11 | (ZERO_CC_UWOP_ALLOC_LARGE << 8) | (1 << 12));
+                    uint32_t sz32 = (uint32_t)sz;
+                    memcpy(&codes[1], &sz32, 4);
+                    codes[3] = (uint16_t)(4 | (ZERO_CC_UWOP_SET_FPREG << 8));
+                    codes[4] = (uint16_t)(1 | (ZERO_CC_UWOP_PUSH_NONVOL << 8) | (5 << 12));
+                    codes[5] = 0;
+                    hdr.count_of_codes = 5;
+                    n_codes = 6;
+                }
+            }
+
+            memcpy(xdata_buf + cur_xdata_len, &hdr, sizeof(hdr));
+            cur_xdata_len += sizeof(hdr);
+            if (n_codes > 0) {
+                memcpy(xdata_buf + cur_xdata_len, codes, n_codes * sizeof(uint16_t));
+                cur_xdata_len += n_codes * sizeof(uint16_t);
+            }
+
+            seh_funcs[num_seh_funcs].begin_rva = (uint32_t)(stub_size + f->text_offset);
+            seh_funcs[num_seh_funcs].end_rva   = (uint32_t)(stub_size + f->text_offset + f->text_size);
+            seh_funcs[num_seh_funcs].unwind_info_off = uoff;
+            num_seh_funcs++;
+        }
+        if (num_seh_funcs > 1) {
+            qsort(seh_funcs, num_seh_funcs, sizeof(PeSehFunc), compare_seh_funcs);
+        }
+    }
 
     uint32_t raw_headers_size = (uint32_t)(sizeof(ZeroCCDosHeader) + 64 + 4 +
                                            sizeof(ZeroCCCoffFileHeader) +
@@ -577,8 +689,40 @@ bool zero_cc_pe_write_binary_from_comp(const char *filename,
     uint32_t data_raw_size = pe_align_up((uint32_t)comp->data_section.length, file_align);
     uint32_t data_virt_size = pe_align_up((uint32_t)(comp->data_section.length + bss_size > 0 ? comp->data_section.length + bss_size : 1), sec_align);
 
-    uint32_t idata_rva = data_rva + data_virt_size;
-    uint32_t idata_raw_off = data_raw_off + data_raw_size;
+    uint32_t pdata_bytes = (uint32_t)(num_seh_funcs * sizeof(ZeroCCRuntimeFunction));
+    uint32_t xdata_bytes = (uint32_t)cur_xdata_len;
+    uint32_t pdata_rva = 0, pdata_raw_off = 0, pdata_raw_size = 0, pdata_virt_size = 0;
+    uint32_t xdata_rva = 0, xdata_raw_off = 0, xdata_raw_size = 0, xdata_virt_size = 0;
+    uint8_t *pdata_buf = NULL;
+
+    uint32_t idata_rva = 0;
+    uint32_t idata_raw_off = 0;
+
+    if (has_seh) {
+        pdata_rva = data_rva + data_virt_size;
+        pdata_raw_off = data_raw_off + data_raw_size;
+        pdata_raw_size = pe_align_up(pdata_bytes > 0 ? pdata_bytes : file_align, file_align);
+        pdata_virt_size = pe_align_up(pdata_bytes > 0 ? pdata_bytes : sec_align, sec_align);
+
+        xdata_rva = pdata_rva + pdata_virt_size;
+        xdata_raw_off = pdata_raw_off + pdata_raw_size;
+        xdata_raw_size = pe_align_up(xdata_bytes > 0 ? xdata_bytes : file_align, file_align);
+        xdata_virt_size = pe_align_up(xdata_bytes > 0 ? xdata_bytes : sec_align, sec_align);
+
+        pdata_buf = (uint8_t *)calloc(1, pdata_raw_size);
+        for (size_t i = 0; i < num_seh_funcs; i++) {
+            ZeroCCRuntimeFunction *rf = (ZeroCCRuntimeFunction *)(pdata_buf + i * sizeof(ZeroCCRuntimeFunction));
+            rf->begin_address = text_rva + seh_funcs[i].begin_rva;
+            rf->end_address   = text_rva + seh_funcs[i].end_rva;
+            rf->unwind_info_address = xdata_rva + seh_funcs[i].unwind_info_off;
+        }
+
+        idata_rva = xdata_rva + xdata_virt_size;
+        idata_raw_off = xdata_raw_off + xdata_raw_size;
+    } else {
+        idata_rva = data_rva + data_virt_size;
+        idata_raw_off = data_raw_off + data_raw_size;
+    }
 
     /* 6. Lay out .idata */
     uint32_t cur_idata_off = (uint32_t)((num_dlls + 1) * sizeof(ZeroCCImportDescriptor));
@@ -607,7 +751,11 @@ bool zero_cc_pe_write_binary_from_comp(const char *filename,
     uint32_t idata_raw_size = pe_align_up(cur_idata_off > 0 ? cur_idata_off : file_align, file_align);
     uint32_t idata_virt_size = pe_align_up(cur_idata_off > 0 ? cur_idata_off : sec_align, sec_align);
     uint8_t *idata_buf = (uint8_t *)calloc(1, idata_raw_size);
-    if (!idata_buf) return false;
+    if (!idata_buf) {
+        if (pdata_buf) free(pdata_buf);
+        if (xdata_buf) free(xdata_buf);
+        return false;
+    }
 
     /* Populate .idata */
     for (size_t d = 0; d < num_dlls; d++) {
@@ -664,6 +812,8 @@ bool zero_cc_pe_write_binary_from_comp(const char *filename,
         edata_buf = (uint8_t *)calloc(1, edata_raw_size);
         if (!edata_buf) {
             free(idata_buf);
+            if (pdata_buf) free(pdata_buf);
+            if (xdata_buf) free(xdata_buf);
             return false;
         }
 
@@ -709,6 +859,8 @@ bool zero_cc_pe_write_binary_from_comp(const char *filename,
     if (!full_text) {
         free(idata_buf);
         if (edata_buf) free(edata_buf);
+        if (pdata_buf) free(pdata_buf);
+        if (xdata_buf) free(xdata_buf);
         return false;
     }
 
@@ -836,6 +988,8 @@ bool zero_cc_pe_write_binary_from_comp(const char *filename,
         free(full_text);
         free(idata_buf);
         if (edata_buf) free(edata_buf);
+        if (pdata_buf) free(pdata_buf);
+        if (xdata_buf) free(xdata_buf);
         return false;
     }
 
@@ -876,6 +1030,9 @@ bool zero_cc_pe_write_binary_from_comp(const char *filename,
     opt.minor_linker_version = 0;
     opt.size_of_code = text_raw_size;
     opt.size_of_initialized_data = rdata_raw_size + data_raw_size + idata_raw_size + edata_raw_size;
+    if (has_seh) {
+        opt.size_of_initialized_data += pdata_raw_size + xdata_raw_size;
+    }
     opt.size_of_uninitialized_data = (uint32_t)pe_align_up((uint32_t)bss_size, file_align);
     opt.address_of_entry_point = text_rva;
     opt.base_of_code = text_rva;
@@ -910,58 +1067,89 @@ bool zero_cc_pe_write_binary_from_comp(const char *filename,
         uint32_t total_iat_len = (off_iat[num_dlls - 1] + (uint32_t)((dll_import_counts[num_dlls - 1] + 1) * 8)) - off_iat[0];
         opt.data_directory[ZERO_CC_IMAGE_DIRECTORY_ENTRY_IAT].size = total_iat_len;
     }
+    if (has_seh && pdata_bytes > 0) {
+        opt.data_directory[ZERO_CC_IMAGE_DIRECTORY_ENTRY_EXCEPTION].virtual_address = pdata_rva;
+        opt.data_directory[ZERO_CC_IMAGE_DIRECTORY_ENTRY_EXCEPTION].size = pdata_bytes;
+    }
 
-    ZeroCCSectionHeader sec[5];
+    ZeroCCSectionHeader sec[8];
     memset(sec, 0, sizeof(sec));
+    size_t sec_idx = 0;
 
     /* 1. .text */
-    memcpy(sec[0].name, ".text\0\0\0", 8);
-    sec[0].virtual_size = (uint32_t)total_text_size;
-    sec[0].virtual_address = text_rva;
-    sec[0].size_of_raw_data = text_raw_size;
-    sec[0].pointer_to_raw_data = text_raw_off;
-    sec[0].characteristics = ZERO_CC_IMAGE_SCN_CNT_CODE |
-                             ZERO_CC_IMAGE_SCN_MEM_EXECUTE |
-                             ZERO_CC_IMAGE_SCN_MEM_READ;
+    memcpy(sec[sec_idx].name, ".text\0\0\0", 8);
+    sec[sec_idx].virtual_size = (uint32_t)total_text_size;
+    sec[sec_idx].virtual_address = text_rva;
+    sec[sec_idx].size_of_raw_data = text_raw_size;
+    sec[sec_idx].pointer_to_raw_data = text_raw_off;
+    sec[sec_idx].characteristics = ZERO_CC_IMAGE_SCN_CNT_CODE |
+                                   ZERO_CC_IMAGE_SCN_MEM_EXECUTE |
+                                   ZERO_CC_IMAGE_SCN_MEM_READ;
+    sec_idx++;
 
     /* 2. .rdata */
-    memcpy(sec[1].name, ".rdata\0\0", 8);
-    sec[1].virtual_size = (uint32_t)(comp->rodata_section.length > 0 ? comp->rodata_section.length : 1);
-    sec[1].virtual_address = rdata_rva;
-    sec[1].size_of_raw_data = rdata_raw_size;
-    sec[1].pointer_to_raw_data = rdata_raw_off;
-    sec[1].characteristics = ZERO_CC_IMAGE_SCN_CNT_INITIALIZED_DATA |
-                             ZERO_CC_IMAGE_SCN_MEM_READ;
+    memcpy(sec[sec_idx].name, ".rdata\0\0", 8);
+    sec[sec_idx].virtual_size = (uint32_t)(comp->rodata_section.length > 0 ? comp->rodata_section.length : 1);
+    sec[sec_idx].virtual_address = rdata_rva;
+    sec[sec_idx].size_of_raw_data = rdata_raw_size;
+    sec[sec_idx].pointer_to_raw_data = rdata_raw_off;
+    sec[sec_idx].characteristics = ZERO_CC_IMAGE_SCN_CNT_INITIALIZED_DATA |
+                                   ZERO_CC_IMAGE_SCN_MEM_READ;
+    sec_idx++;
 
     /* 3. .data */
-    memcpy(sec[2].name, ".data\0\0\0", 8);
-    sec[2].virtual_size = (uint32_t)(comp->data_section.length + bss_size > 0 ? comp->data_section.length + bss_size : 1);
-    sec[2].virtual_address = data_rva;
-    sec[2].size_of_raw_data = data_raw_size;
-    sec[2].pointer_to_raw_data = data_raw_off;
-    sec[2].characteristics = ZERO_CC_IMAGE_SCN_CNT_INITIALIZED_DATA |
-                             ZERO_CC_IMAGE_SCN_MEM_READ |
-                             ZERO_CC_IMAGE_SCN_MEM_WRITE;
+    memcpy(sec[sec_idx].name, ".data\0\0\0", 8);
+    sec[sec_idx].virtual_size = (uint32_t)(comp->data_section.length + bss_size > 0 ? comp->data_section.length + bss_size : 1);
+    sec[sec_idx].virtual_address = data_rva;
+    sec[sec_idx].size_of_raw_data = data_raw_size;
+    sec[sec_idx].pointer_to_raw_data = data_raw_off;
+    sec[sec_idx].characteristics = ZERO_CC_IMAGE_SCN_CNT_INITIALIZED_DATA |
+                                   ZERO_CC_IMAGE_SCN_MEM_READ |
+                                   ZERO_CC_IMAGE_SCN_MEM_WRITE;
+    sec_idx++;
 
-    /* 4. .idata */
-    memcpy(sec[3].name, ".idata\0\0", 8);
-    sec[3].virtual_size = idata_raw_size;
-    sec[3].virtual_address = idata_rva;
-    sec[3].size_of_raw_data = idata_raw_size;
-    sec[3].pointer_to_raw_data = idata_raw_off;
-    sec[3].characteristics = ZERO_CC_IMAGE_SCN_CNT_INITIALIZED_DATA |
-                             ZERO_CC_IMAGE_SCN_MEM_READ |
-                             ZERO_CC_IMAGE_SCN_MEM_WRITE;
+    /* 4. .pdata & .xdata (if SEH) */
+    if (has_seh) {
+        memcpy(sec[sec_idx].name, ".pdata\0\0", 8);
+        sec[sec_idx].virtual_size = pdata_bytes;
+        sec[sec_idx].virtual_address = pdata_rva;
+        sec[sec_idx].size_of_raw_data = pdata_raw_size;
+        sec[sec_idx].pointer_to_raw_data = pdata_raw_off;
+        sec[sec_idx].characteristics = ZERO_CC_IMAGE_SCN_CNT_INITIALIZED_DATA |
+                                       ZERO_CC_IMAGE_SCN_MEM_READ;
+        sec_idx++;
 
-    /* 5. .edata (if DLL) */
+        memcpy(sec[sec_idx].name, ".xdata\0\0", 8);
+        sec[sec_idx].virtual_size = xdata_bytes;
+        sec[sec_idx].virtual_address = xdata_rva;
+        sec[sec_idx].size_of_raw_data = xdata_raw_size;
+        sec[sec_idx].pointer_to_raw_data = xdata_raw_off;
+        sec[sec_idx].characteristics = ZERO_CC_IMAGE_SCN_CNT_INITIALIZED_DATA |
+                                       ZERO_CC_IMAGE_SCN_MEM_READ;
+        sec_idx++;
+    }
+
+    /* 5. .idata */
+    memcpy(sec[sec_idx].name, ".idata\0\0", 8);
+    sec[sec_idx].virtual_size = idata_raw_size;
+    sec[sec_idx].virtual_address = idata_rva;
+    sec[sec_idx].size_of_raw_data = idata_raw_size;
+    sec[sec_idx].pointer_to_raw_data = idata_raw_off;
+    sec[sec_idx].characteristics = ZERO_CC_IMAGE_SCN_CNT_INITIALIZED_DATA |
+                                   ZERO_CC_IMAGE_SCN_MEM_READ |
+                                   ZERO_CC_IMAGE_SCN_MEM_WRITE;
+    sec_idx++;
+
+    /* 6. .edata (if DLL) */
     if (has_edata) {
-        memcpy(sec[4].name, ".edata\0\0", 8);
-        sec[4].virtual_size = edata_virt_size;
-        sec[4].virtual_address = edata_rva;
-        sec[4].size_of_raw_data = edata_raw_size;
-        sec[4].pointer_to_raw_data = edata_raw_off;
-        sec[4].characteristics = ZERO_CC_IMAGE_SCN_CNT_INITIALIZED_DATA |
-                                 ZERO_CC_IMAGE_SCN_MEM_READ;
+        memcpy(sec[sec_idx].name, ".edata\0\0", 8);
+        sec[sec_idx].virtual_size = edata_virt_size;
+        sec[sec_idx].virtual_address = edata_rva;
+        sec[sec_idx].size_of_raw_data = edata_raw_size;
+        sec[sec_idx].pointer_to_raw_data = edata_raw_off;
+        sec[sec_idx].characteristics = ZERO_CC_IMAGE_SCN_CNT_INITIALIZED_DATA |
+                                       ZERO_CC_IMAGE_SCN_MEM_READ;
+        sec_idx++;
     }
 
     /* Write headers */
@@ -995,6 +1183,12 @@ bool zero_cc_pe_write_binary_from_comp(const char *filename,
     }
     for (size_t i = comp->data_section.length; i < data_raw_size; i++) fputc(0, f);
 
+    /* Write .pdata & .xdata (if SEH) */
+    if (has_seh) {
+        if (pdata_buf) fwrite(pdata_buf, 1, pdata_raw_size, f);
+        if (xdata_buf) fwrite(xdata_buf, 1, xdata_raw_size, f);
+    }
+
     /* Write .idata */
     fwrite(idata_buf, 1, idata_raw_size, f);
 
@@ -1006,6 +1200,10 @@ bool zero_cc_pe_write_binary_from_comp(const char *filename,
     fclose(f);
     free(full_text);
     free(idata_buf);
+    if (edata_buf) free(edata_buf);
+    if (pdata_buf) free(pdata_buf);
+    if (xdata_buf) free(xdata_buf);
+    return true;
     if (edata_buf) free(edata_buf);
     return true;
 }

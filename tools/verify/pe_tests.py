@@ -516,6 +516,92 @@ def test_pe_dllimport_dllexport():
             report("Import table contains export_func", "export_func" in proc_app_dump.stdout)
 
 
+def test_pe_seh_unwind_tables():
+    """Verify Windows x64 SEH .pdata and .xdata unwind table generation (Sprint 274)."""
+    with tempfile.TemporaryDirectory() as td:
+        src = Path(td) / "seh.c"
+        exe = Path(td) / "seh.exe"
+
+        src.write_text("""
+        int helper_frameless(int a) {
+            return a + 5;
+        }
+
+        int helper_alloc(int x) {
+            char buf[64];
+            buf[0] = (char)x;
+            return buf[0] * 2;
+        }
+
+        int main(void) {
+            return helper_frameless(10) + helper_alloc(20);
+        }
+        """)
+
+        # 1. Compile with -fseh
+        cmd = [str(ZEROCC), "-mpe", "-fseh", str(src), "-o", str(exe)]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        report("Compile PE with -fseh", proc.returncode == 0, proc.stderr)
+        if proc.returncode != 0:
+            return
+
+        # 2. Inspect with objdump -p (private headers)
+        dump_p = subprocess.run(["objdump", "-p", str(exe)], capture_output=True, text=True)
+        report("objdump -p recognizes Exception Directory [.pdata]",
+               dump_p.returncode == 0 and "Exception Directory [.pdata]" in dump_p.stdout,
+               dump_p.stderr[:200])
+        report("objdump -p parses Function Table (.pdata contents)",
+               "The Function Table (interpreted .pdata section contents)" in dump_p.stdout)
+        report("objdump -p decodes .xdata unwind codes",
+               "Dump of .xdata" in dump_p.stdout and "push rbp" in dump_p.stdout)
+
+        # 3. Parse PE file raw headers
+        data = exe.read_bytes()
+        e_lfanew, = struct.unpack_from("<I", data, 60)
+        coff_offset = e_lfanew + 4
+        machine, num_sec, _, _, _, opt_size, _ = struct.unpack_from("<HHIIIHH", data, coff_offset)
+        report("COFF section count == 6 (with .pdata and .xdata)", num_sec == 6, f"got {num_sec}")
+
+        opt_offset = coff_offset + 20
+        # Exception Directory is entry 3 (at offset 112 in DataDirectory array)
+        data_dirs_off = opt_offset + 112
+        exc_rva, exc_sz = struct.unpack_from("<II", data, data_dirs_off + 3 * 8)
+        report("Exception Directory RVA > 0", exc_rva > 0, f"got 0x{exc_rva:08X}")
+        report("Exception Directory size == 36 (3 functions x 12 bytes)", exc_sz == 36, f"got {exc_sz}")
+
+        # Parse sections
+        sec_offset = opt_offset + opt_size
+        sec_map = {}
+        for i in range(num_sec):
+            name_raw = data[sec_offset + i * 40 : sec_offset + i * 40 + 8]
+            name = name_raw.split(b"\x00")[0].decode("ascii", errors="ignore")
+            vsz, vrva, rsz, roff = struct.unpack_from("<IIII", data, sec_offset + i * 40 + 8)
+            sec_map[name] = {"vsz": vsz, "rva": vrva, "rsz": rsz, "roff": roff}
+
+        report(".pdata and .xdata sections present",
+               ".pdata" in sec_map and ".xdata" in sec_map)
+        report(".pdata section matches Exception Directory RVA",
+               sec_map[".pdata"]["rva"] == exc_rva)
+
+        # Check .pdata sorted order
+        pdata_off = sec_map[".pdata"]["roff"]
+        num_rf = exc_sz // 12
+        last_begin = 0
+        sorted_ok = True
+        for i in range(num_rf):
+            b_rva, e_rva, u_rva = struct.unpack_from("<III", data, pdata_off + i * 12)
+            if b_rva <= last_begin or e_rva <= b_rva:
+                sorted_ok = False
+            last_begin = b_rva
+            # Unwind info RVA must be within .xdata
+            xdata_rva = sec_map[".xdata"]["rva"]
+            xdata_sz = sec_map[".xdata"]["vsz"]
+            if not (xdata_rva <= u_rva < xdata_rva + sec_map[".xdata"]["rsz"]):
+                sorted_ok = False
+
+        report(".pdata entries sorted and reference valid .xdata RVAs", sorted_ok)
+
+
 def main():
     if not ZEROCC.exists():
         print(f"Error: {ZEROCC} not found. Run make first.", file=sys.stderr)
@@ -533,6 +619,7 @@ def main():
     test_multi_tu_obj_linking()
     test_mixed_c_and_obj_linking()
     test_pe_dllimport_dllexport()
+    test_pe_seh_unwind_tables()
 
     total = passed + failed
     print(f"\nResults: {passed}/{total} passed, {failed} failed.")

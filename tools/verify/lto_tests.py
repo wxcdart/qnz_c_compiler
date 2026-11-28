@@ -271,6 +271,65 @@ def test_cross_tu_ipcp_cloning(tmp):
     print("  [PASS] Cross-TU inter-procedural constant propagation & specialization")
 
 
+def test_dead_global_data_stripping(tmp):
+    tu1 = os.path.join(tmp, "dg1.c")
+    tu2 = os.path.join(tmp, "dg2.c")
+    out = os.path.join(tmp, "bin_dg")
+
+    with open(tu1, "w") as f:
+        f.write("int main(void) { return 0; }\n")
+    with open(tu2, "w") as f:
+        f.write("""int unreferenced_data_arr[64] = { 1, 2, 3 };
+                   int unreferenced_bss_arr[128];
+                   static int unreferenced_static_var = 999;\n""")
+
+    rc, _, err = run_cmd([BIN, "-O2", "-flto", tu1, tu2, "-o", out])
+    assert rc == 0, f"Dead global stripping build failed: {err}"
+    assert run_cmd([out])[0] == 0
+
+    rc_nm, stdout_nm, _ = run_cmd(["nm", out])
+    assert rc_nm == 0
+    assert "unreferenced_data_arr" not in stdout_nm, "Unreferenced data global not stripped!"
+    assert "unreferenced_bss_arr" not in stdout_nm, "Unreferenced BSS global not stripped!"
+    assert "unreferenced_static_var" not in stdout_nm, "Unreferenced static global not stripped!"
+    print("  [PASS] Cross-TU dead global data & BSS stripping (verified via nm)")
+
+
+def test_const_aggregate_propagation(tmp):
+    tu1 = os.path.join(tmp, "ag1.c")
+    tu2 = os.path.join(tmp, "ag2.c")
+    out = os.path.join(tmp, "bin_ag")
+
+    with open(tu1, "w") as f:
+        f.write("""struct Config { int factor; int bias; };
+                   extern const struct Config app_cfg;
+                   extern const int lookup_table[4];
+                   extern int calc(int);
+                   int main(void) {
+                       if (app_cfg.factor != 3) return 1;
+                       if (app_cfg.bias != 14) return 2;
+                       if (lookup_table[2] != 40) return 3;
+                       if (calc(10) != 44) return 4;
+                       return 0;
+                   }\n""")
+    with open(tu2, "w") as f:
+        f.write("""struct Config { int factor; int bias; };
+                   const struct Config app_cfg = { 3, 14 };
+                   const int lookup_table[4] = { 10, 20, 40, 80 };
+                   int calc(int x) { return x * app_cfg.factor + app_cfg.bias; }\n""")
+
+    rc, _, err = run_cmd([BIN, "-O2", "-flto", tu1, tu2, "-o", out])
+    assert rc == 0, f"Const aggregate propagation build failed: {err}"
+    assert run_cmd([out])[0] == 0
+
+    rc_dis, stdout_dis, _ = run_cmd(["objdump", "-d", out])
+    assert rc_dis == 0
+    assert "movabs $0x3," in stdout_dis or "mov $0x3," in stdout_dis, "Expected folded factor 3!"
+    assert "movabs $0xe," in stdout_dis or "mov $0xe," in stdout_dis, "Expected folded bias 14!"
+    assert "movabs $0x28," in stdout_dis or "mov $0x28," in stdout_dis, "Expected folded table element 40!"
+    print("  [PASS] Cross-TU const aggregate propagation (struct member & array index folded)")
+
+
 def main():
     if not os.path.isfile(BIN):
         print(f"Error: {BIN} not found. Run make first.", file=sys.stderr)
@@ -291,9 +350,11 @@ def main():
         test_static_scope_isolation(tmp)
         test_struct_abi(tmp)
         test_cross_tu_ipcp_cloning(tmp)
+        test_dead_global_data_stripping(tmp)
+        test_const_aggregate_propagation(tmp)
 
     print("============================================================")
-    print("Results: All 10 LTO Battery Tests PASSED!")
+    print("Results: All 12 LTO Battery Tests PASSED!")
     print("============================================================")
     return 0
 

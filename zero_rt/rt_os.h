@@ -176,7 +176,7 @@ long      zeroc_rt_clone(int (*fn)(void *), void *child_stack, unsigned long fla
                          void *arg, int *ptid, void *tls, int *ctid);
 int       zeroc_rt_futex_wait(int *uaddr, int val, const void *timeout);
 int       zeroc_rt_futex_wake(int *uaddr, int count);
-void     *zeroc_rt_mmap(void *addr, uint64_t length, int prot, int flags, int fd, int64_t offset);
+void     *zeroc_rt_mmap(void *addr, size_t length, int prot, int flags, int fd, long offset);
 int       zeroc_rt_munmap(void *addr, uint64_t length);
 int       zeroc_rt_mprotect(void *addr, uint64_t length, int prot);
 int       zeroc_rt_sched_yield(void);

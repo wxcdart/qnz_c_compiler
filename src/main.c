@@ -367,6 +367,7 @@ static ZeroCCCompiler *jit_compile_tu(CompileOptions *opts, const char *input, i
     ZeroCCISA target_isa = parse_target_arch(opts->target_arch);
     zero_cc_init_compiler_with_target(comp, target_isa);
     comp->is_win64_abi = opts->is_win64_abi || (opts->is_pe && (target_isa == ISA_X86_64));
+    comp->emit_seh = (opts->emit_seh != 0);
     comp->opt_level = (OptLevel)opts->opt_level;
     comp->omit_frame_pointer = opts->omit_frame_pointer;
     comp->no_builtin_all = opts->no_builtin_all != 0;
@@ -451,6 +452,7 @@ static ZeroCCCompiler *lto_compile_tu_phase1(CompileOptions *opts, const char *s
     ZeroCCISA target_isa = parse_target_arch(opts->target_arch);
     zero_cc_init_compiler_with_target(comp, target_isa);
     comp->is_win64_abi = opts->is_win64_abi || (opts->is_pe && (target_isa == ISA_X86_64));
+    comp->emit_seh = (opts->emit_seh != 0);
 
     comp->opt_level = (OptLevel)opts->opt_level;
     comp->omit_frame_pointer = opts->omit_frame_pointer;
@@ -877,6 +879,7 @@ static int compile_object_single(CompileOptions *opts, const char *input,
     ZeroCCISA target_isa = parse_target_arch(opts->target_arch);
     zero_cc_init_compiler_with_target(comp, target_isa);
     comp->is_win64_abi = opts->is_win64_abi || (opts->is_pe && (target_isa == ISA_X86_64));
+    comp->emit_seh = (opts->emit_seh != 0);
 
     /* Store optimization level in compiler for use by ast_lowering */
     comp->opt_level = (OptLevel)opts->opt_level;
@@ -2072,6 +2075,7 @@ static int compile_and_link(CompileOptions *opts) {
         memset(&pe_opts, 0, sizeof(pe_opts));
         pe_opts.is_dll = (opts->is_shared != 0);
         pe_opts.is_gui = (opts->is_windows_gui != 0);
+        pe_opts.emit_seh = (opts->emit_seh != 0);
         pe_opts.dll_name = output;
         bool ok = zero_cc_pe_write_binary_from_comp(output, comp, &pe_opts);
         zero_cc_compiler_free(comp);

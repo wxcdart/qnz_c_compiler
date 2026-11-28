@@ -699,6 +699,55 @@ int main(void) {
     return 0;
 }
 """, dialects=["gnu23"]),
+
+    # -------------------------------------------------------------
+    # ISO C23 <stdbit.h> type-generic bit operations (Sprint 273)
+    # -------------------------------------------------------------
+    C23Case("stdbit_generic_ops", "stdbit", """
+#include <stdbit.h>
+int main(void) {
+    unsigned int x = 0x00FF0000;
+    if (stdc_leading_zeros(x) != 8) return 1;
+    if (stdc_trailing_zeros(x) != 16) return 2;
+    if (stdc_count_ones(x) != 8) return 3;
+    if (stdc_count_zeros(x) != 24) return 4;
+    if (stdc_leading_ones(x) != 0) return 5;
+    if (stdc_trailing_ones(x) != 0) return 6;
+    if (stdc_first_leading_one(x) != 9) return 7;
+    if (stdc_first_trailing_one(x) != 17) return 8;
+    if (stdc_has_single_bit(x)) return 9;
+    if (!stdc_has_single_bit((unsigned int)0x00010000)) return 10;
+    if (stdc_bit_width(x) != 24) return 11;
+    if (stdc_bit_floor(x) != 0x00800000) return 12;
+    if (stdc_bit_ceil((unsigned int)5) != 8) return 13;
+    if (stdc_bit_ceil((unsigned int)8) != 8) return 14;
+
+    unsigned char uc = 0x80;
+    if (stdc_leading_zeros(uc) != 0) return 15;
+    if (stdc_trailing_zeros(uc) != 7) return 16;
+    if (!stdc_has_single_bit(uc)) return 17;
+    if (stdc_bit_width(uc) != 8) return 18;
+    if (stdc_bit_floor(uc) != 0x80) return 19;
+    if (stdc_bit_ceil((unsigned char)3) != 4) return 20;
+
+    unsigned short us = 0x0400;
+    if (stdc_leading_zeros(us) != 5) return 21;
+    if (stdc_trailing_zeros(us) != 10) return 22;
+    if (stdc_count_ones(us) != 1) return 23;
+    if (!stdc_has_single_bit(us)) return 24;
+
+    unsigned long long ull = 1ULL << 60;
+    if (stdc_leading_zeros(ull) != 3) return 25;
+    if (stdc_trailing_zeros(ull) != 60) return 26;
+    if (!stdc_has_single_bit(ull)) return 27;
+    if (stdc_bit_width(ull) != 61) return 28;
+    if (stdc_bit_floor(ull) != (1ULL << 60)) return 29;
+    unsigned long long ull2 = (1ULL << 60) + 1;
+    if (stdc_bit_ceil(ull2) != (1ULL << 61)) return 30;
+
+    return 0;
+}
+""", dialects=["gnu23"]),
 ]
 
 # The suppressed-warning case needs a NEGATIVE stderr check (the message

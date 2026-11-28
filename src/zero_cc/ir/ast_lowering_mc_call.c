@@ -15,7 +15,7 @@ void emit_mc_call(ZeroCCCompiler *c, size_t i, const Instr *instr,
      * args 2+ from OP_CALL_ARG pseudo-instructions that follow
      * in the stream (Sprint 151c: no instr_index-keyed side
      * table). */
-    int total_arg_count = (int)instr->temp_dest;
+    int total_arg_count = (instr->temp_dest == TEMP_NONE) ? 0 : (int)instr->temp_dest;
     int call_arg_temps[IR_CALL_MAX_ARGS] = {0};
     int call_arg_is_fp[IR_CALL_MAX_ARGS] = {0};
     int call_arg_is_64[IR_CALL_MAX_ARGS] = {0};

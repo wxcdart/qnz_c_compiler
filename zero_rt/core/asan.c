@@ -21,9 +21,6 @@ void __asan_init(void) {
 
 #if defined(__LP64__) || defined(_LP64) || defined(__x86_64__) || defined(__aarch64__) || (defined(__riscv_xlen) && (__riscv_xlen == 64))
     size_t shadow_sz = (size_t)16 * 1024 * 1024 * 1024 * 1024ULL; /* 16 TB virtual address space */
-#else
-    size_t shadow_sz = (size_t)512 * 1024 * 1024ULL; /* 512 MB for 32-bit address space */
-#endif
     void *shadow_mem = zeroc_rt_mmap((void *)0, shadow_sz, RT_PROT_READ | RT_PROT_WRITE,
                                      RT_MAP_PRIVATE | RT_MAP_ANONYMOUS | RT_MAP_NORESERVE, -1, 0);
     if (shadow_mem == (void *)-1 || shadow_mem == NULL) {
@@ -36,6 +33,15 @@ void __asan_init(void) {
         shadow_mem = zeroc_rt_mmap((void *)0, shadow_sz, RT_PROT_READ | RT_PROT_WRITE,
                                    RT_MAP_PRIVATE | RT_MAP_ANONYMOUS, -1, 0);
     }
+#else
+    size_t sz_list[] = { 512 * 1024 * 1024, 256 * 1024 * 1024, 128 * 1024 * 1024 };
+    void *shadow_mem = (void *)-1;
+    for (size_t k = 0; k < sizeof(sz_list)/sizeof(sz_list[0]); k++) {
+        shadow_mem = zeroc_rt_mmap((void *)0, sz_list[k], RT_PROT_READ | RT_PROT_WRITE,
+                                   RT_MAP_PRIVATE | RT_MAP_ANONYMOUS, -1, 0);
+        if (shadow_mem != (void *)-1 && shadow_mem != NULL) break;
+    }
+#endif
 
     if (shadow_mem != (void *)-1 && shadow_mem != NULL) {
         __asan_shadow_offset = (uintptr_t)shadow_mem;

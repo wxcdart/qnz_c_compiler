@@ -441,6 +441,10 @@ typedef struct ZeroCCFunction {
     int call_count;                          /* Direct call site count */
     bool is_addr_taken;                      /* Function address was taken */
     bool has_specialized_clones;             /* Original function has spawned specialized clones */
+
+    /* Sprint 274: Windows PE/COFF SEH & Unwind Tables */
+    size_t stack_frame_size;                 /* Frame size allocated in prologue (for SEH / DWARF) */
+    bool is_frameless;                       /* True if frameless leaf function */
 } ZeroCCFunction;
 
 /* GNU __asm("sym") label / nested-function mangled name: calls and definition emission

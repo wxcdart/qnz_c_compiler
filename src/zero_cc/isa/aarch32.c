@@ -1454,7 +1454,121 @@ static void aarch32_emit_ovf_trap(ZeroCCCompiler *c, int res, int a, int b, int 
     }
 }
 static void aarch32_emit_ovf_trap_asm(ZeroCCCompiler *c, int res, int a, int b, int width, int op, FILE *out) {
-    (void)c; (void)res; (void)a; (void)b; (void)width; (void)op; (void)out;
+    uint32_t check_id = c->asm_san_check_seq++;
+    if (op == ZC_OVF_OP_ADD || op == ZC_OVF_OP_SUB) {
+        fprintf(out, "\teor\tr12, %s, %s\n", aarch32_get_hw_reg_name(res), aarch32_get_hw_reg_name(a));
+        fprintf(out, "\teor\tr9, %s, %s\n", aarch32_get_hw_reg_name(res), aarch32_get_hw_reg_name(b));
+        fprintf(out, "\tand\tr12, r12, r9\n");
+        if (width == 4) {
+            fprintf(out, "\tcmp\tr12, #0\n");
+            fprintf(out, "\tbge\t.Lovf_ok_%u\n", check_id);
+            fprintf(out, "\tudf\t#0\n");
+            fprintf(out, ".Lovf_ok_%u:\n", check_id);
+        }
+    } else if (op == ZC_OVF_OP_DIV_ZERO || op == ZC_OVF_OP_REM_ZERO ||
+               op == ZC_OVF_OP_NULL_PTR || op == ZC_OVF_OP_PTR_OVERFLOW) {
+        fprintf(out, "\tcmp\t%s, #0\n", aarch32_get_hw_reg_name(res));
+        fprintf(out, "\tbne\t.Lovf_ok_%u\n", check_id);
+        fprintf(out, "\tudf\t#0\n");
+        fprintf(out, ".Lovf_ok_%u:\n", check_id);
+    } else if (op == ZC_OVF_OP_VLA_BOUND) {
+        fprintf(out, "\tcmp\t%s, #0\n", aarch32_get_hw_reg_name(res));
+        fprintf(out, "\tbgt\t.Lovf_ok_%u\n", check_id);
+        fprintf(out, "\tudf\t#0\n");
+        fprintf(out, ".Lovf_ok_%u:\n", check_id);
+    } else if (op == ZC_OVF_OP_BOOL_ENUM) {
+        fprintf(out, "\tcmp\t%s, #1\n", aarch32_get_hw_reg_name(res));
+        fprintf(out, "\tbls\t.Lovf_ok_%u\n", check_id);
+        fprintf(out, "\tudf\t#0\n");
+        fprintf(out, ".Lovf_ok_%u:\n", check_id);
+    } else if (op == ZC_OVF_OP_SHIFT_COUNT) {
+        fprintf(out, "\tcmp\t%s, #%d\n", aarch32_get_hw_reg_name(res), width * 8);
+        fprintf(out, "\tblo\t.Lovf_ok_%u\n", check_id);
+        fprintf(out, "\tudf\t#0\n");
+        fprintf(out, ".Lovf_ok_%u:\n", check_id);
+    }
+}
+
+static void aarch32_emit_asan_check(ZeroCCCompiler *c, int phys, int size, int is_write) {
+    /* 1. lsr r12, phys, #3 (mov r12, phys, lsr #3) */
+    arm32_emit_u32(c, 0xE1A0C1A0u | (uint32_t)(phys & 0xF));
+    /* 2. movw r9, #0; movt r9, #0; reloc __asan_shadow_offset */
+    arm32_emit_u32(c, 0xE3009000u);
+    arm32_emit_u32(c, 0xE3409000u);
+    if (c->reloc_count < ZERO_CC_MAX_RELOCS) {
+        ZeroCCReloc *r = &c->relocs[c->reloc_count++];
+        r->text_patch_offset = me_get_offset(c) - 4;
+        snprintf(r->target_symbol, sizeof(r->target_symbol), "__asan_shadow_offset");
+        r->is_call = false;
+        r->is_abs_call = false;
+        r->is_tls = false;
+    }
+    /* 3. ldr r9, [r9] */
+    arm32_emit_u32(c, 0xE5999000u);
+    /* 4. ldrb r9, [r9, r12] */
+    arm32_emit_u32(c, 0xE7D9900Cu);
+    /* 5. cmp r9, #0 */
+    arm32_emit_u32(c, 0xE3590000u);
+    /* beq .ok */
+    size_t br_ok1 = c->text_section.length;
+    arm32_emit_u32(c, ARM_COND(ARM_CC_EQ) | 0x0A000000u);
+    /* 6. cmp r9, #7 */
+    arm32_emit_u32(c, 0xE3590007u);
+    /* bhi .fail */
+    size_t br_fail = c->text_section.length;
+    arm32_emit_u32(c, ARM_COND(ARM_CC_HI) | 0x0A000000u);
+    /* 7. and r12, phys, #7 */
+    arm32_emit_u32(c, 0xE200C007u | ((uint32_t)(phys & 0xF) << 16));
+    /* 8. add r12, r12, #size */
+    arm32_emit_u32(c, 0xE28CC000u | (uint32_t)(size & 0xFF));
+    /* 9. cmp r12, r9 */
+    arm32_emit_u32(c, 0xE15C0009u);
+    /* bls .ok */
+    size_t br_ok2 = c->text_section.length;
+    arm32_emit_u32(c, ARM_COND(ARM_CC_LS) | 0x0A000000u);
+    /* .fail: */
+    aarch32_patch_jmp(c, br_fail, c->text_section.length);
+    /* mov r0, phys */
+    arm32_emit_u32(c, 0xE1A00000u | (uint32_t)(phys & 0xF));
+    /* mov r1, #size */
+    arm32_emit_u32(c, 0xE3A01000u | (uint32_t)(size & 0xFF));
+    /* mov r2, #is_write */
+    arm32_emit_u32(c, 0xE3A02000u | (uint32_t)(is_write & 0xFF));
+    /* mov r3, r9 */
+    arm32_emit_u32(c, 0xE1A03009u);
+    /* bl __asan_report_error */
+    aarch32_emit_call(c, "__asan_report_error");
+    /* udf #0 */
+    arm32_emit_u32(c, 0xE7F001F0u);
+    /* .ok: */
+    aarch32_patch_jmp(c, br_ok1, c->text_section.length);
+    aarch32_patch_jmp(c, br_ok2, c->text_section.length);
+}
+
+static void aarch32_emit_asan_check_asm(ZeroCCCompiler *c, int phys, int size, int is_write, FILE *out) {
+    const char *reg = aarch32_get_hw_reg_name(phys);
+    uint32_t check_id = c->asm_san_check_seq++;
+    fprintf(out, "\t@ AddressSanitizer memory access check\n");
+    fprintf(out, "\tlsr\tr12, %s, #3\n", reg);
+    fprintf(out, "\tmovw\tr9, #:lower16:__asan_shadow_offset\n");
+    fprintf(out, "\tmovt\tr9, #:upper16:__asan_shadow_offset\n");
+    fprintf(out, "\tldr\tr9, [r9]\n");
+    fprintf(out, "\tldrb\tr9, [r9, r12]\n");
+    fprintf(out, "\tcmp\tr9, #0\n");
+    fprintf(out, "\tbeq\t.Lasan_ok_%u\n", check_id);
+    fprintf(out, "\tcmp\tr9, #7\n");
+    fprintf(out, "\tbhi\t.Lasan_fail_%u\n", check_id);
+    fprintf(out, "\tand\tr12, %s, #7\n", reg);
+    fprintf(out, "\tadd\tr12, r12, #%d\n", size);
+    fprintf(out, "\tcmp\tr12, r9\n");
+    fprintf(out, "\tbls\t.Lasan_ok_%u\n", check_id);
+    fprintf(out, ".Lasan_fail_%u:\n", check_id);
+    fprintf(out, "\tmov\tr0, %s\n", reg);
+    fprintf(out, "\tmov\tr1, #%d\n", size);
+    fprintf(out, "\tmov\tr2, #%d\n", is_write);
+    fprintf(out, "\tmov\tr3, r9\n");
+    fprintf(out, "\tbl\t__asan_report_error\n");
+    fprintf(out, ".Lasan_ok_%u:\n", check_id);
 }
 
 static void aarch32_emit_push_reg(ZeroCCCompiler *c, int reg) {
@@ -2852,6 +2966,8 @@ void aarch32_init_backend(void) {
     aarch32_backend.emit_trap_asm = aarch32_emit_trap_asm;
     aarch32_backend.emit_ovf_trap = aarch32_emit_ovf_trap;
     aarch32_backend.emit_ovf_trap_asm = aarch32_emit_ovf_trap_asm;
+    aarch32_backend.emit_asan_check = aarch32_emit_asan_check;
+    aarch32_backend.emit_asan_check_asm = aarch32_emit_asan_check_asm;
     aarch32_backend.emit_syscall = aarch32_emit_syscall;
     aarch32_backend.emit_clone = aarch32_emit_clone;
     aarch32_backend.emit_cmp_zero = aarch32_emit_cmp_zero;

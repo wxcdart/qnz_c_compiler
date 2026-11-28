@@ -38,9 +38,16 @@ typedef struct ZeroCCCompiler ZeroCCCompiler;
 #define ZERO_CC_IMAGE_FILE_DLL                 0x2000
 
 /* Data Directory Indices */
-#define ZERO_CC_IMAGE_DIRECTORY_ENTRY_EXPORT   0
-#define ZERO_CC_IMAGE_DIRECTORY_ENTRY_IMPORT   1
-#define ZERO_CC_IMAGE_DIRECTORY_ENTRY_IAT      12
+#define ZERO_CC_IMAGE_DIRECTORY_ENTRY_EXPORT    0
+#define ZERO_CC_IMAGE_DIRECTORY_ENTRY_IMPORT    1
+#define ZERO_CC_IMAGE_DIRECTORY_ENTRY_EXCEPTION 3
+#define ZERO_CC_IMAGE_DIRECTORY_ENTRY_IAT       12
+
+/* Windows x64 SEH Unwind Opcodes */
+#define ZERO_CC_UWOP_PUSH_NONVOL 0
+#define ZERO_CC_UWOP_ALLOC_LARGE 1
+#define ZERO_CC_UWOP_ALLOC_SMALL 2
+#define ZERO_CC_UWOP_SET_FPREG   3
 
 /* Section Characteristics */
 #define ZERO_CC_IMAGE_SCN_CNT_CODE               0x00000020
@@ -181,6 +188,19 @@ typedef struct {
 } ZeroCCCoffReloc;
 
 typedef struct {
+    uint32_t begin_address;
+    uint32_t end_address;
+    uint32_t unwind_info_address;
+} ZeroCCRuntimeFunction;
+
+typedef struct {
+    uint8_t version_and_flags;
+    uint8_t size_of_prolog;
+    uint8_t count_of_codes;
+    uint8_t frame_register_and_offset;
+} ZeroCCUnwindInfoHeader;
+
+typedef struct {
     uint32_t characteristics;
     uint32_t time_date_stamp;
     uint16_t major_version;
@@ -200,6 +220,7 @@ typedef struct {
     bool is_dll;            /* Emit DLL instead of EXE */
     bool is_gui;            /* Windows GUI subsystem instead of CUI */
     const char *dll_name;   /* Basename for export table */
+    bool emit_seh;          /* Emit Windows x64 SEH .pdata/.xdata unwind tables */
 } ZeroCCPeOptions;
 
 /**

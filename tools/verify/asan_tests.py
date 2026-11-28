@@ -164,9 +164,9 @@ def main():
                 print(f"  [FAIL] global overflow AOT -O{opt} did not trap properly (rc={rc_r}, out={out_r[:100]}, err={err_r[:100]})")
                 fails += 1
 
-        # 5. Cross-ISA tests (AArch64 & RISC-V 64)
+        # 5. Cross-ISA tests (AArch64, AArch32 & RISC-V 64)
         print("\n=== Target ASan Multi-ISA (QEMU) Tests ===")
-        for arch, qemu in [("aarch64", "qemu-aarch64-static"), ("riscv64", "qemu-riscv64-static")]:
+        for arch, qemu in [("aarch64", "qemu-aarch64-static"), ("aarch32", "qemu-arm-static"), ("riscv64", "qemu-riscv64-static")]:
             if not shutil.which(qemu):
                 print(f"  [SKIP] {arch} ({qemu} not found)")
                 continue

@@ -1419,6 +1419,24 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
         }
 
         case NODE_INDEX: {
+            if (c->lto_mode && c->lto_ctx) {
+                ZeroCCGlobalVar *agv = NULL;
+                ZeroCCCompiler *aotu = NULL;
+                int64_t aoff = 0;
+                size_t asz = 0;
+                if (zero_cc_lto_eval_aggregate_access((const ZeroCCLTOContext *)c->lto_ctx, c, NULL, arena, ref,
+                                                     &agv, &aotu, &aoff, &asz, 0)) {
+                    int64_t const_val = 0;
+                    if (zero_cc_lto_read_const_global_bytes(agv, aotu, aoff, asz, &const_val)) {
+                        int temp = zc_alloc_temp(c);
+                        ir_emit_mov_imm(c, temp, const_val);
+                        c->last_expr_is_float = 0;
+                        c->last_expr_is_128 = 0;
+                        c->last_expr_is_64 = (asz == 8);
+                        return temp;
+                    }
+                }
+            }
             /* Array indexing: base[index] */
             int array_temp = lower_expr(c, arena, node->left);
             int index_temp = lower_expr(c, arena, node->right);
@@ -1628,6 +1646,24 @@ static int lower_expr_body(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef ref)
         }
 
         case NODE_MEMBER: {
+            if (c->lto_mode && c->lto_ctx) {
+                ZeroCCGlobalVar *agv = NULL;
+                ZeroCCCompiler *aotu = NULL;
+                int64_t aoff = 0;
+                size_t asz = 0;
+                if (zero_cc_lto_eval_aggregate_access((const ZeroCCLTOContext *)c->lto_ctx, c, NULL, arena, ref,
+                                                     &agv, &aotu, &aoff, &asz, 0)) {
+                    int64_t const_val = 0;
+                    if (zero_cc_lto_read_const_global_bytes(agv, aotu, aoff, asz, &const_val)) {
+                        int temp = zc_alloc_temp(c);
+                        ir_emit_mov_imm(c, temp, const_val);
+                        c->last_expr_is_float = 0;
+                        c->last_expr_is_128 = 0;
+                        c->last_expr_is_64 = (asz == 8);
+                        return temp;
+                    }
+                }
+            }
             /* Load member value from memory (Rvalue context) */
             int32_t member_offset = 0;
             int chain_depth = 0;

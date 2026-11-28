@@ -307,6 +307,119 @@ static inline int64_t zc_lto_cast_int_val(const TypeInfo *ti, int64_t v) {
 
 static inline bool zero_cc_lto_eval_expr(
     const ZeroCCLTOContext *lto, ZeroCCCompiler *tu, const ZeroCCFunction *cur_fn,
+    ZeroCCASTArena *arena, ASTRef ref, int64_t *out, int depth);
+
+static inline bool zero_cc_lto_eval_aggregate_access(
+    const ZeroCCLTOContext *lto, ZeroCCCompiler *tu, const ZeroCCFunction *cur_fn,
+    ZeroCCASTArena *arena, ASTRef ref,
+    ZeroCCGlobalVar **out_gv, ZeroCCCompiler **out_owner_tu,
+    int64_t *out_offset, size_t *out_elem_size, int depth)
+{
+    if (!arena || ref == AST_NULL || depth > ZERO_CC_LTO_MAX_DEPTH) return false;
+    const ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
+    if (!n) return false;
+
+    if (n->tag == NODE_IDENT) {
+        if (!n->s.str) return false;
+        bool is_local = false;
+        (void)zc_lto_lookup_local_param(cur_fn, n->s.str, &is_local);
+        if (is_local) return false;
+
+        int owner_idx = -1;
+        ZeroCCGlobalVar *gv = tu ? find_global_var(tu, n->s.str) : NULL;
+        if (gv && gv->is_static) {
+            owner_idx = tu->tu_index;
+        } else if (lto) {
+            gv = zero_cc_lto_find_global_loc(lto, n->s.str, &owner_idx, NULL);
+        }
+        if (!gv) return false;
+        ZeroCCCompiler *owner_tu = (owner_idx >= 0 && lto && owner_idx < lto->tu_count) ? lto->tus[owner_idx] : tu;
+        if (!owner_tu) return false;
+
+        *out_gv = gv;
+        *out_owner_tu = owner_tu;
+        *out_offset = 0;
+        *out_elem_size = gv->size ? gv->size : gv->type.size;
+        return true;
+    }
+    if (n->tag == NODE_MEMBER) {
+        if ((n->flags & NODE_MEMBER_IS_ARROW)) return false;
+        if (!zero_cc_lto_eval_aggregate_access(lto, tu, cur_fn, arena, n->left,
+                                              out_gv, out_owner_tu, out_offset, out_elem_size, depth + 1)) {
+            return false;
+        }
+        *out_offset += (int32_t)n->aux.alt;
+        size_t sz = (size_t)n->aux.step;
+        if (sz == 0 || sz > 8) sz = 4;
+        *out_elem_size = sz;
+        return true;
+    }
+    if (n->tag == NODE_INDEX) {
+        if (!zero_cc_lto_eval_aggregate_access(lto, tu, cur_fn, arena, n->left,
+                                              out_gv, out_owner_tu, out_offset, out_elem_size, depth + 1)) {
+            return false;
+        }
+        int64_t idx = 0;
+        if (!zero_cc_lto_eval_expr(lto, tu, cur_fn, arena, n->right, &idx, depth + 1)) {
+            return false;
+        }
+        if (idx < 0) return false;
+        ZeroCCGlobalVar *gv = *out_gv;
+        size_t esz = 4;
+        if (gv->type.tag == TYPE_ARRAY && gv->type.base && gv->type.base->size > 0) {
+            esz = gv->type.base->size;
+        } else if (*out_elem_size > 0 && *out_elem_size <= 8) {
+            esz = *out_elem_size;
+        }
+        *out_offset += idx * (int64_t)esz;
+        *out_elem_size = esz;
+        return true;
+    }
+    return false;
+}
+
+static inline bool zero_cc_lto_read_const_global_bytes(
+    ZeroCCGlobalVar *gv, ZeroCCCompiler *owner_tu, int64_t offset, size_t sz, int64_t *out)
+{
+    if (!gv || !owner_tu || offset < 0) return false;
+    if (gv->is_tls || gv->is_weak || gv->alias_target[0] || gv->section[0]) return false;
+    bool is_const_data = gv->type.is_const || gv->is_static;
+    if (!is_const_data && gv->type.tag == TYPE_ARRAY && gv->type.base && gv->type.base->is_const) {
+        is_const_data = true;
+    }
+    if (!is_const_data) return false;
+    if (sz != 1 && sz != 2 && sz != 4 && sz != 8) return false;
+
+    if (gv->is_bss) {
+        if ((size_t)offset + sz <= gv->size) {
+            *out = 0;
+            return true;
+        }
+        return false;
+    }
+
+    size_t data_off = gv->data_offset + (size_t)offset;
+    if (data_off + sz > owner_tu->data_section.length || !owner_tu->data_section.data) {
+        return false;
+    }
+    for (size_t di = 0; di < owner_tu->data_reloc_count; di++) {
+        size_t ro = owner_tu->data_relocs[di].data_patch_offset;
+        if (ro + 8 > data_off && ro < data_off + sz) return false;
+    }
+
+    uint64_t raw = 0;
+    const uint8_t *p = (const uint8_t *)owner_tu->data_section.data + data_off;
+    for (size_t b = 0; b < sz; b++) raw |= ((uint64_t)p[b]) << (b * 8);
+
+    if (sz == 1) *out = (int64_t)(int8_t)raw;
+    else if (sz == 2) *out = (int64_t)(int16_t)raw;
+    else if (sz == 4) *out = (int64_t)(int32_t)raw;
+    else *out = (int64_t)raw;
+    return true;
+}
+
+static inline bool zero_cc_lto_eval_expr(
+    const ZeroCCLTOContext *lto, ZeroCCCompiler *tu, const ZeroCCFunction *cur_fn,
     ZeroCCASTArena *arena, ASTRef ref, int64_t *out, int depth) {
     if (!arena || ref == AST_NULL || !out || depth > ZERO_CC_LTO_MAX_DEPTH) return false;
     const ZeroCCASTNode *n = zero_cc_ast_get(arena, ref);
@@ -416,6 +529,18 @@ static inline bool zero_cc_lto_eval_expr(
             if (cfn && cfn->lto_is_const_ret) {
                 *out = cfn->lto_const_ret_val;
                 return true;
+            }
+            return false;
+        }
+        case NODE_MEMBER:
+        case NODE_INDEX: {
+            ZeroCCGlobalVar *agv = NULL;
+            ZeroCCCompiler *aotu = NULL;
+            int64_t aoff = 0;
+            size_t asz = 0;
+            if (zero_cc_lto_eval_aggregate_access(lto, tu, cur_fn, arena, ref,
+                                                 &agv, &aotu, &aoff, &asz, depth + 1)) {
+                return zero_cc_lto_read_const_global_bytes(agv, aotu, aoff, asz, out);
             }
             return false;
         }

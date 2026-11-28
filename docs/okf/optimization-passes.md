@@ -4,7 +4,7 @@ title: Optimization Passes & Safety Invariants
 description: Active IR optimization pipeline (Constant Folding, CopyProp, CSE, GVN, DCE, Mem2Reg, LICM, Auto-Vectorization) and their correctness invariants.
 resource: middleend/optimization-passes
 tags: [optimizations, mem2reg, licm, vectorization, gvn, cse, dce]
-timestamp: 2026-11-28T00:04:36Z
+timestamp: 2026-11-28T03:40:56Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -376,6 +376,16 @@ Sprint 219 extends the loop auto-vectorizer (`opt_vectorize.c`) with conditional
   - Inverses: $-(-x) \to x$, $\sim(\sim x) \to x$.
   - Redundant operations: self register copies `MOV_REG x, x -> NOP`.
 - Basic block containment: constant and definition resolutions are strictly scoped within local basic blocks, preventing unsound cross-branch value assumptions.
+
+### Whole-Program LTO Constant Aggregate Propagation & Dead Global Stripping (Sprint 272)
+- Implemented in `src/zero_cc/core/lto.h` and `src/zero_cc/ir/ast_lowering_expr.c`, executing under `-flto`.
+- **Whole-Program Constant Aggregate Evaluation**:
+  - `zero_cc_lto_eval_aggregate_access` and `zero_cc_lto_read_const_global_bytes` resolve struct member (`NODE_MEMBER`) and array index (`NODE_INDEX`) accesses into `const` globals across translation units at compile time.
+  - Recognizes `const` array qualifiers via `gv->type.base->is_const`.
+  - Folds constant aggregate memory reads directly into `ir_emit_mov_imm` in AST lowering.
+- **Whole-Program Dead Global Data & BSS Stripping**:
+  - `ZeroCCLTODemandCtx` tracks cross-TU global variable address references and direct loads/stores.
+  - Automatically eliminates unreferenced internal/static global variables and BSS symbols from final ELF/PE binary emissions.
 
 ## Known Issues Surfaced During Sprint 39 (ALL RESOLVED in Sprint 40)
 

@@ -911,7 +911,7 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             /* Collect call arguments: args 0/1 from OP_CALL itself,
              * args 2+ from OP_CALL_ARG pseudo-instructions that follow
              * in the stream (Sprint 151c). */
-            int call_arg_count = (int)instr->temp_dest;
+            int call_arg_count = (instr->temp_dest == TEMP_NONE) ? 0 : (int)instr->temp_dest;
             int unpacked_temps[IR_CALL_MAX_ARGS];
             int unpacked_is_fp[IR_CALL_MAX_ARGS];
             int unpacked_stack_pos[IR_CALL_MAX_ARGS];

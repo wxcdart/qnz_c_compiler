@@ -86,6 +86,7 @@ typedef struct {
     int is_shared;          /* -shared: emit dynamic library (.so / .dll / .dylib) */
     int is_windows_gui;     /* -mwindows: Windows GUI subsystem (subsystem = 2) */
     int is_win64_abi;       /* -mabi=ms / -mabi=win64: Microsoft x64 Calling Convention */
+    int emit_seh;           /* -fseh / -funwind-tables / -fexceptions: Windows x64 SEH unwind tables (.pdata / .xdata) */
     int run_pe;             /* --run-pe: execute PE32+ in-process (Sprint 261) */
     int run_macho;          /* --run-macho: execute Mach-O 64-bit in-process (Sprint 261) */
     int jit_argc;           /* JIT main argc */
@@ -470,6 +471,12 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
         }
         else if (strcmp(arg, "-mabi=sysv") == 0) {
             opts->is_win64_abi = 0;
+        }
+        else if (strcmp(arg, "-fseh") == 0 || strcmp(arg, "-funwind-tables") == 0 || strcmp(arg, "-fexceptions") == 0) {
+            opts->emit_seh = 1;
+        }
+        else if (strcmp(arg, "-fno-seh") == 0 || strcmp(arg, "-fno-unwind-tables") == 0 || strcmp(arg, "-fno-exceptions") == 0) {
+            opts->emit_seh = 0;
         }
         else if ((strcmp(arg, "--target") == 0 && i + 1 < argc) || strncmp(arg, "--target=", 9) == 0) {
             if (strncmp(arg, "--target=", 9) == 0) {

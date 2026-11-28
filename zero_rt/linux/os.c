@@ -120,7 +120,7 @@ int zeroc_rt_futex_wake(int *uaddr, int count) {
     return (int)ret;
 }
 
-void *zeroc_rt_mmap(void *addr, uint64_t length, int prot, int flags, int fd, int64_t offset) {
+void *zeroc_rt_mmap(void *addr, size_t length, int prot, int flags, int fd, long offset) {
 #if RT_TARGET_AARCH32
     long ret = __zerocc_syscall(RT_SYS_MMAP, (long)addr, (long)length,
                                 (long)prot, (long)flags, (long)fd, (long)(offset >> 12));

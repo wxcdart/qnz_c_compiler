@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-28T02:17:41Z
+timestamp: 2026-11-28T03:40:56Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1821,3 +1821,15 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-28 — Updated `target-abstraction-roadmap.md`
 - Sprint 270: Mach-O Multi-Architecture Universal / Fat Binary Packaging
+
+## 2026-11-28 — Updated `sanitizer-roadmap.md`
+- Sprint 271: Target-Side AddressSanitizer (ASan) AArch32 Multi-ISA Completion
+
+## 2026-11-28 — Updated `optimization-passes.md`
+- Sprint 272: Whole-Program LTO Dead Global Data Stripping & Const Aggregate Propagation
+
+## 2026-11-28 — Updated `frontend-and-types.md`
+- Sprint 273: Modern ISO C23 <stdbit.h> Type-Generic Bit Operations & Builtin Lowering
+
+## 2026-11-28 — Updated `target-abstraction-roadmap.md`
+- Sprint 274: Windows PE/COFF Structured Exception Handling (SEH) & Unwind Tables

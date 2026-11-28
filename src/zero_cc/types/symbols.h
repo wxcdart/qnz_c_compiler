@@ -97,6 +97,7 @@ typedef struct ZeroCCCompiler {
     /* Windows PE/COFF declspec attributes */
     int pending_dllimport;
     int pending_dllexport;
+    bool emit_seh;
 
     ZeroCCSym *locals;
     size_t local_count;

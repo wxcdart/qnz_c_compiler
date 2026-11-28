@@ -94,7 +94,7 @@ int zeroc_rt_futex_wake(int *uaddr, int count) {
     return 0;
 }
 
-void *zeroc_rt_mmap(void *addr, uint64_t length, int prot, int flags, int fd, int64_t offset) {
+void *zeroc_rt_mmap(void *addr, size_t length, int prot, int flags, int fd, long offset) {
     (void)addr; (void)length; (void)prot; (void)flags; (void)fd; (void)offset;
     return (void *)-1;
 }
