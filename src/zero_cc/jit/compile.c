@@ -804,6 +804,7 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
                 if (c->function_count < ZERO_CC_MAX_FUNCTIONS) {
                     ZeroCCFunction *fn2 = &c->functions[c->function_count++];
                     memset(fn2, 0, sizeof(*fn2));
+                    fn2->owner_tu = c->tu_index;
                     snprintf(fn2->name, sizeof(fn2->name), "%s", fn2_name);
                     fn2->text_offset = 0;
                     fn2->param_count = param_count - p2_base;
@@ -946,6 +947,7 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
         if (c->function_count < ZERO_CC_MAX_FUNCTIONS) {
             ZeroCCFunction *fn = &c->functions[c->function_count++];
             memset(fn, 0, sizeof(*fn));
+            fn->owner_tu = c->tu_index;
             snprintf(fn->name, sizeof(fn->name), "%s", fn_name);
             if (fn_asm[0]) {
                 snprintf(fn->asm_name, sizeof(fn->asm_name), "%s", fn_asm);
@@ -1003,6 +1005,7 @@ void zero_cc_compile_function(ZeroCCCompiler *c, SemContext *ctx, Arena *perm) {
         if (c->function_count >= ZERO_CC_MAX_FUNCTIONS) return;
         ZeroCCFunction *fn = &c->functions[c->function_count++];
         memset(fn, 0, sizeof(*fn));
+        fn->owner_tu = c->tu_index;
         /* Sprint 99: top-level functions terminate the nested-enclosing
          * chain; the zero-init default (0) would make ancestor walks
          * (following nested_enclosing_fn_idx) loop on index 0 forever. */

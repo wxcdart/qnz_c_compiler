@@ -165,6 +165,7 @@ static inline int add_global_var(ZeroCCCompiler *c, const char *name, ZeroCCType
     gv->is_bss = (!has_init && size >= ZERO_CC_BSS_THRESHOLD);
     gv->alias_target[0] = '\0';
     gv->section[0] = '\0';
+    gv->owner_tu = c->tu_index;
     if (c->pending_section[0]) {
         strncpy(gv->section, c->pending_section, sizeof(gv->section) - 1);
         gv->section[sizeof(gv->section) - 1] = '\0';

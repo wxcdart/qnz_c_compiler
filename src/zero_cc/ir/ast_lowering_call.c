@@ -724,13 +724,18 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                 }
             }
 
-            /* Sprint 217: Inter-Procedural Constant Propagation & Function Cloning:
-             * If callee is static, has a saved AST body (lto_body), is not variadic,
-             * and has compile-time constant scalar arguments, specialize into a clone. */
-            if (callee_fn && callee_fn->is_static && callee_fn->lto_body != AST_NULL &&
-                !callee_fn->is_variadic && !callee_fn->is_clone &&
-                (c->opt_level >= OPT_LEVEL_O2 || c->lto_mode) &&
-                c->lowering.inlining.active_depth == 0 && callee_fn->param_count <= 8) {
+            /* Sprint 217 & Sprint 267: Inter-Procedural Constant Propagation & Function Cloning:
+             * If callee has a saved AST body (lto_body), is not variadic, and has
+             * compile-time constant scalar arguments, specialize into a dedicated clone.
+             * Extended in Sprint 267 to support:
+             *   - Static functions and non-static global functions under -flto
+             *   - Cross-TU functions under -flto (cloned in owning callee TU) */
+            bool can_specialize = callee_fn && (callee_fn->is_static || c->lto_mode) &&
+                                  callee_fn->lto_body != AST_NULL &&
+                                  !callee_fn->is_variadic && !callee_fn->is_clone &&
+                                  (c->opt_level >= OPT_LEVEL_O2 || c->lto_mode) &&
+                                  c->lowering.inlining.active_depth == 0 && callee_fn->param_count <= 8;
+            if (can_specialize) {
                 bool has_const = false;
                 bool p_is_c[8] = {false};
                 int64_t p_val[8] = {0};
@@ -760,12 +765,21 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                     p_i++;
                 }
                 if (has_const) {
-                    /* Look for existing matching clone */
+                    ZeroCCCompiler *callee_tu = c;
+                    if (c->lto_mode && c->lto_ctx) {
+                        ZeroCCLTOContext *lto_ctx = (ZeroCCLTOContext *)c->lto_ctx;
+                        if (callee_fn->owner_tu >= 0 && callee_fn->owner_tu < lto_ctx->tu_count &&
+                            lto_ctx->tus[callee_fn->owner_tu]) {
+                            callee_tu = lto_ctx->tus[callee_fn->owner_tu];
+                        }
+                    }
+
+                    /* Look for existing matching clone in callee_tu */
                     ZeroCCFunction *match_clone = NULL;
-                    size_t orig_fn_idx = (size_t)(callee_fn - c->functions);
+                    size_t orig_fn_idx = (size_t)(callee_fn - callee_tu->functions);
                     size_t clone_count_for_orig = 0;
-                    for (size_t fi = 0; fi < c->function_count; fi++) {
-                        ZeroCCFunction *f = &c->functions[fi];
+                    for (size_t fi = 0; fi < callee_tu->function_count; fi++) {
+                        ZeroCCFunction *f = &callee_tu->functions[fi];
                         if (f->is_clone && f->clone_orig_fn_idx == orig_fn_idx) {
                             clone_count_for_orig++;
                             bool same = true;
@@ -779,15 +793,16 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                             }
                         }
                     }
-                    if (!match_clone && clone_count_for_orig < 8 && c->function_count < ZERO_CC_MAX_FUNCTIONS) {
-                        ZeroCCFunction *clone = &c->functions[c->function_count++];
+                    if (!match_clone && clone_count_for_orig < 8 && callee_tu->function_count < ZERO_CC_MAX_FUNCTIONS) {
+                        ZeroCCFunction *clone = &callee_tu->functions[callee_tu->function_count++];
                         memcpy(clone, callee_fn, sizeof(ZeroCCFunction));
                         clone->is_clone = true;
                         clone->clone_orig_fn_idx = orig_fn_idx;
-                        clone->is_static = true;
+                        clone->owner_tu = callee_tu->tu_index;
+                        clone->is_static = (callee_tu == c && callee_fn->is_static);
                         clone->text_offset = 0;
                         clone->text_size = 0;
-                        clone->lto_defer = false;
+                        clone->lto_defer = (c->lto_mode && callee_tu->lto_phase == 2) ? true : false;
                         clone->lto_lowered = false;
                         clone->can_inline = false;
                         clone->dwarf_vars = NULL;
@@ -823,6 +838,23 @@ int lower_expr_call(ZeroCCCompiler *c, ZeroCCASTArena *arena, ZeroCCASTNode *nod
                     }
                     if (match_clone) {
                         callee_fn = match_clone;
+                        name = match_clone->name;
+                        if (callee_tu != c && !zero_cc_find_function(c, match_clone->name)) {
+                            if (c->function_count < ZERO_CC_MAX_FUNCTIONS) {
+                                ZeroCCFunction *ext_fn = &c->functions[c->function_count++];
+                                memset(ext_fn, 0, sizeof(*ext_fn));
+                                snprintf(ext_fn->name, sizeof(ext_fn->name), "%s", match_clone->name);
+                                ext_fn->owner_tu = c->tu_index;
+                                ext_fn->is_prototype = true;
+                                ext_fn->has_prototype = true;
+                                ext_fn->is_external = true;
+                                ext_fn->return_type = match_clone->return_type;
+                                ext_fn->returns_struct = match_clone->returns_struct;
+                                ext_fn->ret_struct_sz = match_clone->ret_struct_sz;
+                                ext_fn->param_count = match_clone->param_count;
+                                ext_fn->param_types = match_clone->param_types;
+                            }
+                        }
                     }
                 }
             }

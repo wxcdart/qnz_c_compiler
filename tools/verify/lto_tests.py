@@ -236,6 +236,41 @@ def test_struct_abi(tmp):
     print("  [PASS] Cross-TU struct by-value and struct return under -flto")
 
 
+def test_cross_tu_ipcp_cloning(tmp):
+    tu1 = os.path.join(tmp, "ipcp1.c")
+    tu2 = os.path.join(tmp, "ipcp2.c")
+    out = os.path.join(tmp, "bin_ipcp")
+
+    with open(tu1, "w") as f:
+        f.write("""extern int compute_op(int x, int mode);
+                   int main(void) {
+                       int a = compute_op(10, 0);
+                       int b = compute_op(20, 1);
+                       return (a == 30 && b == 30) ? 0 : 1;
+                   }\n""")
+    with open(tu2, "w") as f:
+        f.write("""int compute_op(int x, int mode) {
+                       if (mode == 0) {
+                           return x * 3;
+                       } else if (mode == 1) {
+                           return x + 10;
+                       } else {
+                           return x - 5;
+                       }
+                   }\n""")
+
+    rc, _, err = run_cmd([BIN, "-O2", "-flto", tu1, tu2, "-o", out])
+    assert rc == 0, f"Cross-TU IPCP build failed: {err}"
+    rc_run, _, _ = run_cmd([out])
+    assert rc_run == 0, f"Cross-TU IPCP run failed: rc={rc_run}"
+
+    rc_nm, stdout_nm, _ = run_cmd(["nm", out])
+    assert rc_nm == 0
+    assert "compute_op.const" in stdout_nm or "<compute_op>" not in stdout_nm, \
+        "Expected specialized clone or inlining of compute_op!"
+    print("  [PASS] Cross-TU inter-procedural constant propagation & specialization")
+
+
 def main():
     if not os.path.isfile(BIN):
         print(f"Error: {BIN} not found. Run make first.", file=sys.stderr)
@@ -255,9 +290,10 @@ def main():
         test_mixed_lto_objects(tmp)
         test_static_scope_isolation(tmp)
         test_struct_abi(tmp)
+        test_cross_tu_ipcp_cloning(tmp)
 
     print("============================================================")
-    print("Results: All 9 LTO Battery Tests PASSED!")
+    print("Results: All 10 LTO Battery Tests PASSED!")
     print("============================================================")
     return 0
 

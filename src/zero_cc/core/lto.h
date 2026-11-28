@@ -1112,12 +1112,38 @@ static inline int zero_cc_lto_analyze(ZeroCCLTOContext *lto) {
 typedef struct {
     ZeroCCLTOContext *lto;
     uint8_t *live_fn[ZERO_CC_MAX_LTO_TUS];
+    size_t live_fn_cap[ZERO_CC_MAX_LTO_TUS];
     uint8_t *live_gv[ZERO_CC_MAX_LTO_TUS];
+    size_t live_gv_cap[ZERO_CC_MAX_LTO_TUS];
     ZeroCCLTOFnItem *q;
     size_t q_head;
     size_t q_tail;
     size_t q_cap;
 } ZeroCCLTODemandCtx;
+
+static inline void zc_lto_demand_ensure_fn_cap(ZeroCCLTODemandCtx *dc, int tu_idx, size_t needed) {
+    if (tu_idx < 0 || tu_idx >= dc->lto->tu_count) return;
+    if (needed <= dc->live_fn_cap[tu_idx]) return;
+    size_t ncap = dc->live_fn_cap[tu_idx] ? dc->live_fn_cap[tu_idx] * 2 : 128;
+    while (ncap < needed) ncap *= 2;
+    uint8_t *ng = (uint8_t *)realloc(dc->live_fn[tu_idx], ncap);
+    if (!ng) return;
+    memset(ng + dc->live_fn_cap[tu_idx], 0, ncap - dc->live_fn_cap[tu_idx]);
+    dc->live_fn[tu_idx] = ng;
+    dc->live_fn_cap[tu_idx] = ncap;
+}
+
+static inline void zc_lto_demand_ensure_gv_cap(ZeroCCLTODemandCtx *dc, int tu_idx, size_t needed) {
+    if (tu_idx < 0 || tu_idx >= dc->lto->tu_count) return;
+    if (needed <= dc->live_gv_cap[tu_idx]) return;
+    size_t ncap = dc->live_gv_cap[tu_idx] ? dc->live_gv_cap[tu_idx] * 2 : 128;
+    while (ncap < needed) ncap *= 2;
+    uint8_t *ng = (uint8_t *)realloc(dc->live_gv[tu_idx], ncap);
+    if (!ng) return;
+    memset(ng + dc->live_gv_cap[tu_idx], 0, ncap - dc->live_gv_cap[tu_idx]);
+    dc->live_gv[tu_idx] = ng;
+    dc->live_gv_cap[tu_idx] = ncap;
+}
 
 static inline void zc_lto_demand_push_fn(ZeroCCLTODemandCtx *dc, int tu_idx, size_t fn_idx) {
     if (tu_idx < 0 || tu_idx >= dc->lto->tu_count) return;
@@ -1125,6 +1151,7 @@ static inline void zc_lto_demand_push_fn(ZeroCCLTODemandCtx *dc, int tu_idx, siz
     if (!tu || fn_idx >= tu->function_count) return;
     ZeroCCFunction *fn = &tu->functions[fn_idx];
     if (fn->is_prototype || fn->is_external || fn->is_object || fn->lto_eliminated) return;
+    zc_lto_demand_ensure_fn_cap(dc, tu_idx, fn_idx + 1);
     if (dc->live_fn[tu_idx][fn_idx]) return;
     dc->live_fn[tu_idx][fn_idx] = 1;
     if (dc->q_tail >= dc->q_cap) {
@@ -1144,7 +1171,9 @@ static inline void zc_lto_demand_mark_gv(ZeroCCLTODemandCtx *dc, int tu_idx, siz
     ZeroCCCompiler *tu = dc->lto->tus[tu_idx];
     if (!tu || gv_idx >= tu->global_var_count) return;
     ZeroCCGlobalVar *gv = &tu->global_vars[gv_idx];
-    if (gv->lto_eliminated || dc->live_gv[tu_idx][gv_idx]) return;
+    if (gv->lto_eliminated) return;
+    zc_lto_demand_ensure_gv_cap(dc, tu_idx, gv_idx + 1);
+    if (dc->live_gv[tu_idx][gv_idx]) return;
     dc->live_gv[tu_idx][gv_idx] = 1;
 
     if (gv->alias_target[0]) {
@@ -1210,8 +1239,12 @@ static inline int zero_cc_lto_optimize_and_lower(ZeroCCLTOContext *lto) {
         ZeroCCCompiler *tu = lto->tus[t];
         tu->lto_ctx = lto;
         tu->lto_phase = 2;
-        dc.live_fn[t] = (uint8_t *)calloc(tu->function_count + 1, 1);
-        dc.live_gv[t] = (uint8_t *)calloc(tu->global_var_count + 1, 1);
+        size_t init_fn_cap = tu->function_count > 64 ? tu->function_count + 64 : 128;
+        size_t init_gv_cap = tu->global_var_count > 64 ? tu->global_var_count + 64 : 128;
+        dc.live_fn[t] = (uint8_t *)calloc(init_fn_cap, 1);
+        dc.live_fn_cap[t] = init_fn_cap;
+        dc.live_gv[t] = (uint8_t *)calloc(init_gv_cap, 1);
+        dc.live_gv_cap[t] = init_gv_cap;
 
         /* Non-deferred functions (e.g. GNU nested functions) already lowered in Phase 1. */
         bool has_opaque = (tu->file_scope_asm_count > 0);
@@ -1249,7 +1282,7 @@ static inline int zero_cc_lto_optimize_and_lower(ZeroCCLTOContext *lto) {
         ZeroCCLTOFnItem it = dc.q[dc.q_head++];
         ZeroCCCompiler *tu = lto->tus[it.tu_idx];
         ZeroCCFunction *fn = &tu->functions[it.fn_idx];
-        if (fn->lto_defer && !fn->lto_lowered && !fn->lto_eliminated) {
+        if ((fn->lto_defer || fn->is_clone) && !fn->lto_lowered && !fn->lto_eliminated) {
             size_t reloc_before = tu->reloc_count;
             zero_cc_lower_deferred_fn(tu, fn);
             if (tu->had_error) {
@@ -1280,7 +1313,7 @@ static inline int zero_cc_lto_optimize_and_lower(ZeroCCLTOContext *lto) {
         for (size_t fi = 0; fi < tu->function_count; fi++) {
             ZeroCCFunction *fn = &tu->functions[fi];
             if (!fn->is_prototype && !fn->is_external && !fn->is_object &&
-                !dc.live_fn[t][fi] && fn->lto_defer && !fn->lto_lowered) {
+                !dc.live_fn[t][fi] && (fn->lto_defer || fn->is_clone) && !fn->lto_lowered) {
                 fn->lto_eliminated = true;
             }
         }

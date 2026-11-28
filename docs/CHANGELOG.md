@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## [Sprint 267] - 2026-11-28 - Link-Time Optimization (LTO) Cross-TU Global Inlining & Constant Propagation
+
+- **Cross-TU Function Specialization & IPCP (`src/zero_cc/ir/ast_lowering_call.c`, `src/zero_cc/core/lto.h`)**:
+  - Lifted static-only restriction on function cloning/specialization under `-flto`: non-static global functions called with compile-time constant arguments are now cloned into specialized variants (`fn.const_p...`).
+  - Added cross-TU function cloning support: when a foreign TU function is invoked with constant parameters under LTO, the specialized variant is instantiated in the foreign callee's owning translation unit (`callee_tu`).
+  - Automatically registered external prototype definitions in the caller TU for cross-TU specialized clones, enabling seamless cross-module relocation and link resolution.
+- **Dynamic Capacity & Demand Lowering (`src/zero_cc/core/lto.h`, `src/zero_cc/jit/compile.c`, `src/zero_cc/types/global_vars.h`)**:
+  - Implemented dynamic bitmask reallocation (`zc_lto_demand_ensure_fn_cap`, `zc_lto_demand_ensure_gv_cap`) in `ZeroCCLTODemandCtx` to safely accommodate on-the-fly specialized clone generation during LTO Phase 2 lowering.
+  - Updated LTO demand-driven worklist to track, lower, and prune specialized function clones (`fn->is_clone || fn->lto_defer`).
+  - Initialized `owner_tu` across all function declarators, prototypes, definitions, and global variable registrations.
+- **Verification (`tools/verify/lto_tests.py`)**:
+  - Added `test_cross_tu_ipcp_cloning` verifying cross-module constant argument propagation, branch pruning, and symbol specialization under `-O2 -flto`.
+  - 10/10 tests pass cleanly in `lto_tests.py`.
+
 ## [Sprint 266] - 2026-11-28 - Full UndefinedBehaviorSanitizer (UBSan) Soundness & Trapping Battery
 
 - **UBSan Check Additions (`src/zero_cc/isa/isa_backend.h`, `zero_rt/core/san_report.c`, `zero_rt/jit/san_report_host.c`)**:
