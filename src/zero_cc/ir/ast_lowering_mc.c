@@ -1893,6 +1893,110 @@ void emit_ir_to_machine_code(ZeroCCCompiler *c, int32_t spill_base_offset) {
                 }
                 break;
 
+            case OP_V256_PADDB:
+                if (c->emit_asm && BE(c)->emit_v256_paddb_asm) {
+                    BE(c)->emit_v256_paddb_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v256_paddb) {
+                    BE(c)->emit_v256_paddb(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
+            case OP_V256_PSUBB:
+                if (c->emit_asm && BE(c)->emit_v256_psubb_asm) {
+                    BE(c)->emit_v256_psubb_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v256_psubb) {
+                    BE(c)->emit_v256_psubb(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
+            case OP_V256_PADDW:
+                if (c->emit_asm && BE(c)->emit_v256_paddw_asm) {
+                    BE(c)->emit_v256_paddw_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v256_paddw) {
+                    BE(c)->emit_v256_paddw(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
+            case OP_V256_PSUBW:
+                if (c->emit_asm && BE(c)->emit_v256_psubw_asm) {
+                    BE(c)->emit_v256_psubw_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v256_psubw) {
+                    BE(c)->emit_v256_psubw(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
+            case OP_V256_PMULLW:
+                if (c->emit_asm && BE(c)->emit_v256_pmullw_asm) {
+                    BE(c)->emit_v256_pmullw_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v256_pmullw) {
+                    BE(c)->emit_v256_pmullw(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
+            case OP_V256_PADDD:
+                if (c->emit_asm && BE(c)->emit_v256_paddd_asm) {
+                    BE(c)->emit_v256_paddd_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v256_paddd) {
+                    BE(c)->emit_v256_paddd(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
+            case OP_V256_PSUBD:
+                if (c->emit_asm && BE(c)->emit_v256_psubd_asm) {
+                    BE(c)->emit_v256_psubd_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v256_psubd) {
+                    BE(c)->emit_v256_psubd(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
+            case OP_V256_PMULLD:
+                if (c->emit_asm && BE(c)->emit_v256_pmulld_asm) {
+                    BE(c)->emit_v256_pmulld_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v256_pmulld) {
+                    BE(c)->emit_v256_pmulld(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
+            case OP_V256_PADDQ:
+                if (c->emit_asm && BE(c)->emit_v256_paddq_asm) {
+                    BE(c)->emit_v256_paddq_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v256_paddq) {
+                    BE(c)->emit_v256_paddq(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
+            case OP_V256_PSUBQ:
+                if (c->emit_asm && BE(c)->emit_v256_psubq_asm) {
+                    BE(c)->emit_v256_psubq_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v256_psubq) {
+                    BE(c)->emit_v256_psubq(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
+            case OP_V256_PAND:
+                if (c->emit_asm && BE(c)->emit_v256_pand_asm) {
+                    BE(c)->emit_v256_pand_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v256_pand) {
+                    BE(c)->emit_v256_pand(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
+            case OP_V256_POR:
+                if (c->emit_asm && BE(c)->emit_v256_por_asm) {
+                    BE(c)->emit_v256_por_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v256_por) {
+                    BE(c)->emit_v256_por(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
+            case OP_V256_PXOR:
+                if (c->emit_asm && BE(c)->emit_v256_pxor_asm) {
+                    BE(c)->emit_v256_pxor_asm(c, phys_dst, phys_src1, phys_src2, c->asm_out);
+                } else if (!c->emit_asm && BE(c)->emit_v256_pxor) {
+                    BE(c)->emit_v256_pxor(c, phys_dst, phys_src1, phys_src2);
+                }
+                break;
+
             /* =========================================================================
              * 512-bit AVX-512 Instruction Emission
              * ========================================================================= */

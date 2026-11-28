@@ -197,7 +197,12 @@ static void x86_emit_frame_teardown(ZeroCCCompiler *c) {
     }
 }
 
+static void x86_emit_v256_zeroupper(ZeroCCCompiler *c);
+
 static void x86_emit_epilogue(ZeroCCCompiler *c) {
+    if (c->used_avx) {
+        x86_emit_v256_zeroupper(c);
+    }
     if (!c->lowering.is_frameless) {
         if (c->lowering.omit_frame_pointer) {
             x86_emit_frame_teardown(c);
@@ -802,6 +807,97 @@ static void x86_emit_v256_zeroupper(ZeroCCCompiler *c) {
     me_emit_u8(c, 0xC5);
     me_emit_u8(c, 0xF8);
     me_emit_u8(c, 0x77);
+}
+
+static void x86_emit_v256_paddb(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    c->used_avx = true;
+    x86_vex(c, 1, 1, 0, dst, src2, src1, 1);
+    me_emit_u8(c, 0xFC);
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_v256_psubb(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    c->used_avx = true;
+    x86_vex(c, 1, 1, 0, dst, src2, src1, 1);
+    me_emit_u8(c, 0xF8);
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_v256_paddw(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    c->used_avx = true;
+    x86_vex(c, 1, 1, 0, dst, src2, src1, 1);
+    me_emit_u8(c, 0xFD);
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_v256_psubw(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    c->used_avx = true;
+    x86_vex(c, 1, 1, 0, dst, src2, src1, 1);
+    me_emit_u8(c, 0xF9);
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_v256_pmullw(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    c->used_avx = true;
+    x86_vex(c, 1, 1, 0, dst, src2, src1, 1);
+    me_emit_u8(c, 0xD5);
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_v256_paddd(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    c->used_avx = true;
+    x86_vex(c, 1, 1, 0, dst, src2, src1, 1);
+    me_emit_u8(c, 0xFE);
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_v256_psubd(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    c->used_avx = true;
+    x86_vex(c, 1, 1, 0, dst, src2, src1, 1);
+    me_emit_u8(c, 0xFA);
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_v256_pmulld(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    c->used_avx = true;
+    x86_vex(c, 2, 1, 0, dst, src2, src1, 1);
+    me_emit_u8(c, 0x40);
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_v256_paddq(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    c->used_avx = true;
+    x86_vex(c, 1, 1, 0, dst, src2, src1, 1);
+    me_emit_u8(c, 0xD4);
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_v256_psubq(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    c->used_avx = true;
+    x86_vex(c, 1, 1, 0, dst, src2, src1, 1);
+    me_emit_u8(c, 0xFB);
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_v256_pand(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    c->used_avx = true;
+    x86_vex(c, 1, 1, 0, dst, src2, src1, 1);
+    me_emit_u8(c, 0xDB);
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_v256_por(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    c->used_avx = true;
+    x86_vex(c, 1, 1, 0, dst, src2, src1, 1);
+    me_emit_u8(c, 0xEB);
+    x86_modrm(c, 3, dst & 7, src2 & 7);
+}
+
+static void x86_emit_v256_pxor(ZeroCCCompiler *c, int dst, int src1, int src2) {
+    c->used_avx = true;
+    x86_vex(c, 1, 1, 0, dst, src2, src1, 1);
+    me_emit_u8(c, 0xEF);
+    x86_modrm(c, 3, dst & 7, src2 & 7);
 }
 
 /* =========================================================================
@@ -3114,6 +3210,19 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_v256_vorps = x86_emit_v256_orps,
     .emit_v256_vxorps = x86_emit_v256_vxorps,
     .emit_v256_zeroupper = x86_emit_v256_zeroupper,
+    .emit_v256_paddb = x86_emit_v256_paddb,
+    .emit_v256_psubb = x86_emit_v256_psubb,
+    .emit_v256_paddw = x86_emit_v256_paddw,
+    .emit_v256_psubw = x86_emit_v256_psubw,
+    .emit_v256_pmullw = x86_emit_v256_pmullw,
+    .emit_v256_paddd = x86_emit_v256_paddd,
+    .emit_v256_psubd = x86_emit_v256_psubd,
+    .emit_v256_pmulld = x86_emit_v256_pmulld,
+    .emit_v256_paddq = x86_emit_v256_paddq,
+    .emit_v256_psubq = x86_emit_v256_psubq,
+    .emit_v256_pand = x86_emit_v256_pand,
+    .emit_v256_por = x86_emit_v256_por,
+    .emit_v256_pxor = x86_emit_v256_pxor,
     .emit_v512_load = x86_emit_v512_load,
     .emit_v512_store = x86_emit_v512_store,
     .emit_v512_addps = x86_emit_v512_addps,
@@ -3362,6 +3471,19 @@ ZeroCCISABackend x86_64_backend = {  /* writable: ASM emit pointers are filled i
     .emit_v256_vorps_asm = x86_emit_v256_orps_asm,
     .emit_v256_vxorps_asm = x86_emit_v256_vxorps_asm,
     .emit_v256_zeroupper_asm = x86_emit_v256_zeroupper_asm,
+    .emit_v256_paddb_asm = x86_emit_v256_paddb_asm,
+    .emit_v256_psubb_asm = x86_emit_v256_psubb_asm,
+    .emit_v256_paddw_asm = x86_emit_v256_paddw_asm,
+    .emit_v256_psubw_asm = x86_emit_v256_psubw_asm,
+    .emit_v256_pmullw_asm = x86_emit_v256_pmullw_asm,
+    .emit_v256_paddd_asm = x86_emit_v256_paddd_asm,
+    .emit_v256_psubd_asm = x86_emit_v256_psubd_asm,
+    .emit_v256_pmulld_asm = x86_emit_v256_pmulld_asm,
+    .emit_v256_paddq_asm = x86_emit_v256_paddq_asm,
+    .emit_v256_psubq_asm = x86_emit_v256_psubq_asm,
+    .emit_v256_pand_asm = x86_emit_v256_pand_asm,
+    .emit_v256_por_asm = x86_emit_v256_por_asm,
+    .emit_v256_pxor_asm = x86_emit_v256_pxor_asm,
     .emit_v512_load_asm = x86_emit_v512_load_asm,
     .emit_v512_store_asm = x86_emit_v512_store_asm,
     .emit_v512_addps_asm = x86_emit_v512_addps_asm,

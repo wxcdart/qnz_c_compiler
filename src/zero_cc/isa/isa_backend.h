@@ -242,6 +242,19 @@ typedef struct ZeroCCISABackend {
     void (*emit_v256_vorps_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
     void (*emit_v256_vxorps_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
     void (*emit_v256_zeroupper_asm)(ZeroCCCompiler *c, FILE *out);
+    void (*emit_v256_paddb_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_v256_psubb_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_v256_paddw_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_v256_psubw_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_v256_pmullw_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_v256_paddd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_v256_psubd_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_v256_pmulld_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_v256_paddq_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_v256_psubq_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_v256_pand_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_v256_por_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
+    void (*emit_v256_pxor_asm)(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out);
     /* 512-bit AVX-512 vector instruction emission (x86-64 EVEX) */
     void (*emit_v512_load_asm)(ZeroCCCompiler *c, int dst, int base, int32_t offset, FILE *out);
     void (*emit_v512_store_asm)(ZeroCCCompiler *c, int src, int base, int32_t offset, FILE *out);
@@ -580,6 +593,19 @@ typedef struct ZeroCCISABackend {
     void (*emit_v256_vorps)(ZeroCCCompiler *c, int dst, int src1, int src2);
     void (*emit_v256_vxorps)(ZeroCCCompiler *c, int dst, int src1, int src2);
     void (*emit_v256_zeroupper)(ZeroCCCompiler *c);
+    void (*emit_v256_paddb)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_v256_psubb)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_v256_paddw)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_v256_psubw)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_v256_pmullw)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_v256_paddd)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_v256_psubd)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_v256_pmulld)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_v256_paddq)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_v256_psubq)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_v256_pand)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_v256_por)(ZeroCCCompiler *c, int dst, int src1, int src2);
+    void (*emit_v256_pxor)(ZeroCCCompiler *c, int dst, int src1, int src2);
     /* 512-bit AVX-512 vector raw binary emission (x86-64 EVEX) */
     void (*emit_v512_load)(ZeroCCCompiler *c, int dst, int base, int32_t offset);
     void (*emit_v512_store)(ZeroCCCompiler *c, int src, int base, int32_t offset);

@@ -1,5 +1,22 @@
 # CHANGELOG
 
+## [Sprint 264] - 2026-11-28 - 256-bit AVX / AVX2 Vector Operations & Loop Auto-Vectorization
+
+- **AVX2 256-bit Integer IR Opcodes (`src/zero_cc/ir/ir.h`, `src/zero_cc/ir/ir.c`)**:
+  - Added 256-bit packed integer arithmetic and bitwise opcodes: `OP_V256_PADDB`, `OP_V256_PSUBB`, `OP_V256_PADDW`, `OP_V256_PSUBW`, `OP_V256_PMULLW`, `OP_V256_PADDD`, `OP_V256_PSUBD`, `OP_V256_PMULLD`, `OP_V256_PADDQ`, `OP_V256_PSUBQ`, `OP_V256_PAND`, `OP_V256_POR`, `OP_V256_PXOR`.
+  - Registered all new opcodes in `ir_op_name`, `ir_opcode_is_simd`, and IR dump formatters.
+- **x86-64 VEX Encoding & Assembly Emitters (`src/zero_cc/isa/x86_64.c`, `src/zero_cc/isa/x86_64_asm.c`, `src/zero_cc/isa/isa_backend.h`)**:
+  - Implemented raw binary emitters for all 256-bit integer operations using 2-byte (`0xC5`) and 3-byte (`0xC4`) VEX prefixes with `L=1` targeting YMM registers `%ymm0..%ymm15`.
+  - Implemented assembly text emitters for `vpaddb`, `vpsubb`, `vpaddw`, `vpsubw`, `vpmullw`, `vpaddd`, `vpsubd`, `vpmulld`, `vpaddq`, `vpsubq`, `vpand`, `vpor`, and `vpxor`.
+  - Emitted `vzeroupper` in function epilogues whenever `c->used_avx` is set, avoiding AVX-SSE penalty.
+- **Lowering & Auto-Vectorization Integration (`src/zero_cc/ir/ast_lowering_mc.c`, `src/zero_cc/ir/asm_emitter.c`, `src/zero_cc/opt/opt_vectorize.c`)**:
+  - Lowered all `OP_V256_*` opcodes to ISA backend functions in JIT and AOT modes.
+  - Updated loop auto-vectorizer `get_vec_op` to generate AVX2 256-bit vector operations for integer array operations when compiling with `-mavx2`.
+  - Scaled loop analysis vector width to 32 (int8), 16 (int16), and 8 (int32/float) for AVX2.
+- **Verification (`test/jit/avx2_vectorize.c`)**:
+  - Added comprehensive verification test exercising 32-bit, 16-bit, and 8-bit addition, subtraction, multiplication, and bitwise vector operations across multiple vector widths.
+  - Verified bit-exact execution in both JIT (`--run`) and AOT binary execution at `-O0..-O3`.
+
 ## [Sprint 263] - 2026-11-28 - Windows PE/COFF Dynamic Linking, Import Table (.idata), and __declspec(dllimport/dllexport)
 
 - **Microsoft C Extension Support (`src/zero_cc/core/preprocessor.c`, `src/zero_cc/jit/compile_unit.c`, `src/zero_cc/jit/compile.c`)**:

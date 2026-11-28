@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-27T23:44:31Z
+timestamp: 2026-11-28T00:04:36Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1803,3 +1803,6 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-27 — Updated `isa-backends.md`
 - Sprint 263: Windows PE/COFF dynamic linking, import address table (.idata), and __declspec(dllimport/dllexport)
+
+## 2026-11-28 — Updated `optimization-passes.md`
+- Sprint 264: 256-bit AVX/AVX2 vector operations, VEX prefix emission, and loop auto-vectorization

@@ -1393,6 +1393,46 @@ static void asm_emit_instruction_core(ZeroCCCompiler *c, const Instr *instr, siz
             }
             return;
 
+        case OP_V256_PADDB:
+            if (BE(c)->emit_v256_paddb_asm) BE(c)->emit_v256_paddb_asm(c, phys_dst, phys_src1, phys_src2, out);
+            return;
+        case OP_V256_PSUBB:
+            if (BE(c)->emit_v256_psubb_asm) BE(c)->emit_v256_psubb_asm(c, phys_dst, phys_src1, phys_src2, out);
+            return;
+        case OP_V256_PADDW:
+            if (BE(c)->emit_v256_paddw_asm) BE(c)->emit_v256_paddw_asm(c, phys_dst, phys_src1, phys_src2, out);
+            return;
+        case OP_V256_PSUBW:
+            if (BE(c)->emit_v256_psubw_asm) BE(c)->emit_v256_psubw_asm(c, phys_dst, phys_src1, phys_src2, out);
+            return;
+        case OP_V256_PMULLW:
+            if (BE(c)->emit_v256_pmullw_asm) BE(c)->emit_v256_pmullw_asm(c, phys_dst, phys_src1, phys_src2, out);
+            return;
+        case OP_V256_PADDD:
+            if (BE(c)->emit_v256_paddd_asm) BE(c)->emit_v256_paddd_asm(c, phys_dst, phys_src1, phys_src2, out);
+            return;
+        case OP_V256_PSUBD:
+            if (BE(c)->emit_v256_psubd_asm) BE(c)->emit_v256_psubd_asm(c, phys_dst, phys_src1, phys_src2, out);
+            return;
+        case OP_V256_PMULLD:
+            if (BE(c)->emit_v256_pmulld_asm) BE(c)->emit_v256_pmulld_asm(c, phys_dst, phys_src1, phys_src2, out);
+            return;
+        case OP_V256_PADDQ:
+            if (BE(c)->emit_v256_paddq_asm) BE(c)->emit_v256_paddq_asm(c, phys_dst, phys_src1, phys_src2, out);
+            return;
+        case OP_V256_PSUBQ:
+            if (BE(c)->emit_v256_psubq_asm) BE(c)->emit_v256_psubq_asm(c, phys_dst, phys_src1, phys_src2, out);
+            return;
+        case OP_V256_PAND:
+            if (BE(c)->emit_v256_pand_asm) BE(c)->emit_v256_pand_asm(c, phys_dst, phys_src1, phys_src2, out);
+            return;
+        case OP_V256_POR:
+            if (BE(c)->emit_v256_por_asm) BE(c)->emit_v256_por_asm(c, phys_dst, phys_src1, phys_src2, out);
+            return;
+        case OP_V256_PXOR:
+            if (BE(c)->emit_v256_pxor_asm) BE(c)->emit_v256_pxor_asm(c, phys_dst, phys_src1, phys_src2, out);
+            return;
+
         /* AVX-512 512-bit vector assembly emission */
         case OP_V512_LOAD:
             if (BE(c)->emit_v512_load_asm) {

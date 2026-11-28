@@ -181,6 +181,9 @@ static void x86_emit_stack_guard_check_asm(ZeroCCCompiler *c, int32_t slot_off, 
 /* Epilogue: restore callee-saved, leave, ret */
 static void x86_emit_epilogue_asm(ZeroCCCompiler *c) {
     FILE *out = c->asm_out;
+    if (c->used_avx) {
+        fprintf(out, "\tvzeroupper\n");
+    }
     if (c->lowering.is_frameless) {
         fprintf(out, "\tret\n");
         return;
@@ -1983,6 +1986,71 @@ static void x86_emit_v256_vxorps_asm(ZeroCCCompiler *c, int dst, int src1, int s
 static void x86_emit_v256_zeroupper_asm(ZeroCCCompiler *c, FILE *out) {
     (void)c;
     fprintf(out, "\tvzeroupper\n");
+}
+
+static void x86_emit_v256_paddb_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvpaddb\t%%%s,%%%s,%%%s\n", x86_get_ymm_reg_name(src2), x86_get_ymm_reg_name(src1), x86_get_ymm_reg_name(dst));
+}
+
+static void x86_emit_v256_psubb_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvpsubb\t%%%s,%%%s,%%%s\n", x86_get_ymm_reg_name(src2), x86_get_ymm_reg_name(src1), x86_get_ymm_reg_name(dst));
+}
+
+static void x86_emit_v256_paddw_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvpaddw\t%%%s,%%%s,%%%s\n", x86_get_ymm_reg_name(src2), x86_get_ymm_reg_name(src1), x86_get_ymm_reg_name(dst));
+}
+
+static void x86_emit_v256_psubw_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvpsubw\t%%%s,%%%s,%%%s\n", x86_get_ymm_reg_name(src2), x86_get_ymm_reg_name(src1), x86_get_ymm_reg_name(dst));
+}
+
+static void x86_emit_v256_pmullw_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvpmullw\t%%%s,%%%s,%%%s\n", x86_get_ymm_reg_name(src2), x86_get_ymm_reg_name(src1), x86_get_ymm_reg_name(dst));
+}
+
+static void x86_emit_v256_paddd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvpaddd\t%%%s,%%%s,%%%s\n", x86_get_ymm_reg_name(src2), x86_get_ymm_reg_name(src1), x86_get_ymm_reg_name(dst));
+}
+
+static void x86_emit_v256_psubd_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvpsubd\t%%%s,%%%s,%%%s\n", x86_get_ymm_reg_name(src2), x86_get_ymm_reg_name(src1), x86_get_ymm_reg_name(dst));
+}
+
+static void x86_emit_v256_pmulld_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvpmulld\t%%%s,%%%s,%%%s\n", x86_get_ymm_reg_name(src2), x86_get_ymm_reg_name(src1), x86_get_ymm_reg_name(dst));
+}
+
+static void x86_emit_v256_paddq_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvpaddq\t%%%s,%%%s,%%%s\n", x86_get_ymm_reg_name(src2), x86_get_ymm_reg_name(src1), x86_get_ymm_reg_name(dst));
+}
+
+static void x86_emit_v256_psubq_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvpsubq\t%%%s,%%%s,%%%s\n", x86_get_ymm_reg_name(src2), x86_get_ymm_reg_name(src1), x86_get_ymm_reg_name(dst));
+}
+
+static void x86_emit_v256_pand_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvpand\t%%%s,%%%s,%%%s\n", x86_get_ymm_reg_name(src2), x86_get_ymm_reg_name(src1), x86_get_ymm_reg_name(dst));
+}
+
+static void x86_emit_v256_por_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvpor\t%%%s,%%%s,%%%s\n", x86_get_ymm_reg_name(src2), x86_get_ymm_reg_name(src1), x86_get_ymm_reg_name(dst));
+}
+
+static void x86_emit_v256_pxor_asm(ZeroCCCompiler *c, int dst, int src1, int src2, FILE *out) {
+    (void)c;
+    fprintf(out, "\tvpxor\t%%%s,%%%s,%%%s\n", x86_get_ymm_reg_name(src2), x86_get_ymm_reg_name(src1), x86_get_ymm_reg_name(dst));
 }
 
 /* AVX-512 512-bit vector assembly emitters */

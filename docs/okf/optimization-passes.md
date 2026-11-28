@@ -4,7 +4,7 @@ title: Optimization Passes & Safety Invariants
 description: Active IR optimization pipeline (Constant Folding, CopyProp, CSE, GVN, DCE, Mem2Reg, LICM, Auto-Vectorization) and their correctness invariants.
 resource: middleend/optimization-passes
 tags: [optimizations, mem2reg, licm, vectorization, gvn, cse, dce]
-timestamp: 2026-11-26T02:55:27Z
+timestamp: 2026-11-28T00:04:36Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -236,6 +236,23 @@ Optimization passes are registered in `src/zero_cc/opt/opt_pass.c` (`g_opt_passe
 - Clones AST and parameter descriptors into specialized function variants (`callee.const_p<idx>_<val>`), allocating independent `lto_locals` copies to prevent heap sharing and double-free issues during cleanup.
 - Substitutes parameter references directly with constants in cloned function bodies (`lto_param_is_const`), unlocking aggressive downstream dead branch elimination, constant folding, and loop unrolling within specialized callee bodies.
 - Unreferenced original static functions whose call sites are all specialized are marked `lto_eliminated = true` during translation unit finalization if their address is never taken.
+
+### 256-bit AVX / AVX2 Vector Operations & Auto-Vectorization (Sprint 264)
+
+Sprint 264 extends the compiler's vectorization subsystem with 256-bit AVX and AVX2 operations on x86-64:
+- **AVX2 256-bit Integer IR Opcodes (`src/zero_cc/ir/ir.h`)**:
+  - `OP_V256_PADDB`, `OP_V256_PSUBB`: 32x 8-bit packed integer add/sub (`vpaddb`, `vpsubb`).
+  - `OP_V256_PADDW`, `OP_V256_PSUBW`, `OP_V256_PMULLW`: 16x 16-bit packed integer add/sub/mul (`vpaddw`, `vpsubw`, `vpmullw`).
+  - `OP_V256_PADDD`, `OP_V256_PSUBD`, `OP_V256_PMULLD`: 8x 32-bit packed integer add/sub/mul (`vpaddd`, `vpsubd`, `vpmulld`).
+  - `OP_V256_PADDQ`, `OP_V256_PSUBQ`: 4x 64-bit packed integer add/sub (`vpaddq`, `vpsubq`).
+  - `OP_V256_PAND`, `OP_V256_POR`, `OP_V256_PXOR`: 256-bit packed bitwise boolean operations (`vpand`, `vpor`, `vpxor`).
+- **x86-64 Hardware VEX Emitters (`src/zero_cc/isa/x86_64.c`, `src/zero_cc/isa/x86_64_asm.c`)**:
+  - Raw binary VEX emitters: uses 2-byte VEX (`0xC5`) or 3-byte VEX (`0xC4`) prefixes with `L=1` (256-bit vector length) across YMM registers `%ymm0..%ymm15`.
+  - Epilogue `vzeroupper`: automatically emitted in `x86_emit_epilogue` and `x86_emit_epilogue_asm` when `c->used_avx` is asserted, eliminating AVX-to-SSE transition penalties.
+- **Loop Auto-Vectorizer Scaling (`src/zero_cc/opt/opt_vectorize.c`)**:
+  - Updated `get_vec_op` to route 8-bit, 16-bit, and 32-bit integer scalar arithmetic to 256-bit AVX2 opcodes when `is_256` is enabled.
+  - Sized loop vectorization width to 32 (8-bit bytes), 16 (16-bit words), and 8 (32-bit dwords / floats) when target has `-mavx2`.
+- **Verification**: `test/jit/avx2_vectorize.c` verified across `-O0..-O3` in both JIT and AOT modes.
 
 ### SIMD If-Conversion & Conditional Vectorization (Sprint 219)
 

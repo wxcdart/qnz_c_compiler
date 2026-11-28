@@ -1377,6 +1377,7 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
                     vinfo->bound_temp = TEMP_NONE;
                 } else {
                     bool has_avx = state->comp && state->comp->has_avx && (state->target_isa == ISA_X86_64);
+                    bool has_avx2 = state->comp && state->comp->has_avx2 && (state->target_isa == ISA_X86_64);
                     bool has_avx512 = state->comp && state->comp->has_avx512f && (state->target_isa == ISA_X86_64);
                     int elem_size_pre = 4;
                     if (has_double) elem_size_pre = 8;
@@ -1384,8 +1385,8 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
                     else if (has_int16_mem) elem_size_pre = 2;
                     int width = is_red ? (r_dbl ? 2 : 4) :
                                 (has_double ? (has_avx512 ? 8 : (has_avx ? 4 : 2)) :
-                                (elem_size_pre == 1 ? 16 :
-                                (elem_size_pre == 2 ? 8 : state->vector_width)));
+                                (elem_size_pre == 1 ? (has_avx2 ? 32 : 16) :
+                                (elem_size_pre == 2 ? (has_avx2 ? 16 : 8) : state->vector_width)));
                     int64_t v_trip = trip;
                     bool needs_peel = false;
                     if (trip >= width) {
@@ -1631,6 +1632,7 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
         vinfo->array_stride = elem_size;
     } else {
         bool has_avx = state->comp && state->comp->has_avx && (state->target_isa == ISA_X86_64);
+        bool has_avx2 = state->comp && state->comp->has_avx2 && (state->target_isa == ISA_X86_64);
         bool has_avx512 = state->comp && state->comp->has_avx512f && (state->target_isa == ISA_X86_64);
         if (vinfo->is_reduction || vinfo->has_strided_access || vinfo->has_indexed_access) {
             vinfo->vector_width = (elem_size == 8) ? 2 : (elem_size == 2) ? 8 : (elem_size == 1) ? 16 : 4;
@@ -1641,11 +1643,11 @@ static void analyze_loop_for_vectorization_full(VectorizationStateFull *state, L
             vinfo->elem_size = 8;
             vinfo->array_stride = 8;
         } else if (elem_size == 1) {
-            vinfo->vector_width = 16;
+            vinfo->vector_width = has_avx2 ? 32 : 16;
             vinfo->elem_size = 1;
             vinfo->array_stride = 1;
         } else if (elem_size == 2) {
-            vinfo->vector_width = 8;
+            vinfo->vector_width = has_avx2 ? 16 : 8;
             vinfo->elem_size = 2;
             vinfo->array_stride = 2;
         } else {
@@ -1812,6 +1814,35 @@ static int get_vec_op(int scalar_op, bool is_double, bool is_int32, bool is_int1
                 case OP_XOR:  return OP_VXORPS;
                 default:      return scalar_op;
             }
+        } else if (is_int32) {
+            switch (scalar_op) {
+                case OP_ADD:  return OP_V256_PADDD;
+                case OP_SUB:  return OP_V256_PSUBD;
+                case OP_MUL:  return OP_V256_PMULLD;
+                case OP_AND:  return OP_V256_PAND;
+                case OP_OR:   return OP_V256_POR;
+                case OP_XOR:  return OP_V256_PXOR;
+                default:      return scalar_op;
+            }
+        } else if (is_int16) {
+            switch (scalar_op) {
+                case OP_ADD:  return OP_V256_PADDW;
+                case OP_SUB:  return OP_V256_PSUBW;
+                case OP_MUL:  return OP_V256_PMULLW;
+                case OP_AND:  return OP_V256_PAND;
+                case OP_OR:   return OP_V256_POR;
+                case OP_XOR:  return OP_V256_PXOR;
+                default:      return scalar_op;
+            }
+        } else if (is_int8) {
+            switch (scalar_op) {
+                case OP_ADD:  return OP_V256_PADDB;
+                case OP_SUB:  return OP_V256_PSUBB;
+                case OP_AND:  return OP_V256_PAND;
+                case OP_OR:   return OP_V256_POR;
+                case OP_XOR:  return OP_V256_PXOR;
+                default:      return scalar_op;
+            }
         } else {
             switch (scalar_op) {
                 case OP_ADD:
@@ -1907,7 +1938,7 @@ bool vectorization_transform(ZeroCCCompiler *c, VectorizationState *state, int l
     int vec_width = vinfo->vector_width;
     int total_bytes = vec_width * vinfo->elem_size;
     bool is_512 = !vinfo->is_scalable && !vinfo->is_int8 && !vinfo->is_int16 && (total_bytes >= 64);
-    bool is_256 = !vinfo->is_scalable && !vinfo->is_int8 && !vinfo->is_int16 && !is_512 && (total_bytes >= 32);
+    bool is_256 = !vinfo->is_scalable && !is_512 && (total_bytes >= 32);
     if (vinfo->is_scalable) {
         if (vinfo->is_rvv && c) c->rvv_dynamic_vl = true;
     } else {
