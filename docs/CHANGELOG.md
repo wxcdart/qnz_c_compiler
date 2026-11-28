@@ -1,5 +1,39 @@
 # CHANGELOG
 
+## [Sprint 270] - 2026-11-28 - Mach-O Multi-Architecture Universal / Fat Binary Packaging
+
+- **Mach-O Universal Binary Architecture (`src/zero_cc/linker/macho_writer.h`, `src/zero_cc/linker/macho_writer.c`)**:
+  - Implemented `FAT_MAGIC` (`0xCAFEBABE`) and `FAT_CIGAM` (`0xBEBAFECA`) definitions and packed big-endian structs `ZeroCCFatHeader` and `ZeroCCFatArch`.
+  - Implemented `zero_cc_macho_write_fat` packaging arbitrary Mach-O 64-bit slices (e.g. x86-64 and ARM64) into big-endian universal binaries with proper page alignment (14 / 16KB for ARM64, 12 / 4KB for x86-64).
+  - Added CLI driver options `--fat` / `--macho-fat` / `--universal` in `src/zero_cc/driver/driver_opts.h` and `src/main.c`.
+- **In-Process Foreign Execution of Fat Binaries (`src/zero_cc/linker/foreign_loader.c`)**:
+  - Updated `zero_cc_detect_foreign_format` to recognize universal binaries by checking `FAT_MAGIC` and `FAT_CIGAM` headers.
+  - Enhanced `zero_cc_run_macho_mem` to parse fat architecture headers, locate the matching host CPU slice (x86-64 or ARM64), and transparently execute in-memory.
+- **Verification (`tools/verify/macho_tests.py`)**:
+  - Added `test_macho_fat_universal_binary` creating multi-arch fat binaries and executing them with the foreign loader.
+  - Verified host `file` utility acceptance (`Mach-O universal binary with 2 architectures`).
+  - 78/78 tests pass in `macho_tests.py`.
+
+## [Sprint 269] - 2026-11-28 - Complete ISO C23 #embed Directive Parameters
+
+- **Full Parameter Parsing & Evaluation (`src/zero_cc/core/preprocessor.c`, `src/zero_cc/core/preprocessor_directives.c`)**:
+  - Implemented parameter evaluation for `#embed`: `limit(N)`, `offset(N)` / `gnu::offset(N)`, `prefix(...)`, `suffix(...)`, and `if_empty(...)`.
+  - Evaluated integer expressions in `limit` and `offset`, slicing byte streams accordingly (`pos += offset`, `len = min(len - offset, limit)`).
+  - Emitted prefix and suffix balanced token sequences around the byte array when non-empty, and emitted `if_empty` tokens when the resource is empty or clamped to 0 bytes.
+- **Verification (`tools/c23/test_c23.py`)**:
+  - Added test case `embed_offset_limit_params` exercising `gnu::offset`, `limit`, `prefix`, `suffix`, and out-of-bounds `if_empty`.
+  - Differential verification vs `gcc-15` in `test_c23.py` passes 4/4 embed tests across AOT and JIT at `-O0..-O3`.
+
+## [Sprint 268] - 2026-11-28 - Target-Side AddressSanitizer (ASan) Multi-ISA Raw Emitters (AArch64 & RISC-V 64)
+
+- **Target ASan Emitters across ISAs (`src/zero_cc/isa/aarch64.c`, `src/zero_cc/isa/aarch64_asm.c`, `src/zero_cc/isa/riscv64.c`, `src/zero_cc/isa/riscv_asm.c`)**:
+  - Implemented `OP_ASAN_CHECK` raw binary and text-assembly emitters for AArch64 and RISC-V 64 computing shadow addresses `(addr >> 3) + __asan_shadow_offset` and checking poisoned bytes.
+  - Implemented multi-ISA stack frame unpoisoning epilogue loops in `src/zero_cc/ir/ast_lowering.c` and `src/zero_cc/ir/asm_emitter.c` with zero-shadow guards (`cbz x17` on AArch64, `beqz t4` on RISC-V 64, `testq %r10, %r10` on x86-64).
+  - Emitted `ir_emit_call(c, "__asan_init")` at `main` entry under `-fsanitize=address` to ensure deterministic shadow memory initialization.
+- **Verification (`tools/verify/san_sweep.py`)**:
+  - Built target runtime archives (`build/lib/zero_rt_aarch64.a`, `build/lib/zero_rt_riscv64.a`, etc.).
+  - Verified across QEMU on stack overflow, global overflow, and clean runs. Full `san_sweep.py` passes with 786 ok, 0 FAIL (174 cross-ISA runs).
+
 ## [Sprint 267] - 2026-11-28 - Link-Time Optimization (LTO) Cross-TU Global Inlining & Constant Propagation
 
 - **Cross-TU Function Specialization & IPCP (`src/zero_cc/ir/ast_lowering_call.c`, `src/zero_cc/core/lto.h`)**:

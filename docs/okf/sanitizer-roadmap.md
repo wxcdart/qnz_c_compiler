@@ -4,7 +4,7 @@ title: Target-Side Sanitizer (zero_san) Design & Roadmap
 description: Analysis and phased roadmap for an optional, parked target-side safety-check feature (zero_san) — a codegen-first UBSan-lite signed-overflow check, with bounds, leaks, and ASan/LSan scoped out and justified.
 resource: sanitizer/roadmap
 tags: [sanitizer, zero_san, codegen, ubsan, overflow, bounds, asan, lsan, leak, roadmap, design, safety]
-timestamp: 2026-11-28T01:18:34Z
+timestamp: 2026-11-28T02:17:41Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -639,6 +639,14 @@ analogue of `__lsan_ignore_object`).
    back in minimal form — `__zerocsan_report(op, width, value)` prints a UBSan-style line to
    stderr before the bare trap (report first, trap second, per-ISA signal kept). Site info
    stays op-level: no file:line until a DWARF emitter exists.
+
+### 4g. Sprint 268 — Target-Side AddressSanitizer (ASan) Multi-ISA Raw Emitters (AArch64 & RISC-V 64)
+
+Sprint 268 brings full Target-Side ASan (`-fsanitize=address`) support to AArch64 and RISC-V 64:
+- **`OP_ASAN_CHECK` Raw & ASM Emitters**: Implemented in `aarch64.c`, `aarch64_asm.c`, `riscv64.c`, `riscv_asm.c`. Computes shadow address `(addr >> 3) + __asan_shadow_offset`, checks poisoned byte, and reports stack/global buffer overflows.
+- **Stack Redzone Unpoisoning on Exit**: Implemented multi-ISA epilogue unpoisoning loops in `ast_lowering.c` and `asm_emitter.c` for x86-64, AArch64, and RISC-V 64 with zero-shadow check guard (`cbz x17` on AArch64, `beqz t4` on RISC-V 64, `testq %r10, %r10` on x86-64) to safely skip non-poisoned functions.
+- **Early `__asan_init` Entry Hook**: Emits `ir_emit_call(c, "__asan_init")` at `main` entry so shadow mapping is initialized deterministically before any stack unpoisoning occurs.
+- **Verified**: Fully verified under QEMU on stack overflow (`asan_overflow.c`), global overflow (`asan_global_overflow.c`), and clean execution (`san_ok_no_overflow.c`). Passed full `san_sweep.py` battery (786 ok, 0 FAIL).
 
 ## 8. Why ASan/LSan is out of scope (cost decomposition)
 

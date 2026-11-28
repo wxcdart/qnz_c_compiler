@@ -21,6 +21,7 @@
 #include "zero_cc/opt/opt_pgo.h"
 #include "zero_cc/dwarf/dwarf.h"
 #include "zero_cc/isa/x86_64_common.h"
+#include "zero_cc/isa/riscv_common.h"
 
 /* =========================================================================
  * Main Entry Point
@@ -1100,7 +1101,7 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     ir_emit_label(c, c->lowering.tail_call_entry_label);
 
     /* PGO Function Entry Hit */
-    if (c->profile_generate && lowering_fn && lowering_fn->name) {
+    if (c->profile_generate && lowering_fn && lowering_fn->name[0]) {
         if (strcmp(lowering_fn->name, "main") == 0 && c->profile_file &&
             strcmp(c->profile_file, "default.zcprof") != 0) {
             size_t ro_off = c->rodata_section.length;
@@ -1120,8 +1121,11 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
         zc_pgo_emit_hit(c, lowering_fn->name, 0);
     }
 
-    /* AddressSanitizer: poison stack variable redzones at function entry */
+    /* AddressSanitizer: initialize shadow memory at main entry and poison stack redzones */
     if (c->sanitize_address) {
+        if (lowering_fn && strcmp(lowering_fn->name, "main") == 0) {
+            ir_emit_call(c, "__asan_init");
+        }
         for (size_t li = 0; li < c->local_count; li++) {
             ZeroCCSym *sym = &c->locals[li];
             if (!sym->is_param && !sym->is_extern && !sym->is_static_local && sym->stack_offset > 0) {
@@ -1626,25 +1630,60 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
     /* Callee-saved register loads are now handled by OP_CALLEE_SAVE_LOADS IR instruction */
 
     /* Emit epilogue */
-    if (c->sanitize_address && alloc_frame_size > 0 && c->isa == ISA_X86_64) {
+    if (c->sanitize_address && alloc_frame_size > 0) {
         /* AddressSanitizer: unpoison stack frame before leave */
         size_t fsize = alloc_frame_size;
+        size_t shadow_bytes = (fsize + 7) / 8;
         if (c->emit_asm) {
             FILE *out = c->asm_out ? c->asm_out : stdout;
             uint32_t seq = c->asm_san_check_seq++;
-            fprintf(out, "\t# AddressSanitizer: unpoison stack frame\n");
-            fprintf(out, "\tmovq\t%%rbp, %%r11\n");
-            fprintf(out, "\tsubq\t$%zu, %%r11\n", fsize);
-            fprintf(out, "\tshrq\t$3, %%r11\n");
-            fprintf(out, "\tmovq\t__asan_shadow_offset(%%rip), %%r10\n");
-            fprintf(out, "\taddq\t%%r10, %%r11\n");
-            fprintf(out, "\tmovq\t$%zu, %%r10\n", (fsize + 7) / 8);
-            fprintf(out, ".Lasan_unp_%u:\n", seq);
-            fprintf(out, "\tmovb\t$0, (%%r11)\n");
-            fprintf(out, "\tincq\t%%r11\n");
-            fprintf(out, "\tdecq\t%%r10\n");
-            fprintf(out, "\tjnz\t.Lasan_unp_%u\n", seq);
-        } else {
+            if (c->isa == ISA_X86_64) {
+                fprintf(out, "\t# AddressSanitizer: unpoison stack frame\n");
+                fprintf(out, "\tmovq\t%%rbp, %%r11\n");
+                fprintf(out, "\tsubq\t$%zu, %%r11\n", fsize);
+                fprintf(out, "\tshrq\t$3, %%r11\n");
+                fprintf(out, "\tmovq\t__asan_shadow_offset(%%rip), %%r10\n");
+                fprintf(out, "\ttestq\t%%r10, %%r10\n");
+                fprintf(out, "\tjz\t.Lasan_unp_skip_%u\n", seq);
+                fprintf(out, "\taddq\t%%r10, %%r11\n");
+                fprintf(out, "\tmovq\t$%zu, %%r10\n", shadow_bytes);
+                fprintf(out, ".Lasan_unp_%u:\n", seq);
+                fprintf(out, "\tmovb\t$0, (%%r11)\n");
+                fprintf(out, "\tincq\t%%r11\n");
+                fprintf(out, "\tdecq\t%%r10\n");
+                fprintf(out, "\tjnz\t.Lasan_unp_%u\n", seq);
+                fprintf(out, ".Lasan_unp_skip_%u:\n", seq);
+            } else if (c->isa == ISA_AARCH64) {
+                fprintf(out, "\t// AddressSanitizer: unpoison stack frame\n");
+                fprintf(out, "\tsub\tx16, x29, #%zu\n", fsize);
+                fprintf(out, "\tlsr\tx16, x16, #3\n");
+                fprintf(out, "\tadrp\tx17, __asan_shadow_offset\n");
+                fprintf(out, "\tldr\tx17, [x17, :lo12:__asan_shadow_offset]\n");
+                fprintf(out, "\tcbz\tx17, .Lasan_unp_skip_%u\n", seq);
+                fprintf(out, "\tadd\tx16, x16, x17\n");
+                fprintf(out, "\tmov\tx17, #%zu\n", shadow_bytes);
+                fprintf(out, ".Lasan_unp_%u:\n", seq);
+                fprintf(out, "\tstrb\twzr, [x16], #1\n");
+                fprintf(out, "\tsubs\tx17, x17, #1\n");
+                fprintf(out, "\tb.ne\t.Lasan_unp_%u\n", seq);
+                fprintf(out, ".Lasan_unp_skip_%u:\n", seq);
+            } else if (c->isa == ISA_RISCV64) {
+                fprintf(out, "\t# AddressSanitizer: unpoison stack frame\n");
+                fprintf(out, "\taddi\tt3, s0, -%zu\n", fsize);
+                fprintf(out, "\tsrli\tt3, t3, 3\n");
+                fprintf(out, "\tla\tt4, __asan_shadow_offset\n");
+                fprintf(out, "\tld\tt4, 0(t4)\n");
+                fprintf(out, "\tbeqz\tt4, .Lasan_unp_skip_%u\n", seq);
+                fprintf(out, "\tadd\tt3, t3, t4\n");
+                fprintf(out, "\tli\tt4, %zu\n", shadow_bytes);
+                fprintf(out, ".Lasan_unp_%u:\n", seq);
+                fprintf(out, "\tsb\tzero, 0(t3)\n");
+                fprintf(out, "\taddi\tt3, t3, 1\n");
+                fprintf(out, "\taddi\tt4, t4, -1\n");
+                fprintf(out, "\tbnez\tt4, .Lasan_unp_%u\n", seq);
+                fprintf(out, ".Lasan_unp_skip_%u:\n", seq);
+            }
+        } else if (c->isa == ISA_X86_64) {
             zero_cc_emit_u8(&c->text_section, 0x49);
             zero_cc_emit_u8(&c->text_section, 0x89);
             zero_cc_emit_u8(&c->text_section, 0xEB); /* movq %rbp, %r11 */
@@ -1677,12 +1716,17 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
             zero_cc_emit_u8(&c->text_section, 0x8B);
             zero_cc_emit_u8(&c->text_section, 0x12); /* movq (%r10), %r10 */
             zero_cc_emit_u8(&c->text_section, 0x4D);
+            zero_cc_emit_u8(&c->text_section, 0x85);
+            zero_cc_emit_u8(&c->text_section, 0xD2); /* testq %r10, %r10 */
+            zero_cc_emit_u8(&c->text_section, 0x74);
+            zero_cc_emit_u8(&c->text_section, 24);   /* jz skip loop (24 bytes) */
+            zero_cc_emit_u8(&c->text_section, 0x4D);
             zero_cc_emit_u8(&c->text_section, 0x01);
             zero_cc_emit_u8(&c->text_section, 0xD3); /* addq %r10, %r11 */
             zero_cc_emit_u8(&c->text_section, 0x49);
             zero_cc_emit_u8(&c->text_section, 0xC7);
             zero_cc_emit_u8(&c->text_section, 0xC2);
-            zero_cc_emit_u32(&c->text_section, (uint32_t)((fsize + 7) / 8)); /* movq $count, %r10 */
+            zero_cc_emit_u32(&c->text_section, (uint32_t)shadow_bytes); /* movq $count, %r10 */
             /* loop: */
             zero_cc_emit_u8(&c->text_section, 0x41);
             zero_cc_emit_u8(&c->text_section, 0xC6);
@@ -1696,6 +1740,68 @@ void zero_cc_lower_ast(ZeroCCCompiler *c, ZeroCCASTArena *arena, ASTRef root) {
             zero_cc_emit_u8(&c->text_section, 0xCA); /* decq %r10 */
             zero_cc_emit_u8(&c->text_section, 0x75);
             zero_cc_emit_u8(&c->text_section, 0xF4); /* jnz loop */
+        } else if (c->isa == ISA_AARCH64) {
+            if (fsize <= 4095) {
+                zero_cc_emit_u32(&c->text_section, 0xD1000000u | ((uint32_t)(fsize & 0xFFF) << 10) | (29u << 5) | 16u);
+            } else {
+                zero_cc_emit_u32(&c->text_section, 0xD2800000u | ((uint32_t)(fsize & 0xFFFF) << 5) | 17u);
+                zero_cc_emit_u32(&c->text_section, 0xCB1103B0u); /* sub x16, x29, x17 */
+            }
+            zero_cc_emit_u32(&c->text_section, 0xD343FC00u | (16u << 5) | 16u); /* lsr x16, x16, #3 */
+            uint32_t adrp = 0x90000000u | 17u;
+            uint32_t add  = 0x91000000u | (17u << 5) | 17u;
+            zero_cc_emit_u32(&c->text_section, adrp);
+            zero_cc_emit_u32(&c->text_section, add);
+            if (c->reloc_count < ZERO_CC_MAX_RELOCS) {
+                ZeroCCReloc *r = &c->relocs[c->reloc_count++];
+                r->text_patch_offset = c->text_section.length - 4;
+                snprintf(r->target_symbol, sizeof(r->target_symbol), "__asan_shadow_offset");
+                r->is_call = false;
+                r->is_abs_call = false;
+                r->is_tls = false;
+            }
+            zero_cc_emit_u32(&c->text_section, 0xF9400231u); /* ldr x17, [x17] */
+            zero_cc_emit_u32(&c->text_section, 0x34000000u | ((uint32_t)6 << 5) | 17u); /* cbz x17, skip 5 instrs */
+            zero_cc_emit_u32(&c->text_section, 0x8B110210u); /* add x16, x16, x17 */
+            zero_cc_emit_u32(&c->text_section, 0xD2800000u | ((uint32_t)(shadow_bytes & 0xFFFF) << 5) | 17u);
+            /* loop: strb wzr, [x16], #1 */
+            zero_cc_emit_u32(&c->text_section, 0x3800161Fu);
+            /* subs x17, x17, #1 */
+            zero_cc_emit_u32(&c->text_section, 0xF1000631u);
+            /* b.ne loop (-8 bytes -> 0x54FFFFC1) */
+            zero_cc_emit_u32(&c->text_section, 0x54FFFFC1u);
+        } else if (c->isa == ISA_RISCV64) {
+            if ((int64_t)fsize <= 2047) {
+                zero_cc_emit_u32(&c->text_section, rv64_I(28, 8, 0, -(int32_t)fsize, 0x13));
+            } else {
+                zero_cc_emit_u32(&c->text_section, rv64_I(29, 0, 0, (int32_t)fsize, 0x13));
+                zero_cc_emit_u32(&c->text_section, rv64_R(28, 8, 29, 0, 0x20));
+            }
+            zero_cc_emit_u32(&c->text_section, rv64_I(28, 28, 5, 3, 0x13));
+            uint32_t auipc = (uint32_t)(((uint32_t)29 << 7) | 0x17u);
+            uint32_t addi  = (uint32_t)(((uint32_t)29 << 15) | ((uint32_t)29 << 7) | 0x13u);
+            zero_cc_emit_u32(&c->text_section, auipc);
+            zero_cc_emit_u32(&c->text_section, addi);
+            if (c->reloc_count < ZERO_CC_MAX_RELOCS) {
+                ZeroCCReloc *r = &c->relocs[c->reloc_count++];
+                r->text_patch_offset = c->text_section.length - 4;
+                snprintf(r->target_symbol, sizeof(r->target_symbol), "__asan_shadow_offset");
+                r->is_call = false;
+                r->is_abs_call = false;
+                r->is_tls = false;
+            }
+            zero_cc_emit_u32(&c->text_section, rv64_I(29, 29, 3, 0, 0x03)); /* ld t4, 0(t4) */
+            zero_cc_emit_u32(&c->text_section, rv64_B(29, 0, 0, 24)); /* beqz t4, +24 bytes (skip 5 instrs) */
+            zero_cc_emit_u32(&c->text_section, rv64_R(28, 28, 29, 0, 0)); /* add t3, t3, t4 */
+            zero_cc_emit_u32(&c->text_section, rv64_I(29, 0, 0, (int32_t)shadow_bytes, 0x13));
+            /* loop: sb zero, 0(t3) */
+            zero_cc_emit_u32(&c->text_section, rv64_S(28, 0, 0, 0, 0x23));
+            /* addi t3, t3, 1 */
+            zero_cc_emit_u32(&c->text_section, rv64_I(28, 28, 0, 1, 0x13));
+            /* addi t4, t4, -1 */
+            zero_cc_emit_u32(&c->text_section, rv64_I(29, 29, 0, -1, 0x13));
+            /* bnez t4, loop (-12 bytes) */
+            zero_cc_emit_u32(&c->text_section, rv64_B(29, 0, 1, -12));
         }
     }
     if (!c->emit_asm && c->lowering.has_stack_protector && BE(c)->emit_stack_guard_check) {

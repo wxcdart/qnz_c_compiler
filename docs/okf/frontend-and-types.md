@@ -4,7 +4,7 @@ title: Frontend, Type System & Semantic Analysis
 description: Dual type representation (ZeroCCType and TypeInfo), struct/union layout, function pointer declarations, and semantic checking rules.
 resource: frontend/types-and-semantics
 tags: [frontend, parser, types, semantic, function-pointers, c11]
-timestamp: 2026-11-26T19:45:03Z
+timestamp: 2026-11-28T02:17:41Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -591,6 +591,7 @@ C23 only permits `constexpr` on data declarations. ZeroCC additionally accepts `
 ZeroCC supports key C23 language and preprocessor features verified by the differential `make test-c23` gate against `gcc-15`:
 - **Binary Resource Inclusion (`#embed`, C23 6.10.4)**: `#embed <path>` or `#embed "path"` emits a comma-separated list of byte integer constants. Supports standard parameters:
   - `limit(N)`: restricts the number of embedded bytes to at most `N`.
+  - `offset(N)` / `gnu::offset(N)`: skips the first `N` bytes of the embedded resource (Sprint 269).
   - `prefix(...)`: prepends balanced tokens before the byte stream if non-empty.
   - `suffix(...)`: appends balanced tokens after the byte stream if non-empty.
   - `if_empty(...)`: emitted if the resource is empty or restricted to 0 bytes.

@@ -2809,22 +2809,50 @@ void emit_ir_to_asm(ZeroCCCompiler *c, int32_t spill_base_offset) {
     }
 
     /* Emit epilogue */
-    if (c->sanitize_address && c->current_stack_frame > 0 && c->isa == ISA_X86_64) {
+    if (c->sanitize_address && c->current_stack_frame > 0) {
         FILE *out = c->asm_out ? c->asm_out : stdout;
         size_t fsize = (size_t)c->current_stack_frame;
+        size_t shadow_bytes = (fsize + 7) / 8;
         uint32_t unp_id = c->asm_san_check_seq++;
-        fprintf(out, "\t# AddressSanitizer unpoison stack frame\n");
-        fprintf(out, "\tmovq\t%%rbp, %%r11\n");
-        fprintf(out, "\tsubq\t$%zu, %%r11\n", fsize);
-        fprintf(out, "\tshrq\t$3, %%r11\n");
-        fprintf(out, "\tmovq\t__asan_shadow_offset(%%rip), %%r10\n");
-        fprintf(out, "\taddq\t%%r10, %%r11\n");
-        fprintf(out, "\tmovq\t$%zu, %%r10\n", (fsize + 7) / 8);
-        fprintf(out, ".Lasan_unp_%u:\n", unp_id);
-        fprintf(out, "\tmovb\t$0, (%%r11)\n");
-        fprintf(out, "\tincq\t%%r11\n");
-        fprintf(out, "\tdecq\t%%r10\n");
-        fprintf(out, "\tjnz\t.Lasan_unp_%u\n", unp_id);
+        if (c->isa == ISA_X86_64) {
+            fprintf(out, "\t# AddressSanitizer unpoison stack frame\n");
+            fprintf(out, "\tmovq\t%%rbp, %%r11\n");
+            fprintf(out, "\tsubq\t$%zu, %%r11\n", fsize);
+            fprintf(out, "\tshrq\t$3, %%r11\n");
+            fprintf(out, "\tmovq\t__asan_shadow_offset(%%rip), %%r10\n");
+            fprintf(out, "\taddq\t%%r10, %%r11\n");
+            fprintf(out, "\tmovq\t$%zu, %%r10\n", shadow_bytes);
+            fprintf(out, ".Lasan_unp_%u:\n", unp_id);
+            fprintf(out, "\tmovb\t$0, (%%r11)\n");
+            fprintf(out, "\tincq\t%%r11\n");
+            fprintf(out, "\tdecq\t%%r10\n");
+            fprintf(out, "\tjnz\t.Lasan_unp_%u\n", unp_id);
+        } else if (c->isa == ISA_AARCH64) {
+            fprintf(out, "\t// AddressSanitizer unpoison stack frame\n");
+            fprintf(out, "\tsub\tx16, x29, #%zu\n", fsize);
+            fprintf(out, "\tlsr\tx16, x16, #3\n");
+            fprintf(out, "\tadrp\tx17, __asan_shadow_offset\n");
+            fprintf(out, "\tldr\tx17, [x17, :lo12:__asan_shadow_offset]\n");
+            fprintf(out, "\tadd\tx16, x16, x17\n");
+            fprintf(out, "\tmov\tx17, #%zu\n", shadow_bytes);
+            fprintf(out, ".Lasan_unp_%u:\n", unp_id);
+            fprintf(out, "\tstrb\twzr, [x16], #1\n");
+            fprintf(out, "\tsubs\tx17, x17, #1\n");
+            fprintf(out, "\tb.ne\t.Lasan_unp_%u\n", unp_id);
+        } else if (c->isa == ISA_RISCV64) {
+            fprintf(out, "\t# AddressSanitizer unpoison stack frame\n");
+            fprintf(out, "\taddi\tt3, s0, -%zu\n", fsize);
+            fprintf(out, "\tsrli\tt3, t3, 3\n");
+            fprintf(out, "\tla\tt4, __asan_shadow_offset\n");
+            fprintf(out, "\tld\tt4, 0(t4)\n");
+            fprintf(out, "\tadd\tt3, t3, t4\n");
+            fprintf(out, "\tli\tt4, %zu\n", shadow_bytes);
+            fprintf(out, ".Lasan_unp_%u:\n", unp_id);
+            fprintf(out, "\tsb\tzero, 0(t3)\n");
+            fprintf(out, "\taddi\tt3, t3, 1\n");
+            fprintf(out, "\taddi\tt4, t4, -1\n");
+            fprintf(out, "\tbnez\tt4, .Lasan_unp_%u\n", unp_id);
+        }
     }
     if (c->lowering.has_stack_protector && BE(c)->emit_stack_guard_check_asm) {
         FILE *out = c->asm_out ? c->asm_out : stdout;

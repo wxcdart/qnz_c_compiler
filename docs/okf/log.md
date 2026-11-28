@@ -4,7 +4,7 @@ title: ZeroCC OKF Knowledge Bundle Log
 description: Sequential changelog tracking how and when the ZeroCC OKF knowledge bundle evolves alongside compiler sprints.
 resource: okf/log
 tags: [zerocc, changelog, log, okf]
-timestamp: 2026-11-28T01:18:34Z
+timestamp: 2026-11-28T02:17:41Z
 generated: antigravity-agent
 verified: engineering-lead
 status: active
@@ -1812,3 +1812,12 @@ This file tracks sequential updates to the [ZeroCC OKF Knowledge Graph](./index.
 
 ## 2026-11-28 — Updated `sanitizer-roadmap.md`
 - Sprint 266: Full UndefinedBehaviorSanitizer (UBSan) Soundness & Trapping Battery
+
+## 2026-11-28 — Updated `sanitizer-roadmap.md`
+- Sprint 268: Target ASan Multi-ISA Raw Emitters
+
+## 2026-11-28 — Updated `frontend-and-types.md`
+- Sprint 269: Complete ISO C23 #embed Directive Parameters
+
+## 2026-11-28 — Updated `target-abstraction-roadmap.md`
+- Sprint 270: Mach-O Multi-Architecture Universal / Fat Binary Packaging

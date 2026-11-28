@@ -28,6 +28,12 @@ typedef struct ZeroCCCompiler ZeroCCCompiler;
 #define ZERO_CC_MH_MAGIC_64          0xFEEDFACFU
 #define ZERO_CC_MH_CIGAM_64          0xCFFAEDFEU
 
+/* Universal / Fat Binary Constants */
+#define ZERO_CC_FAT_MAGIC            0xCAFEBABEU
+#define ZERO_CC_FAT_CIGAM            0xBEBAFECAU
+#define ZERO_CC_FAT_MAGIC_64         0xCAFEBABFU
+#define ZERO_CC_FAT_CIGAM_64         0xBFBAFECAU
+
 /* CPU Architecture Types */
 #define ZERO_CC_CPU_ARCH_ABI64       0x01000000U
 #define ZERO_CC_CPU_TYPE_X86_64      (ZERO_CC_CPU_ARCH_ABI64 | 7U)
@@ -90,6 +96,19 @@ typedef struct ZeroCCCompiler ZeroCCCompiler;
 #define ZERO_CC_X86_64_RELOC_GOT_LOAD 3U
 
 #pragma pack(push, 1)
+
+typedef struct {
+    uint32_t magic;     /* ZERO_CC_FAT_MAGIC (0xcafebabe in big-endian) */
+    uint32_t nfat_arch; /* number of fat_arch structs (big-endian) */
+} ZeroCCFatHeader;
+
+typedef struct {
+    uint32_t cputype;    /* cpu specifier (big-endian) */
+    uint32_t cpusubtype; /* machine specifier (big-endian) */
+    uint32_t offset;     /* file offset to slice (big-endian) */
+    uint32_t size;       /* size of slice in bytes (big-endian) */
+    uint32_t align;      /* alignment as power of 2, e.g. 14 for 16KB (big-endian) */
+} ZeroCCFatArch;
 
 typedef struct {
     uint32_t magic;
@@ -288,6 +307,18 @@ bool zero_cc_macho_link_objects(const char *filename,
                                 const char **obj_files,
                                 size_t obj_count,
                                 const ZeroCCMachoOptions *opts);
+
+/**
+ * @brief Pack multiple Mach-O slices into a macOS Universal / Fat binary (FAT_MAGIC).
+ *
+ * @param output_filename Path to write the fat universal binary.
+ * @param slice_filenames Array of paths to Mach-O slice files (e.g. x86_64 and arm64).
+ * @param slice_count Number of slice files.
+ * @return true on success, false on failure.
+ */
+bool zero_cc_macho_write_fat(const char *output_filename,
+                             const char **slice_filenames,
+                             size_t slice_count);
 
 #ifdef __cplusplus
 }

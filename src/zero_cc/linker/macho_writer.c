@@ -1969,3 +1969,125 @@ bool zero_cc_macho_link_objects(const char *filename,
 
     return ok;
 }
+
+static inline uint32_t macho_to_be32_val(uint32_t x) {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    return x;
+#else
+    return __builtin_bswap32(x);
+#endif
+}
+
+bool zero_cc_macho_write_fat(const char *output_filename,
+                             const char **slice_filenames,
+                             size_t slice_count)
+{
+    if (!output_filename || !slice_filenames || slice_count == 0) return false;
+
+    typedef struct {
+        uint8_t *data;
+        size_t size;
+        uint32_t cputype;
+        uint32_t cpusubtype;
+        uint32_t align;
+    } FatSlice;
+
+    FatSlice *slices = (FatSlice *)calloc(slice_count, sizeof(FatSlice));
+    if (!slices) return false;
+
+    for (size_t i = 0; i < slice_count; i++) {
+        FILE *f = fopen(slice_filenames[i], "rb");
+        if (!f) {
+            for (size_t j = 0; j < i; j++) free(slices[j].data);
+            free(slices);
+            return false;
+        }
+        fseek(f, 0, SEEK_END);
+        long sz = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        if (sz < (long)sizeof(ZeroCCMachHeader64)) {
+            fclose(f);
+            for (size_t j = 0; j < i; j++) free(slices[j].data);
+            free(slices);
+            return false;
+        }
+        slices[i].data = (uint8_t *)malloc((size_t)sz);
+        if (!slices[i].data) {
+            fclose(f);
+            for (size_t j = 0; j < i; j++) free(slices[j].data);
+            free(slices);
+            return false;
+        }
+        if (fread(slices[i].data, 1, (size_t)sz, f) != (size_t)sz) {
+            fclose(f);
+            for (size_t j = 0; j <= i; j++) free(slices[j].data);
+            free(slices);
+            return false;
+        }
+        fclose(f);
+        slices[i].size = (size_t)sz;
+
+        const ZeroCCMachHeader64 *hdr = (const ZeroCCMachHeader64 *)slices[i].data;
+        if (hdr->magic != ZERO_CC_MH_MAGIC_64 && hdr->magic != ZERO_CC_MH_CIGAM_64) {
+            for (size_t j = 0; j <= i; j++) free(slices[j].data);
+            free(slices);
+            return false;
+        }
+        slices[i].cputype = hdr->cputype;
+        slices[i].cpusubtype = hdr->cpusubtype;
+        slices[i].align = (hdr->cputype == ZERO_CC_CPU_TYPE_ARM64) ? 14 : 12;
+    }
+
+    FILE *out = fopen(output_filename, "wb");
+    if (!out) {
+        for (size_t i = 0; i < slice_count; i++) free(slices[i].data);
+        free(slices);
+        return false;
+    }
+
+    uint32_t header_size = (uint32_t)(sizeof(ZeroCCFatHeader) + slice_count * sizeof(ZeroCCFatArch));
+    uint32_t current_offset = header_size;
+
+    ZeroCCFatArch *archs = (ZeroCCFatArch *)calloc(slice_count, sizeof(ZeroCCFatArch));
+    if (!archs) {
+        fclose(out);
+        for (size_t i = 0; i < slice_count; i++) free(slices[i].data);
+        free(slices);
+        return false;
+    }
+
+    for (size_t i = 0; i < slice_count; i++) {
+        uint32_t align_bytes = (1U << slices[i].align);
+        current_offset = (current_offset + align_bytes - 1) & ~(align_bytes - 1);
+        archs[i].cputype = macho_to_be32_val(slices[i].cputype);
+        archs[i].cpusubtype = macho_to_be32_val(slices[i].cpusubtype);
+        archs[i].offset = macho_to_be32_val(current_offset);
+        archs[i].size = macho_to_be32_val((uint32_t)slices[i].size);
+        archs[i].align = macho_to_be32_val(slices[i].align);
+        current_offset += (uint32_t)slices[i].size;
+    }
+
+    ZeroCCFatHeader fat_hdr;
+    fat_hdr.magic = macho_to_be32_val(ZERO_CC_FAT_MAGIC);
+    fat_hdr.nfat_arch = macho_to_be32_val((uint32_t)slice_count);
+
+    fwrite(&fat_hdr, sizeof(fat_hdr), 1, out);
+    fwrite(archs, sizeof(ZeroCCFatArch), slice_count, out);
+
+    uint32_t written = header_size;
+    for (size_t i = 0; i < slice_count; i++) {
+        uint32_t target_off = macho_to_be32_val(archs[i].offset);
+        while (written < target_off) {
+            fputc(0, out);
+            written++;
+        }
+        fwrite(slices[i].data, 1, slices[i].size, out);
+        written += (uint32_t)slices[i].size;
+    }
+
+    fclose(out);
+    free(archs);
+    for (size_t i = 0; i < slice_count; i++) free(slices[i].data);
+    free(slices);
+    return true;
+}

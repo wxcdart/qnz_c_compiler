@@ -235,9 +235,9 @@ ZeroCCForeignFormat zero_cc_detect_foreign_format(const uint8_t *data, size_t si
         }
     }
 
-    /* Mach-O 64-bit magic */
+    /* Mach-O 64-bit and Universal / Fat Mach-O magic */
     uint32_t magic = *(const uint32_t *)data;
-    if (magic == ZERO_CC_MH_MAGIC_64) {
+    if (magic == ZERO_CC_MH_MAGIC_64 || magic == ZERO_CC_FAT_CIGAM || magic == ZERO_CC_FAT_MAGIC) {
         return FOREIGN_FMT_MACHO;
     }
 
@@ -453,7 +453,49 @@ int zero_cc_run_pe_file(const char *filepath, int argc, char **argv) {
 }
 
 int zero_cc_run_macho_mem(const uint8_t *macho_data, size_t macho_size, int argc, char **argv) {
-    if (!macho_data || macho_size < sizeof(ZeroCCMachHeader64)) {
+    if (!macho_data || macho_size < sizeof(uint32_t)) {
+        fprintf(stderr, "zerocc: foreign loader: invalid Mach-O file size\n");
+        return -1;
+    }
+
+    /* Universal / Fat Binary Support */
+    uint32_t raw_magic = *(const uint32_t *)macho_data;
+    if (raw_magic == ZERO_CC_FAT_CIGAM || raw_magic == ZERO_CC_FAT_MAGIC) {
+        if (macho_size < sizeof(ZeroCCFatHeader)) {
+            fprintf(stderr, "zerocc: foreign loader: truncated universal binary header\n");
+            return -1;
+        }
+        const ZeroCCFatHeader *fat = (const ZeroCCFatHeader *)macho_data;
+        uint32_t narch = __builtin_bswap32(fat->nfat_arch);
+        if (macho_size < sizeof(ZeroCCFatHeader) + narch * sizeof(ZeroCCFatArch)) {
+            fprintf(stderr, "zerocc: foreign loader: truncated universal binary arch table\n");
+            return -1;
+        }
+        const ZeroCCFatArch *archs = (const ZeroCCFatArch *)(macho_data + sizeof(ZeroCCFatHeader));
+        uint32_t host_cputype = ZERO_CC_CPU_TYPE_X86_64;
+#if defined(__aarch64__)
+        host_cputype = ZERO_CC_CPU_TYPE_ARM64;
+#endif
+        for (uint32_t i = 0; i < narch; i++) {
+            uint32_t cpu = __builtin_bswap32(archs[i].cputype);
+            uint32_t off = __builtin_bswap32(archs[i].offset);
+            uint32_t sz  = __builtin_bswap32(archs[i].size);
+            if (cpu == host_cputype && off + sz <= macho_size) {
+                return zero_cc_run_macho_mem(macho_data + off, sz, argc, argv);
+            }
+        }
+        if (narch > 0) {
+            uint32_t off = __builtin_bswap32(archs[0].offset);
+            uint32_t sz  = __builtin_bswap32(archs[0].size);
+            if (off + sz <= macho_size) {
+                return zero_cc_run_macho_mem(macho_data + off, sz, argc, argv);
+            }
+        }
+        fprintf(stderr, "zerocc: foreign loader: no compatible architecture in universal binary\n");
+        return -1;
+    }
+
+    if (macho_size < sizeof(ZeroCCMachHeader64)) {
         fprintf(stderr, "zerocc: foreign loader: invalid Mach-O file size\n");
         return -1;
     }

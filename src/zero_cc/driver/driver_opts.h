@@ -82,6 +82,7 @@ typedef struct {
     int has_rvv;            /* -mrvv: enable RISC-V Vector Extension (RVV 1.0) */
     int is_pe;              /* --pe / -mpe / Windows PE32+ output */
     int is_macho;           /* --macho / -mmacho / macOS Mach-O 64-bit output */
+    int is_fat;             /* --fat / --macho-fat / --universal: package Mach-O slices into universal binary (Sprint 270) */
     int is_shared;          /* -shared: emit dynamic library (.so / .dll / .dylib) */
     int is_windows_gui;     /* -mwindows: Windows GUI subsystem (subsystem = 2) */
     int is_win64_abi;       /* -mabi=ms / -mabi=win64: Microsoft x64 Calling Convention */
@@ -451,6 +452,10 @@ static int parse_args(int argc, char **argv, CompileOptions *opts) {
             opts->is_pe = 1;
         }
         else if (strcmp(arg, "--macho") == 0 || strcmp(arg, "-mmacho") == 0) {
+            opts->is_macho = 1;
+        }
+        else if (strcmp(arg, "--fat") == 0 || strcmp(arg, "--macho-fat") == 0 || strcmp(arg, "--universal") == 0) {
+            opts->is_fat = 1;
             opts->is_macho = 1;
         }
         else if (strcmp(arg, "-mwindows") == 0) {

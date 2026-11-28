@@ -33,6 +33,8 @@ failed = 0
 
 # Mach-O 64 Constants
 MH_MAGIC_64 = 0xFEEDFACF
+FAT_MAGIC = 0xCAFEBABE
+FAT_CIGAM = 0xBEBAFECA
 CPU_ARCH_ABI64 = 0x01000000
 CPU_TYPE_X86_64 = CPU_ARCH_ABI64 | 7
 CPU_TYPE_ARM64 = CPU_ARCH_ABI64 | 12
@@ -583,6 +585,64 @@ def test_host_file_utility():
                res_dylib.stdout)
 
 
+def test_macho_fat_universal_binary():
+    """Verify multi-architecture universal / fat binary packaging (FAT_MAGIC / FAT_CIGAM)."""
+    with tempfile.TemporaryDirectory() as td:
+        src = Path(td) / "app.c"
+        slice_x86 = Path(td) / "app_x86.macho"
+        slice_arm = Path(td) / "app_arm.macho"
+        fat_bin = Path(td) / "app_universal.macho"
+
+        src.write_text("int main(void) { return 42; }\n")
+
+        # 1. Compile x86_64 slice
+        p1 = subprocess.run([str(ZEROCC), "--target=x86_64-apple-darwin", "--macho", str(src), "-o", str(slice_x86)],
+                            capture_output=True, text=True)
+        report("Compile x86_64 Mach-O slice", p1.returncode == 0, p1.stderr)
+
+        # 2. Compile ARM64 slice
+        p2 = subprocess.run([str(ZEROCC), "--target=aarch64-apple-darwin", "--macho", str(src), "-o", str(slice_arm)],
+                            capture_output=True, text=True)
+        report("Compile ARM64 Mach-O slice", p2.returncode == 0, p2.stderr)
+
+        # 3. Package into universal fat binary via --fat CLI
+        p_fat = subprocess.run([str(ZEROCC), "--fat", str(slice_x86), str(slice_arm), "-o", str(fat_bin)],
+                               capture_output=True, text=True)
+        report("Package Mach-O universal fat binary via --fat", p_fat.returncode == 0, p_fat.stderr)
+
+        # 4. Verify fat binary binary header layout
+        data = fat_bin.read_bytes()
+        report("Fat binary size >= 4096", len(data) >= 4096, f"len={len(data)}")
+
+        magic, nfat_arch = struct.unpack_from(">II", data, 0)
+        report("Fat header magic FAT_MAGIC (0xcafebabe)", magic == FAT_MAGIC, f"magic={hex(magic)}")
+        report("Fat header architecture count == 2", nfat_arch == 2, f"nfat_arch={nfat_arch}")
+
+        # Parse fat_arch structs
+        arch0_cpu, arch0_sub, arch0_off, arch0_sz, arch0_align = struct.unpack_from(">IIIII", data, 8)
+        arch1_cpu, arch1_sub, arch1_off, arch1_sz, arch1_align = struct.unpack_from(">IIIII", data, 8 + 20)
+
+        report("Arch 0 cputype is x86_64", arch0_cpu == CPU_TYPE_X86_64, f"cpu={hex(arch0_cpu)}")
+        report("Arch 0 offset is 4KB page aligned", (arch0_off % (1 << arch0_align)) == 0, f"off={arch0_off}")
+        report("Arch 0 size > 0", arch0_sz > 0, f"size={arch0_sz}")
+
+        report("Arch 1 cputype is ARM64", arch1_cpu == CPU_TYPE_ARM64, f"cpu={hex(arch1_cpu)}")
+        report("Arch 1 offset is 16KB page aligned", (arch1_off % (1 << arch1_align)) == 0 and arch1_align == 14,
+               f"off={arch1_off}, align={arch1_align}")
+        report("Arch 1 size > 0", arch1_sz > 0, f"size={arch1_sz}")
+
+        # 5. Verify host file utility recognition
+        res_file = subprocess.run(["file", str(fat_bin)], capture_output=True, text=True)
+        report("file identifies Mach-O universal binary with x86_64 and arm64",
+               "Mach-O universal binary" in res_file.stdout and "x86_64" in res_file.stdout and "arm64" in res_file.stdout,
+               res_file.stdout)
+
+        # 6. Execute fat binary via ZeroCC foreign loader
+        p_run = subprocess.run([str(ZEROCC), "--run", str(fat_bin)], capture_output=True, text=True)
+        report("Execute universal binary via foreign loader", p_run.returncode == 42,
+               f"rc={p_run.returncode}, out={p_run.stdout}, err={p_run.stderr}")
+
+
 def main():
     print("=== macOS Mach-O 64-bit Verification Battery ===")
     test_macho_exe_headers()
@@ -599,6 +659,7 @@ def main():
     test_macho_dynamic_linking()
     test_macho_multi_object_dynamic_linking()
     test_host_file_utility()
+    test_macho_fat_universal_binary()
 
     print(f"\nResult: {passed} passed, {failed} failed")
     if failed > 0:

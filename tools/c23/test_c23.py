@@ -496,6 +496,24 @@ int main(void) {
 }
 """, dialects=["gnu23"]),
 
+    C23Case("embed_offset_limit_params", "embed", """
+int main(void) {
+    /* Test gnu::offset and limit combined: skip first byte ('/'), take next 3 */
+    unsigned char off_bytes[] = {
+#embed __FILE__ gnu::offset(1) limit(3) prefix(99,) suffix(,100)
+    };
+    if (off_bytes[0] != 99) return 1;
+    if (off_bytes[4] != 100) return 2;
+
+    /* Test offset beyond file size triggering if_empty */
+    unsigned char empty_off[] = {
+#embed __FILE__ gnu::offset(10000000) if_empty(11, 22)
+    };
+    if (empty_off[0] != 11 || empty_off[1] != 22) return 3;
+    return 0;
+}
+""", dialects=["gnu23"]),
+
     # -------------------------------------------------------------
     # C23 Empty Parameter Lists () as (void) (C23 6.7.6.3p14)
     # -------------------------------------------------------------

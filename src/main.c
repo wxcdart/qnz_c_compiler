@@ -2085,6 +2085,25 @@ static int compile_and_link(CompileOptions *opts) {
         return 0;
     }
 
+    if (opts->is_fat) {
+        if (opts->input_count < 1 || !opts->output_file) {
+            fprintf(stderr, "zerocc: error: --fat requires input slice(s) and -o <output>\n");
+            return 1;
+        }
+        const char *slice_files[ZERO_CC_MAX_INPUTS];
+        for (int i = 0; i < opts->input_count; i++) {
+            slice_files[i] = opts->input_files[i];
+        }
+        if (!zero_cc_macho_write_fat(opts->output_file, slice_files, (size_t)opts->input_count)) {
+            fprintf(stderr, "zerocc: error: failed to create Mach-O universal fat binary '%s'\n", opts->output_file);
+            return 1;
+        }
+        if (opts->verbose) {
+            printf("Created Mach-O universal fat binary: %s (%d slices)\n", opts->output_file, opts->input_count);
+        }
+        return 0;
+    }
+
     if (opts->is_macho) {
         if (opts->input_count == 0) return 1;
         const char *output = opts->output_file ? opts->output_file : (opts->is_shared ? "a.dylib" : "a.out");
